@@ -1,0 +1,227 @@
+import { normalizeOrganization, parseRemote, repositoryKey } from './repositories.js';
+import { safeAzureUrl } from '../src/events.js';
+import { cliError, normalizeCommitIds } from './azure-cli.js';
+
+const PAGE = 100;
+const iso = value => {
+  if (!value) return undefined;
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) throw new Error('Invalid sync date');
+  return date.toISOString();
+};
+const bucket = (value, round) => value ? new Date(Math[round](new Date(iso(value)).getTime() / 300_000) * 300_000).toISOString() : undefined;
+
+function pageOf(response, { skip, mode }) {
+  const items = Array.isArray(response) ? response : response?.value;
+  if (!Array.isArray(items)) throw cliError('INVALID_RESPONSE', 'Azure CLI did not return an activity list.');
+  const token = response?.continuation_token || response?.continuationToken;
+  return { items, nextCursor: mode === 'skip' ? (items.length === PAGE ? { skip: skip + PAGE } : null) : (token ? { token: String(token) } : null) };
+}
+
+export function createAzureClient({ cli, now = Date.now } = {}) {
+  if (!cli?.run) throw new Error('Azure CLI is required');
+  const cache = new Map();
+  function cached(key, work, ttl = 30_000) {
+    const found = cache.get(key);
+    if (found && found.expires > now()) return found.promise;
+    const promise = Promise.resolve().then(work);
+    cache.set(key, { expires: now() + ttl, promise });
+    promise.catch(() => { if (cache.get(key)?.promise === promise) cache.delete(key); });
+    if (cache.size > 200) for (const [entry, value] of cache) if (value.expires <= now()) cache.delete(entry);
+    return promise;
+  }
+  function invoke(repo, area, resource, query = {}, route = {}, shared = false) {
+    const org = normalizeOrganization(repo.organization);
+    const routes = { project: repo.projectId || repo.project, ...route };
+    if (area === 'git') routes.repositoryId = repo.azureId;
+    const args = ['devops', 'invoke', '--organization', org, '--detect', 'false', '--area', area, '--resource', resource, '--api-version', '7.1', '--http-method', 'GET', '--route-parameters', ...Object.entries(routes).map(([key, value]) => `${key}=${value}`)];
+    const queries = Object.entries(query).filter(([, value]) => value !== undefined && value !== null);
+    if (queries.length) args.push('--query-parameters', ...queries.map(([key, value]) => `${key}=${value}`));
+    return shared ? cached(JSON.stringify(args), () => cli.run(args), 45_000) : cli.run(args);
+  }
+  return {
+    async checkConnection(organization, repository) {
+      try {
+        const version = await cached('cli-version', () => cli.run(['version']), 300_000);
+        const extension = await cached('cli-extension', () => cli.run(['extension', 'show', '--name', 'azure-devops']), 300_000);
+        const result = { available: true, version: version['azure-cli'], extension: extension.version, identity: null, identityVerified: false,
+          signedIn: false, message: 'Azure CLI and the DevOps extension are already installed. Existing CLI credentials will be used when you add a repository.' };
+        // Local account metadata only: never acquire, print or return a token.
+        try {
+          const account = await cached('cli-account', () => cli.run(['account', 'show']), 30_000);
+          if (account.user?.name) {
+            result.signedIn = true;
+            result.account = { name: account.user.name };
+            result.message = 'Existing Azure CLI sign-in detected. No additional setup is needed; choose repositories to watch.';
+          }
+        } catch {
+          // The DevOps extension may already use its own configured credentials.
+          // Lack of an Entra account must not force a redundant login/setup flow.
+        }
+        if (repository || organization) {
+          const org = normalizeOrganization(repository?.organization ?? organization);
+          const verify = async () => {
+            const data = await cli.run(repository
+              ? ['repos', 'show', '--repository', repository.azureId, '--project', repository.projectId || repository.project, '--organization', org, '--detect', 'false']
+              : ['devops', 'project', 'list', '--organization', org, '--top', '1', '--detect', 'false']);
+            if (repository && data?.id !== repository.azureId) throw cliError('INVALID_RESPONSE', 'Azure CLI did not verify the watched repository.');
+            return new Date(now()).toISOString();
+          };
+          try {
+            const checkedAt = repository ? await verify() : await cached(`connection:${org}`, verify, 120_000);
+            result.access = { status: 'ok', checkedAt };
+            if (!repository) {
+              result.capabilities = { organizationRead: true };
+              result.message = 'Existing Azure CLI access works for this organization.';
+            }
+          } catch (error) {
+            result.access = { status: 'failed', checkedAt: new Date(now()).toISOString(), code: error.code || 'CLI_ERROR', message: error.message };
+          }
+        }
+        return result;
+      } catch (error) {
+        return { available: false, code: error.code || 'CLI_ERROR', message: error.message, identity: null, identityVerified: false };
+      }
+    },
+    async resolveRepository(input) {
+      const parsed = typeof input === 'string' ? parseRemote(input) : input;
+      const organization = normalizeOrganization(parsed.organization);
+      const project = parsed.project, name = parsed.repoName || parsed.name;
+      if (typeof project !== 'string' || typeof name !== 'string' || !project || !name || project.startsWith('-') || name.startsWith('-')) throw new Error('Choose a valid Azure repository.');
+      const raw = await cli.run(['repos', 'show', '--repository', name, '--project', project, '--organization', organization, '--detect', 'false']);
+      if (!raw?.id || !raw?.name || !raw?.project?.name) throw cliError('INVALID_RESPONSE', 'Azure CLI did not resolve this repository.');
+      return { id: repositoryKey(organization, raw.id), organization, project: raw.project.name, projectId: raw.project.id,
+        azureId: raw.id, name: raw.name, webUrl: `${organization}/${encodeURIComponent(raw.project.name)}/_git/${encodeURIComponent(raw.name)}`, paused: false };
+    },
+    async read(repo, stream, { since, until, cursor } = {}) {
+      const skip = Number(cursor?.skip || 0);
+      if (!Number.isSafeInteger(skip) || skip < 0) throw new Error('Invalid page cursor');
+      let response, mode = 'token';
+      switch (stream) {
+        case 'pushes':
+          response = await invoke(repo, 'git', 'pushes', { '$top': PAGE, '$skip': skip, 'searchCriteria.fromDate': iso(since), 'searchCriteria.toDate': iso(until), 'searchCriteria.includeRefUpdates': 'true' });
+          mode = 'skip'; break;
+        case 'refs':
+          response = await invoke(repo, 'git', 'refs', { filter: 'heads/', '$top': PAGE, continuationToken: cursor?.token });
+          break;
+        case 'prs':
+          response = await invoke(repo, 'git', 'pullRequests', { '$top': PAGE, '$skip': skip, 'searchCriteria.status': 'active', 'searchCriteria.repositoryId': repo.azureId });
+          mode = 'skip'; break;
+        case 'closedPrs':
+          response = await invoke(repo, 'git', 'pullRequests', { '$top': PAGE, '$skip': skip, 'searchCriteria.status': 'all', 'searchCriteria.repositoryId': repo.azureId, 'searchCriteria.queryTimeRangeType': 'closed', 'searchCriteria.minTime': iso(since), 'searchCriteria.maxTime': iso(until) });
+          mode = 'skip'; break;
+        case 'builds': {
+          // Coarse overlapping windows coalesce same-repository reads without project-wide history scans.
+          const from = cursor?.from || bucket(since, 'floor'), to = cursor?.to || bucket(until, 'ceil');
+          response = await invoke(repo, 'build', 'builds', { '$top': PAGE, continuationToken: cursor?.token, minTime: from, maxTime: to, repositoryId: repo.azureId, repositoryType: 'TfsGit', queryOrder: 'queueTimeDescending' }, {}, true);
+          const page = pageOf(response, { skip, mode });
+          if (page.nextCursor) Object.assign(page.nextCursor, { from, to });
+          return page;
+        }
+        case 'activeBuilds':
+          response = await invoke(repo, 'build', 'builds', { '$top': PAGE, continuationToken: cursor?.token, statusFilter: 'notStarted,inProgress,cancelling,postponed', repositoryId: repo.azureId, repositoryType: 'TfsGit', queryOrder: 'queueTimeDescending' }, {}, true);
+          break;
+        default: throw new Error('Unknown Azure activity stream');
+      }
+      return pageOf(response, { skip, mode });
+    },
+    async buildsById(repo, ids) {
+      if (!Array.isArray(ids) || ids.length > 100 || ids.some(id => !/^\d+$/.test(String(id)))) throw new Error('Invalid build IDs');
+      if (!ids.length) return [];
+      const raw = await invoke(repo, 'build', 'builds', { buildIds: ids.join(',') }, {}, true);
+      return pageOf(raw, { skip: 0, mode: 'token' }).items;
+    },
+    async completedCheckoutPulls(repo, source) {
+      if (typeof source !== 'string' || !/^refs\/heads\/[^\s\x00-\x1f]+$/.test(source) || source.length > 1024) return [];
+      const response = await invoke(repo, 'git', 'pullRequests', {
+        '$top': 20, 'searchCriteria.status': 'completed', 'searchCriteria.repositoryId': repo.azureId,
+        'searchCriteria.sourceRepositoryId': repo.azureId, 'searchCriteria.sourceRefName': source,
+      }, {}, true);
+      return pageOf(response, {}).items.flatMap(pr => {
+        const targetId = pr?.repository?.id;
+        const sourceId = pr?.forkSource ? pr.forkSource.repository?.id : targetId;
+        if (pr?.status !== 'completed' || pr.sourceRefName !== source ||
+            typeof targetId !== 'string' || typeof sourceId !== 'string' ||
+            targetId.toLowerCase() !== repo.azureId.toLowerCase() || sourceId.toLowerCase() !== repo.azureId.toLowerCase()) return [];
+        return [{ id: pr.pullRequestId, source, target: pr.targetRefName, sourceId, targetId,
+          head: pr.lastMergeSourceCommit?.commitId, result: pr.lastMergeCommit?.commitId,
+          strategy: pr.completionOptions?.mergeStrategy,
+          url: safeAzureUrl(pr._links?.web?.href, `${repo.webUrl}/pullrequest/${encodeURIComponent(pr.pullRequestId)}`) }];
+      });
+    },
+    async pullRequest(repo, id) {
+      if (!/^\d+$/.test(String(id))) throw new Error('Invalid PR ID');
+      const raw = await cli.run(['repos', 'pr', 'show', '--id', String(id), '--organization', normalizeOrganization(repo.organization), '--detect', 'false']);
+      if (!raw?.pullRequestId || raw.repository?.id !== repo.azureId) throw cliError('INVALID_RESPONSE', 'Azure CLI did not return the requested repository pull request.');
+      return raw;
+    },
+    async commitsByIds(repo, inputIds) {
+      const ids = normalizeCommitIds(inputIds);
+      if (!ids.length) return [];
+      const raw = await cli.runReadQuery({ organization: normalizeOrganization(repo.organization), project: repo.projectId || repo.project, repositoryId: repo.azureId, resource: 'commitsbatch' }, { ids });
+      const page = pageOf(raw, { skip: 0, mode: 'token' });
+      if (page.nextCursor) throw cliError('INCOMPLETE_RESPONSE', 'Azure did not complete this bounded commit query.');
+      const requested = new Set(ids);
+      const commits = new Map();
+      for (const item of page.items) {
+        if (!requested.has(item.commitId?.toLowerCase())) throw cliError('INVALID_RESPONSE', 'Azure returned an unexpected commit for this query.');
+        // The real batch API can return shallow GitCommitRef objects without
+        // parents. Exact GET supplies graph evidence; missing is never a root.
+        const full = Array.isArray(item.parents) ? item : await invoke(repo, 'git', 'commits', { changeCount: 0 }, { commitId: item.commitId });
+        if (full?.commitId?.toLowerCase() !== item.commitId.toLowerCase()) throw cliError('INVALID_RESPONSE', 'Azure returned an unexpected exact commit.');
+        if (!Array.isArray(full.parents) || full.parents.some(parent => typeof parent !== 'string' || !/^[0-9a-f]{40}$/i.test(parent))) throw cliError('INCOMPLETE_RESPONSE', 'Commit parent evidence is unavailable.');
+        commits.set(item.commitId.toLowerCase(), { ...item, ...full });
+      }
+      return [...commits.values()];
+    },
+    async queryPullRequests(repo, inputIds) {
+      const ids = normalizeCommitIds(inputIds);
+      if (!ids.length) return [];
+      const queries = ['lastMergeCommit', 'commit'].map(type => ({ type, items: ids }));
+      const raw = await cli.runReadQuery({ organization: normalizeOrganization(repo.organization), project: repo.projectId || repo.project, repositoryId: repo.azureId, resource: 'pullrequestquery' }, { queries });
+      if (!Array.isArray(raw?.results) || raw.results.length !== queries.length) throw cliError('INVALID_RESPONSE', 'Azure did not return both commit-to-PR query results.');
+      const associations = [];
+      raw.results.forEach((result, index) => {
+        if (!result || typeof result !== 'object' || Array.isArray(result)) throw cliError('INVALID_RESPONSE', 'Azure returned invalid commit-to-PR query results.');
+        for (const commitId of ids) {
+          const matches = result[commitId] || [];
+          if (!Array.isArray(matches)) throw cliError('INVALID_RESPONSE', 'Azure returned invalid PR associations.');
+          for (const pullRequest of matches) {
+            if (pullRequest?.status !== 'completed' || pullRequest.repository?.id?.toLowerCase() !== repo.azureId.toLowerCase() || !pullRequest.targetRefName?.startsWith('refs/heads/')) continue;
+            if (queries[index].type === 'lastMergeCommit' && pullRequest.lastMergeCommit?.commitId?.toLowerCase() !== commitId) continue;
+            associations.push({ commitId, queryType: queries[index].type, pullRequest });
+          }
+        }
+      });
+      return associations;
+    },
+    async refCommits(repo, oldSha, newSha, cursor = {}) {
+      normalizeCommitIds([oldSha, newSha]);
+      const old = oldSha.toLowerCase(), current = newSha.toLowerCase();
+      // Ref creation/deletion has no bounded old..new introduction range. In
+      // particular, a new branch must not replay all historical merges.
+      if (/^0+$/.test(old) || /^0+$/.test(current) || old === current) return { items: [], nextCursor: null };
+      const skip = Number(cursor?.skip || 0);
+      if (!Number.isSafeInteger(skip) || skip < 0 || skip > 3_000_000) throw cliError('INVALID_QUERY', 'Invalid ref-range page cursor.');
+      // Azure walks from compareVersion (the new tip) until itemVersion (the
+      // old base). The intuitive reverse produced an empty live range.
+      const raw = await invoke(repo, 'git', 'commits', {
+        'searchCriteria.$top': PAGE, 'searchCriteria.$skip': skip,
+        'searchCriteria.compareVersion.version': current,
+        'searchCriteria.compareVersion.versionType': 'commit',
+        'searchCriteria.itemVersion.version': old,
+        'searchCriteria.itemVersion.versionType': 'commit',
+      });
+      const page = pageOf(raw, { skip, mode: 'skip' });
+      if (page.items.some(item => typeof item?.commitId !== 'string' || !/^[0-9a-f]{40}$/i.test(item.commitId))) throw cliError('INVALID_RESPONSE', 'Azure returned invalid ref-range commit evidence.');
+      return page;
+    },
+    async pushCommits(repo, pushId, cursor = {}) {
+      if (!/^\d+$/.test(String(pushId))) throw new Error('Invalid push ID');
+      const skip = Number(cursor?.skip || 0);
+      if (!Number.isSafeInteger(skip) || skip < 0) throw new Error('Invalid page cursor');
+      const raw = await invoke(repo, 'git', 'commits', { pushId, top: PAGE, skip });
+      return pageOf(raw, { skip, mode: 'skip' });
+    },
+  };
+}

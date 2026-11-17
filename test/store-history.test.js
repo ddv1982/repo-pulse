@@ -1,0 +1,344 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { DatabaseSync } from 'node:sqlite';
+import { mkdtempSync,rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { createStore } from '../server/store.js';
+
+const repo = { id: 'repo',name: 'Repo',azureId: 'a' };
+const event = (id,extra = {}) => ({ id,repoId: repo.id,kind: 'push',title: id,summary: '',branch: 'main',
+  time: '2026-11-17T10:00:00Z',observedAt: '2026-11-17T10:00:00Z',...extra });
+const build = (id,status,extra = {}) => event(id,{ kind: 'build',title: status,data: { buildId: 42,status },...extra });
+const setup = () => { const store = createStore(); store.saveRepo(repo); return store; };
+
+test('v1 migration preserves raw events and acknowledgement and schedules existing pushes only once', () => {
+  const dir = mkdtempSync(join(tmpdir(),'pulse-migration-')), path = join(dir,'v1.sqlite');
+  const db = new DatabaseSync(path);
+  db.exec(`CREATE TABLE repositories(id TEXT PRIMARY KEY,data TEXT NOT NULL);
+    CREATE TABLE events(id TEXT PRIMARY KEY,repo_id TEXT NOT NULL REFERENCES repositories(id) ON DELETE CASCADE,
+      time TEXT NOT NULL,observed_at TEXT NOT NULL,seen INTEGER NOT NULL,imported INTEGER NOT NULL,data TEXT NOT NULL);
+    PRAGMA user_version=1;`);
+  db.prepare('INSERT INTO repositories VALUES(?,?)').run(repo.id,JSON.stringify(repo));
+  const raw = event('old',{ seen: true,imported: true,data: { pushId: 11 } });
+  db.prepare('INSERT INTO events VALUES(?,?,?,?,?,?,?)').run(raw.id,repo.id,raw.time,raw.observedAt,1,1,JSON.stringify(raw));
+  db.close();
+  let store = createStore(path);
+  assert.deepEqual(store.getEvent('old'),raw);
+  assert.equal(store.queryActivity().total,1);
+  assert.equal(store.queryActivity({ view: 'new' }).newItems,0);
+  assert.deepEqual(store.listJobs().map((job) => job.id),['merge:old']);
+  store.removeJob('merge:old');
+  store.close();
+  store = createStore(path);
+  assert.deepEqual(store.getEvent('old'),raw);
+  assert.deepEqual(store.listJobs(),[]);
+  store.close(); rmSync(dir,{ recursive: true });
+});
+
+test('server-side group pagination reaches history beyond 1000 records and keeps complete build membership', () => {
+  const store = setup();
+  store.insertEvents(Array.from({ length: 1105 },(_,i) => event(`push-${i}`,{ observedAt: new Date(Date.parse('2026-11-17T10:00:00Z') + i).toISOString() })));
+  store.insertEvents(Array.from({ length: 1200 },(_,i) => build(`build-${i}`,`status-${i}`,{ observedAt: new Date(Date.parse('2026-11-17T11:00:00Z') + i).toISOString() })));
+  const first = store.queryActivity({ limit: 50 });
+  assert.equal(first.total,1106);
+  assert.equal(first.newItems,1106);
+  assert.equal(first.newUpdates,2305);
+  assert.equal(first.items[0].eventIds.length,1200);
+  assert.equal(first.counts.build,1);
+  assert.equal(first.counts.push,1105);
+  let cursor = first.nextCursor;
+  const seenGroups = new Set(first.items.map((item) => item.groupKey));
+  store.insertEvents([event('arrived-after-first-page',{ observedAt: '2026-11-17T12:00:00Z' })]);
+  while (cursor) {
+    const page = store.queryActivity({ limit: 50,cursor });
+    assert.equal(page.total,1106);
+    page.items.forEach((item) => { assert.equal(seenGroups.has(item.groupKey),false); seenGroups.add(item.groupKey); });
+    cursor = page.nextCursor;
+  }
+  assert.equal(seenGroups.size,1106);
+  assert.equal(store.queryActivity().total,1107);
+  store.close();
+});
+
+test('new-view keyset cursor survives acknowledgement between pages without skipping unseen groups', () => {
+  const store = setup();
+  store.insertEvents(Array.from({ length: 6 },(_,i) => event(String(i),{ observedAt: `2026-11-17T10:00:0${i}Z` })));
+  const first = store.queryActivity({ view: 'new',limit: 2 });
+  store.acknowledge(first.items.flatMap((item) => item.unseenIds));
+  const second = store.queryActivity({ view: 'new',limit: 2,cursor: first.nextCursor });
+  assert.deepEqual(second.items.map((item) => item.id),['3','2']);
+  assert.throws(() => store.queryActivity({ view: 'all',cursor: first.nextCursor }),/cursor/);
+  store.close();
+});
+
+test('raw filters apply before grouping and never acknowledge hidden group members', () => {
+  const store = setup();
+  store.insertEvents([build('queued','Queued'),build('running','Running',{ observedAt: '2026-11-17T10:01:00Z' })]);
+  const filtered = store.queryActivity({ view: 'new',kind: 'build',search: 'Running' });
+  assert.equal(filtered.total,1);
+  assert.deepEqual(filtered.items[0].eventIds,['running']);
+  assert.equal(store.getEventGroup('running').length,2);
+  store.acknowledge(filtered.items[0].unseenIds);
+  assert.equal(store.getEvent('queued').seen,false);
+  assert.equal(store.queryActivity({ view: 'new' }).items[0].eventIds.length,2);
+  assert.equal(store.queryActivity({ repoIds: [] }).total,0);
+  store.close();
+});
+
+test('kind-filtering a deletion supporting push keeps its matching raw record visible', () => {
+  const store = setup();
+  const ref = { name: 'refs/heads/hotfix/a',oldObjectId: 'a'.repeat(40),newObjectId: '0'.repeat(40) };
+  store.insertEvents([event('push',{ data: { pushId: 4,refUpdates: [ref],commits: [] } }),
+    event('branch',{ kind: 'branch-deleted',data: { pushId: 4,...ref } })]);
+  assert.equal(store.queryActivity().total,1);
+  assert.deepEqual(store.queryActivity({ kind: 'push' }).items[0].eventIds,['push']);
+  assert.equal(store.getEventGroup('branch').length,2);
+  store.close();
+});
+
+test('enrichment is durable search metadata without changing raw identity, timing or alert flags', () => {
+  const store = setup();
+  const raw = event('push',{ imported: true,seen: true,data: { pushId: 3 } });
+  store.insertEvents([raw]);
+  store.enrichEvent('push',{ commits: [{ comment: 'Searchable merged change' }],id: 'cannot-change-event-id',time: 'future',seen: false });
+  const enriched = store.getEvent('push');
+  assert.equal(enriched.id,'push'); assert.equal(enriched.time,raw.time); assert.equal(enriched.seen,true); assert.equal(enriched.imported,true);
+  assert.equal(store.queryActivity({ search: 'Searchable merged' }).total,1);
+  assert.equal(store.queryActivity({ view: 'new' }).total,0);
+  store.insertEvents([raw]);
+  assert.equal(store.getEvent('push').data.commits.length,1);
+  assert.equal(store.listEvents().length,1);
+  store.close();
+});
+
+test('job, event and stream writes roll back together; enrichment completion is atomic', () => {
+  const store = setup();
+  const job = { id: 'merge:a',repoId: repo.id,type: 'merge',eventId: 'a',status: 'pending',nextAt: '2026-01-01T00:00:00Z' };
+  assert.throws(() => store.commitPage({ repoId: repo.id,stream: 'pushes',state: { cursor: 1 },events: [event('a')],jobs: [{ ...job,repoId: 'missing' }] }));
+  assert.equal(store.getEvent('a'),undefined);
+  assert.equal(store.getStreams().length,0);
+  store.commitPage({ repoId: repo.id,events: [event('a')],jobs: [job] });
+  assert.equal(store.listJobs({ type: 'merge',dueBefore: '2026-12-01T00:00:00Z' }).length,1);
+  assert.throws(() => store.commitEnrichment({ jobId: job.id,eventId: 'a',data: { extra: true },job: { ...job,repoId: 'missing' } }));
+  assert.equal(store.getEvent('a').data.extra,undefined);
+  assert.equal(store.listJobs().length,1);
+  store.commitEnrichment({ jobId: job.id,eventId: 'a',data: { complete: true },entities: [{ type: 'commit',id: 'sha',data: { title: 'Commit' } }] });
+  assert.equal(store.listJobs().length,0);
+  assert.equal(store.getEvent('a').data.complete,true);
+  assert.equal(store.getEntity(repo.id,'commit','sha').title,'Commit');
+  store.saveJob(job); store.removeRepo(repo.id);
+  assert.deepEqual(store.listJobs(),[]);
+  store.close();
+});
+
+test('targeted push lookup uses target ref and interior introduced commit IDs without global cap', () => {
+  const store = setup();
+  const ref = (name,sha) => ({ name,oldObjectId: 'old',newObjectId: sha });
+  store.insertEvents([event('main',{ data: { refUpdates: [ref('refs/heads/main','tip')] } }),
+    event('other',{ data: { refUpdates: [ref('refs/heads/feature/a','merge')] } }),
+    event('multi',{ data: { refUpdates: [ref('refs/heads/main','not-merge'),ref('refs/heads/feature/a','merge')] } })]);
+  store.enrichEvent('main',{ mergeEvidence: { introducedCommitIds: ['merge','interior'] } });
+  assert.deepEqual(store.findPushEventsForCommits(repo.id,['interior'],'refs/heads/main').map((e) => e.id),['main']);
+  assert.deepEqual(store.findPushEventsForCommits(repo.id,['merge'],'refs/heads/main').map((e) => e.id),['main']);
+  assert.equal(store.findPushEventsForCommits(repo.id,[]).length,0);
+  store.close();
+});
+
+test('visible Running label filters only the matching build update and repository-name search uses the current name', () => {
+  const store = setup();
+  store.saveRepo({ ...repo,name: 'Customer Billing API' });
+  store.insertEvents([
+    build('queued','Build #42',{ data: { buildId: 42,status: 'notStarted' } }),
+    build('running','Build #42',{ data: { buildId: 42,status: 'inProgress',reason: 'manual' },observedAt: '2026-11-17T10:01:00Z' }),
+  ]);
+  const filtered = store.queryActivity({ view: 'new',search: 'Running' });
+  assert.equal(filtered.total,1);
+  assert.deepEqual(filtered.items[0].eventIds,['running']);
+  assert.equal(store.queryActivity({ search: 'Triggered manually' }).items[0].eventIds.length,1);
+  store.acknowledge(filtered.items[0].unseenIds);
+  assert.equal(store.getEvent('queued').seen,false);
+  const repoSearch = store.queryActivity({ search: 'customer billing' });
+  assert.equal(repoSearch.total,1);
+  assert.equal(repoSearch.items[0].eventIds.length,2);
+  store.saveRepo({ ...repo,name: 'Renamed Service' });
+  assert.equal(store.queryActivity({ search: 'customer billing' }).total,0);
+  assert.equal(store.queryActivity({ search: 'renamed service' }).total,1);
+  store.close();
+});
+
+test('v2 search indexes migrate to visible semantic labels without changing existing acknowledgement', () => {
+  const dir = mkdtempSync(join(tmpdir(),'pulse-search-migration-')),path = join(dir,'v2.sqlite');
+  let store = createStore(path);
+  store.saveRepo(repo);
+  store.insertEvents([build('old-running','Build #42',{ seen: true,data: { buildId: 42,status: 'inProgress' } })]);
+  store.close();
+  const db = new DatabaseSync(path);
+  db.prepare('UPDATE activity_members SET search_text=?').run('old index without label');
+  db.exec('PRAGMA user_version=2'); db.close();
+  store = createStore(path);
+  assert.equal(store.queryActivity({ search: 'Running' }).total,1);
+  assert.equal(store.getEvent('old-running').seen,true);
+  assert.equal(store.queryActivity({ view: 'new' }).total,0);
+  store.close(); rmSync(dir,{ recursive: true });
+});
+
+test('activity pages follow source chronology across imported streams while build representatives stay latest-observed', () => {
+  const store = setup();
+  store.insertEvents([
+    event('nov17-merge',{ kind: 'pr',time: '2026-11-17T12:00:00Z',observedAt: '2026-11-17T13:00:00Z',data: { status: 'completed' } }),
+    event('july-active-pr',{ kind: 'pr',time: '2026-07-01T12:00:00Z',observedAt: '2026-11-17T14:00:00Z',imported: true }),
+    event('nov16-push',{ time: '2026-11-16T12:00:00Z',observedAt: '2026-11-17T13:01:00Z' }),
+    build('nov11-build','Completed',{ kind: 'build',time: '2026-11-11T12:00:00Z',observedAt: '2026-11-17T15:00:00Z',imported: true,data: { buildId: 7,status: 'completed' } }),
+    build('older-graph-update','Running',{ time: '2026-11-12T12:00:00Z',observedAt: '2026-11-17T13:00:00Z',data: { buildId: 8,status: 'inProgress' } }),
+    build('latest-observed-update','Completed',{ time: '2026-11-12T11:00:00Z',observedAt: '2026-11-17T16:00:00Z',data: { buildId: 8,status: 'completed' } }),
+  ]);
+  const first = store.queryActivity({ limit: 2 });
+  assert.deepEqual(first.items.map((item) => item.id),['nov17-merge','nov16-push']);
+  const second = store.queryActivity({ limit: 2,cursor: first.nextCursor });
+  assert.deepEqual(second.items.map((item) => item.id),['latest-observed-update','nov11-build']);
+  assert.equal(second.items[0].events[0].id,'latest-observed-update');
+  const last = store.queryActivity({ limit: 2,cursor: second.nextCursor });
+  assert.deepEqual(last.items.map((item) => item.id),['july-active-pr']);
+  assert.equal(last.nextCursor,null);
+  store.close();
+});
+
+test('v3 migration requeues branch-move merge coverage once while preserving metadata and read flags', () => {
+  const dir = mkdtempSync(join(tmpdir(),'pulse-range-migration-')),path = join(dir,'v3.sqlite');
+  let store = createStore(path);
+  store.saveRepo(repo);
+  const sha = value => value.repeat(40);
+  const ref = (oldObjectId,newObjectId,name = 'refs/heads/main') => ({ name,oldObjectId,newObjectId });
+  const records = [
+    event('eligible',{ seen: true,imported: true,data: { pushId: 41,refUpdates: [ref(sha('a'),sha('b'))],commits: [] } }),
+    event('in-progress',{ data: { pushId: 42,refUpdates: [ref(sha('b'),sha('c'))] } }),
+    event('new-branch',{ data: { pushId: 43,refUpdates: [ref(sha('0'),sha('c'))] } }),
+    event('deleted-branch',{ data: { pushId: 44,refUpdates: [ref(sha('c'),sha('0'))] } }),
+    event('same-tip',{ data: { pushId: 45,refUpdates: [ref(sha('a'),sha('a'))] } }),
+    event('tag',{ data: { pushId: 46,refUpdates: [ref(sha('a'),sha('b'),'refs/tags/v1')] } }),
+  ];
+  store.insertEvents(records);
+  store.enrichEvent('eligible',{ mergeEvidence: { status: 'complete',introducedCommitsComplete: true,commits: [],prs: [] },kept: 'metadata' });
+  store.saveJob({ id: 'merge:in-progress',type: 'merge',repoId: repo.id,eventId: 'in-progress',stage: 'hydrate',cursor: { skip: 5 },commitIds: ['old-cursor-data'] });
+  const before = store.listEvents({ limit: 100 });
+  store.close();
+  const db = new DatabaseSync(path); db.exec('PRAGMA user_version=3'); db.close();
+  store = createStore(path);
+  const jobs = store.listJobs({ type: 'merge' });
+  assert.deepEqual(jobs.map(job => job.eventId).sort(),['eligible','in-progress']);
+  for (const job of jobs) {
+    assert.equal(job.stage,'commits'); assert.equal(job.cursor,null); assert.equal(job.status,'pending');
+    assert.equal(job.nextAt,'1970-01-01T00:00:00.000Z'); assert.equal(job.commitIds,undefined);
+    store.removeJob(job.id);
+  }
+  assert.deepEqual(store.listEvents({ limit: 100 }),before);
+  assert.equal(store.getEvent('eligible').data.kept,'metadata');
+  assert.equal(store.getEvent('eligible').data.mergeEvidence.status,'complete');
+  assert.equal(store.getEvent('eligible').seen,true); assert.equal(store.getEvent('eligible').imported,true);
+  store.close();
+  store = createStore(path);
+  assert.deepEqual(store.listJobs(),[]);
+  assert.deepEqual(store.listEvents({ limit: 100 }),before);
+  store.close(); rmSync(dir,{ recursive: true });
+});
+
+test('targeted PR completion lookup includes candidate-only interior commits during range pagination', () => {
+  const store = setup();
+  const refs = [{ name: 'refs/heads/main',oldObjectId: 'old',newObjectId: 'tip' }];
+  store.insertEvents([event('progress',{ data: { refUpdates: refs } }),
+    event('other-target',{ data: { refUpdates: [{ ...refs[0],name: 'refs/heads/release' }] } })]);
+  for (const id of ['progress','other-target']) store.enrichEvent(id,{ mergeEvidence: {
+    status: 'enriching',candidateCommitIds: ['interior-candidate'],introducedCommitIds: [],introducedCommitsComplete: false,
+  } });
+  assert.deepEqual(store.findPushEventsForCommits(repo.id,['interior-candidate'],'refs/heads/main').map(row => row.id),['progress']);
+  assert.deepEqual(store.findPushEventsForCommits(repo.id,['interior-candidate']).map(row => row.id).sort(),['other-target','progress']);
+  assert.equal(store.getEvent('progress').data.mergeEvidence.introducedCommitsComplete,false);
+  store.close();
+});
+
+test('Activity revision advances only for committed changes to page data', () => {
+  const store = setup();
+  try {
+    let revision = store.activityRevision();
+    const stable = () => assert.equal(store.activityRevision(), revision);
+    const changed = () => {
+      const next = store.activityRevision();
+      assert.notEqual(next, revision);
+      revision = next;
+    };
+    store.saveRepo({ ...repo, paused: true });
+    store.setSetting('refreshEnabled', false);
+    stable();
+    assert.throws(() => store.commitPage({ repoId: repo.id, events: [event('rolled-back')], jobs: [{ id: 'invalid' }] }));
+    stable();
+    assert.equal(store.getEvent('rolled-back'), undefined);
+    store.commitPage({ repoId: repo.id, events: [event('history', { imported: true }), event('live')] });
+    changed();
+    store.insertEvents([event('live')]);
+    store.acknowledge(['history']);
+    stable();
+    store.acknowledge(['live']);
+    changed();
+    store.acknowledge(['live']);
+    stable();
+    store.acknowledge(['live'], false);
+    changed();
+    store.enrichEvent('live', { mergeEvidence: { status: 'complete' } });
+    changed();
+    store.enrichEvent('live', { mergeEvidence: { status: 'complete' } });
+    stable();
+    store.saveRepo({ ...repo, name: 'Renamed' });
+    changed();
+    assert.equal(store.queryActivity({ search: 'Renamed' }).total, 2);
+    store.removeRepo(repo.id);
+    changed();
+  } finally { store.close(); }
+});
+
+test('filter options come from the full scoped history and stay available when a status is selected', () => {
+  const store = setup();
+  try {
+    store.saveRepo({ id: 'other', name: 'Other' });
+    store.insertEvents([
+      event('older-canceled', { kind: 'build', time: '2026-11-15T10:00:00Z', imported: true, data: { status: 'completed', result: 'canceled' } }),
+      event('merged', { kind: 'pr', data: { status: 'completed' } }),
+      event('push-evidence'),
+      event('other-failed', { repoId: 'other', kind: 'build', data: { status: 'completed', result: 'failed' } }),
+    ]);
+    store.enrichEvent('push-evidence', { mergeEvidence: { prs: [{ pullRequestId: 5 }] } });
+    const scope = { repoIds: [repo.id], limit: 1 };
+    const all = store.queryActivity(scope);
+    assert.deepEqual(all.filterOptions, ['push', 'pr', 'build', 'status:canceled', 'status:merged', 'evidence:pr-linked']);
+    assert.equal(store.queryActivity({ ...scope, cursor: all.nextCursor }).filterOptions, undefined);
+    const canceled = store.queryActivity({ ...scope, kind: 'status:Canceled' });
+    assert.equal(canceled.items[0].id, 'older-canceled');
+    assert.deepEqual(canceled.filterOptions, all.filterOptions);
+    assert.equal(store.queryActivity({ ...scope, kind: 'evidence:Completed PR linked' }).items[0].id, 'push-evidence');
+    assert.equal(store.queryActivity({ ...scope, view: 'new' }).filterOptions.includes('status:canceled'), false);
+    assert.deepEqual(store.queryActivity({ ...scope, search: 'merged' }).filterOptions, ['pr', 'status:merged']);
+  } finally { store.close(); }
+});
+
+test('New activity offers the displayed run status even when only an earlier update is unseen', () => {
+  const store = setup();
+  try {
+    store.insertEvents([
+      build('a-running', 'Orders CI', { data: { buildId: 42, status: 'inProgress' } }),
+      build('a-succeeded', 'Orders CI', { seen: true, observedAt: '2026-11-17T10:02:00Z', data: { buildId: 42, status: 'completed', result: 'succeeded' } }),
+      build('b-failed', 'Other CI', { data: { buildId: 43, status: 'completed', result: 'failed' } }),
+    ]);
+    const base = { view: 'new', repoIds: [repo.id], limit: 1 };
+    const page = store.queryActivity(base);
+    assert.deepEqual(page.filterOptions, ['build', 'status:failed', 'status:succeeded']);
+    assert.equal(page.items[0].id, 'a-succeeded');
+    assert.equal(store.queryActivity({ ...base, cursor: page.nextCursor }).items[0].id, 'b-failed');
+    assert.equal(store.queryActivity({ ...base, kind: 'status:running' }).total, 0);
+    const succeeded = store.queryActivity({ ...base, kind: 'status:succeeded' });
+    assert.equal(succeeded.items[0].id, 'a-succeeded');
+    assert.deepEqual(succeeded.items[0].unseenIds, ['a-running']);
+    store.acknowledge(succeeded.items[0].unseenIds);
+    assert.equal(store.queryActivity({ ...base, kind: 'status:succeeded' }).total, 0);
+    assert.equal(store.getEvent('b-failed').seen, false);
+  } finally { store.close(); }
+});

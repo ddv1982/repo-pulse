@@ -1,0 +1,143 @@
+// @ts-check
+
+import { createActivityData, activityEvents } from './activity-data.js';
+import { isActivity } from './navigation.js';
+
+/**
+ * @typedef {import('../activity.js').ActivityEvent} ActivityEvent
+ * @typedef {import('../activity.js').ActivityPage} ActivityPage
+ * @typedef {import('./activity-data.js').EventDetail} EventDetail
+ * @typedef {import('./activity-data.js').ActivityView & {eventId: string|null, generation: number}} View
+ * @typedef {{id: string}} Repo
+ * @typedef {{ repos?: Repo[], streams?: unknown[], settings?: Record<string, unknown>,
+ *   diagnostics?: Record<string, unknown>, activityRevision?: string }} Metadata
+ * @typedef {(ActivityPage | { items: ActivityPage['items'], loading?: boolean }) & { error?: string }} DisplayActivity
+ * @typedef {Metadata & {repos: Repo[], activity: DisplayActivity, events: ActivityEvent[], detailLoading?: boolean}} PageState
+ * @typedef {{ view: View, force: boolean, more: boolean }} RefreshJob
+ * @typedef {{ type: 'applied'|'superseded' } | { type: 'failed', error: Error }} RefreshOutcome
+ */
+
+/** @param {unknown} value */
+function readMetadata(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Local state is unreadable.');
+  const data = /** @type {Metadata} */ (value);
+  if (data.repos !== undefined && (!Array.isArray(data.repos) || data.repos.some(repo => typeof repo?.id !== 'string'))) {
+    throw new Error('Local repository data is unreadable.');
+  }
+  if (data.activityRevision !== undefined && typeof data.activityRevision !== 'string') {
+    throw new Error('The local Activity revision is unreadable.');
+  }
+  return { ...data, repos: data.repos || [], streams: data.streams || [], settings: data.settings || {}, diagnostics: data.diagnostics || {} };
+}
+
+/** @param {View} view */
+const viewKey = ({ route, eventId, repoIds, search, kind, generation }) =>
+  JSON.stringify([route, eventId, repoIds, search, kind, generation]);
+
+/**
+ * @param {{
+ *   request: (path: string) => Promise<unknown>,
+ *   getView: () => View, reconcileRepositories: (repos: Repo[]) => void,
+ *   onUpdate: (event: {metadata: string, force: boolean}) => void, onError: (error: Error, force: boolean) => void
+ * }} options
+ */
+export function createRefreshController({ request, getView, reconcileRepositories, onUpdate, onError }) {
+  const activityData = createActivityData(request);
+  /** @type {PageState} */
+  let state = { repos: [], activity: { items: [], loading: true }, events: [], streams: [], settings: {}, diagnostics: {} };
+  /** @type {EventDetail|null|undefined} */
+  let detailResult;
+  /** @type {string|undefined} */
+  let detailRevision;
+  /** @type {{view: View, promise: Promise<RefreshOutcome>}|null|undefined} */
+  let active;
+  /** @type {(RefreshJob & PromiseWithResolvers<RefreshOutcome>) | null | undefined} */
+  let queued;
+  /** @param {View} view */
+  const isCurrent = view => viewKey(view) === viewKey(getView());
+
+  /** @param {RefreshJob} job @returns {Promise<RefreshOutcome>} */
+  async function read({ view, force, more }) {
+    if (!isCurrent(view)) return { type: 'superseded' };
+    try {
+      const payload = await request('/api/state');
+      if (!isCurrent(view)) return { type: 'superseded' };
+      /** @type {PageState} */
+      const next = { ...readMetadata(payload), activity: state.activity, events: state.events };
+      const metadata = JSON.stringify(payload);
+      reconcileRepositories(next.repos);
+      const reconciled = getView();
+      if (viewKey(view) !== viewKey(reconciled)) more = false;
+      view = reconciled;
+
+      if (isActivity(view.route)) {
+        const activity = await activityData.read(view, { more, force, activityRevision: next.activityRevision });
+        if (!activity || !isCurrent(view)) return { type: 'superseded' };
+        next.activity = activity;
+        if (activity !== state.activity) next.events = activityEvents(activity);
+      } else if (view.route === 'event') {
+        if (view.eventId === null) throw new Error('Activity details are unavailable.');
+        const cached = !force && detailResult?.event?.id === view.eventId && detailRevision === next.activityRevision;
+        const detail = cached ? detailResult : await activityData.event(view.eventId);
+        if (!detail) throw new Error('Activity details are unavailable.');
+        if (!isCurrent(view)) return { type: 'superseded' };
+        detailResult = detail;
+        detailRevision = next.activityRevision;
+        if (!cached) next.events = activityEvents(state.activity, detail);
+        next.detailLoading = false;
+      }
+
+      state = next;
+      onUpdate({ metadata, force });
+      return { type: 'applied' };
+    } catch (failure) {
+      const error = failure instanceof Error ? failure : new Error(String(failure));
+      if (!isCurrent(view)) return { type: 'superseded' };
+      if (isActivity(view.route)) state = { ...state, activity: { ...state.activity, loading: false, error: error.message } };
+      if (view.route === 'event') state = { ...state, detailLoading: false };
+      onError(error, force);
+      return { type: 'failed', error };
+    }
+  }
+
+  /** @param {RefreshJob} job */
+  function start(job) {
+    const current = Promise.resolve().then(() => read(job));
+    active = { view: job.view, promise: current };
+    const finish = () => {
+      active = null;
+      if (!queued) return;
+      const next = queued;
+      queued = null;
+      start(next).then(next.resolve, next.reject);
+    };
+    current.then(finish, finish);
+    return current;
+  }
+
+  return {
+    get state() { return state; },
+    capacity: activityData.capacity,
+    /** @param {number} [capacity] */
+    resetActivity(capacity) {
+      activityData.reset(capacity);
+      detailResult = null;
+      state = { ...state, activity: { items: [], loading: true }, events: [] };
+    },
+    /** @param {string|null} id */
+    prepareDetail(id) {
+      state = { ...state, detailLoading: !state.events.some(event => event.id === id) };
+    },
+    load({ force = false, more = false } = {}) {
+      const view = getView();
+      if (!active) return start({ view, force, more });
+      if (!force && !more && viewKey(active.view) === viewKey(view)) return active.promise;
+      const sameQuery = queued && viewKey(queued.view) === viewKey(view);
+      queued = {
+        ...(queued || Promise.withResolvers()),
+        view, more: more || Boolean(sameQuery && queued?.more), force: force || more || Boolean(sameQuery && queued?.force),
+      };
+      return queued.promise;
+    },
+  };
+}

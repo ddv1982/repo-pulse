@@ -1,0 +1,25 @@
+{
+  "name": "repo-pulse",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=26.0.0"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "demo": "node server.js --demo",
+    "test": "node --test test/*.test.js",
+    "check": "node scripts/check.js",
+    "test:ui": "node --test e2e/*.test.js",
+    "check:types": "tsc --project tsconfig.json",
+    "lint": "eslint . --max-warnings=0"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.65.1",
+    "@types/node": "26.6.6",
+    "eslint": "10.15.0",
+    "globals": "17.14.0",
+    "typescript": "7.0.2"
+  }
+}

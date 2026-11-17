@@ -1,0 +1,19 @@
+# Local app data and credentials
+.repo-pulse/
+*.sqlite
+*.sqlite-*
+*.sqlite3
+*.sqlite3-*
+.env*
+!.env.example
+!example.env
+
+# Dependencies, reports, and generated caches
+node_modules/
+test-results/
+playwright-report/
+/playwright/.cache/
+/coverage/
+.eslintcache
+*.tsbuildinfo
+npm-debug.log*
