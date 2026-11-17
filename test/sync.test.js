@@ -350,3 +350,41 @@ test('automatic checks can be disabled while an explicit history import still ge
     assert.equal(sync.status().lastTurn.history, new Date(BASE).toISOString());
   } finally { store.close(); }
 });
+
+test('repositories added during the refresh cooldown still get their initial import with automatic checks off', async () => {
+  const store = createStore();
+  store.setSetting('refreshEnabled', false);
+  const reads = [];
+  const sync = createSync({ store, now: () => BASE, provider: { async read(current, stream) {
+    reads.push(`${current.id}:${stream}`); return { items: [], nextCursor: null };
+  } } });
+  store.saveRepo(repo);
+  assert.equal(sync.refresh([repo.id]).scheduled, true);
+  store.saveRepo({ ...repo, id: 'two', name: 'Two' });
+  assert.equal(sync.refresh(['two']).scheduled, true, 'a different repository is not on cooldown');
+  assert.equal(sync.refresh(['two']).cooldown, true);
+  for (let i = 0; i < 20; i++) await sync.tick();
+  assert.ok(store.getStreams().every(state => state.initialized), 'every stream of both repositories imported');
+  assert.ok(reads.some(entry => entry.startsWith('two:')));
+  store.close();
+});
+
+test('a failing scheduled tick is contained and polling continues', async () => {
+  const store = createStore();
+  store.saveRepo(repo);
+  let turns = 0;
+  const unhandled = [];
+  const onUnhandled = (reason) => unhandled.push(reason);
+  process.on('unhandledRejection', onUnhandled);
+  const sync = createSync({ store, pollMs: 5, provider: { async read() { return { items: [], nextCursor: null }; } },
+    background: { history: async () => { turns++; throw new Error('database is locked'); } } });
+  for (const state of store.getStreams()) store.saveStream({ ...state, nextAt: '2099-01-01T00:00:00Z' });
+  sync.start();
+  await new Promise(resolve => setTimeout(resolve, 60));
+  await sync.stop();
+  process.off('unhandledRejection', onUnhandled);
+  assert.deepEqual(unhandled, []);
+  assert.ok(turns >= 2, `polling continued after a failure (turns: ${turns})`);
+  assert.ok(sync.status().errors >= 1);
+  store.close();
+});

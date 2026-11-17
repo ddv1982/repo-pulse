@@ -18,7 +18,7 @@ export function createSync({ store, provider, now = Date.now, intervalMs = 18000
   let timer;
   let active;
   let stopped = false;
-  let refreshAt = -Infinity;
+  const refreshedAt = new Map();
   let lastKey;
   let liveTurns = 0;
   let nextBackground = 'merge';
@@ -241,7 +241,8 @@ export function createSync({ store, provider, now = Date.now, intervalMs = 18000
   }
   function schedule() {
     if (stopped) return;
-    timer = setTimeout(() => { tick().finally(schedule); }, pollMs);
+    // A failed turn must not reject unobserved (that would end the process) or stop polling.
+    timer = setTimeout(() => { tick().catch(() => { counters.errors++; }).finally(schedule); }, pollMs);
     timer.unref?.();
   }
   return {
@@ -254,11 +255,13 @@ export function createSync({ store, provider, now = Date.now, intervalMs = 18000
       if (repoIds && repoIds.some((id) => !repos.some((repo) => repo.id === id))) throw Object.assign(new Error('Repository is not watched.'), { code: 'NOT_FOUND' });
       // Batch additions must register every repository even when refresh requests coalesce.
       ensureStreams();
-      if (now() - refreshAt < 30000) return { scheduled: false, cooldown: true };
-      refreshAt = now();
+      // Cooldown is per repository so a second added repository still gets its initial import.
+      const targets = (repoIds || repos.map((repo) => repo.id)).filter((id) => !(now() - refreshedAt.get(id) < 30000));
+      if (!targets.length && repos.length) return { scheduled: false, cooldown: true };
+      for (const id of targets) refreshedAt.set(id, now());
       for (const state of store.getStreams()) {
         const repo = repos.find((entry) => entry.id === state.repoId);
-        if (repo && !repo.paused && (!repoIds || repoIds.includes(repo.id))) store.saveStream({ ...state, nextAt: iso(now()), manual: store.getSetting('refreshEnabled', true) === false });
+        if (repo && !repo.paused && targets.includes(repo.id)) store.saveStream({ ...state, nextAt: iso(now()), manual: store.getSetting('refreshEnabled', true) === false });
       }
       return { scheduled: true };
     },
