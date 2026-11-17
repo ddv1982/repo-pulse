@@ -64,7 +64,10 @@ export function createNavigation({ ui, captureGroups, activityCapacity }) {
 
   function reconcileRepositories(repos) {
     if (ui.repoIds !== null) ui.repoIds = ui.repoIds.filter(id => repos.some(repo => repo.id === id));
-    if (!repos.length && isActivity(ui.route)) ui.route = 'repositories';
+    if (!repos.length && isActivity(ui.route)) {
+      ui.route = 'repositories';
+      history.replaceState(history.state, '', '#repositories');
+    }
   }
 
   return {
@@ -107,7 +110,7 @@ export function createNavigation({ ui, captureGroups, activityCapacity }) {
         }
       }
       reconcileRepositories(repos);
-      return { destination, capacity, scrollToTop: previous !== 'event' };
+      return { destination: ui.route, capacity, scrollToTop: previous !== 'event' };
     },
   };
 }

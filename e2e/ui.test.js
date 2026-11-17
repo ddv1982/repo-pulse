@@ -150,10 +150,10 @@ test('focused search keeps its value and selection while incoming matching activ
   assert.deepEqual(await search.evaluate(input => [input.selectionStart, input.selectionEnd]), [2, 5]);
 });
 
-async function setupPicker(t) {
+async function setupPicker(t, { existing = true } = {}) {
   const store = createStore();
   const organization = 'https://dev.azure.com/example', project = 'Demo';
-  store.saveRepo({ id: 'existing', azureId: 'existing', name: 'existing', localPath: '/workspace/projects/existing', organization, project });
+  if (existing) store.saveRepo({ id: 'existing', azureId: 'existing', name: 'existing', localPath: '/workspace/projects/existing', organization, project });
   const remote = (name, repoName) => ({ name, repoName, organization, project, url: `${organization}/${project}/_git/${repoName}` });
   const repositories = [
     { localPath: '/workspace/projects/alpha', remotes: [remote('origin', 'alpha-api'), remote('upstream', 'alpha-upstream')] },
@@ -180,13 +180,30 @@ async function setupPicker(t) {
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
   t.after(async () => {
-    if (!t.passed) { t.diagnostic(await page.locator('#repository-picker').innerText()); t.diagnostic(JSON.stringify(calls)); }
+    if (!t.passed) {
+      const picker = page.locator('#repository-picker');
+      if (await picker.count()) t.diagnostic(await picker.innerText());
+      t.diagnostic(JSON.stringify(calls));
+    }
     await browser.close(); await new Promise(resolve => server.close(resolve)); store.close(); assert.deepEqual(errors, []);
   });
-  await page.goto(`http://127.0.0.1:${server.address().port}/#repositories`);
-  await page.locator('#add-repositories').click();
+  await page.goto(`http://127.0.0.1:${server.address().port}/${existing ? '#repositories' : ''}`);
+  if (existing) await page.locator('#add-repositories').click();
   return { page, store, calls };
 }
+
+test('first repository onboarding can reach Activity without a reload', async t => {
+  const { page } = await setupPicker(t, { existing: false });
+  await expect(page).toHaveURL(/#repositories$/);
+  const search = page.getByRole('combobox', { name: 'Search local repositories' });
+  await search.fill('beta');
+  await page.getByRole('option').filter({ hasText: 'beta-web' }).click();
+  await page.getByRole('button', { name: 'Watch 1 selected', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'beta-web', exact: true })).toBeVisible();
+  await page.getByRole('link', { name: 'Activity', exact: true }).click();
+  await expect(page.getByRole('searchbox', { name: 'Search activity' })).toBeVisible();
+  await expect(page).toHaveURL(/#activity\/new$/);
+});
 
 test('searchable picker selects multiple checkouts, disambiguates remotes and only adds on commit', async t => {
   const { page, store, calls } = await setupPicker(t);
