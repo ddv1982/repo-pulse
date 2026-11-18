@@ -354,10 +354,23 @@ export function createApp({
       path: '/api/checkouts',
       handler: async ({ res }) => {
         const repos = store.listRepos().filter(repo => !repo.disabled);
+        /** @type {[string, import('./server/checkout-git.js').CheckoutStatus][]} */
         const results = [];
         if (!demo)
           for (let i = 0; i < repos.length; i += 2) {
-            results.push(...(await Promise.all(repos.slice(i, i + 2).map(async repo => [repo.id, await checkoutGit.status(repo)]))));
+            results.push(
+              ...(await Promise.all(
+                repos
+                  .slice(i, i + 2)
+                  .map(
+                    async repo =>
+                      /** @type {[string, import('./server/checkout-git.js').CheckoutStatus]} */ ([
+                        repo.id,
+                        await checkoutGit.status(repo),
+                      ]),
+                  ),
+              )),
+            );
           }
         return json(res, 200, /** @satisfies {CheckoutsResponse} */ (Object.fromEntries(results)));
       },
@@ -464,7 +477,13 @@ export function createApp({
           );
         const skip = Number(url.searchParams.get('skip') || 0);
         if (!Number.isSafeInteger(skip) || skip < 0) throw problem('Invalid page offset.');
-        return json(res, 200, /** @satisfies {PushCommitsResponse} */ (await provider.pushCommits(repo, Number(pushId), { skip })));
+        const page = await provider.pushCommits(repo, Number(pushId), { skip });
+        // The browser shows only these two fields; raw Azure commit objects stay behind this boundary.
+        const items = page.items.map(item => ({
+          commitId: typeof item?.commitId === 'string' ? item.commitId : '',
+          ...(typeof item?.comment === 'string' ? { comment: item.comment } : {}),
+        }));
+        return json(res, 200, /** @satisfies {PushCommitsResponse} */ ({ items, nextCursor: page.nextCursor }));
       },
     },
   ];

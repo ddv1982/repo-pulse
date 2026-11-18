@@ -87,7 +87,7 @@ function detailFacts(record, tone) {
 /** @param {ActivityItem} record @param {Repo | undefined} repo @param {PushId} pushId @param {CommitsView | undefined} commits */
 function pushCommits(record, repo, pushId, commits) {
   if (record.kind !== 'push' || !pushId) return '';
-  return `<button class="btn" data-action="load-commits" data-repo-id="${e(repo?.id)}" data-push-id="${e(pushId)}">${commits ? 'Reload commits' : 'Load push commits'}</button><p class="help">Loads on request within the shared budget.</p>${commits ? renderCommits(commits) : ''}`;
+  return `<button class="btn" data-action="load-commits" data-repo-id="${e(record.repoId)}" data-push-id="${e(pushId)}">${commits ? 'Reload commits' : 'Load push commits'}</button><p class="help">Loads on request within the shared budget.</p>${commits ? renderCommits(commits) : ''}`;
 }
 
 /**
