@@ -265,7 +265,12 @@ export function createEnrichment({ store, provider, now = Date.now, negativeTtlM
   }
   /** @type {StageHandler} */
   async function hydrateStage(repo, event, job) {
-    const ids = unique([...(job.commitIds || []), ...mergeUpdates(event).flatMap(ref => [ref.oldObjectId, ref.newObjectId])]);
+    // An old tip Azure could not read for the history check stays unknown instead of failing hydration forever.
+    const unreadable = new Set((job.refRanges || []).filter(range => range.update?.status === 'unknown').map(range => range.oldObjectId));
+    const ids = unique([
+      ...(job.commitIds || []),
+      ...mergeUpdates(event).flatMap(ref => [unreadable.has(ref.oldObjectId) ? undefined : ref.oldObjectId, ref.newObjectId]),
+    ]);
     const missing = ids.filter(id => !Array.isArray(commit(repo.id, id)?.parents)).slice(0, 2);
     if (!missing.length) {
       saveStep(repo, event, { ...job, stage: 'prs' });
@@ -346,6 +351,10 @@ export function createEnrichment({ store, provider, now = Date.now, negativeTtlM
     if (!mergeUpdates(event).length) return finishWithoutUpdates;
     const stage = job.stage || 'commits';
     if (['hydrate', 'prs'].includes(stage) && !job.rangesComplete) return restartRanges;
+    // Jobs saved before the history check finished their ranges without it; check them from the saved pages.
+    const unchecked = (job.refRanges || []).findIndex(range => range.complete && !range.update);
+    if (['hydrate', 'prs'].includes(stage) && unchecked >= 0)
+      return (repo, current) => saveStep(repo, current, { ...job, stage: 'ranges', refIndex: unchecked, rangesComplete: false });
     if (typeof stage !== 'string' || !Object.hasOwn(stages, stage))
       throw failure('INVALID_JOB', 'Merge enrichment could not resume its saved stage.');
     return stages[stage];

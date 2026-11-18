@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createStore } from '../server/store.js';
+import { createHash } from 'node:crypto';
 import { createSync } from '../server/sync.js';
 const repo = {
   id: 'one',
@@ -994,5 +995,53 @@ test('a reviewer vote is PR activity, and PRs saved before votes were recorded a
       ['Sam', -5],
     ],
   );
+  store.close();
+});
+
+test('a historical PR import keeps the event ID it had before votes were recorded', () => {
+  const store = createStore();
+  store.saveRepo(repo);
+  const sync = createSync({ store, provider: {} });
+  const closed = {
+    pullRequestId: 8,
+    title: 'Fix',
+    status: 'completed',
+    closedDate: '2026-11-10T10:00:00Z',
+    targetRefName: 'refs/heads/main',
+    lastMergeSourceCommit: { commitId: 'c'.repeat(40) },
+    repository: { id: 'a' },
+    reviewers: [{ id: 'ana', displayName: 'Ana', vote: 10 }],
+  };
+  const { events } = sync.normalize(repo, 'closedPrs', [closed], { historical: true, initialized: false });
+  const before = { status: 'completed', isDraft: false, title: 'Fix', source: 'c'.repeat(40), target: 'refs/heads/main' };
+  const hash = createHash('sha256').update(JSON.stringify(before)).digest('hex').slice(0, 24);
+  assert.equal(events[0].id, `one:pr:history:8:${hash}`);
+  store.close();
+});
+
+test('adding a reviewer who has not voted is not PR activity', async () => {
+  const pr = {
+    pullRequestId: 9,
+    title: 'Fix',
+    status: 'active',
+    creationDate: '2026-11-16T10:00:00Z',
+    targetRefName: 'refs/heads/main',
+    repository: { id: 'a' },
+    reviewers: [{ id: 'ana', displayName: 'Ana', vote: 10 }],
+  };
+  let items = [pr];
+  const { store, sync, advance } = setup(
+    {
+      async read() {
+        return { items, nextCursor: null };
+      },
+    },
+    ['prs'],
+  );
+  await sync.tick();
+  items = [{ ...pr, reviewers: [...pr.reviewers, { id: 'team', displayName: 'Team', vote: 0, isRequired: true }] }];
+  advance(600001);
+  await sync.tick();
+  assert.equal(store.listEvents().length, 1);
   store.close();
 });

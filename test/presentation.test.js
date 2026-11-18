@@ -331,3 +331,14 @@ test('vote changes on an open PR read as words, and a closed PR keeps its merge 
   assert.equal(activitySummary({ ...pr, data: { ...data, status: 'completed' } }), 'Merged into main');
   assert.equal(activitySummary({ ...pr, data: { ...data, voteChanges: [{ name: 'Lee', vote: -10 }] } }), 'Lee: rejected');
 });
+
+test('a vote change on a fork PR still names the fork', () => {
+  const pr = { id: 'p', repoId: 'r', kind: 'pr', time: '2026-11-17T10:00:00Z' };
+  const data = {
+    status: 'active',
+    targetRefName: 'refs/heads/main',
+    fork: { repository: 'One-fork' },
+    voteChanges: [{ name: 'Ana', vote: 10 }],
+  };
+  assert.equal(activitySummary({ ...pr, data }), 'From fork One-fork · Ana: approved');
+});

@@ -78,7 +78,7 @@ function fixture(t, custom = {}) {
         ? {
             rangesComplete: true,
             refRanges: store.getEvent(push.id).data?.mergeEvidence?.refRanges || [
-              { ...push.data.refUpdates[0], commitIds, complete: true },
+              { ...push.data.refUpdates[0], commitIds, complete: true, update: { status: 'fast-forward' } },
             ],
           }
         : {}),
@@ -426,4 +426,41 @@ test('a failed history check retries the job instead of guessing', async t => {
   assert.equal(job.status, 'retrying');
   assert.equal(job.error.code, 'UNAVAILABLE');
   assert.equal(job.refRanges[0].update, undefined);
+});
+
+test('a job saved before the history check checks its finished ranges once and reuses their pages', async t => {
+  const checked = [];
+  const f = fixture(t, {
+    async droppedCommits(_repo, from, to) {
+      checked.push([from, to]);
+      return { items: [{ commitId: sha('5') }], nextCursor: null };
+    },
+  });
+  f.store.saveJob({
+    ...f.store.listJobs()[0],
+    stage: 'prs',
+    commitIds: [merge, tip],
+    rangesComplete: true,
+    refRanges: [{ ...push.data.refUpdates[0], commitIds: [merge, tip], complete: true }],
+  });
+  await drain(f.store, f.worker());
+  assert.deepEqual(checked, [[old, tip]]);
+  assert.deepEqual(f.calls.ranges, [], 'the saved forward range is not read again');
+  assert.deepEqual(f.store.getEvent('push').data.mergeEvidence.refRanges[0].update, { status: 'rewrite', dropped: 1, more: false });
+});
+
+test('an old tip Azure cannot read leaves the update unknown without failing hydration', async t => {
+  const f = fixture(t, {
+    async droppedCommits() {
+      throw Object.assign(new Error('Not found.'), { code: 'NOT_FOUND' });
+    },
+    async commitsByIds(_repo, ids) {
+      return objects.filter(item => item.commitId !== old && ids.includes(item.commitId));
+    },
+  });
+  await drain(f.store, f.worker());
+  assert.equal(f.store.listJobs().length, 0);
+  const evidence = f.store.getEvent('push').data.mergeEvidence;
+  assert.deepEqual(evidence.refRanges[0].update, { status: 'unknown' });
+  assert.equal(evidence.error, undefined);
 });

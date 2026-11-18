@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { probeRequests, summarize } from '../scripts/probe-coverage.js';
 
-const repo = { organization: 'https://dev.azure.com/example/', project: 'Project', projectId: 'p1', azureId: 'r1' };
+const repo = { organization: 'https://dev.azure.com/example', project: 'Project', projectId: 'p1', azureId: 'r1' };
 
 test('the coverage probe only builds GET requests, including the per-PR reads', () => {
   const requests = probeRequests(repo, { prId: 7 });
@@ -34,12 +34,18 @@ test('probe summaries replace policy and thread type names Azure did not define 
       value: [
         { status: 'approved', configuration: { type: { displayName: 'Minimum number of reviewers' } } },
         { status: 'queued', configuration: { type: { displayName: 'Pipeline payments-ci' } } },
+        { status: 'payments-status', configuration: { type: { displayName: 'Build' } } },
       ],
     },
     repo,
   );
-  assert.deepEqual(policies.policyTypes, ['Minimum number of reviewers', 'other']);
+  assert.deepEqual(policies.policyTypes, ['Build', 'Minimum number of reviewers', 'other']);
+  assert.deepEqual(policies.statuses, ['approved', 'other', 'queued']);
   const threads = summarize('PR threads', { value: [{ properties: { CodeReviewThreadType: { $value: 'Secret-team-type' } } }] }, repo);
   assert.deepEqual(threads.threadTypes, ['other']);
   assert.doesNotMatch(JSON.stringify([policies, threads]), /payments|Secret/);
+});
+
+test('the probe refuses an organization URL the app would not accept', () => {
+  assert.throws(() => probeRequests({ ...repo, organization: 'https://attacker.example/org' }));
 });

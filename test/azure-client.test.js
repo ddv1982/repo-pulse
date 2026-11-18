@@ -52,7 +52,7 @@ test('refs use continuation token and build cache isolates repositories while co
     },
   });
   const refs = await client.read(repo, 'refs', window);
-  assert.deepEqual(refs.nextCursor, { token: 'page2' });
+  assert.deepEqual(refs.nextCursor, { token: 'page2', allRefs: true });
   await client.read(repo, 'refs', { ...window, cursor: refs.nextCursor });
   assert(calls[1].includes('continuationToken=page2'));
   const [a, b] = await Promise.all([
@@ -453,4 +453,22 @@ test('PR review data counts people’s threads only and keeps each enabled polic
     ],
   });
   assert.throws(() => reviewOf(undefined, []), { code: 'INVALID_RESPONSE' });
+});
+
+test('refs restart a snapshot saved by the branch-only query and ask policies for not-applicable results', async () => {
+  const calls = [];
+  const client = createAzureClient({
+    cli: {
+      run: async args => {
+        calls.push(args);
+        return { value: [] };
+      },
+    },
+  });
+  await client.read(repo, 'refs', { cursor: { token: 'from-heads-only' } });
+  assert(!calls[0].some(arg => arg.startsWith('continuationToken=')));
+  await client.read(repo, 'refs', { cursor: { token: 'all', allRefs: true } });
+  assert(calls[1].includes('continuationToken=all'));
+  await client.prReview(repo, 4);
+  assert(calls.at(-1).includes('includeNotApplicable=true'));
 });

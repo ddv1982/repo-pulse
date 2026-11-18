@@ -76,9 +76,10 @@ const reviewers = pr =>
     vote: Number(reviewer.vote) || 0,
     required: Boolean(reviewer.isRequired),
   }));
-/** @param {AzureRecord} pr @returns {[string, number][]} */
+/** Reviewers without a vote are left out, so adding or removing one is not a vote change. @param {AzureRecord} pr @returns {[string, number][]} */
 const reviewerVotes = pr =>
   reviewers(pr)
+    .filter(({ vote }) => vote)
     .map(({ id, vote }) => /** @type {[string, number]} */ ([id, vote]))
     .sort();
 /**
@@ -290,7 +291,10 @@ export function createSync({
     return {
       previous,
       changed,
-      sourceId: historical ? `history:${key}:${fingerprint(value)}` : `${key}:${(previous?.revision || 0) + 1}:${fingerprint(value)}`,
+      // Historical IDs hash the state without votes, as before votes were recorded, so re-importing a closure finds its row.
+      sourceId: historical
+        ? `history:${key}:${fingerprint({ ...value, votes: undefined })}`
+        : `${key}:${(previous?.revision || 0) + 1}:${fingerprint(value)}`,
       entity: historical ? null : { type, id: key, data: { fingerprint: value, status: value.status, revision } },
     };
   }

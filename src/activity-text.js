@@ -143,7 +143,8 @@ const forkText = fork => (fork ? `From fork ${fork.repository || 'of unknown nam
 /** A vote change on an open PR is the news; otherwise the summary names where the PR goes. @param {NonNullable<ActivityEvent['data']>} data */
 function prSummary(data) {
   const changes = data.status === 'active' ? data.voteChanges || [] : [];
-  if (changes.length) return changes.map(change => `${change.name}: ${change.vote ? voteLabel(change.vote) : 'vote reset'}`).join(' · ');
+  if (changes.length)
+    return `${forkText(data.fork)}${changes.map(change => `${change.name}: ${change.vote ? voteLabel(change.vote) : 'vote reset'}`).join(' · ')}`;
   return `${forkText(data.fork)}${data.status === 'completed' ? 'Merged into' : 'Target:'} ${branchName(data.targetRefName)}`;
 }
 

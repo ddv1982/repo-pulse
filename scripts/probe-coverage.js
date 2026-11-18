@@ -8,6 +8,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { AZURE_DEVOPS_RESOURCE } from '../server/azure-rest.js';
+import { normalizeOrganization } from '../server/repositories.js';
 
 const run = promisify(execFile);
 
@@ -17,7 +18,8 @@ const run = promisify(execFile);
  * @param {{ prId?: number }} [found]
  */
 export function probeRequests(repo, found = {}) {
-  const base = `${repo.organization.replace(/\/$/, '')}/${encodeURIComponent(repo.project)}/_apis`;
+  // The token goes only to an Azure DevOps organization URL the app itself would accept.
+  const base = `${normalizeOrganization(repo.organization)}/${encodeURIComponent(repo.project)}/_apis`;
   const git = `${base}/git/repositories/${encodeURIComponent(repo.azureId)}`;
   const requests = [
     { name: 'tag refs', url: `${git}/refs?filter=tags/&peelTags=true&$top=100&api-version=7.1` },
@@ -69,6 +71,8 @@ const THREAD_TYPES = new Set([
   'IsDraftUpdate',
   'PolicyStatusUpdate',
 ]);
+const THREAD_STATUSES = new Set(['active', 'pending', 'fixed', 'wontFix', 'closed', 'byDesign', 'unknown']);
+const POLICY_STATUSES = new Set(['queued', 'running', 'approved', 'rejected', 'notApplicable', 'broken']);
 /** @param {unknown[]} values @param {Set<string>} known */
 const named = (values, known) =>
   [...new Set(values.filter(Boolean).map(value => (known.has(String(value)) ? String(value) : 'other')))].sort();
@@ -101,14 +105,20 @@ export function summarize(name, body, repo) {
     facts.targetOtherProject = other.filter(pr => pr.repository?.project?.id !== repo.projectId).length;
   } else if (name === 'PR threads') {
     facts.commentFields = keys(items.flatMap(thread => thread.comments || [])[0]);
-    facts.statuses = [...new Set(items.map(thread => thread.status).filter(Boolean))].sort();
+    facts.statuses = named(
+      items.map(thread => thread.status),
+      THREAD_STATUSES,
+    );
     facts.withThreadType = items.filter(thread => thread.properties?.CodeReviewThreadType).length;
     facts.threadTypes = named(
       items.map(thread => thread.properties?.CodeReviewThreadType?.$value),
       THREAD_TYPES,
     );
   } else if (name === 'PR policy evaluations') {
-    facts.statuses = [...new Set(items.map(evaluation => evaluation.status))].sort();
+    facts.statuses = named(
+      items.map(evaluation => evaluation.status),
+      POLICY_STATUSES,
+    );
     facts.configurationFields = keys(items[0]?.configuration);
     facts.policyTypes = named(
       items.map(evaluation => evaluation.configuration?.type?.displayName),

@@ -12,7 +12,7 @@ import { cliError, normalizeCommitIds } from './azure-cli.js';
 /**
  * Where the next page starts: `skip` for offset-paged reads, `token` for continuation reads.
  * Build reads also keep their coarse window in `from` and `to`.
- * @typedef {{ skip?: number, token?: string, from?: string, to?: string }} PageCursor
+ * @typedef {{ skip?: number, token?: string, from?: string, to?: string, allRefs?: boolean }} PageCursor
  */
 /** @typedef {{ items: AzureRecord[], nextCursor: PageCursor | null }} AzurePage */
 /** @typedef {{ since?: string, until?: string, cursor?: PageCursor | null }} ReadOptions */
@@ -271,9 +271,17 @@ export function createAzureClient({ cli, now = Date.now } = {}) {
           });
           mode = 'skip';
           break;
-        case 'refs':
-          response = await invoke(repo, 'git', 'refs', { peelTags: 'true', $top: PAGE, continuationToken: cursor?.token });
-          break;
+        case 'refs': {
+          // A token saved by the branch-only query used before tags pages a different list, so that snapshot restarts.
+          response = await invoke(repo, 'git', 'refs', {
+            peelTags: 'true',
+            $top: PAGE,
+            continuationToken: cursor?.allRefs ? cursor.token : undefined,
+          });
+          const page = pageOf(response, { skip, mode });
+          if (page.nextCursor) page.nextCursor.allRefs = true;
+          return page;
+        }
         case 'prs':
           response = await invoke(repo, 'git', 'pullRequests', {
             $top: PAGE,
@@ -529,6 +537,7 @@ export function createAzureClient({ cli, now = Date.now } = {}) {
       const threads = await invoke(repo, 'git', 'pullRequestThreads', {}, { pullRequestId: id });
       const evaluations = await invoke(repo, 'policy', 'evaluations', {
         artifactId: `vstfs:///CodeReview/CodeReviewId/${repo.projectId}/${id}`,
+        includeNotApplicable: 'true',
       });
       return reviewOf(threads.value, evaluations.value);
     },
