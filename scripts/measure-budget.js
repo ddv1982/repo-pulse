@@ -1,5 +1,6 @@
 // Simulates live polling and merge enrichment against the shared Azure CLI budget.
 // Usage: node scripts/measure-budget.js [--limit 12] [--repos 1,5,10,20] [--pushes-per-hour 4] [--commits 5] [--call-ms 1500] [--minutes 60]
+//   [--active-prs 0 --pr-every 3]: also spend one threads read and one policy evaluations read per active PR every N minutes.
 import { createHash } from 'node:crypto';
 import { createStore } from '../server/store.js';
 import { createSync } from '../server/sync.js';
@@ -16,6 +17,8 @@ const commitsPerPush = Number(option('commits', 5));
 const callMs = Number(option('call-ms', 1500));
 const minutes = Number(option('minutes', 60));
 const LIMIT_PER_MINUTE = Number(option('limit', 12));
+const activePrs = Number(option('active-prs', 0));
+const prEveryMs = Number(option('pr-every', 3)) * 60000;
 const sha = value => createHash('sha1').update(value).digest('hex');
 
 function simulate(repoTotal) {
@@ -108,6 +111,17 @@ function simulate(repoTotal) {
     },
   };
 
+  // Per-PR reads are spread evenly over their interval and share the queue with every other read.
+  const prDue = Array.from({ length: repoTotal * activePrs }, (_, i) => start + (prEveryMs * i) / (repoTotal * activePrs || 1));
+  function prReads() {
+    for (let i = 0; i < prDue.length; i++) {
+      if (prDue[i] > time) continue;
+      charge();
+      charge();
+      prDue[i] += prEveryMs;
+    }
+  }
+
   const store = createStore();
   for (let r = 0; r < repoTotal; r++) {
     store.saveRepo({
@@ -141,6 +155,7 @@ function simulate(repoTotal) {
       time += ms;
     },
     calls: () => calls,
+    prReads,
   };
 }
 
@@ -152,7 +167,7 @@ function percentile(values, p) {
 const minutesOf = ms => (ms === null ? 'n/a' : (ms / 60000).toFixed(1));
 
 console.log(
-  `Budget ${LIMIT_PER_MINUTE} calls/min, ${callMs} ms per call, ${pushesPerHour} pushes/hour/repo with ${commitsPerPush} commits, ${minutes} simulated minutes, tab in foreground.`,
+  `Budget ${LIMIT_PER_MINUTE} calls/min, ${callMs} ms per call, ${pushesPerHour} pushes/hour/repo with ${commitsPerPush} commits, ${minutes} simulated minutes, tab in foreground${activePrs ? `, ${activePrs} active PRs/repo read twice every ${prEveryMs / 60000} min` : ''}.`,
 );
 console.log('repos | calls/min | pushes | in Activity | delay p50 min | delay p95 min | delay max min | merge jobs left');
 for (const repoTotal of repoCounts) {
@@ -160,6 +175,7 @@ for (const repoTotal of repoCounts) {
   const startedAt = run.now();
   while (run.now() < run.end) {
     await run.sync.tick();
+    run.prReads();
     run.advance(1000);
   }
   const elapsedMinutes = (run.now() - startedAt) / 60000;

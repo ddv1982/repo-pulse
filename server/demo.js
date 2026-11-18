@@ -223,6 +223,17 @@ export const demoProvider = {
   async checkConnection() {
     return { available: true, identity: null, identityVerified: false, message: 'Isolated demo mode. Azure CLI is never invoked.' };
   },
+  /** Fictional review data for the demo PR; no Azure read. @returns {Promise<import('./azure-client.js').PullRequestReview>} */
+  async prReview() {
+    return {
+      threads: { open: 2, resolved: 3 },
+      policies: [
+        { name: 'Minimum number of reviewers', status: 'queued', blocking: true },
+        { name: 'Build', status: 'rejected', blocking: true },
+        { name: 'Comment requirements', status: 'approved', blocking: false },
+      ],
+    };
+  },
   async pushCommits() {
     return {
       items: [

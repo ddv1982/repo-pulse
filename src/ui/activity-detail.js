@@ -25,6 +25,8 @@ import { activityHref } from './navigation.js';
 /** @typedef {number | string | undefined} PushId */
 /** What the detail page shows after "Load push commits": the response, or the error the request threw. */
 /** @typedef {import('../api.js').PushCommitsResponse | { error: string }} CommitsView */
+/** What a PR detail shows after "Load discussion and policies". @typedef {import('../api.js').PrReviewResponse | { error: string }} ReviewView */
+/** Data a detail page loaded on request: push commits for a push, review data for a PR. @typedef {CommitsView | ReviewView} LoadedView */
 /** @typedef {{ events: ActivityEvent[], repos: Repo[] }} DetailState */
 
 /** @param {string} value */
@@ -110,11 +112,37 @@ function pushCommits(record, repo, pushId, commits) {
   return `<button class="btn" data-action="load-commits" data-repo-id="${e(record.repoId)}" data-push-id="${e(pushId)}">${commits ? 'Reload commits' : 'Load push commits'}</button><p class="help">Loads on request within the shared budget.</p>${commits ? renderCommits(commits) : ''}`;
 }
 
+/** Azure's policy evaluation status in words. @type {Record<string, string | undefined>} */
+const policyStatus = {
+  approved: 'passed',
+  rejected: 'failed',
+  running: 'running',
+  queued: 'waiting',
+  notApplicable: 'not applicable',
+  broken: 'broken',
+};
+
+/** @param {ReviewView} review */
+function renderReview(review) {
+  if ('error' in review) return `<p class="status-bad">${e(review.error)}</p>`;
+  const { open, resolved } = review.threads;
+  const policies = review.policies.map(
+    policy => `<li>${e(policy.name)}${policy.blocking ? ' (required)' : ''}: ${e(policyStatus[policy.status] || policy.status)}</li>`,
+  );
+  return `<p>Discussion: ${open} open, ${resolved} resolved thread${open + resolved === 1 ? '' : 's'}</p>${policies.length ? `<ul class="rows">${policies.join('')}</ul>` : '<p class="help">No branch policies apply to this pull request.</p>'}`;
+}
+
+/** @param {ActivityItem} record @param {EventData} data @param {ReviewView | undefined} review */
+function prReview(record, data, review) {
+  if (record.kind !== 'pr' || !data.pullRequestId) return '';
+  return `<button class="btn" data-action="load-review" data-repo-id="${e(record.repoId)}" data-pr-id="${e(data.pullRequestId)}">${review ? 'Reload discussion and policies' : 'Load discussion and policies'}</button><p class="help">Loads the current state on request within the shared budget.</p>${review ? renderReview(review) : ''}`;
+}
+
 /**
  * @param {ActivityItem} record @param {Repo | undefined} repo @param {EventData} data @param {string[][]} fields
- * @param {PushId} pushId @param {CommitsView | undefined} commits
+ * @param {PushId} pushId @param {LoadedView | undefined} loaded
  */
-function detailData(record, repo, data, fields, pushId, commits) {
+function detailData(record, repo, data, fields, pushId, loaded) {
   const summary = record.kind !== 'build' ? `<p>${e(activitySummary(record))}</p>` : '';
   const facts = fields.map(([name, value]) => `<div><dt>${name}</dt><dd>${value}</dd></div>`).join('');
   const completed =
@@ -122,11 +150,16 @@ function detailData(record, repo, data, fields, pushId, commits) {
       ? '<p class="help">Completed in Azure DevOps. Push details show separately checked commit and PR evidence.</p>'
       : '';
   const evidence = record.kind === 'push' ? renderMergeEvidence(data) : '';
-  return `<div class="detail-data">${summary}<dl class="detail-facts">${facts}</dl>${completed}${evidence}${renderTrail(record, { expanded: true })}${pushCommits(record, repo, pushId, commits)}</div>`;
+  // A detail loads one kind of data, keyed by its event: commits for a push, review data for a PR.
+  const extra =
+    record.kind === 'pr'
+      ? prReview(record, data, loaded && !('items' in loaded) ? loaded : undefined)
+      : pushCommits(record, repo, pushId, loaded && !('threads' in loaded) ? loaded : undefined);
+  return `<div class="detail-data">${summary}<dl class="detail-facts">${facts}</dl>${completed}${evidence}${renderTrail(record, { expanded: true })}${extra}</div>`;
 }
 
 /**
- * @param {ActivityEvent | undefined} event @param {DetailState} state @param {CommitsView | undefined} commits
+ * @param {ActivityEvent | undefined} event @param {DetailState} state @param {LoadedView | undefined} commits
  * @param {{ returnRoute?: string, label?: string }} [options]
  */
 export function renderDetail(event, state, commits, { returnRoute = 'catchup', label = 'Back to New updates' } = {}) {

@@ -10,7 +10,7 @@ import { required } from './dom.js';
 /** web.js owns this object: navigation state plus the connection panel state and the refresh flag the header reads. */
 /** @typedef {import('./navigation.js').NavigationState & { connection: import('./connection.js').ConnectionState, refreshing?: boolean }} BrowserUi */
 /**
- * @typedef {{ restored: ResultsContext | null, returnRoute: string, commits: import('./activity-detail.js').CommitsView | undefined,
+ * @typedef {{ restored: ResultsContext | null, returnRoute: string, commits: import('./activity-detail.js').LoadedView | undefined,
  *   checkouts: Record<string, import('./checkout.js').CheckoutSnapshot>, isCurrent: () => boolean }} RenderOptions
  */
 /** web/theme.js publishes this before the modules load. @typedef {Window & { repoPulseTheme?: { apply: () => void } }} ThemedWindow */

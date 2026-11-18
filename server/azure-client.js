@@ -41,6 +41,29 @@ import { cliError, normalizeCommitIds } from './azure-cli.js';
  */
 /** The provider contract. Sync and backfill type their provider as the subset of it they call. */
 /** @typedef {ReturnType<typeof createAzureClient>} AzureProvider */
+/**
+ * What a PR detail shows on request: counts of people's discussion threads and each policy's result.
+ * Vote, reviewer and ref-update threads are Azure's own records of other events, so they are not counted.
+ * @typedef {{ threads: { open: number, resolved: number }, policies: { name: string, status: string, blocking: boolean }[] }} PullRequestReview
+ */
+const RESOLVED = new Set(['fixed', 'wontFix', 'closed', 'byDesign']);
+/** @param {unknown} threads @param {unknown} evaluations @returns {PullRequestReview} */
+export function reviewOf(threads, evaluations) {
+  if (!Array.isArray(threads) || !Array.isArray(evaluations))
+    throw cliError('INVALID_RESPONSE', 'Azure returned no pull request review data.');
+  const discussion = threads.filter(thread => !thread?.isDeleted && !thread?.properties?.CodeReviewThreadType);
+  const resolved = discussion.filter(thread => RESOLVED.has(thread.status)).length;
+  return {
+    threads: { open: discussion.length - resolved, resolved },
+    policies: evaluations
+      .filter(item => item?.configuration?.isEnabled !== false && !item?.configuration?.isDeleted)
+      .map(item => ({
+        name: String(item.configuration?.type?.displayName || 'Policy'),
+        status: String(item.status || 'unknown'),
+        blocking: Boolean(item.configuration?.isBlocking),
+      })),
+  };
+}
 
 const PAGE = 100;
 /** @param {string | undefined} value */
@@ -87,7 +110,7 @@ export function createAzureClient({ cli, now = Date.now } = {}) {
     return promise;
   }
   /**
-   * @param {AzureRepo} repo @param {'git'|'build'} area @param {string} resource
+   * @param {AzureRepo} repo @param {'git'|'build'|'policy'} area @param {string} resource
    * @param {Record<string, string|number|null|undefined>} [query] @param {Record<string, string>} [route]
    * @returns {Promise<AzureRecord>}
    */
@@ -108,7 +131,8 @@ export function createAzureClient({ cli, now = Date.now } = {}) {
       '--resource',
       resource,
       '--api-version',
-      '7.1',
+      // Policy evaluations exist only as a preview API.
+      area === 'policy' ? '7.1-preview.1' : '7.1',
       '--http-method',
       'GET',
       '--route-parameters',
@@ -494,6 +518,19 @@ export function createAzureClient({ cli, now = Date.now } = {}) {
      */
     droppedCommits(repo, oldSha, newSha) {
       return this.refCommits(repo, newSha, oldSha);
+    },
+    /**
+     * Read when a PR detail asks for it, never by polling: one read for discussion threads, one for policy evaluations.
+     * @param {AzureRepo} repo @param {string|number} pullRequestId @returns {Promise<PullRequestReview>}
+     */
+    async prReview(repo, pullRequestId) {
+      const id = String(pullRequestId);
+      if (!/^\d+$/.test(id) || !repo.projectId) throw cliError('INVALID_QUERY', 'Invalid pull request.');
+      const threads = await invoke(repo, 'git', 'pullRequestThreads', {}, { pullRequestId: id });
+      const evaluations = await invoke(repo, 'policy', 'evaluations', {
+        artifactId: `vstfs:///CodeReview/CodeReviewId/${repo.projectId}/${id}`,
+      });
+      return reviewOf(threads.value, evaluations.value);
     },
     /** @param {AzureRepo} repo @param {string|number} pushId @param {PageCursor} [cursor] @returns {Promise<AzurePage>} */
     async pushCommits(repo, pushId, cursor = {}) {

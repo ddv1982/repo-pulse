@@ -1054,3 +1054,16 @@ test('a pull request detail lists its reviewers and their votes in words', async
   await expect(facts).toContainText('Sam Ortega: waiting for author');
   await expect(facts).toContainText('Billing reviewers (required): no vote');
 });
+
+test('a pull request detail loads its discussion and policy results only when asked', async t => {
+  const { page } = await setup(t);
+  await page.locator('[data-event-id="demo-pr-1"] .feed-title').click();
+  const detail = page.locator('.detail-data');
+  await expect(detail).not.toContainText('Discussion:');
+  await detail.getByRole('button', { name: 'Load discussion and policies' }).click();
+  await expect(detail).toContainText('Discussion: 2 open, 3 resolved threads');
+  await expect(detail).toContainText('Minimum number of reviewers (required): waiting');
+  await expect(detail).toContainText('Build (required): failed');
+  await expect(detail).toContainText('Comment requirements: passed');
+  await expect(detail.getByRole('button', { name: 'Reload discussion and policies' })).toBeVisible();
+});
