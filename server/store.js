@@ -80,7 +80,8 @@ export function createStore(path = ':memory:') {
       CREATE TABLE IF NOT EXISTS rules (id TEXT PRIMARY KEY,data TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS activity_members (
         sequence INTEGER PRIMARY KEY AUTOINCREMENT,event_id TEXT UNIQUE NOT NULL REFERENCES events(id) ON DELETE CASCADE,
-        group_key TEXT NOT NULL,kind TEXT NOT NULL,search_text TEXT NOT NULL,observed REAL NOT NULL,time REAL NOT NULL
+        group_key TEXT NOT NULL,kind TEXT NOT NULL,status_id TEXT NOT NULL DEFAULT '',evidence_id TEXT NOT NULL DEFAULT '',
+        search_text TEXT NOT NULL,observed REAL NOT NULL,time REAL NOT NULL
       );
       CREATE INDEX IF NOT EXISTS activity_group ON activity_members(group_key);
       CREATE INDEX IF NOT EXISTS activity_kind ON activity_members(kind);
@@ -90,6 +91,7 @@ export function createStore(path = ':memory:') {
       CREATE INDEX IF NOT EXISTS jobs_due ON jobs(type,next_at);
     `);
     if (version < 7) {
+      // Databases from before version 7 have no status columns, or the older label and evidence names.
       const columns = q('PRAGMA table_info(activity_members)').all();
       if (columns.some(column => column.name === 'label')) {
         db.exec('ALTER TABLE activity_members RENAME COLUMN label TO status_id; ALTER TABLE activity_members RENAME COLUMN evidence TO evidence_id;');
