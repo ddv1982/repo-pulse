@@ -468,3 +468,31 @@ test('a refresh in the same millisecond its stream starts reading still stays du
   assert.equal(read.manual, true, 'a manual refresh keeps its manual flag with automatic checks off');
   store.close();
 });
+
+test('a read window saved before refresh generations existed still keeps a refresh made during its read', async () => {
+  const store = createStore();
+  store.saveRepo(repo);
+  let release, calls = 0, time = BASE;
+  const sync = createSync({ store, now: () => time, intervalMs: 180000, provider: { read() {
+    if (++calls > 1) return Promise.resolve({ items: [], nextCursor: null });
+    return new Promise(done => { release = () => done({ items: [], nextCursor: null }); });
+  } } });
+  sync.refresh([repo.id]);
+  for (const state of store.getStreams()) {
+    const { refreshGeneration, ...upgraded } = state;
+    store.saveStream(state.stream === 'pushes'
+      ? { ...upgraded, window: { since: '2026-11-17T09:00:00.000Z', until: '2026-11-17T09:59:00.000Z' }, cursor: { skip: 100 } }
+      : { ...upgraded, nextAt: '2099-01-01T00:00:00Z' });
+    assert.ok(refreshGeneration >= 0);
+  }
+  const reading = sync.tick();
+  await new Promise(setImmediate);
+  time += 40000;
+  store.setSetting('refreshEnabled', false);
+  assert.equal(sync.refresh([repo.id]).scheduled, true);
+  release(); await reading;
+  const pushes = store.getStreams().find(state => state.stream === 'pushes');
+  assert.equal(pushes.nextAt, new Date(time).toISOString(), 'the refresh is still due');
+  assert.equal(pushes.manual, true);
+  store.close();
+});

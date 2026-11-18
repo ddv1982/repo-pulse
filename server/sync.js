@@ -186,7 +186,7 @@ export function createSync({ store, provider, now = Date.now, intervalMs = 18000
     lastKey = `${state.repoId}:${state.stream}`;
     const window = state.window || { since: iso(state.lastSuccess ? Date.parse(state.lastSuccess) - overlapMs : now() - 7 * DAY), until: iso(now()) };
     // The refresh generation at the time this window opened; later refreshes need another read.
-    const working = { ...state, window, windowGeneration: state.window ? state.windowGeneration : state.refreshGeneration || 0, lastAttempt: iso(now()), pending: true };
+    const working = { ...state, window, windowGeneration: state.window ? state.windowGeneration ?? 0 : state.refreshGeneration || 0, lastAttempt: iso(now()), pending: true };
     try {
       const page = await provider.read(repo, state.stream, { since: window.since, until: window.until, cursor: state.cursor || null });
       if (!page || !Array.isArray(page.items)) throw new Error('Azure returned an invalid page.');
