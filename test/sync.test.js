@@ -439,3 +439,12 @@ for (const automatic of [true, false]) {
     store.close();
   });
 }
+
+test('first-sync history at the baseline instant is imported whatever its fractional-second format', async () => {
+  const { store, sync } = setup({ async read() { return { items: [push(7, '2026-11-17T10:00:00Z')], nextCursor: null }; } });
+  assert.equal(store.getSetting(`baseline:${repo.id}`), '2026-11-17T10:00:00.000Z');
+  await sync.tick();
+  const event = store.listEvents().find(item => item.kind === 'push');
+  assert.equal(event.imported, true, 'an event at the baseline instant is history, not a new update');
+  store.close();
+});

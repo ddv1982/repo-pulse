@@ -51,7 +51,7 @@ export function createSync({ store, provider, now = Date.now, intervalMs = 18000
     const baseline = store.getSetting(`baseline:${repo.id}`, iso(now()));
     const add = (kind, sourceId, detail) => {
       const time = detail.time || iso(now());
-      const imported = !state.initialized && time <= baseline;
+      const imported = !state.initialized && Date.parse(time) <= Date.parse(baseline);
       events.push(makeEvent(repo, kind, sourceId, { ...detail, time }, historical || imported));
     };
     for (const item of records) {
