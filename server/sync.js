@@ -11,9 +11,10 @@ import { actorName, branchName, safeAzureUrl } from '../src/events.js';
 /** @typedef {{ code: string, message: string }} StreamError */
 /**
  * Persisted per repository and stream. Optional fields are absent before the first read
- * or after a completed read, which keeps only the fields `completePage` writes.
+ * or after a completed read, which keeps only the fields `completePage` writes. Demo seeds
+ * leave `error` out entirely.
  * @typedef {{
- *   repoId: string, stream: StreamName, initialized: boolean, nextAt: string, error: StreamError|null,
+ *   repoId: string, stream: StreamName, initialized: boolean, nextAt: string, error?: StreamError|null,
  *   lastAttempt?: string, lastSuccess?: string, pending?: boolean, failures?: number, quietCycles?: number,
  *   window?: StreamWindow, windowGeneration?: number, refreshGeneration?: number, manual?: boolean,
  *   cursor?: PageCursor|null, pendingItems?: AzureRecord[], activeIds?: string[]

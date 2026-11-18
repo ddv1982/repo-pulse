@@ -1,4 +1,15 @@
-/** Keep old bookmarks working while exposing one Activity page with two clear views. */
+/**
+ * @typedef {{ route: string, eventId: string|null, repoIds: string[]|null, search: string, kind: string,
+ *   filtersOpen: boolean|undefined, activityRoute: string }} NavigationState
+ * @typedef {{ route: string, search: string, kind: string, repoIds: string[]|null, groups: [string, boolean][],
+ *   filtersOpen: boolean|undefined, scrollY: number, eventId: string|null, activityCapacity: number }} ResultsContext
+ * @typedef {{ id: string, disabled?: boolean }} WatchedRepo
+ */
+
+/**
+ * Keep old bookmarks working while exposing one Activity page with two clear views.
+ * @param {unknown} hash
+ */
 export function parseRoute(hash) {
   const [name, value] = String(hash || '')
     .replace(/^#/, '')
@@ -17,22 +28,25 @@ export function parseRoute(hash) {
   return { route: ['repositories', 'settings'].includes(name) ? name : 'catchup', eventId: null };
 }
 
-export const activityHref = route => `#activity/${route === 'activity' ? 'all' : 'new'}`;
-export const isActivity = route => route === 'catchup' || route === 'activity';
+export const activityHref = (/** @type {string} */ route) => `#activity/${route === 'activity' ? 'all' : 'new'}`;
+export const isActivity = (/** @type {unknown} */ route) => route === 'catchup' || route === 'activity';
 
 const RESULTS_KEY = 'repo-pulse-results-context';
 
+/** Session storage is untrusted JSON, so every field is checked. @returns {ResultsContext | null} */
 function readResultsContext() {
   try {
-    const value = JSON.parse(sessionStorage.getItem(RESULTS_KEY));
+    const value = JSON.parse(sessionStorage.getItem(RESULTS_KEY) ?? 'null');
     if (!value || !isActivity(value.route)) return null;
     return {
       route: value.route,
       search: typeof value.search === 'string' ? value.search : '',
       kind: typeof value.kind === 'string' ? value.kind : '',
-      repoIds: Array.isArray(value.repoIds) ? value.repoIds.filter(id => typeof id === 'string') : null,
+      repoIds: Array.isArray(value.repoIds) ? value.repoIds.filter((/** @type {unknown} */ id) => typeof id === 'string') : null,
       groups: Array.isArray(value.groups)
-        ? value.groups.filter(entry => Array.isArray(entry) && typeof entry[0] === 'string' && typeof entry[1] === 'boolean')
+        ? value.groups.filter(
+            (/** @type {unknown} */ entry) => Array.isArray(entry) && typeof entry[0] === 'string' && typeof entry[1] === 'boolean',
+          )
         : [],
       filtersOpen: typeof value.filtersOpen === 'boolean' ? value.filtersOpen : undefined,
       scrollY: Number.isFinite(value.scrollY) ? Math.max(0, value.scrollY) : 0,
@@ -52,11 +66,16 @@ function canonicalRoute() {
   return parsed;
 }
 
+/**
+ * @param {{ ui: NavigationState, captureGroups: () => [string, boolean][], activityCapacity: () => number }} options
+ */
 export function createNavigation({ ui, captureGroups, activityCapacity }) {
   let results = readResultsContext();
+  /** @type {ResultsContext | null | undefined} */
   let pending;
   let generation = 0;
 
+  /** @param {string|null} eventId */
   function remember(eventId) {
     if (!isActivity(ui.route)) return;
     results = {
@@ -83,6 +102,7 @@ export function createNavigation({ ui, captureGroups, activityCapacity }) {
   }
 
   // Disabled repositories keep their place in an explicit scope so enabling one restores it.
+  /** @param {WatchedRepo[]} watched */
   function reconcileRepositories(watched) {
     if (ui.repoIds !== null) ui.repoIds = ui.repoIds.filter(id => watched.some(repo => repo.id === id));
     if (!watched.some(repo => !repo.disabled) && isActivity(ui.route)) {
@@ -106,12 +126,14 @@ export function createNavigation({ ui, captureGroups, activityCapacity }) {
     invalidate,
     reconcileRepositories,
     remember,
+    /** @param {unknown} loading */
     takeRestoration(loading) {
       if (loading || pending?.route !== ui.route) return null;
       const restored = pending;
       pending = null;
       return restored;
     },
+    /** @param {WatchedRepo[]} repos */
     enter(repos) {
       const previous = ui.route;
       const parsed = canonicalRoute();

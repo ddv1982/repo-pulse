@@ -1,24 +1,12 @@
 {
   "compilerOptions": {
     "allowJs": true,
+    "checkJs": true,
     "noEmit": true,
     "strict": true,
     "module": "NodeNext",
     "target": "ES2024",
     "types": ["node"]
   },
-  "files": [
-    "src/activity.js",
-    "src/activity-text.js",
-    "src/ui/activity-data.js",
-    "server/backfill.js",
-    "server/sync.js",
-    "server/store.js",
-    "server/activity-query.js",
-    "server/checkout-git.js",
-    "src/ui/refresh.js",
-    "server/azure-cli.js",
-    "server/azure-rest.js",
-    "server/azure-client.js"
-  ]
+  "include": ["server.js", "server/**/*.js", "src/activity.js", "src/activity-text.js", "src/ui/activity-data.js", "src/ui/refresh.js"]
 }

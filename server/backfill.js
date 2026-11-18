@@ -21,8 +21,8 @@
 /**
  * @typedef {{
  *   listRepos: () => WatchedRepo[],
- *   listJobs: (filter: {type: 'backfill'}) => HistoryJob[],
- *   getSetting: (key: string, fallback: string) => string,
+ *   listJobs: (filter: {type: 'backfill'}) => import('./store.js').Job[],
+ *   getSetting: (key: string, fallback: string) => unknown,
  *   saveJob: (job: HistoryJob) => void,
  *   commitPage: (page: {repoId: string, events: ActivityEvent[], entities: Entity[], jobs: (HistoryJob|MergeJob)[]}) => void
  * }} HistoryStore
@@ -51,7 +51,8 @@ export function createBackfill({ store, provider, normalize, now = Date.now }) {
   let active;
   /** @type {string|undefined} */
   let lastId;
-  const jobs = () => store.listJobs({ type: 'backfill' });
+  // Persisted JSON: rows of type 'backfill' are only ever written by saveJob below.
+  const jobs = () => /** @type {HistoryJob[]} */ (store.listJobs({ type: 'backfill' }));
   /** @param {string} repoId @param {number|'all'} [days] */
   function start(repoId, days = 30) {
     const repo = store.listRepos().find(item => item.id === repoId);
@@ -64,7 +65,7 @@ export function createBackfill({ store, provider, normalize, now = Date.now }) {
       return previous;
     }
     const requestedAt = now();
-    const baseline = Date.parse(store.getSetting(`baseline:${repoId}`, ''));
+    const baseline = Date.parse(String(store.getSetting(`baseline:${repoId}`, '')));
     // Never acknowledge a live change merely because historical import reached the present.
     const until = Number.isFinite(baseline) ? Math.min(requestedAt, baseline) : requestedAt;
     const since = period === 'all' ? EARLIEST : requestedAt - period * DAY;

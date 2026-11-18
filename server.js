@@ -1,3 +1,4 @@
+// @ts-check
 import { createServer } from 'node:http';
 import { readFile, mkdir } from 'node:fs/promises';
 import { resolve, dirname, extname, sep } from 'node:path';
@@ -18,7 +19,34 @@ import { isBranchAction } from './server/checkout-branches.js';
 import { createCheckoutGit, isCheckoutIntent } from './server/checkout-git.js';
 import { browseFolders } from './server/folders.js';
 
+/** @typedef {import('node:http').IncomingMessage} Request */
+/** @typedef {import('node:http').ServerResponse} Response */
+/** @typedef {ReturnType<typeof createStore>} Store */
+/** @typedef {import('./server/azure-client.js').AzureProvider} AzureProvider */
+/** Live mode passes the Azure client; demo mode passes demoProvider, which answers only the routes demo serves. */
+/** @typedef {AzureProvider | typeof demoProvider} AppProvider */
+/** Demo mode passes a stub, so the app relies only on the two calls both share with createSync. */
+/** @typedef {{ status: () => unknown, refresh: (repoIds?: string[]) => unknown }} AppSync */
+/** @typedef {{ req: Request, res: Response, url: URL, params: string[] }} RouteContext */
+/** @typedef {{ method: 'GET'|'POST'|'PATCH'|'DELETE', path: string | RegExp, handler: (context: RouteContext) => unknown }} Route */
+/** @typedef {Error & { status?: number, code?: string }} RequestError */
+/**
+ * @typedef {{
+ *   store: Store,
+ *   provider: AppProvider,
+ *   sync: AppSync,
+ *   cli?: Pick<ReturnType<typeof createAzureCli>, 'diagnostics'> | null,
+ *   backfill?: Pick<ReturnType<typeof createBackfill>, 'start'>,
+ *   demo?: boolean,
+ *   discover?: typeof discoverRepositories,
+ *   browse?: (input: unknown) => Promise<unknown>,
+ *   checkoutGit?: ReturnType<typeof createCheckoutGit>,
+ *   onStateRead?: () => void,
+ * }} AppOptions
+ */
+
 const ROOT = dirname(fileURLToPath(import.meta.url));
+/** @type {Record<string, string>} */
 const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml' };
 const HEADERS = {
   'content-security-policy':
@@ -28,10 +56,16 @@ const HEADERS = {
   'cache-control': 'no-store',
 };
 
+/** @param {string} message @returns {RequestError} */
 function problem(message, status = 400) {
   return Object.assign(new Error(message), { status });
 }
 
+/**
+ * Parses a JSON object body. Its fields stay unknown until each route validates them.
+ * @param {Request} req
+ * @returns {Promise<Record<string, unknown>>}
+ */
 async function body(req) {
   if (!req.headers['content-type']?.startsWith('application/json')) throw problem('Send application/json.', 415);
   const chunks = [];
@@ -50,17 +84,20 @@ async function body(req) {
   }
 }
 
+/** @param {Request} req */
 function checkLocalRequest(req) {
   // Compare the actual bound port too: other localhost apps are different origins.
   const port = req.socket.localPort;
   const hosts = new Set([`localhost:${port}`, `127.0.0.1:${port}`, `[::1]:${port}`]);
   const host = req.headers.host;
-  if (!hosts.has(host)) throw problem('Open Repo Pulse through its localhost address.', 403);
+  if (!host || !hosts.has(host)) throw problem('Open Repo Pulse through its localhost address.', 403);
   if (req.headers.origin && req.headers.origin !== `http://${host}`) throw problem('Origin is not allowed.', 403);
   if (req.headers['sec-fetch-site'] === 'cross-site') throw problem('Cross-site requests are not allowed.', 403);
 }
 
+/** @param {string} pathname @param {Response} res */
 async function staticFile(pathname, res) {
+  /** @type {Record<string, string>} */
   const alias = { '/': 'web/index.html', '/app.css': 'web/app.css', '/theme.js': 'web/theme.js', '/favicon.svg': 'web/favicon.svg' };
   let relative = alias[pathname];
   if (!relative && /^\/(src|web)\/[a-zA-Z0-9_./-]+\.(js|css|svg)$/.test(pathname)) relative = pathname.slice(1);
@@ -72,12 +109,15 @@ async function staticFile(pathname, res) {
     res.writeHead(200, { 'content-type': `${TYPES[extname(path)]}; charset=utf-8` }).end(content);
     return true;
   } catch (error) {
-    if (error.code === 'ENOENT') return false;
+    if (/** @type {NodeJS.ErrnoException} */ (error).code === 'ENOENT') return false;
     throw error;
   }
 }
 
-/** Narrow loopback HTTP boundary. Azure commands, sync and persistence live in separate modules. */
+/**
+ * Narrow loopback HTTP boundary. Azure commands, sync and persistence live in separate modules.
+ * @param {AppOptions} options
+ */
 export function createApp({
   store,
   provider,
@@ -88,34 +128,47 @@ export function createApp({
   discover = discoverRepositories,
   browse = browseFolders,
   checkoutGit = createCheckoutGit({
-    findPulls: createCheckoutLookup({ cached: store.completedCheckoutPulls, lookup: provider.completedCheckoutPulls }),
+    findPulls: createCheckoutLookup({
+      cached: store.completedCheckoutPulls,
+      lookup: 'completedCheckoutPulls' in provider ? provider.completedCheckoutPulls : undefined,
+    }),
+    // Settings are stored JSON; these keys only ever hold what the matching save wrote.
     followups: {
-      get: id => store.getSetting(`checkout-followup:${id}`),
+      get: id => /** @type {import('./server/checkout-branches.js').Followup | undefined} */ (store.getSetting(`checkout-followup:${id}`)),
       save: (id, value) => store.setSetting(`checkout-followup:${id}`, value),
     },
-    observations: { get: id => store.getSetting(`checkout:${id}`), save: (id, value) => store.setSetting(`checkout:${id}`, value) },
+    observations: {
+      get: id => /** @type {import('./server/checkout-observations.js').Observation | undefined} */ (store.getSetting(`checkout:${id}`)),
+      save: (id, value) => store.setSetting(`checkout:${id}`, value),
+    },
   }),
   onStateRead = () => {},
 }) {
   const csrfToken = randomBytes(32).toString('hex');
+  /** @param {Response} res @param {number} status @param {unknown} data */
   const json = (res, status, data) =>
     res.writeHead(status, { 'content-type': 'application/json; charset=utf-8' }).end(JSON.stringify(data));
+  /** @param {unknown} id */
   const repoById = id => {
     const repo = store.listRepos().find(item => item.id === id);
     if (!repo) throw problem('Repository is not watched.', 404);
     return repo;
   };
+  /** @param {unknown} id */
   const enabledRepoById = id => {
     const repo = repoById(id);
     if (repo.disabled) throw problem('Repository is disabled. Enable it on Repositories first.', 409);
     return repo;
   };
+  /** @param {unknown} value @returns {value is string[]} */
+  const isStringList = value => Array.isArray(value) && value.every(item => typeof item === 'string');
   const enabledRepoIds = () =>
     store
       .listRepos()
       .filter(repo => !repo.disabled)
       .map(repo => repo.id);
   // First match wins, in table order. Route params arrive undecoded so each handler keeps its own check order.
+  /** @type {Route[]} */
   const routes = [
     {
       method: 'GET',
@@ -150,8 +203,9 @@ export function createApp({
           throw problem('Invalid activity cursor.');
         }
         const view = query.get('view') || 'all';
-        if (!['new', 'all'].includes(view)) throw problem('Invalid activity view.');
-        const requested = query.has('repoIds') ? query.get('repoIds').split(',').filter(Boolean) : undefined;
+        if (view !== 'new' && view !== 'all') throw problem('Invalid activity view.');
+        const repoIdList = query.get('repoIds');
+        const requested = repoIdList !== null ? repoIdList.split(',').filter(Boolean) : undefined;
         requested?.forEach(repoById);
         const enabled = enabledRepoIds();
         const repoIds = (requested || enabled).filter(id => enabled.includes(id));
@@ -184,9 +238,10 @@ export function createApp({
       handler: async ({ req, res }) => {
         if (demo || !backfill) throw problem('Historical import is available in live mode.');
         const input = await body(req);
-        repoById(input.repoId);
-        if (![30, 90, 'all'].includes(input.days)) throw problem('Choose 30 days, 90 days or all available history.');
-        return json(res, 202, backfill.start(input.repoId, input.days));
+        const repo = repoById(input.repoId);
+        const days = input.days;
+        if (days !== 30 && days !== 90 && days !== 'all') throw problem('Choose 30 days, 90 days or all available history.');
+        return json(res, 202, backfill.start(repo.id, days));
       },
     },
     {
@@ -221,8 +276,11 @@ export function createApp({
       method: 'POST',
       path: '/api/repos',
       handler: async ({ req, res }) => {
-        if (demo) throw problem('Demo repositories are fictional. Start live mode to add your repositories.');
+        // Only the live Azure client resolves repositories; demoProvider has no lookup.
+        if (demo || !('resolveRepository' in provider))
+          throw problem('Demo repositories are fictional. Start live mode to add your repositories.');
         const input = await body(req);
+        /** @type {import('./server/repositories.js').ParsedRemote & { localPath?: string }} */
         let remote;
         if (typeof input.url === 'string' && input.url.trim()) remote = parseRemote(input.url.trim());
         else if (typeof input.path === 'string' && input.path.trim()) {
@@ -234,6 +292,7 @@ export function createApp({
           if (remotes.length !== 1) throw problem('Choose the remote explicitly for a checkout with multiple Azure remotes.');
           remote = { ...parseRemote(remotes[0].url), localPath: checkout.localPath };
         } else throw problem('Enter an Azure repository URL or local checkout path.');
+        /** @type {import('./server/store.js').Repository} */
         const repo = await provider.resolveRepository(remote);
         if (remote.localPath) repo.localPath = remote.localPath;
         const existing = store.listRepos().find(item => item.id === repo.id);
@@ -300,10 +359,10 @@ export function createApp({
       path: '/api/refresh',
       handler: async ({ req, res }) => {
         const input = await body(req);
-        if (input.repoIds !== undefined && (!Array.isArray(input.repoIds) || input.repoIds.some(id => typeof id !== 'string')))
-          throw problem('repoIds must be a list.');
-        input.repoIds?.forEach(repoById);
-        return json(res, 202, { ok: true, status: sync.refresh(input.repoIds) });
+        const { repoIds } = input;
+        if (repoIds !== undefined && !isStringList(repoIds)) throw problem('repoIds must be a list.');
+        repoIds?.forEach(repoById);
+        return json(res, 202, { ok: true, status: sync.refresh(repoIds) });
       },
     },
     {
@@ -311,10 +370,10 @@ export function createApp({
       path: '/api/ack',
       handler: async ({ req, res }) => {
         const input = await body(req);
-        if (!Array.isArray(input.ids) || input.ids.length > 1000 || input.ids.some(id => typeof id !== 'string'))
-          throw problem('Send up to 1000 explicit event IDs.');
-        if (input.seen !== undefined && typeof input.seen !== 'boolean') throw problem('seen must be true or false.');
-        store.acknowledge(input.ids, input.seen !== false);
+        const { ids, seen } = input;
+        if (!Array.isArray(ids) || ids.length > 1000 || !isStringList(ids)) throw problem('Send up to 1000 explicit event IDs.');
+        if (seen !== undefined && typeof seen !== 'boolean') throw problem('seen must be true or false.');
+        store.acknowledge(ids, seen !== false);
         return json(res, 200, { ok: true });
       },
     },
@@ -333,7 +392,7 @@ export function createApp({
     },
     // Only demo mode has this route; in live mode the path is a plain 404.
     ...(demo
-      ? [
+      ? /** @type {Route[]} */ ([
           {
             method: 'POST',
             path: '/api/demo/event',
@@ -342,7 +401,7 @@ export function createApp({
               return json(res, 201, addDemoEvent(store));
             },
           },
-        ]
+        ])
       : []),
     {
       method: 'GET',
@@ -360,11 +419,11 @@ export function createApp({
     Object.entries(HEADERS).forEach(([key, value]) => res.setHeader(key, value));
     try {
       checkLocalRequest(req);
-      const url = new URL(req.url, `http://${req.headers.host}`);
+      const url = new URL(String(req.url), `http://${req.headers.host}`);
       const path = url.pathname;
       if (req.method === 'GET' && (await staticFile(path, res))) return;
       if (!path.startsWith('/api/')) return json(res, 404, { message: 'Not found.' });
-      if (!['GET', 'POST', 'PATCH', 'DELETE'].includes(req.method)) throw problem('Method not allowed.', 405);
+      if (!['GET', 'POST', 'PATCH', 'DELETE'].includes(req.method ?? '')) throw problem('Method not allowed.', 405);
       if (req.method !== 'GET' && req.headers['x-repo-pulse-token'] !== csrfToken)
         throw problem('Reload the page before making changes.', 403);
       for (const route of routes) {
@@ -373,7 +432,8 @@ export function createApp({
         if (match) return await route.handler({ req, res, url, params: match.slice(1) });
       }
       return json(res, 404, { message: 'Not found.' });
-    } catch (error) {
+    } catch (caught) {
+      const error = /** @type {RequestError} */ (caught);
       // Adapter errors carry already-redacted, actionable text; unexpected errors stay local.
       const status = error.status || (error.code === 'NOT_FOUND' ? 404 : error.code === 'BAD_REQUEST' ? 400 : error.code ? 502 : 500);
       if (status === 500) console.error('Request failed:', error.name);
@@ -385,6 +445,7 @@ export function createApp({
   });
 }
 
+/** @param {{ demo?: boolean, port?: number, dataDir?: string }} [options] */
 export async function startApp({ demo = false, port = 4317, dataDir = resolve(ROOT, '.repo-pulse') } = {}) {
   await mkdir(dataDir, { recursive: true, mode: 0o700 });
   const store = createStore(resolve(dataDir, demo ? 'demo.sqlite' : 'live.sqlite'));
@@ -393,31 +454,38 @@ export async function startApp({ demo = false, port = 4317, dataDir = resolve(RO
   const cli = demo
     ? null
     : createAzureCli({ executor: createRestExecutor({ cliExecutor: defaultExecutor }), limitPerMinute: 60, concurrency: 4 });
-  const provider = demo ? demoProvider : createAzureClient({ cli });
+  // The live pieces are null in demo mode; keeping them separate lets each consumer see the concrete type.
+  const azure = cli && createAzureClient({ cli });
+  const provider = azure || demoProvider;
   let lastClientAt = 0;
-  let enrichment, backfill;
-  const sync = demo
-    ? {
-        start() {},
-        stop() {},
-        refresh() {
-          return { demo: true };
-        },
-        status() {
-          return { demo: true, running: false };
-        },
-      }
-    : createSync({
-        store,
-        provider,
-        isForeground: () => Date.now() - lastClientAt < 45_000,
-        onPrCompleted: (repo, data) => enrichment.reconcilePr(repo, data),
-        background: { merge: () => enrichment.tick(), history: () => backfill.tick() },
-      });
-  if (demo) seedDemo(store);
+  /** @type {ReturnType<typeof createEnrichment> | undefined} */
+  let enrichment;
+  /** @type {ReturnType<typeof createBackfill> | undefined} */
+  let backfill;
+  const liveSync =
+    azure &&
+    createSync({
+      store,
+      provider: azure,
+      isForeground: () => Date.now() - lastClientAt < 45_000,
+      // Both are assigned below, before sync.start() can schedule any work.
+      onPrCompleted: (repo, data) => enrichment?.reconcilePr(repo, data),
+      background: { merge: () => enrichment?.tick(), history: () => backfill?.tick() },
+    });
+  const sync = liveSync || {
+    start() {},
+    stop() {},
+    refresh() {
+      return { demo: true };
+    },
+    status() {
+      return { demo: true, running: false };
+    },
+  };
+  if (!azure || !liveSync) seedDemo(store);
   else {
-    enrichment = createEnrichment({ store, provider });
-    backfill = createBackfill({ store, provider, normalize: sync.normalize });
+    enrichment = createEnrichment({ store, provider: azure });
+    backfill = createBackfill({ store, provider: azure, normalize: liveSync.normalize });
   }
   const app = createApp({
     store,
@@ -432,7 +500,7 @@ export async function startApp({ demo = false, port = 4317, dataDir = resolve(RO
   });
   await new Promise((resolveListen, reject) => {
     app.once('error', reject);
-    app.listen(port, '127.0.0.1', resolveListen);
+    app.listen(port, '127.0.0.1', () => resolveListen(undefined));
   });
   sync.start();
   const close = async () => {
@@ -443,7 +511,14 @@ export async function startApp({ demo = false, port = 4317, dataDir = resolve(RO
     await new Promise(resolveClose => app.close(resolveClose));
     store.close();
   };
-  return { app, store, sync, provider, close, url: `http://127.0.0.1:${app.address().port}` };
+  return {
+    app,
+    store,
+    sync,
+    provider,
+    close,
+    url: `http://127.0.0.1:${/** @type {import('node:net').AddressInfo} */ (app.address()).port}`,
+  };
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {

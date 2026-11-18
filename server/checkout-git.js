@@ -11,7 +11,8 @@ import { branchFollowups, branchProblem, memoryFollowups } from './checkout-bran
 import { checkoutDiagnostic, memoryObservations, observedRewrite } from './checkout-observations.js';
 
 /**
- * @typedef {{ id: string, name?: string, organization?: string, project?: string, localPath?: string, azureId?: string }} LinkedRepo
+ * Checkouts belong to watched repositories, so their Azure identity is always present.
+ * @typedef {import('./store.js').Repository} LinkedRepo
  * @typedef {{ branch: string|null, head: string|null, upstream: string|null, ahead: number|null, behind: number|null, dirty: boolean }} GitStatus
  * @typedef {{ branch: string, head: string, upstream: string, identity: string }} CheckoutIntent
  * @typedef {GitStatus & { identity: string, lastBranchCheck?: { at: string, matchesFetchedTip: boolean } }} CheckoutReading
