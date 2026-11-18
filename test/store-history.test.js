@@ -386,7 +386,8 @@ test('a v6 database keeps event IDs, seen flags and repositories when its activi
   const check = new DatabaseSync(path);
   const columns = check.prepare('PRAGMA table_info(activity_members)').all().map(column => column.name);
   assert.ok(columns.includes('status_id') && columns.includes('evidence_id') && !columns.includes('label'));
-  assert.ok(check.prepare('SELECT status_id FROM activity_members').all().every(row => row.status_id !== 'old label'), 'labels are reindexed as status IDs');
+  assert.deepEqual(check.prepare('SELECT event_id,status_id FROM activity_members ORDER BY event_id').all().map(row => ({ ...row })),
+    [{ event_id: 'seen-build',status_id: 'succeeded' },{ event_id: 'unseen-push',status_id: 'push' }], 'labels are reindexed as status IDs');
   check.close(); rmSync(dir,{ recursive: true });
 });
 
