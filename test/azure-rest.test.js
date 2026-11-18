@@ -180,7 +180,7 @@ test('discarded error responses have their bodies cancelled', async () => {
   cli.close();
 });
 
-test('live network settings send REST reads through the configured proxy and trust the system certificates', async () => {
+for (const scheme of ['http://', '']) test(`live network settings send REST reads through the configured proxy${scheme ? '' : ' without a scheme'} and trust the system certificates`, async () => {
   const { createServer } = await import('node:http');
   const { execFile } = await import('node:child_process');
   let hits = 0;
@@ -195,7 +195,8 @@ test('live network settings send REST reads through the configured proxy and tru
     await fetch('https://dev.azure.com/', { signal: AbortSignal.timeout(5000) }).catch(() => {});
     console.log(JSON.stringify({ system, grew: after.size >= before }));`;
   const stdout = await new Promise((resolve, reject) => execFile(process.execPath, ['--input-type=module', '-e', script],
-    { env: { ...process.env, HTTPS_PROXY: `http://127.0.0.1:${proxy.address().port}`, NO_PROXY: '' }, timeout: 10000 },
+    { env: { ...Object.fromEntries(Object.entries(process.env).filter(([key]) => !/^(https?|no|all)_proxy$/i.test(key))),
+      HTTPS_PROXY: `${scheme}127.0.0.1:${proxy.address().port}` }, timeout: 10000 },
     (error, out) => error ? reject(error) : resolve(out))).finally(() => proxy.close());
   assert.deepEqual(JSON.parse(stdout.trim().split('\n').at(-1)), { system: true, grew: true });
   assert.equal(hits, 1, 'the REST request went through the proxy');

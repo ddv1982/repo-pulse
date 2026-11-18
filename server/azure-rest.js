@@ -14,8 +14,11 @@ const refused = message => Object.assign(new Error(message), { stderr: 'not in t
  * Node's fetch ignores HTTP(S)_PROXY and the operating system's certificate store unless told otherwise,
  * while az honours both, so REST reads would fail behind a corporate proxy or TLS inspection where az works.
  */
-export function useSystemNetworkSettings() {
-  setGlobalProxyFromEnv();
+export function useSystemNetworkSettings(env = process.env) {
+  // Python Requests accepts a proxy without a scheme; Node refuses one at startup.
+  const proxyEnv = Object.fromEntries(Object.entries(env).filter(([key]) => /^(https?|no)_proxy$/i.test(key))
+    .map(([key, value]) => [key, /^no_proxy$/i.test(key) || !value || value.includes('://') ? value : `http://${value}`]));
+  setGlobalProxyFromEnv(proxyEnv);
   tls.setDefaultCACertificates([...new Set([...tls.getCACertificates('default'), ...tls.getCACertificates('system')])]);
 }
 
