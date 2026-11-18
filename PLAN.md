@@ -6,7 +6,7 @@ Branch and push monitoring, PR merge evidence, grouped Activity, resumable histo
 
 ## Codebase improvement phases
 
-Complete these phases before adding more Azure coverage. Keep Node, SQLite, JavaScript, and the existing Azure CLI budget. Each phase should be independently reviewable and leave the existing watches, cached events, and seen state intact.
+Complete these phases before adding more Azure coverage. Keep Node, SQLite, JavaScript, and one shared Azure budget. Each phase should be independently reviewable and leave the existing watches, cached events, and seen state intact.
 
 ### 1. Make Pull recoverable
 
@@ -41,7 +41,7 @@ Repeat the [local Activity measurement](scripts/measure-activity.js) on the same
 ## Constraints
 
 - Watch whole repositories by default. Filters affect the Activity view and opening an item never marks it seen.
-- Keep one budget for Azure CLI work. Measure detection delay and actual upstream traffic separately before changing the polling model.
+- Keep one budget for all Azure reads. Activity reads use REST with an Azure CLI token since 2026-11-18, decided after `scripts/measure-budget.js` showed merge evidence falling behind from about 10 repositories on the CLI-only budget. Measure with that script before changing the polling model.
 - Keep status labels readable without color. Preserve keyboard focus, visibility, and scroll across refreshes.
 - A successful build or merged PR does not establish deployment. Partial evidence should stay visible as partial evidence.
 - Service hooks, audit ingestion, notifications, and packaging can wait for a demonstrated need.

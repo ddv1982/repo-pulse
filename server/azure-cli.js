@@ -107,7 +107,7 @@ export async function resolveAzCommand({ platform = process.platform, env = proc
 }
 
 let azCommand;
-async function defaultExecutor(args, { signal, timeoutMs }) {
+export async function defaultExecutor(args, { signal, timeoutMs }) {
   // Resolve once per process; a failed lookup is retried so a later install is picked up.
   azCommand ||= resolveAzCommand().catch(error => { azCommand = undefined; throw error; });
   const { file, prefix, env } = await azCommand;

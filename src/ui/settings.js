@@ -10,7 +10,7 @@ export function renderSettings(state, connection) {
   const { pending = 0, errors = 0 } = mergeQueue;
   const lag = diagnostics.sync?.lag;
   const cli = limitPerMinute
-    ? `${e(startsLastMinute)} of ${e(limitPerMinute)} starts in the last minute · ${e(running)} of ${e(concurrency)} processes running`
+    ? `${e(startsLastMinute)} of ${e(limitPerMinute)} Azure calls in the last minute · ${e(running)} of ${e(concurrency)} in progress`
     : 'No CLI activity to report';
   return `<div class="section-heading"><h1>Settings</h1></div>
     <div class="card settings-card">
@@ -42,12 +42,12 @@ export function renderSettings(state, connection) {
         <summary class="settings-row" id="troubleshooting-toggle">Troubleshooting <span class="settings-chevron" aria-hidden="true"></span></summary>
         <div class="settings-content">
           <dl class="diagnostic-summary">
-            <div><dt>Azure CLI</dt><dd>${cli}</dd></div>
+            <div><dt>Azure calls</dt><dd>${cli}</dd></div>
             ${lag?.overdueStreams ? `<div><dt>Checks behind</dt><dd>${e(lag.overdueStreams)} checks waiting · up to ${e(Math.round(lag.maxDelayMs / 60000))} min late</dd></div>` : ''}
             <div><dt>Merge checks</dt><dd>${e(pending)} pending${errors ? ` · ${e(errors)} retrying` : ''}</dd></div>
             ${lastError?.message ? `<div><dt>Last CLI issue</dt><dd>${e(lastError.message)}</dd></div>` : ''}
           </dl>
-          <p class="help">A CLI start can make several Azure requests.</p>
+          <p class="help">Activity reads are single Azure DevOps requests. Connection checks start the Azure CLI, which can make several requests.</p>
           <button class="btn sm" type="button" id="copy-diagnostics" data-action="copy-diagnostics">Copy diagnostics</button>
         </div>
       </details>

@@ -1,5 +1,5 @@
 // Simulates live polling and merge enrichment against the shared Azure CLI budget.
-// Usage: node scripts/measure-budget.js [--repos 1,5,10,20] [--pushes-per-hour 4] [--commits 5] [--call-ms 1500] [--minutes 60]
+// Usage: node scripts/measure-budget.js [--limit 12] [--repos 1,5,10,20] [--pushes-per-hour 4] [--commits 5] [--call-ms 1500] [--minutes 60]
 import { createHash } from 'node:crypto';
 import { createStore } from '../server/store.js';
 import { createSync } from '../server/sync.js';
@@ -15,7 +15,7 @@ const pushesPerHour = Number(option('pushes-per-hour', 4));
 const commitsPerPush = Number(option('commits', 5));
 const callMs = Number(option('call-ms', 1500));
 const minutes = Number(option('minutes', 60));
-const LIMIT_PER_MINUTE = 12;
+const LIMIT_PER_MINUTE = Number(option('limit', 12));
 const sha = value => createHash('sha1').update(value).digest('hex');
 
 function simulate(repoTotal) {

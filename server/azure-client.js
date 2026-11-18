@@ -46,7 +46,7 @@ export function createAzureClient({ cli, now = Date.now } = {}) {
         const extension = await cached('cli-extension', () => cli.run(['extension', 'show', '--name', 'azure-devops']), 300_000);
         const result = { available: true, version: version['azure-cli'], extension: extension.version, identity: null, identityVerified: false,
           signedIn: false, message: 'Azure CLI and the DevOps extension are already installed. Existing CLI credentials will be used when you add a repository.' };
-        // Local account metadata only: never acquire, print or return a token.
+        // account show reads local account metadata only; it never acquires, prints or returns a token.
         try {
           const account = await cached('cli-account', () => cli.run(['account', 'show']), 30_000);
           if (account.user?.name) {
@@ -65,6 +65,8 @@ export function createAzureClient({ cli, now = Date.now } = {}) {
               ? ['repos', 'show', '--repository', repository.azureId, '--project', repository.projectId || repository.project, '--organization', org, '--detect', 'false']
               : ['devops', 'project', 'list', '--organization', org, '--top', '1', '--detect', 'false']);
             if (repository && data?.id !== repository.azureId) throw cliError('INVALID_RESPONSE', 'Azure CLI did not verify the watched repository.');
+            // Activity reads use the Azure CLI's Entra token, which the extension's own credentials do not prove.
+            if (repository) await invoke(repository, 'git', 'refs', { filter: 'heads/', '$top': 1 });
             return new Date(now()).toISOString();
           };
           try {
