@@ -371,7 +371,7 @@ export function createApp({
       handler: async ({ req, res }) => {
         const input = await body(req);
         const { ids, seen } = input;
-        if (!isStringList(ids) || ids.length > 1000) throw problem('Send up to 1000 explicit event IDs.');
+        if (!Array.isArray(ids) || ids.length > 1000 || !isStringList(ids)) throw problem('Send up to 1000 explicit event IDs.');
         if (seen !== undefined && typeof seen !== 'boolean') throw problem('seen must be true or false.');
         store.acknowledge(ids, seen !== false);
         return json(res, 200, { ok: true });

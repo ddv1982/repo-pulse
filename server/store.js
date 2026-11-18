@@ -500,7 +500,7 @@ export function createStore(path = ':memory:') {
     /**
      * Sync pages carry their stream state; backfill and enrichment pages carry none.
      * @param {{ repoId: string, events?: ActivityEvent[], entities?: EntityInput[], jobs?: Job[] }
-     *   & ({ stream: StreamName, state: StreamState } | { stream?: undefined, state?: undefined })} page
+     *   & ({ stream: StreamName, state: StreamState } | { stream?: StreamName, state?: undefined })} page
      */
     commitPage({ repoId, stream, state, events = [], entities = [], jobs = [] }) {
       return transaction(() => {
