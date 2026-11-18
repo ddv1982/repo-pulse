@@ -237,7 +237,32 @@ export function createEnrichment({ store, provider, now = Date.now, negativeTtlM
       });
       return;
     }
-    const page = await provider.refCommits(repo, ref.oldObjectId, ref.newObjectId, job.refCursor || {});
+    let page;
+    try {
+      page = await provider.refCommits(repo, ref.oldObjectId, ref.newObjectId, job.refCursor || {});
+    } catch (caught) {
+      if (/** @type {{ code?: string }} */ (caught)?.code !== 'NOT_FOUND') throw caught;
+      // The old tip can be gone after a rewrite: the range stays unproven and the update unknown, and the job moves on.
+      if (gone(repo, event)) return;
+      ranges[index] = {
+        name: ref.name,
+        oldObjectId: ref.oldObjectId,
+        newObjectId: ref.newObjectId,
+        commitIds: [],
+        complete: false,
+        update: { status: 'unknown' },
+      };
+      const complete = index + 1 >= refs.length;
+      saveStep(repo, event, {
+        ...job,
+        stage: complete ? 'hydrate' : 'ranges',
+        refIndex: index + 1,
+        refCursor: null,
+        refRanges: ranges,
+        rangesComplete: complete,
+      });
+      return;
+    }
     if (gone(repo, event)) return;
     if (!Array.isArray(page?.items)) throw failure('INVALID_RESPONSE', 'Branch revision-range data is unavailable.');
     const entities = cacheEntries(repo.id, page.items);

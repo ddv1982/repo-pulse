@@ -464,3 +464,16 @@ test('an old tip Azure cannot read leaves the update unknown without failing hyd
   assert.deepEqual(evidence.refRanges[0].update, { status: 'unknown' });
   assert.equal(evidence.error, undefined);
 });
+
+test('an old tip Azure cannot read for the forward range ends as unknown instead of retrying', async t => {
+  const f = fixture(t, {
+    async refCommits() {
+      throw Object.assign(new Error('The requested Azure DevOps resource was not found.'), { code: 'NOT_FOUND' });
+    },
+  });
+  await drain(f.store, f.worker());
+  assert.deepEqual(f.store.listJobs({ type: 'merge' }), [], 'the job finishes');
+  const range = f.store.getEvent('push').data.mergeEvidence.refRanges[0];
+  assert.deepEqual(range.update, { status: 'unknown' });
+  assert.equal(range.complete, false, 'introduced commits stay unproven');
+});
