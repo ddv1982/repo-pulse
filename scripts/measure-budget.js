@@ -83,9 +83,10 @@ function simulate(repoTotal) {
       }
       if (resource === 'commits') {
         if (route.commitId) return { commitId: route.commitId, parents: [commitsOf.get(route.commitId) || sha('root')] };
-        if (query.pushId) return { value: repoPushes.find(push => push.pushId === Number(query.pushId))?.commits.map(commitId => ({ commitId })) || [] };
+        const page = (ids = [], skip, top) => ({ value: ids.slice(Number(skip || 0), Number(skip || 0) + Number(top)).map(commitId => ({ commitId })) });
+        if (query.pushId) return page(repoPushes.find(push => push.pushId === Number(query.pushId))?.commits, query.skip, query.top);
         const push = repoPushes.find(item => item.refUpdates[0].newObjectId === query['searchCriteria.compareVersion.version']);
-        return { value: push?.commits.map(commitId => ({ commitId })) || [] };
+        return page(push?.commits, query['searchCriteria.$skip'], query['searchCriteria.$top']);
       }
       return { value: [] };
     },
