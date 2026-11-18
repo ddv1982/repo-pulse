@@ -21,7 +21,7 @@
 /**
  * @typedef {{
  *   listRepos: () => WatchedRepo[],
- *   listJobs: (filter: {type: 'backfill'}) => import('./store.js').Job[],
+ *   listJobs: (filter: {type: 'backfill'}) => HistoryJob[],
  *   getSetting: (key: string, fallback: string) => unknown,
  *   saveJob: (job: HistoryJob) => void,
  *   commitPage: (page: {repoId: string, events: ActivityEvent[], entities: Entity[], jobs: (HistoryJob|MergeJob)[]}) => void
@@ -51,8 +51,7 @@ export function createBackfill({ store, provider, normalize, now = Date.now }) {
   let active;
   /** @type {string|undefined} */
   let lastId;
-  // Persisted JSON: rows of type 'backfill' are only ever written by saveJob below.
-  const jobs = () => /** @type {HistoryJob[]} */ (store.listJobs({ type: 'backfill' }));
+  const jobs = () => store.listJobs({ type: 'backfill' });
   /** @param {string} repoId @param {number|'all'} [days] */
   function start(repoId, days = 30) {
     const repo = store.listRepos().find(item => item.id === repoId);

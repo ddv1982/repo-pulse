@@ -63,7 +63,7 @@ import { browseFolders } from './server/folders.js';
  *   repos: Repository[],
  *   streams: import('./server/sync.js').StreamState[],
  *   diagnostics: Partial<ReturnType<ReturnType<typeof createAzureCli>['diagnostics']>> & { sync: ReturnType<AppSync['status']> },
- *   jobs: import('./server/store.js').Job[],
+ *   jobs: import('./server/backfill.js').HistoryJob[],
  *   mergeQueue: import('./server/store.js').MergeQueueSummary,
  *   activityRevision: string,
  *   settings: { refreshEnabled: boolean, refreshResumedAt: number | null },
