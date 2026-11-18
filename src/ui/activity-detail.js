@@ -13,6 +13,7 @@ import {
   activityTitle,
   activitySummary,
   triggerLabel,
+  voteLabel,
 } from './format.js';
 import { renderTrail } from './activity-trail.js';
 import { activityHref } from './navigation.js';
@@ -38,6 +39,10 @@ const mergeStrategies = {
   rebase: 'Rebase and fast-forward',
   rebaseMerge: 'Rebase with merge commit',
 };
+
+/** @param {NonNullable<EventData['reviewers']>} reviewers */
+const reviewerList = reviewers =>
+  reviewers.map(reviewer => `${e(reviewer.name)}${reviewer.required ? ' (required)' : ''}: ${e(voteLabel(reviewer.vote))}`).join('<br>');
 
 /**
  * A pushed tag can point at an annotated tag object rather than a commit; only the refs snapshot peels it.
@@ -72,6 +77,7 @@ function detailFields(record, repo, data, sha, pushId) {
   if (pr && data.status === 'completed' && data.mergeCommit) fields.push(['Merge commit', commit(data.mergeCommit)]);
   if (data.mergeStrategy) fields.push(['Merge strategy', e(mergeStrategies[data.mergeStrategy] || 'Not supplied')]);
   if (pr && data.closedBy) fields.push(['PR closed by', e(data.closedBy)]);
+  if (pr && data.reviewers?.length) fields.push(['Reviewers', reviewerList(data.reviewers)]);
   if (data.reason) fields.push(['Trigger', e(triggerLabel(data.reason))]);
   if (data.pullRequestId) fields.push(['Pull request', `#${e(data.pullRequestId)}`]);
   if (pushId) fields.push(['Push', `#${e(pushId)}`]);

@@ -68,6 +68,30 @@ const tagName = name => name.replace(/^refs\/tags\//, '');
 const tagTitles = { created: 'New tag', moved: 'Tag moved', deleted: 'Tag deleted' };
 /** @param {number} ms */
 const iso = ms => new Date(ms).toISOString();
+/** @param {AzureRecord} pr @returns {{ id: string, name: string, vote: number, required: boolean }[]} */
+const reviewers = pr =>
+  (pr.reviewers || []).map((/** @type {AzureRecord} */ reviewer) => ({
+    id: String(reviewer.id),
+    name: reviewer.displayName || 'Unknown reviewer',
+    vote: Number(reviewer.vote) || 0,
+    required: Boolean(reviewer.isRequired),
+  }));
+/** @param {AzureRecord} pr @returns {[string, number][]} */
+const reviewerVotes = pr =>
+  reviewers(pr)
+    .map(({ id, vote }) => /** @type {[string, number]} */ ([id, vote]))
+    .sort();
+/**
+ * Reviewers whose vote differs from the previous snapshot. A snapshot without votes, or a first sighting, has no changes.
+ * @param {[string, number][] | undefined} before @param {AzureRecord} pr
+ */
+const voteChanges = (before, pr) => {
+  if (!before) return [];
+  const previous = new Map(before);
+  return reviewers(pr)
+    .filter(reviewer => (previous.get(reviewer.id) ?? 0) !== reviewer.vote)
+    .map(({ name, vote }) => ({ name, vote }));
+};
 /** @param {AzureRecord} pr */
 const prState = pr => ({
   status: pr.status,
@@ -75,6 +99,7 @@ const prState = pr => ({
   title: pr.title,
   source: pr.lastMergeSourceCommit?.commitId,
   target: pr.targetRefName,
+  votes: reviewerVotes(pr),
 });
 // Active PRs can expose a successful preview merge. Only completion establishes
 // the actual merge result; retain its metadata from this existing response.
@@ -258,7 +283,9 @@ export function createSync({
   /** @param {WatchedRepo} repo @param {string} type @param {string} key @param {{ status: string }} value @param {boolean} historical */
   function snapshot(repo, type, key, value, historical) {
     const previous = store.getEntity(repo.id, type, key);
-    const changed = !previous || JSON.stringify(previous.fingerprint) !== JSON.stringify(value);
+    // Snapshots saved before votes were recorded adopt the current votes instead of reporting them as a change.
+    const comparable = previous?.fingerprint && !('votes' in previous.fingerprint) ? { ...value, votes: undefined } : value;
+    const changed = !previous || JSON.stringify(previous.fingerprint) !== JSON.stringify(comparable);
     const revision = (previous?.revision || 0) + Number(changed);
     return {
       previous,
@@ -389,6 +416,8 @@ export function createSync({
             sourceRefName: item.sourceRefName,
             targetRefName: item.targetRefName,
             sourceCommit: item.lastMergeSourceCommit?.commitId,
+            reviewers: reviewers(item),
+            voteChanges: voteChanges(previous?.fingerprint?.votes, item),
             // Azure names a source repository only for a PR from a fork. It stays out of the fingerprint,
             // so recording it creates no update for PRs seen before.
             ...(item.forkSource

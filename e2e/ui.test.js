@@ -1045,3 +1045,12 @@ test('a push that rewrote history says so on its row and in its merge evidence, 
     'main · history rewritten, 2 commits dropped from the old tip',
   );
 });
+
+test('a pull request detail lists its reviewers and their votes in words', async t => {
+  const { page } = await setup(t);
+  await page.locator('[data-event-id="demo-pr-1"] .feed-title').click();
+  const facts = page.locator('.detail-facts');
+  await expect(facts).toContainText('Lars de Wit (required): approved');
+  await expect(facts).toContainText('Sam Ortega: waiting for author');
+  await expect(facts).toContainText('Billing reviewers (required): no vote');
+});

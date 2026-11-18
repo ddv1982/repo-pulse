@@ -50,8 +50,8 @@ Phase 5: fork and outgoing pull requests
 
 Phase 6: review votes
 
-- [ ] PR snapshots keep reviewers with vote and required flag from the existing list response, and a vote change produces PR activity ("Approved by", "Waiting for author", "Rejected by"). Check: sync tests for a new vote and a reset vote, and a test that the first sync after upgrade does not emit vote activity for every open PR.
-- [ ] The PR detail view lists reviewers and their votes, readable without color. Check: e2e test on a seeded PR with mixed votes.
+- [x] PR snapshots keep reviewers with their vote and required flag from the existing list response, and the fingerprint includes votes, so a vote change produces PR activity whose summary says who voted what ("Ana: approved · Sam: vote reset"). A snapshot saved before votes were recorded adopts the current votes without an update. Check: sync test for a new vote and a reset vote, and an upgrade test that fails when the adoption rule is removed. No new request.
+- [x] The PR detail lists reviewers with "(required)" and their vote in words. Check: e2e test on the demo PR with an approval, a "waiting for author" vote and a group with no vote; it fails without the detail field.
 
 Phase 7: discussions and policy evaluations (budget-gated)
 

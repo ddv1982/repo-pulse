@@ -28,7 +28,8 @@
  *   mergeCommit?: string, mergeStrategy?: string, closedBy?: string, sourceVersion?: string, sourceBranch?: string,
  *   commitId?: string, push?: { pushId?: number|string },
  *   change?: 'created' | 'moved' | 'deleted', objectId?: string, peeledObjectId?: string,
- *   fork?: { repository?: string, project?: string } }} EventData
+ *   fork?: { repository?: string, project?: string },
+ *   reviewers?: { name: string, vote: number, required?: boolean }[], voteChanges?: { name: string, vote: number }[] }} EventData
  */
 /**
  * @typedef {{ id: string, repoId: string, kind: ActivityKind, time: string, observedAt?: string,

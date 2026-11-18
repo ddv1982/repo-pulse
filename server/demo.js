@@ -128,7 +128,16 @@ export function seedDemo(store) {
       actor: 'Priya Nair',
       time: ago(45),
       summary: 'Active PR targeting main; CI unavailable for this repository.',
-      data: { pullRequestId: 1175, status: 'active', targetRefName: 'refs/heads/main' },
+      data: {
+        pullRequestId: 1175,
+        status: 'active',
+        targetRefName: 'refs/heads/main',
+        reviewers: [
+          { name: 'Lars de Wit', vote: 10, required: true },
+          { name: 'Sam Ortega', vote: -5 },
+          { name: 'Billing reviewers', vote: 0, required: true },
+        ],
+      },
       url: `${demoRepos[1].webUrl}/pullrequest/1175`,
     },
     {

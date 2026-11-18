@@ -316,3 +316,18 @@ test('a fork PR names its fork in the summary', () => {
     'From fork One-fork in Q · Target: main',
   );
 });
+
+test('vote changes on an open PR read as words, and a closed PR keeps its merge summary', () => {
+  const pr = { id: 'p', repoId: 'r', kind: 'pr', time: '2026-11-17T10:00:00Z' };
+  const data = {
+    status: 'active',
+    targetRefName: 'refs/heads/main',
+    voteChanges: [
+      { name: 'Ana', vote: 10 },
+      { name: 'Sam', vote: 0 },
+    ],
+  };
+  assert.equal(activitySummary({ ...pr, data }), 'Ana: approved · Sam: vote reset');
+  assert.equal(activitySummary({ ...pr, data: { ...data, status: 'completed' } }), 'Merged into main');
+  assert.equal(activitySummary({ ...pr, data: { ...data, voteChanges: [{ name: 'Lee', vote: -10 }] } }), 'Lee: rejected');
+});

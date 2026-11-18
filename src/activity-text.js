@@ -132,8 +132,20 @@ export function triggerLabel(value) {
   return descriptions[value ?? ''] || 'Not supplied';
 }
 
+/** @type {Record<string, string>} */
+const votes = { 10: 'approved', 5: 'approved with suggestions', 0: 'no vote', '-5': 'waiting for author', '-10': 'rejected' };
+/** Azure's reviewer vote in words, so it never depends on color. @param {number} vote */
+export const voteLabel = vote => votes[vote] || 'unknown vote';
+
 /** @param {{ repository?: string, project?: string } | undefined} fork */
 const forkText = fork => (fork ? `From fork ${fork.repository || 'of unknown name'}${fork.project ? ` in ${fork.project}` : ''} · ` : '');
+
+/** A vote change on an open PR is the news; otherwise the summary names where the PR goes. @param {NonNullable<ActivityEvent['data']>} data */
+function prSummary(data) {
+  const changes = data.status === 'active' ? data.voteChanges || [] : [];
+  if (changes.length) return changes.map(change => `${change.name}: ${change.vote ? voteLabel(change.vote) : 'vote reset'}`).join(' · ');
+  return `${forkText(data.fork)}${data.status === 'completed' ? 'Merged into' : 'Target:'} ${branchName(data.targetRefName)}`;
+}
 
 /** @param {NonNullable<ActivityEvent['data']>} data */
 function pushedTagSummary({ change, oldObjectId = '', newObjectId = '' }) {
@@ -144,8 +156,7 @@ function pushedTagSummary({ change, oldObjectId = '', newObjectId = '' }) {
 /** @param {ActivityEvent} event */
 export function activitySummary(event) {
   if (event.kind === 'build') return triggerLabel(event.data?.reason);
-  if (event.kind === 'pr' && event.data?.targetRefName)
-    return `${forkText(event.data.fork)}${event.data.status === 'completed' ? 'Merged into' : 'Target:'} ${branchName(event.data.targetRefName)}`;
+  if (event.kind === 'pr' && event.data && (event.data.targetRefName || event.data.voteChanges?.length)) return prSummary(event.data);
   const listed = ['snapshot', 'refs'].includes(event.data?.evidence ?? '');
   if (event.kind === 'branch-created') return listed ? 'First seen remotely; creation time not supplied' : 'New remote branch';
   if (event.kind === 'branch-deleted') return listed ? 'Not in the latest branch list; deletion not confirmed' : 'Remote branch deleted';

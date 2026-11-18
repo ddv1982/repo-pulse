@@ -940,3 +940,59 @@ test('a fork PR keeps where it came from without changing the fingerprint of PRs
   assert.deepEqual(latest.data.fork, { repository: 'One-fork', project: 'Q' });
   store.close();
 });
+
+test('a reviewer vote is PR activity, and PRs saved before votes were recorded adopt them quietly', async () => {
+  const reviewer = (id, vote, displayName = id) => ({ id, displayName, vote });
+  const pr = {
+    pullRequestId: 6,
+    title: 'Fix',
+    status: 'active',
+    creationDate: '2026-11-16T10:00:00Z',
+    sourceRefName: 'refs/heads/fix',
+    targetRefName: 'refs/heads/main',
+    repository: { id: 'a' },
+    reviewers: [reviewer('ana', 0, 'Ana'), reviewer('sam', -5, 'Sam')],
+  };
+  let items = [pr];
+  const { store, sync, advance } = setup(
+    {
+      async read() {
+        return { items, nextCursor: null };
+      },
+    },
+    ['prs'],
+  );
+  // A snapshot from before votes were part of the fingerprint.
+  const prs = store.getStreams().find(state => state.stream === 'prs');
+  const old = { status: 'active', isDraft: false, title: 'Fix', target: 'refs/heads/main' };
+  store.commitPage({
+    repoId: 'one',
+    stream: 'prs',
+    state: { ...prs, initialized: true },
+    entities: [{ type: 'pr', id: '6', data: { fingerprint: old, status: 'active', revision: 1 } }],
+  });
+  await sync.tick();
+  assert.equal(store.listEvents().length, 0, 'existing votes are not news after an upgrade');
+  items = [{ ...pr, reviewers: [reviewer('ana', 10, 'Ana'), reviewer('sam', -5, 'Sam')] }];
+  advance(600001);
+  await sync.tick();
+  items = [{ ...pr, reviewers: [reviewer('ana', 0, 'Ana'), reviewer('sam', -5, 'Sam')] }];
+  advance(600001);
+  await sync.tick();
+  const changes = store
+    .listEvents()
+    .sort((a, b) => a.observedAt.localeCompare(b.observedAt))
+    .map(event => event.data.voteChanges);
+  assert.deepEqual(changes, [[{ name: 'Ana', vote: 10 }], [{ name: 'Ana', vote: 0 }]]);
+  assert.deepEqual(
+    store
+      .listEvents()[0]
+      .data.reviewers.map(item => [item.name, item.vote])
+      .sort(),
+    [
+      ['Ana', 0],
+      ['Sam', -5],
+    ],
+  );
+  store.close();
+});
