@@ -130,6 +130,44 @@ function readStatus(output) {
   return result;
 }
 
+/**
+ * The first matching check names the checkout state; order is significant, and later facts are read only if needed.
+ * @param {GitStatus & { operation: string|undefined, observation: import('./checkout-observations.js').Observation|undefined, rewrite: unknown, target: Upstream|null }} facts
+ * @returns {BlockedState|'behind'}
+ */
+function checkoutState({ operation, observation, rewrite, target, branch, head, upstream, ahead, behind, dirty }) {
+  if (operation) return 'in-progress';
+  if (!branch) return 'detached';
+  if (!head) return 'unborn';
+  if (observation?.missing) return 'upstream-missing';
+  if (rewrite) return 'upstream-rewritten';
+  if (observation?.failure) return 'fetch-failed';
+  if (dirty && !(target && ahead === 0 && behind !== null && behind > 0)) return 'dirty';
+  if (!upstream) return 'no-upstream';
+  if (!target) return 'different-remote';
+  if (ahead === null) return 'unknown';
+  if (ahead && behind) return 'diverged';
+  if (ahead) return 'ahead';
+  if (behind) return 'behind';
+  return 'current';
+}
+
+/**
+ * @param {{ snapshot: ActiveCheckout, target: Upstream|null }} reading @param {'check'|'pull'|'update-target'} operation
+ * @returns {Upstream}
+ */
+function eligibleTarget({ snapshot, target }, operation) {
+  if (
+    !target ||
+    !snapshot.canCheck ||
+    (operation === 'pull' && !snapshot.canPull) ||
+    (operation === 'update-target' && (snapshot.dirty || !['behind', 'current'].includes(snapshot.state)))
+  ) {
+    throw problem('The checkout is no longer eligible. Review its Git status and try again.');
+  }
+  return target;
+}
+
 /** @param {unknown} value @returns {value is CheckoutIntent} */
 export function isCheckoutIntent(value) {
   if (!value || typeof value !== 'object') return false;
@@ -182,13 +220,8 @@ export function createCheckoutGit({
     return urls.length === 1 && matchesRemote(urls[0], repo) ? { remote, source, tracking, url: urls[0] } : null;
   }
 
-  /** @param {string} path @param {LinkedRepo} repo @returns {Promise<{ snapshot: ActiveCheckout, target: Upstream|null, gitDirectory: string|null }>} */
-  async function statusAt(path, repo) {
-    const snapshot = readStatus(
-      await run(path, ['status', '--porcelain=v2', '--branch', '-z', '--untracked-files=normal', '--ignore-submodules=none']),
-    );
-    const { branch, head, upstream, ahead, behind, dirty } = snapshot;
-    const target = await upstreamFor(path, repo, branch, upstream);
+  /** Finds an in-progress Git operation and a stable identity for the Git directory. @param {string} path */
+  async function gitMarkers(path) {
     const markers = (await run(path, ['rev-parse', ...operations.flatMap(([marker]) => ['--git-path', marker]), '--git-dir']))
       .trimEnd()
       .split('\n');
@@ -207,7 +240,17 @@ export function createCheckoutGit({
         ),
       ),
     );
-    const operation = operations[found.indexOf(true)]?.[1];
+    return { operation: operations[found.indexOf(true)]?.[1], gitDirectory };
+  }
+
+  /** @param {string} path @param {LinkedRepo} repo @returns {Promise<{ snapshot: ActiveCheckout, target: Upstream|null, gitDirectory: string|null }>} */
+  async function statusAt(path, repo) {
+    const snapshot = readStatus(
+      await run(path, ['status', '--porcelain=v2', '--branch', '-z', '--untracked-files=normal', '--ignore-submodules=none']),
+    );
+    const { branch, head, upstream } = snapshot;
+    const target = await upstreamFor(path, repo, branch, upstream);
+    const { operation, gitDirectory } = await gitMarkers(path);
     const identity = createHash('sha256')
       .update(JSON.stringify([path, target]))
       .digest('hex');
@@ -219,33 +262,7 @@ export function createCheckoutGit({
         ? { at: last.at, matchesFetchedTip: (await trackingTip(path, target.tracking, true)) === last.tip }
         : undefined;
     const rewrite = observation?.rewrite;
-    const state = operation
-      ? 'in-progress'
-      : !branch
-        ? 'detached'
-        : !head
-          ? 'unborn'
-          : observation?.missing
-            ? 'upstream-missing'
-            : rewrite
-              ? 'upstream-rewritten'
-              : observation?.failure
-                ? 'fetch-failed'
-                : dirty && !(target && ahead === 0 && behind !== null && behind > 0)
-                  ? 'dirty'
-                  : !upstream
-                    ? 'no-upstream'
-                    : !target
-                      ? 'different-remote'
-                      : ahead === null
-                        ? 'unknown'
-                        : ahead && behind
-                          ? 'diverged'
-                          : ahead
-                            ? 'ahead'
-                            : behind
-                              ? 'behind'
-                              : 'current';
+    const state = checkoutState({ ...snapshot, operation, observation, rewrite, target });
     if (state === 'behind') {
       if (!branch || !head || !upstream || !target) throw problem('The upstream changed during the status check.');
       return {
@@ -382,105 +399,135 @@ export function createCheckoutGit({
     }
   }
 
+  /** @param {string} path @param {Upstream} target */
+  async function validateUpstream(path, target) {
+    await run(path, ['check-ref-format', target.source]);
+    await run(path, ['check-ref-format', target.tracking]);
+    const symbolicTracking = (await run(path, ['for-each-ref', '--format=%(symref)', '--', target.tracking])).trim();
+    if (symbolicTracking) throw problem('The upstream tracking ref is symbolic. Review it in Git.');
+    // Use the already validated URL, independent of a later remote-name edit.
+    const effective = (await run(path, ['ls-remote', '--get-url', '--', target.url])).trimEnd();
+    if (effective !== target.url) throw problem('Git rewrites this upstream. Review the configured remote in Git.');
+  }
+
+  /** Saves the pre-fetch tracking samples and returns what the later observation saves build on.
+   * @param {string} path @param {LinkedRepo} repo @param {ActiveCheckout} snapshot @param {Upstream} target */
+  async function recordBaseline(path, repo, snapshot, target) {
+    const trackingBeforeFetch = await trackingTip(path, target.tracking, true);
+    const recorded = observations.get(repo.id);
+    const saved = recorded?.identity === snapshot.identity ? recorded : undefined;
+    const baselines = [
+      ...new Set([trackingBeforeFetch, ...(saved?.pending ?? []), saved?.tracking].filter(value => typeof value === 'string')),
+    ];
+    const baseline = { identity: snapshot.identity, tracking: saved?.tracking, lastCheck: saved?.lastCheck, pending: baselines };
+    const canClearRewrite = Boolean(
+      !snapshot.dirty && saved?.rewrite && (snapshot.head === saved.rewrite.tip || (snapshot.ahead === 0 && snapshot.behind === 0)),
+    );
+    // Keep both tracking samples if Git advances the ref before this check completes.
+    if (baselines.length) observations.save(repo.id, { ...saved, ...baseline });
+    return { saved, baselines, baseline, canClearRewrite, retainedRewrite: saved?.rewrite };
+  }
+
+  /** @typedef {Awaited<ReturnType<typeof recordBaseline>>} Baseline */
+
+  /** @param {string} path @param {Upstream} target */
+  async function fetchUpstream(path, target) {
+    await run(path, [
+      '-c',
+      `core.hooksPath=${hooks}`,
+      'fetch',
+      '--no-tags',
+      '--no-recurse-submodules',
+      '--no-write-fetch-head',
+      '--no-auto-maintenance',
+      '--refmap=',
+      '--',
+      target.url,
+      `+${target.source}:${target.tracking}`,
+    ]);
+  }
+
+  /** @param {string} path @param {LinkedRepo} repo @param {'check'|'pull'|'update-target'} operation
+   * @param {ActiveCheckout} snapshot @param {Upstream} target @param {Baseline} recorded @param {unknown} failure */
+  async function recordFetchFailure(path, repo, operation, snapshot, target, { baseline, retainedRewrite }, failure) {
+    const reason = fetchFailure(failure);
+    const advice = reason === 'missing-ref' && operation !== 'update-target' ? await readMissing(path, repo, target, snapshot) : undefined;
+    const { snapshot: current } = await statusAt(path, repo);
+    if (!matchesIntent(snapshot, current)) throw problem('The checkout changed during the check. Review the current branch and try again.');
+    observations.save(repo.id, {
+      ...baseline,
+      rewrite: retainedRewrite,
+      ...(reason === 'missing-ref' && snapshot.head
+        ? { missing: { head: snapshot.head, advice } }
+        : reason === 'missing-ref'
+          ? {}
+          : { failure: reason }),
+    });
+    return { checkout: (await statusAt(path, repo)).snapshot, updated: false };
+  }
+
+  /** Records the fetched tip and any rewrite, then rereads the checkout and records the branch check.
+   * @param {string} path @param {LinkedRepo} repo @param {{ snapshot: ActiveCheckout, gitDirectory: string|null }} before
+   * @param {Upstream} target @param {Baseline} recorded */
+  async function recordFetch(path, repo, before, target, { saved, baselines, canClearRewrite, retainedRewrite }) {
+    const { snapshot } = before;
+    const fetchedAt = new Date(now()).toISOString();
+    const tip = await trackingTip(path, target.tracking);
+    if (!tip) throw problem('The upstream commit is unavailable.');
+    const { pending, rewrite: observed } = await observedRewrite(run, path, baselines, tip);
+    const retained = retainedRewrite?.verified && (!canClearRewrite || pending.length) ? retainedRewrite : undefined;
+    const rewrite = observed?.verified ? observed : (retained ?? observed);
+    const observedAfterFetch = { identity: snapshot.identity, tracking: tip, pending, rewrite, lastCheck: saved?.lastCheck };
+    observations.save(repo.id, observedAfterFetch);
+    const after = await statusAt(path, repo);
+    if (!matchesIntent(snapshot, after.snapshot))
+      throw problem('The checkout or its upstream changed during the check. The branch was not updated.');
+    if (snapshot.branch && before.gitDirectory && before.gitDirectory === after.gitDirectory) {
+      observations.save(repo.id, {
+        ...observedAfterFetch,
+        lastCheck: { branch: snapshot.branch, at: fetchedAt, tip, gitDirectory: before.gitDirectory },
+      });
+    }
+    return { after: after.snapshot, tip };
+  }
+
+  /** Decides from the post-fetch reading whether to fast-forward, and does so.
+   * @param {string} path @param {LinkedRepo} repo @param {'check'|'pull'|'update-target'} operation
+   * @param {ActiveCheckout} after @param {string} tip @param {string} [result] */
+  async function finishUpdate(path, repo, operation, after, tip, result) {
+    if (operation === 'check' || after.state === 'upstream-rewritten') return { checkout: after, updated: false };
+    if (!['behind', 'current'].includes(after.state) || (operation === 'update-target' && after.dirty)) {
+      throw problem('The checkout or its upstream changed during the check. The branch was not updated.');
+    }
+    if (result && (await ancestry(run, path, result, tip)) !== true) {
+      throw problem('The latest upstream could not be verified to contain the PR result.');
+    }
+    if (after.state === 'current') return { checkout: after, updated: false };
+    if (!after.canPull) throw problem('The checkout is no longer eligible.');
+    // Checked after identity and eligibility so a rewritten upstream or changed checkout is reported first.
+    await refuseIgnoredOverlap(path, after.head, tip);
+    await run(path, ['merge-base', '--is-ancestor', after.head, tip]);
+    await fastForward(path, tip);
+    return { checkout: (await statusAt(path, repo)).snapshot, updated: true };
+  }
+
   /** @param {string} path @param {LinkedRepo} repo @param {'check'|'pull'|'update-target'} operation
    * @param {Pick<CheckoutReading, 'branch'|'head'|'upstream'|'identity'>} expected @param {string} [result] */
   async function updateAt(path, repo, operation, expected, result) {
     try {
       const before = await statusAt(path, repo);
-      const { snapshot, target } = before;
-      /** @param {Pick<CheckoutReading, 'branch'|'head'|'upstream'|'identity'>} current */
-      const sameCheckout = current => matchesIntent(snapshot, current);
-      if (!expected || !sameCheckout(expected)) throw problem('The checkout changed. Review the current branch and try again.');
-      if (
-        !target ||
-        !snapshot.canCheck ||
-        (operation === 'pull' && !snapshot.canPull) ||
-        (operation === 'update-target' && (snapshot.dirty || !['behind', 'current'].includes(snapshot.state)))
-      ) {
-        throw problem('The checkout is no longer eligible. Review its Git status and try again.');
-      }
-      await run(path, ['check-ref-format', target.source]);
-      await run(path, ['check-ref-format', target.tracking]);
-      const symbolicTracking = (await run(path, ['for-each-ref', '--format=%(symref)', '--', target.tracking])).trim();
-      if (symbolicTracking) throw problem('The upstream tracking ref is symbolic. Review it in Git.');
-      // Use the already validated URL, independent of a later remote-name edit.
-      const effective = (await run(path, ['ls-remote', '--get-url', '--', target.url])).trimEnd();
-      if (effective !== target.url) throw problem('Git rewrites this upstream. Review the configured remote in Git.');
-      const trackingBeforeFetch = await trackingTip(path, target.tracking, true);
-      const recorded = observations.get(repo.id);
-      const saved = recorded?.identity === snapshot.identity ? recorded : undefined;
-      const baselines = [
-        ...new Set([trackingBeforeFetch, ...(saved?.pending ?? []), saved?.tracking].filter(value => typeof value === 'string')),
-      ];
-      const baseline = { identity: snapshot.identity, tracking: saved?.tracking, lastCheck: saved?.lastCheck, pending: baselines };
-      const canClearRewrite = Boolean(
-        !snapshot.dirty && saved?.rewrite && (snapshot.head === saved.rewrite.tip || (snapshot.ahead === 0 && snapshot.behind === 0)),
-      );
-      const retainedRewrite = saved?.rewrite;
-      // Keep both tracking samples if Git advances the ref before this check completes.
-      if (baselines.length) observations.save(repo.id, { ...saved, ...baseline });
+      const { snapshot } = before;
+      if (!expected || !matchesIntent(snapshot, expected)) throw problem('The checkout changed. Review the current branch and try again.');
+      const target = eligibleTarget(before, operation);
+      await validateUpstream(path, target);
+      const recorded = await recordBaseline(path, repo, snapshot, target);
       try {
-        await run(path, [
-          '-c',
-          `core.hooksPath=${hooks}`,
-          'fetch',
-          '--no-tags',
-          '--no-recurse-submodules',
-          '--no-write-fetch-head',
-          '--no-auto-maintenance',
-          '--refmap=',
-          '--',
-          target.url,
-          `+${target.source}:${target.tracking}`,
-        ]);
+        await fetchUpstream(path, target);
       } catch (failure) {
-        const reason = fetchFailure(failure);
-        const advice =
-          reason === 'missing-ref' && operation !== 'update-target' ? await readMissing(path, repo, target, snapshot) : undefined;
-        const { snapshot: current } = await statusAt(path, repo);
-        if (!sameCheckout(current)) throw problem('The checkout changed during the check. Review the current branch and try again.');
-        observations.save(repo.id, {
-          ...baseline,
-          rewrite: retainedRewrite,
-          ...(reason === 'missing-ref' && snapshot.head
-            ? { missing: { head: snapshot.head, advice } }
-            : reason === 'missing-ref'
-              ? {}
-              : { failure: reason }),
-        });
-        return { checkout: (await statusAt(path, repo)).snapshot, updated: false };
+        return await recordFetchFailure(path, repo, operation, snapshot, target, recorded, failure);
       }
-      const fetchedAt = new Date(now()).toISOString();
-      const tip = await trackingTip(path, target.tracking);
-      if (!tip) throw problem('The upstream commit is unavailable.');
-      const { pending, rewrite: observed } = await observedRewrite(run, path, baselines, tip);
-      const retained = retainedRewrite?.verified && (!canClearRewrite || pending.length) ? retainedRewrite : undefined;
-      const rewrite = observed?.verified ? observed : (retained ?? observed);
-      const observedAfterFetch = { identity: snapshot.identity, tracking: tip, pending, rewrite, lastCheck: saved?.lastCheck };
-      observations.save(repo.id, observedAfterFetch);
-      const after = await statusAt(path, repo);
-      if (!sameCheckout(after.snapshot))
-        throw problem('The checkout or its upstream changed during the check. The branch was not updated.');
-      if (snapshot.branch && before.gitDirectory && before.gitDirectory === after.gitDirectory) {
-        observations.save(repo.id, {
-          ...observedAfterFetch,
-          lastCheck: { branch: snapshot.branch, at: fetchedAt, tip, gitDirectory: before.gitDirectory },
-        });
-      }
-      if (operation === 'check' || after.snapshot.state === 'upstream-rewritten') return { checkout: after.snapshot, updated: false };
-      if (!['behind', 'current'].includes(after.snapshot.state) || (operation === 'update-target' && after.snapshot.dirty)) {
-        throw problem('The checkout or its upstream changed during the check. The branch was not updated.');
-      }
-      if (result && (await ancestry(run, path, result, tip)) !== true) {
-        throw problem('The latest upstream could not be verified to contain the PR result.');
-      }
-      if (after.snapshot.state === 'current') return { checkout: after.snapshot, updated: false };
-      if (!after.snapshot.canPull) throw problem('The checkout is no longer eligible.');
-      // Checked after identity and eligibility so a rewritten upstream or changed checkout is reported first.
-      await refuseIgnoredOverlap(path, after.snapshot.head, tip);
-      await run(path, ['merge-base', '--is-ancestor', after.snapshot.head, tip]);
-      await fastForward(path, tip);
-      return { checkout: (await statusAt(path, repo)).snapshot, updated: true };
+      const { after, tip } = await recordFetch(path, repo, before, target, recorded);
+      return await finishUpdate(path, repo, operation, after, tip, result);
     } catch (error) {
       if (error instanceof Error && 'status' in error && (error.status === 404 || error.status === 409)) throw error;
       throw problem(
