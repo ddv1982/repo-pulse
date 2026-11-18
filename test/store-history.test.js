@@ -423,3 +423,25 @@ test('a fresh database is created with its final activity columns', () => {
   assert.equal(check.prepare('PRAGMA user_version').get().user_version,9);
   check.close(); rmSync(dir,{ recursive: true });
 });
+
+test('every older database version and a fresh database end at the latest version, and a newer one is refused', () => {
+  const latest = 9;
+  const dir = mkdtempSync(join(tmpdir(),'pulse-versions-'));
+  const versionOf = (path) => { const db = new DatabaseSync(path); try { return db.prepare('PRAGMA user_version').get().user_version; } finally { db.close(); } };
+  try {
+    const fresh = join(dir,'fresh.sqlite');
+    createStore(fresh).close();
+    assert.equal(versionOf(fresh),latest);
+    for (let version = 0; version < latest; version++) {
+      const path = join(dir,`v${version}.sqlite`);
+      createStore(path).close();
+      const db = new DatabaseSync(path); db.exec(`PRAGMA user_version=${version}`); db.close();
+      createStore(path).close();
+      assert.equal(versionOf(path),latest,`v${version} upgrades to v${latest}`);
+    }
+    const newer = join(dir,'newer.sqlite');
+    const db = new DatabaseSync(newer); db.exec(`PRAGMA user_version=${latest + 1}`); db.close();
+    assert.throws(() => createStore(newer),/newer Repo Pulse version/);
+    assert.equal(versionOf(newer),latest + 1);
+  } finally { rmSync(dir,{ recursive: true }); }
+});
