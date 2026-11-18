@@ -40,21 +40,35 @@ const mergeStrategies = {
 };
 
 /**
+ * A pushed tag can point at an annotated tag object rather than a commit; only the refs snapshot peels it.
+ * @param {EventData} data
+ */
+function tagFields(data) {
+  const object = data.change === 'deleted' ? data.oldObjectId || data.objectId : data.newObjectId || data.objectId;
+  return [
+    ...(object ? [['Points at', commit(object)]] : []),
+    ...(data.peeledObjectId ? [['Tagged commit', commit(data.peeledObjectId)]] : []),
+  ];
+}
+
+/**
  * @param {ActivityItem} record @param {Repo | undefined} repo @param {EventData} data
  * @param {string | undefined} sha @param {PushId} pushId
  */
 function detailFields(record, repo, data, sha, pushId) {
-  const pr = record.kind === 'pr';
+  const pr = record.kind === 'pr',
+    tag = record.kind === 'tag';
   const sameTime = new Date(record.time).valueOf() === new Date(record.observedAt ?? NaN).valueOf();
   const fields = [
     ['Repository', `${e(repo?.name)}${repo?.project ? ` · ${e(repo.project)}` : ''}`],
-    [pr ? 'Source branch' : 'Branch', e(branchName(record.branch) || 'Not supplied')],
+    [pr ? 'Source branch' : tag ? 'Tag' : 'Branch', e(branchName(record.branch) || 'Not supplied')],
     [pr ? 'Created by' : 'By', e(record.actor || 'Not supplied by Azure')],
     [sameTime ? 'Time' : 'Source time', e(dateTime(record.time))],
   ];
   if (!sameTime) fields.push(['Observed locally', e(dateTime(record.observedAt))]);
   if (pr && data.targetRefName) fields.push(['Target branch', e(branchName(data.targetRefName))]);
   if (sha) fields.push([pr ? 'Source commit' : 'Commit', commit(sha)]);
+  if (tag) fields.push(...tagFields(data));
   if (pr && data.status === 'completed' && data.mergeCommit) fields.push(['Merge commit', commit(data.mergeCommit)]);
   if (data.mergeStrategy) fields.push(['Merge strategy', e(mergeStrategies[data.mergeStrategy] || 'Not supplied')]);
   if (pr && data.closedBy) fields.push(['PR closed by', e(data.closedBy)]);

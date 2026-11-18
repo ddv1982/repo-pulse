@@ -46,6 +46,26 @@ export function seedDemo(store) {
   /** @type {DemoEvent[]} */
   const events = [
     {
+      id: 'demo-tag-1',
+      repoId: 'demo-orders',
+      kind: 'tag',
+      title: 'Tag moved · release/2026.11',
+      branch: 'release/2026.11',
+      actor: 'Sam Ortega',
+      time: ago(30),
+      summary: 'Moved in push 41',
+      seen: true,
+      data: {
+        change: 'moved',
+        evidence: 'push',
+        pushId: 41,
+        name: 'refs/tags/release/2026.11',
+        oldObjectId: '3f9a2c1',
+        newObjectId: '8d41e07',
+      },
+      url: source,
+    },
+    {
       id: 'demo-branch-1',
       repoId: 'demo-orders',
       kind: 'branch-created',

@@ -825,3 +825,84 @@ test('status reports streams that are overdue because the budget is behind', asy
   assert.deepEqual(sync.status().lag, { overdueStreams: 0, maxDelayMs: 0 }, 'paused automatic checks are not lag');
   store.close();
 });
+
+test('tag pushes become tag rows with their own change, and a tag-only push queues no merge work', async () => {
+  const zero = '0'.repeat(40);
+  const tagPush = (pushId, refUpdates) => ({ pushId, date: '2026-11-17T10:00:01Z', pushedBy: { displayName: 'A' }, refUpdates });
+  const records = [
+    tagPush(4, [{ name: 'refs/tags/v2', oldObjectId: 'c'.repeat(40), newObjectId: zero }]),
+    tagPush(3, [{ name: 'refs/tags/v1', oldObjectId: 'a'.repeat(40), newObjectId: 'd'.repeat(40) }]),
+    tagPush(2, [
+      { name: 'refs/heads/main', oldObjectId: 'a'.repeat(40), newObjectId: 'b'.repeat(40) },
+      { name: 'refs/tags/annotated', oldObjectId: zero, newObjectId: 'e'.repeat(40) },
+    ]),
+    tagPush(1, [{ name: 'refs/tags/v1', oldObjectId: zero, newObjectId: 'a'.repeat(40) }]),
+  ];
+  const { store, sync } = setup({
+    async read() {
+      return { items: records, nextCursor: null };
+    },
+  });
+  await sync.tick();
+  const tags = store.listEvents().filter(event => event.kind === 'tag');
+  assert.deepEqual(tags.map(event => [event.data.pushId, event.branch, event.data.change]).sort(), [
+    [1, 'v1', 'created'],
+    [2, 'annotated', 'created'],
+    [3, 'v1', 'moved'],
+    [4, 'v2', 'deleted'],
+  ]);
+  const pushes = store.listEvents().filter(event => event.kind === 'push');
+  assert.deepEqual(
+    pushes.map(event => event.data.pushId),
+    [2],
+    'only the push that moved a branch is a push row',
+  );
+  assert.deepEqual(
+    pushes[0].data.refUpdates.map(ref => ref.name),
+    ['refs/heads/main'],
+  );
+  assert.deepEqual(
+    store.listJobs({ type: 'merge' }).map(job => job.eventId),
+    ['one:push:2'],
+  );
+  assert.equal(store.getEntity('one', 'ref', 'refs/tags/v1').objectId, 'd'.repeat(40));
+  assert.equal(store.getEntity('one', 'ref', 'refs/tags/v2').active, false);
+  store.close();
+});
+
+test('tags join the refs snapshot without announcing the tags that already existed', async () => {
+  let items = [{ name: 'refs/heads/main', objectId: 'a' }];
+  const { store, sync, advance } = setup(
+    {
+      async read() {
+        return { items, nextCursor: null };
+      },
+    },
+    ['refs'],
+  );
+  // An install from before tags: the refs stream is initialized and knows main, but has never recorded a tag.
+  const refs = store.getStreams().find(state => state.stream === 'refs');
+  store.commitPage({
+    repoId: 'one',
+    stream: 'refs',
+    state: { ...refs, initialized: true, nextAt: new Date(BASE).toISOString() },
+    entities: [{ type: 'ref', id: 'refs/heads/main', data: { name: 'refs/heads/main', objectId: 'a', active: true } }],
+  });
+  items = [items[0], { name: 'refs/tags/old', objectId: 'b' }];
+  await sync.tick();
+  assert.equal(store.listEvents().length, 0, 'existing tags are a baseline, not news');
+  items = [items[0], { name: 'refs/tags/v2', objectId: 't', peeledObjectId: 'c' }];
+  advance(600001);
+  await sync.tick();
+  const tags = store.listEvents().filter(event => event.kind === 'tag');
+  assert.deepEqual(tags.map(event => [event.branch, event.data.change, event.data.evidence]).sort(), [
+    ['old', 'deleted', 'snapshot'],
+    ['v2', 'created', 'snapshot'],
+  ]);
+  assert.equal(tags.find(event => event.branch === 'v2').data.peeledObjectId, 'c');
+  assert.equal(
+    store.listEvents().some(event => event.kind.startsWith('branch-')),
+    false,
+  );
+  store.close();
+});

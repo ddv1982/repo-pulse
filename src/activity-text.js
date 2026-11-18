@@ -10,6 +10,9 @@ const statusLabels = {
   'new-branch': 'New branch',
   'branch-deleted': 'Branch deleted',
   unlisted: 'No longer listed',
+  'new-tag': 'New tag',
+  'tag-moved': 'Tag moved',
+  'tag-deleted': 'Tag deleted',
   push: 'Push',
   merged: 'Merged',
   'pr-abandoned': 'PR abandoned',
@@ -35,6 +38,7 @@ const evidenceIds = new Map(Object.entries(evidenceLabels).map(([id, label]) => 
 export const labels = {
   'branch-created': statusLabels['new-branch'],
   'branch-deleted': statusLabels['branch-deleted'],
+  tag: 'Tag',
   push: statusLabels.push,
   pr: 'Pull request',
   build: 'CI run',
@@ -72,6 +76,10 @@ export function activityStatusId(event) {
   if (event.kind === 'build') return buildPresentation(event)[0];
   if (event.kind === 'branch-created') return 'new-branch';
   if (event.kind === 'branch-deleted') return ['snapshot', 'refs'].includes(event.data?.evidence ?? '') ? 'unlisted' : 'branch-deleted';
+  if (event.kind === 'tag') {
+    if (event.data?.change === 'deleted') return event.data.evidence === 'snapshot' ? 'unlisted' : 'tag-deleted';
+    return event.data?.change === 'moved' ? 'tag-moved' : 'new-tag';
+  }
   if (event.kind === 'pr') {
     if (event.data?.status === 'completed') return 'merged';
     if (event.data?.status === 'abandoned') return 'pr-abandoned';
@@ -90,6 +98,8 @@ export function activityTone(event) {
   if (event.kind === 'branch-created') return 'info';
   if (event.kind === 'push') return 'info';
   if (event.kind === 'branch-deleted') return ['snapshot', 'refs'].includes(event.data?.evidence ?? '') ? 'warn' : 'crit';
+  // Tags usually stay put, so a moved or deleted tag is worth a second look.
+  if (event.kind === 'tag') return event.data?.change === 'created' ? 'info' : 'warn';
   if (event.kind === 'pr') {
     if (event.data?.status === 'completed') return 'ok';
     if (event.data?.status === 'abandoned') return 'warn';
@@ -122,19 +132,21 @@ export function triggerLabel(value) {
   return descriptions[value ?? ''] || 'Not supplied';
 }
 
+/** @param {NonNullable<ActivityEvent['data']>} data */
+function pushedTagSummary({ change, oldObjectId = '', newObjectId = '' }) {
+  if (change === 'deleted') return 'Remote tag deleted';
+  return change === 'moved' ? `${oldObjectId.slice(0, 8)} → ${newObjectId.slice(0, 8)}` : `Points at ${newObjectId.slice(0, 8)}`;
+}
+
 /** @param {ActivityEvent} event */
 export function activitySummary(event) {
   if (event.kind === 'build') return triggerLabel(event.data?.reason);
   if (event.kind === 'pr' && event.data?.targetRefName)
     return `${event.data.status === 'completed' ? 'Merged into' : 'Target:'} ${branchName(event.data.targetRefName)}`;
-  if (event.kind === 'branch-created')
-    return event.data?.evidence === 'snapshot' || event.data?.evidence === 'refs'
-      ? 'First seen remotely; creation time not supplied'
-      : 'New remote branch';
-  if (event.kind === 'branch-deleted')
-    return event.data?.evidence === 'snapshot' || event.data?.evidence === 'refs'
-      ? 'Not in the latest branch list; deletion not confirmed'
-      : 'Remote branch deleted';
+  const listed = ['snapshot', 'refs'].includes(event.data?.evidence ?? '');
+  if (event.kind === 'branch-created') return listed ? 'First seen remotely; creation time not supplied' : 'New remote branch';
+  if (event.kind === 'branch-deleted') return listed ? 'Not in the latest branch list; deletion not confirmed' : 'Remote branch deleted';
+  if (event.kind === 'tag' && event.data?.evidence === 'push') return pushedTagSummary(event.data);
   const refs = event.data?.refUpdates;
   if (refs?.length === 1 && /^0+$/.test(refs[0].newObjectId || '')) return 'Remote branch deleted';
   if (refs?.length === 1 && /^0+$/.test(refs[0].oldObjectId || '')) return `Branch starts at ${(refs[0].newObjectId || '').slice(0, 8)}`;

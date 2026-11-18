@@ -34,9 +34,9 @@ Phase 2: access gaps are visible
 
 Phase 3: tags
 
-- [ ] The push normalizer keeps `refs/tags/` updates and emits `tag-created`, `tag-moved` and `tag-deleted`, and never queues a merge job for them. Check: sync tests for a lightweight tag, an annotated tag (object ID is the tag object, not a commit), a moved tag and a deleted tag, plus a test that a tag-only push queues zero merge jobs.
-- [ ] The refs snapshot also reads `tags/` with `peelTags=true`, stores `peeledObjectId`, and reports first-seen and no-longer-listed tags with `evidence: 'snapshot'`, as branches do. Check: sync test with a mixed heads and tags snapshot, and the budget measurement shows the extra refs read every 10 minutes keeps p95 delay within 1 minute of the baseline at 20 repositories.
-- [ ] Activity shows tag rows with labels, a "Tags" type filter and a detail view naming the tagged commit when it is known. Check: presentation tests for the three labels, and an e2e test that filters to tags on seeded demo rows.
+- [x] The push normalizer keeps `refs/tags/` updates as one `tag` kind whose `change` is created, moved or deleted, and a tag-only push produces tag rows only, with no push row and no merge job. One kind with three statuses replaces the three kinds first planned, so the type filter offers a single "Tag" entry. Check: sync test with a lightweight tag, an annotated tag, a moved tag, a deleted tag and a mixed branch and tag push; it fails when the tag-only early return is removed.
+- [x] The refs snapshot reads all refs with `peelTags=true` instead of `heads/` only, stores `peeledObjectId`, and reports first-seen and no-longer-listed tags with `evidence: 'snapshot'`. A `ref-baseline` entity marks the first snapshot that recorded tags, so upgrading does not announce every existing tag. Check: sync test for an install from before tags, which fails without the baseline. No request was added: it is the same refs read, which pages only past 100 refs. Read through the app's client against Azure, the two enabled repositories returned 12 and 5 refs, including 3 tags, in one page each.
+- [x] Activity shows tag rows with labels and tones, a "Tag" type filter, and a detail view that names the tag, what it points at, and the tagged commit only when the snapshot peeled it. Check: presentation test for the four tag labels and an e2e test that filters to tags on a seeded demo row and opens its detail.
 
 Phase 4: history rewrites
 

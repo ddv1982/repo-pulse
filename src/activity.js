@@ -1,6 +1,6 @@
 // @ts-check
 
-/** @typedef {'branch-created' | 'branch-deleted' | 'push' | 'pr' | 'build'} ActivityKind */
+/** @typedef {'branch-created' | 'branch-deleted' | 'tag' | 'push' | 'pr' | 'build'} ActivityKind */
 /** @typedef {{name?: string, oldObjectId?: string, newObjectId?: string}} RefUpdate */
 /**
  * A completed PR in push merge evidence (server/merge-evidence.js). `id` and an object `closedBy` come from older rows.
@@ -21,7 +21,8 @@
  *   definition?: {name?: string}, mergeEvidence?: MergeEvidenceData,
  *   pullRequestId?: number|string, sourceRefName?: string, sourceCommit?: string, targetCommit?: string,
  *   mergeCommit?: string, mergeStrategy?: string, closedBy?: string, sourceVersion?: string, sourceBranch?: string,
- *   commitId?: string, push?: { pushId?: number|string } }} EventData
+ *   commitId?: string, push?: { pushId?: number|string },
+ *   change?: 'created' | 'moved' | 'deleted', objectId?: string, peeledObjectId?: string }} EventData
  */
 /**
  * @typedef {{ id: string, repoId: string, kind: ActivityKind, time: string, observedAt?: string,

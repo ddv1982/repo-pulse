@@ -1016,3 +1016,19 @@ test('Escape before the first state load does not throw', async t => {
   await expect(page.locator('#repo-toggle')).toBeVisible();
   assert.deepEqual(errors, []);
 });
+
+test('tag activity has its own type filter and a detail that names the tag and what it points at', async t => {
+  const { page } = await setup(t);
+  await page.getByRole('link', { name: 'All activity' }).click();
+  await page.getByRole('button', { name: /^Activity type:/ }).click();
+  await page.getByRole('option', { name: 'Tag', exact: true }).click();
+  const rows = page.locator('#page li.row');
+  await expect(rows).toHaveCount(1);
+  await expect(rows.first()).toContainText('Tag moved');
+  await expect(rows.first()).toContainText('3f9a2c1 → 8d41e07');
+  await rows.first().locator('.feed-title').click();
+  const facts = page.locator('.detail-facts');
+  await expect(facts).toContainText('Tagrelease/2026.11');
+  await expect(facts).toContainText('Points at');
+  await expect(facts).not.toContainText('Tagged commit');
+});

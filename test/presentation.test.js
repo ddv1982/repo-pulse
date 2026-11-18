@@ -282,3 +282,22 @@ test('completed PRs show Merged and target direction, while successful preview m
   assert.equal(activityTone(merged), 'ok');
   assert.equal(activityTone({ kind: 'push' }), 'info');
 });
+
+test('tag rows say what happened to the tag and never claim a commit for a pushed tag object', () => {
+  const tag = (data, extra = {}) => ({ id: 't', repoId: 'r', kind: 'tag', time: '2026-11-17T10:00:00Z', branch: 'v1', data, ...extra });
+  const zero = '0'.repeat(40);
+  const created = tag({ change: 'created', evidence: 'push', oldObjectId: zero, newObjectId: 'a'.repeat(40) });
+  const moved = tag({ change: 'moved', evidence: 'push', oldObjectId: 'a'.repeat(40), newObjectId: 'b'.repeat(40) });
+  const deleted = tag({ change: 'deleted', evidence: 'push', oldObjectId: 'a'.repeat(40), newObjectId: zero });
+  const unlisted = tag({ change: 'deleted', evidence: 'snapshot', objectId: 'a' }, { summary: 'Missing from complete refs snapshot' });
+  assert.deepEqual(
+    [created, moved, deleted, unlisted].map(event => [activityLabel(event), activityTone(event), activitySummary(event)]),
+    [
+      ['New tag', 'info', 'Points at aaaaaaaa'],
+      ['Tag moved', 'warn', 'aaaaaaaa → bbbbbbbb'],
+      ['Tag deleted', 'warn', 'Remote tag deleted'],
+      ['No longer listed', 'warn', 'Missing from complete refs snapshot'],
+    ],
+  );
+  assert.equal(labels.tag, 'Tag');
+});

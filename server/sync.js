@@ -62,6 +62,10 @@ const DAY = 86400000;
 const LIVE_TURNS = 6;
 /** @param {unknown} value */
 const fingerprint = value => createHash('sha256').update(JSON.stringify(value)).digest('hex').slice(0, 24);
+/** @param {string} name */
+const tagName = name => name.replace(/^refs\/tags\//, '');
+/** @type {Record<'created' | 'moved' | 'deleted', string>} */
+const tagTitles = { created: 'New tag', moved: 'Tag moved', deleted: 'Tag deleted' };
 /** @param {number} ms */
 const iso = ms => new Date(ms).toISOString();
 /** @param {AzureRecord} pr */
@@ -286,10 +290,51 @@ export function createSync({
       const updates = item.refUpdates || [];
       /** @type {AzureRecord[]} */
       const branches = updates.filter((/** @type {AzureRecord} */ ref) => ref.name?.startsWith('refs/heads/'));
+      /** @type {AzureRecord[]} */
+      const tags = updates.filter((/** @type {AzureRecord} */ ref) => ref.name?.startsWith('refs/tags/'));
       const time = item.date || iso(now());
       const actor = actorName(item.pushedBy);
       const data = { pushId: item.pushId, refUpdates: branches, commits: item.commits || [] };
       const url = safeAzureUrl(item._links?.web?.href, `${repo.webUrl}/pushes?pushId=${encodeURIComponent(source)}`);
+      entities.push({ type: 'push', id: source, data: { date: time } });
+      // Azure lists pushes newest first. Keep a source watermark across pages/snapshots,
+      // while retaining every historical event independently of the current ref state.
+      /** @param {AzureRecord} ref */
+      const recordRef = ref => {
+        const previous = refs?.get(ref.name);
+        if (historical || (previous?.lastPushId && Number(item.pushId) <= previous.lastPushId)) return;
+        const current = {
+          name: ref.name,
+          objectId: ref.newObjectId,
+          active: !ZERO.test(ref.newObjectId || ''),
+          evidence: 'push',
+          lastPushId: Number(item.pushId),
+        };
+        refs?.set(ref.name, current);
+        entities.push({ type: 'ref', id: ref.name, data: current });
+      };
+      for (const ref of tags) {
+        const change = ZERO.test(ref.oldObjectId || '') ? 'created' : ZERO.test(ref.newObjectId || '') ? 'deleted' : 'moved';
+        add('tag', `${source}:${ref.name}`, {
+          title: `${tagTitles[change]} · ${tagName(ref.name)}`,
+          branch: tagName(ref.name),
+          actor,
+          time,
+          url,
+          summary: `${change === 'deleted' ? 'Deleted' : change === 'created' ? 'Created' : 'Moved'} in push ${source}`,
+          data: {
+            pushId: item.pushId,
+            evidence: 'push',
+            change,
+            name: ref.name,
+            oldObjectId: ref.oldObjectId,
+            newObjectId: ref.newObjectId,
+          },
+        });
+        recordRef(ref);
+      }
+      // A tag-only push has no branch work to show or inspect for merges; its tag rows carry it.
+      if (tags.length && !branches.length) return;
       add('push', source, {
         title: `${actor} pushed${branches.length ? ` to ${branches.map(r => branchName(r.name)).join(', ')}` : ''}`,
         branch: branchName(branches[0]?.name),
@@ -301,7 +346,6 @@ export function createSync({
           : 'Repository push',
         data,
       });
-      entities.push({ type: 'push', id: source, data: { date: time } });
       jobs.push({
         id: `merge:${repo.id}:push:${source}`,
         type: 'merge',
@@ -323,20 +367,7 @@ export function createSync({
             summary: `${created ? 'Created' : 'Deleted'} in push ${source}`,
             data: { ...data, evidence: 'push', ...ref },
           });
-        // Azure lists pushes newest first. Keep a source watermark across pages/snapshots,
-        // while retaining every historical event independently of the current ref state.
-        const previous = refs?.get(ref.name);
-        if (!historical && (!previous?.lastPushId || Number(item.pushId) > previous.lastPushId)) {
-          const current = {
-            name: ref.name,
-            objectId: ref.newObjectId,
-            active: !deleted,
-            evidence: 'push',
-            lastPushId: Number(item.pushId),
-          };
-          refs?.set(ref.name, current);
-          entities.push({ type: 'ref', id: ref.name, data: current });
-        }
+        recordRef(ref);
       }
     },
     prs(item, { repo, add, entities, historical }) {
@@ -427,13 +458,46 @@ export function createSync({
   function reconcileRefs(repo, records, state) {
     const before = new Map(store.listEntities(repo.id, 'ref').map(entry => [entry.id, entry.data]));
     /** @type {Map<string, AzureRecord>} */
-    const current = new Map(records.filter(item => item.name?.startsWith('refs/heads/')).map(item => [item.name, item]));
+    const current = new Map(records.filter(item => /^refs\/(heads|tags)\//.test(item.name || '')).map(item => [item.name, item]));
+    // Tags joined the snapshot after branches. Until one complete snapshot has recorded them,
+    // every existing tag would look new, so tag changes are reported only after that baseline.
+    const tagsKnown = state.initialized && Boolean(store.getEntity(repo.id, 'ref-baseline', 'tags'));
+    /** @param {string} name @param {'created' | 'deleted'} change @param {Record<string, unknown>} data */
+    const tagEvent = (name, change, data) =>
+      makeEvent(
+        repo,
+        'tag',
+        `ref:${name}:${fingerprint([data.objectId, state.window.until])}`,
+        {
+          title: `${change === 'created' ? 'Tag first seen' : 'Tag no longer listed'} · ${tagName(name)}`,
+          branch: tagName(name),
+          time: iso(now()),
+          summary:
+            change === 'created'
+              ? 'Discovered in remote tags; creation time and actor unknown'
+              : 'Missing from complete refs snapshot; deletion time and actor unknown',
+          data: { ...data, name, change, evidence: 'snapshot' },
+        },
+        false,
+      );
     /** @type {SyncEvent[]} */
     const events = [];
     /** @type {Entity[]} */
     const entities = [];
     for (const [name, item] of current) {
       const previous = before.get(name);
+      const tag = name.startsWith('refs/tags/');
+      const peeled = item.peeledObjectId ? { peeledObjectId: item.peeledObjectId } : {};
+      if (tag) {
+        if (tagsKnown && (!previous || previous.active === false))
+          events.push(tagEvent(name, 'created', { objectId: item.objectId, ...peeled }));
+        entities.push({
+          type: 'ref',
+          id: name,
+          data: { name, objectId: item.objectId, ...peeled, active: true, lastPushId: previous?.lastPushId },
+        });
+        continue;
+      }
       if (state.initialized && (!previous || previous.active === false)) {
         events.push(
           makeEvent(
@@ -457,6 +521,11 @@ export function createSync({
     if (state.initialized)
       for (const [name, old] of before) {
         if (old.active !== false && !current.has(name)) {
+          if (name.startsWith('refs/tags/')) {
+            if (tagsKnown) events.push(tagEvent(name, 'deleted', { objectId: old.objectId }));
+            entities.push({ type: 'ref', id: name, data: { ...old, active: false } });
+            continue;
+          }
           events.push(
             makeEvent(
               repo,
@@ -475,6 +544,7 @@ export function createSync({
           entities.push({ type: 'ref', id: name, data: { ...old, active: false } });
         }
       }
+    entities.push({ type: 'ref-baseline', id: 'tags', data: { at: iso(now()) } });
     return { events, entities };
   }
   /** @param {boolean} automatic */

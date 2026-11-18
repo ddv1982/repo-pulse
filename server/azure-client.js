@@ -248,7 +248,7 @@ export function createAzureClient({ cli, now = Date.now } = {}) {
           mode = 'skip';
           break;
         case 'refs':
-          response = await invoke(repo, 'git', 'refs', { filter: 'heads/', $top: PAGE, continuationToken: cursor?.token });
+          response = await invoke(repo, 'git', 'refs', { peelTags: 'true', $top: PAGE, continuationToken: cursor?.token });
           break;
         case 'prs':
           response = await invoke(repo, 'git', 'pullRequests', {
