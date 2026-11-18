@@ -51,7 +51,7 @@ export function createSync({ store, provider, now = Date.now, intervalMs = 18000
     const baseline = store.getSetting(`baseline:${repo.id}`, iso(now()));
     const add = (kind, sourceId, detail) => {
       const time = detail.time || iso(now());
-      const imported = !state.initialized && time <= baseline;
+      const imported = !state.initialized && Date.parse(time) <= Date.parse(baseline);
       events.push(makeEvent(repo, kind, sourceId, { ...detail, time }, historical || imported));
     };
     for (const item of records) {
@@ -185,7 +185,8 @@ export function createSync({ store, provider, now = Date.now, intervalMs = 18000
     const repo = repos.get(state.repoId);
     lastKey = `${state.repoId}:${state.stream}`;
     const window = state.window || { since: iso(state.lastSuccess ? Date.parse(state.lastSuccess) - overlapMs : now() - 7 * DAY), until: iso(now()) };
-    const working = { ...state, window, lastAttempt: iso(now()), pending: true };
+    // The refresh generation at the time this window opened; later refreshes need another read.
+    const working = { ...state, window, windowGeneration: state.window ? state.windowGeneration ?? 0 : state.refreshGeneration || 0, lastAttempt: iso(now()), pending: true };
     try {
       const page = await provider.read(repo, state.stream, { since: window.since, until: window.until, cursor: state.cursor || null });
       if (!page || !Array.isArray(page.items)) throw new Error('Azure returned an invalid page.');
@@ -215,13 +216,18 @@ export function createSync({ store, provider, now = Date.now, intervalMs = 18000
         pendingItems = [...(state.pendingItems || []), ...page.items];
         output = complete ? reconcileRefs(repo, pendingItems, working) : { events: [], entities: [] };
       } else output = normalize(repo, state.stream, items, working);
+      // A refresh requested after this window opened must survive the commit of a page read before it.
+      const latest = store.getStreams().find((entry) => entry.repoId === repo.id && entry.stream === state.stream) || state;
+      const requested = { refreshGeneration: latest.refreshGeneration, manual: latest.manual };
+      const refreshDue = (latest.refreshGeneration || 0) > working.windowGeneration;
       const quietCycles = output.events.some(event => !event.imported) ? 0 : (state.quietCycles || 0) + 1;
       const cadence = !isForeground() || quietCycles >= 2 ? Math.max(intervalMs, 300000) : intervalMs;
       const next = complete ? {
         repoId: repo.id, stream: state.stream, initialized: true, lastSuccess: window.until,
         lastAttempt: iso(now()), nextAt: iso(now() + (state.stream === 'refs' ? refsIntervalMs : cadence)), quietCycles,
-        error: null, pending: false, failures: 0,
-      } : { ...working, cursor: page.nextCursor, pendingItems, activeIds, nextAt: iso(now()), error: null };
+        error: null, pending: false, failures: 0, refreshGeneration: latest.refreshGeneration,
+        ...(refreshDue ? { manual: latest.manual, nextAt: iso(now()) } : {}),
+      } : { ...working, ...requested, cursor: page.nextCursor, pendingItems, activeIds, nextAt: iso(now()), error: null };
       store.commitPage({ repoId: repo.id, stream: state.stream, state: next, ...output });
       for (const event of output.events) if (event.kind === 'pr' && event.data?.status === 'completed') onPrCompleted?.(repo, event.data);
       counters.pages++;
@@ -263,7 +269,7 @@ export function createSync({ store, provider, now = Date.now, intervalMs = 18000
       for (const id of targets) refreshedAt.set(id, now());
       for (const state of store.getStreams()) {
         const repo = repos.find((entry) => entry.id === state.repoId);
-        if (repo && targets.includes(repo.id)) store.saveStream({ ...state, nextAt: iso(now()), manual: store.getSetting('refreshEnabled', true) === false });
+        if (repo && targets.includes(repo.id)) store.saveStream({ ...state, nextAt: iso(now()), refreshGeneration: (state.refreshGeneration || 0) + 1, manual: store.getSetting('refreshEnabled', true) === false });
       }
       return { scheduled: true };
     },

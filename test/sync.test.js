@@ -414,3 +414,85 @@ test('a failed manual refresh is not retried while automatic checks are off', as
   assert.equal(calls, 1, 'no Azure call without another refresh request');
   store.close();
 });
+
+for (const automatic of [true, false]) {
+  test(`a refresh requested during a read stays due after that page commits (automatic checks ${automatic ? 'on' : 'off'})`, async () => {
+    const store = createStore();
+    store.saveRepo(repo);
+    store.setSetting('refreshEnabled', automatic);
+    let time = BASE, release, calls = 0;
+    const sync = createSync({ store, now: () => time, intervalMs: 180000, provider: { read() {
+      if (++calls > 1) return Promise.resolve({ items: [], nextCursor: null });
+      return new Promise(done => { release = () => done({ items: [], nextCursor: null }); });
+    } } });
+    sync.refresh([repo.id]);
+    for (const state of store.getStreams()) if (state.stream !== 'pushes') store.saveStream({ ...state, nextAt: '2099-01-01T00:00:00Z', manual: false });
+    const reading = sync.tick();
+    await new Promise(setImmediate);
+    time += 40000;
+    assert.equal(sync.refresh([repo.id]).scheduled, true);
+    release(); await reading;
+    const pushes = store.getStreams().find(state => state.stream === 'pushes');
+    assert.equal(pushes.nextAt, new Date(time).toISOString(), 'the refresh is still due');
+    await sync.tick();
+    assert.equal(calls, 2, 'the requested refresh reads again');
+    store.close();
+  });
+}
+
+test('first-sync history at the baseline instant is imported whatever its fractional-second format', async () => {
+  const { store, sync } = setup({ async read() { return { items: [push(7, '2026-11-17T10:00:00Z')], nextCursor: null }; } });
+  assert.equal(store.getSetting(`baseline:${repo.id}`), '2026-11-17T10:00:00.000Z');
+  await sync.tick();
+  const event = store.listEvents().find(item => item.kind === 'push');
+  assert.equal(event.imported, true, 'an event at the baseline instant is history, not a new update');
+  store.close();
+});
+
+test('a refresh in the same millisecond its stream starts reading still stays due', async () => {
+  const store = createStore();
+  store.saveRepo(repo);
+  let release, calls = 0;
+  const sync = createSync({ store, now: () => BASE, intervalMs: 180000, provider: { read() {
+    if (++calls > 1) return Promise.resolve({ items: [], nextCursor: null });
+    return new Promise(done => { release = () => done({ items: [], nextCursor: null }); });
+  } } });
+  const reading = sync.tick();
+  await new Promise(setImmediate);
+  assert.equal(calls, 1);
+  store.setSetting('refreshEnabled', false);
+  assert.equal(sync.refresh([repo.id]).scheduled, true);
+  release(); await reading;
+  const read = store.getStreams().find(state => state.initialized);
+  assert.equal(read.nextAt, new Date(BASE).toISOString(), 'the refresh is still due');
+  assert.equal(read.manual, true, 'a manual refresh keeps its manual flag with automatic checks off');
+  store.close();
+});
+
+test('a read window saved before refresh generations existed still keeps a refresh made during its read', async () => {
+  const store = createStore();
+  store.saveRepo(repo);
+  let release, calls = 0, time = BASE;
+  const sync = createSync({ store, now: () => time, intervalMs: 180000, provider: { read() {
+    if (++calls > 1) return Promise.resolve({ items: [], nextCursor: null });
+    return new Promise(done => { release = () => done({ items: [], nextCursor: null }); });
+  } } });
+  sync.refresh([repo.id]);
+  for (const state of store.getStreams()) {
+    const { refreshGeneration, ...upgraded } = state;
+    store.saveStream(state.stream === 'pushes'
+      ? { ...upgraded, window: { since: '2026-11-17T09:00:00.000Z', until: '2026-11-17T09:59:00.000Z' }, cursor: { skip: 100 } }
+      : { ...upgraded, nextAt: '2099-01-01T00:00:00Z' });
+    assert.ok(refreshGeneration >= 0);
+  }
+  const reading = sync.tick();
+  await new Promise(setImmediate);
+  time += 40000;
+  store.setSetting('refreshEnabled', false);
+  assert.equal(sync.refresh([repo.id]).scheduled, true);
+  release(); await reading;
+  const pushes = store.getStreams().find(state => state.stream === 'pushes');
+  assert.equal(pushes.nextAt, new Date(time).toISOString(), 'the refresh is still due');
+  assert.equal(pushes.manual, true);
+  store.close();
+});
