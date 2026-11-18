@@ -106,7 +106,8 @@ function simulate(repoTotal) {
   const sync = createSync({ store, provider, now, isForeground: () => true,
     onPrCompleted: (repo, data) => enrichment.reconcilePr(repo, data),
     background: { merge: () => enrichment.tick(), history: async () => false } });
-  return { store, sync, end, now: () => time, advance: ms => { time += ms; }, calls: () => calls };
+  const generated = [...pushes.values()].reduce((total, list) => total + list.length, 0);
+  return { store, sync, end, generated, now: () => time, advance: ms => { time += ms; }, calls: () => calls };
 }
 
 function percentile(values, p) {
@@ -128,9 +129,8 @@ for (const repoTotal of repoCounts) {
   const elapsedMinutes = (run.now() - startedAt) / 60000;
   const events = run.store.listEvents({ limit: 5000 }).filter(event => event.kind === 'push');
   const delays = events.map(event => Date.parse(event.observedAt) - Date.parse(event.time));
-  const generated = Math.floor(minutes / 60 * pushesPerHour) * repoTotal;
   const jobs = run.store.listJobs({ type: 'merge' }).length;
-  console.log([repoTotal, (run.calls() / elapsedMinutes).toFixed(1), generated, events.length,
+  console.log([repoTotal, (run.calls() / elapsedMinutes).toFixed(1), run.generated, events.length,
     minutesOf(percentile(delays, 0.5)), minutesOf(percentile(delays, 0.95)), minutesOf(percentile(delays, 1)), jobs].join(' | '));
   run.store.close();
 }

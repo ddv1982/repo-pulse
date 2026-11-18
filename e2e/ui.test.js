@@ -662,7 +662,7 @@ test('a backed-up Azure budget is explained on Activity and quantified in Settin
     await route.fulfill({ json: { ...state, diagnostics: { ...state.diagnostics, sync: { ...state.diagnostics.sync, lag: { overdueStreams: 4, maxDelayMs: 9 * 60000 } } } } });
   });
   await page.reload();
-  await expect(page.getByRole('status').filter({ hasText: 'Updates are delayed' })).toContainText('about 9 minutes behind');
+  await expect(page.getByRole('status').filter({ hasText: 'Updates are delayed' })).toContainText('about 9 minutes behind schedule');
   await page.screenshot({ path: 'test-results/budget-lag.png', fullPage: true });
   await page.getByRole('link', { name: 'Settings', exact: true }).click();
   await page.locator('#troubleshooting-toggle').click();
