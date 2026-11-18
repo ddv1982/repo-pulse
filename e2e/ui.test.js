@@ -146,6 +146,8 @@ test('disabling a repository hides it everywhere except Repositories until it is
   await page.locator('#repo-toggle').click();
   await expect(page.locator('#repo-panel [data-scope-repo]')).toHaveCount(2);
   await expect(page.locator('#repo-panel [data-scope-repo="demo-billing"]')).toHaveCount(0);
+  await page.locator('#repo-panel [data-scope-repo="demo-shared"]').check();
+  await expect(page.locator('#repo-toggle')).toHaveAccessibleName('2 repositories shown');
   await page.locator('#repo-toggle').click();
   await page.getByRole('link', { name: 'Activity', exact: true }).click();
   await page.getByRole('link', { name: 'All activity' }).click();
@@ -158,7 +160,7 @@ test('disabling a repository hides it everywhere except Repositories until it is
   await page.getByRole('link', { name: 'Activity', exact: true }).click();
   await page.getByRole('link', { name: 'All activity' }).click();
   await expect(billingRows.first()).toBeVisible();
-  await expect(page.locator('#repo-toggle')).toHaveAccessibleName('2 repositories shown');
+  await expect(page.locator('#repo-toggle')).toHaveAccessibleName('3 repositories shown');
   await page.locator('#repo-toggle').click();
   await expect(page.locator('#repo-panel [data-scope-repo="demo-billing"]')).toBeChecked();
 });

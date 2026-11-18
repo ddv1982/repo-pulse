@@ -257,7 +257,10 @@ document.addEventListener('input', event => {
 
 document.addEventListener('change', event => {
   if (event.target.matches('[data-scope-repo]')) {
-    ui.repoIds = [...document.querySelectorAll('[data-scope-repo]:checked')].map(input => input.dataset.scopeRepo);
+    // Disabled repositories have no checkbox; keep their place in the scope for when they are enabled.
+    const disabled = refresh.state.watched.filter(repo => repo.disabled && (ui.repoIds === null || ui.repoIds.includes(repo.id)));
+    ui.repoIds = [...document.querySelectorAll('[data-scope-repo]:checked')].map(input => input.dataset.scopeRepo)
+      .concat(disabled.map(repo => repo.id));
     activityChanged();
     view.updateScopeLabel(refresh.state, ui);
   }
