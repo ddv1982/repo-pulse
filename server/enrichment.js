@@ -95,158 +95,166 @@ export function createEnrichment({ store, provider, now = Date.now, negativeTtlM
     await advance(store.getRepo(job.repoId), event, job);
     return true;
   }
+  // A provider call can outlast the repo being disabled or the push event being removed.
+  const gone = (repo, event) => !available(repo.id) || !store.getEvent(event.id);
+  function finishWithoutUpdates(repo, event, job) {
+    store.commitEnrichment({
+      jobId: job.id,
+      eventId: event.id,
+      data: { mergeEvidence: classifyMergeEvidence(repo, event, [], [], { checkedAt: iso(now()) }) },
+    });
+  }
+  function restartRanges(repo, event, job) {
+    saveStep(repo, event, {
+      ...job,
+      stage: 'ranges',
+      refIndex: 0,
+      refCursor: null,
+      refRanges: [],
+      commitIds: unique([...(job.commitIds || []), ...mergeUpdates(event).map(ref => ref.newObjectId)]),
+      prSnapshots: undefined,
+    });
+  }
+  async function commitsStage(repo, event, job) {
+    if (!event.data?.pushId) throw failure('EVIDENCE_UNAVAILABLE', 'The push identity is unavailable for commit enrichment.');
+    const page = await provider.pushCommits(repo, event.data.pushId, job.cursor || {});
+    if (gone(repo, event)) return;
+    if (!Array.isArray(page?.items)) throw failure('INVALID_RESPONSE', 'Pushed commit data is unavailable.');
+    const entities = cacheEntries(repo.id, page.items);
+    const next = {
+      ...job,
+      stage: page.nextCursor ? 'commits' : 'ranges',
+      cursor: page.nextCursor || null,
+      ...(!page.nextCursor ? { refIndex: 0, refCursor: null, refRanges: [], rangesComplete: false, prSnapshots: undefined } : {}),
+      commitIds: unique([
+        ...(job.commitIds || []),
+        ...page.items.map(item => item.commitId),
+        ...mergeUpdates(event).map(ref => ref.newObjectId),
+      ]),
+    };
+    saveStep(repo, event, next, entities);
+  }
+  async function rangesStage(repo, event, job) {
+    const refs = mergeUpdates(event),
+      index = job.refIndex || 0,
+      ref = refs[index];
+    if (!ref) {
+      saveStep(repo, event, { ...job, stage: 'hydrate', rangesComplete: true });
+      return;
+    }
+    const page = await provider.refCommits(repo, ref.oldObjectId, ref.newObjectId, job.refCursor || {});
+    if (gone(repo, event)) return;
+    if (!Array.isArray(page?.items)) throw failure('INVALID_RESPONSE', 'Branch revision-range data is unavailable.');
+    const entities = cacheEntries(repo.id, page.items);
+    const ranges = [...(job.refRanges || [])];
+    ranges[index] = {
+      name: ref.name,
+      oldObjectId: ref.oldObjectId,
+      newObjectId: ref.newObjectId,
+      commitIds: unique([...(ranges[index]?.commitIds || []), ...page.items.map(item => item.commitId)]),
+      complete: !page.nextCursor,
+    };
+    const nextIndex = page.nextCursor ? index : index + 1;
+    const complete = nextIndex >= refs.length;
+    saveStep(
+      repo,
+      event,
+      {
+        ...job,
+        stage: complete ? 'hydrate' : 'ranges',
+        refIndex: nextIndex,
+        refCursor: page.nextCursor || null,
+        refRanges: ranges,
+        rangesComplete: complete,
+        commitIds: unique([...(job.commitIds || []), ...page.items.map(item => item.commitId), ref.newObjectId]),
+      },
+      entities,
+    );
+  }
+  async function hydrateStage(repo, event, job) {
+    const ids = unique([...(job.commitIds || []), ...mergeUpdates(event).flatMap(ref => [ref.oldObjectId, ref.newObjectId])]);
+    const missing = ids.filter(id => !Array.isArray(commit(repo.id, id)?.parents)).slice(0, 2);
+    if (!missing.length) {
+      saveStep(repo, event, { ...job, stage: 'prs' });
+      return;
+    }
+    const hydrated = await provider.commitsByIds(repo, missing);
+    if (gone(repo, event)) return;
+    if (!Array.isArray(hydrated) || missing.some(id => !hydrated.some(item => item.commitId === id && Array.isArray(item.parents)))) {
+      throw failure('EVIDENCE_UNAVAILABLE', 'Some commit parent objects are unavailable; merge coverage is incomplete.');
+    }
+    saveStep(
+      repo,
+      event,
+      job,
+      hydrated.map(item => ({ type: 'commit', id: item.commitId, data: item })),
+    );
+  }
+  async function prsStage(repo, event, job) {
+    const ids = job.commitIds || [];
+    // A bounded job checks each commit once. Earlier batches may expire while the
+    // shared request queue is processing later ones; that must not restart this job.
+    const snapshots = { ...job.prSnapshots };
+    for (const id of ids) {
+      if (snapshots[id]) continue;
+      const found = store.getEntity(repo.id, 'commit-pr', id);
+      if (Array.isArray(found?.associations) && Date.parse(found.expiresAt) > now()) snapshots[id] = found;
+    }
+    const stale = ids.filter(id => !snapshots[id]).slice(0, 25);
+    if (stale.length) {
+      const associations = await provider.queryPullRequests(repo, stale);
+      if (gone(repo, event)) return;
+      if (!Array.isArray(associations)) throw failure('INVALID_RESPONSE', 'Pull request associations are unavailable.');
+      const entities = stale.map(id => {
+        const matches = associations.filter(item => item.commitId === id);
+        return {
+          type: 'commit-pr',
+          id,
+          data: {
+            associations: matches,
+            checkedAt: iso(now()),
+            expiresAt: iso(now() + (matches.length ? positiveTtlMs : negativeTtlMs)),
+          },
+        };
+      });
+      for (const entity of entities) snapshots[entity.id] = entity.data;
+      saveStep(repo, event, { ...job, prSnapshots: snapshots }, entities);
+      return;
+    }
+    const caches = ids.map(id => snapshots[id]);
+    const introduced = records(job);
+    const evidence = classifyMergeEvidence(
+      repo,
+      event,
+      introduced,
+      caches.flatMap(item => item.associations || []),
+      {
+        checkedAt: iso(now()),
+        associationExpiresAt: caches.length ? iso(Math.min(...caches.map(item => Date.parse(item.expiresAt)))) : undefined,
+        graphRecords: graphRecords(repo, event, introduced),
+        refRanges: job.refRanges || [],
+      },
+    );
+    evidence.evidenceVersion = EVIDENCE_VERSION;
+    evidence.candidateCommitCount = ids.length;
+    evidence.introducedCommitsComplete = true;
+    store.commitEnrichment({ jobId: job.id, eventId: event.id, data: { mergeEvidence: evidence } });
+  }
+  const stages = { commits: commitsStage, ranges: rangesStage, hydrate: hydrateStage, prs: prsStage };
+  /** Picks the handler for the job's saved stage. A stage handler that returns early leaves the job as it was. */
+  function stageHandler(event, job) {
+    if (!mergeUpdates(event).length) return finishWithoutUpdates;
+    const stage = job.stage || 'commits';
+    if (['hydrate', 'prs'].includes(stage) && !job.rangesComplete) return restartRanges;
+    if (typeof stage !== 'string' || !Object.hasOwn(stages, stage))
+      throw failure('INVALID_JOB', 'Merge enrichment could not resume its saved stage.');
+    return stages[stage];
+  }
   async function advance(repo, event, job) {
     try {
-      if (!mergeUpdates(event).length) {
-        store.commitEnrichment({
-          jobId: job.id,
-          eventId: event.id,
-          data: { mergeEvidence: classifyMergeEvidence(repo, event, [], [], { checkedAt: iso(now()) }) },
-        });
-        return;
-      }
-      const stage = job.stage || 'commits';
-      if (['hydrate', 'prs'].includes(stage) && !job.rangesComplete) {
-        saveStep(repo, event, {
-          ...job,
-          stage: 'ranges',
-          refIndex: 0,
-          refCursor: null,
-          refRanges: [],
-          commitIds: unique([...(job.commitIds || []), ...mergeUpdates(event).map(ref => ref.newObjectId)]),
-          prSnapshots: undefined,
-        });
-        return;
-      }
-      if (stage === 'commits') {
-        if (!event.data?.pushId) throw failure('EVIDENCE_UNAVAILABLE', 'The push identity is unavailable for commit enrichment.');
-        const page = await provider.pushCommits(repo, event.data.pushId, job.cursor || {});
-        if (!available(repo.id) || !store.getEvent(event.id)) return;
-        if (!Array.isArray(page?.items)) throw failure('INVALID_RESPONSE', 'Pushed commit data is unavailable.');
-        const entities = cacheEntries(repo.id, page.items);
-        const next = {
-          ...job,
-          stage: page.nextCursor ? 'commits' : 'ranges',
-          cursor: page.nextCursor || null,
-          ...(!page.nextCursor ? { refIndex: 0, refCursor: null, refRanges: [], rangesComplete: false, prSnapshots: undefined } : {}),
-          commitIds: unique([
-            ...(job.commitIds || []),
-            ...page.items.map(item => item.commitId),
-            ...mergeUpdates(event).map(ref => ref.newObjectId),
-          ]),
-        };
-        saveStep(repo, event, next, entities);
-        return;
-      }
-      if (stage === 'ranges') {
-        const refs = mergeUpdates(event),
-          index = job.refIndex || 0,
-          ref = refs[index];
-        if (!ref) {
-          saveStep(repo, event, { ...job, stage: 'hydrate', rangesComplete: true });
-          return;
-        }
-        const page = await provider.refCommits(repo, ref.oldObjectId, ref.newObjectId, job.refCursor || {});
-        if (!available(repo.id) || !store.getEvent(event.id)) return;
-        if (!Array.isArray(page?.items)) throw failure('INVALID_RESPONSE', 'Branch revision-range data is unavailable.');
-        const entities = cacheEntries(repo.id, page.items);
-        const ranges = [...(job.refRanges || [])];
-        ranges[index] = {
-          name: ref.name,
-          oldObjectId: ref.oldObjectId,
-          newObjectId: ref.newObjectId,
-          commitIds: unique([...(ranges[index]?.commitIds || []), ...page.items.map(item => item.commitId)]),
-          complete: !page.nextCursor,
-        };
-        const nextIndex = page.nextCursor ? index : index + 1;
-        const complete = nextIndex >= refs.length;
-        saveStep(
-          repo,
-          event,
-          {
-            ...job,
-            stage: complete ? 'hydrate' : 'ranges',
-            refIndex: nextIndex,
-            refCursor: page.nextCursor || null,
-            refRanges: ranges,
-            rangesComplete: complete,
-            commitIds: unique([...(job.commitIds || []), ...page.items.map(item => item.commitId), ref.newObjectId]),
-          },
-          entities,
-        );
-        return;
-      }
-      if (stage === 'hydrate') {
-        const ids = unique([...(job.commitIds || []), ...mergeUpdates(event).flatMap(ref => [ref.oldObjectId, ref.newObjectId])]);
-        const missing = ids.filter(id => !Array.isArray(commit(repo.id, id)?.parents)).slice(0, 2);
-        if (!missing.length) {
-          saveStep(repo, event, { ...job, stage: 'prs' });
-          return;
-        }
-        const hydrated = await provider.commitsByIds(repo, missing);
-        if (!available(repo.id) || !store.getEvent(event.id)) return;
-        if (!Array.isArray(hydrated) || missing.some(id => !hydrated.some(item => item.commitId === id && Array.isArray(item.parents)))) {
-          throw failure('EVIDENCE_UNAVAILABLE', 'Some commit parent objects are unavailable; merge coverage is incomplete.');
-        }
-        saveStep(
-          repo,
-          event,
-          job,
-          hydrated.map(item => ({ type: 'commit', id: item.commitId, data: item })),
-        );
-        return;
-      }
-      if (stage !== 'prs') throw failure('INVALID_JOB', 'Merge enrichment could not resume its saved stage.');
-      const ids = job.commitIds || [];
-      // A bounded job checks each commit once. Earlier batches may expire while the
-      // shared request queue is processing later ones; that must not restart this job.
-      const snapshots = { ...job.prSnapshots };
-      for (const id of ids) {
-        if (snapshots[id]) continue;
-        const found = store.getEntity(repo.id, 'commit-pr', id);
-        if (Array.isArray(found?.associations) && Date.parse(found.expiresAt) > now()) snapshots[id] = found;
-      }
-      const stale = ids.filter(id => !snapshots[id]).slice(0, 25);
-      if (stale.length) {
-        const associations = await provider.queryPullRequests(repo, stale);
-        if (!available(repo.id) || !store.getEvent(event.id)) return;
-        if (!Array.isArray(associations)) throw failure('INVALID_RESPONSE', 'Pull request associations are unavailable.');
-        const entities = stale.map(id => {
-          const matches = associations.filter(item => item.commitId === id);
-          return {
-            type: 'commit-pr',
-            id,
-            data: {
-              associations: matches,
-              checkedAt: iso(now()),
-              expiresAt: iso(now() + (matches.length ? positiveTtlMs : negativeTtlMs)),
-            },
-          };
-        });
-        for (const entity of entities) snapshots[entity.id] = entity.data;
-        saveStep(repo, event, { ...job, prSnapshots: snapshots }, entities);
-        return;
-      }
-      const caches = ids.map(id => snapshots[id]);
-      const introduced = records(job);
-      const evidence = classifyMergeEvidence(
-        repo,
-        event,
-        introduced,
-        caches.flatMap(item => item.associations || []),
-        {
-          checkedAt: iso(now()),
-          associationExpiresAt: caches.length ? iso(Math.min(...caches.map(item => Date.parse(item.expiresAt)))) : undefined,
-          graphRecords: graphRecords(repo, event, introduced),
-          refRanges: job.refRanges || [],
-        },
-      );
-      evidence.evidenceVersion = EVIDENCE_VERSION;
-      evidence.candidateCommitCount = ids.length;
-      evidence.introducedCommitsComplete = true;
-      store.commitEnrichment({ jobId: job.id, eventId: event.id, data: { mergeEvidence: evidence } });
+      await stageHandler(event, job)(repo, event, job);
     } catch (error) {
-      if (!available(repo.id) || !store.getEvent(event.id)) return;
+      if (gone(repo, event)) return;
       const attempts = (job.attempts || 0) + 1;
       const safe = {
         code: error.code || 'ENRICHMENT_FAILED',
