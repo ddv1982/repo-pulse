@@ -15,13 +15,13 @@ function statusFor(job) {
   return ['Import queued', 'info'];
 }
 
-/** @param {Pick<HistoryRepo, 'id'>} repo @param {HistoryJob | undefined} job */
+/** @param {Pick<HistoryRepo, 'id'>} repo @param {HistoryJob | null | undefined} job */
 export function renderHistoryButton(repo, job) {
   const busy = job && job.status !== 'completed';
   return `<button class="btn sm" type="button" id="import-${e(repo.id)}" data-action="open-history-import" data-id="${e(repo.id)}" ${busy ? 'disabled' : ''}>Import older activity…</button>`;
 }
 
-/** @param {Pick<HistoryRepo, 'id'>} repo @param {HistoryJob | undefined} job */
+/** @param {Pick<HistoryRepo, 'id'>} repo @param {HistoryJob | null | undefined} job */
 export function renderHistoryProgress(repo, job) {
   if (!job) return '';
   const [label, tone] = statusFor(job);

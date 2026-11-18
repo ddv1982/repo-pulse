@@ -12,24 +12,24 @@ import { createSeenActions } from './ui/seen-actions.js';
 import { createHistoryImport } from './ui/history-import.js';
 import { required } from './ui/dom.js';
 
+/** @typedef {import('./ui/refresh.js').PageState} PageState */
+/** @typedef {import('./ui/checkout-actions.js').Action} Action */
+/** web/theme.js publishes this before the modules load. @typedef {Window & { repoPulseTheme?: { set: (value: string) => void } }} ThemedWindow */
+
 const page = required('#page');
 const header = required('#header');
 const dialog = required('#confirm-dialog', HTMLDialogElement);
-const ui = {
-  route: 'catchup',
-  eventId: null,
-  repoIds: null,
-  search: '',
-  kind: '',
-  filtersOpen: undefined,
-  activityRoute: 'catchup',
-};
+/** @type {(() => Promise<void>) | null} */
 let pendingConfirmation;
+/** @type {HTMLElement | SVGElement | null} */
 let dialogOpener;
 let busy = false;
+/** @type {{ metadata?: string, activity?: PageState['activity'], events?: PageState['events'] }} */
 let lastRendered = {};
+/** @type {ReturnType<typeof setTimeout> | undefined} */
 let toastTimer;
 
+/** @type {ReturnType<typeof setTimeout> | undefined} */
 let searchTimer;
 const connection = createConnectionController({
   request,
@@ -43,7 +43,18 @@ const connection = createConnectionController({
     }
   },
 });
-ui.connection = connection.state;
+/** @type {import('./ui/browser-view.js').BrowserUi} */
+const ui = {
+  route: 'catchup',
+  eventId: null,
+  repoIds: null,
+  search: '',
+  kind: '',
+  filtersOpen: undefined,
+  activityRoute: 'catchup',
+  connection: connection.state,
+};
+/** @type {Map<string | null, import('./ui/activity-detail.js').CommitsView>} */
 const commitResults = new Map();
 const picker = createRepositoryPicker({
   request,
@@ -55,7 +66,8 @@ const picker = createRepositoryPicker({
 });
 const typeFilter = createTypeFilter({
   onChange: value => {
-    ui.kind = value;
+    // Every type option carries data-kind, so the fallback never applies.
+    ui.kind = value ?? '';
     activityChanged();
   },
 });
@@ -107,6 +119,7 @@ function render() {
   if (ui.route === 'repositories') void connection.check();
 }
 
+/** @param {boolean} force */
 function refreshTarget(force) {
   return view.refreshTarget(force, busy || dialog.open || historyImport.open || (ui.route === 'repositories' && picker.active()));
 }
@@ -149,6 +162,7 @@ const refresh = createRefreshController({
 });
 const load = refresh.load;
 
+/** @param {string} message */
 function showError(message, network = false) {
   const notice = required('#notice');
   notice.innerHTML = `<div class="banner crit" role="alert"><span class="ic">!</span><div><strong>Something needs attention</strong><span class="error-message">${e(message)}</span> <button class="ghost sm" type="button" data-action="dismiss-error">Dismiss</button></div></div>`;
@@ -162,6 +176,7 @@ function clearNotice() {
   delete notice.dataset.networkError;
 }
 
+/** @param {string} message */
 function toast(message, { undo = false } = {}) {
   const element = required('#toast');
   clearTimeout(toastTimer);
@@ -175,9 +190,11 @@ function toast(message, { undo = false } = {}) {
   );
 }
 
+/** @param {string} title @param {string} description @param {() => Promise<void>} callback */
 function confirm(title, description, callback, label = 'Confirm', { subject = '', destructive = false } = {}) {
   pendingConfirmation = callback;
-  dialogOpener = document.activeElement;
+  const opener = document.activeElement;
+  dialogOpener = opener instanceof HTMLElement || opener instanceof SVGElement ? opener : null;
   required('#confirm-title').textContent = title;
   const subjectLine = required('#confirm-subject');
   subjectLine.textContent = subject;
@@ -195,27 +212,32 @@ function closeDialog() {
   if (dialogOpener?.isConnected) dialogOpener.focus({ preventScroll: true });
 }
 
+/** @param {() => unknown} callback */
 async function withAction(callback) {
   if (busy) return;
   busy = true;
   try {
     await callback();
   } catch (error) {
-    showError(error.message);
+    // Actions throw Errors: request() and the controllers they call reject with Error.
+    showError(/** @type {Error} */ (error).message);
   } finally {
     busy = false;
   }
 }
 
+/** @param {boolean} pending */
 function setRefreshPending(pending) {
   ui.refreshing = pending;
-  for (const button of header.querySelectorAll('[data-action="refresh"]')) {
+  for (const button of /** @type {NodeListOf<HTMLElement>} */ (header.querySelectorAll('[data-action="refresh"]'))) {
     button.setAttribute('aria-busy', String(pending));
     button.setAttribute('aria-disabled', String(pending));
-    button.title = pending ? 'Refreshing activity…' : button.dataset.idleTitle;
+    // The header renders data-idle-title on every refresh button, so the fallback never applies.
+    button.title = pending ? 'Refreshing activity…' : (button.dataset.idleTitle ?? '');
   }
 }
 
+/** @type {Record<string, Action>} */
 const actions = {
   ...createCheckoutActions({ checkoutPanel, confirm, toast }),
   'load-more-activity': async () => {
@@ -255,8 +277,9 @@ const actions = {
     toast('Fictional incoming hotfix added.');
   },
   detail: element => {
-    navigation.remember(element.dataset.id);
-    location.hash = `event/${encodeURIComponent(element.dataset.id)}`;
+    // Detail buttons always carry data-id, so the fallbacks never apply.
+    navigation.remember(element.dataset.id ?? null);
+    location.hash = `event/${encodeURIComponent(element.dataset.id ?? '')}`;
   },
   'back-to-results': () => {
     location.hash = activityHref(navigation.returnRoute);
@@ -291,7 +314,8 @@ const actions = {
     activityChanged({ header: true });
   },
   'remove-repo': element => {
-    const repo = refresh.state.watched.find(item => item.id === element.dataset.id);
+    // Remove buttons are rendered from the watched list. As before, a missing repository throws here and withAction reports it.
+    const repo = /** @type {import('./ui/refresh.js').Repo} */ (refresh.state.watched.find(item => item.id === element.dataset.id));
     confirm(
       `Remove ${repo.name} from this app?`,
       'This deletes its local watch and cached history only. The checkout, Azure repository and remote data are unchanged.',
@@ -307,64 +331,72 @@ const actions = {
     try {
       commitResults.set(
         eventId,
-        await request(`/api/push/${encodeURIComponent(element.dataset.repoId)}/${encodeURIComponent(element.dataset.pushId)}/commits`),
+        await request(
+          `/api/push/${encodeURIComponent(element.dataset.repoId ?? '')}/${encodeURIComponent(element.dataset.pushId ?? '')}/commits`,
+        ),
       );
     } catch (error) {
-      commitResults.set(eventId, { error: error.message });
+      commitResults.set(eventId, { error: /** @type {Error} */ (error).message });
     }
     if (ui.route === 'event' && ui.eventId === eventId) renderPage();
   },
 };
 
 document.addEventListener('click', event => {
-  const monitoring = header.querySelector('.header-overflow[open]');
-  if (monitoring && !monitoring.contains(event.target)) monitoring.open = false;
-  const theme = event.target.closest('[data-theme]');
+  const target = event.target;
+  const monitoring = /** @type {HTMLDetailsElement | null} */ (header.querySelector('.header-overflow[open]'));
+  if (monitoring && !(target instanceof Node && monitoring.contains(target))) monitoring.open = false;
+  if (!(target instanceof Element)) return;
+  const theme = /** @type {HTMLElement | null} */ (target.closest('[data-theme]'));
   if (theme) {
-    window.repoPulseTheme?.set(theme.dataset.theme);
+    /** @type {ThemedWindow} */ (window).repoPulseTheme?.set(theme.dataset.theme ?? '');
     return;
   }
-  if (event.target.closest('#repo-toggle')) {
+  if (target.closest('#repo-toggle')) {
     const panel = required('#repo-panel');
     panel.hidden = !panel.hidden;
     required('#repo-toggle').setAttribute('aria-expanded', String(!panel.hidden));
     return;
   }
-  const panel = document.querySelector('#repo-panel');
-  if (panel && !panel.hidden && !event.target.closest('#repo-panel')) {
+  const panel = /** @type {HTMLElement | null} */ (document.querySelector('#repo-panel'));
+  if (panel && !panel.hidden && !target.closest('#repo-panel')) {
     panel.hidden = true;
     required('#repo-toggle').setAttribute('aria-expanded', 'false');
   }
-  const element = event.target.closest('[data-action]');
-  if (element && actions[element.dataset.action]) {
+  const element = /** @type {HTMLElement | null} */ (target.closest('[data-action]'));
+  const action = element?.dataset.action;
+  if (element && action && actions[action]) {
     event.preventDefault();
-    void withAction(() => actions[element.dataset.action](element));
+    void withAction(() => actions[action](element));
   }
 });
 
 document.addEventListener('input', event => {
-  if (event.target.id === 'feed-search') {
+  if (event.target instanceof HTMLInputElement && event.target.id === 'feed-search') {
     ui.search = event.target.value;
     activityChanged({ debounce: true });
   }
 });
 
 document.addEventListener('change', event => {
-  if (event.target.matches('[data-scope-repo]')) {
+  const target = event.target;
+  if (!(target instanceof HTMLInputElement || target instanceof HTMLSelectElement)) return;
+  if (target.matches('[data-scope-repo]')) {
     // Disabled repositories have no checkbox; keep their place in the scope for when they are enabled.
     const disabled = refresh.state.watched.filter(repo => repo.disabled && (ui.repoIds === null || ui.repoIds.includes(repo.id)));
-    ui.repoIds = [...document.querySelectorAll('[data-scope-repo]:checked')]
-      .map(input => input.dataset.scopeRepo)
+    ui.repoIds = [.../** @type {NodeListOf<HTMLInputElement>} */ (document.querySelectorAll('[data-scope-repo]:checked'))]
+      // The selector guarantees data-scope-repo, so the fallback never applies.
+      .map(input => input.dataset.scopeRepo ?? '')
       .concat(disabled.map(repo => repo.id));
     activityChanged();
     view.updateScopeLabel(refresh.state, ui);
   }
-  if (event.target.id === 'connection-repo') {
-    connection.select(event.target.value);
+  if (target.id === 'connection-repo') {
+    connection.select(target.value);
     renderPage();
   }
-  if (event.target.matches('[data-repo-toggle]')) {
-    const control = event.target;
+  if (target instanceof HTMLInputElement && target.matches('[data-repo-toggle]')) {
+    const control = target;
     const repo = refresh.state.watched.find(item => item.id === control.dataset.id);
     if (busy || !repo) {
       control.checked = !repo?.disabled;
@@ -382,10 +414,10 @@ document.addEventListener('change', event => {
       }
     });
   }
-  if (event.target.matches('[data-auto-toggle]')) {
-    const checked = event.target.checked;
+  if (target instanceof HTMLInputElement && target.matches('[data-auto-toggle]')) {
+    const checked = target.checked;
     if (busy) {
-      event.target.checked = refresh.state.settings.refreshEnabled !== false;
+      target.checked = refresh.state.settings.refreshEnabled !== false;
       return;
     }
     void withAction(async () => {
@@ -393,7 +425,7 @@ document.addEventListener('change', event => {
         await request('/api/settings', { method: 'POST', body: { refreshEnabled: checked } });
         await load({ force: true });
       } finally {
-        for (const control of document.querySelectorAll('[data-auto-toggle]')) {
+        for (const control of /** @type {NodeListOf<HTMLInputElement>} */ (document.querySelectorAll('[data-auto-toggle]'))) {
           control.checked = refresh.state.settings.refreshEnabled !== false;
         }
       }
@@ -403,8 +435,10 @@ document.addEventListener('change', event => {
 
 page.addEventListener('toggle', seen.updateShownCount, true);
 page.addEventListener('click', event => {
-  if (!event.target.closest('details[data-filter-panel] > summary')) return;
-  const filters = event.target.closest('details[data-filter-panel]');
+  const target = event.target;
+  if (!(target instanceof Element)) return;
+  if (!target.closest('details[data-filter-panel] > summary')) return;
+  const filters = /** @type {HTMLDetailsElement} */ (target.closest('details[data-filter-panel]'));
   requestAnimationFrame(() => {
     if (filters.isConnected) ui.filtersOpen = filters.open;
   });
@@ -413,7 +447,7 @@ dialog.addEventListener('cancel', () => {
   pendingConfirmation = null;
 });
 document.addEventListener('keydown', event => {
-  const monitoring = header.querySelector('.header-overflow[open]');
+  const monitoring = /** @type {HTMLDetailsElement | null} */ (header.querySelector('.header-overflow[open]'));
   if (event.key === 'Escape' && monitoring?.contains(document.activeElement)) {
     monitoring.open = false;
     required('summary', HTMLElement, monitoring).focus();
@@ -431,10 +465,10 @@ document.addEventListener('keydown', event => {
     event.key === '/' &&
     !dialog.open &&
     !historyImport.open &&
-    !['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement?.tagName)
+    !['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement?.tagName ?? '')
   ) {
     event.preventDefault();
-    document.querySelector('#feed-search')?.focus();
+    /** @type {HTMLElement | null} */ (document.querySelector('#feed-search'))?.focus();
   }
 });
 
