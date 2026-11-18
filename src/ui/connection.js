@@ -2,16 +2,11 @@
 
 import { dateTime, escape as e } from './format.js';
 
-/** @typedef {import('../api.js').ConnectionResponse} ConnectionResponse */
-/** @typedef {import('../../server/azure-client.js').ConnectionStatus} ConnectionStatus */
-/**
- * What the UI reads from a connection check: a live or demo response, or a failed request.
- * @typedef {{ available: boolean, message: string } & Partial<Pick<ConnectionStatus, 'version' | 'extension' | 'account' | 'access'>>} ConnectionResult
- */
-/** @typedef {{ results: Map<string, ConnectionResult>, local: ConnectionResult | null, pending: string | null, repoId: string }} ConnectionState */
+/** A connection check's answer; a failed request is recorded as an unavailable status. @typedef {import('../api.js').ConnectionResponse} ConnectionStatus */
+/** @typedef {{ results: Map<string, ConnectionStatus>, local: ConnectionStatus | null, pending: string | null, repoId: string }} ConnectionState */
 /** @typedef {Pick<import('./refresh.js').PageState, 'demo' | 'streams'>} ConnectionPage */
 
-/** @param {(ConnectionResult & { checking?: boolean }) | undefined} connection */
+/** @param {(ConnectionStatus & { checking?: boolean }) | undefined} connection */
 export function connectionResult(connection) {
   if (!connection || connection.checking) return '<p class="help" role="status">Detecting your existing Azure CLI configuration…</p>';
   return `<div class="connection-summary"><span class="${connection.available ? 'status-good' : 'status-bad'}" role="status">
@@ -43,7 +38,7 @@ export function connectionStatus(state, connection, repoId) {
 
 /** @param {{ request: typeof import('../api.js').request, render: () => void }} options */
 export function createConnectionController({ request, render }) {
-  /** @type {Map<string, ConnectionResult>} */
+  /** @type {Map<string, ConnectionStatus>} */
   const results = new Map();
   /** @type {ConnectionState} */
   const state = { results, local: null, pending: null, repoId: '' };
@@ -55,12 +50,12 @@ export function createConnectionController({ request, render }) {
       state.pending = repoId;
       if (force) render();
       try {
-        /** @type {ConnectionResult} */
         const result = repoId ? await request(`/api/connection?repoId=${encodeURIComponent(repoId)}`) : await request('/api/connection');
         results.set(repoId, result);
         if (result.version || !repoId) state.local = result;
       } catch (error) {
-        results.set(repoId, { available: false, message: error instanceof Error ? error.message : String(error) });
+        const message = error instanceof Error ? error.message : String(error);
+        results.set(repoId, { available: false, identity: null, identityVerified: false, message });
       } finally {
         state.pending = null;
         render();

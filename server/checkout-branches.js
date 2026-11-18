@@ -15,6 +15,7 @@ import { isSymbolicRef, worktreeUsesBranch } from './checkout-delete-guard.cjs';
 /** @typedef {{ snapshot: ActiveCheckout, target: Upstream|null }} Reading */
 /** @typedef {{ id: string, path: string, source: string, sourceHead: string, targetRef: string,
  *   result: string, recordedSource?: string, targetIdentity?: string, archive?: string, workspace?: string }} Followup */
+/** The part of a follow-up plan a checkout status shows. @typedef {Pick<Followup, 'id' | 'source' | 'workspace'>} FollowupSummary */
 /** @typedef {{ get: (id: string) => Followup|undefined, save: (id: string, plan: Followup) => void }} Followups */
 /** @typedef {{ operation: 'switch-update', prId: number, result: string } |
  *   { operation: 'review'|'remove', planId: string } |
@@ -94,7 +95,10 @@ export function branchFollowups({ run, hooks, followups, statusAt, updateAt, rea
       : undefined;
   }
 
-  /** @param {LinkedRepo} repo @param {string} path @param {ActiveCheckout} snapshot */
+  /**
+   * @param {LinkedRepo} repo @param {string} path @param {ActiveCheckout} snapshot
+   * @returns {Promise<import('./checkout-git.js').DecoratedCheckout>}
+   */
   async function decorate(repo, path, snapshot) {
     const plan = eligiblePlan(repo, path, snapshot);
     if (!plan || (plan.archive && (await readRef(run, path, `refs/heads/${plan.source}`).catch(() => undefined)) === null)) return snapshot;

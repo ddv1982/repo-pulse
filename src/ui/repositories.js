@@ -13,8 +13,7 @@ import { displayLocalPath } from './repository-picker.js';
 
 /** @param {PageState} state @param {{ connection?: RepositoriesView }} ui @param {Record<string, CheckoutSnapshot>} [checkouts] */
 export function renderRepositories(state, ui, checkouts = {}) {
-  // The server lists only backfill jobs here (store.listJobs({ type: 'backfill' })), as server/backfill.js also assumes.
-  const jobs = new Map(state.jobs?.map(job => [job.repoId, /** @type {import('../../server/backfill.js').HistoryJob} */ (job)]));
+  const jobs = new Map(state.jobs?.map(job => [job.repoId, job]));
   const disabled = state.watched.filter(repo => repo.disabled).length;
   return `<div class="repo-heading">
     <h1 class="sr">Repositories</h1>

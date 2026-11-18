@@ -21,7 +21,9 @@ import { checkoutDiagnostic, memoryObservations, observedRewrite } from './check
  * @typedef {CheckoutIntent & CheckoutReading & { state: 'behind', canCheck: true, canPull: true }} PullableCheckout
  * @typedef {CheckoutReading & { state: BlockedState, canCheck: boolean, canPull: false, diagnostic?: import('./checkout-observations.js').CheckoutDiagnostic }} BlockedCheckout
  * @typedef {PullableCheckout | BlockedCheckout} ActiveCheckout
- * @typedef {ActiveCheckout | { state: 'unavailable'|'not-linked' }} CheckoutStatus
+ * @typedef {ActiveCheckout & { followup?: import('./checkout-branches.js').FollowupSummary }} DecoratedCheckout
+ *   A checkout with an open branch follow-up names it, so the page can offer to review or remove the old branch.
+ * @typedef {DecoratedCheckout | { state: 'unavailable'|'not-linked' }} CheckoutStatus
  * @typedef {(path: string, args: string[], options?: { guard?: NodeJS.ProcessEnv, input?: string }) => Promise<string>} GitRunner
  */
 

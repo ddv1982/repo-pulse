@@ -6,11 +6,11 @@ import { azureLink, escape as e } from './format.js';
 /** @typedef {import('../../server/checkout-git.js').BlockedCheckout} BlockedCheckout */
 /** @typedef {import('../../server/checkout-observations.js').CheckoutDiagnostic} CheckoutDiagnostic */
 /** @typedef {import('../../server/checkout-branches.js').Review} Review */
-/** @typedef {import('../../server/checkout-branches.js').Followup} Followup */
+/** @typedef {import('../../server/checkout-branches.js').FollowupSummary} FollowupSummary */
 /**
  * One repository's checkout as this page reads it. Every /api/checkouts entry fits: the server adds `followup`
  * when a branch follow-up is open, and the page keeps the `review` and `nextStep` a branch action returned.
- * @typedef {{ state: CheckoutStatus['state'], canPull?: boolean, followup?: Pick<Followup, 'id' | 'source' | 'workspace'>,
+ * @typedef {{ state: CheckoutStatus['state'], canPull?: boolean, followup?: FollowupSummary,
  *   review?: Review, nextStep?: string } & Partial<Omit<BlockedCheckout, 'state' | 'canPull'>>} CheckoutSnapshot
  */
 /** @typedef {{ checkout: CheckoutSnapshot, updated?: boolean, message?: string, review?: Review, nextStep?: string }} CheckoutUpdate */

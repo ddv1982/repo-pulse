@@ -513,7 +513,11 @@ export function createStore(path = ':memory:') {
         if (state) saveStream({ ...state, repoId, stream });
       });
     },
-    /** @param {{ type?: string, repoId?: string, status?: string, dueBefore?: string }} [filter] */
+    /**
+     * @template {string} [T=string]
+     * @param {{ type?: T, repoId?: string, status?: string, dueBefore?: string }} [filter]
+     * @returns {T extends 'backfill' ? import('./backfill.js').HistoryJob[] : Job[]}
+     */
     listJobs({ type, repoId, status, dueBefore } = {}) {
       /** @type {string[]} */
       const where = [],
@@ -536,9 +540,11 @@ export function createStore(path = ':memory:') {
         where.push('next_at<=?');
         params.push(dueBefore);
       }
-      return q(`SELECT data FROM jobs ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY next_at,id`)
+      const jobs = q(`SELECT data FROM jobs ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY next_at,id`)
         .all(...params)
         .map(readJob);
+      // Persisted JSON: rows of type 'backfill' are only ever written by server/backfill.js, as a HistoryJob.
+      return /** @type {T extends 'backfill' ? import('./backfill.js').HistoryJob[] : Job[]} */ (jobs);
     },
     /** @returns {MergeQueueSummary} */
     mergeQueueSummary() {
