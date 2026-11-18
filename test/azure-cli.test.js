@@ -126,3 +126,17 @@ test('closing the CLI reports running reads as closed, not timed out', async () 
   await assert.rejects(running, { code: 'CLOSED' });
   assert.notEqual(cli.diagnostics().lastError?.code, 'TIMEOUT');
 });
+
+test('Windows runs the interpreter each official az launcher calls, never through a shell', async () => {
+  const { resolveAzCommand } = await import('../server/azure-cli.js');
+  const on = (...files) => async path => files.includes(path);
+  const msi = 'C:\\Program Files\\Microsoft SDKs\\Azure\\CLI2';
+  assert.deepEqual(await resolveAzCommand({ platform: 'win32', env: { Path: `C:\\Windows\\system32;"${msi}\\wbin"` }, exists: on(`${msi}\\wbin\\az.cmd`, `${msi}\\python.exe`) }),
+    { file: `${msi}\\python.exe`, prefix: ['-IBm', 'azure.cli'], env: { AZ_INSTALLER: 'MSI' } });
+  assert.deepEqual((await resolveAzCommand({ platform: 'win32', env: { PATH: 'D:\\az\\bin' }, exists: on('D:\\az\\bin\\az.cmd', 'D:\\az\\python.exe') })).env, { AZ_INSTALLER: 'ZIP' });
+  assert.deepEqual(await resolveAzCommand({ platform: 'win32', env: { PATH: 'C:\\venv\\Scripts' }, exists: on('C:\\venv\\Scripts\\az.bat', 'C:\\venv\\Scripts\\python.exe') }),
+    { file: 'C:\\venv\\Scripts\\python.exe', prefix: ['-m', 'azure.cli'], env: { AZ_INSTALLER: 'PIP', PYTHONPATH: 'C:\\venv\\Scripts\\src' } });
+  assert.deepEqual(await resolveAzCommand({ platform: 'win32', env: { PATH: 'C:\\tools' }, exists: on('C:\\tools\\az.exe') }), { file: 'C:\\tools\\az.exe', prefix: [], env: {} });
+  await assert.rejects(resolveAzCommand({ platform: 'win32', env: { PATH: 'C:\\broken\\wbin' }, exists: on('C:\\broken\\wbin\\az.cmd') }), { code: 'ENOENT' });
+  assert.deepEqual(await resolveAzCommand({ platform: 'linux', env: {}, exists: on() }), { file: 'az', prefix: [], env: {} });
+});

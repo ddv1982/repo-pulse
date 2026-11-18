@@ -1,8 +1,8 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { mkdtemp, writeFile, rm } from 'node:fs/promises';
+import { mkdtemp, writeFile, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, win32 } from 'node:path';
 import { normalizeOrganization } from './repositories.js';
 
 const exec = promisify(execFile);
@@ -78,10 +78,42 @@ function readQueryArgs({ organization, project, repositoryId, resource } = {}) {
   return ['devops', 'invoke', '--organization', normalizeOrganization(organization), '--detect', 'false', '--area', 'git', '--resource', resource, '--api-version', '7.1', '--http-method', 'POST', '--route-parameters', `project=${project}`, `repositoryId=${repositoryId}`];
 }
 
+const isFile = path => stat(path).then(entry => entry.isFile(), () => false);
+
+/**
+ * Windows ships az as a batch file, which Node runs only through cmd.exe, and cmd.exe would
+ * reparse arguments such as project names (CVE-2024-27980). Instead run the interpreter each
+ * official launcher calls, with the same flags, so arguments go to Python unparsed.
+ */
+export async function resolveAzCommand({ platform = process.platform, env = process.env, exists = isFile } = {}) {
+  if (platform !== 'win32') return { file: 'az', prefix: [], env: {} };
+  const pathKey = Object.keys(env).find(key => key.toUpperCase() === 'PATH');
+  const dirs = String(env[pathKey] || '').split(';').map(dir => dir.trim().replace(/^"(.*)"$/, '$1')).filter(Boolean);
+  for (const dir of dirs) {
+    // A native az.exe, if Azure CLI ever ships one, can run directly.
+    if (await exists(win32.join(dir, 'az.exe'))) return { file: win32.join(dir, 'az.exe'), prefix: [], env: {} };
+    // MSI (wbin\az.cmd) and ZIP (bin\az.cmd): "%~dp0\..\python.exe" -IBm azure.cli %*
+    const bundled = win32.join(dir, '..', 'python.exe');
+    if (await exists(win32.join(dir, 'az.cmd')) && await exists(bundled)) {
+      return { file: bundled, prefix: ['-IBm', 'azure.cli'], env: { AZ_INSTALLER: win32.basename(dir).toLowerCase() === 'wbin' ? 'MSI' : 'ZIP' } };
+    }
+    // pip (venv Scripts\az.bat): "%~dp0\python.exe" -m azure.cli %*
+    const venv = win32.join(dir, 'python.exe');
+    if (await exists(win32.join(dir, 'az.bat')) && await exists(venv)) {
+      return { file: venv, prefix: ['-m', 'azure.cli'], env: { AZ_INSTALLER: 'PIP', PYTHONPATH: [win32.join(dir, 'src'), env.PYTHONPATH].filter(Boolean).join(';') } };
+    }
+  }
+  throw Object.assign(new Error('Azure CLI was not found on PATH.'), { code: 'ENOENT' });
+}
+
+let azCommand;
 async function defaultExecutor(args, { signal, timeoutMs }) {
-  const { stdout } = await exec('az', [...args, '--output', 'json', '--only-show-errors'], {
+  // Resolve once per process; a failed lookup is retried so a later install is picked up.
+  azCommand ||= resolveAzCommand().catch(error => { azCommand = undefined; throw error; });
+  const { file, prefix, env } = await azCommand;
+  const { stdout } = await exec(file, [...prefix, ...args, '--output', 'json', '--only-show-errors'], {
     signal, timeout: timeoutMs, maxBuffer: 16 * 1024 * 1024, windowsHide: true,
-    env: { ...process.env, AZURE_CORE_COLLECT_TELEMETRY: 'false', AZURE_EXTENSION_USE_DYNAMIC_INSTALL: 'no' },
+    env: { ...process.env, ...env, AZURE_CORE_COLLECT_TELEMETRY: 'false', AZURE_EXTENSION_USE_DYNAMIC_INSTALL: 'no' },
   });
   return stdout;
 }
