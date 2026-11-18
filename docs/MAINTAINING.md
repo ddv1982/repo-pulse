@@ -21,6 +21,10 @@ Keep Azure reads in the shared queue. `devops invoke` reads go over HTTPS with a
 
 Pull runs `git merge --ff-only --no-squash` after verifying the checkout identity, upstream and eligibility, then confirms HEAD reached the fetched commit. Git owns the update, so there is no app journal or lock handling. One accepted trade-off: Git does not re-confirm the branch at the moment it moves HEAD, so switching to another branch at the same commit in the instant between the last check and the merge would fast-forward that branch instead. Nothing is lost, and the reflog undoes it.
 
+## Keep functions small
+
+`npm run lint` fails when a function's cyclomatic complexity exceeds 30. When a change pushes a function over, split it into named steps or a small table of handlers, as `server/enrichment.js` and `server/sync.js` do, rather than raising the limit.
+
 ## Run checks
 
 ```sh
