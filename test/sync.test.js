@@ -496,3 +496,15 @@ test('a read window saved before refresh generations existed still keeps a refre
   assert.equal(pushes.manual, true);
   store.close();
 });
+
+test('status reports streams that are overdue because the budget is behind', async () => {
+  const { store, sync, advance } = setup({ async read() { return { items: [], nextCursor: null }; } }, ['pushes', 'refs']);
+  store.saveRepo({ ...repo, id: 'off', name: 'Off', disabled: true });
+  sync.refresh();
+  assert.deepEqual(sync.status().lag, { overdueStreams: 0, maxDelayMs: 0 });
+  advance(5 * 60000);
+  assert.deepEqual(sync.status().lag, { overdueStreams: 2, maxDelayMs: 5 * 60000 }, 'disabled repositories do not count');
+  store.setSetting('refreshEnabled', false);
+  assert.deepEqual(sync.status().lag, { overdueStreams: 0, maxDelayMs: 0 }, 'paused automatic checks are not lag');
+  store.close();
+});

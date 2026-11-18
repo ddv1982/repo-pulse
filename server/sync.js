@@ -241,6 +241,14 @@ export function createSync({ store, provider, now = Date.now, intervalMs = 18000
       counters.errors++;
     }
   }
+  // Due streams normally start within seconds; one full budget minute late means the shared CLI queue is behind.
+  function lag() {
+    const automatic = store.getSetting('refreshEnabled', true) !== false;
+    const enabled = new Set(store.listRepos().filter((repo) => !repo.disabled).map((repo) => repo.id));
+    const delays = store.getStreams().filter((state) => enabled.has(state.repoId) && (automatic || state.manual))
+      .map((state) => now() - Date.parse(state.nextAt || 0)).filter((delay) => delay > 60000);
+    return { overdueStreams: delays.length, maxDelayMs: delays.length ? Math.max(...delays) : 0 };
+  }
   function tick() {
     if (active) return active;
     active = runPage().finally(() => { active = null; });
@@ -274,6 +282,6 @@ export function createSync({ store, provider, now = Date.now, intervalMs = 18000
       return { scheduled: true };
     },
     status() { return { running: Boolean(active), stopped, ...counters, streams: store.getStreams().length,
-      lastTurn: { ...lastTurn } }; },
+      lastTurn: { ...lastTurn }, lag: lag() }; },
   };
 }
