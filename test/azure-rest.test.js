@@ -1,0 +1,115 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { createAzureCli } from '../server/azure-cli.js';
+import { createRestExecutor, AZURE_DEVOPS_RESOURCE } from '../server/azure-rest.js';
+
+const ORG = 'https://dev.azure.com/example';
+const TOKEN = 'secret-token-value';
+const invoke = (area, resource, route, query = []) => ['devops', 'invoke', '--organization', ORG, '--detect', 'false', '--area', area, '--resource', resource,
+  '--api-version', '7.1', '--http-method', 'GET', '--route-parameters', ...route, ...(query.length ? ['--query-parameters', ...query] : [])];
+
+function harness({ responses = [], expiresIn = 3600, start = Date.parse('2026-11-18T10:00:00Z') } = {}) {
+  let time = start;
+  const requests = [], cliCalls = [];
+  const cliExecutor = async args => {
+    cliCalls.push(args);
+    if (args[0] === 'account' && args[1] === 'get-access-token') {
+      return JSON.stringify({ accessToken: `${TOKEN}-${cliCalls.length}`, expires_on: Math.floor(time / 1000) + expiresIn, tokenType: 'Bearer' });
+    }
+    return JSON.stringify({ via: 'cli', args });
+  };
+  const fetch = async (url, init) => {
+    requests.push({ url: String(url), init });
+    const next = responses.shift() || { status: 200, body: { count: 0, value: [] } };
+    if (next.error) throw next.error;
+    return new Response(JSON.stringify(next.body ?? {}), { status: next.status, headers: next.headers });
+  };
+  const executor = createRestExecutor({ cliExecutor, fetch, now: () => time });
+  const cli = createAzureCli({ executor, limitPerMinute: 1000, now: () => time });
+  return { cli, requests, cliCalls, advance(ms) { time += ms; } };
+}
+
+test('invoke reads go to the matching REST URL with a bearer token and keep the continuation token', async () => {
+  const { cli, requests, cliCalls } = harness({ responses: [{ status: 200, body: { count: 1, value: [{ name: 'refs/heads/main' }] }, headers: { 'x-ms-continuationtoken': 'next-page' } }] });
+  const result = await cli.run(invoke('git', 'refs', ['project=Proj Id', 'repositoryId=repo-1'], ['filter=heads/', '$top=100']));
+  assert.deepEqual(result, { count: 1, value: [{ name: 'refs/heads/main' }], continuationToken: 'next-page' });
+  const url = new URL(requests[0].url);
+  assert.equal(url.origin + url.pathname, `${ORG}/Proj%20Id/_apis/git/repositories/repo-1/refs`);
+  assert.equal(url.searchParams.get('filter'), 'heads/');
+  assert.equal(url.searchParams.get('$top'), '100');
+  assert.equal(url.searchParams.get('api-version'), '7.1');
+  assert.equal(requests[0].init.method, 'GET');
+  assert.equal(requests[0].init.headers.authorization, `Bearer ${TOKEN}-1`);
+  assert.deepEqual(cliCalls, [['account', 'get-access-token', '--resource', AZURE_DEVOPS_RESOURCE]]);
+  cli.close();
+});
+
+test('commit, build and connection reads use their own routes', async () => {
+  const { cli, requests } = harness();
+  await cli.run(invoke('git', 'commits', ['project=P', 'repositoryId=r', `commitId=${'a'.repeat(40)}`], ['changeCount=0']));
+  await cli.run(invoke('build', 'builds', ['project=P'], ['buildIds=1,2']));
+  await cli.run(invoke('location', 'connectionData', []));
+  assert.deepEqual(requests.map(request => new URL(request.url).pathname), [
+    `/example/P/_apis/git/repositories/r/commits/${'a'.repeat(40)}`, '/example/P/_apis/build/builds', '/example/_apis/connectionData']);
+  cli.close();
+});
+
+test('the token is reused until shortly before it expires and replaced after a 401', async () => {
+  const { cli, requests, cliCalls, advance } = harness({ responses: [{ status: 200 }, { status: 200 }, { status: 200 }, { status: 401 }, { status: 200 }] });
+  const read = () => cli.run(invoke('git', 'pushes', ['project=P', 'repositoryId=r'], [`$skip=${requests.length}`]));
+  await read(); await read();
+  assert.equal(cliCalls.length, 1, 'one token for both reads');
+  advance(56 * 60000);
+  await read();
+  assert.equal(cliCalls.length, 2, 'a token within five minutes of expiry is renewed');
+  await read();
+  assert.equal(cliCalls.length, 3, 'a rejected token is renewed once and the read retried');
+  assert.equal(requests.at(-1).init.headers.authorization, `Bearer ${TOKEN}-3`);
+  cli.close();
+});
+
+test('read queries POST their validated body to the batch route', async () => {
+  const { cli, requests } = harness();
+  const ids = ['b'.repeat(40)];
+  await cli.runReadQuery({ organization: ORG, project: 'P', repositoryId: 'r', resource: 'commitsbatch' }, { ids });
+  assert.equal(new URL(requests[0].url).pathname, '/example/P/_apis/git/repositories/r/commitsbatch');
+  assert.equal(requests[0].init.method, 'POST');
+  assert.equal(requests[0].init.headers['content-type'], 'application/json');
+  assert.deepEqual(JSON.parse(requests[0].init.body), { ids });
+  await assert.rejects(cli.runReadQuery({ organization: ORG, project: 'P', repositoryId: 'r', resource: 'commitsbatch' }, { ids: ['short'] }), { code: 'INVALID_QUERY' });
+  assert.equal(requests.length, 1);
+  cli.close();
+});
+
+test('other CLI commands still run through az, and writes and token requests are still refused', async () => {
+  const { cli, requests, cliCalls } = harness();
+  assert.deepEqual(await cli.run(['account', 'show']), { via: 'cli', args: ['account', 'show'] });
+  for (const args of [['account', 'get-access-token'], ['devops', 'invoke', '--area', 'git', '--resource', 'pushes', '--api-version', '7.1', '--http-method', 'DELETE']]) {
+    await assert.rejects(cli.run(args), { code: 'READ_ONLY' });
+  }
+  assert.equal(requests.length, 0);
+  assert.deepEqual(cliCalls, [['account', 'show']]);
+  cli.close();
+});
+
+test('HTTP and network failures are classified without exposing the token', async () => {
+  const cases = [
+    [{ status: 429 }, 'THROTTLED'], [{ status: 403 }, 'FORBIDDEN'], [{ status: 404 }, 'NOT_FOUND'], [{ status: 503 }, 'UNAVAILABLE'],
+    [{ error: new TypeError('fetch failed') }, 'UNAVAILABLE'], [{ error: Object.assign(new Error('timed out'), { name: 'TimeoutError' }) }, 'TIMEOUT'],
+  ];
+  for (const [response, code] of cases) {
+    const { cli } = harness({ responses: [response] });
+    const error = await cli.run(invoke('git', 'pushes', ['project=P', 'repositoryId=r'])).then(() => null, failure => failure);
+    assert.equal(error?.code, code, JSON.stringify(response));
+    assert.doesNotMatch(JSON.stringify({ message: error.message, ...error }), new RegExp(TOKEN));
+    assert.doesNotMatch(JSON.stringify(cli.diagnostics()), new RegExp(TOKEN));
+    cli.close();
+  }
+});
+
+test('a missing Azure CLI is reported as missing when the token is requested', async () => {
+  const executor = createRestExecutor({ cliExecutor: async () => { throw Object.assign(new Error('spawn az ENOENT'), { code: 'ENOENT' }); }, fetch: async () => assert.fail('no request without a token') });
+  const cli = createAzureCli({ executor });
+  await assert.rejects(cli.run(invoke('git', 'pushes', ['project=P', 'repositoryId=r'])), { code: 'CLI_MISSING' });
+  cli.close();
+});

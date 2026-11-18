@@ -6,7 +6,8 @@ import { randomBytes } from 'node:crypto';
 import { homedir } from 'node:os';
 import { createStore } from './server/store.js';
 import { createSync } from './server/sync.js';
-import { createAzureCli } from './server/azure-cli.js';
+import { createAzureCli, defaultExecutor } from './server/azure-cli.js';
+import { createRestExecutor } from './server/azure-rest.js';
 import { createAzureClient } from './server/azure-client.js';
 import { discoverRepositories, parseRemote } from './server/repositories.js';
 import { seedDemo, addDemoEvent, demoProvider } from './server/demo.js';
@@ -263,7 +264,8 @@ export function createApp({ store, provider, sync, cli, backfill, demo = false, 
 export async function startApp({ demo = false, port = 4317, dataDir = resolve(ROOT, '.repo-pulse') } = {}) {
   await mkdir(dataDir, { recursive: true, mode: 0o700 });
   const store = createStore(resolve(dataDir, demo ? 'demo.sqlite' : 'live.sqlite'));
-  const cli = demo ? null : createAzureCli();
+  // Reads go over HTTPS with one CLI token, so the shared budget can be far above the 12 az starts per minute.
+  const cli = demo ? null : createAzureCli({ executor: createRestExecutor({ cliExecutor: defaultExecutor }), limitPerMinute: 60, concurrency: 4 });
   const provider = demo ? demoProvider : createAzureClient({ cli });
   let lastClientAt = 0;
   let enrichment, backfill;
