@@ -1,18 +1,65 @@
+// @ts-check
 import { normalizeOrganization, parseRemote, repositoryKey } from './repositories.js';
 import { safeAzureUrl } from '../src/events.js';
 import { cliError, normalizeCommitIds } from './azure-cli.js';
 
+/** @typedef {import('./azure-cli.js').ReadQueryTarget} ReadQueryTarget */
+/** Raw Azure DevOps JSON. Its shape is checked by the code that reads it, not by the compiler. */
+/** @typedef {any} AzureRecord */
+/** The repository fields the client reads. Watched repositories carry more. */
+/** @typedef {{ organization: string, project: string, projectId?: string, azureId: string, webUrl: string }} AzureRepo */
+/** @typedef {'pushes'|'refs'|'prs'|'closedPrs'|'builds'|'activeBuilds'} AzureStream */
+/**
+ * Where the next page starts: `skip` for offset-paged reads, `token` for continuation reads.
+ * Build reads also keep their coarse window in `from` and `to`.
+ * @typedef {{ skip?: number, token?: string, from?: string, to?: string }} PageCursor
+ */
+/** @typedef {{ items: AzureRecord[], nextCursor: PageCursor | null }} AzurePage */
+/** @typedef {{ since?: string, until?: string, cursor?: PageCursor | null }} ReadOptions */
+/**
+ * @typedef {{ id: number, source: string, target: string, sourceId: string, targetId: string,
+ *   head?: string, result?: string, strategy?: string, url: string }} CheckoutPull
+ */
+/** @typedef {{ commitId: string, queryType: 'lastMergeCommit'|'commit', pullRequest: AzureRecord }} PullRequestAssociation */
+/** @typedef {{ status: 'ok'|'failed', checkedAt: string, code?: string, message?: string }} AccessCheck */
+/**
+ * @typedef {{ available: boolean, identity: null, identityVerified: boolean, message: string, code?: string,
+ *   version?: string, extension?: string, signedIn?: boolean, account?: { name: string },
+ *   access?: AccessCheck, capabilities?: { organizationRead: boolean } }} ConnectionStatus
+ */
+/**
+ * @typedef {{ id: string, organization: string, project: string, projectId: string, azureId: string,
+ *   name: string, webUrl: string, disabled: false }} ResolvedRepository
+ */
+/** @typedef {{ organization: string, project: string, repoName?: string, name?: string }} RepositoryInput */
+/**
+ * The Azure CLI queue the client reads through (see createAzureCli).
+ * @typedef {{
+ *   run: (args: string[]) => Promise<AzureRecord>,
+ *   runReadQuery: (target: ReadQueryTarget, body: unknown) => Promise<AzureRecord>
+ * }} AzureClientCli
+ */
+/** The provider contract. Sync and backfill type their provider as the subset of it they call. */
+/** @typedef {ReturnType<typeof createAzureClient>} AzureProvider */
+
 const PAGE = 100;
+/** @param {string | undefined} value */
 const iso = value => {
   if (!value) return undefined;
   const date = new Date(value);
   if (!Number.isFinite(date.getTime())) throw new Error('Invalid sync date');
   return date.toISOString();
 };
+/** @param {string | undefined} value @param {'floor'|'ceil'} round */
 const bucket = (value, round) =>
-  value ? new Date(Math[round](new Date(iso(value)).getTime() / 300_000) * 300_000).toISOString() : undefined;
+  // A non-empty value always yields a date string (or throws).
+  value ? new Date(Math[round](new Date(/** @type {string} */ (iso(value))).getTime() / 300_000) * 300_000).toISOString() : undefined;
 
-function pageOf(response, { skip, mode }) {
+/**
+ * @param {AzureRecord} response @param {{ skip?: number, mode?: 'skip'|'token' }} options
+ * @returns {AzurePage}
+ */
+function pageOf(response, { skip = 0, mode }) {
   const items = Array.isArray(response) ? response : response?.value;
   if (!Array.isArray(items)) throw cliError('INVALID_RESPONSE', 'Azure CLI did not return an activity list.');
   const token = response?.continuation_token || response?.continuationToken;
@@ -22,9 +69,12 @@ function pageOf(response, { skip, mode }) {
   };
 }
 
+/** @param {{ cli?: AzureClientCli, now?: () => number }} [options] */
 export function createAzureClient({ cli, now = Date.now } = {}) {
   if (!cli?.run) throw new Error('Azure CLI is required');
+  /** @type {Map<string, { expires: number, promise: Promise<AzureRecord> }>} */
   const cache = new Map();
+  /** @param {string} key @param {() => Promise<AzureRecord>} work @returns {Promise<AzureRecord>} */
   function cached(key, work, ttl = 30_000) {
     const found = cache.get(key);
     if (found && found.expires > now()) return found.promise;
@@ -36,8 +86,14 @@ export function createAzureClient({ cli, now = Date.now } = {}) {
     if (cache.size > 200) for (const [entry, value] of cache) if (value.expires <= now()) cache.delete(entry);
     return promise;
   }
-  function invoke(repo, area, resource, query = {}, route = {}, shared = false) {
+  /**
+   * @param {AzureRepo} repo @param {'git'|'build'} area @param {string} resource
+   * @param {Record<string, string|number|null|undefined>} [query] @param {Record<string, string>} [route]
+   * @returns {Promise<AzureRecord>}
+   */
+  const invoke = (repo, area, resource, query = {}, route = {}, shared = false) => {
     const org = normalizeOrganization(repo.organization);
+    /** @type {Record<string, string>} */
     const routes = { project: repo.projectId || repo.project, ...route };
     if (area === 'git') routes.repositoryId = repo.azureId;
     const args = [
@@ -61,12 +117,14 @@ export function createAzureClient({ cli, now = Date.now } = {}) {
     const queries = Object.entries(query).filter(([, value]) => value !== undefined && value !== null);
     if (queries.length) args.push('--query-parameters', ...queries.map(([key, value]) => `${key}=${value}`));
     return shared ? cached(JSON.stringify(args), () => cli.run(args), 45_000) : cli.run(args);
-  }
+  };
   return {
+    /** @param {string} [organization] @param {AzureRepo} [repository] @returns {Promise<ConnectionStatus>} */
     async checkConnection(organization, repository) {
       try {
         const version = await cached('cli-version', () => cli.run(['version']), 300_000);
         const extension = await cached('cli-extension', () => cli.run(['extension', 'show', '--name', 'azure-devops']), 300_000);
+        /** @type {ConnectionStatus} */
         const result = {
           available: true,
           version: version['azure-cli'],
@@ -121,7 +179,9 @@ export function createAzureClient({ cli, now = Date.now } = {}) {
               result.capabilities = { organizationRead: true };
               result.message = 'Existing Azure CLI access works for this organization.';
             }
-          } catch (error) {
+          } catch (caught) {
+            // Caught values are untyped; CLI failures are errors that may carry a code.
+            const error = /** @type {{ code?: string, message: string }} */ (caught);
             result.access = {
               status: 'failed',
               checkedAt: new Date(now()).toISOString(),
@@ -131,10 +191,12 @@ export function createAzureClient({ cli, now = Date.now } = {}) {
           }
         }
         return result;
-      } catch (error) {
+      } catch (caught) {
+        const error = /** @type {{ code?: string, message: string }} */ (caught);
         return { available: false, code: error.code || 'CLI_ERROR', message: error.message, identity: null, identityVerified: false };
       }
     },
+    /** @param {string | RepositoryInput} input @returns {Promise<ResolvedRepository>} */
     async resolveRepository(input) {
       const parsed = typeof input === 'string' ? parseRemote(input) : input;
       const organization = normalizeOrganization(parsed.organization);
@@ -166,10 +228,13 @@ export function createAzureClient({ cli, now = Date.now } = {}) {
         disabled: false,
       };
     },
+    /** @param {AzureRepo} repo @param {AzureStream} stream @param {ReadOptions} [options] @returns {Promise<AzurePage>} */
     async read(repo, stream, { since, until, cursor } = {}) {
       const skip = Number(cursor?.skip || 0);
       if (!Number.isSafeInteger(skip) || skip < 0) throw new Error('Invalid page cursor');
+      /** @type {AzureRecord} */
       let response,
+        /** @type {'skip'|'token'} */
         mode = 'token';
       switch (stream) {
         case 'pushes':
@@ -252,12 +317,14 @@ export function createAzureClient({ cli, now = Date.now } = {}) {
       }
       return pageOf(response, { skip, mode });
     },
+    /** @param {AzureRepo} repo @param {string[]} ids @returns {Promise<AzureRecord[]>} */
     async buildsById(repo, ids) {
       if (!Array.isArray(ids) || ids.length > 100 || ids.some(id => !/^\d+$/.test(String(id)))) throw new Error('Invalid build IDs');
       if (!ids.length) return [];
       const raw = await invoke(repo, 'build', 'builds', { buildIds: ids.join(',') }, {}, true);
       return pageOf(raw, { skip: 0, mode: 'token' }).items;
     },
+    /** @param {AzureRepo} repo @param {string} source @returns {Promise<CheckoutPull[]>} */
     async completedCheckoutPulls(repo, source) {
       if (typeof source !== 'string' || !/^refs\/heads\/[^\s\x00-\x1f]+$/.test(source) || source.length > 1024) return [];
       const response = await invoke(
@@ -301,6 +368,7 @@ export function createAzureClient({ cli, now = Date.now } = {}) {
         ];
       });
     },
+    /** @param {AzureRepo} repo @param {string|number} id @returns {Promise<AzureRecord>} */
     async pullRequest(repo, id) {
       if (!/^\d+$/.test(String(id))) throw new Error('Invalid PR ID');
       const raw = await cli.run([
@@ -318,6 +386,7 @@ export function createAzureClient({ cli, now = Date.now } = {}) {
         throw cliError('INVALID_RESPONSE', 'Azure CLI did not return the requested repository pull request.');
       return raw;
     },
+    /** @param {AzureRepo} repo @param {string[]} inputIds @returns {Promise<AzureRecord[]>} */
     async commitsByIds(repo, inputIds) {
       const ids = normalizeCommitIds(inputIds);
       if (!ids.length) return [];
@@ -344,16 +413,22 @@ export function createAzureClient({ cli, now = Date.now } = {}) {
           : await invoke(repo, 'git', 'commits', { changeCount: 0 }, { commitId: item.commitId });
         if (full?.commitId?.toLowerCase() !== item.commitId.toLowerCase())
           throw cliError('INVALID_RESPONSE', 'Azure returned an unexpected exact commit.');
-        if (!Array.isArray(full.parents) || full.parents.some(parent => typeof parent !== 'string' || !/^[0-9a-f]{40}$/i.test(parent)))
+        if (
+          !Array.isArray(full.parents) ||
+          full.parents.some((/** @type {unknown} */ parent) => typeof parent !== 'string' || !/^[0-9a-f]{40}$/i.test(parent))
+        )
           throw cliError('INCOMPLETE_RESPONSE', 'Commit parent evidence is unavailable.');
         commits.set(item.commitId.toLowerCase(), { ...item, ...full });
       }
       return [...commits.values()];
     },
+    /** @param {AzureRepo} repo @param {string[]} inputIds @returns {Promise<PullRequestAssociation[]>} */
     async queryPullRequests(repo, inputIds) {
       const ids = normalizeCommitIds(inputIds);
       if (!ids.length) return [];
-      const queries = ['lastMergeCommit', 'commit'].map(type => ({ type, items: ids }));
+      /** @type {PullRequestAssociation['queryType'][]} */
+      const types = ['lastMergeCommit', 'commit'];
+      const queries = types.map(type => ({ type, items: ids }));
       const raw = await cli.runReadQuery(
         {
           organization: normalizeOrganization(repo.organization),
@@ -365,8 +440,9 @@ export function createAzureClient({ cli, now = Date.now } = {}) {
       );
       if (!Array.isArray(raw?.results) || raw.results.length !== queries.length)
         throw cliError('INVALID_RESPONSE', 'Azure did not return both commit-to-PR query results.');
+      /** @type {PullRequestAssociation[]} */
       const associations = [];
-      raw.results.forEach((result, index) => {
+      raw.results.forEach((/** @type {AzureRecord} */ result, /** @type {number} */ index) => {
         if (!result || typeof result !== 'object' || Array.isArray(result))
           throw cliError('INVALID_RESPONSE', 'Azure returned invalid commit-to-PR query results.');
         for (const commitId of ids) {
@@ -386,6 +462,7 @@ export function createAzureClient({ cli, now = Date.now } = {}) {
       });
       return associations;
     },
+    /** @param {AzureRepo} repo @param {string} oldSha @param {string} newSha @param {PageCursor} [cursor] @returns {Promise<AzurePage>} */
     async refCommits(repo, oldSha, newSha, cursor = {}) {
       normalizeCommitIds([oldSha, newSha]);
       const old = oldSha.toLowerCase(),
@@ -410,6 +487,7 @@ export function createAzureClient({ cli, now = Date.now } = {}) {
         throw cliError('INVALID_RESPONSE', 'Azure returned invalid ref-range commit evidence.');
       return page;
     },
+    /** @param {AzureRepo} repo @param {string|number} pushId @param {PageCursor} [cursor] @returns {Promise<AzurePage>} */
     async pushCommits(repo, pushId, cursor = {}) {
       if (!/^\d+$/.test(String(pushId))) throw new Error('Invalid push ID');
       const skip = Number(cursor?.skip || 0);
