@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { stat, readdir } from 'node:fs/promises';
+import { stat, readdir, realpath } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { homedir } from 'node:os';
 
@@ -65,7 +65,8 @@ export async function discoverRepositories(inputPath) {
   async function readCheckout(localPath) {
     try {
       const { stdout } = await exec('git', ['-C', localPath, 'rev-parse', '--show-toplevel'], { timeout: 3000, maxBuffer: 64 * 1024, windowsHide: true });
-      if (resolve(stdout.trim()) !== localPath) return false;
+      // Git prints the symlink-free top level; compare canonical forms but report the path as entered.
+      if (await realpath(stdout.trim()) !== await realpath(localPath)) return false;
       let output = '';
       try { output = (await exec('git', ['-C', localPath, 'config', '--local', '--get-regexp', '^remote\\..*\\.url$'], { timeout: 3000, maxBuffer: 256 * 1024, windowsHide: true })).stdout; }
       catch (error) { if (error.code !== 1) throw error; }

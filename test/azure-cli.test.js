@@ -105,3 +105,24 @@ test('read queries cannot bypass a GET exhausted minute budget and remove succes
     assert.equal(executions, 2); assert.deepEqual(await readdir(tempRoot), []);
   } finally { cli.close(); await rm(tempRoot, { recursive: true, force: true }); }
 });
+
+test('CLI errors are classified from Azure output, not from the command arguments', async () => {
+  const failing = (stderr) => createAzureCli({ executor: async (args) => {
+    // execFile puts the whole command line in error.message.
+    throw Object.assign(new Error(`Command failed: az ${args.join(' ')}\n${stderr}`), { code: 1, stderr });
+  } });
+  const args = ['repos', 'show', '--repository', 'repo-403-connection-500', '--organization', 'https://dev.azure.com/example', '--project', 'Project', '--detect', 'false'];
+  const plain = failing('ERROR: something unexpected');
+  await assert.rejects(plain.run(args), { code: 'CLI_ERROR' }); plain.close();
+  const forbidden = failing('ERROR: TF401027: You need the Git Read permission');
+  await assert.rejects(forbidden.run(args), { code: 'FORBIDDEN' }); forbidden.close();
+});
+
+test('closing the CLI reports running reads as closed, not timed out', async () => {
+  const cli = createAzureCli({ executor: async (_args, { signal }) => new Promise((_, reject) =>
+    signal.addEventListener('abort', () => reject(Object.assign(new Error('The operation was aborted'), { name: 'AbortError', code: 'ABORT_ERR' })))) });
+  const running = cli.run(read('a'));
+  await flush(); cli.close();
+  await assert.rejects(running, { code: 'CLOSED' });
+  assert.notEqual(cli.diagnostics().lastError?.code, 'TIMEOUT');
+});

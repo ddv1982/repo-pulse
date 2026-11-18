@@ -229,7 +229,8 @@ export function createSync({ store, provider, now = Date.now, intervalMs = 18000
       if (!store.listRepos().some((entry) => entry.id === repo.id)) return;
       const failures = (state.failures || 0) + 1;
       const delay = Math.min(30 * 60000, intervalMs * 2 ** Math.min(failures - 1, 4));
-      store.saveStream({ ...working, failures, error: { code: error.code || 'SYNC_FAILED',
+      // A manual request ends with its failure; retrying is left to the user while automatic checks are off.
+      store.saveStream({ ...working, manual: false, failures, error: { code: error.code || 'SYNC_FAILED',
         message: error.code ? error.message : 'Could not refresh this Azure activity stream.' }, nextAt: iso(now() + delay) });
       counters.errors++;
     }

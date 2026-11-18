@@ -388,3 +388,19 @@ test('a failing scheduled tick is contained and polling continues', async () => 
   assert.ok(sync.status().errors >= 1);
   store.close();
 });
+
+test('a failed manual refresh is not retried while automatic checks are off', async () => {
+  const store = createStore();
+  store.saveRepo(repo);
+  store.setSetting('refreshEnabled', false);
+  let time = BASE, calls = 0;
+  const sync = createSync({ store, now: () => time, intervalMs: 1000, provider: { async read() { calls++; throw Object.assign(new Error('offline'), { code: 'UNAVAILABLE' }); } } });
+  sync.refresh([repo.id]);
+  for (const state of store.getStreams()) if (state.stream !== 'pushes') store.saveStream({ ...state, manual: false });
+  await sync.tick();
+  assert.equal(calls, 1);
+  assert.equal(store.getStreams().find(state => state.stream === 'pushes').error.code, 'UNAVAILABLE', 'the failure stays visible');
+  time += 31 * 60000; await sync.tick();
+  assert.equal(calls, 1, 'no Azure call without another refresh request');
+  store.close();
+});

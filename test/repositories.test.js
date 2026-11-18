@@ -33,3 +33,18 @@ test('explicit discovery reads local Azure remotes without modifying config and 
     assert.equal((await discoverRepositories(join(root, 'azure'))).repositories.length, 1);
   } finally { await rm(root, { recursive: true, force: true }); }
 });
+
+test('discovery finds checkouts reached through a symlinked folder and keeps the path as entered', async () => {
+  const { symlink } = await import('node:fs/promises');
+  const root = await mkdtemp(join(tmpdir(), 'repo-pulse-symlink-'));
+  try {
+    const git = join(root, 'real', 'azure', '.git'); await mkdir(join(git, 'objects'), { recursive: true }); await mkdir(join(git, 'refs'), { recursive: true });
+    await writeFile(join(git, 'HEAD'), 'ref: refs/heads/main\n');
+    await writeFile(join(git, 'config'), '[core]\n repositoryformatversion = 0\n bare = false\n[remote "origin"]\n url = https://dev.azure.com/org/Project/_git/Repo\n');
+    await symlink(join(root, 'real'), join(root, 'linked'), 'dir');
+    const viaParent = await discoverRepositories(join(root, 'linked'));
+    assert.deepEqual(viaParent.repositories.map(item => item.localPath), [join(root, 'linked', 'azure')]);
+    const direct = await discoverRepositories(join(root, 'linked', 'azure'));
+    assert.deepEqual(direct.repositories.map(item => item.localPath), [join(root, 'linked', 'azure')]);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});

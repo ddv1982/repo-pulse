@@ -14,9 +14,12 @@ export function cliError(code, message) {
 
 export function classifyCliError(error) {
   if (error?.code === 'CLOSED') return error;
-  const text = `${error?.stderr || ''} ${error?.message || ''}`;
+  // execFile's message repeats the command line, whose arguments must not drive classification.
+  const text = String(error?.stderr || '');
   if (error?.code === 'ENOENT') return cliError('CLI_MISSING', 'Azure CLI was not found. Install Azure CLI and its azure-devops extension.');
-  if (error?.name === 'AbortError' || error?.killed || error?.code === 'ETIMEDOUT') return cliError('TIMEOUT', 'Azure CLI timed out. Cached activity is retained.');
+  // Reads are aborted only by close(); the timeout option kills the process instead.
+  if (error?.name === 'AbortError') return cliError('CLOSED', 'Azure CLI queue is closed.');
+  if (error?.killed || error?.code === 'ETIMEDOUT') return cliError('TIMEOUT', 'Azure CLI timed out. Cached activity is retained.');
   if (/429|too many requests|rate.limit|TF400733/i.test(text)) return cliError('THROTTLED', 'Azure DevOps asked us to slow down. Retrying later.');
   if (/403|forbidden|TF401027|permission|not authorized/i.test(text)) return cliError('FORBIDDEN', 'Azure DevOps refused this read. Check the CLI identity and repository permissions.');
   if (/401|az login|authentication|unauthorized|AADSTS|token.*expired|sign.in/i.test(text)) return cliError('AUTH_REQUIRED', 'Azure CLI sign-in is unavailable or expired. Reconnect in your terminal, then retry.');
