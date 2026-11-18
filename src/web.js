@@ -329,7 +329,7 @@ document.addEventListener('keydown', event => {
 
 function route() {
   clearTimeout(searchTimer);
-  const { destination, capacity, scrollToTop } = navigation.enter(refresh.state.repos);
+  const { destination, capacity, scrollToTop } = navigation.enter(refresh.state.watched);
   if (isActivity(destination)) refresh.resetActivity(capacity);
   else if (destination === 'event') refresh.prepareDetail(ui.eventId);
   render();

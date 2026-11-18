@@ -127,6 +127,10 @@ test('disabling a repository hides it everywhere except Repositories until it is
   const billingRows = page.locator('#page .subref', { hasText: 'billing-web' });
   await page.getByRole('link', { name: 'All activity' }).click();
   await expect(billingRows.first()).toBeVisible();
+  await page.locator('#repo-toggle').click();
+  await page.locator('#repo-panel [data-scope-repo="demo-shared"]').uncheck();
+  await page.locator('#repo-toggle').click();
+  await expect(page.locator('#repo-toggle')).toHaveAccessibleName('2 repositories shown');
   await page.getByRole('link', { name: 'Repositories', exact: true }).click();
   const toggle = page.getByRole('switch', { name: 'Watch billing-web' });
   await expect(toggle).toBeChecked();
@@ -138,7 +142,7 @@ test('disabling a repository hides it everywhere except Repositories until it is
   await expect(row.getByRole('button', { name: 'Remove watch' })).toBeVisible();
   await expect(row.locator('.repo-details')).toHaveCount(0);
   assert.equal((await (await fetch(runtime.url + '/api/state')).json()).repos.find(repo => repo.id === 'demo-billing').disabled, true);
-  await expect(page.locator('#repo-toggle')).toHaveAccessibleName('All 2 repositories');
+  await expect(page.locator('#repo-toggle')).toHaveAccessibleName('1 repository shown');
   await page.locator('#repo-toggle').click();
   await expect(page.locator('#repo-panel [data-scope-repo]')).toHaveCount(2);
   await expect(page.locator('#repo-panel [data-scope-repo="demo-billing"]')).toHaveCount(0);
@@ -154,7 +158,9 @@ test('disabling a repository hides it everywhere except Repositories until it is
   await page.getByRole('link', { name: 'Activity', exact: true }).click();
   await page.getByRole('link', { name: 'All activity' }).click();
   await expect(billingRows.first()).toBeVisible();
-  await expect(page.locator('#repo-toggle')).toHaveAccessibleName('All 3 repositories');
+  await expect(page.locator('#repo-toggle')).toHaveAccessibleName('2 repositories shown');
+  await page.locator('#repo-toggle').click();
+  await expect(page.locator('#repo-panel [data-scope-repo="demo-billing"]')).toBeChecked();
 });
 
 test('empty live startup detects existing CLI locally and prompts only local repo selection', async t => {

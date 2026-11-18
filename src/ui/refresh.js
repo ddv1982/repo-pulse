@@ -69,7 +69,7 @@ export function createRefreshController({ request, getView, reconcileRepositorie
       /** @type {PageState} */
       const next = { ...readMetadata(payload), activity: state.activity, events: state.events };
       const metadata = JSON.stringify(payload);
-      reconcileRepositories(next.repos);
+      reconcileRepositories(next.watched);
       const reconciled = getView();
       if (viewKey(view) !== viewKey(reconciled)) more = false;
       view = reconciled;

@@ -62,9 +62,10 @@ export function createNavigation({ ui, captureGroups, activityCapacity }) {
     pending = null;
   }
 
-  function reconcileRepositories(repos) {
-    if (ui.repoIds !== null) ui.repoIds = ui.repoIds.filter(id => repos.some(repo => repo.id === id));
-    if (!repos.length && isActivity(ui.route)) {
+  // Disabled repositories keep their place in an explicit scope so enabling one restores it.
+  function reconcileRepositories(watched) {
+    if (ui.repoIds !== null) ui.repoIds = ui.repoIds.filter(id => watched.some(repo => repo.id === id));
+    if (!watched.some(repo => !repo.disabled) && isActivity(ui.route)) {
       ui.route = 'repositories';
       history.replaceState(history.state, '', '#repositories');
     }

@@ -104,5 +104,5 @@ test('disabled repositories stay watched but leave the shown repositories and th
   assert.deepEqual(refresh.state.watched.map(repo => repo.id), ['orders', 'billing']);
   assert.deepEqual(refresh.state.repos.map(repo => repo.id), ['orders']);
   assert.deepEqual(refresh.state.streams.map(stream => stream.repoId), ['orders']);
-  assert.deepEqual(reconciled, [['orders']]);
+  assert.deepEqual(reconciled, [['orders', 'billing']]);
 });
