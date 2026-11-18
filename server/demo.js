@@ -170,8 +170,9 @@ export function addDemoEvent(store) {
 }
 
 export const demoProvider = {
+  /** Like the live client, the check never claims an identity. @returns {Promise<import('./azure-client.js').ConnectionStatus>} */
   async checkConnection() {
-    return { available: true, identity: 'Fictional demo account', message: 'Isolated demo mode. Azure CLI is never invoked.' };
+    return { available: true, identity: null, identityVerified: false, message: 'Isolated demo mode. Azure CLI is never invoked.' };
   },
   async pushCommits() {
     return {
