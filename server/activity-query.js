@@ -65,6 +65,132 @@ const grouped = (/** @type {string} */ selection) => `
     FROM ${selection} source GROUP BY group_key
   ) group_stats JOIN activity_members member ON member.event_id=group_stats.representative`;
 
+/** @typedef {ReturnType<typeof parseActivityFilter>} ActivityFilter */
+/** @typedef {{ scope: string, params: SqlValue[] }} MemberScope */
+
+/**
+ * Member-level WHERE clause shared by the page query and the member lookup.
+ * @param {number} maxSequence @param {string[] | undefined} selected @param {string} needle @returns {MemberScope}
+ */
+function memberScope(maxSequence, selected, needle) {
+  const conditions = ['m.sequence<=?'];
+  /** @type {SqlValue[]} */
+  const params = [maxSequence];
+  if (selected) {
+    conditions.push(selected.length ? `e.repo_id IN (${selected.map(() => '?').join(',')})` : '0');
+    params.push(...selected);
+  }
+  if (needle) {
+    conditions.push("(instr(m.search_text,?)>0 OR instr(lower(json_extract(r.data,'$.name')),?)>0)");
+    params.push(needle, needle);
+  }
+  return { scope: conditions.join(' AND '), params };
+}
+
+/**
+ * One statement returns the page of groups (plus one to detect more), per-kind counts and, on the first page, filter choices.
+ * @param {MemberScope} member @param {ActivityFilter} filter @param {string} view @param {Position | undefined} position @param {number} pageSize
+ */
+function pageQuery({ scope, params }, filter, view, position, pageSize) {
+  const rawKind = filter.type === 'kind';
+  const selection = rawKind ? 'kind_scope' : 'scoped';
+  const kindScope = rawKind ? ', kind_scope AS (SELECT * FROM scoped WHERE kind=?)' : '';
+  const visible = view === 'new' ? 'WHERE unseen>0' : '';
+  const match = filter.type === 'status' ? 'WHERE status=?' : filter.type === 'evidence' ? 'WHERE evidence=?' : '';
+  const after = position?.after;
+  const boundary = after ? 'WHERE (time, observed, key) < (?, ?, ?)' : '';
+  const optionsQuery = position
+    ? 'NULL'
+    : rawKind
+      ? `(SELECT json_group_array(json_object('kind',kind,'status',status,'evidence',evidence)) FROM
+          (SELECT DISTINCT kind,status,evidence FROM (${grouped('scoped')}) ${visible}))`
+      : "(SELECT json_group_array(json_object('kind',kind,'status',status,'evidence',evidence)) FROM (SELECT DISTINCT kind,status,evidence FROM visible))";
+
+  /** @type {SqlValue[]} */
+  const queryParams = [...params];
+  if (rawKind || match) {
+    if (filter.type !== 'all') queryParams.push(filter.id);
+  }
+  if (after) queryParams.push(after.time, after.observed, after.key);
+  queryParams.push(pageSize + 1);
+  const sql = `
+      WITH scoped AS (
+        SELECT m.event_id,m.group_key,m.kind,m.status_id,m.evidence_id,m.observed,m.time,
+          CASE WHEN e.seen=0 AND e.imported=0 THEN 1 ELSE 0 END AS unseen
+        FROM activity_members m JOIN events e ON e.id=m.event_id JOIN repositories r ON r.id=e.repo_id
+        WHERE ${scope}
+      )${kindScope}, visible AS MATERIALIZED (SELECT * FROM (${grouped(selection)}) ${visible}),
+      matched AS (SELECT * FROM visible ${match}),
+      selected_page AS (SELECT * FROM matched ${boundary} ORDER BY time DESC,observed DESC,key DESC LIMIT ?)
+      SELECT
+        (SELECT json_group_array(json_object('key',key,'time',time,'observed',observed,'representative',representative)) FROM selected_page) AS groups,
+        (SELECT json_group_array(json_object('kind',kind,'count',count,'newItems',newItems,'newUpdates',newUpdates))
+          FROM (SELECT kind,COUNT(*) AS count,SUM(unseen>0) AS newItems,SUM(unseen) AS newUpdates FROM matched GROUP BY kind)) AS counts,
+        ${optionsQuery} AS options
+    `;
+  return { sql, params: queryParams };
+}
+
+/**
+ * Loads and hydrates every event in the selected groups, keyed by group.
+ * @param {import('node:sqlite').DatabaseSync} db @param {(row: SqlRow) => ActivityEvent} hydrate
+ * @param {MemberScope} member @param {ActivityFilter} filter @param {Group[]} groups
+ */
+function loadMembers(db, hydrate, { scope, params }, filter, groups) {
+  const rawKind = filter.type === 'kind';
+  const groupScope = rawKind ? `${scope} AND m.kind=?` : scope;
+  const rowParams = rawKind && filter.type === 'kind' ? [...params, filter.id] : params;
+  const raw = groups.length
+    ? db
+        .prepare(
+          `
+      SELECT e.data,e.seen,e.imported,n.data AS enrichment,m.group_key AS activity_key
+      FROM events e LEFT JOIN enrichment n ON n.event_id=e.id
+      JOIN activity_members m ON m.event_id=e.id JOIN repositories r ON r.id=e.repo_id
+      WHERE ${groupScope} AND m.group_key IN (${groups.map(() => '?').join(',')})
+    `,
+        )
+        .all(...rowParams, ...groups.map(group => group.key))
+    : [];
+  /** @type {Map<string, ActivityEvent[]>} */
+  const members = new Map();
+  for (const row of raw) {
+    const key = String(row.activity_key);
+    const rows = members.get(key);
+    if (rows) rows.push(hydrate(row));
+    else members.set(key, [hydrate(row)]);
+  }
+  return members;
+}
+
+/** @param {CountRow[]} countRows */
+function summarizeCounts(countRows) {
+  /** @type {Record<string, number>} */
+  const counts = {};
+  /** @type {Record<string, number>} */
+  const newCounts = {};
+  let total = 0,
+    newItems = 0,
+    newUpdates = 0;
+  for (const row of countRows) {
+    counts[row.kind] = row.count;
+    newCounts[row.kind] = row.newItems;
+    total += row.count;
+    newItems += row.newItems;
+    newUpdates += row.newUpdates;
+  }
+  return { counts, newCounts, total, newItems, newUpdates };
+}
+
+/** @param {Group | undefined} last @param {number} maxSequence @param {string} filterKey */
+function encodeCursor(last, maxSequence, filterKey) {
+  return last
+    ? Buffer.from(JSON.stringify({ maxSequence, filterKey, after: { observed: last.observed, time: last.time, key: last.key } })).toString(
+        'base64url',
+      )
+    : null;
+}
+
 /**
  * @param {import('node:sqlite').DatabaseSync} db
  * @param {(row: SqlRow) => ActivityEvent} hydrate
@@ -85,106 +211,17 @@ export function createActivityQuery(db, hydrate, requireRepo) {
     const position = decodeCursor(cursor, filterKey);
     const maxSequence =
       position?.maxSequence ?? Number(db.prepare('SELECT COALESCE(MAX(sequence),0) AS id FROM activity_members').get()?.id);
-    const conditions = ['m.sequence<=?'];
-    /** @type {SqlValue[]} */
-    const params = [maxSequence];
-    if (selected) {
-      conditions.push(selected.length ? `e.repo_id IN (${selected.map(() => '?').join(',')})` : '0');
-      params.push(...selected);
-    }
-    if (needle) {
-      conditions.push("(instr(m.search_text,?)>0 OR instr(lower(json_extract(r.data,'$.name')),?)>0)");
-      params.push(needle, needle);
-    }
-    const scope = conditions.join(' AND ');
-    const rawKind = filter.type === 'kind';
-    const selection = rawKind ? 'kind_scope' : 'scoped';
-    const kindScope = rawKind ? ', kind_scope AS (SELECT * FROM scoped WHERE kind=?)' : '';
-    const visible = view === 'new' ? 'WHERE unseen>0' : '';
-    const match = filter.type === 'status' ? 'WHERE status=?' : filter.type === 'evidence' ? 'WHERE evidence=?' : '';
-    const after = position?.after;
-    const boundary = after ? 'WHERE (time, observed, key) < (?, ?, ?)' : '';
-    const optionsQuery = position
-      ? 'NULL'
-      : rawKind
-        ? `(SELECT json_group_array(json_object('kind',kind,'status',status,'evidence',evidence)) FROM
-          (SELECT DISTINCT kind,status,evidence FROM (${grouped('scoped')}) ${visible}))`
-        : "(SELECT json_group_array(json_object('kind',kind,'status',status,'evidence',evidence)) FROM (SELECT DISTINCT kind,status,evidence FROM visible))";
-
-    /** @type {SqlValue[]} */
-    const queryParams = [...params];
-    if (rawKind || match) {
-      if (filter.type !== 'all') queryParams.push(filter.id);
-    }
-    if (after) queryParams.push(after.time, after.observed, after.key);
-    queryParams.push(pageSize + 1);
-    const page = db
-      .prepare(
-        `
-      WITH scoped AS (
-        SELECT m.event_id,m.group_key,m.kind,m.status_id,m.evidence_id,m.observed,m.time,
-          CASE WHEN e.seen=0 AND e.imported=0 THEN 1 ELSE 0 END AS unseen
-        FROM activity_members m JOIN events e ON e.id=m.event_id JOIN repositories r ON r.id=e.repo_id
-        WHERE ${scope}
-      )${kindScope}, visible AS MATERIALIZED (SELECT * FROM (${grouped(selection)}) ${visible}),
-      matched AS (SELECT * FROM visible ${match}),
-      selected_page AS (SELECT * FROM matched ${boundary} ORDER BY time DESC,observed DESC,key DESC LIMIT ?)
-      SELECT
-        (SELECT json_group_array(json_object('key',key,'time',time,'observed',observed,'representative',representative)) FROM selected_page) AS groups,
-        (SELECT json_group_array(json_object('kind',kind,'count',count,'newItems',newItems,'newUpdates',newUpdates))
-          FROM (SELECT kind,COUNT(*) AS count,SUM(unseen>0) AS newItems,SUM(unseen) AS newUpdates FROM matched GROUP BY kind)) AS counts,
-        ${optionsQuery} AS options
-    `,
-      )
-      .get(...queryParams);
+    const member = memberScope(maxSequence, selected, needle);
+    const query = pageQuery(member, filter, view, position, pageSize);
+    const page = db.prepare(query.sql).get(...query.params);
     const groups = /** @type {Group[]} */ (JSON.parse(String(page?.groups)));
     const countRows = /** @type {CountRow[]} */ (JSON.parse(String(page?.counts)));
     const options = page?.options ? filterOptions(JSON.parse(String(page.options))) : undefined;
     const selectedGroups = groups.slice(0, pageSize);
-    const groupScope = rawKind ? `${scope} AND m.kind=?` : scope;
-    const rowParams = rawKind && filter.type === 'kind' ? [...params, filter.id] : params;
-    const raw = selectedGroups.length
-      ? db
-          .prepare(
-            `
-      SELECT e.data,e.seen,e.imported,n.data AS enrichment,m.group_key AS activity_key
-      FROM events e LEFT JOIN enrichment n ON n.event_id=e.id
-      JOIN activity_members m ON m.event_id=e.id JOIN repositories r ON r.id=e.repo_id
-      WHERE ${groupScope} AND m.group_key IN (${selectedGroups.map(() => '?').join(',')})
-    `,
-          )
-          .all(...rowParams, ...selectedGroups.map(group => group.key))
-      : [];
-    /** @type {Map<string, ActivityEvent[]>} */
-    const members = new Map();
-    for (const row of raw) {
-      const key = String(row.activity_key);
-      const rows = members.get(key);
-      if (rows) rows.push(hydrate(row));
-      else members.set(key, [hydrate(row)]);
-    }
+    const members = loadMembers(db, hydrate, member, filter, selectedGroups);
     const items = selectedGroups.flatMap(group => projectActivity(group.key, members.get(group.key) || [], group.representative) || []);
-    /** @type {Record<string, number>} */
-    const counts = {};
-    /** @type {Record<string, number>} */
-    const newCounts = {};
-    let total = 0,
-      newItems = 0,
-      newUpdates = 0;
-    for (const row of countRows) {
-      counts[row.kind] = row.count;
-      newCounts[row.kind] = row.newItems;
-      total += row.count;
-      newItems += row.newItems;
-      newUpdates += row.newUpdates;
-    }
-    const last = selectedGroups.at(-1);
-    const nextCursor =
-      groups.length > pageSize && last
-        ? Buffer.from(
-            JSON.stringify({ maxSequence, filterKey, after: { observed: last.observed, time: last.time, key: last.key } }),
-          ).toString('base64url')
-        : null;
+    const { counts, newCounts, total, newItems, newUpdates } = summarizeCounts(countRows);
+    const nextCursor = groups.length > pageSize ? encodeCursor(selectedGroups.at(-1), maxSequence, filterKey) : null;
     return { items, nextCursor, total, newItems, newUpdates, counts, newCounts, filterOptions: options };
   }
   return queryActivity;
