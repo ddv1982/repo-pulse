@@ -1,4 +1,6 @@
 import { readFile } from 'node:fs/promises';
+import { setGlobalProxyFromEnv } from 'node:http';
+import tls from 'node:tls';
 import { normalizeOrganization } from './repositories.js';
 import { cliError } from './azure-cli.js';
 
@@ -7,6 +9,15 @@ export const AZURE_DEVOPS_RESOURCE = '499b84ac-1321-427f-aa17-267ca6975798';
 const RENEW_BEFORE_MS = 5 * 60000;
 const READ_QUERIES = new Set(['commitsbatch', 'pullrequestquery']);
 const refused = message => Object.assign(new Error(message), { stderr: 'not in the command group' });
+
+/**
+ * Node's fetch ignores HTTP(S)_PROXY and the operating system's certificate store unless told otherwise,
+ * while az honours both, so REST reads would fail behind a corporate proxy or TLS inspection where az works.
+ */
+export function useSystemNetworkSettings() {
+  setGlobalProxyFromEnv();
+  tls.setDefaultCACertificates([...new Set([...tls.getCACertificates('default'), ...tls.getCACertificates('system')])]);
+}
 
 /** Collects `--flag value...` groups. A repeated flag is refused, so this agrees with the allowlist, which reads the first one. */
 function flags(args) {
