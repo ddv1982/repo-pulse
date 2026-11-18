@@ -24,9 +24,9 @@ Important corrections to automated research:
 
 ## Installed CLI and history observations
 
-- Azure DevOps Services uses the existing CLI credential context. The DevOps extension can fall back to a PAT, so `az account show` does not establish the effective DevOps identity.
-- In the inspected extension, JSON output from `az devops invoke` included `continuation_token` but omitted other response headers, including `Retry-After`. Verify SDK backoff and continuation before relying on either.
-- The inspected API version parser accepted `7.1` and `7.1-preview`, but rejected `7.1-preview.1`. Verify preview endpoints with the installed CLI before adding them.
+- Activity reads use a Microsoft Entra token from `az account get-access-token` and call the REST API directly, so the identity is the principal that token represents (the CLI account signed in when it was issued; a cached token can outlive an account switch until it is renewed). The DevOps extension's PAT fallback does not apply to these reads. A repository connection check also makes one REST read to prove access; an organization-only check uses `az` and does not.
+- REST responses expose all headers. The adapter uses `x-ms-continuationtoken` for paging and ignores `Retry-After`: a throttled read fails like any other, and with automatic checks on the stream is retried after the normal failure backoff.
+- Historical, from the CLI-only transport: the inspected `az devops invoke` version parser accepted `7.1` and `7.1-preview` but rejected `7.1-preview.1`. Activity reads now go to REST directly.
 - Build list windows can use queue time while displayed events use completion time. Historical imports filter against the overall requested range so a build crossing an internal page window is not lost.
 
 ## What complete means for this product
@@ -81,11 +81,11 @@ Git stores graph structure, not a durable source-branch name for every operation
 
 Prove commit parents, paginated pushed commits, exact-ID/version-range queries and batched PR association against the intended existing CLI context. Record endpoint version, response shape, permission result, effective identity status and latency. Avoid remote test writes in a real working project; destructive/change-creating scenarios belong in a controlled disposable test repository.
 
-For read-only POSTs, allow only fixed `pullrequestquery` and `commitsbatch` read operations with validated bounded JSON. If invoke needs `--in-file`, use an app-created private temporary file containing query data only and remove it reliably. Never accept a browser-supplied path/body/command or enable arbitrary POSTs. If CLI cannot carry these operations reliably, document a minimal CLI-authenticated transport decision rather than silently changing credentials.
+For read-only POSTs, allow only fixed `pullrequestquery` and `commitsbatch` read operations with validated bounded JSON. If invoke needs `--in-file`, use an app-created private temporary file containing query data only and remove it reliably. Never accept a browser-supplied path/body/command or enable arbitrary POSTs. If CLI cannot carry these operations reliably, document a minimal CLI-authenticated transport decision rather than silently changing credentials. (Done: activity reads, including these two POSTs, use REST with the CLI's token; see the maintainer guide.)
 
 Exit: no credential output, no extra sign-in, no Azure mutation, complete paging, correct scope, bounded error classification and measured request/process overhead. No new OAuth/app registration.
 
-### Gate 1: merge-aware enrichment
+### Gate 1: merge-aware enrichment (implemented)
 
 - Preserve raw push/ref ingestion and existing transactional checkpoints.
 - Atomically queue enrichment with each newly ingested push/ref fact; commit parents cached by repository + SHA.
@@ -107,7 +107,7 @@ than replacing SQLite/sync. Keep ancestry and classification pure in a focused m
 the existing queue/budget. Add local-history queries at the store/API boundary, not another cloud
 service or a generic connector framework. Preserve the current simple Activity/Repositories/Settings UI.
 
-### Gate 2: complete local-history browsing and backfill
+### Gate 2: complete local-history browsing and backfill (implemented)
 
 Replace client filtering over the latest 1000 raw rows with server-side local SQLite queries and cursor paging. New updates must query unseen data directly so an older-source-time update cannot disappear behind newer seen history. Keep UI grouping coherent across pages: use stable group/source indexes or fetch represented membership explicitly, with exact acknowledgement IDs and partial-history disclosure.
 
@@ -139,7 +139,7 @@ Optional audit ingestion adds repository/policy/security/administrative evidence
 
 ## Low-load contract
 
-- Keep one shared queue, duplicate coalescing, per-repo fairness and current 12 CLI starts/minute / two processes until measurements justify a change. CLI starts are not HTTP request counts.
+- Keep one shared queue, duplicate coalescing and per-repo fairness. The budget is 60 calls/minute with four in flight since activity reads moved to REST (it was 12 CLI starts/minute and two processes before); change it only after measuring with `scripts/measure-budget.js`.
 - Enrich only uncached commit objects; batch across pending pushes and PR queries. No commit-parent request per branch per poll.
 - Cache positive immutable objects indefinitely as appropriate; refresh mutable PR/entity metadata. Negative PR associations need expiry/invalidation on new closures or other relevant evidence.
 - Avoid optional PR labels/statuses/work items until a feature actually needs them; Microsoft explicitly warns that label enrichment adds resource use. [S6](https://learn.microsoft.com/en-us/azure/devops/release-notes/2025/repos/sprint-254-update)
@@ -179,8 +179,8 @@ Tests below must exercise the provider contract, durable store/scheduler and vis
 ## Remaining proof questions
 
 1. Which of our organization's web/API branch/tag/lock operations produce readable push or hook records? Public docs do not establish universal coverage; validate in a controlled test repo.
-2. Does the installed invoke path expose required POST/query results, paging and throttling information reliably? Its current resource discovery/version/header limitations still apply.
-3. Can effective DevOps identity be verified with the same CLI credential path, including PAT fallback, without adding another sign-in? This remains a gate, not an assumed capability.
+2. Answered: activity reads now use REST directly. The transport sees POST query results, continuation tokens and throttling headers; the adapter uses the continuation token and discards the throttling headers.
+3. Answered for activity reads: they use the CLI's Entra token, so the effective identity is the principal that token represents, and a repository connection check verifies access with a REST read. PAT-only setups are not supported for activity reads.
 4. What historical push/commit/PR evidence remains available for long outages or removed objects? No universal durable Pushes retention guarantee was established.
 5. Which pipeline/environment/external-deployer mappings and permissions actually exist? Documentation alone cannot prove a specific organization's coverage.
 

@@ -6,29 +6,7 @@ Branch and push monitoring, PR merge evidence, grouped Activity, resumable histo
 
 ## Codebase improvement phases
 
-Complete these phases before adding more Azure coverage. Keep Node, SQLite, JavaScript, and one shared Azure budget. Each phase should be independently reviewable and leave the existing watches, cached events, and seen state intact.
-
-### 1. Make Pull recoverable
-
-Superseded on 2026-11-18: Pull now runs `git merge --ff-only`, so Git owns the update and there is no app journal to recover.
-
-### 2. Make Activity filters match the displayed rows
-
-Use the displayed state of a grouped row for status filtering. Keep its member updates and their seen flags separate. Use the same group selection for dropdown options, results, counts, and paging. Use stable filter IDs so changing a visible label does not break saved filters.
-
-**Done when.** A run shown as **Succeeded** with an older unseen **Running** update appears under **Succeeded**. The Seen action captures the exact unseen IDs represented by the shown results. Tests cover search, repository scope, imported history, and loading more without acknowledging hidden or newly arrived updates.
-
-### 3. Check the JavaScript at the important boundaries
-
-Extend checked JSDoc to the checkout adapter, Activity query, and browser refresh controller. Define the valid checkout states, Activity requests and results, and refresh outcomes. Validate external inputs where they enter the app. After phase 2 verifies the behavior, separate Activity querying from persistence and migrations.
-
-**Done when.** The type check covers these modules and their shared contracts. Invalid state combinations fail type checking. Migration tests verify that existing event IDs and seen flags survive. Syntax, type, Node, and Chromium checks pass.
-
-### 4. Measure before optimizing
-
-Repeat the [local Activity measurement](scripts/measure-activity.js) on the same fixture and add a representative larger history. Measure first page, search, and a loaded history refresh on the same machine. If query time or responsiveness is a problem, use SQLite query plans to target the repeated work before adding a worker or changing databases.
-
-**Done when.** Record the workload, results, and any measured bottleneck in the [maintainer guide](docs/MAINTAINING.md). An idle tab still skips repeat Activity queries. Leave the stack in place if the measured workload is responsive.
+Done: Pull is plain Git, Activity filters match the displayed rows, the important boundaries are type-checked, and local Activity load is measured in the [maintainer guide](docs/MAINTAINING.md).
 
 ## Product roadmap after hardening
 
