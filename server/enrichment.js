@@ -8,7 +8,7 @@ const EVIDENCE_VERSION = 2;
 /** Durable, low-priority semantic work. Each tick performs one page or a tiny hydration batch. */
 export function createEnrichment({ store, provider, now = Date.now, negativeTtlMs = 300000, positiveTtlMs = 900000 } = {}) {
   let active, lastJob;
-  const available = repoId => store.listRepos().some(repo => repo.id === repoId && !repo.paused);
+  const available = repoId => store.listRepos().some(repo => repo.id === repoId && !repo.disabled);
   const commit = (repoId, id) => store.getEntity(repoId, 'commit', id);
   const records = job => (job.commitIds || []).map(id => commit(job.repoId, id)).filter(Boolean);
   function cacheEntries(repoId, items) {

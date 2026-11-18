@@ -8,11 +8,11 @@ import { isActivity } from './navigation.js';
  * @typedef {import('../activity.js').ActivityPage} ActivityPage
  * @typedef {import('./activity-data.js').EventDetail} EventDetail
  * @typedef {import('./activity-data.js').ActivityView & {eventId: string|null, generation: number}} View
- * @typedef {{id: string}} Repo
- * @typedef {{ repos?: Repo[], streams?: unknown[], settings?: Record<string, unknown>,
+ * @typedef {{id: string, disabled?: boolean}} Repo
+ * @typedef {{ repos?: Repo[], watched?: Repo[], streams?: {repoId?: string}[], settings?: Record<string, unknown>,
  *   diagnostics?: Record<string, unknown>, activityRevision?: string }} Metadata
  * @typedef {(ActivityPage | { items: ActivityPage['items'], loading?: boolean }) & { error?: string }} DisplayActivity
- * @typedef {Metadata & {repos: Repo[], activity: DisplayActivity, events: ActivityEvent[], detailLoading?: boolean}} PageState
+ * @typedef {Metadata & {repos: Repo[], watched: Repo[], activity: DisplayActivity, events: ActivityEvent[], detailLoading?: boolean}} PageState
  * @typedef {{ view: View, force: boolean, more: boolean }} RefreshJob
  * @typedef {{ type: 'applied'|'superseded' } | { type: 'failed', error: Error }} RefreshOutcome
  */
@@ -27,7 +27,11 @@ function readMetadata(value) {
   if (data.activityRevision !== undefined && typeof data.activityRevision !== 'string') {
     throw new Error('The local Activity revision is unreadable.');
   }
-  return { ...data, repos: data.repos || [], streams: data.streams || [], settings: data.settings || {}, diagnostics: data.diagnostics || {} };
+  // Disabled repositories stay manageable on Repositories but leave every other view.
+  const watched = data.repos || [];
+  const repos = watched.filter(repo => !repo.disabled);
+  const streams = (data.streams || []).filter(stream => repos.some(repo => repo.id === stream.repoId));
+  return { ...data, watched, repos, streams, settings: data.settings || {}, diagnostics: data.diagnostics || {} };
 }
 
 /** @param {View} view */
@@ -44,7 +48,7 @@ const viewKey = ({ route, eventId, repoIds, search, kind, generation }) =>
 export function createRefreshController({ request, getView, reconcileRepositories, onUpdate, onError }) {
   const activityData = createActivityData(request);
   /** @type {PageState} */
-  let state = { repos: [], activity: { items: [], loading: true }, events: [], streams: [], settings: {}, diagnostics: {} };
+  let state = { repos: [], watched: [], activity: { items: [], loading: true }, events: [], streams: [], settings: {}, diagnostics: {} };
   /** @type {EventDetail|null|undefined} */
   let detailResult;
   /** @type {string|undefined} */

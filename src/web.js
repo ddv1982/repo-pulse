@@ -36,7 +36,7 @@ const connection = createConnectionController({ request, render() {
 } });
 ui.connection = connection.state;
 const commitResults = new Map();
-const picker = createRepositoryPicker({ request, getRepos: () => refresh.state.repos, onAdded: async count => { await load({ force: true }); toast(`${count} repositories watched.`); } });
+const picker = createRepositoryPicker({ request, getRepos: () => refresh.state.watched, onAdded: async count => { await load({ force: true }); toast(`${count} repositories watched.`); } });
 const typeFilter = createTypeFilter({ onChange: value => { ui.kind = value; activityChanged(); } });
 const historyImport = createHistoryImport(document.querySelector('#history-dialog'), {
   start: (repoId, days) => request('/api/backfill', { method: 'POST', body: { repoId, days } }),
@@ -213,13 +213,8 @@ const actions = {
   'dismiss-error': clearNotice,
   'all-repos': () => { ui.repoIds = null; activityChanged({ header: true }); },
   'no-repos': () => { ui.repoIds = []; activityChanged({ header: true }); },
-  'pause-repo': async element => {
-    const repo = refresh.state.repos.find(item => item.id === element.dataset.id);
-    await request(`/api/repos/${encodeURIComponent(repo.id)}`, { method: 'PATCH', body: { paused: !repo.paused } });
-    await load({ force: true });
-  },
   'remove-repo': element => {
-    const repo = refresh.state.repos.find(item => item.id === element.dataset.id);
+    const repo = refresh.state.watched.find(item => item.id === element.dataset.id);
     confirm(`Remove ${repo.name} from this app?`, 'This deletes its local watch and cached history only. The checkout, Azure repository and remote data are unchanged.', async () => {
       await request(`/api/repos/${encodeURIComponent(repo.id)}`, { method: 'DELETE' });
       await load({ force: true });
@@ -269,6 +264,25 @@ document.addEventListener('change', event => {
   if (event.target.id === 'connection-repo') {
     connection.select(event.target.value);
     renderPage();
+  }
+  if (event.target.matches('[data-repo-toggle]')) {
+    const control = event.target;
+    const repo = refresh.state.watched.find(item => item.id === control.dataset.id);
+    if (busy || !repo) {
+      control.checked = !repo?.disabled;
+      return;
+    }
+    const enabled = control.checked;
+    void withAction(async () => {
+      try {
+        await request(`/api/repos/${encodeURIComponent(repo.id)}`, { method: 'PATCH', body: { disabled: !enabled } });
+        await load({ force: true });
+        toast(`${repo.name} ${enabled ? 'enabled' : 'disabled'}.`);
+      } finally {
+        const current = refresh.state.watched.find(item => item.id === repo.id);
+        if (control.isConnected) control.checked = !current?.disabled;
+      }
+    });
   }
   if (event.target.matches('[data-auto-toggle]')) {
     const checked = event.target.checked;

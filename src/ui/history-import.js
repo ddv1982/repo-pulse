@@ -1,8 +1,7 @@
 import { escape as e, dateTime } from './format.js';
 
-function statusFor(job, paused) {
+function statusFor(job) {
   if (job.status === 'completed') return ['Import finished', 'ok'];
-  if (paused) return ['Import paused', 'neutral'];
   if (job.error || job.status === 'retrying') return ['Import retrying', 'warn'];
   if (job.status === 'running') return ['Import running', 'info'];
   return ['Import queued', 'info'];
@@ -15,7 +14,7 @@ export function renderHistoryButton(repo, job) {
 
 export function renderHistoryProgress(repo, job) {
   if (!job) return '';
-  const [label, tone] = statusFor(job, repo.paused);
+  const [label, tone] = statusFor(job);
   return `<div class="history-progress" id="history-${e(repo.id)}" role="status" tabindex="-1">
     <span class="chip status-chip ${tone}">${label}</span>
     ${job.pages ? `<span class="help history-extra">${e(job.pages)} ${job.pages === 1 ? 'page' : 'pages'} read${job.lastProgressAt ? ` · Last page ${e(dateTime(job.lastProgressAt))}` : ''}</span>` : ''}
@@ -61,7 +60,6 @@ export function createHistoryImport(dialog, { start, onStarted }) {
     show(repo) {
       repoId = repo.id;
       repositoryName.textContent = repo.name;
-      dialog.querySelector('#history-paused').hidden = !repo.paused;
       form.reset();
       error.hidden = true;
       dialog.showModal();

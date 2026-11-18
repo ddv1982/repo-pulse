@@ -172,7 +172,7 @@ export function createSync({ store, provider, now = Date.now, intervalMs = 18000
     if (stopped) return;
     ensureStreams();
     const automatic = store.getSetting('refreshEnabled', true) !== false;
-    const repos = new Map(store.listRepos().filter((repo) => !repo.paused).map((repo) => [repo.id, repo]));
+    const repos = new Map(store.listRepos().filter((repo) => !repo.disabled).map((repo) => [repo.id, repo]));
     const due = store.getStreams().filter((state) => repos.has(state.repoId) && (automatic || state.manual) && Date.parse(state.nextAt || 0) <= now());
     due.sort((a, b) => (Date.parse(a.lastAttempt || 0) || 0) - (Date.parse(b.lastAttempt || 0) || 0));
     if (!due.length) { await runBackground(automatic); return; }
@@ -190,7 +190,7 @@ export function createSync({ store, provider, now = Date.now, intervalMs = 18000
       const page = await provider.read(repo, state.stream, { since: window.since, until: window.until, cursor: state.cursor || null });
       if (!page || !Array.isArray(page.items)) throw new Error('Azure returned an invalid page.');
       // Removal while the provider was in flight must not resurrect a local watch.
-      if (stopped || !store.listRepos().some((entry) => entry.id === repo.id && !entry.paused)) return;
+      if (stopped || !store.listRepos().some((entry) => entry.id === repo.id && !entry.disabled)) return;
       const complete = !page.nextCursor;
       let output;
       let pendingItems;
@@ -206,11 +206,11 @@ export function createSync({ store, provider, now = Date.now, intervalMs = 18000
         const missing = store.listEntities(repo.id, 'pr').filter((entry) =>
           entry.data.status === 'active' && !activeIds.includes(entry.id)).slice(0, 3);
         for (const entry of missing) {
-          if (stopped || !store.listRepos().some((current) => current.id === repo.id && !current.paused)) return;
+          if (stopped || !store.listRepos().some((current) => current.id === repo.id && !current.disabled)) return;
           items = [...items, await provider.pullRequest(repo, entry.id)];
         }
       }
-      if (stopped || !store.listRepos().some((entry) => entry.id === repo.id && !entry.paused)) return;
+      if (stopped || !store.listRepos().some((entry) => entry.id === repo.id && !entry.disabled)) return;
       if (state.stream === 'refs') {
         pendingItems = [...(state.pendingItems || []), ...page.items];
         output = complete ? reconcileRefs(repo, pendingItems, working) : { events: [], entities: [] };
@@ -257,12 +257,13 @@ export function createSync({ store, provider, now = Date.now, intervalMs = 18000
       // Batch additions must register every repository even when refresh requests coalesce.
       ensureStreams();
       // Cooldown is per repository so a second added repository still gets its initial import.
-      const targets = (repoIds || repos.map((repo) => repo.id)).filter((id) => !(now() - refreshedAt.get(id) < 30000));
+      const enabled = repos.filter((repo) => !repo.disabled).map((repo) => repo.id);
+      const targets = (repoIds || enabled).filter((id) => enabled.includes(id) && !(now() - refreshedAt.get(id) < 30000));
       if (!targets.length && repos.length) return { scheduled: false, cooldown: true };
       for (const id of targets) refreshedAt.set(id, now());
       for (const state of store.getStreams()) {
         const repo = repos.find((entry) => entry.id === state.repoId);
-        if (repo && !repo.paused && targets.includes(repo.id)) store.saveStream({ ...state, nextAt: iso(now()), manual: store.getSetting('refreshEnabled', true) === false });
+        if (repo && targets.includes(repo.id)) store.saveStream({ ...state, nextAt: iso(now()), manual: store.getSetting('refreshEnabled', true) === false });
       }
       return { scheduled: true };
     },

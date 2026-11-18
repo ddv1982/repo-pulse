@@ -3,7 +3,7 @@
 /** @typedef {import('../src/activity.js').ActivityEvent} ActivityEvent */
 /** @typedef {'pushes'|'closedPrs'|'builds'} HistoryStream */
 /** @typedef {{ since: string, until: string }} HistoryWindow */
-/** @typedef {{ id: string, paused?: boolean }} WatchedRepo */
+/** @typedef {{ id: string, disabled?: boolean }} WatchedRepo */
 /** @typedef {{ code: string, message: string }} JobError */
 /** @typedef {{ items: unknown[], nextCursor?: Record<string, unknown>|null }} SourcePage */
 /**
@@ -96,7 +96,7 @@ export function createBackfill({ store, provider, normalize, now = Date.now }) {
     return { ...next, status: 'completed', completedAt: iso(now()), window: null };
   }
   async function runPage() {
-    const repos = new Map(store.listRepos().filter(repo => !repo.paused).map(repo => [repo.id, repo]));
+    const repos = new Map(store.listRepos().filter(repo => !repo.disabled).map(repo => [repo.id, repo]));
     const due = jobs().filter(job => job.status !== 'completed' && repos.has(job.repoId) && Date.parse(job.nextAt) <= now())
       .sort((a, b) => (Date.parse(a.lastAttempt || '') || 0) - (Date.parse(b.lastAttempt || '') || 0));
     const job = due.find(item => item.id !== lastId) || due[0];
@@ -104,7 +104,7 @@ export function createBackfill({ store, provider, normalize, now = Date.now }) {
     lastId = job.id;
     const repo = repos.get(job.repoId);
     if (!repo) return false;
-    const current = () => store.listRepos().some(item => item.id === repo.id && !item.paused) && jobs().some(item => item.id === job.id && item.startedAt === job.startedAt);
+    const current = () => store.listRepos().some(item => item.id === repo.id && !item.disabled) && jobs().some(item => item.id === job.id && item.startedAt === job.startedAt);
     store.saveJob({ ...job, status: 'running', lastAttempt: iso(now()) });
     try {
       const window = job.window;

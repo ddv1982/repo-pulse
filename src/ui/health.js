@@ -14,7 +14,6 @@ export function streamHealth(stream, { now = Date.now(), scheduled = true, resum
 }
 
 export function repositoryHealth(repo, records, { now = Date.now(), automatic = true, resumedAt = null } = {}) {
-  if (repo.paused) return { label: 'Paused', className: 'name', show: true };
   if (!automatic) return { label: 'Checks off', show: false };
   const status = records.map(stream => streamHealth(stream, { now, resumedAt }));
   if (status.some(item => item.error)) return { label: 'Check failed', className: 'part', show: true };

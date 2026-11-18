@@ -267,7 +267,9 @@ test('Activity revision advances only for committed changes to page data', () =>
       assert.notEqual(next, revision);
       revision = next;
     };
-    store.saveRepo({ ...repo, paused: true });
+    store.saveRepo({ ...repo, disabled: true });
+    changed();
+    store.saveRepo({ ...repo, disabled: true });
     store.setSetting('refreshEnabled', false);
     stable();
     assert.throws(() => store.commitPage({ repoId: repo.id, events: [event('rolled-back')], jobs: [{ id: 'invalid' }] }));
@@ -341,4 +343,18 @@ test('New activity offers the displayed run status even when only an earlier upd
     assert.equal(store.queryActivity({ ...base, kind: 'status:succeeded' }).total, 0);
     assert.equal(store.getEvent('b-failed').seen, false);
   } finally { store.close(); }
+});
+
+test('v8 migration turns paused repositories into disabled ones', () => {
+  const dir = mkdtempSync(join(tmpdir(),'pulse-disabled-migration-')),path = join(dir,'v7.sqlite');
+  createStore(path).close();
+  const db = new DatabaseSync(path);
+  db.prepare('INSERT INTO repositories(id,data) VALUES(?,?)').run('paused',JSON.stringify({ id: 'paused',name: 'Paused',paused: true }));
+  db.prepare('INSERT INTO repositories(id,data) VALUES(?,?)').run('active',JSON.stringify({ id: 'active',name: 'Active',paused: false }));
+  db.exec('PRAGMA user_version=7'); db.close();
+  const store = createStore(path);
+  try {
+    assert.deepEqual(store.listRepos().map(({ id,disabled,paused }) => ({ id,disabled,paused })),
+      [{ id: 'paused',disabled: true,paused: undefined },{ id: 'active',disabled: false,paused: undefined }]);
+  } finally { store.close(); rmSync(dir,{ recursive: true }); }
 });

@@ -105,7 +105,7 @@ test('repo subset acknowledgement preserves hidden/incoming events and survives 
   assert.equal((await (await fetch(app.runtime.url + '/api/events/demo-branch-1')).json()).event.seen, false);
 });
 
-test('all branches remain visible without rules, with working pause and settings', async t => {
+test('all branches remain visible without rules, with working settings', async t => {
   const app = await setup(t);
   const { page } = app;
   await page.reload();
@@ -116,13 +116,45 @@ test('all branches remain visible without rules, with working pause and settings
   await expect(page.getByRole('heading', { name: 'Settings', exact: true })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Watch and mute rules' })).toHaveCount(0);
   await page.getByRole('link', { name: 'Repositories', exact: true }).click();
-  await page.locator('.repo-details > summary').first().click();
-  await page.getByRole('button', { name: 'Pause', exact: true }).first().click();
-  await expect(page.getByRole('button', { name: 'Resume', exact: true })).toHaveCount(1);
   await page.getByRole('link', { name: 'Settings', exact: true }).click();
   await page.locator('#page').getByLabel('Automatic checks', { exact: true }).uncheck();
   await expect(page.locator('#page').getByRole('switch', { name: 'Automatic checks' })).not.toBeChecked();
   assert.equal((await (await fetch(app.runtime.url + '/api/state')).json()).settings.refreshEnabled, false);
+});
+
+test('disabling a repository hides it everywhere except Repositories until it is enabled again', async t => {
+  const { page, runtime } = await setup(t);
+  const billingRows = page.locator('#page .subref', { hasText: 'billing-web' });
+  await page.getByRole('link', { name: 'All activity' }).click();
+  await expect(billingRows.first()).toBeVisible();
+  await page.getByRole('link', { name: 'Repositories', exact: true }).click();
+  const toggle = page.getByRole('switch', { name: 'Watch billing-web' });
+  await expect(toggle).toBeChecked();
+  await toggle.click();
+  await expect(toggle).not.toBeChecked();
+  await expect(page.getByText('3 watched · 1 disabled')).toBeVisible();
+  const row = page.locator('.repo-entry', { has: toggle });
+  await expect(row.getByText('Disabled', { exact: true })).toBeVisible();
+  await expect(row.getByRole('button', { name: 'Remove watch' })).toBeVisible();
+  await expect(row.locator('.repo-details')).toHaveCount(0);
+  assert.equal((await (await fetch(runtime.url + '/api/state')).json()).repos.find(repo => repo.id === 'demo-billing').disabled, true);
+  await expect(page.locator('#repo-toggle')).toHaveAccessibleName('All 2 repositories');
+  await page.locator('#repo-toggle').click();
+  await expect(page.locator('#repo-panel [data-scope-repo]')).toHaveCount(2);
+  await expect(page.locator('#repo-panel [data-scope-repo="demo-billing"]')).toHaveCount(0);
+  await page.locator('#repo-toggle').click();
+  await page.getByRole('link', { name: 'Activity', exact: true }).click();
+  await page.getByRole('link', { name: 'All activity' }).click();
+  await expect(page.locator('#page .subref').first()).toBeVisible();
+  await expect(billingRows).toHaveCount(0);
+  await page.getByRole('link', { name: 'Repositories', exact: true }).click();
+  await page.getByRole('switch', { name: 'Watch billing-web' }).click();
+  await expect(page.getByRole('switch', { name: 'Watch billing-web' })).toBeChecked();
+  await expect(page.getByText('3 watched', { exact: true })).toBeVisible();
+  await page.getByRole('link', { name: 'Activity', exact: true }).click();
+  await page.getByRole('link', { name: 'All activity' }).click();
+  await expect(billingRows.first()).toBeVisible();
+  await expect(page.locator('#repo-toggle')).toHaveAccessibleName('All 3 repositories');
 });
 
 test('empty live startup detects existing CLI locally and prompts only local repo selection', async t => {

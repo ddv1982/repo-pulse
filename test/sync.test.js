@@ -18,7 +18,7 @@ const push = (id, date = '2026-11-17T10:00:01Z') => ({ pushId: id, date, pushedB
 test('manual refresh drains its paginated work once while automatic checks stay off', async () => {
   const store = createStore();
   store.saveRepo(repo);
-  store.saveRepo({ ...repo, id: 'two', name: 'Paused', paused: true });
+  store.saveRepo({ ...repo, id: 'two', name: 'Disabled', disabled: true });
   store.setSetting('refreshEnabled', false);
   let calls = 0, time = BASE;
   const sync = createSync({ store, now: () => time, provider: { async read(current, stream, { cursor }) {
@@ -165,20 +165,30 @@ test('PR reactivation creates a fresh event even when its state matches an earli
   store.close();
 });
 
-test('paused repositories and disabled refresh never call Azure; concurrent ticks coalesce', async () => {
+test('disabled repositories and disabled refresh never call Azure; concurrent ticks coalesce', async () => {
   let release;
   let calls = 0;
   const provider = { read() { calls++; return new Promise((resolve) => { release = () => resolve({ items: [], nextCursor: null }); }); } };
   const { store, sync } = setup(provider);
-  store.saveRepo({ ...repo, paused: true });
+  store.saveRepo({ ...repo, disabled: true });
   await sync.tick(); assert.equal(calls, 0);
-  store.saveRepo({ ...repo, paused: false });
+  store.saveRepo({ ...repo, disabled: false });
   store.setSetting('refreshEnabled', false); await sync.tick(); assert.equal(calls, 0);
   store.setSetting('refreshEnabled', true);
   const a = sync.tick(); const b = sync.tick();
   assert.equal(a, b); assert.equal(calls, 1);
   release(); await a;
   assert.deepEqual(sync.refresh(), { scheduled: false, cooldown: true });
+  store.close();
+});
+
+test('a refresh while a repository is disabled does not start its cooldown', () => {
+  const { store, sync, advance } = setup({ async read() { return { items: [], nextCursor: null }; } });
+  advance(31000);
+  store.saveRepo({ ...repo, disabled: true });
+  sync.refresh();
+  store.saveRepo({ ...repo, disabled: false });
+  assert.deepEqual(sync.refresh([repo.id]), { scheduled: true });
   store.close();
 });
 
@@ -238,7 +248,7 @@ test('pausing during a read prevents follow-up reconciliation and never acknowle
   store.insertEvents([{ id: 'existing', repoId: 'one', kind: 'push', title: 'Existing', time: '2026-11-17T10:00:00Z' }]);
   store.commitPage({ repoId: 'one', stream: 'activeBuilds', entities: [{ type: 'build', id: '42', data: { status: 'inProgress' } }] });
   const pending = sync.tick();
-  store.saveRepo({ ...repo, paused: true });
+  store.saveRepo({ ...repo, disabled: true });
   release(); await pending;
   assert.equal(reconciled, 0);
   assert.equal(store.listEvents()[0].seen, false);
