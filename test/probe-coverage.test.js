@@ -26,3 +26,20 @@ test('probe summaries keep counts and field names, never names or IDs', () => {
   assert.deepEqual(facts, { items: 1, fields: ['pullRequestId', 'repository', 'title'], targetOtherRepository: 1, targetOtherProject: 1 });
   assert.doesNotMatch(JSON.stringify(facts), /Secret title|other|p2/);
 });
+
+test('probe summaries replace policy and thread type names Azure did not define with "other"', () => {
+  const policies = summarize(
+    'PR policy evaluations',
+    {
+      value: [
+        { status: 'approved', configuration: { type: { displayName: 'Minimum number of reviewers' } } },
+        { status: 'queued', configuration: { type: { displayName: 'Pipeline payments-ci' } } },
+      ],
+    },
+    repo,
+  );
+  assert.deepEqual(policies.policyTypes, ['Minimum number of reviewers', 'other']);
+  const threads = summarize('PR threads', { value: [{ properties: { CodeReviewThreadType: { $value: 'Secret-team-type' } } }] }, repo);
+  assert.deepEqual(threads.threadTypes, ['other']);
+  assert.doesNotMatch(JSON.stringify([policies, threads]), /payments|Secret/);
+});

@@ -40,6 +40,39 @@ export function probeRequests(repo, found = {}) {
   return requests.map(request => ({ ...request, method: 'GET' }));
 }
 
+// Only Azure's own names for built-in policy and thread types are reported; anything else, such as a
+// build policy named after a pipeline, is counted as "other" so no organization-chosen name is written.
+const BUILT_IN_POLICIES = new Set([
+  'Minimum number of reviewers',
+  'Comment requirements',
+  'Required reviewers',
+  'Work item linking',
+  'Require a merge strategy',
+  'Build',
+  'Status',
+  'File size restriction',
+  'File name restriction',
+  'Path Length restriction',
+  'Reserved names restriction',
+  'Commit author email validation',
+  'Git repository settings',
+]);
+const THREAD_TYPES = new Set([
+  'VoteUpdate',
+  'ResetMultipleVotes',
+  'ResetAllVotes',
+  'ReviewersUpdate',
+  'RefUpdate',
+  'SourceBranchChanged',
+  'StatusUpdate',
+  'MergeAttempt',
+  'IsDraftUpdate',
+  'PolicyStatusUpdate',
+]);
+/** @param {unknown[]} values @param {Set<string>} known */
+const named = (values, known) =>
+  [...new Set(values.filter(Boolean).map(value => (known.has(String(value)) ? String(value) : 'other')))].sort();
+
 /** @param {unknown} value */
 const keys = value => (value && typeof value === 'object' ? Object.keys(value).sort() : []);
 
@@ -54,7 +87,7 @@ export function summarize(name, body, repo) {
     facts.peeled = items.filter(ref => ref.peeledObjectId).length;
   } else if (name === 'pushes with ref updates') {
     const updates = items.flatMap(push => push.refUpdates || []);
-    facts.refUpdateFields = keys(updates[0]);
+    facts.tagUpdateFields = keys(updates.find(update => String(update.name).startsWith('refs/tags/')));
     facts.tagUpdates = updates.filter(update => String(update.name).startsWith('refs/tags/')).length;
     facts.branchUpdates = updates.filter(update => String(update.name).startsWith('refs/heads/')).length;
   } else if (name === 'active PRs') {
@@ -69,12 +102,18 @@ export function summarize(name, body, repo) {
   } else if (name === 'PR threads') {
     facts.commentFields = keys(items.flatMap(thread => thread.comments || [])[0]);
     facts.statuses = [...new Set(items.map(thread => thread.status).filter(Boolean))].sort();
-    facts.system = items.filter(thread => thread.properties?.CodeReviewThreadType).length;
-    facts.threadTypes = [...new Set(items.map(thread => thread.properties?.CodeReviewThreadType?.$value).filter(Boolean))].sort();
+    facts.withThreadType = items.filter(thread => thread.properties?.CodeReviewThreadType).length;
+    facts.threadTypes = named(
+      items.map(thread => thread.properties?.CodeReviewThreadType?.$value),
+      THREAD_TYPES,
+    );
   } else if (name === 'PR policy evaluations') {
     facts.statuses = [...new Set(items.map(evaluation => evaluation.status))].sort();
     facts.configurationFields = keys(items[0]?.configuration);
-    facts.policyTypes = [...new Set(items.map(evaluation => evaluation.configuration?.type?.displayName).filter(Boolean))].sort();
+    facts.policyTypes = named(
+      items.map(evaluation => evaluation.configuration?.type?.displayName),
+      BUILT_IN_POLICIES,
+    );
   }
   return facts;
 }
@@ -97,8 +136,12 @@ async function token() {
 async function send(request, bearer) {
   if (request.method !== 'GET') throw new Error('The probe only sends GET requests.');
   const started = performance.now();
-  const response = await fetch(request.url, { headers: { Authorization: `Bearer ${bearer}`, Accept: 'application/json' } });
-  const body = response.ok ? await response.json() : undefined;
+  // A refused token must come back as its HTTP status, not as a redirect to a sign-in page.
+  const response = await fetch(request.url, {
+    redirect: 'manual',
+    headers: { Authorization: `Bearer ${bearer}`, Accept: 'application/json', 'X-TFS-FedAuthRedirect': 'Suppress' },
+  });
+  const body = response.ok ? await response.json().catch(() => undefined) : undefined;
   return { status: response.status, ms: Math.round(performance.now() - started), body };
 }
 
@@ -140,4 +183,10 @@ async function main() {
   console.log(lines.slice(4).join('\n'));
 }
 
-if (process.argv[1] === fileURLToPath(import.meta.url)) await main();
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  // Errors from az or a response can carry account, tenant or repository details, so only a fixed message is printed.
+  await main().catch(() => {
+    console.error('The coverage probe failed. Check the Azure CLI sign-in and the database path, then run it again.');
+    process.exitCode = 1;
+  });
+}
