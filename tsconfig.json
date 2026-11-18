@@ -33,6 +33,8 @@
     "src/ui/connection.js",
     "src/ui/settings.js",
     "src/ui/seen-actions.js",
-    "src/ui/history-import.js"
+    "src/ui/history-import.js",
+    "src/ui/checkout.js",
+    "src/ui/checkout-actions.js"
   ]
 }
