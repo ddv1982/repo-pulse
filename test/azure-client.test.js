@@ -208,3 +208,20 @@ test('repository connection check preserves local CLI state when the scoped read
   assert.deepEqual(calls.at(-1), ['repos', 'show', '--repository', repo.azureId, '--project', repo.projectId || repo.project,
     '--organization', repo.organization, '--detect', 'false']);
 });
+
+test('a repository connection check also proves the REST activity read', async () => {
+  const calls = [];
+  const client = createAzureClient({ now: () => 0, cli: { async run(args) {
+    calls.push(args);
+    if (args[0] === 'version') return { 'azure-cli': '2.93.0' };
+    if (args[0] === 'extension') return { version: '1.0.2' };
+    if (args[0] === 'account') return {};
+    if (args[0] === 'repos') return { id: repo.azureId };
+    throw Object.assign(new Error('Azure CLI sign-in is unavailable or expired.'), { code: 'AUTH_REQUIRED' });
+  } } });
+  const status = await client.checkConnection(undefined, repo);
+  assert.equal(status.access.status, 'failed');
+  assert.equal(status.access.code, 'AUTH_REQUIRED');
+  const read = calls.at(-1);
+  assert.deepEqual([read[0], read[1], read[read.indexOf('--resource') + 1], read[read.indexOf('--http-method') + 1]], ['devops', 'invoke', 'refs', 'GET']);
+});

@@ -155,3 +155,27 @@ test('response body failures keep their timeout and invalid-response classificat
     cli.close();
   }
 });
+
+test('a token with an unusable expiry is reported as a sign-in problem', async () => {
+  const { cli } = harness({ tokenOutput: () => JSON.stringify({ accessToken: TOKEN, expiresOn: { toString: null } }) });
+  await assert.rejects(cli.run(invoke('git', 'pushes', ['project=P', 'repositoryId=r'])), { code: 'AUTH_REQUIRED' });
+  cli.close();
+});
+
+test('a replacement token rejected on the retry is not sent again', async () => {
+  const { cli, requests } = harness({ responses: init => init.headers.authorization.endsWith('-3') ? { status: 200 } : { status: 401 } });
+  await assert.rejects(cli.run(invoke('git', 'pushes', ['project=P', 'repositoryId=r'])), { code: 'AUTH_REQUIRED' });
+  const before = requests.length;
+  await cli.run(invoke('git', 'pushes', ['project=P', 'repositoryId=r'], ['$skip=1']));
+  assert.deepEqual(requests.slice(before).map(request => request.init.headers.authorization), [`Bearer ${TOKEN}-3`]);
+  cli.close();
+});
+
+test('discarded error responses have their bodies cancelled', async () => {
+  const cancelled = [];
+  const failing = status => ({ raw: new Response(new ReadableStream({ cancel() { cancelled.push(status); } }), { status }) });
+  const { cli } = harness({ responses: [failing(401), failing(503)] });
+  await assert.rejects(cli.run(invoke('git', 'pushes', ['project=P', 'repositoryId=r'])), { code: 'UNAVAILABLE' });
+  assert.deepEqual(cancelled, [401, 503]);
+  cli.close();
+});

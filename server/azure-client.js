@@ -65,6 +65,8 @@ export function createAzureClient({ cli, now = Date.now } = {}) {
               ? ['repos', 'show', '--repository', repository.azureId, '--project', repository.projectId || repository.project, '--organization', org, '--detect', 'false']
               : ['devops', 'project', 'list', '--organization', org, '--top', '1', '--detect', 'false']);
             if (repository && data?.id !== repository.azureId) throw cliError('INVALID_RESPONSE', 'Azure CLI did not verify the watched repository.');
+            // Activity reads use the Azure CLI's Entra token, which the extension's own credentials do not prove.
+            if (repository) await invoke(repository, 'git', 'refs', { filter: 'heads/', '$top': 1 });
             return new Date(now()).toISOString();
           };
           try {

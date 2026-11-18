@@ -73,7 +73,7 @@ export function createRestExecutor({ cliExecutor, fetch = globalThis.fetch, now 
       .then(stdout => {
         let data;
         try { data = typeof stdout === 'string' ? JSON.parse(stdout) : stdout; } catch { data = null; }
-        const expiresAt = Number.isFinite(data?.expires_on) ? data.expires_on * 1000 : Date.parse(data?.expiresOn);
+        const expiresAt = Number.isFinite(data?.expires_on) ? data.expires_on * 1000 : typeof data?.expiresOn === 'string' ? Date.parse(data.expiresOn) : NaN;
         if (typeof data?.accessToken !== 'string' || !data.accessToken || !Number.isFinite(expiresAt)) {
           throw Object.assign(new Error('Azure CLI did not return a usable token.'), { stderr: 'authentication unavailable' });
         }
@@ -96,15 +96,21 @@ export function createRestExecutor({ cliExecutor, fetch = globalThis.fetch, now 
     if (args[0] !== 'devops' || args[1] !== 'invoke') return cliExecutor(args, options);
     const request = requestFor(args);
     const body = request.inFile ? await readFile(request.inFile, 'utf8') : undefined;
+    // Only the rejected token is dropped; a token another request already renewed stays in use.
+    const rejected = (response, bearer) => {
+      if (response.status === 401 && token?.value === bearer) token = undefined;
+      return response.status === 401;
+    };
     let bearer = await accessToken(options);
     let response = await send(request, body, options, bearer);
-    if (response.status === 401) {
-      // Only the rejected token is dropped; a token another request already renewed stays in use.
-      if (token?.value === bearer) token = undefined;
+    if (rejected(response, bearer)) {
+      await response.body?.cancel().catch(() => {});
       bearer = await accessToken(options);
       response = await send(request, body, options, bearer);
+      rejected(response, bearer);
     }
     if (!response.ok) {
+      await response.body?.cancel().catch(() => {});
       throw Object.assign(new Error(`Azure DevOps returned HTTP ${response.status}.`), { stderr: `HTTP ${response.status}` });
     }
     let data;
