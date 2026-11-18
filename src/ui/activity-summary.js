@@ -1,5 +1,13 @@
+// @ts-check
+
 import { escape as e, buildState } from './format.js';
 
+/** @typedef {import('./refresh.js').PageState} PageState */
+
+/**
+ * @param {import('../activity.js').ActivityItem[]} records @param {Pick<PageState, 'activity' | 'repos'>} state
+ * @param {{ repoIds: string[] | null }} ui @param {{ partial: boolean, problemStreams: unknown[] }} health
+ */
 export function renderSummary(records, state, ui, health) {
   const unseen = records.filter(record => record.unseen);
   const updates = unseen.reduce((sum, record) => sum + record.unseenIds.length, 0);

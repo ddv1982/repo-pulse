@@ -48,6 +48,9 @@ import { actorName, branchName, safeAzureUrl } from '../src/events.js';
  *   commitPage: (page: SyncBatch & { repoId: string, stream: StreamName, state: StreamState }) => void
  * }} SyncStore
  */
+/** GET /api/state reports this as `diagnostics.sync`. */
+/** @typedef {ReturnType<ReturnType<typeof createSync>['status']>} SyncStatus */
+/** @typedef {ReturnType<ReturnType<typeof createSync>['refresh']>} RefreshStatus */
 /** Sync needs `read`; the active-build and PR follow-ups run only when the provider offers them. */
 /** @typedef {Pick<AzureProvider, 'read'> & Partial<Pick<AzureProvider, 'buildsById'|'pullRequest'>>} SyncProvider */
 /** @typedef {'merge'|'history'} BackgroundKind */

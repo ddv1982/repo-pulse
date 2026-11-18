@@ -1,10 +1,17 @@
+// @ts-check
+
 import { streamError } from './format.js';
 
+/** @typedef {Pick<import('../../server/sync.js').StreamState, 'stream' | 'lastSuccess' | 'pending' | 'initialized' | 'error'>} StreamReading */
+/** @typedef {{ now?: number, scheduled?: boolean, resumedAt?: number | null }} HealthOptions */
+
+/** @param {StreamReading} stream @param {HealthOptions} [options] */
 export function streamHealth(stream, { now = Date.now(), scheduled = true, resumedAt = null } = {}) {
   const overdueAfter = (stream.stream === 'refs' ? 20 : 10) * 60000;
-  const lastSuccess = Date.parse(stream.lastSuccess);
+  const lastSuccess = Date.parse(stream.lastSuccess ?? '');
   const stale = scheduled && now - lastSuccess > overdueAfter;
-  const resuming = stale && resumedAt > lastSuccess && now - resumedAt < overdueAfter;
+  // Number() spells out the coercion the comparison already made: null counts as 0.
+  const resuming = stale && Number(resumedAt) > lastSuccess && now - Number(resumedAt) < overdueAfter;
   return {
     error: streamError(stream),
     pending: Boolean(scheduled && (stream.pending || !stream.initialized)),
@@ -13,6 +20,7 @@ export function streamHealth(stream, { now = Date.now(), scheduled = true, resum
   };
 }
 
+/** @param {unknown} repo @param {StreamReading[]} records @param {{ now?: number, automatic?: boolean, resumedAt?: number | null }} [options] */
 export function repositoryHealth(repo, records, { now = Date.now(), automatic = true, resumedAt = null } = {}) {
   if (!automatic) return { label: 'Checks off', show: false };
   const status = records.map(stream => streamHealth(stream, { now, resumedAt }));

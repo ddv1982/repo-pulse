@@ -1,24 +1,34 @@
+// @ts-check
+
 import { escape as e } from './format.js';
 import { activityFilterLabel, canonicalActivityFilter } from '../activity-text.js';
 
+/** @param {string} [value] @param {string[]} [options] @param {boolean} [loading] */
 export function renderTypeFilter(value = '', options = [], loading = false) {
   value = canonicalActivityFilter(value);
   const choices = [...new Set(['', ...options, value])];
   return `<div class="menu type-menu"><button class="control" id="kind-toggle" type="button" aria-label="Activity type: ${e(activityFilterLabel(value))}" aria-haspopup="listbox" aria-disabled="${Boolean(loading)}" aria-expanded="false" aria-controls="kind-panel">${e(activityFilterLabel(value))} ▾</button><div class="menu-panel type-panel" id="kind-panel" role="listbox" aria-label="Activity type" hidden>${choices.map(key => `<button class="type-option" type="button" role="option" aria-selected="${value === key}" data-kind="${e(key)}" tabindex="-1"><span class="type-check" aria-hidden="true">${value === key ? '✓' : ''}</span>${e(activityFilterLabel(key))}</button>`).join('')}</div></div>`;
 }
 
-/** One controller per app; remounting never accumulates document listeners. */
+// The mounted root holds renderTypeFilter markup: the toggle, the panel and its option buttons are
+// HTML elements that are present together. The casts below record that; the code relied on it already.
+
+/** One controller per app; remounting never accumulates document listeners. @param {{ onChange: (kind: string | undefined) => void }} options */
 export function createTypeFilter({ onChange }) {
+  /** @type {HTMLElement | null | undefined} */
   let root;
-  const panel = () => root?.querySelector('#kind-panel');
-  const toggle = () => root?.querySelector('#kind-toggle');
-  const options = () => [...root.querySelectorAll('[role="option"]')];
+  const panel = () => /** @type {HTMLElement} */ (root?.querySelector('#kind-panel'));
+  const toggle = () => /** @type {HTMLElement} */ (root?.querySelector('#kind-toggle'));
+  /** @param {string} selector */
+  const find = selector => /** @type {HTMLElement | null} */ (/** @type {HTMLElement} */ (root).querySelector(selector));
+  const options = () => /** @type {HTMLElement[]} */ ([.../** @type {HTMLElement} */ (root).querySelectorAll('[role="option"]')]);
   function close(restore = false) {
     if (!panel()) return;
     panel().hidden = true;
     toggle().setAttribute('aria-expanded', 'false');
     if (restore) toggle().focus({ preventScroll: true });
   }
+  /** @param {HTMLElement | null | undefined} option */
   function focusOption(option) {
     if (!option) return;
     option.focus({ preventScroll: true });
@@ -31,24 +41,28 @@ export function createTypeFilter({ onChange }) {
     if (!panel() || toggle().getAttribute('aria-disabled') === 'true') return;
     panel().hidden = false;
     toggle().setAttribute('aria-expanded', 'true');
-    focusOption(root.querySelector('[aria-selected="true"]') || options()[0]);
+    focusOption(find('[aria-selected="true"]') || options()[0]);
   }
+  /** @param {Event} event */
   const outside = event => {
-    if (event.target.isConnected && root?.isConnected && !root.contains(event.target)) close();
+    const target = /** @type {Node} */ (event.target);
+    if (target.isConnected && root?.isConnected && !root.contains(target)) close();
   };
   document.addEventListener('pointerdown', outside);
   document.addEventListener('focusin', outside);
   return {
+    /** @param {HTMLElement | null} element */
     mount(element) {
       root = element;
       if (!root) return;
       root.onclick = event => {
-        if (event.target.closest('#kind-toggle')) {
+        const target = /** @type {Element} */ (event.target);
+        if (target.closest('#kind-toggle')) {
           if (panel().hidden) open();
           else close(true);
           return;
         }
-        const option = event.target.closest('[data-kind]');
+        const option = /** @type {HTMLElement | null} */ (target.closest('[data-kind]'));
         if (option) {
           const value = option.dataset.kind;
           close();
@@ -73,7 +87,7 @@ export function createTypeFilter({ onChange }) {
           return;
         }
         const all = options(),
-          index = all.indexOf(document.activeElement);
+          index = all.indexOf(/** @type {HTMLElement} */ (document.activeElement));
         const next =
           event.key === 'Home'
             ? 0

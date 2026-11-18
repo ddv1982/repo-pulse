@@ -20,6 +20,7 @@ import { createActivityQuery } from './activity-query.js';
 /** @typedef {import('./azure-client.js').AzureRepo & { id: string, name: string, disabled?: boolean, localPath?: string }} Repository */
 /** Merge and backfill jobs share the indexed columns; every other field belongs to the job type. */
 /** @typedef {{ id: string, type: string, repoId: string, nextAt?: string, status?: string, eventId?: string, [field: string]: unknown }} Job */
+/** @typedef {{ pending: number, errors: number }} MergeQueueSummary */
 /** Settings hold any JSON value, written with JSON.stringify. */
 /** @typedef {null | boolean | number | string | SettingValue[] | { [key: string]: SettingValue }} SettingValue */
 /** @typedef {{ type: string, id: string | number, data: unknown }} EntityInput */
@@ -65,7 +66,8 @@ export function createStore(path = ':memory:') {
   if (path !== ':memory:') chmodSync(path, 0o600);
   /** @param {string} sql */
   const q = sql => db.prepare(sql);
-  const activityRevision = () => q("SELECT data FROM settings WHERE key='activityRevision'").get()?.data || '0';
+  // `settings.data` is a TEXT column, so the incremented counter reads back as a string.
+  const activityRevision = () => /** @type {string} */ (q("SELECT data FROM settings WHERE key='activityRevision'").get()?.data || '0');
   const bumpActivity = () =>
     q(`INSERT INTO settings(key,data) VALUES('activityRevision','1')
     ON CONFLICT(key) DO UPDATE SET data=CAST(data AS INTEGER)+1`).run();
@@ -538,11 +540,15 @@ export function createStore(path = ':memory:') {
         .all(...params)
         .map(readJob);
     },
+    /** @returns {MergeQueueSummary} */
     mergeQueueSummary() {
-      return q(`SELECT COUNT(*) AS pending,
+      // An aggregate without GROUP BY always yields one row of two counts.
+      return /** @type {MergeQueueSummary} */ (
+        q(`SELECT COUNT(*) AS pending,
         COUNT(CASE WHEN json_extract(j.data,'$.error') IS NOT NULL THEN 1 END) AS errors
         FROM jobs j JOIN repositories r ON r.id=j.repo_id
-        WHERE j.type='merge' AND NOT COALESCE(json_extract(r.data,'$.disabled'),0)`).get();
+        WHERE j.type='merge' AND NOT COALESCE(json_extract(r.data,'$.disabled'),0)`).get()
+      );
     },
     saveJob,
     /** @param {string} id */

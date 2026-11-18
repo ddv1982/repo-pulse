@@ -3,7 +3,8 @@
 /** @typedef {import('../activity.js').ActivityEvent} ActivityEvent */
 /** @typedef {import('../activity.js').ActivityItem} ActivityItem */
 /** @typedef {import('../activity.js').ActivityPage} ActivityPage */
-/** @typedef {{ event: ActivityEvent, events: ActivityEvent[] }} EventDetail */
+/** @typedef {import('../api.js').EventResponse} EventDetail */
+/** @typedef {typeof import('../api.js').request} Request */
 /** @typedef {{ route: string, repoIds: string[]|null, kind?: string, search?: string }} ActivityView */
 
 const PAGE_SIZE = 50;
@@ -18,7 +19,7 @@ const keyFor = ui =>
 /** @param {ActivityItem} item */
 const itemKey = item => item.groupKey;
 
-/** @param {ActivityView} ui @param {number} limit @param {string|null} [cursor] */
+/** @param {ActivityView} ui @param {number} limit @param {string|null} [cursor] @returns {`/api/activity?${string}`} */
 function activityUrl(ui, limit, cursor) {
   const query = new URLSearchParams({ view: ui.route === 'activity' ? 'all' : 'new', limit: String(limit) });
   if (ui.repoIds !== null) query.set('repoIds', ui.repoIds.join(','));
@@ -30,7 +31,7 @@ function activityUrl(ui, limit, cursor) {
 
 /**
  * Local database paging. The loaded history window survives routine polling.
- * @param {(path: string) => Promise<unknown>} request
+ * @param {Request} request
  */
 export function createActivityData(request) {
   /** @type {string|undefined} */
@@ -71,7 +72,7 @@ export function createActivityData(request) {
       /** @param {number} limit @param {string|null} cursor */
       async function fetchPage(limit, cursor) {
         try {
-          const value = /** @type {ActivityPage} */ (await request(activityUrl(ui, limit, cursor)));
+          const value = await request(activityUrl(ui, limit, cursor));
           if (current !== generation) return null;
           if (!Array.isArray(value?.items)) throw new Error('The local activity response is unreadable.');
           return value;
@@ -114,7 +115,7 @@ export function createActivityData(request) {
     },
     /** @param {string} id */
     async event(id) {
-      return /** @type {EventDetail} */ (await request(`/api/events/${encodeURIComponent(id)}`));
+      return await request(`/api/events/${encodeURIComponent(id)}`);
     },
   };
 }
