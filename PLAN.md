@@ -45,7 +45,7 @@ Phase 4: history rewrites
 
 Phase 5: fork and outgoing pull requests
 
-- [ ] Every PR snapshot keeps its source repository and project, and a PR from another repository into the watched one is labelled as a fork PR. No new request. Check: sync test with a fork PR, and a test that adding the field does not change existing PR fingerprints (no burst of activity on upgrade).
+- [x] A PR from a fork keeps the fork's repository and project name (`data.fork`, from `forkSource`), and its summary says "From fork … · Target: …". No new request, and the field stays out of the snapshot fingerprint. Check: sync test where learning the fork source creates no PR update (it fails when the fork joins the fingerprint) and a later real change records the fork; presentation test for the summary.
 - [x] ~~A new `outgoingPrs` stream reads PRs whose source is the watched repository.~~ Not built. Azure only links PRs across repositories through forks, and Phase 1 found no fork PRs, so the stream would cost one read per repository every few minutes for nothing observable. Revisit when a watched repository has forks.
 
 Phase 6: review votes

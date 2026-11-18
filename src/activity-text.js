@@ -132,6 +132,9 @@ export function triggerLabel(value) {
   return descriptions[value ?? ''] || 'Not supplied';
 }
 
+/** @param {{ repository?: string, project?: string } | undefined} fork */
+const forkText = fork => (fork ? `From fork ${fork.repository || 'of unknown name'}${fork.project ? ` in ${fork.project}` : ''} · ` : '');
+
 /** @param {NonNullable<ActivityEvent['data']>} data */
 function pushedTagSummary({ change, oldObjectId = '', newObjectId = '' }) {
   if (change === 'deleted') return 'Remote tag deleted';
@@ -142,7 +145,7 @@ function pushedTagSummary({ change, oldObjectId = '', newObjectId = '' }) {
 export function activitySummary(event) {
   if (event.kind === 'build') return triggerLabel(event.data?.reason);
   if (event.kind === 'pr' && event.data?.targetRefName)
-    return `${event.data.status === 'completed' ? 'Merged into' : 'Target:'} ${branchName(event.data.targetRefName)}`;
+    return `${forkText(event.data.fork)}${event.data.status === 'completed' ? 'Merged into' : 'Target:'} ${branchName(event.data.targetRefName)}`;
   const listed = ['snapshot', 'refs'].includes(event.data?.evidence ?? '');
   if (event.kind === 'branch-created') return listed ? 'First seen remotely; creation time not supplied' : 'New remote branch';
   if (event.kind === 'branch-deleted') return listed ? 'Not in the latest branch list; deletion not confirmed' : 'Remote branch deleted';

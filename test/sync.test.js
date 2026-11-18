@@ -906,3 +906,37 @@ test('tags join the refs snapshot without announcing the tags that already exist
   );
   store.close();
 });
+
+test('a fork PR keeps where it came from without changing the fingerprint of PRs seen before', async () => {
+  const pr = {
+    pullRequestId: 5,
+    title: 'Fix',
+    status: 'active',
+    creationDate: '2026-11-16T10:00:00Z',
+    sourceRefName: 'refs/heads/fix',
+    targetRefName: 'refs/heads/main',
+    repository: { id: 'a' },
+  };
+  let items = [pr];
+  const { store, sync, advance } = setup(
+    {
+      async read() {
+        return { items, nextCursor: null };
+      },
+    },
+    ['prs'],
+  );
+  await sync.tick();
+  assert.equal(store.listEvents().length, 1);
+  assert.equal(store.listEvents()[0].data.fork, undefined);
+  items = [{ ...pr, forkSource: { name: 'refs/heads/fix', repository: { id: 'f', name: 'One-fork', project: { name: 'Q' } } } }];
+  advance(600001);
+  await sync.tick();
+  assert.equal(store.listEvents().length, 1, 'learning the fork source is not a PR update');
+  items = [{ ...items[0], title: 'Fix, retitled' }];
+  advance(600001);
+  await sync.tick();
+  const latest = store.listEvents().find(event => event.data.fork);
+  assert.deepEqual(latest.data.fork, { repository: 'One-fork', project: 'Q' });
+  store.close();
+});

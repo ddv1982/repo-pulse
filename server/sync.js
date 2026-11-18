@@ -389,6 +389,11 @@ export function createSync({
             sourceRefName: item.sourceRefName,
             targetRefName: item.targetRefName,
             sourceCommit: item.lastMergeSourceCommit?.commitId,
+            // Azure names a source repository only for a PR from a fork. It stays out of the fingerprint,
+            // so recording it creates no update for PRs seen before.
+            ...(item.forkSource
+              ? { fork: { repository: item.forkSource.repository?.name, project: item.forkSource.repository?.project?.name } }
+              : {}),
             ...prCompletion(item),
           },
         });

@@ -301,3 +301,18 @@ test('tag rows say what happened to the tag and never claim a commit for a pushe
   );
   assert.equal(labels.tag, 'Tag');
 });
+
+test('a fork PR names its fork in the summary', () => {
+  const pr = {
+    id: 'p',
+    repoId: 'r',
+    kind: 'pr',
+    time: '2026-11-17T10:00:00Z',
+    data: { status: 'active', targetRefName: 'refs/heads/main' },
+  };
+  assert.equal(activitySummary(pr), 'Target: main');
+  assert.equal(
+    activitySummary({ ...pr, data: { ...pr.data, fork: { repository: 'One-fork', project: 'Q' } } }),
+    'From fork One-fork in Q · Target: main',
+  );
+});
