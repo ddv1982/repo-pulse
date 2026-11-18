@@ -419,8 +419,10 @@ document.addEventListener('keydown', event => {
     required('summary', HTMLElement, monitoring).focus();
     return;
   }
-  if (event.key === 'Escape' && !document.querySelector('#repo-panel')?.hidden) {
-    required('#repo-panel').hidden = true;
+  // The header, and with it the scope panel, renders only after the first state load.
+  const panel = document.querySelector('#repo-panel');
+  if (event.key === 'Escape' && panel instanceof HTMLElement && panel.hidden === false) {
+    panel.hidden = true;
     const toggle = required('#repo-toggle');
     toggle.setAttribute('aria-expanded', 'false');
     toggle.focus();
