@@ -46,6 +46,26 @@ export function seedDemo(store) {
   /** @type {DemoEvent[]} */
   const events = [
     {
+      id: 'demo-tag-1',
+      repoId: 'demo-orders',
+      kind: 'tag',
+      title: 'Tag moved · release/2026.11',
+      branch: 'release/2026.11',
+      actor: 'Sam Ortega',
+      time: ago(30),
+      summary: 'Moved in push 41',
+      seen: true,
+      data: {
+        change: 'moved',
+        evidence: 'push',
+        pushId: 41,
+        name: 'refs/tags/release/2026.11',
+        oldObjectId: '3f9a2c1',
+        newObjectId: '8d41e07',
+      },
+      url: source,
+    },
+    {
       id: 'demo-branch-1',
       repoId: 'demo-orders',
       kind: 'branch-created',
@@ -108,7 +128,16 @@ export function seedDemo(store) {
       actor: 'Priya Nair',
       time: ago(45),
       summary: 'Active PR targeting main; CI unavailable for this repository.',
-      data: { pullRequestId: 1175, status: 'active', targetRefName: 'refs/heads/main' },
+      data: {
+        pullRequestId: 1175,
+        status: 'active',
+        targetRefName: 'refs/heads/main',
+        reviewers: [
+          { name: 'Lars de Wit', vote: 10, required: true },
+          { name: 'Sam Ortega', vote: -5 },
+          { name: 'Billing reviewers', vote: 0, required: true },
+        ],
+      },
       url: `${demoRepos[1].webUrl}/pullrequest/1175`,
     },
     {
@@ -122,6 +151,26 @@ export function seedDemo(store) {
       summary: 'Imported baseline history; not counted as unseen.',
       seen: true,
       imported: true,
+      data: {
+        pushId: 98,
+        refUpdates: [{ name: 'refs/heads/main', oldObjectId: '5c1d0aa', newObjectId: 'e07b3f2' }],
+        mergeEvidence: {
+          status: 'complete',
+          checkedAt: ago(1430),
+          prs: [],
+          commits: [],
+          refRanges: [
+            {
+              name: 'refs/heads/main',
+              oldObjectId: '5c1d0aa',
+              newObjectId: 'e07b3f2',
+              commitIds: [],
+              complete: true,
+              update: { status: 'rewrite', dropped: 2 },
+            },
+          ],
+        },
+      },
       url: demoRepos[2].webUrl,
     },
   ];
@@ -173,6 +222,17 @@ export const demoProvider = {
   /** Like the live client, the check never claims an identity. @returns {Promise<import('./azure-client.js').ConnectionStatus>} */
   async checkConnection() {
     return { available: true, identity: null, identityVerified: false, message: 'Isolated demo mode. Azure CLI is never invoked.' };
+  },
+  /** Fictional review data for the demo PR; no Azure read. @returns {Promise<import('./azure-client.js').PullRequestReview>} */
+  async prReview() {
+    return {
+      threads: { open: 2, resolved: 3 },
+      policies: [
+        { name: 'Minimum number of reviewers', status: 'queued', blocking: true },
+        { name: 'Build', status: 'rejected', blocking: true },
+        { name: 'Comment requirements', status: 'approved', blocking: false },
+      ],
+    };
   },
   async pushCommits() {
     return {

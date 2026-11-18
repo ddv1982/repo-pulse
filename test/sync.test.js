@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createStore } from '../server/store.js';
+import { createHash } from 'node:crypto';
 import { createSync } from '../server/sync.js';
 const repo = {
   id: 'one',
@@ -823,5 +824,257 @@ test('status reports streams that are overdue because the budget is behind', asy
   assert.deepEqual(sync.status().lag, { overdueStreams: 2, maxDelayMs: 5 * 60000 }, 'disabled repositories do not count');
   store.setSetting('refreshEnabled', false);
   assert.deepEqual(sync.status().lag, { overdueStreams: 0, maxDelayMs: 0 }, 'paused automatic checks are not lag');
+  store.close();
+});
+
+test('tag pushes become tag rows with their own change, and a tag-only push queues no merge work', async () => {
+  const zero = '0'.repeat(40);
+  const tagPush = (pushId, refUpdates) => ({ pushId, date: '2026-11-17T10:00:01Z', pushedBy: { displayName: 'A' }, refUpdates });
+  const records = [
+    tagPush(4, [{ name: 'refs/tags/v2', oldObjectId: 'c'.repeat(40), newObjectId: zero }]),
+    tagPush(3, [{ name: 'refs/tags/v1', oldObjectId: 'a'.repeat(40), newObjectId: 'd'.repeat(40) }]),
+    tagPush(2, [
+      { name: 'refs/heads/main', oldObjectId: 'a'.repeat(40), newObjectId: 'b'.repeat(40) },
+      { name: 'refs/tags/annotated', oldObjectId: zero, newObjectId: 'e'.repeat(40) },
+    ]),
+    tagPush(1, [{ name: 'refs/tags/v1', oldObjectId: zero, newObjectId: 'a'.repeat(40) }]),
+  ];
+  const { store, sync } = setup({
+    async read() {
+      return { items: records, nextCursor: null };
+    },
+  });
+  await sync.tick();
+  const tags = store.listEvents().filter(event => event.kind === 'tag');
+  assert.deepEqual(tags.map(event => [event.data.pushId, event.branch, event.data.change]).sort(), [
+    [1, 'v1', 'created'],
+    [2, 'annotated', 'created'],
+    [3, 'v1', 'moved'],
+    [4, 'v2', 'deleted'],
+  ]);
+  const pushes = store.listEvents().filter(event => event.kind === 'push');
+  assert.deepEqual(
+    pushes.map(event => event.data.pushId),
+    [2],
+    'only the push that moved a branch is a push row',
+  );
+  assert.deepEqual(
+    pushes[0].data.refUpdates.map(ref => ref.name),
+    ['refs/heads/main'],
+  );
+  assert.deepEqual(
+    store.listJobs({ type: 'merge' }).map(job => job.eventId),
+    ['one:push:2'],
+  );
+  assert.equal(store.getEntity('one', 'ref', 'refs/tags/v1').objectId, 'd'.repeat(40));
+  assert.equal(store.getEntity('one', 'ref', 'refs/tags/v2').active, false);
+  store.close();
+});
+
+test('tags join the refs snapshot without announcing the tags that already existed', async () => {
+  let items = [{ name: 'refs/heads/main', objectId: 'a' }];
+  const { store, sync, advance } = setup(
+    {
+      async read() {
+        return { items, nextCursor: null };
+      },
+    },
+    ['refs'],
+  );
+  // An install from before tags: the refs stream is initialized and knows main, but has never recorded a tag.
+  const refs = store.getStreams().find(state => state.stream === 'refs');
+  store.commitPage({
+    repoId: 'one',
+    stream: 'refs',
+    state: { ...refs, initialized: true, nextAt: new Date(BASE).toISOString() },
+    entities: [{ type: 'ref', id: 'refs/heads/main', data: { name: 'refs/heads/main', objectId: 'a', active: true } }],
+  });
+  items = [items[0], { name: 'refs/tags/old', objectId: 'b' }];
+  await sync.tick();
+  assert.equal(store.listEvents().length, 0, 'existing tags are a baseline, not news');
+  items = [items[0], { name: 'refs/tags/v2', objectId: 't', peeledObjectId: 'c' }];
+  advance(600001);
+  await sync.tick();
+  const tags = store.listEvents().filter(event => event.kind === 'tag');
+  assert.deepEqual(tags.map(event => [event.branch, event.data.change, event.data.evidence]).sort(), [
+    ['old', 'deleted', 'snapshot'],
+    ['v2', 'created', 'snapshot'],
+  ]);
+  assert.equal(tags.find(event => event.branch === 'v2').data.peeledObjectId, 'c');
+  assert.equal(
+    store.listEvents().some(event => event.kind.startsWith('branch-')),
+    false,
+  );
+  store.close();
+});
+
+test('a fork PR keeps where it came from without changing the fingerprint of PRs seen before', async () => {
+  const pr = {
+    pullRequestId: 5,
+    title: 'Fix',
+    status: 'active',
+    creationDate: '2026-11-16T10:00:00Z',
+    sourceRefName: 'refs/heads/fix',
+    targetRefName: 'refs/heads/main',
+    repository: { id: 'a' },
+  };
+  let items = [pr];
+  const { store, sync, advance } = setup(
+    {
+      async read() {
+        return { items, nextCursor: null };
+      },
+    },
+    ['prs'],
+  );
+  await sync.tick();
+  assert.equal(store.listEvents().length, 1);
+  assert.equal(store.listEvents()[0].data.fork, undefined);
+  items = [{ ...pr, forkSource: { name: 'refs/heads/fix', repository: { id: 'f', name: 'One-fork', project: { name: 'Q' } } } }];
+  advance(600001);
+  await sync.tick();
+  assert.equal(store.listEvents().length, 1, 'learning the fork source is not a PR update');
+  items = [{ ...items[0], title: 'Fix, retitled' }];
+  advance(600001);
+  await sync.tick();
+  const latest = store.listEvents().find(event => event.data.fork);
+  assert.deepEqual(latest.data.fork, { repository: 'One-fork', project: 'Q' });
+  store.close();
+});
+
+test('a reviewer vote is PR activity, and PRs saved before votes were recorded adopt them quietly', async () => {
+  const reviewer = (id, vote, displayName = id) => ({ id, displayName, vote });
+  const pr = {
+    pullRequestId: 6,
+    title: 'Fix',
+    status: 'active',
+    creationDate: '2026-11-16T10:00:00Z',
+    sourceRefName: 'refs/heads/fix',
+    targetRefName: 'refs/heads/main',
+    repository: { id: 'a' },
+    reviewers: [reviewer('ana', 0, 'Ana'), reviewer('sam', -5, 'Sam')],
+  };
+  let items = [pr];
+  const { store, sync, advance } = setup(
+    {
+      async read() {
+        return { items, nextCursor: null };
+      },
+    },
+    ['prs'],
+  );
+  // A snapshot from before votes were part of the fingerprint.
+  const prs = store.getStreams().find(state => state.stream === 'prs');
+  const old = { status: 'active', isDraft: false, title: 'Fix', target: 'refs/heads/main' };
+  store.commitPage({
+    repoId: 'one',
+    stream: 'prs',
+    state: { ...prs, initialized: true },
+    entities: [{ type: 'pr', id: '6', data: { fingerprint: old, status: 'active', revision: 1 } }],
+  });
+  await sync.tick();
+  assert.equal(store.listEvents().length, 0, 'existing votes are not news after an upgrade');
+  items = [{ ...pr, reviewers: [reviewer('ana', 10, 'Ana'), reviewer('sam', -5, 'Sam')] }];
+  advance(600001);
+  await sync.tick();
+  items = [{ ...pr, reviewers: [reviewer('ana', 0, 'Ana'), reviewer('sam', -5, 'Sam')] }];
+  advance(600001);
+  await sync.tick();
+  const changes = store
+    .listEvents()
+    .sort((a, b) => a.observedAt.localeCompare(b.observedAt))
+    .map(event => event.data.voteChanges);
+  assert.deepEqual(changes, [[{ name: 'Ana', vote: 10 }], [{ name: 'Ana', vote: 0 }]]);
+  assert.deepEqual(
+    store
+      .listEvents()[0]
+      .data.reviewers.map(item => [item.name, item.vote])
+      .sort(),
+    [
+      ['Ana', 0],
+      ['Sam', -5],
+    ],
+  );
+  store.close();
+});
+
+test('a historical PR import keeps the event ID it had before votes were recorded', () => {
+  const store = createStore();
+  store.saveRepo(repo);
+  const sync = createSync({ store, provider: {} });
+  const closed = {
+    pullRequestId: 8,
+    title: 'Fix',
+    status: 'completed',
+    closedDate: '2026-11-10T10:00:00Z',
+    targetRefName: 'refs/heads/main',
+    lastMergeSourceCommit: { commitId: 'c'.repeat(40) },
+    repository: { id: 'a' },
+    reviewers: [{ id: 'ana', displayName: 'Ana', vote: 10 }],
+  };
+  const { events } = sync.normalize(repo, 'closedPrs', [closed], { historical: true, initialized: false });
+  const before = { status: 'completed', isDraft: false, title: 'Fix', source: 'c'.repeat(40), target: 'refs/heads/main' };
+  const hash = createHash('sha256').update(JSON.stringify(before)).digest('hex').slice(0, 24);
+  assert.equal(events[0].id, `one:pr:history:8:${hash}`);
+  store.close();
+});
+
+test('adding a reviewer who has not voted is not PR activity', async () => {
+  const pr = {
+    pullRequestId: 9,
+    title: 'Fix',
+    status: 'active',
+    creationDate: '2026-11-16T10:00:00Z',
+    targetRefName: 'refs/heads/main',
+    repository: { id: 'a' },
+    reviewers: [{ id: 'ana', displayName: 'Ana', vote: 10 }],
+  };
+  let items = [pr];
+  const { store, sync, advance } = setup(
+    {
+      async read() {
+        return { items, nextCursor: null };
+      },
+    },
+    ['prs'],
+  );
+  await sync.tick();
+  items = [{ ...pr, reviewers: [...pr.reviewers, { id: 'team', displayName: 'Team', vote: 0, isRequired: true }] }];
+  advance(600001);
+  await sync.tick();
+  assert.equal(store.listEvents().length, 1);
+  store.close();
+});
+
+test('a refs snapshot saved before tags restarts and still notices a branch deleted meanwhile', async () => {
+  let cursorSeen;
+  const { store, sync } = setup(
+    {
+      async read(_repo, _stream, { cursor }) {
+        cursorSeen = cursor;
+        return { items: [{ name: 'refs/heads/main', objectId: 'a' }], nextCursor: null, restarted: true };
+      },
+    },
+    ['refs'],
+  );
+  const refs = store.getStreams().find(state => state.stream === 'refs');
+  store.commitPage({
+    repoId: 'one',
+    stream: 'refs',
+    state: {
+      ...refs,
+      initialized: true,
+      cursor: { token: 'heads-only' },
+      pendingItems: [{ name: 'refs/heads/old', objectId: 'b' }],
+      nextAt: new Date(BASE).toISOString(),
+    },
+    entities: [
+      { type: 'ref', id: 'refs/heads/main', data: { name: 'refs/heads/main', objectId: 'a', active: true } },
+      { type: 'ref', id: 'refs/heads/old', data: { name: 'refs/heads/old', objectId: 'b', active: true } },
+    ],
+  });
+  await sync.tick();
+  assert.deepEqual(cursorSeen, { token: 'heads-only' });
+  assert.equal(store.getEntity('one', 'ref', 'refs/heads/old').active, false);
   store.close();
 });

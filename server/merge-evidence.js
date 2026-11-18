@@ -9,7 +9,12 @@
  */
 /** Reachability lookups may be asked for an id a parent list did not supply. */
 /** @typedef {ReadonlyMap<string | undefined, CommitRecord>} CommitGraph */
-/** @typedef {{ name?: string, oldObjectId: string, newObjectId: string, commitIds: string[], complete: boolean }} RefRange */
+/**
+ * Whether a moved branch kept its old tip. `dropped` counts the commits read from the old tip that the new tip
+ * no longer reaches, up to one page; `more` says the page was full.
+ * @typedef {{ status: 'fast-forward' | 'rewrite' | 'unknown', dropped?: number, more?: boolean }} HistoryUpdate
+ */
+/** @typedef {{ name?: string, oldObjectId: string, newObjectId: string, commitIds: string[], complete: boolean, update?: HistoryUpdate }} RefRange */
 /** @typedef {import('./azure-client.js').PullRequestAssociation} PullRequestAssociation */
 /**
  * @typedef {{ checkedAt?: string, associationExpiresAt?: string, complete?: boolean, limitations?: string[],
@@ -223,10 +228,13 @@ export function classifyMergeEvidence(
     notes.push('No completed PR association observed at this check; source branch and integration intent remain unknown.');
   if ([...prs.values()].some(pr => pr.relationship === 'constituent-related'))
     notes.push('A completed PR is related, but its resulting revision was not established among the introduced commits.');
+  // A range whose old tip Azure could not read leaves that update's introduced commits unproven.
+  const unproven = (refRanges || []).some(range => range.complete === false && range.update?.status === 'unknown');
+  if (unproven) notes.push('Azure could not list the commits a branch update introduced; coverage for that update is unproven.');
   const introducedCommitIds =
     refRanges === undefined ? [...introduced.keys()] : [...new Set(refRanges.flatMap(range => range.commitIds || []))];
   return {
-    status: complete && !graphGap ? 'complete' : 'partial',
+    status: complete && !graphGap && !unproven ? 'complete' : 'partial',
     checkedAt,
     associationExpiresAt,
     candidateCommitIds: [...introduced.keys()],

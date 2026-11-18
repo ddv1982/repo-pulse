@@ -12,9 +12,9 @@ import { cliError, normalizeCommitIds } from './azure-cli.js';
 /**
  * Where the next page starts: `skip` for offset-paged reads, `token` for continuation reads.
  * Build reads also keep their coarse window in `from` and `to`.
- * @typedef {{ skip?: number, token?: string, from?: string, to?: string }} PageCursor
+ * @typedef {{ skip?: number, token?: string, from?: string, to?: string, allRefs?: boolean }} PageCursor
  */
-/** @typedef {{ items: AzureRecord[], nextCursor: PageCursor | null }} AzurePage */
+/** `restarted` marks a first page read in place of the saved cursor's page. @typedef {{ items: AzureRecord[], nextCursor: PageCursor | null, restarted?: boolean }} AzurePage */
 /** @typedef {{ since?: string, until?: string, cursor?: PageCursor | null }} ReadOptions */
 /**
  * @typedef {{ id: number, source: string, target: string, sourceId: string, targetId: string,
@@ -41,6 +41,29 @@ import { cliError, normalizeCommitIds } from './azure-cli.js';
  */
 /** The provider contract. Sync and backfill type their provider as the subset of it they call. */
 /** @typedef {ReturnType<typeof createAzureClient>} AzureProvider */
+/**
+ * What a PR detail shows on request: counts of people's discussion threads and each policy's result.
+ * Vote, reviewer and ref-update threads are Azure's own records of other events, so they are not counted.
+ * @typedef {{ threads: { open: number, resolved: number }, policies: { name: string, status: string, blocking: boolean }[] }} PullRequestReview
+ */
+const RESOLVED = new Set(['fixed', 'wontFix', 'closed', 'byDesign']);
+/** @param {unknown} threads @param {unknown} evaluations @returns {PullRequestReview} */
+export function reviewOf(threads, evaluations) {
+  if (!Array.isArray(threads) || !Array.isArray(evaluations))
+    throw cliError('INVALID_RESPONSE', 'Azure returned no pull request review data.');
+  const discussion = threads.filter(thread => !thread?.isDeleted && !thread?.properties?.CodeReviewThreadType);
+  const resolved = discussion.filter(thread => RESOLVED.has(thread.status)).length;
+  return {
+    threads: { open: discussion.length - resolved, resolved },
+    policies: evaluations
+      .filter(item => item?.configuration?.isEnabled !== false && !item?.configuration?.isDeleted)
+      .map(item => ({
+        name: String(item.configuration?.type?.displayName || 'Policy'),
+        status: String(item.status || 'unknown'),
+        blocking: Boolean(item.configuration?.isBlocking),
+      })),
+  };
+}
 
 const PAGE = 100;
 /** @param {string | undefined} value */
@@ -87,7 +110,7 @@ export function createAzureClient({ cli, now = Date.now } = {}) {
     return promise;
   }
   /**
-   * @param {AzureRepo} repo @param {'git'|'build'} area @param {string} resource
+   * @param {AzureRepo} repo @param {'git'|'build'|'policy'} area @param {string} resource
    * @param {Record<string, string|number|null|undefined>} [query] @param {Record<string, string>} [route]
    * @returns {Promise<AzureRecord>}
    */
@@ -108,7 +131,8 @@ export function createAzureClient({ cli, now = Date.now } = {}) {
       '--resource',
       resource,
       '--api-version',
-      '7.1',
+      // Policy evaluations exist only as a preview API.
+      area === 'policy' ? '7.1-preview.1' : '7.1',
       '--http-method',
       'GET',
       '--route-parameters',
@@ -247,9 +271,18 @@ export function createAzureClient({ cli, now = Date.now } = {}) {
           });
           mode = 'skip';
           break;
-        case 'refs':
-          response = await invoke(repo, 'git', 'refs', { filter: 'heads/', $top: PAGE, continuationToken: cursor?.token });
-          break;
+        case 'refs': {
+          // A token saved by the branch-only query used before tags pages a different list, so that snapshot restarts.
+          response = await invoke(repo, 'git', 'refs', {
+            peelTags: 'true',
+            $top: PAGE,
+            continuationToken: cursor?.allRefs ? cursor.token : undefined,
+          });
+          const page = pageOf(response, { skip, mode });
+          if (page.nextCursor) page.nextCursor.allRefs = true;
+          if (cursor?.token && !cursor.allRefs) page.restarted = true;
+          return page;
+        }
         case 'prs':
           response = await invoke(repo, 'git', 'pullRequests', {
             $top: PAGE,
@@ -486,6 +519,28 @@ export function createAzureClient({ cli, now = Date.now } = {}) {
       if (page.items.some(item => typeof item?.commitId !== 'string' || !/^[0-9a-f]{40}$/i.test(item.commitId)))
         throw cliError('INVALID_RESPONSE', 'Azure returned invalid ref-range commit evidence.');
       return page;
+    },
+    /**
+     * One page of commits reachable from the old tip but not from the new one. Empty means the old tip
+     * is an ancestor of the new one (a fast-forward); anything else means the update dropped history.
+     * @param {AzureRepo} repo @param {string} oldSha @param {string} newSha @returns {Promise<AzurePage>}
+     */
+    droppedCommits(repo, oldSha, newSha) {
+      return this.refCommits(repo, newSha, oldSha);
+    },
+    /**
+     * Read when a PR detail asks for it, never by polling: one read for discussion threads, one for policy evaluations.
+     * @param {AzureRepo} repo @param {string|number} pullRequestId @returns {Promise<PullRequestReview>}
+     */
+    async prReview(repo, pullRequestId) {
+      const id = String(pullRequestId);
+      if (!/^\d+$/.test(id) || !repo.projectId) throw cliError('INVALID_QUERY', 'Invalid pull request.');
+      const threads = await invoke(repo, 'git', 'pullRequestThreads', {}, { pullRequestId: id });
+      const evaluations = await invoke(repo, 'policy', 'evaluations', {
+        artifactId: `vstfs:///CodeReview/CodeReviewId/${repo.projectId}/${id}`,
+        includeNotApplicable: 'true',
+      });
+      return reviewOf(threads.value, evaluations.value);
     },
     /** @param {AzureRepo} repo @param {string|number} pushId @param {PageCursor} [cursor] @returns {Promise<AzurePage>} */
     async pushCommits(repo, pushId, cursor = {}) {

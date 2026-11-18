@@ -1,6 +1,6 @@
 // @ts-check
 
-import { streamError } from './format.js';
+import { streamError, streamLabel } from './format.js';
 
 /** @typedef {Pick<import('../../server/sync.js').StreamState, 'stream' | 'lastSuccess' | 'pending' | 'initialized' | 'error'>} StreamReading */
 /** @typedef {{ now?: number, scheduled?: boolean, resumedAt?: number | null }} HealthOptions */
@@ -24,6 +24,12 @@ export function streamHealth(stream, { now = Date.now(), scheduled = true, resum
 export function repositoryHealth(repo, records, { now = Date.now(), automatic = true, resumedAt = null } = {}) {
   if (!automatic) return { label: 'Checks off', show: false };
   const status = records.map(stream => streamHealth(stream, { now, resumedAt }));
+  // A refused read stays refused until permissions change, so it is named apart from a failure that a retry can fix.
+  const denied = records.filter(stream => typeof stream.error === 'object' && stream.error?.code === 'FORBIDDEN');
+  if (denied.length) {
+    const names = [...new Set(denied.map(stream => streamLabel(stream.stream).replace(/^\w/, c => c.toLowerCase())))];
+    return { label: `No access to ${names.join(', ')}`, className: 'part', show: true };
+  }
   if (status.some(item => item.error)) return { label: 'Check failed', className: 'part', show: true };
   if (status.some(item => item.stale && !item.pending)) return { label: 'Check overdue', className: 'part', show: true };
   if (status.some(item => item.resuming)) return { label: 'Catching up', className: 'name', show: true };

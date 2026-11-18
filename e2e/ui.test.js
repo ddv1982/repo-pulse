@@ -176,6 +176,8 @@ test('disabling a repository hides it everywhere except Repositories until it is
   await page.getByRole('link', { name: 'Repositories', exact: true }).click();
   const toggle = page.getByRole('switch', { name: 'Watch billing-web' });
   await expect(toggle).toBeChecked();
+  await expect(page.locator('.repo-entry', { has: toggle }).locator('.repo-overview .chip')).toHaveText('No access to recent CI runs');
+  await expect(page.locator('.repo-entry .chip', { hasText: 'No access' })).toHaveCount(1);
   await toggle.click();
   await expect(toggle).not.toBeChecked();
   await expect(page.getByText('3 watched · 1 disabled')).toBeVisible();
@@ -1013,4 +1015,55 @@ test('Escape before the first state load does not throw', async t => {
   releaseState();
   await expect(page.locator('#repo-toggle')).toBeVisible();
   assert.deepEqual(errors, []);
+});
+
+test('tag activity has its own type filter and a detail that names the tag and what it points at', async t => {
+  const { page } = await setup(t);
+  await page.getByRole('link', { name: 'All activity' }).click();
+  await page.getByRole('button', { name: /^Activity type:/ }).click();
+  await page.getByRole('option', { name: 'Tag', exact: true }).click();
+  const rows = page.locator('#page li.row');
+  await expect(rows).toHaveCount(1);
+  await expect(rows.first()).toContainText('Tag moved');
+  await expect(rows.first()).toContainText('3f9a2c1 → 8d41e07');
+  await rows.first().locator('.feed-title').click();
+  const facts = page.locator('.detail-facts');
+  await expect(facts).toContainText('Tagrelease/2026.11');
+  await expect(facts).toContainText('Points at');
+  await expect(facts).not.toContainText('Tagged commit');
+});
+
+test('a push that rewrote history says so on its row and in its merge evidence, and a fast-forward push does not', async t => {
+  const { page } = await setup(t);
+  await page.getByRole('link', { name: 'All activity' }).click();
+  await page.locator('details[data-group="Imported history"] > summary').click();
+  const rewritten = page.locator('[data-event-id="demo-history"]');
+  await expect(rewritten).toContainText('History rewritten · 2 commits dropped');
+  await expect(page.locator('[data-event-id="demo-push-1"]')).not.toContainText('History rewritten');
+  await rewritten.locator('.feed-title').click();
+  await expect(page.getByRole('region', { name: 'Merge evidence' })).toContainText(
+    'main · history rewritten, 2 commits dropped from the old tip',
+  );
+});
+
+test('a pull request detail lists its reviewers and their votes in words', async t => {
+  const { page } = await setup(t);
+  await page.locator('[data-event-id="demo-pr-1"] .feed-title').click();
+  const facts = page.locator('.detail-facts');
+  await expect(facts).toContainText('Lars de Wit (required): approved');
+  await expect(facts).toContainText('Sam Ortega: waiting for author');
+  await expect(facts).toContainText('Billing reviewers (required): no vote');
+});
+
+test('a pull request detail loads its discussion and policy results only when asked', async t => {
+  const { page } = await setup(t);
+  await page.locator('[data-event-id="demo-pr-1"] .feed-title').click();
+  const detail = page.locator('.detail-data');
+  await expect(detail).not.toContainText('Discussion:');
+  await detail.getByRole('button', { name: 'Load discussion and policies' }).click();
+  await expect(detail).toContainText('Discussion: 2 open, 3 resolved threads');
+  await expect(detail).toContainText('Minimum number of reviewers (required): waiting');
+  await expect(detail).toContainText('Build (required): failed');
+  await expect(detail).toContainText('Comment requirements: passed');
+  await expect(detail.getByRole('button', { name: 'Reload discussion and policies' })).toBeVisible();
 });

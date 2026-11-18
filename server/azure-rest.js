@@ -82,9 +82,12 @@ function requestFor(args) {
   const readQuery = area === 'git' && READ_QUERIES.has(resource);
   if (readQuery ? method !== 'POST' || !inFile : method !== 'GET' || inFile) throw refused('Only Azure DevOps reads are allowed.');
   let path;
-  if (area === 'git' && ['pushes', 'refs', 'pullrequests', 'commits', ...READ_QUERIES].includes(resource)) {
+  if (area === 'git' && resource === 'pullrequestthreads') {
+    path = `${segment(route.project)}/_apis/git/repositories/${segment(route.repositoryId)}/pullRequests/${segment(route.pullRequestId)}/threads`;
+  } else if (area === 'git' && ['pushes', 'refs', 'pullrequests', 'commits', ...READ_QUERIES].includes(resource)) {
     path = `${segment(route.project)}/_apis/git/repositories/${segment(route.repositoryId)}/${resource}${route.commitId !== undefined ? `/${segment(route.commitId)}` : ''}`;
   } else if (area === 'build' && resource === 'builds') path = `${segment(route.project)}/_apis/build/builds`;
+  else if (area === 'policy' && resource === 'evaluations') path = `${segment(route.project)}/_apis/policy/evaluations`;
   else if (area === 'location' && resource === 'connectiondata') path = '_apis/connectionData';
   else throw refused('Unsupported Azure DevOps read.');
   const url = new URL(`${organization}/${path}`);

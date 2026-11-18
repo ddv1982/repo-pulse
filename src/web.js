@@ -54,7 +54,7 @@ const ui = {
   activityRoute: 'catchup',
   connection: connection.state,
 };
-/** @type {Map<string | null, import('./ui/activity-detail.js').CommitsView>} */
+/** Data each detail page loaded on request, by event. @type {Map<string | null, import('./ui/activity-detail.js').LoadedView>} */
 const commitResults = new Map();
 const picker = createRepositoryPicker({
   request,
@@ -326,6 +326,20 @@ const actions = {
       },
       'Remove local watch',
     );
+  },
+  'load-review': async element => {
+    const { eventId } = ui;
+    try {
+      commitResults.set(
+        eventId,
+        await request(
+          `/api/pr/${encodeURIComponent(element.dataset.repoId ?? '')}/${encodeURIComponent(element.dataset.prId ?? '')}/review`,
+        ),
+      );
+    } catch (error) {
+      commitResults.set(eventId, { error: error instanceof Error ? error.message : String(error) });
+    }
+    if (ui.route === 'event' && ui.eventId === eventId) renderPage();
   },
   'load-commits': async element => {
     const { eventId } = ui;

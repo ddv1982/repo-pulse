@@ -1,6 +1,15 @@
 // @ts-check
 
-export { activityLabel, activitySummary, activityTitle, activityTone, buildState, labels, triggerLabel } from '../activity-text.js';
+export {
+  activityLabel,
+  activitySummary,
+  activityTitle,
+  activityTone,
+  buildState,
+  labels,
+  triggerLabel,
+  voteLabel,
+} from '../activity-text.js';
 export { isUnseen } from '../activity.js';
 export { branchName } from '../events.js';
 import { safeAzureUrl } from '../events.js';

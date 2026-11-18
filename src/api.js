@@ -7,6 +7,7 @@
 /** @typedef {import('../server.js').CheckoutUpdateResponse} CheckoutUpdateResponse */
 /** @typedef {import('../server.js').ConnectionResponse} ConnectionResponse */
 /** @typedef {import('../server.js').PushCommitsResponse} PushCommitsResponse */
+/** @typedef {import('../server.js').PrReviewResponse} PrReviewResponse */
 /** @typedef {import('../server.js').ErrorResponse} ErrorResponse */
 /** @typedef {import('../server.js').OkResponse} OkResponse */
 /** @typedef {import('../server.js').DiscoverResponse} DiscoverResponse */
@@ -24,6 +25,7 @@
  *   : P extends `/api/repos/${string}` ? OkResponse
  *   : P extends '/api/connection' | `/api/connection?${string}` ? ConnectionResponse
  *   : P extends `/api/push/${string}/${string}/commits` | `/api/push/${string}/${string}/commits?${string}` ? PushCommitsResponse
+ *   : P extends `/api/pr/${string}/${string}/review` ? PrReviewResponse
  *   : P extends '/api/backfill' ? import('../server.js').BackfillResponse
  *   : P extends '/api/refresh' ? import('../server.js').RefreshResponse
  *   : P extends '/api/discover' ? DiscoverResponse

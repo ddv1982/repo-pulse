@@ -81,6 +81,7 @@ import { browseFolders } from './server/folders.js';
 /** GET /api/connection. @typedef {Awaited<ReturnType<AppProvider['checkConnection']>>} ConnectionResponse */
 /** @typedef {{ commitId: string, comment?: string }} PushCommit */
 /** GET /api/push/:repo/:id/commits. @typedef {{ items: PushCommit[], nextCursor: unknown, message?: string }} PushCommitsResponse */
+/** GET /api/pr/:repo/:id/review. @typedef {import('./server/azure-client.js').PullRequestReview & { message?: string }} PrReviewResponse */
 /** POST /api/backfill. @typedef {ReturnType<ReturnType<typeof createBackfill>['start']>} BackfillResponse */
 /** POST /api/refresh. @typedef {{ ok: true, status: ReturnType<AppSync['refresh']> }} RefreshResponse */
 /** POST /api/discover. @typedef {import('./server/repositories.js').Discovery} DiscoverResponse */
@@ -484,6 +485,14 @@ export function createApp({
           ...(typeof item?.comment === 'string' ? { comment: item.comment } : {}),
         }));
         return json(res, 200, /** @satisfies {PushCommitsResponse} */ ({ items, nextCursor: page.nextCursor }));
+      },
+    },
+    {
+      method: 'GET',
+      path: /^\/api\/pr\/([^/]+)\/(\d+)\/review$/,
+      handler: async ({ res, params: [rawId, pullRequestId] }) => {
+        const repo = enabledRepoById(decodeURIComponent(rawId));
+        return json(res, 200, /** @satisfies {PrReviewResponse} */ (await provider.prReview(repo, pullRequestId)));
       },
     },
   ];

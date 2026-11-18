@@ -51,6 +51,9 @@ function fixture(t, custom = {}) {
       calls.ranges.push({ from, to, cursor });
       return { items: [{ commitId: merge }, { commitId: tip }], nextCursor: null };
     },
+    async droppedCommits() {
+      return { items: [], nextCursor: null };
+    },
     async commitsByIds(_repo, ids) {
       calls.hydration.push(ids);
       return objects.filter(item => ids.includes(item.commitId));
@@ -75,7 +78,7 @@ function fixture(t, custom = {}) {
         ? {
             rangesComplete: true,
             refRanges: store.getEvent(push.id).data?.mergeEvidence?.refRanges || [
-              { ...push.data.refUpdates[0], commitIds, complete: true },
+              { ...push.data.refUpdates[0], commitIds, complete: true, update: { status: 'fast-forward' } },
             ],
           }
         : {}),
@@ -123,10 +126,8 @@ test('missing parent objects produce visible partial evidence and durable retry 
     },
   });
   const worker = f.worker();
-  await worker.tick();
-  await worker.tick();
-  await worker.tick();
-  await worker.tick();
+  // Two commit pages, one range page, the history check, then the failed hydration.
+  for (let step = 0; step < 5; step++) await worker.tick();
   const job = f.store.listJobs()[0],
     evidence = f.store.getEvent('push').data.mergeEvidence;
   assert.equal(job.status, 'retrying');
@@ -384,4 +385,138 @@ test('recent unseen enrichment is selected before old imported range reinspectio
   };
   await f.worker().tick();
   assert.deepEqual(seen, [99]);
+});
+
+test('a moved branch is a fast-forward, a rewrite or unknown only by what its old tip still reaches', async t => {
+  const outcome = async droppedCommits => {
+    const checked = [];
+    const f = fixture(t, {
+      async droppedCommits(_repo, from, to) {
+        checked.push([from, to]);
+        return droppedCommits();
+      },
+    });
+    await drain(f.store, f.worker());
+    assert.deepEqual(checked, [[old, tip]]);
+    return f.store.getEvent('push').data.mergeEvidence.refRanges[0].update;
+  };
+  assert.deepEqual(await outcome(async () => ({ items: [], nextCursor: null })), { status: 'fast-forward' });
+  assert.deepEqual(await outcome(async () => ({ items: [{ commitId: sha('5') }, { commitId: sha('6') }], nextCursor: { skip: 100 } })), {
+    status: 'rewrite',
+    dropped: 2,
+    more: true,
+  });
+  assert.deepEqual(
+    await outcome(async () => {
+      throw Object.assign(new Error('The requested Azure DevOps resource was not found.'), { code: 'NOT_FOUND' });
+    }),
+    { status: 'unknown' },
+  );
+});
+
+test('a failed history check retries the job instead of guessing', async t => {
+  const f = fixture(t, {
+    async droppedCommits() {
+      throw Object.assign(new Error('Azure DevOps could not be reached.'), { code: 'UNAVAILABLE' });
+    },
+  });
+  const worker = f.worker();
+  for (let step = 0; step < 4; step++) await worker.tick();
+  const job = f.store.listJobs()[0];
+  assert.equal(job.status, 'retrying');
+  assert.equal(job.error.code, 'UNAVAILABLE');
+  assert.equal(job.refRanges[0].update, undefined);
+});
+
+test('a job saved before the history check checks its finished ranges once and reuses their pages', async t => {
+  const checked = [];
+  const f = fixture(t, {
+    async droppedCommits(_repo, from, to) {
+      checked.push([from, to]);
+      return { items: [{ commitId: sha('5') }], nextCursor: null };
+    },
+  });
+  f.store.saveJob({
+    ...f.store.listJobs()[0],
+    stage: 'prs',
+    commitIds: [merge, tip],
+    rangesComplete: true,
+    refRanges: [{ ...push.data.refUpdates[0], commitIds: [merge, tip], complete: true }],
+  });
+  await drain(f.store, f.worker());
+  assert.deepEqual(checked, [[old, tip]]);
+  assert.deepEqual(f.calls.ranges, [], 'the saved forward range is not read again');
+  assert.deepEqual(f.store.getEvent('push').data.mergeEvidence.refRanges[0].update, { status: 'rewrite', dropped: 1, more: false });
+});
+
+test('an old tip Azure cannot read leaves the update unknown without failing hydration', async t => {
+  const f = fixture(t, {
+    async droppedCommits() {
+      throw Object.assign(new Error('Not found.'), { code: 'NOT_FOUND' });
+    },
+    async commitsByIds(_repo, ids) {
+      return objects.filter(item => item.commitId !== old && ids.includes(item.commitId));
+    },
+  });
+  await drain(f.store, f.worker());
+  assert.equal(f.store.listJobs().length, 0);
+  const evidence = f.store.getEvent('push').data.mergeEvidence;
+  assert.deepEqual(evidence.refRanges[0].update, { status: 'unknown' });
+  assert.equal(evidence.error, undefined);
+});
+
+test('an old tip Azure cannot read for the forward range ends as unknown instead of retrying', async t => {
+  const f = fixture(t, {
+    async refCommits() {
+      throw Object.assign(new Error('The requested Azure DevOps resource was not found.'), { code: 'NOT_FOUND' });
+    },
+  });
+  await drain(f.store, f.worker());
+  assert.deepEqual(f.store.listJobs({ type: 'merge' }), [], 'the job finishes');
+  const range = f.store.getEvent('push').data.mergeEvidence.refRanges[0];
+  assert.deepEqual(range.update, { status: 'unknown' });
+  assert.equal(range.complete, false, 'introduced commits stay unproven');
+  const evidence = f.store.getEvent('push').data.mergeEvidence;
+  assert.equal(evidence.status, 'partial', 'coverage is not claimed complete');
+  assert.ok(
+    evidence.limitations.some(note => /could not list/.test(note)),
+    'the limitation says why',
+  );
+});
+
+test('an unreadable old tip listed among the job commits does not loop hydration', async t => {
+  const f = fixture(t, {
+    async commitsByIds(_repo, ids) {
+      if (ids.includes(old)) throw Object.assign(new Error('Not found.'), { code: 'EVIDENCE_UNAVAILABLE' });
+      return objects.filter(item => ids.includes(item.commitId));
+    },
+  });
+  f.store.saveJob({
+    ...f.store.listJobs()[0],
+    stage: 'hydrate',
+    commitIds: [old],
+    rangesComplete: true,
+    refRanges: [{ ...push.data.refUpdates[0], commitIds: [], complete: false, update: { status: 'unknown' } }],
+  });
+  await drain(f.store, f.worker());
+  assert.deepEqual(f.store.listJobs({ type: 'merge' }), [], 'the job finishes');
+});
+
+test('refreshing evidence after an unproven range reads that range again', async t => {
+  const f = fixture(t, {
+    async refCommits() {
+      throw Object.assign(new Error('The requested Azure DevOps resource was not found.'), { code: 'NOT_FOUND' });
+    },
+  });
+  const worker = f.worker();
+  await drain(f.store, worker);
+  assert.equal(f.store.getEvent('push').data.mergeEvidence.introducedCommitsComplete, false, 'an unproven range is not complete');
+  f.provider.refCommits = async (_repo, from, to, cursor) => {
+    f.calls.ranges.push({ from, to, cursor });
+    return { items: [{ commitId: merge }, { commitId: tip }], nextCursor: null };
+  };
+  assert.equal(worker.reconcilePr(repo, { status: 'completed', mergeCommit: merge, targetRefName: completed.targetRefName }).scheduled, 1);
+  await drain(f.store, worker);
+  assert.equal(f.calls.ranges.length, 1, 'the range is read again');
+  assert.equal(f.store.getEvent('push').data.mergeEvidence.refRanges[0].complete, true);
 });

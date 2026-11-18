@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createAzureClient } from '../server/azure-client.js';
+import { createAzureClient, reviewOf } from '../server/azure-client.js';
 const repo = { id: 'local1', organization: 'https://dev.azure.com/example', project: 'Project', projectId: 'project1', azureId: 'repo1' };
 const window = { since: '2026-11-10T11:12:13Z', until: '2026-11-17T11:12:13Z' };
 
@@ -52,7 +52,7 @@ test('refs use continuation token and build cache isolates repositories while co
     },
   });
   const refs = await client.read(repo, 'refs', window);
-  assert.deepEqual(refs.nextCursor, { token: 'page2' });
+  assert.deepEqual(refs.nextCursor, { token: 'page2', allRefs: true });
   await client.read(repo, 'refs', { ...window, cursor: refs.nextCursor });
   assert(calls[1].includes('continuationToken=page2'));
   const [a, b] = await Promise.all([
@@ -426,4 +426,50 @@ test('a repository connection check also proves the REST activity read', async (
     [read[0], read[1], read[read.indexOf('--resource') + 1], read[read.indexOf('--http-method') + 1]],
     ['devops', 'invoke', 'refs', 'GET'],
   );
+});
+
+test('PR review data counts people’s threads only and keeps each enabled policy result', () => {
+  const thread = (status, extra = {}) => ({ status, comments: [{ commentType: 'text' }], ...extra });
+  const review = reviewOf(
+    [
+      thread('active'),
+      thread('pending'),
+      thread('fixed'),
+      thread('closed'),
+      thread('active', { isDeleted: true }),
+      thread(undefined, { properties: { CodeReviewThreadType: { $value: 'VoteUpdate' } } }),
+    ],
+    [
+      { status: 'approved', configuration: { isEnabled: true, isBlocking: true, type: { displayName: 'Minimum number of reviewers' } } },
+      { status: 'rejected', configuration: { isEnabled: true, isBlocking: false, type: { displayName: 'Build' } } },
+      { status: 'approved', configuration: { isEnabled: false, type: { displayName: 'Disabled policy' } } },
+    ],
+  );
+  assert.deepEqual(review, {
+    threads: { open: 2, resolved: 2 },
+    policies: [
+      { name: 'Minimum number of reviewers', status: 'approved', blocking: true },
+      { name: 'Build', status: 'rejected', blocking: false },
+    ],
+  });
+  assert.throws(() => reviewOf(undefined, []), { code: 'INVALID_RESPONSE' });
+});
+
+test('refs restart a snapshot saved by the branch-only query and ask policies for not-applicable results', async () => {
+  const calls = [];
+  const client = createAzureClient({
+    cli: {
+      run: async args => {
+        calls.push(args);
+        return { value: [] };
+      },
+    },
+  });
+  const restarted = await client.read(repo, 'refs', { cursor: { token: 'from-heads-only' } });
+  assert(!calls[0].some(arg => arg.startsWith('continuationToken=')));
+  assert.equal(restarted.restarted, true);
+  await client.read(repo, 'refs', { cursor: { token: 'all', allRefs: true } });
+  assert(calls[1].includes('continuationToken=all'));
+  await client.prReview(repo, 4);
+  assert(calls.at(-1).includes('includeNotApplicable=true'));
 });

@@ -24,8 +24,9 @@ import { normalizeOrganization } from './repositories.js';
 const exec = promisify(execFile);
 /** @type {Record<string, Set<string>>} */
 const RESOURCES = {
-  git: new Set(['pushes', 'refs', 'pullrequests', 'commits']),
+  git: new Set(['pushes', 'refs', 'pullrequests', 'pullrequestthreads', 'commits']),
   build: new Set(['builds']),
+  policy: new Set(['evaluations']),
   location: new Set(['connectiondata']),
 };
 

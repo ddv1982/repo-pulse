@@ -43,6 +43,21 @@ test('repository health treats intentionally disabled checks as neither overdue 
   assert.equal(repositoryHealth(repo, [stream], { now }).label, 'Up to date');
   assert.equal(repositoryHealth(repo, [], { now }).show, false);
   assert.equal(repositoryHealth(repo, [{ ...stream, error: 'Read refused' }], { now }).label, 'Check failed');
+  const refused = { code: 'FORBIDDEN', message: 'Azure DevOps refused this read.' };
+  const failed = { code: 'UNAVAILABLE', message: 'Azure DevOps could not be reached.' };
+  assert.equal(repositoryHealth(repo, [{ ...stream, stream: 'builds', error: refused }], { now }).label, 'No access to recent CI runs');
+  assert.equal(
+    repositoryHealth(
+      repo,
+      [
+        { ...stream, error: failed },
+        { ...stream, stream: 'refs', error: refused },
+      ],
+      { now },
+    ).label,
+    'No access to branches',
+  );
+  assert.equal(repositoryHealth(repo, [{ ...stream, error: failed }], { now }).label, 'Check failed');
   assert.equal(repositoryHealth(repo, [stream], { now: now + 11 * 60000 }).label, 'Check overdue');
   assert.equal(repositoryHealth(repo, [stream], { now: now + 11 * 60000, automatic: false }).show, false);
   assert.equal(repositoryHealth(repo, [{ ...stream, error: 'Read refused' }], { now, automatic: false }).show, false);
@@ -266,4 +281,64 @@ test('completed PRs show Merged and target direction, while successful preview m
   assert.equal(activitySummary(merged), 'Merged into main');
   assert.equal(activityTone(merged), 'ok');
   assert.equal(activityTone({ kind: 'push' }), 'info');
+});
+
+test('tag rows say what happened to the tag and never claim a commit for a pushed tag object', () => {
+  const tag = (data, extra = {}) => ({ id: 't', repoId: 'r', kind: 'tag', time: '2026-11-17T10:00:00Z', branch: 'v1', data, ...extra });
+  const zero = '0'.repeat(40);
+  const created = tag({ change: 'created', evidence: 'push', oldObjectId: zero, newObjectId: 'a'.repeat(40) });
+  const moved = tag({ change: 'moved', evidence: 'push', oldObjectId: 'a'.repeat(40), newObjectId: 'b'.repeat(40) });
+  const deleted = tag({ change: 'deleted', evidence: 'push', oldObjectId: 'a'.repeat(40), newObjectId: zero });
+  const unlisted = tag({ change: 'deleted', evidence: 'snapshot', objectId: 'a' }, { summary: 'Missing from complete refs snapshot' });
+  assert.deepEqual(
+    [created, moved, deleted, unlisted].map(event => [activityLabel(event), activityTone(event), activitySummary(event)]),
+    [
+      ['New tag', 'info', 'Points at aaaaaaaa'],
+      ['Tag moved', 'warn', 'aaaaaaaa → bbbbbbbb'],
+      ['Tag deleted', 'warn', 'Remote tag deleted'],
+      ['No longer listed', 'warn', 'Missing from complete refs snapshot'],
+    ],
+  );
+  assert.equal(labels.tag, 'Tag');
+});
+
+test('a fork PR names its fork in the summary', () => {
+  const pr = {
+    id: 'p',
+    repoId: 'r',
+    kind: 'pr',
+    time: '2026-11-17T10:00:00Z',
+    data: { status: 'active', targetRefName: 'refs/heads/main' },
+  };
+  assert.equal(activitySummary(pr), 'Target: main');
+  assert.equal(
+    activitySummary({ ...pr, data: { ...pr.data, fork: { repository: 'One-fork', project: 'Q' } } }),
+    'From fork One-fork in Q · Target: main',
+  );
+});
+
+test('vote changes on an open PR read as words, and a closed PR keeps its merge summary', () => {
+  const pr = { id: 'p', repoId: 'r', kind: 'pr', time: '2026-11-17T10:00:00Z' };
+  const data = {
+    status: 'active',
+    targetRefName: 'refs/heads/main',
+    voteChanges: [
+      { name: 'Ana', vote: 10 },
+      { name: 'Sam', vote: 0 },
+    ],
+  };
+  assert.equal(activitySummary({ ...pr, data }), 'Ana: approved · Sam: vote reset');
+  assert.equal(activitySummary({ ...pr, data: { ...data, status: 'completed' } }), 'Merged into main');
+  assert.equal(activitySummary({ ...pr, data: { ...data, voteChanges: [{ name: 'Lee', vote: -10 }] } }), 'Lee: rejected');
+});
+
+test('a vote change on a fork PR still names the fork', () => {
+  const pr = { id: 'p', repoId: 'r', kind: 'pr', time: '2026-11-17T10:00:00Z' };
+  const data = {
+    status: 'active',
+    targetRefName: 'refs/heads/main',
+    fork: { repository: 'One-fork' },
+    voteChanges: [{ name: 'Ana', vote: 10 }],
+  };
+  assert.equal(activitySummary({ ...pr, data }), 'From fork One-fork · Ana: approved');
 });

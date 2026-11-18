@@ -307,3 +307,18 @@ for (const scheme of ['http://', ''])
     assert.deepEqual(JSON.parse(stdout.trim().split('\n').at(-1)), { system: true, grew: true });
     assert.equal(hits, 1, 'the REST request went through the proxy');
   });
+
+test('PR thread and policy evaluation reads use their own routes and the policy preview version', async () => {
+  const { cli, requests } = harness();
+  await cli.run(invoke('git', 'pullRequestThreads', ['project=P', 'repositoryId=r', 'pullRequestId=12']));
+  const policy = invoke('policy', 'evaluations', ['project=P'], ['artifactId=vstfs:///CodeReview/CodeReviewId/p/12']);
+  policy[policy.indexOf('--api-version') + 1] = '7.1-preview.1';
+  await cli.run(policy);
+  assert.deepEqual(
+    requests.map(request => new URL(request.url).pathname),
+    ['/example/P/_apis/git/repositories/r/pullRequests/12/threads', '/example/P/_apis/policy/evaluations'],
+  );
+  assert.equal(new URL(requests[1].url).searchParams.get('api-version'), '7.1-preview.1');
+  await assert.rejects(cli.run(invoke('git', 'pullRequestThreads', ['project=P', 'repositoryId=r', 'pullRequestId=..'])));
+  cli.close();
+});

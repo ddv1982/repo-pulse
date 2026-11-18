@@ -37,7 +37,7 @@ const EVIDENCE_VERSION = 2;
  * Durable, low-priority semantic work. Each tick performs one page or a tiny hydration batch.
  * @param {{
  *   store: ReturnType<typeof import('./store.js').createStore>,
- *   provider: Pick<import('./azure-client.js').AzureProvider, 'pushCommits'|'refCommits'|'commitsByIds'|'queryPullRequests'>,
+ *   provider: Pick<import('./azure-client.js').AzureProvider, 'pushCommits'|'refCommits'|'droppedCommits'|'commitsByIds'|'queryPullRequests'>,
  *   now?: () => number, negativeTtlMs?: number, positiveTtlMs?: number
  * }} options
  */
@@ -107,7 +107,7 @@ export function createEnrichment({ store, provider, now = Date.now, negativeTtlM
       evidenceVersion: EVIDENCE_VERSION,
       candidateCommitIds: job.commitIds || [],
       candidateCommitCount: (job.commitIds || []).length,
-      introducedCommitsComplete: Boolean(job.rangesComplete && (job.stage === 'hydrate' || job.stage === 'prs')),
+      introducedCommitsComplete: Boolean(job.rangesComplete && (job.stage === 'hydrate' || job.stage === 'prs')) && rangesProven(job),
     };
   }
   /** @param {Repository} repo @param {StoredEvent} event @param {MergeJob} job @param {EntityInput[]} [entities] */
@@ -194,6 +194,26 @@ export function createEnrichment({ store, provider, now = Date.now, negativeTtlM
     };
     saveStep(repo, event, next, entities);
   }
+  /** @param {MergeJob} job */
+  const rangesProven = job => !(job.refRanges || []).some(range => range.complete === false);
+  /**
+   * Unequal tips alone never mean a rewrite: only a read of what the old tip reaches decides it.
+   * @param {Repository} repo @param {import('./merge-evidence.js').MergeUpdate} ref
+   * @returns {Promise<import('./merge-evidence.js').HistoryUpdate>}
+   */
+  async function historyUpdate(repo, ref) {
+    try {
+      const page = await provider.droppedCommits(repo, ref.oldObjectId, ref.newObjectId);
+      if (!Array.isArray(page?.items)) throw failure('INVALID_RESPONSE', 'Branch history data is unavailable.');
+      return page.items.length
+        ? { status: 'rewrite', dropped: page.items.length, more: Boolean(page.nextCursor) }
+        : { status: 'fast-forward' };
+    } catch (caught) {
+      // The old tip can be gone from Azure after a rewrite; that leaves the update unknown, not failed.
+      if (/** @type {{ code?: string }} */ (caught)?.code === 'NOT_FOUND') return { status: 'unknown' };
+      throw caught;
+    }
+  }
   /** @type {StageHandler} */
   async function rangesStage(repo, event, job) {
     const refs = mergeUpdates(event),
@@ -203,11 +223,51 @@ export function createEnrichment({ store, provider, now = Date.now, negativeTtlM
       saveStep(repo, event, { ...job, stage: 'hydrate', rangesComplete: true });
       return;
     }
-    const page = await provider.refCommits(repo, ref.oldObjectId, ref.newObjectId, job.refCursor || {});
+    const ranges = [...(job.refRanges || [])];
+    if (ranges[index]?.complete) {
+      const update = await historyUpdate(repo, ref);
+      if (gone(repo, event)) return;
+      ranges[index] = { ...ranges[index], update };
+      const complete = index + 1 >= refs.length;
+      saveStep(repo, event, {
+        ...job,
+        stage: complete ? 'hydrate' : 'ranges',
+        refIndex: index + 1,
+        refCursor: null,
+        refRanges: ranges,
+        rangesComplete: complete,
+      });
+      return;
+    }
+    let page;
+    try {
+      page = await provider.refCommits(repo, ref.oldObjectId, ref.newObjectId, job.refCursor || {});
+    } catch (caught) {
+      if (/** @type {{ code?: string }} */ (caught)?.code !== 'NOT_FOUND') throw caught;
+      // The old tip can be gone after a rewrite: the range stays unproven and the update unknown, and the job moves on.
+      if (gone(repo, event)) return;
+      ranges[index] = {
+        name: ref.name,
+        oldObjectId: ref.oldObjectId,
+        newObjectId: ref.newObjectId,
+        commitIds: [],
+        complete: false,
+        update: { status: 'unknown' },
+      };
+      const complete = index + 1 >= refs.length;
+      saveStep(repo, event, {
+        ...job,
+        stage: complete ? 'hydrate' : 'ranges',
+        refIndex: index + 1,
+        refCursor: null,
+        refRanges: ranges,
+        rangesComplete: complete,
+      });
+      return;
+    }
     if (gone(repo, event)) return;
     if (!Array.isArray(page?.items)) throw failure('INVALID_RESPONSE', 'Branch revision-range data is unavailable.');
     const entities = cacheEntries(repo.id, page.items);
-    const ranges = [...(job.refRanges || [])];
     ranges[index] = {
       name: ref.name,
       oldObjectId: ref.oldObjectId,
@@ -215,18 +275,16 @@ export function createEnrichment({ store, provider, now = Date.now, negativeTtlM
       commitIds: unique([...(ranges[index]?.commitIds || []), ...page.items.map(item => item.commitId)]),
       complete: !page.nextCursor,
     };
-    const nextIndex = page.nextCursor ? index : index + 1;
-    const complete = nextIndex >= refs.length;
     saveStep(
       repo,
       event,
       {
         ...job,
-        stage: complete ? 'hydrate' : 'ranges',
-        refIndex: nextIndex,
+        stage: 'ranges',
+        refIndex: index,
         refCursor: page.nextCursor || null,
         refRanges: ranges,
-        rangesComplete: complete,
+        rangesComplete: false,
         commitIds: unique([...(job.commitIds || []), ...page.items.map(item => item.commitId), ref.newObjectId]),
       },
       entities,
@@ -234,7 +292,11 @@ export function createEnrichment({ store, provider, now = Date.now, negativeTtlM
   }
   /** @type {StageHandler} */
   async function hydrateStage(repo, event, job) {
-    const ids = unique([...(job.commitIds || []), ...mergeUpdates(event).flatMap(ref => [ref.oldObjectId, ref.newObjectId])]);
+    // An old tip Azure could not read for the history check stays unknown instead of failing hydration forever.
+    const unreadable = new Set((job.refRanges || []).filter(range => range.update?.status === 'unknown').map(range => range.oldObjectId));
+    const ids = unique([...(job.commitIds || []), ...mergeUpdates(event).flatMap(ref => [ref.oldObjectId, ref.newObjectId])]).filter(
+      id => !unreadable.has(id),
+    );
     const missing = ids.filter(id => !Array.isArray(commit(repo.id, id)?.parents)).slice(0, 2);
     if (!missing.length) {
       saveStep(repo, event, { ...job, stage: 'prs' });
@@ -302,7 +364,8 @@ export function createEnrichment({ store, provider, now = Date.now, negativeTtlM
     );
     evidence.evidenceVersion = EVIDENCE_VERSION;
     evidence.candidateCommitCount = ids.length;
-    evidence.introducedCommitsComplete = true;
+    // A refresh reuses saved ranges only when every one was read; an unproven range is read again.
+    evidence.introducedCommitsComplete = rangesProven(job);
     store.commitEnrichment({ jobId: job.id, eventId: event.id, data: { mergeEvidence: evidence } });
   }
   /** @type {Record<Stage, StageHandler>} */
@@ -315,6 +378,10 @@ export function createEnrichment({ store, provider, now = Date.now, negativeTtlM
     if (!mergeUpdates(event).length) return finishWithoutUpdates;
     const stage = job.stage || 'commits';
     if (['hydrate', 'prs'].includes(stage) && !job.rangesComplete) return restartRanges;
+    // Jobs saved before the history check finished their ranges without it; check them from the saved pages.
+    const unchecked = (job.refRanges || []).findIndex(range => range.complete && !range.update);
+    if (['hydrate', 'prs'].includes(stage) && unchecked >= 0)
+      return (repo, current) => saveStep(repo, current, { ...job, stage: 'ranges', refIndex: unchecked, rangesComplete: false });
     if (typeof stage !== 'string' || !Object.hasOwn(stages, stage))
       throw failure('INVALID_JOB', 'Merge enrichment could not resume its saved stage.');
     return stages[stage];
