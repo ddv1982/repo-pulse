@@ -81,9 +81,9 @@ test('a local edit made during the fetch blocks the fast-forward', async t => {
   let editAfterFetch = false;
   const checkoutGit = createCheckoutGit({
     matchesRemote: url => url === remote,
-    run: async (path, args, options) => {
+    run: async (path, args) => {
       const output = execFileSync('git', ['-C', path, ...args], { encoding: 'utf8',
-        env: { ...process.env, GIT_OPTIONAL_LOCKS: '0', ...(options?.indexFile ? { GIT_INDEX_FILE: options.indexFile } : {}) },
+        env: { ...process.env, GIT_OPTIONAL_LOCKS: '0' },
         stdio: ['ignore', 'pipe', 'pipe'] });
       if (editAfterFetch && args[2] === 'fetch') writeFileSync(join(local, 'feature.txt'), 'edited during fetch');
       return output;
@@ -135,31 +135,6 @@ test('changing the remote URL during Check cannot redirect the fetch', async t =
   await assert.rejects(checkoutGit.update(repo, 'check', await checkoutGit.status(repo)), /upstream changed/);
   assert.equal(git(local, 'rev-parse', 'origin/main'), tip);
   assert.equal(git(local, 'rev-parse', 'HEAD'), original);
-});
-
-test('Git cannot switch branches while the confirmed fast-forward is changing the worktree', async t => {
-  const { repo, remote, original, local, advance } = checkoutFixture(t);
-  const tip = advance();
-  git(local, 'branch', 'other');
-  let blocked = false;
-  const checkoutGit = createCheckoutGit({
-    matchesRemote: url => url === remote,
-    run: async (path, args, { indexFile } = {}) => {
-      if (!indexFile) return git(path, ...args);
-      assert.throws(() => git(local, 'switch', 'other'), /index\.lock/);
-      blocked = true;
-      return execFileSync('git', ['-C', path, ...args], {
-        encoding: 'utf8', env: { ...process.env, GIT_INDEX_FILE: indexFile },
-      });
-    },
-  });
-  const { checkout } = await checkoutGit.update(repo, 'check', await checkoutGit.status(repo));
-  assert.equal((await checkoutGit.update(repo, 'pull', checkout)).updated, true);
-  assert.equal(blocked, true);
-  assert.equal(git(local, 'branch', '--show-current'), 'main');
-  assert.equal(git(local, 'rev-parse', 'other'), original);
-  assert.equal(git(local, 'rev-parse', 'main'), tip);
-  assert.equal(git(local, 'status', '--porcelain'), '');
 });
 
 test('Check reports a missing upstream and restores Pull when the branch is available again', async t => {

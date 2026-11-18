@@ -84,7 +84,7 @@ function interceptGit(beforeRun) {
   return async (path, args, options) => {
     beforeRun(path, options);
     const command = exec('git', ['-C', path, ...args], { env: { ...process.env, GIT_OPTIONAL_LOCKS: '0',
-      ...(options?.indexFile ? { GIT_INDEX_FILE: options.indexFile } : {}), ...options?.guard } });
+      ...options?.guard } });
     if (options?.input) {
       command.child.stdin.on('error', () => {});
       command.child.stdin.end(options.input);

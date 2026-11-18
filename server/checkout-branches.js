@@ -66,13 +66,12 @@ async function readRef(run, path, ref) {
 /**
  * @param {{ run: GitRunner, hooks: string, followups: Followups,
  *   statusAt: (path: string, repo: LinkedRepo) => Promise<Reading>,
- *   interrupted: (path: string, snapshot: ActiveCheckout) => Promise<unknown>,
  *   updateAt: (path: string, repo: LinkedRepo, op: 'update-target', expected: ActiveCheckout, result: string) =>
  *     Promise<{ checkout: ActiveCheckout, updated: boolean }>,
  *   readMissing: (path: string, repo: LinkedRepo, target: Upstream, snapshot: ActiveCheckout) => Promise<PullAdvice|undefined>,
  *   matchesIntent: (snapshot: ActiveCheckout, expected: ActiveCheckout) => boolean }} dependencies
  */
-export function branchFollowups({ run, hooks, followups, statusAt, interrupted, updateAt, readMissing, matchesIntent }) {
+export function branchFollowups({ run, hooks, followups, statusAt, updateAt, readMissing, matchesIntent }) {
   /** @param {LinkedRepo} repo @param {string} path @param {ActiveCheckout} snapshot */
   function eligiblePlan(repo, path, snapshot) {
     const plan = followups.get(repo.id);
@@ -91,8 +90,7 @@ export function branchFollowups({ run, hooks, followups, statusAt, interrupted, 
   /** @param {LinkedRepo} repo @param {string} path @param {ActiveCheckout} expected */
   async function unchangedClean(repo, path, expected) {
     const { snapshot, target } = await statusAt(path, repo);
-    if (!matchesIntent(snapshot, expected) || snapshot.dirty || snapshot.state === 'in-progress' || !target ||
-      await interrupted(path, snapshot)) throw branchProblem('The checkout changed or has local work. Review it in Git and try again.');
+    if (!matchesIntent(snapshot, expected) || snapshot.dirty || snapshot.state === 'in-progress' || !target) throw branchProblem('The checkout changed or has local work. Review it in Git and try again.');
     return { snapshot, target };
   }
 

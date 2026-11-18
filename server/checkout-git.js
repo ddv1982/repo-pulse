@@ -1,13 +1,11 @@
 // @ts-check
 
-import { execFile, spawn } from 'node:child_process';
-import { createHash, randomUUID } from 'node:crypto';
-import { access, copyFile, open, realpath, rename, stat, unlink } from 'node:fs/promises';
+import { execFile } from 'node:child_process';
+import { createHash } from 'node:crypto';
+import { access, realpath, stat } from 'node:fs/promises';
 import { resolve } from 'node:path';
-import { createInterface } from 'node:readline';
 import { promisify } from 'node:util';
 import { parseRemote } from './repositories.js';
-import { capturePullOwner, pullOwnerRunning } from './pull-owner.js';
 import { adviseMissingUpstream, ancestry, isCommit } from './checkout-advice.js';
 import { branchFollowups, branchProblem, memoryFollowups } from './checkout-branches.js';
 import { checkoutDiagnostic, memoryObservations, observedRewrite } from './checkout-observations.js';
@@ -22,18 +20,8 @@ import { checkoutDiagnostic, memoryObservations, observedRewrite } from './check
  * @typedef {CheckoutIntent & CheckoutReading & { state: 'behind', canCheck: true, canPull: true }} PullableCheckout
  * @typedef {CheckoutReading & { state: BlockedState, canCheck: boolean, canPull: false, diagnostic?: import('./checkout-observations.js').CheckoutDiagnostic }} BlockedCheckout
  * @typedef {PullableCheckout | BlockedCheckout} ActiveCheckout
- * @typedef {import('./pull-owner.js').PullOwner & {id: string, branch: string, previous: string, tip: string, index: string}} PullOperation
- * @typedef {{ branch: string, previous: string, tip: string, lockPresent: boolean }} Recovery
- * @typedef {(Partial<CheckoutReading> & { state: 'pull-interrupted', canCheck: false, canPull: false, recovery: Recovery })
- *   | (Partial<CheckoutReading> & { state: 'pull-running', canCheck: false, canPull: false })} PendingCheckout
- * @typedef {ActiveCheckout | PendingCheckout | { state: 'unavailable'|'not-linked' }} CheckoutStatus
- * @typedef {{
- *   get: (path: string) => PullOperation|undefined,
- *   begin: (path: string, operation: PullOperation) => boolean,
- *   release: (path: string, operation: PullOperation) => void,
- *   clear: (path: string, operation: PullOperation) => void
- * }} PullJournal
- * @typedef {(path: string, args: string[], options?: { indexFile?: string, guard?: NodeJS.ProcessEnv, input?: string }) => Promise<string>} GitRunner
+ * @typedef {ActiveCheckout | { state: 'unavailable'|'not-linked' }} CheckoutStatus
+ * @typedef {(path: string, args: string[], options?: { guard?: NodeJS.ProcessEnv, input?: string }) => Promise<string>} GitRunner
  */
 
 const exec = promisify(execFile);
@@ -46,35 +34,17 @@ const operations = [
 ];
 const hooks = process.platform === 'win32' ? 'NUL' : '/dev/null';
 
-/** @returns {PullJournal} */
-function memoryJournal() {
-  /** @type {Map<string, PullOperation>} */
-  const rows = new Map();
-  return {
-    get: path => rows.get(path),
-    begin(path, operation) {
-      if (rows.has(path)) return false;
-      rows.set(path, operation);
-      return true;
-    },
-    release: (path, operation) => { rows.set(path, { ...operation, pid: null }); },
-    clear: path => { rows.delete(path); },
-  };
-}
-
-/** @param {string} [indexFile] */
-function gitEnvironment(indexFile) {
+function gitEnvironment() {
   /** @type {NodeJS.ProcessEnv} */
   const env = { ...process.env, LC_ALL: 'C', GIT_TERMINAL_PROMPT: '0', GCM_INTERACTIVE: 'Never',
     GIT_OPTIONAL_LOCKS: '0', GIT_NO_LAZY_FETCH: '1', GIT_NO_REPLACE_OBJECTS: '1' };
   for (const key of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_COMMON_DIR', 'GIT_INDEX_FILE', 'GIT_NAMESPACE']) delete env[key];
-  if (indexFile) env.GIT_INDEX_FILE = indexFile;
   return env;
 }
 
 /** @type {GitRunner} */
-const runGit = async (path, args, { indexFile, guard, input } = {}) => {
-  const env = { ...gitEnvironment(indexFile), ...guard };
+const runGit = async (path, args, { guard, input } = {}) => {
+  const env = { ...gitEnvironment(), ...guard };
   const command = exec('git', ['-C', path, '-c', 'core.fsmonitor=false', ...args], { env, timeout: 45_000, maxBuffer: 2 * 1024 * 1024, windowsHide: true });
   if (input !== undefined) {
     command.child.stdin?.on('error', () => {});
@@ -98,37 +68,6 @@ function fetchFailure(failure) {
     return { title: 'Git could not reach the remote', suggestion: 'Check your connection and try again.' };
   }
   return { title: 'Git could not fetch the tracked branch', suggestion: 'Check the upstream from your terminal and try again.' };
-}
-
-/**
- * @param {string} path @param {string} previous @param {string} tip @param {string} tracking
- * @param {(commit: () => Promise<void>) => Promise<void>} apply
- */
-async function withLockedRefs(path, previous, tip, tracking, apply) {
-  const child = spawn('git', ['-C', path, '-c', `core.hooksPath=${hooks}`, '-c', 'core.filesRefLockTimeout=1000',
-    'update-ref', '-m', 'Repo Pulse: fast-forward', '--stdin'], {
-    env: gitEnvironment(), windowsHide: true, stdio: ['pipe', 'pipe', 'ignore'],
-  });
-  child.stdin.on('error', () => {});
-  child.on('error', () => {});
-  const closed = new Promise(done => child.once('close', done));
-  const replies = createInterface({ input: child.stdout })[Symbol.asyncIterator]();
-  /** @param {string} line */
-  async function expect(line) {
-    if ((await replies.next()).value !== line) throw problem('Git refs changed or are locked. Review the checkout and try again.');
-  }
-  try {
-    child.stdin.write(`start\nupdate HEAD ${tip} ${previous}\nverify ${tracking} ${tip}\nprepare\n`);
-    await expect('start: ok');
-    await expect('prepare: ok');
-    await apply(async () => {
-      child.stdin.write('commit\n');
-      await expect('commit: ok');
-    });
-  } finally {
-    child.stdin.end();
-    await closed;
-  }
 }
 
 /** @param {string} url @param {LinkedRepo} repo */
@@ -168,15 +107,14 @@ export function isCheckoutIntent(value) {
 
 /**
  * @param {{ run?: GitRunner, matchesRemote?: typeof matchesWatchedRemote, now?: () => number,
- *   journal?: PullJournal, publishIndex?: (lock: string, index: string) => Promise<void>,
  *   followups?: import('./checkout-branches.js').Followups, findPulls?: import('./checkout-advice.js').FindCheckoutPulls, observations?: import('./checkout-observations.js').Observations }} [options]
  */
-export function createCheckoutGit({ run = runGit, matchesRemote = matchesWatchedRemote, now = Date.now, journal = memoryJournal(),
-  publishIndex = rename, findPulls = async () => [], observations = memoryObservations(), followups = memoryFollowups() } = {}) {
+export function createCheckoutGit({ run = runGit, matchesRemote = matchesWatchedRemote, now = Date.now,
+  findPulls = async () => [], observations = memoryObservations(), followups = memoryFollowups() } = {}) {
   /** @type {Map<string, { path: string, until: number, value: Promise<CheckoutStatus> }>} */
   const readings = new Map();
   let updating = false;
-  const branches = branchFollowups({ run, hooks, followups, statusAt, interrupted, updateAt, readMissing, matchesIntent });
+  const branches = branchFollowups({ run, hooks, followups, statusAt, updateAt, readMissing, matchesIntent });
 
   /** @param {LinkedRepo} repo */
   async function checkoutPath(repo) {
@@ -239,31 +177,13 @@ export function createCheckoutGit({ run = runGit, matchesRemote = matchesWatched
     return isCommit(hash) ? hash : null;
   }
 
-  /** @param {string} path @param {ActiveCheckout} [snapshot] @returns {Promise<PendingCheckout|null>} */
-  async function interrupted(path, snapshot) {
-    const operation = journal.get(path);
-    if (!operation) return null;
-    const { branch, previous, tip, index } = operation;
-    if (await pullOwnerRunning(operation)) return { ...snapshot, state: 'pull-running', canCheck: false, canPull: false };
-    const lockPresent = await access(`${index}.lock`).then(() => true, error => error.code !== 'ENOENT');
-    const atExpectedCommit = snapshot?.branch === branch && (snapshot.head === previous || snapshot.head === tip);
-    if (atExpectedCommit && !snapshot.dirty && snapshot.state !== 'in-progress' && !lockPresent) {
-      journal.clear(path, operation);
-      return null;
-    }
-    return {
-      ...snapshot, state: 'pull-interrupted', canCheck: false, canPull: false,
-      recovery: { branch, previous, tip, lockPresent },
-    };
-  }
-
   /** @param {string} path @param {LinkedRepo} repo @returns {Promise<CheckoutStatus>} */
   async function inspect(path, repo) {
     try {
       const { snapshot } = await statusAt(path, repo);
-      return await interrupted(path, snapshot) || branches.decorate(repo, path, snapshot);
+      return await branches.decorate(repo, path, snapshot);
     } catch {
-      return await interrupted(path) || { state: 'unavailable' };
+      return { state: 'unavailable' };
     }
   }
 
@@ -277,65 +197,23 @@ export function createCheckoutGit({ run = runGit, matchesRemote = matchesWatched
     return value;
   }
 
-  /**
-   * @param {string} path @param {LinkedRepo} repo @param {PullableCheckout} snapshot @param {Upstream} target
-   * @param {string} tip @param {(current: CheckoutReading) => boolean} sameCheckout @param {boolean} requireClean
-   */
-  async function fastForward(path, repo, snapshot, target, tip, sameCheckout, requireClean) {
-    const index = resolve(path, (await run(path, ['rev-parse', '--git-path', 'index'])).trimEnd());
-    const lock = `${index}.lock`;
-    const operation = { ...await capturePullOwner(), id: randomUUID(), branch: snapshot.branch, previous: snapshot.head, tip, index };
-    if (!journal.begin(path, operation)) throw problem('A previous Pull must be resolved in Git before trying again.');
-    let ownLock = false, writing = false, lockIdentity;
+  /** @param {string} path @param {string} head @param {string} tip */
+  async function fastForward(path, head, tip) {
+    const additions = (await run(path, ['diff', '--no-renames', '--diff-filter=A', '--name-only', '-z', head, tip, '--'])).split('\0').filter(Boolean);
+    if (additions.length) {
+      // Git reports an ignored-file overlap like any untracked one, so name it before merging.
+      const ignored = (await run(path, ['ls-files', '--others', '--ignored', '--exclude-standard', '--directory', '-z']))
+        .split('\0').filter(Boolean).map(name => name.replace(/\/$/, '').toLowerCase());
+      if (additions.some(name => {
+        const incoming = name.toLowerCase();
+        return ignored.some(local => local === incoming || local.startsWith(`${incoming}/`) || incoming.startsWith(`${local}/`));
+      })) throw problem('Incoming files overlap ignored local files. Move them before pulling.');
+    }
     try {
-      const handle = await open(lock, 'wx', 0o600);
-      ownLock = true;
-      try { lockIdentity = await handle.stat(); } finally { await handle.close(); }
-      await copyFile(index, lock);
-      await withLockedRefs(path, snapshot.head, tip, target.tracking, async commit => {
-        const { snapshot: current } = await statusAt(path, repo);
-        if (!sameCheckout(current) || !current.canPull || (requireClean && current.dirty)) throw problem('The checkout changed. The branch was not updated.');
-        const additions = (await run(path, ['diff', '--no-renames', '--diff-filter=A', '--name-only', '-z', snapshot.head, tip, '--'])).split('\0').filter(Boolean);
-        if (additions.length) {
-          // Unlike merge --no-overwrite-ignore, read-tree allows ignored paths to be replaced.
-          const ignored = (await run(path, ['ls-files', '--others', '--ignored', '--exclude-standard', '--directory', '-z']))
-            .split('\0').filter(Boolean).map(name => name.replace(/\/$/, '').toLowerCase());
-          if (additions.some(name => {
-            const incoming = name.toLowerCase();
-            return ignored.some(local => local === incoming || local.startsWith(`${incoming}/`) || incoming.startsWith(`${local}/`));
-          })) throw problem('Incoming files overlap ignored local files. Move them before pulling.');
-        }
-        const updateTree = ['-m', '-u', '--no-recurse-submodules', snapshot.head, tip];
-        // Refresh the private index so files restored to their original content pass Git's stat checks.
-        await run(path, ['update-index', '-q', '--refresh'], { indexFile: lock });
-        lockIdentity = await stat(lock);
-        // Check through the locked index before starting worktree writes or retaining a recovery journal.
-        try {
-          await run(path, ['read-tree', '--dry-run', ...updateTree], { indexFile: lock });
-        } catch {
-          throw problem('Pull stopped before the branch was updated. Git could not preserve the local checkout. Review overlapping changes in Git and try again.');
-        }
-        writing = true;
-        await run(path, ['read-tree', ...updateTree], { indexFile: lock });
-        await commit();
-        await publishIndex(lock, index);
-        ownLock = false;
-      });
-    } finally {
-      try {
-        if (ownLock && !writing) {
-          const currentLock = await stat(lock);
-          if (!lockIdentity || currentLock.ino !== lockIdentity.ino || currentLock.dev !== lockIdentity.dev) {
-            throw problem('The index lock changed. Review the checkout in Git.');
-          }
-          await unlink(lock);
-        }
-        if (!ownLock || !writing) journal.clear(path, operation);
-        else journal.release(path, operation);
-      } catch (error) {
-        journal.release(path, operation);
-        throw error;
-      }
+      await run(path, ['-c', `core.hooksPath=${hooks}`, '-c', 'maintenance.auto=false', '-c', 'submodule.recurse=false',
+        'merge', '--ff-only', '--no-autostash', '--no-overwrite-ignore', '--no-stat', tip]);
+    } catch {
+      throw problem('Pull stopped before the branch was updated. Git could not preserve the local checkout. Review overlapping changes in Git and try again.');
     }
   }
 
@@ -368,7 +246,6 @@ export function createCheckoutGit({ run = runGit, matchesRemote = matchesWatched
     try {
       const before = await statusAt(path, repo);
       const { snapshot, target } = before;
-      if (await interrupted(path, snapshot)) throw problem('A previous Pull must be resolved in Git before trying again.');
       /** @param {Pick<CheckoutReading, 'branch'|'head'|'upstream'|'identity'>} current */
       const sameCheckout = current => matchesIntent(snapshot, current);
       if (!expected || !sameCheckout(expected)) throw problem('The checkout changed. Review the current branch and try again.');
@@ -431,7 +308,7 @@ export function createCheckoutGit({ run = runGit, matchesRemote = matchesWatched
       if (after.snapshot.state === 'current') return { checkout: after.snapshot, updated: false };
       if (!after.snapshot.canPull) throw problem('The checkout is no longer eligible.');
       await run(path, ['merge-base', '--is-ancestor', after.snapshot.head, tip]);
-      await fastForward(path, repo, after.snapshot, target, tip, sameCheckout, operation === 'update-target');
+      await fastForward(path, after.snapshot.head, tip);
       return { checkout: (await statusAt(path, repo)).snapshot, updated: true };
     } catch (error) {
       if (error instanceof Error && 'status' in error && (error.status === 404 || error.status === 409)) throw error;
@@ -452,7 +329,7 @@ export function createCheckoutGit({ run = runGit, matchesRemote = matchesWatched
   function branchAction(repo, action, expected) {
     return exclusively(repo, async path => {
       const current = await statusAt(path, repo);
-      if (await interrupted(path, current.snapshot) || !matchesIntent(current.snapshot, expected)) {
+      if (!matchesIntent(current.snapshot, expected)) {
         throw branchProblem('The checkout changed. Review the current branch and try again.');
       }
       try {
