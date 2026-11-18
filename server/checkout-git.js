@@ -131,28 +131,25 @@ function readStatus(output) {
 }
 
 /**
- * The first matching check names the checkout state; order is significant.
- * @param {GitStatus & { operation: string|undefined, observation: import('./checkout-observations.js').Observation|undefined, target: Upstream|null }} facts
+ * The first matching check names the checkout state; order is significant, and later facts are read only if needed.
+ * @param {GitStatus & { operation: string|undefined, observation: import('./checkout-observations.js').Observation|undefined, rewrite: unknown, target: Upstream|null }} facts
  * @returns {BlockedState|'behind'}
  */
-function checkoutState({ operation, observation, target, branch, head, upstream, ahead, behind, dirty }) {
-  /** @type {[unknown, BlockedState|'behind'][]} */
-  const checks = [
-    [operation, 'in-progress'],
-    [!branch, 'detached'],
-    [!head, 'unborn'],
-    [observation?.missing, 'upstream-missing'],
-    [observation?.rewrite, 'upstream-rewritten'],
-    [observation?.failure, 'fetch-failed'],
-    [dirty && !(target && ahead === 0 && behind !== null && behind > 0), 'dirty'],
-    [!upstream, 'no-upstream'],
-    [!target, 'different-remote'],
-    [ahead === null, 'unknown'],
-    [ahead && behind, 'diverged'],
-    [ahead, 'ahead'],
-    [behind, 'behind'],
-  ];
-  return checks.find(([matches]) => matches)?.[1] ?? 'current';
+function checkoutState({ operation, observation, rewrite, target, branch, head, upstream, ahead, behind, dirty }) {
+  if (operation) return 'in-progress';
+  if (!branch) return 'detached';
+  if (!head) return 'unborn';
+  if (observation?.missing) return 'upstream-missing';
+  if (rewrite) return 'upstream-rewritten';
+  if (observation?.failure) return 'fetch-failed';
+  if (dirty && !(target && ahead === 0 && behind !== null && behind > 0)) return 'dirty';
+  if (!upstream) return 'no-upstream';
+  if (!target) return 'different-remote';
+  if (ahead === null) return 'unknown';
+  if (ahead && behind) return 'diverged';
+  if (ahead) return 'ahead';
+  if (behind) return 'behind';
+  return 'current';
 }
 
 /**
@@ -265,7 +262,7 @@ export function createCheckoutGit({
         ? { at: last.at, matchesFetchedTip: (await trackingTip(path, target.tracking, true)) === last.tip }
         : undefined;
     const rewrite = observation?.rewrite;
-    const state = checkoutState({ ...snapshot, operation, observation, target });
+    const state = checkoutState({ ...snapshot, operation, observation, rewrite, target });
     if (state === 'behind') {
       if (!branch || !head || !upstream || !target) throw problem('The upstream changed during the status check.');
       return {
