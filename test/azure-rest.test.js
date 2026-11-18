@@ -8,20 +8,24 @@ const TOKEN = 'secret-token-value';
 const invoke = (area, resource, route, query = []) => ['devops', 'invoke', '--organization', ORG, '--detect', 'false', '--area', area, '--resource', resource,
   '--api-version', '7.1', '--http-method', 'GET', '--route-parameters', ...route, ...(query.length ? ['--query-parameters', ...query] : [])];
 
-function harness({ responses = [], expiresIn = 3600, start = Date.parse('2026-11-18T10:00:00Z') } = {}) {
+function harness({ responses = [], expiresIn = 3600, start = Date.parse('2026-11-18T10:00:00Z'), tokenOutput, tokenDelay = false } = {}) {
   let time = start;
   const requests = [], cliCalls = [];
   const cliExecutor = async args => {
     cliCalls.push(args);
     if (args[0] === 'account' && args[1] === 'get-access-token') {
+      if (tokenDelay) await new Promise(setImmediate);
+      const custom = tokenOutput?.(cliCalls.length);
+      if (custom !== undefined) return custom;
       return JSON.stringify({ accessToken: `${TOKEN}-${cliCalls.length}`, expires_on: Math.floor(time / 1000) + expiresIn, tokenType: 'Bearer' });
     }
     return JSON.stringify({ via: 'cli', args });
   };
   const fetch = async (url, init) => {
     requests.push({ url: String(url), init });
-    const next = responses.shift() || { status: 200, body: { count: 0, value: [] } };
+    const next = (typeof responses === 'function' ? responses(init) : responses.shift()) || { status: 200, body: { count: 0, value: [] } };
     if (next.error) throw next.error;
+    if (next.raw) return next.raw;
     return new Response(JSON.stringify(next.body ?? {}), { status: next.status, headers: next.headers });
   };
   const executor = createRestExecutor({ cliExecutor, fetch, now: () => time });
@@ -112,4 +116,42 @@ test('a missing Azure CLI is reported as missing when the token is requested', a
   const cli = createAzureCli({ executor });
   await assert.rejects(cli.run(invoke('git', 'pushes', ['project=P', 'repositoryId=r'])), { code: 'CLI_MISSING' });
   cli.close();
+});
+
+test('duplicate flags and dot route segments are refused before any request', async () => {
+  const { cli, requests } = harness();
+  const write = [...invoke('git', 'refs', ['project=P', 'repositoryId=r']), '--http-method', 'POST'];
+  await assert.rejects(cli.run(write));
+  for (const route of [['project=..', 'repositoryId=r'], ['project=P', 'repositoryId=.'], ['project=P']]) {
+    await assert.rejects(cli.run(invoke('git', 'refs', route)), JSON.stringify(route));
+  }
+  assert.equal(requests.length, 0);
+  cli.close();
+});
+
+test('an unusable token response is not cached and does not leak into the error', async () => {
+  const { cli, cliCalls } = harness({ tokenOutput: call => call === 1 ? `{"accessToken":"${TOKEN}-broken"` : undefined });
+  const error = await cli.run(invoke('git', 'pushes', ['project=P', 'repositoryId=r'])).then(() => null, failure => failure);
+  assert.equal(error?.code, 'AUTH_REQUIRED');
+  assert.doesNotMatch(JSON.stringify({ message: error.message, ...error }), new RegExp(TOKEN));
+  await cli.run(invoke('git', 'pushes', ['project=P', 'repositoryId=r'], ['$skip=1']));
+  assert.equal(cliCalls.length, 2, 'the next read asks for a new token');
+  cli.close();
+});
+
+test('concurrent 401s for one token share a single renewal', async () => {
+  const { cli, cliCalls } = harness({ tokenDelay: true, responses: init => init.headers.authorization.endsWith('-1') ? { status: 401 } : { status: 200 } });
+  await Promise.all([0, 1].map(skip => cli.run(invoke('git', 'pushes', ['project=P', 'repositoryId=r'], [`$skip=${skip}`]))));
+  assert.equal(cliCalls.length, 2, 'one initial token and one shared renewal');
+  cli.close();
+});
+
+test('response body failures keep their timeout and invalid-response classification', async () => {
+  const body = json => ({ raw: { ok: true, status: 200, headers: new Headers(), json } });
+  const timeout = Object.assign(new Error('body stalled'), { name: 'TimeoutError' });
+  for (const [response, code] of [[body(async () => { throw timeout; }), 'TIMEOUT'], [body(async () => { throw new SyntaxError('bad json'); }), 'INVALID_RESPONSE']]) {
+    const { cli } = harness({ responses: [response] });
+    await assert.rejects(cli.run(invoke('git', 'pushes', ['project=P', 'repositoryId=r'])), { code });
+    cli.close();
+  }
 });
