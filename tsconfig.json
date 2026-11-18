@@ -31,6 +31,8 @@
     "src/ui/navigation.js",
     "src/ui/header.js",
     "src/ui/connection.js",
-    "src/ui/settings.js"
+    "src/ui/settings.js",
+    "src/ui/seen-actions.js",
+    "src/ui/history-import.js"
   ]
 }

@@ -1,6 +1,13 @@
+// @ts-check
+
 import { escape as e, dateTime } from './format.js';
 import { required } from './dom.js';
 
+/** /api/state lists backfill jobs; these are the fields the Repositories page shows. */
+/** @typedef {Pick<import('../../server/backfill.js').HistoryJob, 'status' | 'error' | 'pages' | 'lastProgressAt'>} HistoryJob */
+/** @typedef {Pick<import('./refresh.js').Repo, 'id' | 'name'>} HistoryRepo */
+
+/** @param {HistoryJob} job @returns {[string, string]} */
 function statusFor(job) {
   if (job.status === 'completed') return ['Import finished', 'ok'];
   if (job.error || job.status === 'retrying') return ['Import retrying', 'warn'];
@@ -8,11 +15,13 @@ function statusFor(job) {
   return ['Import queued', 'info'];
 }
 
+/** @param {Pick<HistoryRepo, 'id'>} repo @param {HistoryJob | undefined} job */
 export function renderHistoryButton(repo, job) {
   const busy = job && job.status !== 'completed';
   return `<button class="btn sm" type="button" id="import-${e(repo.id)}" data-action="open-history-import" data-id="${e(repo.id)}" ${busy ? 'disabled' : ''}>Import older activity…</button>`;
 }
 
+/** @param {Pick<HistoryRepo, 'id'>} repo @param {HistoryJob | undefined} job */
 export function renderHistoryProgress(repo, job) {
   if (!job) return '';
   const [label, tone] = statusFor(job);
@@ -23,11 +32,18 @@ export function renderHistoryProgress(repo, job) {
   </div>`;
 }
 
+/**
+ * @param {HTMLDialogElement} dialog
+ * @param {{ start: (repoId: string | undefined, days: number | 'all') => Promise<unknown>, onStarted: (repoId: string | undefined) => Promise<void> }} options
+ */
 export function createHistoryImport(dialog, { start, onStarted }) {
   const form = required('form', HTMLFormElement, dialog);
   const repositoryName = required('#history-repository', HTMLElement, dialog);
   const error = required('[role="alert"]', HTMLElement, dialog);
-  const controls = form.querySelectorAll('input, button');
+  const controls = [...form.querySelectorAll('input, button')].filter(
+    control => control instanceof HTMLInputElement || control instanceof HTMLButtonElement,
+  );
+  /** @type {string | undefined} */
   let repoId;
   let submitting = false;
 
@@ -48,7 +64,7 @@ export function createHistoryImport(dialog, { start, onStarted }) {
     try {
       await start(id, range === 'all' ? range : Number(range));
     } catch (failure) {
-      error.textContent = failure.message;
+      error.textContent = failure instanceof Error ? failure.message : String(failure);
       error.hidden = false;
       return;
     } finally {
@@ -66,6 +82,7 @@ export function createHistoryImport(dialog, { start, onStarted }) {
     get open() {
       return dialog.open;
     },
+    /** @param {HistoryRepo} repo */
     show(repo) {
       repoId = repo.id;
       repositoryName.textContent = repo.name;
