@@ -18,7 +18,7 @@ export function createStore(path = ':memory:') {
   const bumpActivity = () => q(`INSERT INTO settings(key,data) VALUES('activityRevision','1')
     ON CONFLICT(key) DO UPDATE SET data=CAST(data AS INTEGER)+1`).run();
   const version = q('PRAGMA user_version').get().user_version;
-  if (version > 8) { db.close(); throw new Error('This database was created by a newer Repo Pulse version.'); }
+  if (version > 9) { db.close(); throw new Error('This database was created by a newer Repo Pulse version.'); }
   db.exec('PRAGMA foreign_keys = ON');
   const transaction = (fn) => {
     db.exec('BEGIN IMMEDIATE');
@@ -76,7 +76,6 @@ export function createStore(path = ':memory:') {
       CREATE TABLE IF NOT EXISTS entities (repo_id TEXT NOT NULL REFERENCES repositories(id) ON DELETE CASCADE,
         type TEXT NOT NULL,id TEXT NOT NULL,data TEXT NOT NULL,PRIMARY KEY(repo_id,type,id));
       CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY,data TEXT NOT NULL);
-      CREATE TABLE IF NOT EXISTS pull_operations (checkout TEXT PRIMARY KEY, operation_id TEXT NOT NULL, data TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS rules (id TEXT PRIMARY KEY,data TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS activity_members (
         sequence INTEGER PRIMARY KEY AUTOINCREMENT,event_id TEXT UNIQUE NOT NULL REFERENCES events(id) ON DELETE CASCADE,
@@ -130,6 +129,10 @@ export function createStore(path = ':memory:') {
         json(CASE WHEN json_extract(data,'$.paused') THEN 'true' ELSE 'false' END)),'$.paused');
         PRAGMA user_version = 8;`);
     }
+    if (version < 9) {
+      // Pull now uses git merge --ff-only, so the crash journal for the custom fast-forward is gone.
+      db.exec('DROP TABLE IF EXISTS pull_operations; PRAGMA user_version = 9;');
+    }
   });
   const selectEvents = 'SELECT e.data,e.seen,e.imported,n.data AS enrichment FROM events e LEFT JOIN enrichment n ON n.event_id=e.id';
   function insertEvents(events) {
@@ -181,19 +184,6 @@ export function createStore(path = ':memory:') {
   }
 
   const store = {
-    pullJournal: {
-      get: checkout => parse(q('SELECT data FROM pull_operations WHERE checkout=?').get(checkout)),
-      begin(checkout, operation) {
-        return q('INSERT OR IGNORE INTO pull_operations VALUES(?,?,?)').run(checkout, operation.id, JSON.stringify(operation)).changes === 1;
-      },
-      release(checkout, operation) {
-        q('UPDATE pull_operations SET data=? WHERE checkout=? AND operation_id=?')
-          .run(JSON.stringify({ ...operation, pid: null }), checkout, operation.id);
-      },
-      clear(checkout, operation) {
-        q('DELETE FROM pull_operations WHERE checkout=? AND operation_id=?').run(checkout, operation.id);
-      },
-    },
     activityRevision,
     listRepos: () => q('SELECT data FROM repositories ORDER BY rowid').all().map(parse),
     getRepo: requireRepo,

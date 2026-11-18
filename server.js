@@ -76,7 +76,7 @@ async function staticFile(pathname, res) {
 
 /** Narrow loopback HTTP boundary. Azure commands, sync and persistence live in separate modules. */
 export function createApp({ store, provider, sync, cli, backfill, demo = false, discover = discoverRepositories, browse = browseFolders,
-  checkoutGit = createCheckoutGit({ journal: store.pullJournal,
+  checkoutGit = createCheckoutGit({
     findPulls: createCheckoutLookup({ cached: store.completedCheckoutPulls, lookup: provider.completedCheckoutPulls }),
     followups: { get: id => store.getSetting(`checkout-followup:${id}`), save: (id, value) => store.setSetting(`checkout-followup:${id}`, value) },
     observations: { get: id => store.getSetting(`checkout:${id}`), save: (id, value) => store.setSetting(`checkout:${id}`, value) },

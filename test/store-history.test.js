@@ -391,6 +391,28 @@ test('a v6 database keeps event IDs, seen flags and repositories when its activi
   check.close(); rmSync(dir,{ recursive: true });
 });
 
+test('v9 migration drops the old Pull journal and keeps repositories and events', () => {
+  const dir = mkdtempSync(join(tmpdir(),'pulse-journal-migration-')),path = join(dir,'v8.sqlite');
+  const old = createStore(path);
+  old.saveRepo(repo);
+  old.insertEvents([event('kept-push')]);
+  old.close();
+  const db = new DatabaseSync(path);
+  db.exec(`CREATE TABLE IF NOT EXISTS pull_operations (checkout TEXT PRIMARY KEY, operation_id TEXT NOT NULL, data TEXT NOT NULL);
+    INSERT INTO pull_operations VALUES('/work/repo','abandoned','{"pid":null}');
+    PRAGMA user_version=8;`);
+  db.close();
+  const store = createStore(path);
+  try {
+    assert.deepEqual(store.listRepos().map(({ id }) => id),[repo.id]);
+    assert.deepEqual(store.listEvents().map(({ id }) => id),['kept-push']);
+  } finally { store.close(); }
+  const check = new DatabaseSync(path);
+  assert.equal(check.prepare("SELECT name FROM sqlite_master WHERE name='pull_operations'").get(),undefined);
+  assert.equal(check.prepare('PRAGMA user_version').get().user_version,9);
+  check.close(); rmSync(dir,{ recursive: true });
+});
+
 test('a fresh database is created with its final activity columns', () => {
   const dir = mkdtempSync(join(tmpdir(),'pulse-fresh-')), path = join(dir,'fresh.sqlite');
   createStore(path).close();
@@ -398,6 +420,6 @@ test('a fresh database is created with its final activity columns', () => {
   const columns = check.prepare('PRAGMA table_info(activity_members)').all();
   assert.deepEqual(columns.filter(column => ['status_id','evidence_id'].includes(column.name)).map(({ name,notnull,dflt_value }) => ({ name,notnull,dflt_value })),
     [{ name: 'status_id',notnull: 1,dflt_value: "''" },{ name: 'evidence_id',notnull: 1,dflt_value: "''" }]);
-  assert.equal(check.prepare('PRAGMA user_version').get().user_version,8);
+  assert.equal(check.prepare('PRAGMA user_version').get().user_version,9);
   check.close(); rmSync(dir,{ recursive: true });
 });

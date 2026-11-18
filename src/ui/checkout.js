@@ -7,9 +7,8 @@ const statusLabels = {
   'upstream-missing': 'Upstream branch not found',
   'upstream-rewritten': 'Upstream history changed', 'fetch-failed': 'Check failed',
   'in-progress': 'Git operation in progress', current: 'Matches last fetched upstream', diverged: 'Branches diverged',
-  'pull-running': 'Pull in progress', 'pull-interrupted': 'Pull interrupted',
 };
-const attention = new Set(['diverged', 'unavailable', 'in-progress', 'different-remote', 'pull-interrupted', 'upstream-rewritten']);
+const attention = new Set(['diverged', 'unavailable', 'in-progress', 'different-remote', 'upstream-rewritten']);
 const errors = new Set(['upstream-missing', 'fetch-failed']);
 const exactCheckTime = new Intl.DateTimeFormat([], { dateStyle: 'medium', timeStyle: 'medium' });
 const relativeCheckTime = new Intl.RelativeTimeFormat([], { numeric: 'always' });
@@ -117,7 +116,6 @@ export function renderCheckout(id, checkout, part) {
       checkout.diagnostic?.advice?.destination === 'local' && checkout.diagnostic.advice.receipt),
     checkout ? reviewMarkup(id, checkout) : '',
     checkout?.nextStep ? `<p class="help" role="status">${e(checkout.nextStep)}</p>` : '',
-    checkout?.recovery ? '<p class="help">Review the checkout in Git. Repo Pulse resumes Pull when the recorded branch is clean and the index is unlocked.</p>' : '',
   ].join('');
 
   const branch = checkout?.branch || (checkout?.state === 'detached' ? checkout.head?.slice(0, 8) : '');
