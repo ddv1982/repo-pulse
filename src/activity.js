@@ -3,10 +3,25 @@
 /** @typedef {'branch-created' | 'branch-deleted' | 'push' | 'pr' | 'build'} ActivityKind */
 /** @typedef {{name?: string, oldObjectId?: string, newObjectId?: string}} RefUpdate */
 /**
+ * A completed PR in push merge evidence (server/merge-evidence.js). `id` and an object `closedBy` come from older rows.
+ * @typedef {{ pullRequestId?: number|string, id?: number|string, url?: string, sourceRefName?: string, targetRefName?: string,
+ *   closedBy?: string | { displayName?: string }, mergeStrategy?: string, mergeCommit?: string }} EvidencePr
+ */
+/** @typedef {{ commitId?: string, parents?: string[], branches?: (string|undefined)[] }} EvidenceCommit */
+/**
+ * Merge evidence that enrichment saves on a push; it is partial while enrichment runs.
+ * @typedef {{ status?: string, checkedAt?: string, limitations?: string[], error?: string | { message?: string },
+ *   prs?: EvidencePr[], commits?: EvidenceCommit[] }} MergeEvidenceData
+ */
+/**
+ * Provider fields of an event, plus enrichment. Each kind fills its own subset (see server/sync.js normalizers).
  * @typedef {RefUpdate & { id?: number|string, buildId?: number|string, pushId?: number|string,
  *   status?: string, result?: string, reason?: string, isDraft?: boolean, evidence?: string,
  *   targetRefName?: string, refUpdates?: RefUpdate[], commits?: unknown[],
- *   definition?: {name?: string}, mergeEvidence?: {prs?: unknown[], commits?: unknown[]} }} EventData
+ *   definition?: {name?: string}, mergeEvidence?: MergeEvidenceData,
+ *   pullRequestId?: number|string, sourceRefName?: string, sourceCommit?: string, targetCommit?: string,
+ *   mergeCommit?: string, mergeStrategy?: string, closedBy?: string, sourceVersion?: string, sourceBranch?: string,
+ *   commitId?: string, push?: { pushId?: number|string } }} EventData
  */
 /**
  * @typedef {{ id: string, repoId: string, kind: ActivityKind, time: string, observedAt?: string,

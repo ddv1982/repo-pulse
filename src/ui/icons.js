@@ -1,3 +1,9 @@
+// @ts-check
+
+/** theme.js defines this before any module loads. */
+/** @typedef {Window & { repoPulseTheme?: { get: () => string } }} ThemedWindow */
+
+/** @param {string} content */
 const svg = content =>
   `<svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">${content}</svg>`;
 export const icons = {
@@ -14,6 +20,6 @@ export const icons = {
 };
 
 export function themeSwitch() {
-  const selected = window.repoPulseTheme?.get() || 'system';
-  return `<div class="seg theme" role="group" aria-label="Theme">${['system', 'light', 'dark'].map(value => `<button type="button" data-theme="${value}" aria-label="${value[0].toUpperCase() + value.slice(1)}" title="${value[0].toUpperCase() + value.slice(1)}" aria-pressed="${value === selected}">${icons[value]}</button>`).join('')}</div>`;
+  const selected = /** @type {ThemedWindow} */ (window).repoPulseTheme?.get() || 'system';
+  return `<div class="seg theme" role="group" aria-label="Theme">${/** @type {const} */ (['system', 'light', 'dark']).map(value => `<button type="button" data-theme="${value}" aria-label="${value[0].toUpperCase() + value.slice(1)}" title="${value[0].toUpperCase() + value.slice(1)}" aria-pressed="${value === selected}">${icons[value]}</button>`).join('')}</div>`;
 }

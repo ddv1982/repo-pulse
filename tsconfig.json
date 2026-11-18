@@ -15,6 +15,15 @@
     "src/activity-text.js",
     "src/ui/activity-data.js",
     "src/ui/refresh.js",
-    "src/api.js"
+    "src/api.js",
+    "src/ui/activity-detail.js",
+    "src/ui/feed.js",
+    "src/ui/format.js",
+    "src/ui/merge-evidence.js",
+    "src/ui/activity-trail.js",
+    "src/ui/activity-summary.js",
+    "src/ui/health.js",
+    "src/ui/icons.js",
+    "src/ui/type-filter.js"
   ]
 }

@@ -1,3 +1,5 @@
+// @ts-check
+
 import {
   escape as e,
   branchName,
@@ -19,6 +21,12 @@ import { renderTypeFilter } from './type-filter.js';
 import { mergeEvidenceBadge } from './merge-evidence.js';
 export { renderDetail } from './activity-detail.js';
 
+/** @typedef {import('./refresh.js').PageState} PageState */
+/** @typedef {import('../activity.js').ActivityItem} ActivityItem */
+/** @typedef {Pick<import('./navigation.js').NavigationState, 'route' | 'repoIds' | 'search' | 'kind' | 'filtersOpen'>} FeedView */
+/** @typedef {ReturnType<typeof healthFor>} FeedHealth */
+
+/** @param {Pick<FeedView, 'search' | 'kind' | 'filtersOpen'>} ui @param {PageState['activity'] | undefined} activity */
 export function filterControls(ui, activity) {
   const desktop = globalThis.matchMedia?.('(min-width: 640px)').matches ?? true;
   const active = Number(Boolean(ui.search)) + Number(Boolean(ui.kind));
@@ -27,6 +35,7 @@ export function filterControls(ui, activity) {
     <span class="spacer"></span><button class="btn sm" type="button" data-action="clear-filters">Clear filters</button></div></details>`;
 }
 
+/** @param {ActivityItem} record @param {PageState} state */
 function row(record, state) {
   const repo = state.repos.find(item => item.id === record.repoId);
   const tone = activityTone(record);
@@ -41,11 +50,13 @@ function row(record, state) {
     <div class="rowact">${azureLink(record.url)}${record.imported ? '' : `<button class="ghost sm" type="button" data-action="ack-item" data-id="${e(record.id)}" data-event-ids="${ids}" aria-label="Mark ${e(title)} ${record.unseen ? 'seen' : 'unseen'}">${record.unseen ? '✓ Seen' : '↶ Unseen'}</button>`}</div></li>`;
 }
 
+/** @param {string} title @param {ActivityItem[]} records @param {PageState} state @param {{ open?: boolean, description?: string }} [options] */
 function group(title, records, state, { open = true, description = '' } = {}) {
   if (!records.length) return '';
   return `<section class="group"><details data-group="${e(title)}" ${open ? 'open' : ''}><summary class="ghead">${e(title)} <span class="pill u">${records.length}</span><span class="note">${e(description)}</span></summary><ul class="rows">${records.map(record => row(record, state)).join('')}</ul></details></section>`;
 }
 
+/** @param {PageState} state @param {Pick<FeedView, 'repoIds'>} ui */
 function healthFor(state, ui) {
   const streams = state.streams.filter(stream => ui.repoIds === null || ui.repoIds.includes(stream.repoId));
   const status = streams.map(stream => ({
@@ -67,20 +78,24 @@ function healthFor(state, ui) {
   };
 }
 
+/** @param {PageState} state @param {FeedHealth} health */
 function monitoringNotice(state, health) {
   const message =
     state.settings.refreshEnabled === false
       ? '<strong>Automatic Azure checks are off</strong>Showing cached activity. <a href="#settings">Enable checks</a> or refresh manually.'
       : '';
   const error = health.errors[0];
-  const lag = state.diagnostics?.sync?.lag;
+  const sync = state.diagnostics?.sync;
+  // Demo mode reports no lag.
+  const lag = sync && 'lag' in sync ? sync.lag : undefined;
   const behind =
-    lag?.maxDelayMs >= 3 * 60000
+    lag && lag.maxDelayMs >= 3 * 60000
       ? `<div class="banner warn" role="status"><div><strong>Updates are delayed</strong>Azure checks are about ${e(Math.round(lag.maxDelayMs / 60000))} minutes behind schedule.</div></div>`
       : '';
   return `${message ? `<div class="banner info"><div>${message}</div></div>` : ''}${behind}${error ? `<div class="banner warn" role="status"><div><strong>Some activity could not refresh</strong>${e(streamLabel(error.stream.stream))}: ${e(error.error)} <a href="#repositories">Check repository details</a>.</div></div>` : health.stale.length ? '<div class="banner warn"><div><strong>Some cached activity is stale</strong><a href="#repositories">Check repository details</a> for the last successful checks.</div></div>' : health.resuming && !message ? '<div class="banner info" role="status"><div><strong>Catching up after enabling Auto checks</strong>Showing cached activity as checks run.</div></div>' : health.pending.length && !message ? '<div class="banner info"><div><strong>Initial import in progress</strong>Existing history is imported separately from new updates.</div></div>' : ''}`;
 }
 
+/** @param {PageState} state @param {FeedView} ui */
 export function renderFeed(state, ui) {
   const records = state.activity.items;
   const health = healthFor(state, ui);
