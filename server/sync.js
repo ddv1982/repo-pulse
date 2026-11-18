@@ -68,6 +68,21 @@ const prState = pr => ({
   source: pr.lastMergeSourceCommit?.commitId,
   target: pr.targetRefName,
 });
+// Active PRs can expose a successful preview merge. Only completion establishes
+// the actual merge result; retain its metadata from this existing response.
+/** @param {AzureRecord} item */
+const prCompletion = item =>
+  item.status === 'completed'
+    ? {
+        mergeCommit: item.lastMergeCommit?.commitId,
+        targetCommit: item.lastMergeTargetCommit?.commitId,
+        mergeStatus: item.mergeStatus,
+        mergeStrategy: item.completionOptions?.mergeStrategy,
+        closedBy: actorName(item.closedBy),
+        sourceRepositoryId: item.forkSource ? item.forkSource.repository?.id : item.repository?.id,
+        targetRepositoryId: item.repository?.id,
+      }
+    : {};
 /** @param {AzureRecord} build */
 const buildState = build => ({
   status: build.status,
@@ -245,6 +260,16 @@ export function createSync({
     };
   }
   /**
+   * A non-status change to a live PR is dated when observed; otherwise the event takes the
+   * closure time Azure reports, or the creation time for a PR seen for the first time.
+   * @param {AzureRecord} item @param {any} previous @param {boolean} historical
+   */
+  function prEventTime(item, previous, historical) {
+    const unchangedStatus = previous?.fingerprint?.status === item.status;
+    if (previous && !historical && unchangedStatus) return iso(now());
+    return (item.status !== 'active' ? item.closedDate : null) || (!previous ? item.creationDate : null) || iso(now());
+  }
+  /**
    * @typedef {{ repo: WatchedRepo, add: (kind: ActivityKind, sourceId: string, detail: EventDetail) => void,
    *   entities: Entity[], jobs: MergeJob[], refs: Map<string, any>|null, historical: boolean }} NormalizeContext
    * @typedef {(item: AzureRecord, context: NormalizeContext) => void} Normalizer
@@ -315,30 +340,11 @@ export function createSync({
       const key = String(item.pullRequestId);
       const { previous, changed, sourceId, entity } = snapshot(repo, 'pr', key, prState(item), historical);
       if (changed) {
-        const unchangedStatus = previous?.fingerprint?.status === item.status;
-        const time =
-          previous && !historical && unchangedStatus
-            ? iso(now())
-            : (item.status !== 'active' ? item.closedDate : null) || (!previous ? item.creationDate : null) || iso(now());
-        // Active PRs can expose a successful preview merge. Only completion establishes
-        // the actual merge result; retain its metadata from this existing response.
-        const completion =
-          item.status === 'completed'
-            ? {
-                mergeCommit: item.lastMergeCommit?.commitId,
-                targetCommit: item.lastMergeTargetCommit?.commitId,
-                mergeStatus: item.mergeStatus,
-                mergeStrategy: item.completionOptions?.mergeStrategy,
-                closedBy: actorName(item.closedBy),
-                sourceRepositoryId: item.forkSource ? item.forkSource.repository?.id : item.repository?.id,
-                targetRepositoryId: item.repository?.id,
-              }
-            : {};
         add('pr', sourceId, {
           title: `PR ${key} · ${item.title || 'Untitled'}`,
           branch: branchName(item.sourceRefName),
           actor: actorName(item.createdBy),
-          time,
+          time: prEventTime(item, previous, historical),
           summary: `${item.isDraft ? 'Draft · ' : ''}${item.status || 'unknown'} → ${branchName(item.targetRefName)}`,
           url: safeAzureUrl(item._links?.web?.href, `${repo.webUrl}/pullrequest/${encodeURIComponent(key)}`),
           data: {
@@ -348,7 +354,7 @@ export function createSync({
             sourceRefName: item.sourceRefName,
             targetRefName: item.targetRefName,
             sourceCommit: item.lastMergeSourceCommit?.commitId,
-            ...completion,
+            ...prCompletion(item),
           },
         });
       }
@@ -481,10 +487,13 @@ export function createSync({
     }
     return false;
   }
-  async function runPage() {
-    if (stopped) return;
-    ensureStreams();
-    const automatic = store.getSetting('refreshEnabled', true) !== false;
+  /** @param {WatchedRepo} repo */
+  function watching(repo) {
+    return !stopped && store.listRepos().some(entry => entry.id === repo.id && !entry.disabled);
+  }
+  // Least recently attempted first, limited to enabled repositories and, with automatic refresh off, manual requests.
+  /** @param {boolean} automatic */
+  function dueStreams(automatic) {
     const repos = new Map(
       store
         .listRepos()
@@ -495,11 +504,10 @@ export function createSync({
       .getStreams()
       .filter(state => repos.has(state.repoId) && (automatic || state.manual) && Date.parse(String(state.nextAt || 0)) <= now());
     due.sort((a, b) => (Date.parse(String(a.lastAttempt || 0)) || 0) - (Date.parse(String(b.lastAttempt || 0)) || 0));
-    if (!due.length) {
-      await runBackground(automatic);
-      return;
-    }
-    if (liveTurns >= LIVE_TURNS && (await runBackground(automatic))) return;
+    return { due, repos };
+  }
+  /** @param {StreamState[]} due @param {Map<string, WatchedRepo>} repos */
+  function takeLiveTurn(due, repos) {
     liveTurns = Math.min(liveTurns + 1, LIVE_TURNS);
     lastTurn.live = iso(now());
     // Rotating equal-priority entries avoids repeatedly selecting a multi-page first stream.
@@ -508,56 +516,89 @@ export function createSync({
     // `due` only holds streams of enabled repositories in `repos`.
     const repo = /** @type {WatchedRepo} */ (repos.get(state.repoId));
     lastKey = `${state.repoId}:${state.stream}`;
+    return { state, repo };
+  }
+  /**
+   * Reads one page plus, on the last page of a snapshot stream, the entities it no longer lists.
+   * Returns null when the repository stopped being watched during a read.
+   * @param {WatchedRepo} repo @param {StreamState} state @param {StreamWindow} window
+   */
+  async function readPage(repo, state, window) {
+    const page = await provider.read(repo, state.stream, { since: window.since, until: window.until, cursor: state.cursor || null });
+    if (!page || !Array.isArray(page.items)) throw new Error('Azure returned an invalid page.');
+    // Removal while the provider was in flight must not resurrect a local watch.
+    if (!watching(repo)) return null;
+    const complete = !page.nextCursor;
+    /** @type {string[]|undefined} */
+    const activeIds = ['activeBuilds', 'prs'].includes(state.stream)
+      ? [...(state.activeIds || []), ...page.items.map(item => String(item.id || item.pullRequestId))]
+      : undefined;
+    let items = page.items;
+    if (complete && state.stream === 'activeBuilds' && provider.buildsById) {
+      const missing = store
+        .listEntities(repo.id, 'build')
+        .filter(entry => entry.data.status !== 'completed' && !activeIds?.includes(entry.id))
+        .slice(0, 20)
+        .map(entry => entry.id);
+      if (missing.length) items = [...items, ...(await provider.buildsById(repo, missing))];
+    }
+    if (complete && state.stream === 'prs' && provider.pullRequest) {
+      const missing = store
+        .listEntities(repo.id, 'pr')
+        .filter(entry => entry.data.status === 'active' && !activeIds?.includes(entry.id))
+        .slice(0, 3);
+      for (const entry of missing) {
+        if (!watching(repo)) return null;
+        items = [...items, await provider.pullRequest(repo, entry.id)];
+      }
+    }
+    return { page, complete, activeIds, items };
+  }
+  /**
+   * @param {WatchedRepo} repo @param {StreamState} state @param {StartedStream} working
+   * @param {{ page: { items: AzureRecord[] }, complete: boolean, items: AzureRecord[] }} read
+   */
+  function pageBatch(repo, state, working, { page, complete, items }) {
+    if (state.stream !== 'refs') return { output: normalize(repo, state.stream, items, working), pendingItems: undefined };
+    const pendingItems = [...(state.pendingItems || []), ...page.items];
+    /** @type {SyncBatch} */
+    const output = complete ? reconcileRefs(repo, pendingItems, working) : { events: [], entities: [] };
+    return { output, pendingItems };
+  }
+  /**
+   * @param {WatchedRepo} repo @param {StreamState} state @param {StartedStream} working
+   * @param {Awaited<ReturnType<typeof readPage>> & {}} read
+   */
+  function commitRead(repo, state, working, read) {
+    const { page, complete, activeIds } = read;
+    const { output, pendingItems } = pageBatch(repo, state, working, read);
+    // A refresh requested after this window opened must survive the commit of a page read before it.
+    const latest = store.getStreams().find(entry => entry.repoId === repo.id && entry.stream === state.stream) || state;
+    const quietCycles = output.events.some(event => !event.imported) ? 0 : (state.quietCycles || 0) + 1;
+    const cadence = !isForeground() || quietCycles >= 2 ? Math.max(intervalMs, 300000) : intervalMs;
+    const next = complete
+      ? completePage(working, latest, { at: now(), delayMs: state.stream === 'refs' ? refsIntervalMs : cadence, quietCycles })
+      : nextPage(working, latest, { at: now(), cursor: page.nextCursor, pendingItems, activeIds });
+    store.commitPage({ repoId: repo.id, stream: state.stream, state: next, ...output });
+    for (const event of output.events) if (event.kind === 'pr' && event.data?.status === 'completed') onPrCompleted?.(repo, event.data);
+    counters.pages++;
+  }
+  async function runPage() {
+    if (stopped) return;
+    ensureStreams();
+    const automatic = store.getSetting('refreshEnabled', true) !== false;
+    const { due, repos } = dueStreams(automatic);
+    if (!due.length) {
+      await runBackground(automatic);
+      return;
+    }
+    if (liveTurns >= LIVE_TURNS && (await runBackground(automatic))) return;
+    const { state, repo } = takeLiveTurn(due, repos);
     const working = startPage(state, now(), overlapMs);
-    const { window } = working;
     try {
-      const page = await provider.read(repo, state.stream, { since: window.since, until: window.until, cursor: state.cursor || null });
-      if (!page || !Array.isArray(page.items)) throw new Error('Azure returned an invalid page.');
-      // Removal while the provider was in flight must not resurrect a local watch.
-      if (stopped || !store.listRepos().some(entry => entry.id === repo.id && !entry.disabled)) return;
-      const complete = !page.nextCursor;
-      /** @type {SyncBatch} */
-      let output;
-      /** @type {AzureRecord[]|undefined} */
-      let pendingItems;
-      /** @type {string[]|undefined} */
-      const activeIds = ['activeBuilds', 'prs'].includes(state.stream)
-        ? [...(state.activeIds || []), ...page.items.map(item => String(item.id || item.pullRequestId))]
-        : undefined;
-      let items = page.items;
-      if (complete && state.stream === 'activeBuilds' && provider.buildsById) {
-        const missing = store
-          .listEntities(repo.id, 'build')
-          .filter(entry => entry.data.status !== 'completed' && !activeIds?.includes(entry.id))
-          .slice(0, 20)
-          .map(entry => entry.id);
-        if (missing.length) items = [...items, ...(await provider.buildsById(repo, missing))];
-      }
-      if (complete && state.stream === 'prs' && provider.pullRequest) {
-        const missing = store
-          .listEntities(repo.id, 'pr')
-          .filter(entry => entry.data.status === 'active' && !activeIds?.includes(entry.id))
-          .slice(0, 3);
-        for (const entry of missing) {
-          if (stopped || !store.listRepos().some(current => current.id === repo.id && !current.disabled)) return;
-          items = [...items, await provider.pullRequest(repo, entry.id)];
-        }
-      }
-      if (stopped || !store.listRepos().some(entry => entry.id === repo.id && !entry.disabled)) return;
-      if (state.stream === 'refs') {
-        pendingItems = [...(state.pendingItems || []), ...page.items];
-        output = complete ? reconcileRefs(repo, pendingItems, working) : { events: [], entities: [] };
-      } else output = normalize(repo, state.stream, items, working);
-      // A refresh requested after this window opened must survive the commit of a page read before it.
-      const latest = store.getStreams().find(entry => entry.repoId === repo.id && entry.stream === state.stream) || state;
-      const quietCycles = output.events.some(event => !event.imported) ? 0 : (state.quietCycles || 0) + 1;
-      const cadence = !isForeground() || quietCycles >= 2 ? Math.max(intervalMs, 300000) : intervalMs;
-      const next = complete
-        ? completePage(working, latest, { at: now(), delayMs: state.stream === 'refs' ? refsIntervalMs : cadence, quietCycles })
-        : nextPage(working, latest, { at: now(), cursor: page.nextCursor, pendingItems, activeIds });
-      store.commitPage({ repoId: repo.id, stream: state.stream, state: next, ...output });
-      for (const event of output.events) if (event.kind === 'pr' && event.data?.status === 'completed') onPrCompleted?.(repo, event.data);
-      counters.pages++;
+      const read = await readPage(repo, state, working.window);
+      if (!read || !watching(repo)) return;
+      commitRead(repo, state, working, read);
     } catch (error) {
       if (!store.listRepos().some(entry => entry.id === repo.id)) return;
       store.saveStream(failPage(working, now(), error, intervalMs));
