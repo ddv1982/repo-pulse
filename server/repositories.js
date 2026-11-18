@@ -18,6 +18,7 @@ const component = value => {
   return decoded;
 };
 
+/** @param {unknown} value Anything that is not an Azure DevOps organization URL is refused. */
 export function normalizeOrganization(value) {
   let url;
   try {

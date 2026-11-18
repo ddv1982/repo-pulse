@@ -1,3 +1,5 @@
+// @ts-check
+
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { mkdtemp, writeFile, rm, stat } from 'node:fs/promises';
@@ -5,17 +7,38 @@ import { tmpdir } from 'node:os';
 import { join, win32 } from 'node:path';
 import { normalizeOrganization } from './repositories.js';
 
+/**
+ * @typedef {Error & { code: string }} CliError
+ * @typedef {{ code?: string, name?: string, stderr?: unknown, killed?: boolean, message?: string }} ExecFailure
+ * @typedef {{ signal: AbortSignal, timeoutMs: number }} ExecutorOptions
+ * @typedef {(args: string[], options: ExecutorOptions) => Promise<unknown>} Executor
+ * @typedef {{ file: string, prefix: string[], env: Record<string, string> }} AzCommand
+ * @typedef {'commitsbatch' | 'pullrequestquery'} ReadQueryResource
+ * @typedef {{ organization: string, project: string, repositoryId: string, resource: ReadQueryResource }} ReadQueryTarget
+ * @typedef {{ type: 'lastMergeCommit' | 'commit', items: string[] }} PullRequestQuery
+ * @typedef {{ ids: string[] } | { queries: PullRequestQuery[] }} ReadQueryBody
+ * @typedef {{ args: string[], body?: ReadQueryBody, key: string, resolve: (value: unknown) => void, reject: (reason: unknown) => void }} QueueJob
+ * @typedef {{ code: string | undefined, message: string | undefined }} LastError
+ */
+
 const exec = promisify(execFile);
+/** @type {Record<string, Set<string>>} */
 const RESOURCES = {
   git: new Set(['pushes', 'refs', 'pullrequests', 'commits']),
   build: new Set(['builds']),
   location: new Set(['connectiondata']),
 };
 
+/**
+ * @param {string} code
+ * @param {string} message
+ * @returns {CliError}
+ */
 export function cliError(code, message) {
   return Object.assign(new Error(message), { code });
 }
 
+/** @param {ExecFailure | null | undefined} error */
 export function classifyCliError(error) {
   if (error?.code === 'CLOSED') return error;
   // execFile's message repeats the command line, whose arguments must not drive classification.
@@ -40,6 +63,7 @@ export function classifyCliError(error) {
   return cliError('CLI_ERROR', 'Azure CLI could not complete this read. Check access and try again.');
 }
 
+/** @param {unknown} args */
 function allowed(args) {
   if (!Array.isArray(args) || args.some(a => typeof a !== 'string' || a.includes('\0'))) return false;
   if (args.some(a => ['--debug', '--verbose', '--query', '--in-file', '--out-file', '--subscription'].includes(a))) return false;
@@ -51,11 +75,16 @@ function allowed(args) {
   if (['repos show --repository', 'devops project list'].some(prefix => command === prefix || args.slice(0, 3).join(' ') === prefix))
     return true;
   if (args.slice(0, 2).join(' ') !== 'devops invoke') return false;
+  /** @param {string} flag */
   const value = flag => args[args.indexOf(flag) + 1];
   if (!args.includes('--http-method') || value('--http-method') !== 'GET') return false;
   return RESOURCES[value('--area')]?.has(value('--resource')?.toLowerCase()) === true && args.includes('--api-version');
 }
 
+/**
+ * @param {unknown} ids
+ * @returns {string[]}
+ */
 export function normalizeCommitIds(ids) {
   if (!Array.isArray(ids) || ids.length > 100 || ids.some(id => typeof id !== 'string' || !/^[0-9a-f]{40}$/i.test(id))) {
     throw cliError('INVALID_QUERY', 'Commit queries require at most 100 complete commit IDs.');
@@ -63,9 +92,21 @@ export function normalizeCommitIds(ids) {
   return [...new Set(ids.map(id => id.toLowerCase()))];
 }
 
+/**
+ * @param {string | undefined} resource
+ * @param {unknown} body
+ * @returns {ReadQueryBody}
+ */
 function readQueryBody(resource, body) {
+  /**
+   * Values stay untyped: callers check each one before use.
+   * @template {string} K
+   * @param {unknown} object
+   * @param {K[]} keys
+   * @returns {object is Record<K, any>}
+   */
   const exactKeys = (object, keys) =>
-    object &&
+    !!object &&
     typeof object === 'object' &&
     !Array.isArray(object) &&
     Object.keys(object).length === keys.length &&
@@ -95,8 +136,10 @@ function readQueryBody(resource, body) {
   throw cliError('INVALID_QUERY', 'Only bounded commit and commit-to-PR read queries are allowed.');
 }
 
+/** @param {Partial<ReadQueryTarget>} [target] */
 function readQueryArgs({ organization, project, repositoryId, resource } = {}) {
   if (
+    typeof resource !== 'string' ||
     !['commitsbatch', 'pullrequestquery'].includes(resource) ||
     typeof project !== 'string' ||
     !project ||
@@ -129,6 +172,7 @@ function readQueryArgs({ organization, project, repositoryId, resource } = {}) {
   ];
 }
 
+/** @param {string} path */
 const isFile = path =>
   stat(path).then(
     entry => entry.isFile(),
@@ -139,11 +183,13 @@ const isFile = path =>
  * Windows ships az as a batch file, which Node runs only through cmd.exe, and cmd.exe would
  * reparse arguments such as project names (CVE-2024-27980). Instead run the interpreter each
  * official launcher calls, with the same flags, so arguments go to Python unparsed.
+ * @param {{ platform?: NodeJS.Platform, env?: NodeJS.ProcessEnv, exists?: (path: string) => Promise<boolean> }} [options]
+ * @returns {Promise<AzCommand>}
  */
 export async function resolveAzCommand({ platform = process.platform, env = process.env, exists = isFile } = {}) {
   if (platform !== 'win32') return { file: 'az', prefix: [], env: {} };
   const pathKey = Object.keys(env).find(key => key.toUpperCase() === 'PATH');
-  const dirs = String(env[pathKey] || '')
+  const dirs = String(env[String(pathKey)] || '')
     .split(';')
     .map(dir => dir.trim().replace(/^"(.*)"$/, '$1'))
     .filter(Boolean);
@@ -172,7 +218,9 @@ export async function resolveAzCommand({ platform = process.platform, env = proc
   throw Object.assign(new Error('Azure CLI was not found on PATH.'), { code: 'ENOENT' });
 }
 
+/** @type {Promise<AzCommand> | undefined} */
 let azCommand;
+/** @type {(args: string[], options: ExecutorOptions) => Promise<string>} */
 export async function defaultExecutor(args, { signal, timeoutMs }) {
   // Resolve once per process; a failed lookup is retried so a later install is picked up.
   azCommand ||= resolveAzCommand().catch(error => {
@@ -190,7 +238,13 @@ export async function defaultExecutor(args, { signal, timeoutMs }) {
   return stdout;
 }
 
-/** One process-wide queue: callers cannot bypass rate or concurrency limits. */
+/**
+ * One process-wide queue: callers cannot bypass rate or concurrency limits.
+ * @param {{
+ *   limitPerMinute?: number, concurrency?: number, timeoutMs?: number, executor?: Executor, now?: () => number,
+ *   setTimer?: (callback: () => void, ms: number) => NodeJS.Timeout, clearTimer?: (timer: NodeJS.Timeout) => void, tempRoot?: string,
+ * }} [options]
+ */
 export function createAzureCli({
   limitPerMinute = 12,
   concurrency = 2,
@@ -203,14 +257,24 @@ export function createAzureCli({
 } = {}) {
   if (!Number.isInteger(limitPerMinute) || limitPerMinute < 1 || !Number.isInteger(concurrency) || concurrency < 1)
     throw new Error('Invalid CLI limits');
+  /** @type {QueueJob[]} */
   const pending = [],
+    /** @type {Map<string, Promise<unknown>>} */
     inFlight = new Map(),
+    /** @type {Set<AbortController>} */
     running = new Set(),
+    /** @type {number[]} */
     starts = [];
+  /** @type {NodeJS.Timeout | undefined} */
   let timer,
     closed = false,
     totalStarts = 0,
+    /** @type {LastError | null} */
     lastError = null;
+  /**
+   * @param {QueueJob} job
+   * @param {AbortSignal} signal
+   */
   async function executeJob(job, signal) {
     if (!job.body) return executor(job.args, { signal, timeoutMs });
     // Invoke accepts JSON through a file only. The app owns this private file;
@@ -225,10 +289,16 @@ export function createAzureCli({
       await rm(directory, { recursive: true, force: true });
     }
   }
+  /**
+   * @param {string[]} args
+   * @param {ReadQueryBody} [body]
+   * @returns {Promise<unknown>}
+   */
   function enqueue(args, body) {
     if (closed) return Promise.reject(cliError('CLOSED', 'Azure CLI queue is closed.'));
     const key = JSON.stringify([args, body]);
-    if (inFlight.has(key)) return inFlight.get(key);
+    const existing = inFlight.get(key);
+    if (existing) return existing;
     const promise = new Promise((resolve, reject) => pending.push({ args: [...args], body, key, resolve, reject }));
     inFlight.set(key, promise);
     pump();
@@ -243,7 +313,8 @@ export function createAzureCli({
     const time = now();
     while (starts.length && starts[0] <= time - 60_000) starts.shift();
     while (pending.length && running.size < concurrency && starts.length < limitPerMinute) {
-      const job = pending.shift();
+      // The loop condition guarantees a job.
+      const job = /** @type {QueueJob} */ (pending.shift());
       const controller = new AbortController();
       running.add(controller);
       starts.push(now());
@@ -274,11 +345,16 @@ export function createAzureCli({
     }
   }
   return {
+    /** @param {string[]} args */
     run(args) {
       if (closed) return Promise.reject(cliError('CLOSED', 'Azure CLI queue is closed.'));
       if (!allowed(args)) return Promise.reject(cliError('READ_ONLY', 'This Azure CLI operation is not allowed.'));
       return enqueue(args);
     },
+    /**
+     * @param {Partial<ReadQueryTarget>} repository
+     * @param {unknown} body
+     */
     runReadQuery(repository, body) {
       try {
         const args = readQueryArgs(repository);

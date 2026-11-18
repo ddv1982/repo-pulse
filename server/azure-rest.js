@@ -1,13 +1,24 @@
+// @ts-check
+
 import { readFile } from 'node:fs/promises';
 import { setGlobalProxyFromEnv } from 'node:http';
 import tls from 'node:tls';
 import { normalizeOrganization } from './repositories.js';
 import { cliError } from './azure-cli.js';
 
+/**
+ * @typedef {import('./azure-cli.js').Executor} Executor
+ * @typedef {import('./azure-cli.js').ExecutorOptions} ExecutorOptions
+ * @typedef {{ url: URL, method?: string, inFile?: string }} RestRequest
+ * @typedef {{ value: string, expiresAt: number }} CachedToken
+ * @typedef {{ accessToken?: unknown, expires_on?: unknown, expiresOn?: unknown }} TokenResponse
+ */
+
 /** The Microsoft Entra application ID of Azure DevOps, the audience of its access tokens. */
 export const AZURE_DEVOPS_RESOURCE = '499b84ac-1321-427f-aa17-267ca6975798';
 const RENEW_BEFORE_MS = 5 * 60000;
 const READ_QUERIES = new Set(['commitsbatch', 'pullrequestquery']);
+/** @param {string} message */
 const refused = message => Object.assign(new Error(message), { stderr: 'not in the command group' });
 
 /**
@@ -26,8 +37,11 @@ export function useSystemNetworkSettings(env = process.env) {
 }
 
 /** Collects `--flag value...` groups. A repeated flag is refused, so this agrees with the allowlist, which reads the first one. */
+/** @param {string[]} args */
 function flags(args) {
+  /** @type {Record<string, string[]>} */
   const values = {};
+  /** @type {string | undefined} */
   let current;
   for (const arg of args) {
     if (arg.startsWith('--')) {
@@ -38,6 +52,7 @@ function flags(args) {
   return values;
 }
 
+/** @param {string[]} [entries] */
 const pairs = (entries = []) =>
   Object.fromEntries(
     entries.map(entry => {
@@ -47,11 +62,16 @@ const pairs = (entries = []) =>
   );
 
 /** A route value must be one non-empty path segment; `.` and `..` would make URL parsing move up the path. */
+/** @param {unknown} value */
 function segment(value) {
   if (typeof value !== 'string' || !value || value === '.' || value === '..') throw refused('Invalid Azure DevOps route.');
   return encodeURIComponent(value);
 }
 
+/**
+ * @param {string[]} args
+ * @returns {RestRequest}
+ */
 function requestFor(args) {
   const values = flags(args);
   const organization = normalizeOrganization(values['--organization']?.[0]);
@@ -74,10 +94,15 @@ function requestFor(args) {
   return { url, method, inFile };
 }
 
-/** Maps a failed request or body read onto the errors classifyCliError understands. */
+/**
+ * Maps a failed request or body read onto the errors classifyCliError understands.
+ * @param {unknown} error
+ */
 function transportError(error) {
-  if (error?.name === 'AbortError') return error;
-  if (error?.name === 'TimeoutError') return Object.assign(new Error('Azure DevOps timed out.'), { code: 'ETIMEDOUT' });
+  // Whatever fetch or the body stream threw.
+  const name = /** @type {{ name?: unknown } | null | undefined} */ (error)?.name;
+  if (name === 'AbortError') return error;
+  if (name === 'TimeoutError') return Object.assign(new Error('Azure DevOps timed out.'), { code: 'ETIMEDOUT' });
   return Object.assign(new Error('Azure DevOps could not be reached.'), { stderr: 'connection failed' });
 }
 
@@ -85,14 +110,20 @@ function transportError(error) {
  * Executor for createAzureCli that sends `devops invoke` reads over HTTPS with one Azure CLI token
  * instead of starting az for each read. Other commands still run through az. The token stays in this
  * closure: it is never returned, logged or put in an error, and run() still refuses to request one.
+ * @param {{ cliExecutor: Executor, fetch?: typeof globalThis.fetch, now?: () => number }} options
  */
-export function createRestExecutor({ cliExecutor, fetch = globalThis.fetch, now = Date.now } = {}) {
-  let token, renewal;
+export function createRestExecutor({ cliExecutor, fetch = globalThis.fetch, now = Date.now }) {
+  /** @type {CachedToken | undefined} */
+  let token,
+    /** @type {Promise<string> | undefined} */
+    renewal;
+  /** @param {ExecutorOptions} options */
   function accessToken(options) {
     if (token && token.expiresAt - RENEW_BEFORE_MS > now()) return Promise.resolve(token.value);
     renewal ||= Promise.resolve()
       .then(() => cliExecutor(['account', 'get-access-token', '--resource', AZURE_DEVOPS_RESOURCE], options))
       .then(stdout => {
+        /** @type {any} Untrusted CLI output; each field is checked below before use. */
         let data;
         try {
           data = typeof stdout === 'string' ? JSON.parse(stdout) : stdout;
@@ -115,6 +146,12 @@ export function createRestExecutor({ cliExecutor, fetch = globalThis.fetch, now 
       });
     return renewal;
   }
+  /**
+   * @param {RestRequest} request
+   * @param {string | undefined} body
+   * @param {ExecutorOptions} options
+   * @param {string} bearer
+   */
   async function send(request, body, options, bearer) {
     const signal = AbortSignal.any([options.signal, AbortSignal.timeout(options.timeoutMs)].filter(Boolean));
     try {
@@ -135,11 +172,20 @@ export function createRestExecutor({ cliExecutor, fetch = globalThis.fetch, now 
       throw transportError(error);
     }
   }
+  /**
+   * @param {string[]} args
+   * @param {ExecutorOptions} options
+   * @returns {Promise<unknown>}
+   */
   return async function restExecutor(args, options) {
     if (args[0] !== 'devops' || args[1] !== 'invoke') return cliExecutor(args, options);
     const request = requestFor(args);
     const body = request.inFile ? await readFile(request.inFile, 'utf8') : undefined;
     // Only the rejected token is dropped; a token another request already renewed stays in use.
+    /**
+     * @param {Response} response
+     * @param {string} bearer
+     */
     const rejected = (response, bearer) => {
       if (response.status === 401 && token?.value === bearer) token = undefined;
       return response.status === 401;
