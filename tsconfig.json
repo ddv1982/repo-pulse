@@ -14,6 +14,7 @@
     "src/activity-text.js",
     "src/ui/activity-data.js",
     "server/backfill.js",
+    "server/sync.js",
     "server/activity-query.js",
     "server/checkout-git.js",
     "src/ui/refresh.js"
