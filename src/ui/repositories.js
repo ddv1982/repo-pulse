@@ -5,8 +5,16 @@ import { renderCheckout } from './checkout.js';
 import { renderHistoryButton, renderHistoryProgress } from './history-import.js';
 import { displayLocalPath } from './repository-picker.js';
 
+/** @typedef {import('./refresh.js').PageState} PageState */
+/** @typedef {import('./refresh.js').Repo} Repo */
+/** @typedef {import('./checkout.js').CheckoutSnapshot} CheckoutSnapshot */
+/** @typedef {import('./history-import.js').HistoryJob} HistoryJob */
+/** @typedef {Pick<import('./connection.js').ConnectionState, 'results'>} RepositoriesView */
+
+/** @param {PageState} state @param {{ connection?: RepositoriesView }} ui @param {Record<string, CheckoutSnapshot>} [checkouts] */
 export function renderRepositories(state, ui, checkouts = {}) {
-  const jobs = new Map(state.jobs?.map(job => [job.repoId, job]));
+  // The server lists only backfill jobs here (store.listJobs({ type: 'backfill' })), as server/backfill.js also assumes.
+  const jobs = new Map(state.jobs?.map(job => [job.repoId, /** @type {import('../../server/backfill.js').HistoryJob} */ (job)]));
   const disabled = state.watched.filter(repo => repo.disabled).length;
   return `<div class="repo-heading">
     <h1 class="sr">Repositories</h1>
@@ -41,11 +49,13 @@ export function renderRepositories(state, ui, checkouts = {}) {
     </section>`;
 }
 
+/** @param {Repo} repo */
 function repoSwitch(repo) {
   return `<input class="setting-switch" type="checkbox" role="switch" id="enable-${e(repo.id)}" data-repo-toggle data-id="${e(repo.id)}"
     aria-label="Watch ${e(repo.name)}" title="${repo.disabled ? 'Disabled: no checks and hidden from Activity' : 'Enabled: checked and shown in Activity'}" ${repo.disabled ? '' : 'checked'}>`;
 }
 
+/** @param {Repo} repo */
 function renderDisabledRepo(repo) {
   const id = e(repo.id);
   return `<article class="repo-card repo-entry repo-disabled">
@@ -60,12 +70,16 @@ function renderDisabledRepo(repo) {
   </article>`;
 }
 
+/**
+ * @param {Repo} repo @param {PageState['streams']} streams @param {HistoryJob | null | undefined} job
+ * @param {CheckoutSnapshot | undefined} checkout @param {boolean | undefined} demo @param {PageState['settings']} settings
+ */
 function renderRepo(repo, streams, job, checkout, demo, settings) {
   const automatic = settings.refreshEnabled !== false;
   const id = e(repo.id);
   const records = streams.filter(stream => stream.repoId === repo.id);
   const health = repositoryHealth(repo, records, { automatic, resumedAt: settings.refreshResumedAt });
-  const checked = records.map(stream => Date.parse(stream.lastSuccess)).filter(Number.isFinite);
+  const checked = records.map(stream => Date.parse(stream.lastSuccess ?? '')).filter(Number.isFinite);
   const failed = records.map(stream => ({ label: streamLabel(stream.stream), message: streamError(stream) })).filter(item => item.message);
   const gitStatus = checkout ?? (repo.localPath ? undefined : { state: 'not-linked' });
   return `<article class="repo-card repo-entry">

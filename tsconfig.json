@@ -35,6 +35,7 @@
     "src/ui/seen-actions.js",
     "src/ui/history-import.js",
     "src/ui/checkout.js",
-    "src/ui/checkout-actions.js"
+    "src/ui/checkout-actions.js",
+    "src/ui/repositories.js"
   ]
 }
