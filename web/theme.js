@@ -1,4 +1,7 @@
+// @ts-check
+
 // Apply before first paint; System follows the operating system even when it changes while open.
+/** The modules read this through window (see src/ui/icons.js). @typedef {{ get: () => string, set: (value: string) => void, apply: () => void }} RepoPulseTheme */
 (() => {
   const key = 'repo-pulse-theme';
   const query = matchMedia('(prefers-color-scheme: dark)');
@@ -10,10 +13,10 @@
   function apply() {
     document.documentElement.classList.toggle('dark', choice === 'dark' || (choice === 'system' && query.matches));
     document.querySelectorAll('[data-theme]').forEach(button => {
-      button.setAttribute('aria-pressed', String(button.dataset.theme === choice));
+      button.setAttribute('aria-pressed', String(button.getAttribute('data-theme') === choice));
     });
   }
-  window.repoPulseTheme = {
+  /** @type {Window & { repoPulseTheme?: RepoPulseTheme }} */ (window).repoPulseTheme = {
     get: () => choice,
     set(value) {
       if (!['system', 'light', 'dark'].includes(value)) return;
