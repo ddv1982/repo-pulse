@@ -7,7 +7,7 @@ Repo Pulse records observable repository activity for the watched repos. It can 
 | Source | Collected facts | Important boundary |
 | --- | --- | --- |
 | Repository pushes | Push identity/time/pusher, branch ref old/new revisions, source links | Repository-wide, before PRs exist. Durable background jobs page through push-associated commits and each moved branch revision range, then inspect parent/PR evidence; on-demand commit lists remain available. An empty cached list is not proof that no code changed. |
-| Remote branches | Creation/deletion evidence from branch ref updates; periodic complete ref snapshots | Snapshot differences establish first observation or absence, not exact creation/deletion time or actor. |
+| Remote branches and tags | Creation/deletion evidence from branch ref updates; tag creation, movement and deletion from pushes; periodic complete ref snapshots with peeled tag targets | Snapshot differences establish first observation or absence, not exact creation/deletion time or actor. A pushed tag may point at an annotated tag object; only the snapshot names the tagged commit. |
 | Pull requests | Active snapshots and recent closures: status, draft flag, title, source revision, source/target refs, PR link | Snapshot changes produce activity. Review votes, discussions, policies, descriptions, labels and auto-complete configuration are not comprehensively tracked. |
 | Completed PR merge data | Source/target branch, source commit and, when supplied, resulting merge commit, pre-merge target commit, merge status and strategy | Completion metadata is retained on newly emitted completed-PR snapshots using the existing list/detail response. No extra Azure request is added. |
 | CI runs | Recent and active primary-repository runs, status/result, source revision/ref, triggering reason and source link | Uses the watched repository's project and primary TfsGit repository identity. Not complete multi-repo/cross-project pipeline discovery. |
@@ -36,9 +36,9 @@ A push-associated commit list can be empty when a target branch moves to an alre
 
 - A direct `git merge`, squash, rebase or cherry-pick pushed without a PR is observed as a push.
   Background inspection identifies multi-parent objects and completed PR associations without inventing source branch names or human commands. Fast-forward and squash intent can remain unknowable.
-- Branch rename, history rewrite and tags have no complete semantic event model. Branch ref updates
-  are retained, but a different tip is not automatically proof of a force push. Tag-only pushes may
-  appear as generic pushes; their tag ref metadata is not currently preserved as structured activity.
+- Branch rename and history rewrite have no complete semantic event model. Branch ref updates
+  are retained, but a different tip is not automatically proof of a force push. Tag pushes become
+  tag rows; a tag-only push is not shown as a push and is not inspected for merges.
 - A snapshot discovery and a later push record can both describe the same branch. They remain
   separate observations when the app cannot prove a shared branch lifetime/source identity.
 - A branch created and deleted entirely between readable observations may be missed. Loss of ref
