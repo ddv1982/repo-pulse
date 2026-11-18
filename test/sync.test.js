@@ -448,3 +448,23 @@ test('first-sync history at the baseline instant is imported whatever its fracti
   assert.equal(event.imported, true, 'an event at the baseline instant is history, not a new update');
   store.close();
 });
+
+test('a refresh in the same millisecond its stream starts reading still stays due', async () => {
+  const store = createStore();
+  store.saveRepo(repo);
+  let release, calls = 0;
+  const sync = createSync({ store, now: () => BASE, intervalMs: 180000, provider: { read() {
+    if (++calls > 1) return Promise.resolve({ items: [], nextCursor: null });
+    return new Promise(done => { release = () => done({ items: [], nextCursor: null }); });
+  } } });
+  const reading = sync.tick();
+  await new Promise(setImmediate);
+  assert.equal(calls, 1);
+  store.setSetting('refreshEnabled', false);
+  assert.equal(sync.refresh([repo.id]).scheduled, true);
+  release(); await reading;
+  const read = store.getStreams().find(state => state.initialized);
+  assert.equal(read.nextAt, new Date(BASE).toISOString(), 'the refresh is still due');
+  assert.equal(read.manual, true, 'a manual refresh keeps its manual flag with automatic checks off');
+  store.close();
+});
