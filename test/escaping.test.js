@@ -12,7 +12,7 @@ import { renderFeed, renderDetail } from '../src/ui/feed.js';
 import { renderRepositories } from '../src/ui/repositories.js';
 import { renderSettings } from '../src/ui/settings.js';
 import { renderHeader } from '../src/ui/header.js';
-import { renderCheckout } from '../src/ui/checkout.js';
+import { renderCheckout } from '../src/ui/checkout-render.js';
 
 /** @typedef {import('../src/activity.js').ActivityEvent} ActivityEvent */
 /** @typedef {import('../src/ui/refresh.js').PageState} PageState */
