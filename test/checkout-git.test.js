@@ -221,3 +221,15 @@ test('Pull fast-forwards and keeps unrelated staged, unstaged and untracked work
   assert.equal(readFileSync(join(local, 'scratch.txt'), 'utf8'), 'untracked work');
   assert.equal(readFileSync(join(local, 'feature.txt'), 'utf8'), 'incoming edits');
 });
+
+test('Pull advances the branch even when local Git config asks merges to squash', async t => {
+  const fixture = checkoutFixture(t);
+  const { repo, checkoutGit, local } = fixture;
+  git(local, 'config', 'branch.main.mergeOptions', '--squash');
+  const tip = fixture.advance();
+  const { checkout } = await checkoutGit.update(repo, 'check', await checkoutGit.status(repo));
+  const pulled = await checkoutGit.update(repo, 'pull', checkout);
+  assert.equal(git(local, 'rev-parse', 'HEAD'), tip, 'the branch moved to the upstream tip');
+  assert.equal(pulled.updated, true);
+  assert.equal(git(local, 'status', '--porcelain'), '', 'nothing was left staged');
+});

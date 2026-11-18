@@ -12,10 +12,6 @@ Complete these phases before adding more Azure coverage. Keep Node, SQLite, Java
 
 Superseded on 2026-11-18: Pull now runs `git merge --ff-only`, so Git owns the update and there is no app journal to recover.
 
-Turn the interrupted Pull reproduction into a regression test using a disposable Git repository. Record the operation before altering the checkout. On restart, compare the recorded branch, refs, index, and working files with the actual state. Report an interrupted operation before allowing another Pull. Recover automatically only when the app can prove the state belongs to that operation. Otherwise, give the user a clear manual recovery path. Keep Check for updates separate from working-tree changes.
-
-**Done when.** Tests interrupt Pull before file changes, after files change, and after the ref commits but before the index publishes. A successful Pull leaves the files, index, and branch in sync. Recovery preserves subsequent edits and never clears a lock owned by another Git process.
-
 ### 2. Make Activity filters match the displayed rows
 
 Use the displayed state of a grouped row for status filtering. Keep its member updates and their seen flags separate. Use the same group selection for dropdown options, results, counts, and paging. Use stable filter IDs so changing a visible label does not break saved filters.

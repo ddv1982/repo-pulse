@@ -198,23 +198,28 @@ export function createCheckoutGit({ run = runGit, matchesRemote = matchesWatched
   }
 
   /** @param {string} path @param {string} head @param {string} tip */
-  async function fastForward(path, head, tip) {
+  async function refuseIgnoredOverlap(path, head, tip) {
     const additions = (await run(path, ['diff', '--no-renames', '--diff-filter=A', '--name-only', '-z', head, tip, '--'])).split('\0').filter(Boolean);
-    if (additions.length) {
-      // Git reports an ignored-file overlap like any untracked one, so name it before merging.
-      const ignored = (await run(path, ['ls-files', '--others', '--ignored', '--exclude-standard', '--directory', '-z']))
-        .split('\0').filter(Boolean).map(name => name.replace(/\/$/, '').toLowerCase());
-      if (additions.some(name => {
-        const incoming = name.toLowerCase();
-        return ignored.some(local => local === incoming || local.startsWith(`${incoming}/`) || incoming.startsWith(`${local}/`));
-      })) throw problem('Incoming files overlap ignored local files. Move them before pulling.');
-    }
+    if (!additions.length) return;
+    // Git reports an ignored-file overlap like any untracked one, so name it before merging.
+    const ignored = (await run(path, ['ls-files', '--others', '--ignored', '--exclude-standard', '--directory', '-z']))
+      .split('\0').filter(Boolean).map(name => name.replace(/\/$/, '').toLowerCase());
+    if (additions.some(name => {
+      const incoming = name.toLowerCase();
+      return ignored.some(local => local === incoming || local.startsWith(`${incoming}/`) || incoming.startsWith(`${local}/`));
+    })) throw problem('Incoming files overlap ignored local files. Move them before pulling.');
+  }
+
+  /** @param {string} path @param {string} tip */
+  async function fastForward(path, tip) {
     try {
+      // --no-squash overrides a branch.<name>.mergeOptions that would stage the changes without moving HEAD.
       await run(path, ['-c', `core.hooksPath=${hooks}`, '-c', 'maintenance.auto=false', '-c', 'submodule.recurse=false',
-        'merge', '--ff-only', '--no-autostash', '--no-overwrite-ignore', '--no-stat', tip]);
+        'merge', '--ff-only', '--no-squash', '--no-autostash', '--no-overwrite-ignore', '--no-stat', tip]);
     } catch {
       throw problem('Pull stopped before the branch was updated. Git could not preserve the local checkout. Review overlapping changes in Git and try again.');
     }
+    if ((await run(path, ['rev-parse', 'HEAD'])).trim() !== tip) throw problem('Git did not move the branch to the upstream commit. Review the checkout in Git.');
   }
 
   /** @param {string} path @param {LinkedRepo} repo @param {Upstream} target @param {ActiveCheckout} snapshot */
@@ -293,6 +298,7 @@ export function createCheckoutGit({ run = runGit, matchesRemote = matchesWatched
       const rewrite = observed?.verified ? observed : retained ?? observed;
       const observedAfterFetch = { identity: snapshot.identity, tracking: tip, pending, rewrite, lastCheck: saved?.lastCheck };
       observations.save(repo.id, observedAfterFetch);
+      if (operation !== 'check' && snapshot.head) await refuseIgnoredOverlap(path, snapshot.head, tip);
       const after = await statusAt(path, repo);
       if (!sameCheckout(after.snapshot)) throw problem('The checkout or its upstream changed during the check. The branch was not updated.');
       if (snapshot.branch && before.gitDirectory && before.gitDirectory === after.gitDirectory) {
@@ -308,7 +314,7 @@ export function createCheckoutGit({ run = runGit, matchesRemote = matchesWatched
       if (after.snapshot.state === 'current') return { checkout: after.snapshot, updated: false };
       if (!after.snapshot.canPull) throw problem('The checkout is no longer eligible.');
       await run(path, ['merge-base', '--is-ancestor', after.snapshot.head, tip]);
-      await fastForward(path, after.snapshot.head, tip);
+      await fastForward(path, tip);
       return { checkout: (await statusAt(path, repo)).snapshot, updated: true };
     } catch (error) {
       if (error instanceof Error && 'status' in error && (error.status === 404 || error.status === 409)) throw error;
