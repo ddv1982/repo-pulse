@@ -72,8 +72,8 @@ export function createBrowserView({ page, header, demo, picker, typeFilter, onPa
     if (restored) {
       requestAnimationFrame(() => {
         if (!isCurrent()) return;
-        const row = [.../** @type {NodeListOf<HTMLElement>} */ (page.querySelectorAll('li[data-event-id]'))].find(element =>
-          /** @type {(string | null)[]} */ (eventIds(element)).includes(restored.eventId),
+        const row = [.../** @type {NodeListOf<HTMLElement>} */ (page.querySelectorAll('li[data-event-id]'))].find(
+          element => restored.eventId != null && eventIds(element).includes(restored.eventId),
         );
         /** @type {HTMLElement | null | undefined} */ (row?.querySelector('.feed-title'))?.focus({ preventScroll: true });
         window.scrollTo({ top: restored.scrollY, behavior: 'instant' });

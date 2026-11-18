@@ -21,7 +21,7 @@ const header = required('#header');
 const dialog = required('#confirm-dialog', HTMLDialogElement);
 /** @type {(() => Promise<void>) | null} */
 let pendingConfirmation;
-/** @type {HTMLElement | null} */
+/** @type {HTMLElement | SVGElement | null} */
 let dialogOpener;
 let busy = false;
 /** @type {{ metadata?: string, activity?: PageState['activity'], events?: PageState['events'] }} */
@@ -193,8 +193,8 @@ function toast(message, { undo = false } = {}) {
 /** @param {string} title @param {string} description @param {() => Promise<void>} callback */
 function confirm(title, description, callback, label = 'Confirm', { subject = '', destructive = false } = {}) {
   pendingConfirmation = callback;
-  // The focused element is an HTML (or SVG) element, both of which have focus().
-  dialogOpener = /** @type {HTMLElement | null} */ (document.activeElement);
+  const opener = document.activeElement;
+  dialogOpener = opener instanceof HTMLElement || opener instanceof SVGElement ? opener : null;
   required('#confirm-title').textContent = title;
   const subjectLine = required('#confirm-subject');
   subjectLine.textContent = subject;
@@ -343,10 +343,10 @@ const actions = {
 };
 
 document.addEventListener('click', event => {
-  // Clicks always target an element.
-  const target = /** @type {Element} */ (event.target);
+  const target = event.target;
   const monitoring = /** @type {HTMLDetailsElement | null} */ (header.querySelector('.header-overflow[open]'));
-  if (monitoring && !monitoring.contains(target)) monitoring.open = false;
+  if (monitoring && !(target instanceof Node && monitoring.contains(target))) monitoring.open = false;
+  if (!(target instanceof Element)) return;
   const theme = /** @type {HTMLElement | null} */ (target.closest('[data-theme]'));
   if (theme) {
     /** @type {ThemedWindow} */ (window).repoPulseTheme?.set(theme.dataset.theme ?? '');
@@ -435,7 +435,8 @@ document.addEventListener('change', event => {
 
 page.addEventListener('toggle', seen.updateShownCount, true);
 page.addEventListener('click', event => {
-  const target = /** @type {Element} */ (event.target);
+  const target = event.target;
+  if (!(target instanceof Element)) return;
   if (!target.closest('details[data-filter-panel] > summary')) return;
   const filters = /** @type {HTMLDetailsElement} */ (target.closest('details[data-filter-panel]'));
   requestAnimationFrame(() => {
