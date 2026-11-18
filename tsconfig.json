@@ -27,6 +27,10 @@
     "src/ui/type-filter.js",
     "src/ui/dom.js",
     "src/ui/repository-picker.js",
-    "web/theme.js"
+    "web/theme.js",
+    "src/ui/navigation.js",
+    "src/ui/header.js",
+    "src/ui/connection.js",
+    "src/ui/settings.js"
   ]
 }

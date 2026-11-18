@@ -1,6 +1,13 @@
+// @ts-check
+
 import { connectionStatus } from './connection.js';
 import { escape as e } from './format.js';
 
+/** @typedef {import('./refresh.js').PageState} PageState */
+/** @typedef {import('./connection.js').ConnectionState} ConnectionState */
+/** @typedef {import('./connection.js').ConnectionResult} ConnectionResult */
+
+/** @param {PageState['repos']} repos @param {string} repoId */
 function repositorySelect(repos, repoId) {
   if (!repos.length) return '';
   return `<label>Repository <select class="control" id="connection-repo">
@@ -8,6 +15,7 @@ function repositorySelect(repos, repoId) {
             </select></label>`;
 }
 
+/** @param {PageState} state @param {ConnectionState} connection @param {string} repoId @param {ConnectionResult | undefined} result */
 function connectionDetails(state, connection, repoId, result) {
   const local = result?.version || result?.available === false ? result : connection.local;
   return `
@@ -21,10 +29,11 @@ function connectionDetails(state, connection, repoId, result) {
           <p class="help">The connection check reads repository details. CI permissions and local Git upstream access are separate.</p>`;
 }
 
+/** @param {PageState['diagnostics']} diagnostics @param {Partial<NonNullable<PageState['mergeQueue']>>} mergeQueue */
 function diagnosticSummary(diagnostics, mergeQueue) {
   const { startsLastMinute, limitPerMinute, running, concurrency, lastError } = diagnostics;
   const { pending = 0, errors = 0 } = mergeQueue;
-  const lag = diagnostics.sync?.lag;
+  const lag = diagnostics.sync && 'lag' in diagnostics.sync ? diagnostics.sync.lag : undefined;
   const cli = limitPerMinute
     ? `${e(startsLastMinute)} of ${e(limitPerMinute)} Azure calls in the last minute · ${e(running)} of ${e(concurrency)} in progress`
     : 'No CLI activity to report';
@@ -36,6 +45,7 @@ function diagnosticSummary(diagnostics, mergeQueue) {
           </dl>`;
 }
 
+/** @param {PageState} state @param {ConnectionState} connection */
 export function renderSettings(state, connection) {
   const { settings, diagnostics = {}, mergeQueue = {} } = state;
   const repoId = state.repos.some(repo => repo.id === connection.repoId) ? connection.repoId : state.repos[0]?.id || '';
