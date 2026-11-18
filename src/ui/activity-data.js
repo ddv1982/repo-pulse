@@ -42,6 +42,15 @@ export function createActivityData(request) {
   let capacity = PAGE_SIZE,
     generation = 0;
 
+  /** A different view drops the loaded window. @param {string} nextKey */
+  function useKey(nextKey) {
+    if (key !== undefined && key !== nextKey) {
+      result = undefined;
+      capacity = PAGE_SIZE;
+    }
+    key = nextKey;
+  }
+
   return {
     reset(size = PAGE_SIZE) {
       key = undefined;
@@ -54,12 +63,7 @@ export function createActivityData(request) {
     /** @param {ActivityView} ui @param {{more?: boolean, force?: boolean, activityRevision?: string}} [options] */
     async read(ui, { more = false, force = false, activityRevision } = {}) {
       ui = { ...ui };
-      const nextKey = keyFor(ui);
-      if (key !== undefined && key !== nextKey) {
-        result = undefined;
-        capacity = PAGE_SIZE;
-      }
-      key = nextKey;
+      useKey(keyFor(ui));
       const current = ++generation;
       if (ui.repoIds?.length === 0) return (result = { items: [], nextCursor: null, total: 0, newItems: 0, newUpdates: 0 });
       const sameRevision = revision === activityRevision;

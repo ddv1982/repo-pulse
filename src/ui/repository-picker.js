@@ -105,47 +105,73 @@ export function createRepositoryPicker({ request, getRepos, onAdded }) {
       }
     }
   }
+  function breadcrumbs() {
+    const home = homePrefix(data?.path);
+    const homeIndex = data?.breadcrumbs.findIndex(crumb => crumb.path === home) ?? -1;
+    return homeIndex >= 0
+      ? data.breadcrumbs.slice(homeIndex).map((crumb, index) => (index === 0 ? { ...crumb, name: '~' } : crumb))
+      : data?.breadcrumbs || [];
+  }
+  function crumbsMarkup() {
+    if (!data) return '<span class="dim">Your projects folder</span>';
+    const crumbs = breadcrumbs();
+    return crumbs
+      .map(
+        (crumb, index) =>
+          `${index > 0 && !/^(?:\/|[A-Za-z]:[\\/])$/.test(crumbs[index - 1].path) ? '<span aria-hidden="true">/</span>' : ''}${index === crumbs.length - 1 ? `<span aria-current="location" title="${e(crumb.path)}">${e(crumb.name)}</span>` : `<button class="ghost sm" type="button" data-picker="navigate" data-path="${e(crumb.path)}" title="${e(crumb.path)}">${e(crumb.name)}</button>`}`,
+      )
+      .join('');
+  }
+  function folderOption(item, index) {
+    return `<li id="checkout-option-${index}" role="option" aria-selected="false" data-picker-option="${index}" class="picker-option ${index === active ? 'active' : ''}"><span aria-hidden="true">${item.up ? '↑' : '▸'}</span><span><b>${highlight(item.name, query)}</b><small title="${e(item.path)}">${e(displayLocalPath(item.path, data.path))}</small></span>${data.repositories.some(repo => repo.localPath === item.path) ? '<span class="chip">Git</span>' : ''}</li>`;
+  }
+  function checkoutOption(item, index, mixed) {
+    const disabled = watched(item),
+      checked = selected.has(keyOf(item));
+    const context = [
+      mixed.projects ? item.remote.project : '',
+      mixed.organizations ? item.remote.organization.replace(/^https:\/\/dev\.azure\.com\//, '') : '',
+    ]
+      .filter(Boolean)
+      .join(' · ');
+    return `<li id="checkout-option-${index}" role="option" aria-selected="${checked}" aria-disabled="${disabled || adding}" data-picker-option="${index}" title="${e(`${item.localPath} · ${item.remote.project} · ${item.remote.organization}`)}" class="picker-option ${index === active ? 'active' : ''}"><span class="picker-check" aria-hidden="true">${disabled || checked ? '☑' : '☐'}</span><span><b>${highlight(item.remote.repoName, query)}</b><small title="${e(item.localPath)}">${highlight(displayLocalPath(item.localPath, data.path), query)}</small>${context ? `<small>${e(context)}</small>` : ''}</span><span class="picker-badges">${item.multiple ? `<span class="chip">${e(item.remote.name)}</span>` : ''}${disabled ? '<span class="chip">Watched</span>' : ''}</span></li>`;
+  }
+  function optionsMarkup(list) {
+    if (loading) return '<li class="picker-empty" role="presentation">Reading local folders…</li>';
+    if (!list.length) {
+      const empty =
+        mode === 'folders'
+          ? 'No matching subfolders.'
+          : query
+            ? `No checkout matches “${e(query)}”.`
+            : 'No Azure Git checkouts here. Change folder to find your repositories.';
+      return `<li class="picker-empty" role="presentation">${empty}</li>`;
+    }
+    if (mode === 'folders') return list.map(folderOption).join('');
+    const all = items();
+    const mixed = {
+      organizations: new Set(all.map(item => lower(item.remote.organization))).size > 1,
+      projects: new Set(all.map(item => lower(item.remote.project))).size > 1,
+    };
+    return list.map((item, index) => checkoutOption(item, index, mixed)).join('');
+  }
+  function footerMarkup() {
+    if (mode === 'folders')
+      return `<div class="actions picker-footer"><button class="btn primary sm" type="button" data-picker="use" ${!data || loading ? 'disabled' : ''}>Use this folder</button><button class="ghost sm" type="button" data-picker="cancel">Cancel</button></div>`;
+    return `<div class="picker-chips">${[...selected].map(([key, item]) => `<span class="chip">${e(item.remote.repoName)}${item.multiple ? ` · ${e(item.remote.name)}` : ''}<button type="button" data-picker="remove" data-key="${e(key)}" aria-label="Remove ${e(item.remote.repoName)} ${e(item.remote.name)}" ${adding ? 'disabled' : ''}>×</button></span>`).join('')}</div><div class="actions picker-footer"><button class="btn primary" type="button" data-picker="add" ${!selected.size || adding ? 'disabled' : ''}>${adding ? 'Watching selected…' : `Watch ${selected.size} selected`}</button><span class="help">Nothing is added until you press Watch selected.</span></div>`;
+  }
   function render() {
     if (!host?.isConnected) return;
     const focused = host.contains(document.activeElement) && document.activeElement.id === 'checkout-search';
     const selection = focused ? [document.activeElement.selectionStart, document.activeElement.selectionEnd] : null;
     const list = options();
-    const all = items();
-    const mixedOrganizations = new Set(all.map(item => lower(item.remote.organization))).size > 1;
-    const mixedProjects = new Set(all.map(item => lower(item.remote.project))).size > 1;
-    const home = homePrefix(data?.path);
-    const homeIndex = data?.breadcrumbs.findIndex(crumb => crumb.path === home) ?? -1;
-    const crumbs =
-      homeIndex >= 0
-        ? data.breadcrumbs.slice(homeIndex).map((crumb, index) => (index === 0 ? { ...crumb, name: '~' } : crumb))
-        : data?.breadcrumbs || [];
     active = Math.max(0, Math.min(active, list.length - 1));
     const label = mode === 'folders' ? 'Find a folder' : 'Search local repositories';
-    host.innerHTML = `<div class="picker-root-row"><nav class="picker-crumbs" aria-label="Local folder">${data ? crumbs.map((crumb, index) => `${index > 0 && !/^(?:\/|[A-Za-z]:[\\/])$/.test(crumbs[index - 1].path) ? '<span aria-hidden="true">/</span>' : ''}${index === crumbs.length - 1 ? `<span aria-current="location" title="${e(crumb.path)}">${e(crumb.name)}</span>` : `<button class="ghost sm" type="button" data-picker="navigate" data-path="${e(crumb.path)}" title="${e(crumb.path)}">${e(crumb.name)}</button>`}`).join('') : '<span class="dim">Your projects folder</span>'}</nav><div class="actions"><button class="btn sm" type="button" data-picker="browse" ${adding ? 'disabled' : ''}>Change folder</button><button class="ghost sm" type="button" data-picker="rescan" aria-label="Rescan folder" title="Rescan local folder" ${loading || adding ? 'disabled' : ''}>↻</button></div></div>
+    host.innerHTML = `<div class="picker-root-row"><nav class="picker-crumbs" aria-label="Local folder">${crumbsMarkup()}</nav><div class="actions"><button class="btn sm" type="button" data-picker="browse" ${adding ? 'disabled' : ''}>Change folder</button><button class="ghost sm" type="button" data-picker="rescan" aria-label="Rescan folder" title="Rescan local folder" ${loading || adding ? 'disabled' : ''}>↻</button></div></div>
       <label for="checkout-search" class="picker-label">${label}</label><div class="picker-input"><input id="checkout-search" class="search" role="combobox" autocomplete="off" aria-expanded="${open}" aria-controls="checkout-options" aria-autocomplete="list" ${open && list.length && !loading ? `aria-activedescendant="checkout-option-${active}"` : ''} placeholder="${mode === 'folders' ? 'Folder name or /path/to/folder' : 'Search repository or folder name…'}" value="${e(query)}" ${adding ? 'readonly' : ''}><button class="ghost" type="button" data-picker="toggle" aria-label="${open ? 'Close' : 'Open'} repository picker" ${adding ? 'disabled' : ''}>▾</button></div>
-      <div class="picker-results" ${open ? '' : 'hidden'}><ul id="checkout-options" role="listbox" aria-label="${label}" ${mode === 'checkouts' ? 'aria-multiselectable="true"' : ''} ${loading ? 'aria-busy="true"' : ''}>${
-        loading
-          ? '<li class="picker-empty" role="presentation">Reading local folders…</li>'
-          : list.length
-            ? list
-                .map((item, index) => {
-                  if (mode === 'folders')
-                    return `<li id="checkout-option-${index}" role="option" aria-selected="false" data-picker-option="${index}" class="picker-option ${index === active ? 'active' : ''}"><span aria-hidden="true">${item.up ? '↑' : '▸'}</span><span><b>${highlight(item.name, query)}</b><small title="${e(item.path)}">${e(displayLocalPath(item.path, data.path))}</small></span>${data.repositories.some(repo => repo.localPath === item.path) ? '<span class="chip">Git</span>' : ''}</li>`;
-                  const disabled = watched(item),
-                    checked = selected.has(keyOf(item));
-                  const context = [
-                    mixedProjects ? item.remote.project : '',
-                    mixedOrganizations ? item.remote.organization.replace(/^https:\/\/dev\.azure\.com\//, '') : '',
-                  ]
-                    .filter(Boolean)
-                    .join(' · ');
-                  return `<li id="checkout-option-${index}" role="option" aria-selected="${checked}" aria-disabled="${disabled || adding}" data-picker-option="${index}" title="${e(`${item.localPath} · ${item.remote.project} · ${item.remote.organization}`)}" class="picker-option ${index === active ? 'active' : ''}"><span class="picker-check" aria-hidden="true">${disabled || checked ? '☑' : '☐'}</span><span><b>${highlight(item.remote.repoName, query)}</b><small title="${e(item.localPath)}">${highlight(displayLocalPath(item.localPath, data.path), query)}</small>${context ? `<small>${e(context)}</small>` : ''}</span><span class="picker-badges">${item.multiple ? `<span class="chip">${e(item.remote.name)}</span>` : ''}${disabled ? '<span class="chip">Watched</span>' : ''}</span></li>`;
-                })
-                .join('')
-            : `<li class="picker-empty" role="presentation">${mode === 'folders' ? 'No matching subfolders.' : query ? `No checkout matches “${e(query)}”.` : 'No Azure Git checkouts here. Change folder to find your repositories.'}</li>`
-      }</ul><p class="help picker-count">${loading ? 'Only local disk is read.' : `${list.length} ${mode === 'folders' ? 'folders' : 'checkout remotes'} shown · no Azure requests`}</p></div>
+      <div class="picker-results" ${open ? '' : 'hidden'}><ul id="checkout-options" role="listbox" aria-label="${label}" ${mode === 'checkouts' ? 'aria-multiselectable="true"' : ''} ${loading ? 'aria-busy="true"' : ''}>${optionsMarkup(list)}</ul><p class="help picker-count">${loading ? 'Only local disk is read.' : `${list.length} ${mode === 'folders' ? 'folders' : 'checkout remotes'} shown · no Azure requests`}</p></div>
       ${error ? `<div class="banner warn" role="alert"><div>${e(error)}</div></div>` : ''}${(data?.warnings || []).map(warning => `<p class="help">${e(warning)}</p>`).join('')}
-      ${mode === 'folders' ? `<div class="actions picker-footer"><button class="btn primary sm" type="button" data-picker="use" ${!data || loading ? 'disabled' : ''}>Use this folder</button><button class="ghost sm" type="button" data-picker="cancel">Cancel</button></div>` : `<div class="picker-chips">${[...selected].map(([key, item]) => `<span class="chip">${e(item.remote.repoName)}${item.multiple ? ` · ${e(item.remote.name)}` : ''}<button type="button" data-picker="remove" data-key="${e(key)}" aria-label="Remove ${e(item.remote.repoName)} ${e(item.remote.name)}" ${adding ? 'disabled' : ''}>×</button></span>`).join('')}</div><div class="actions picker-footer"><button class="btn primary" type="button" data-picker="add" ${!selected.size || adding ? 'disabled' : ''}>${adding ? 'Watching selected…' : `Watch ${selected.size} selected`}</button><span class="help">Nothing is added until you press Watch selected.</span></div>`}
+      ${footerMarkup()}
       <p class="help" role="status" aria-live="polite">${e(message || (!loading && open ? `${list.length} matches. ${selected.size} selected.` : ''))}</p>`;
     if (focused) {
       const input = host.querySelector('#checkout-search');

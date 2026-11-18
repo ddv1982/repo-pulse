@@ -28,6 +28,15 @@ function checkAge(at) {
   return `Checked ${relativeCheckTime.format(-count, unit)}`;
 }
 
+function uncheckedStatus(checkout, countsKnown) {
+  const { ahead, behind, lastBranchCheck } = checkout;
+  if (lastBranchCheck && !lastBranchCheck.matchesFetchedTip) return 'Remote changed since last check';
+  if (checkout.state === 'behind') return `${behind} behind last fetch`;
+  if (checkout.state === 'ahead') return `${ahead} ahead of last fetch`;
+  if (checkout.state === 'diverged') return 'Diverged from last fetch';
+  return checkout.canCheck && countsKnown ? 'Not checked yet' : '';
+}
+
 function branchStatus(checkout) {
   if (checkout?.diagnostic?.title) return checkout.diagnostic.title;
   if (checkout?.state === 'upstream-missing' || checkout?.state === 'fetch-failed') return statusLabels[checkout.state];
@@ -36,13 +45,7 @@ function branchStatus(checkout) {
   const { ahead, behind, lastBranchCheck } = checkout;
   const countsKnown = Number.isInteger(ahead) && Number.isInteger(behind);
   const checked = lastBranchCheck?.matchesFetchedTip && countsKnown;
-  if (!checked) {
-    if (lastBranchCheck && !lastBranchCheck.matchesFetchedTip) return 'Remote changed since last check';
-    if (checkout.state === 'behind') return `${behind} behind last fetch`;
-    if (checkout.state === 'ahead') return `${ahead} ahead of last fetch`;
-    if (checkout.state === 'diverged') return 'Diverged from last fetch';
-    return checkout.canCheck && countsKnown ? 'Not checked yet' : '';
-  }
+  if (!checked) return uncheckedStatus(checkout, countsKnown);
   if (ahead && behind) return 'Branches diverged';
   if (behind) return `${behind} ${behind === 1 ? 'commit' : 'commits'} behind`;
   if (ahead) return `${ahead} ${ahead === 1 ? 'commit' : 'commits'} ahead`;
@@ -151,50 +154,63 @@ function updateOptions(id, checkout) {
   </details>`;
 }
 
-export function renderCheckout(id, checkout, part) {
-  if (part === 'last-check') {
-    const at = checkout?.lastBranchCheck?.at;
-    return at ? `Last successful Git check <time datetime="${e(at)}">${e(exactCheckTime.format(new Date(at)))}</time>` : '';
-  }
-  if (part === 'guidance')
-    return [
-      updateOptions(id, checkout),
-      diagnosticMarkup(
-        id,
-        checkout?.diagnostic,
-        checkout?.state === 'upstream-missing' &&
-          !checkout.dirty &&
-          checkout.diagnostic?.advice?.destination === 'local' &&
-          checkout.diagnostic.advice.receipt,
-      ),
-      checkout ? reviewMarkup(id, checkout) : '',
-      checkout?.nextStep ? `<p class="help" role="status">${e(checkout.nextStep)}</p>` : '',
-    ].join('');
+function lastCheckMarkup(checkout) {
+  const at = checkout?.lastBranchCheck?.at;
+  return at ? `Last successful Git check <time datetime="${e(at)}">${e(exactCheckTime.format(new Date(at)))}</time>` : '';
+}
 
-  const branch = checkout?.branch || (checkout?.state === 'detached' ? checkout.head?.slice(0, 8) : '');
-  const label = branchStatus(checkout);
+function guidanceMarkup(id, checkout) {
+  return [
+    updateOptions(id, checkout),
+    diagnosticMarkup(
+      id,
+      checkout?.diagnostic,
+      checkout?.state === 'upstream-missing' &&
+        !checkout.dirty &&
+        checkout.diagnostic?.advice?.destination === 'local' &&
+        checkout.diagnostic.advice.receipt,
+    ),
+    checkout ? reviewMarkup(id, checkout) : '',
+    checkout?.nextStep ? `<p class="help" role="status">${e(checkout.nextStep)}</p>` : '',
+  ].join('');
+}
+
+function statusTone(state, label) {
+  if (errors.has(state)) return 'crit';
+  if (attention.has(state)) return 'warn';
+  if (label === 'Up to date') return 'ok';
+  return state === 'behind' ? 'info' : 'neutral';
+}
+
+function checkTimeMarkup(checkout) {
   const last = checkout?.lastBranchCheck;
   const showTime =
     last?.matchesFetchedTip &&
     Number.isInteger(checkout.ahead) &&
     Number.isInteger(checkout.behind) &&
     ['current', 'behind', 'ahead', 'diverged', 'dirty'].includes(checkout.state);
-  const tone = errors.has(checkout?.state)
-    ? 'crit'
-    : attention.has(checkout?.state)
-      ? 'warn'
-      : label === 'Up to date'
-        ? 'ok'
-        : checkout?.state === 'behind'
-          ? 'info'
-          : 'neutral';
+  return showTime
+    ? `<time class="help" datetime="${e(last.at)}" data-branch-check-time title="${e(exactCheckTime.format(new Date(last.at)))}">${e(checkAge(last.at))}</time>`
+    : '';
+}
+
+function statusMarkup(id, checkout) {
+  const branch = checkout?.branch || (checkout?.state === 'detached' ? checkout.head?.slice(0, 8) : '');
+  const label = branchStatus(checkout);
+  const tone = statusTone(checkout?.state, label);
   return `<div class="checkout-state">${branch ? `<code class="subref" title="${e(branch)}">${e(branch)}</code>` : ''}
     ${label ? `<span class="chip status-chip ${tone}">${e(label)}</span>` : ''}
     ${checkout?.dirty ? '<span class="chip status-chip neutral">Local changes</span>' : ''}
-    ${showTime ? `<time class="help" datetime="${e(last.at)}" data-branch-check-time title="${e(exactCheckTime.format(new Date(last.at)))}">${e(checkAge(last.at))}</time>` : ''}
+    ${checkTimeMarkup(checkout)}
     </div>
     ${checkout?.canCheck ? `<button type="button" class="ghost sm" id="checkout-check-${e(id)}" data-action="check-checkout" data-id="${e(id)}" title="Fetch ${e(checkout.upstream)} and compare it with your current branch">Check for updates</button>` : ''}
     ${checkout?.canPull ? `<button type="button" class="btn primary sm" id="checkout-pull-${e(id)}" data-action="pull-checkout" data-id="${e(id)}">Pull</button>` : ''}`;
+}
+
+export function renderCheckout(id, checkout, part) {
+  if (part === 'last-check') return lastCheckMarkup(checkout);
+  if (part === 'guidance') return guidanceMarkup(id, checkout);
+  return statusMarkup(id, checkout);
 }
 
 export function createCheckoutPanel({ page, request, isVisible }) {
