@@ -30,7 +30,7 @@ export function scopeLabel(state, ui) {
 export function renderHeader(state, ui) {
   const streamTimes = state.streams
     .map(stream => stream.lastSuccess)
-    .filter(/** @returns {value is string} */ value => Boolean(value))
+    .filter(value => value !== undefined)
     .map(value => new Date(value).valueOf())
     .filter(Number.isFinite);
   const automatic = state.settings.refreshEnabled !== false;

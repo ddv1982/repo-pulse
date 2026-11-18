@@ -84,7 +84,8 @@ export function createSeenActions({ page, getEvents, request, reload, toast }) {
         const available = getEvents();
         const events = eventIds(element)
           .map(id => available.find(item => item.id === id))
-          .filter(/** @returns {event is ActivityEvent} */ event => Boolean(event && !event.imported));
+          .filter(event => event !== undefined)
+          .filter(event => !event.imported);
         const unseen = events.filter(isUnseen);
         const ids = (unseen.length ? unseen : events).map(event => event.id);
         if (ids.length) return acknowledge([...new Set(ids)], unseen.length > 0);
