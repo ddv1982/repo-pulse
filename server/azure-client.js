@@ -487,6 +487,14 @@ export function createAzureClient({ cli, now = Date.now } = {}) {
         throw cliError('INVALID_RESPONSE', 'Azure returned invalid ref-range commit evidence.');
       return page;
     },
+    /**
+     * One page of commits reachable from the old tip but not from the new one. Empty means the old tip
+     * is an ancestor of the new one (a fast-forward); anything else means the update dropped history.
+     * @param {AzureRepo} repo @param {string} oldSha @param {string} newSha @returns {Promise<AzurePage>}
+     */
+    droppedCommits(repo, oldSha, newSha) {
+      return this.refCommits(repo, newSha, oldSha);
+    },
     /** @param {AzureRepo} repo @param {string|number} pushId @param {PageCursor} [cursor] @returns {Promise<AzurePage>} */
     async pushCommits(repo, pushId, cursor = {}) {
       if (!/^\d+$/.test(String(pushId))) throw new Error('Invalid push ID');

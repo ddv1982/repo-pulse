@@ -37,7 +37,7 @@ const EVIDENCE_VERSION = 2;
  * Durable, low-priority semantic work. Each tick performs one page or a tiny hydration batch.
  * @param {{
  *   store: ReturnType<typeof import('./store.js').createStore>,
- *   provider: Pick<import('./azure-client.js').AzureProvider, 'pushCommits'|'refCommits'|'commitsByIds'|'queryPullRequests'>,
+ *   provider: Pick<import('./azure-client.js').AzureProvider, 'pushCommits'|'refCommits'|'droppedCommits'|'commitsByIds'|'queryPullRequests'>,
  *   now?: () => number, negativeTtlMs?: number, positiveTtlMs?: number
  * }} options
  */
@@ -194,6 +194,24 @@ export function createEnrichment({ store, provider, now = Date.now, negativeTtlM
     };
     saveStep(repo, event, next, entities);
   }
+  /**
+   * Unequal tips alone never mean a rewrite: only a read of what the old tip reaches decides it.
+   * @param {Repository} repo @param {import('./merge-evidence.js').MergeUpdate} ref
+   * @returns {Promise<import('./merge-evidence.js').HistoryUpdate>}
+   */
+  async function historyUpdate(repo, ref) {
+    try {
+      const page = await provider.droppedCommits(repo, ref.oldObjectId, ref.newObjectId);
+      if (!Array.isArray(page?.items)) throw failure('INVALID_RESPONSE', 'Branch history data is unavailable.');
+      return page.items.length
+        ? { status: 'rewrite', dropped: page.items.length, more: Boolean(page.nextCursor) }
+        : { status: 'fast-forward' };
+    } catch (caught) {
+      // The old tip can be gone from Azure after a rewrite; that leaves the update unknown, not failed.
+      if (/** @type {{ code?: string }} */ (caught)?.code === 'NOT_FOUND') return { status: 'unknown' };
+      throw caught;
+    }
+  }
   /** @type {StageHandler} */
   async function rangesStage(repo, event, job) {
     const refs = mergeUpdates(event),
@@ -203,11 +221,26 @@ export function createEnrichment({ store, provider, now = Date.now, negativeTtlM
       saveStep(repo, event, { ...job, stage: 'hydrate', rangesComplete: true });
       return;
     }
+    const ranges = [...(job.refRanges || [])];
+    if (ranges[index]?.complete) {
+      const update = await historyUpdate(repo, ref);
+      if (gone(repo, event)) return;
+      ranges[index] = { ...ranges[index], update };
+      const complete = index + 1 >= refs.length;
+      saveStep(repo, event, {
+        ...job,
+        stage: complete ? 'hydrate' : 'ranges',
+        refIndex: index + 1,
+        refCursor: null,
+        refRanges: ranges,
+        rangesComplete: complete,
+      });
+      return;
+    }
     const page = await provider.refCommits(repo, ref.oldObjectId, ref.newObjectId, job.refCursor || {});
     if (gone(repo, event)) return;
     if (!Array.isArray(page?.items)) throw failure('INVALID_RESPONSE', 'Branch revision-range data is unavailable.');
     const entities = cacheEntries(repo.id, page.items);
-    const ranges = [...(job.refRanges || [])];
     ranges[index] = {
       name: ref.name,
       oldObjectId: ref.oldObjectId,
@@ -215,18 +248,16 @@ export function createEnrichment({ store, provider, now = Date.now, negativeTtlM
       commitIds: unique([...(ranges[index]?.commitIds || []), ...page.items.map(item => item.commitId)]),
       complete: !page.nextCursor,
     };
-    const nextIndex = page.nextCursor ? index : index + 1;
-    const complete = nextIndex >= refs.length;
     saveStep(
       repo,
       event,
       {
         ...job,
-        stage: complete ? 'hydrate' : 'ranges',
-        refIndex: nextIndex,
+        stage: 'ranges',
+        refIndex: index,
         refCursor: page.nextCursor || null,
         refRanges: ranges,
-        rangesComplete: complete,
+        rangesComplete: false,
         commitIds: unique([...(job.commitIds || []), ...page.items.map(item => item.commitId), ref.newObjectId]),
       },
       entities,

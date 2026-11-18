@@ -9,9 +9,14 @@
  */
 /** @typedef {{ commitId?: string, parents?: string[], branches?: (string|undefined)[] }} EvidenceCommit */
 /**
+ * A moved branch's range in merge evidence (server/merge-evidence.js RefRange).
+ * @typedef {{ name?: string, oldObjectId?: string, newObjectId?: string, commitIds?: string[], complete?: boolean,
+ *   update?: { status?: string, dropped?: number, more?: boolean } }} EvidenceRange
+ */
+/**
  * Merge evidence that enrichment saves on a push; it is partial while enrichment runs.
  * @typedef {{ status?: string, checkedAt?: string, limitations?: string[], error?: string | { message?: string },
- *   prs?: EvidencePr[], commits?: EvidenceCommit[] }} MergeEvidenceData
+ *   prs?: EvidencePr[], commits?: EvidenceCommit[], refRanges?: EvidenceRange[] }} MergeEvidenceData
  */
 /**
  * Provider fields of an event, plus enrichment. Each kind fills its own subset (see server/sync.js normalizers).

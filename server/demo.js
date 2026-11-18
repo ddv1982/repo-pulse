@@ -142,6 +142,26 @@ export function seedDemo(store) {
       summary: 'Imported baseline history; not counted as unseen.',
       seen: true,
       imported: true,
+      data: {
+        pushId: 98,
+        refUpdates: [{ name: 'refs/heads/main', oldObjectId: '5c1d0aa', newObjectId: 'e07b3f2' }],
+        mergeEvidence: {
+          status: 'complete',
+          checkedAt: ago(1430),
+          prs: [],
+          commits: [],
+          refRanges: [
+            {
+              name: 'refs/heads/main',
+              oldObjectId: '5c1d0aa',
+              newObjectId: 'e07b3f2',
+              commitIds: [],
+              complete: true,
+              update: { status: 'rewrite', dropped: 2 },
+            },
+          ],
+        },
+      },
       url: demoRepos[2].webUrl,
     },
   ];

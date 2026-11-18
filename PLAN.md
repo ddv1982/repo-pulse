@@ -40,8 +40,8 @@ Phase 3: tags
 
 Phase 4: history rewrites
 
-- [ ] The background merge job classifies each moved branch update as `fast-forward`, `rewrite` or `unknown`. It reads the range reachable from the old tip excluding the new tip (`refRangeCommits` reversed, `$top=1`): empty means fast-forward, non-empty means rewrite, unreadable objects mean unknown. Unequal SHAs alone never mean rewrite. Check: enrichment tests for each of the three results, including a 404 on the old object giving `unknown`.
-- [ ] Push rows show "History rewritten" with the count of dropped commits it could read, and nothing extra for a fast-forward. Check: e2e test on a seeded rewrite row and a seeded fast-forward row, and the budget measurement shows the extra read per moved branch.
+- [x] The background merge job classifies each moved branch update as `fast-forward`, `rewrite` or `unknown`. After a ref's forward range completes, one more read (`droppedCommits`, the range read reversed, one page) lists commits the old tip reaches and the new tip does not: none means fast-forward, some means rewrite with their count, and a 404 means unknown. Other failures retry the job. Check: enrichment tests for each result and the retry; the rewrite test fails when the classification always answers fast-forward. Against Azure, the reversed read agreed with local `git merge-base --is-ancestor` on all 20 pairs of real branch tips tried (15 not ancestors, 5 ancestors), and classified all 42 real branch moves from the last 30 days as fast-forwards.
+- [x] Push rows show "History rewritten · N commits dropped", and the merge evidence lists each checked branch as fast-forward, rewritten or unknown. A fast-forward adds nothing to the row. Check: e2e test on the demo's rewritten main push and its fast-forward push; it fails without the UI change. `scripts/measure-budget.js --limit 60` at 1, 5 and 20 repositories: calls/min 2.0, 10.2 and 24.5 after against 2.0, 9.9 and 24.6 before, and p95 delay 3.9, 4.7 and 5.2 minutes against 4.1, 4.8 and 5.3.
 
 Phase 5: fork and outgoing pull requests
 

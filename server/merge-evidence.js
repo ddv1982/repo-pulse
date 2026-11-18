@@ -9,7 +9,12 @@
  */
 /** Reachability lookups may be asked for an id a parent list did not supply. */
 /** @typedef {ReadonlyMap<string | undefined, CommitRecord>} CommitGraph */
-/** @typedef {{ name?: string, oldObjectId: string, newObjectId: string, commitIds: string[], complete: boolean }} RefRange */
+/**
+ * Whether a moved branch kept its old tip. `dropped` counts the commits read from the old tip that the new tip
+ * no longer reaches, up to one page; `more` says the page was full.
+ * @typedef {{ status: 'fast-forward' | 'rewrite' | 'unknown', dropped?: number, more?: boolean }} HistoryUpdate
+ */
+/** @typedef {{ name?: string, oldObjectId: string, newObjectId: string, commitIds: string[], complete: boolean, update?: HistoryUpdate }} RefRange */
 /** @typedef {import('./azure-client.js').PullRequestAssociation} PullRequestAssociation */
 /**
  * @typedef {{ checkedAt?: string, associationExpiresAt?: string, complete?: boolean, limitations?: string[],

@@ -36,8 +36,10 @@ A push-associated commit list can be empty when a target branch moves to an alre
 
 - A direct `git merge`, squash, rebase or cherry-pick pushed without a PR is observed as a push.
   Background inspection identifies multi-parent objects and completed PR associations without inventing source branch names or human commands. Fast-forward and squash intent can remain unknowable.
-- Branch rename and history rewrite have no complete semantic event model. Branch ref updates
-  are retained, but a different tip is not automatically proof of a force push. Tag pushes become
+- Branch rename has no semantic event model. For each moved branch, merge inspection reads the
+  commits the old tip reaches and the new tip does not: none is a fast-forward, any is a history
+  rewrite, and an unreadable old tip leaves it unknown. Unequal tips alone are never called a
+  rewrite, and a rewrite does not identify the command that caused it. Tag pushes become
   tag rows; a tag-only push is not shown as a push and is not inspected for merges.
 - A snapshot discovery and a later push record can both describe the same branch. They remain
   separate observations when the app cannot prove a shared branch lifetime/source identity.
