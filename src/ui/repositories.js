@@ -1,7 +1,7 @@
 import { escape as e, dateTime, streamError, azureLink, streamLabel } from './format.js';
 import { connectionResult } from './connection.js';
 import { repositoryHealth } from './health.js';
-import { renderCheckout } from './checkout.js';
+import { renderCheckout } from './checkout-render.js';
 import { renderHistoryButton, renderHistoryProgress } from './history-import.js';
 import { displayLocalPath } from './repository-picker.js';
 

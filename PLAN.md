@@ -35,7 +35,7 @@ Phase 3: escaping is tested, not assumed
 
 Phase 4: split checkout.js
 
-- [ ] The checkout markup functions move to src/ui/checkout-render.js, and src/ui/checkout.js keeps `createCheckoutPanel`. Check: the render comparison for `renderCheckout` reports 0 differences and the Repositories e2e tests pass.
+- [x] The checkout markup functions move to src/ui/checkout-render.js, and src/ui/checkout.js keeps `createCheckoutPanel`. Check: the render comparison for `renderCheckout` reports 0 differences and the Repositories e2e tests pass.
 
 Out of scope: validating API responses at runtime. The browser only talks to its own local server, and `/api/state` is already checked in `readMetadata`. Revisit this if the API ever serves another client.
 
