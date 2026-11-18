@@ -17,6 +17,10 @@ The app uses Node 26, built-in SQLite, plain JavaScript, and CSS. It has no runt
 
 Keep Azure reads in the shared queue. `devops invoke` reads go over HTTPS with an Azure DevOps token from `az account get-access-token`, which is renewed five minutes before it expires and after a 401. The token stays inside `azure-rest.js`: it is never returned, logged or put in an error, and `run()` still refuses token commands. Other commands, such as the connection check and `repos show`, still start `az`. Explicit Git operations must act on the linked checkout and its verified upstream. Store raw events and checkpoints together. Enrichment can add evidence to a record without changing its ID or seen state.
 
+## Pull
+
+Pull runs `git merge --ff-only --no-squash` after verifying the checkout identity, upstream and eligibility, then confirms HEAD reached the fetched commit. Git owns the update, so there is no app journal or lock handling. One accepted trade-off: Git does not re-confirm the branch at the moment it moves HEAD, so switching to another branch at the same commit in the instant between the last check and the merge would fast-forward that branch instead. Nothing is lost, and the reflog undoes it.
+
 ## Run checks
 
 ```sh
