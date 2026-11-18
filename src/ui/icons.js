@@ -20,6 +20,7 @@ export const icons = {
 };
 
 export function themeSwitch() {
+  // web/theme.js defines repoPulseTheme on window before the modules load; the optional call covers its absence.
   const selected = /** @type {ThemedWindow} */ (window).repoPulseTheme?.get() || 'system';
   return `<div class="seg theme" role="group" aria-label="Theme">${/** @type {const} */ (['system', 'light', 'dark']).map(value => `<button type="button" data-theme="${value}" aria-label="${value[0].toUpperCase() + value.slice(1)}" title="${value[0].toUpperCase() + value.slice(1)}" aria-pressed="${value === selected}">${icons[value]}</button>`).join('')}</div>`;
 }

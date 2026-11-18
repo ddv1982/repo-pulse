@@ -219,8 +219,7 @@ async function withAction(callback) {
   try {
     await callback();
   } catch (error) {
-    // Actions throw Errors: request() and the controllers they call reject with Error.
-    showError(/** @type {Error} */ (error).message);
+    showError(error instanceof Error ? error.message : String(error));
   } finally {
     busy = false;
   }
@@ -229,7 +228,8 @@ async function withAction(callback) {
 /** @param {boolean} pending */
 function setRefreshPending(pending) {
   ui.refreshing = pending;
-  for (const button of /** @type {NodeListOf<HTMLElement>} */ (header.querySelectorAll('[data-action="refresh"]'))) {
+  for (const button of header.querySelectorAll('[data-action="refresh"]')) {
+    if (!(button instanceof HTMLElement)) continue;
     button.setAttribute('aria-busy', String(pending));
     button.setAttribute('aria-disabled', String(pending));
     // The header renders data-idle-title on every refresh button, so the fallback never applies.
@@ -314,8 +314,9 @@ const actions = {
     activityChanged({ header: true });
   },
   'remove-repo': element => {
-    // Remove buttons are rendered from the watched list. As before, a missing repository throws here and withAction reports it.
-    const repo = /** @type {import('./ui/refresh.js').Repo} */ (refresh.state.watched.find(item => item.id === element.dataset.id));
+    // Remove buttons are rendered from the watched list. A repository removed since the render throws here and withAction reports it.
+    const repo = refresh.state.watched.find(item => item.id === element.dataset.id);
+    if (!repo) throw new Error('This repository is no longer watched.');
     confirm(
       `Remove ${repo.name} from this app?`,
       'This deletes its local watch and cached history only. The checkout, Azure repository and remote data are unchanged.',
@@ -336,7 +337,7 @@ const actions = {
         ),
       );
     } catch (error) {
-      commitResults.set(eventId, { error: /** @type {Error} */ (error).message });
+      commitResults.set(eventId, { error: error instanceof Error ? error.message : String(error) });
     }
     if (ui.route === 'event' && ui.eventId === eventId) renderPage();
   },
@@ -344,11 +345,12 @@ const actions = {
 
 document.addEventListener('click', event => {
   const target = event.target;
-  const monitoring = /** @type {HTMLDetailsElement | null} */ (header.querySelector('.header-overflow[open]'));
-  if (monitoring && !(target instanceof Node && monitoring.contains(target))) monitoring.open = false;
+  const monitoring = header.querySelector('.header-overflow[open]');
+  if (monitoring instanceof HTMLDetailsElement && !(target instanceof Node && monitoring.contains(target))) monitoring.open = false;
   if (!(target instanceof Element)) return;
-  const theme = /** @type {HTMLElement | null} */ (target.closest('[data-theme]'));
-  if (theme) {
+  const theme = target.closest('[data-theme]');
+  if (theme instanceof HTMLElement) {
+    // web/theme.js defines repoPulseTheme on window before this module loads; the optional call covers its absence.
     /** @type {ThemedWindow} */ (window).repoPulseTheme?.set(theme.dataset.theme ?? '');
     return;
   }
@@ -358,14 +360,14 @@ document.addEventListener('click', event => {
     required('#repo-toggle').setAttribute('aria-expanded', String(!panel.hidden));
     return;
   }
-  const panel = /** @type {HTMLElement | null} */ (document.querySelector('#repo-panel'));
-  if (panel && !panel.hidden && !target.closest('#repo-panel')) {
+  const panel = document.querySelector('#repo-panel');
+  if (panel instanceof HTMLElement && !panel.hidden && !target.closest('#repo-panel')) {
     panel.hidden = true;
     required('#repo-toggle').setAttribute('aria-expanded', 'false');
   }
-  const element = /** @type {HTMLElement | null} */ (target.closest('[data-action]'));
-  const action = element?.dataset.action;
-  if (element && action && actions[action]) {
+  const element = target.closest('[data-action]');
+  const action = element instanceof HTMLElement ? element.dataset.action : undefined;
+  if (element instanceof HTMLElement && action && actions[action]) {
     event.preventDefault();
     void withAction(() => actions[action](element));
   }
@@ -384,7 +386,8 @@ document.addEventListener('change', event => {
   if (target.matches('[data-scope-repo]')) {
     // Disabled repositories have no checkbox; keep their place in the scope for when they are enabled.
     const disabled = refresh.state.watched.filter(repo => repo.disabled && (ui.repoIds === null || ui.repoIds.includes(repo.id)));
-    ui.repoIds = [.../** @type {NodeListOf<HTMLInputElement>} */ (document.querySelectorAll('[data-scope-repo]:checked'))]
+    ui.repoIds = [...document.querySelectorAll('[data-scope-repo]:checked')]
+      .filter(input => input instanceof HTMLInputElement)
       // The selector guarantees data-scope-repo, so the fallback never applies.
       .map(input => input.dataset.scopeRepo ?? '')
       .concat(disabled.map(repo => repo.id));
@@ -425,8 +428,8 @@ document.addEventListener('change', event => {
         await request('/api/settings', { method: 'POST', body: { refreshEnabled: checked } });
         await load({ force: true });
       } finally {
-        for (const control of /** @type {NodeListOf<HTMLInputElement>} */ (document.querySelectorAll('[data-auto-toggle]'))) {
-          control.checked = refresh.state.settings.refreshEnabled !== false;
+        for (const control of document.querySelectorAll('[data-auto-toggle]')) {
+          if (control instanceof HTMLInputElement) control.checked = refresh.state.settings.refreshEnabled !== false;
         }
       }
     });
@@ -438,7 +441,8 @@ page.addEventListener('click', event => {
   const target = event.target;
   if (!(target instanceof Element)) return;
   if (!target.closest('details[data-filter-panel] > summary')) return;
-  const filters = /** @type {HTMLDetailsElement} */ (target.closest('details[data-filter-panel]'));
+  const filters = target.closest('details[data-filter-panel]');
+  if (!(filters instanceof HTMLDetailsElement)) return;
   requestAnimationFrame(() => {
     if (filters.isConnected) ui.filtersOpen = filters.open;
   });
@@ -447,8 +451,8 @@ dialog.addEventListener('cancel', () => {
   pendingConfirmation = null;
 });
 document.addEventListener('keydown', event => {
-  const monitoring = /** @type {HTMLDetailsElement | null} */ (header.querySelector('.header-overflow[open]'));
-  if (event.key === 'Escape' && monitoring?.contains(document.activeElement)) {
+  const monitoring = header.querySelector('.header-overflow[open]');
+  if (event.key === 'Escape' && monitoring instanceof HTMLDetailsElement && monitoring.contains(document.activeElement)) {
     monitoring.open = false;
     required('summary', HTMLElement, monitoring).focus();
     return;
@@ -468,7 +472,8 @@ document.addEventListener('keydown', event => {
     !['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement?.tagName ?? '')
   ) {
     event.preventDefault();
-    /** @type {HTMLElement | null} */ (document.querySelector('#feed-search'))?.focus();
+    const search = document.querySelector('#feed-search');
+    if (search instanceof HTMLElement) search.focus();
   }
 });
 

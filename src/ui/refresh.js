@@ -24,6 +24,7 @@ import { isActivity } from './navigation.js';
 /** @param {unknown} value */
 function readMetadata(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Local state is unreadable.');
+  // The object check above holds; each field read below is checked or defaulted before use.
   const data = /** @type {Metadata} */ (value);
   if (data.repos !== undefined && (!Array.isArray(data.repos) || data.repos.some(repo => typeof repo?.id !== 'string'))) {
     throw new Error('Local repository data is unreadable.');

@@ -23,9 +23,9 @@ Phase 1: server types describe what routes send
 
 Phase 2: casts become checks
 
-- [ ] Casts that hide a possible null or undefined are replaced by `required()`, `instanceof` or an explicit early return: src/web.js:318 (`find` result), src/web.js:441 (`closest` result), and src/ui/type-filter.js:20-24 (`root`). Check: `tsc` passes and the cast count drops by at least 6.
-- [ ] `/** @type {Error} */ (error)` casts in src/web.js use `error instanceof Error ? error.message : String(error)`, as src/ui/refresh.js does. Check: the cast count drops by 2.
-- [ ] Element casts on `querySelector` and `querySelectorAll` in src/web.js, src/ui/browser-view.js and src/ui/type-filter.js narrow with `instanceof` or `required()`. Check: the cast count is at most 8, and every remaining cast has a one-line comment saying why it holds.
+- [x] Casts that hide a possible null or undefined are replaced by `required()`, `instanceof` or an explicit early return: src/web.js:318 (`find` result), src/web.js:441 (`closest` result), and src/ui/type-filter.js:20-24 (`root`). Check: `tsc` passes and the cast count drops by at least 6.
+- [x] `/** @type {Error} */ (error)` casts in src/web.js use `error instanceof Error ? error.message : String(error)`, as src/ui/refresh.js does. Check: the cast count drops by 2.
+- [x] Element casts on `querySelector` and `querySelectorAll` in src/web.js, src/ui/browser-view.js and src/ui/type-filter.js narrow with `instanceof` or `required()`. Check: the cast count is at most 8, and every remaining cast has a one-line comment saying why it holds.
 - [x] The never-set `checking` branch in `connectionResult` (src/ui/connection.js) is removed. Check: `grep -rn checking src` finds nothing and the render comparison reports 0 differences.
 
 Phase 3: escaping is tested, not assumed
