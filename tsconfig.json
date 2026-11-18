@@ -8,5 +8,13 @@
     "target": "ES2024",
     "types": ["node"]
   },
-  "include": ["server.js", "server/**/*.js", "src/activity.js", "src/activity-text.js", "src/ui/activity-data.js", "src/ui/refresh.js"]
+  "include": [
+    "server.js",
+    "server/**/*.js",
+    "src/activity.js",
+    "src/activity-text.js",
+    "src/ui/activity-data.js",
+    "src/ui/refresh.js",
+    "src/api.js"
+  ]
 }

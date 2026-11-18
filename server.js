@@ -25,8 +25,14 @@ import { browseFolders } from './server/folders.js';
 /** @typedef {import('./server/azure-client.js').AzureProvider} AzureProvider */
 /** Live mode passes the Azure client; demo mode passes demoProvider, which answers only the routes demo serves. */
 /** @typedef {AzureProvider | typeof demoProvider} AppProvider */
+/** @typedef {{ demo: true, running: false }} DemoSyncStatus */
 /** Demo mode passes a stub, so the app relies only on the two calls both share with createSync. */
-/** @typedef {{ status: () => unknown, refresh: (repoIds?: string[]) => unknown }} AppSync */
+/**
+ * @typedef {{
+ *   status: () => import('./server/sync.js').SyncStatus | DemoSyncStatus,
+ *   refresh: (repoIds?: string[]) => import('./server/sync.js').RefreshStatus | { demo: true },
+ * }} AppSync
+ */
 /** @typedef {{ req: Request, res: Response, url: URL, params: string[] }} RouteContext */
 /** @typedef {{ method: 'GET'|'POST'|'PATCH'|'DELETE', path: string | RegExp, handler: (context: RouteContext) => unknown }} Route */
 /** @typedef {Error & { status?: number, code?: string }} RequestError */
@@ -39,11 +45,47 @@ import { browseFolders } from './server/folders.js';
  *   backfill?: Pick<ReturnType<typeof createBackfill>, 'start'>,
  *   demo?: boolean,
  *   discover?: typeof discoverRepositories,
- *   browse?: (input: unknown) => Promise<unknown>,
+ *   browse?: (input: unknown) => Promise<FoldersResponse>,
  *   checkoutGit?: ReturnType<typeof createCheckoutGit>,
  *   onStateRead?: () => void,
  * }} AppOptions
  */
+
+// The JSON each route answers with. src/api.js maps request paths to these types, so the browser
+// modules that read a response are checked against what the handler below produces.
+/** @typedef {import('./server/store.js').Repository} Repository */
+/** @typedef {import('./server/store.js').HydratedEvent} HydratedEvent */
+/** @typedef {{ message: string, code?: string }} ErrorResponse */
+/** @typedef {{ ok: true }} OkResponse */
+/**
+ * GET /api/state. The settings are only ever written by POST /api/settings.
+ * @typedef {{
+ *   repos: Repository[],
+ *   streams: import('./server/sync.js').StreamState[],
+ *   diagnostics: Partial<ReturnType<ReturnType<typeof createAzureCli>['diagnostics']>> & { sync: ReturnType<AppSync['status']> },
+ *   jobs: import('./server/store.js').Job[],
+ *   mergeQueue: import('./server/store.js').MergeQueueSummary,
+ *   activityRevision: string,
+ *   settings: { refreshEnabled: boolean, refreshResumedAt: number | null },
+ *   demo: boolean,
+ *   csrfToken: string,
+ * }} StateResponse
+ */
+/** GET /api/activity, built by server/activity-query.js. @typedef {import('./src/activity.js').ActivityPage} ActivityResponse */
+/** GET /api/events/:id: the event and every event grouped with it. @typedef {{ event: HydratedEvent, events: HydratedEvent[] }} EventResponse */
+/** GET /api/checkouts: status per enabled repository id, empty in demo mode. */
+/** @typedef {Record<string, import('./server/checkout-git.js').CheckoutStatus>} CheckoutsResponse */
+/** @typedef {ReturnType<typeof createCheckoutGit>} CheckoutGit */
+/** POST /api/repos/:id/checkout. */
+/** @typedef {Awaited<ReturnType<CheckoutGit['update']>> | Awaited<ReturnType<CheckoutGit['branchAction']>>} CheckoutUpdateResponse */
+/** GET /api/connection. @typedef {Awaited<ReturnType<AppProvider['checkConnection']>>} ConnectionResponse */
+/** @typedef {{ commitId: string, comment?: string }} PushCommit */
+/** GET /api/push/:repo/:id/commits. @typedef {{ items: PushCommit[], nextCursor: unknown, message?: string }} PushCommitsResponse */
+/** POST /api/backfill. @typedef {ReturnType<ReturnType<typeof createBackfill>['start']>} BackfillResponse */
+/** POST /api/refresh. @typedef {{ ok: true, status: ReturnType<AppSync['refresh']> }} RefreshResponse */
+/** POST /api/discover. @typedef {import('./server/repositories.js').Discovery} DiscoverResponse */
+/** POST /api/folders. @typedef {Awaited<ReturnType<typeof browseFolders>>} FoldersResponse */
+/** POST /api/demo/event. @typedef {ReturnType<typeof addDemoEvent>} DemoEventResponse */
 
 const ROOT = dirname(fileURLToPath(import.meta.url));
 /** @type {Record<string, string>} */
@@ -175,20 +217,25 @@ export function createApp({
       path: '/api/state',
       handler: ({ res }) => {
         onStateRead();
-        return json(res, 200, {
-          repos: store.listRepos(),
-          streams: store.getStreams(),
-          diagnostics: { ...(cli?.diagnostics() || {}), sync: sync.status() },
-          jobs: store.listJobs({ type: 'backfill' }),
-          mergeQueue: store.mergeQueueSummary(),
-          activityRevision: store.activityRevision(),
-          settings: {
-            refreshEnabled: store.getSetting('refreshEnabled', true),
-            refreshResumedAt: store.getSetting('refreshResumedAt', null),
-          },
-          demo,
-          csrfToken,
-        });
+        return json(
+          res,
+          200,
+          /** @satisfies {StateResponse} */ ({
+            repos: store.listRepos(),
+            streams: store.getStreams(),
+            diagnostics: { ...(cli?.diagnostics() || {}), sync: sync.status() },
+            jobs: store.listJobs({ type: 'backfill' }),
+            mergeQueue: store.mergeQueueSummary(),
+            activityRevision: store.activityRevision(),
+            // Both settings are only written by POST /api/settings: a boolean and a Date.now() stamp.
+            settings: {
+              refreshEnabled: /** @type {boolean} */ (store.getSetting('refreshEnabled', true)),
+              refreshResumedAt: /** @type {number | null} */ (store.getSetting('refreshResumedAt', null)),
+            },
+            demo,
+            csrfToken,
+          }),
+        );
       },
     },
     {
@@ -219,7 +266,7 @@ export function createApp({
           limit,
           cursor,
         });
-        return json(res, 200, result);
+        return json(res, 200, /** @satisfies {ActivityResponse} */ (result));
       },
     },
     {
@@ -229,7 +276,7 @@ export function createApp({
         const id = decodeURIComponent(rawId);
         const event = store.getEvent(id);
         if (!event || !enabledRepoIds().includes(event.repoId)) throw problem('Activity not found.', 404);
-        return json(res, 200, { event, events: store.getEventGroup(id) });
+        return json(res, 200, /** @satisfies {EventResponse} */ ({ event, events: store.getEventGroup(id) }));
       },
     },
     {
@@ -241,7 +288,7 @@ export function createApp({
         const repo = repoById(input.repoId);
         const days = input.days;
         if (days !== 30 && days !== 90 && days !== 'all') throw problem('Choose 30 days, 90 days or all available history.');
-        return json(res, 202, backfill.start(repo.id, days));
+        return json(res, 202, /** @satisfies {BackfillResponse} */ (backfill.start(repo.id, days)));
       },
     },
     {
@@ -252,7 +299,8 @@ export function createApp({
         if (org && !/^https:\/\/dev\.azure\.com\/[A-Za-z0-9_.-]+\/?$/.test(org))
           throw problem('Use https://dev.azure.com/your-organization.');
         const repoId = url.searchParams.get('repoId');
-        return json(res, 200, await provider.checkConnection(org, repoId === null ? undefined : enabledRepoById(repoId)));
+        const connection = await provider.checkConnection(org, repoId === null ? undefined : enabledRepoById(repoId));
+        return json(res, 200, /** @satisfies {ConnectionResponse} */ (connection));
       },
     },
     {
@@ -261,7 +309,7 @@ export function createApp({
       handler: async ({ req, res }) => {
         const input = await body(req);
         if (typeof input.path !== 'string' || !input.path.trim()) throw problem('Enter a local folder path.');
-        return json(res, 200, await discover(input.path));
+        return json(res, 200, /** @satisfies {DiscoverResponse} */ (await discover(input.path)));
       },
     },
     {
@@ -269,7 +317,7 @@ export function createApp({
       path: '/api/folders',
       handler: async ({ req, res }) => {
         const input = await body(req);
-        return json(res, 200, await browse(input.path));
+        return json(res, 200, /** @satisfies {FoldersResponse} */ (await browse(input.path)));
       },
     },
     {
@@ -298,7 +346,7 @@ export function createApp({
         const existing = store.listRepos().find(item => item.id === repo.id);
         store.saveRepo({ ...repo, disabled: existing?.disabled || false });
         sync.refresh([repo.id]);
-        return json(res, 201, repo);
+        return json(res, 201, /** @satisfies {Repository} */ (repo));
       },
     },
     {
@@ -311,7 +359,7 @@ export function createApp({
           for (let i = 0; i < repos.length; i += 2) {
             results.push(...(await Promise.all(repos.slice(i, i + 2).map(async repo => [repo.id, await checkoutGit.status(repo)]))));
           }
-        return json(res, 200, Object.fromEntries(results));
+        return json(res, 200, /** @satisfies {CheckoutsResponse} */ (Object.fromEntries(results)));
       },
     },
     {
@@ -323,12 +371,12 @@ export function createApp({
         const input = (await body(req)) || {};
         const { operation, expected } = input;
         if (isBranchAction(input) && isCheckoutIntent(expected)) {
-          return json(res, 200, await checkoutGit.branchAction(repo, input, expected));
+          return json(res, 200, /** @satisfies {CheckoutUpdateResponse} */ (await checkoutGit.branchAction(repo, input, expected)));
         }
         if ((operation !== 'check' && operation !== 'pull') || !isCheckoutIntent(expected)) {
           throw problem('Choose a checkout and Git action.');
         }
-        return json(res, 200, await checkoutGit.update(repo, operation, expected));
+        return json(res, 200, /** @satisfies {CheckoutUpdateResponse} */ (await checkoutGit.update(repo, operation, expected)));
       },
     },
     {
@@ -341,7 +389,7 @@ export function createApp({
         if (typeof input.disabled !== 'boolean') throw problem('disabled must be true or false.');
         store.saveRepo({ ...repo, disabled: input.disabled });
         if (!input.disabled) sync.refresh([id]);
-        return json(res, 200, { ok: true });
+        return json(res, 200, /** @satisfies {OkResponse} */ ({ ok: true }));
       },
     },
     {
@@ -351,7 +399,7 @@ export function createApp({
         const id = decodeURIComponent(rawId);
         repoById(id);
         store.removeRepo(id);
-        return json(res, 200, { ok: true });
+        return json(res, 200, /** @satisfies {OkResponse} */ ({ ok: true }));
       },
     },
     {
@@ -362,7 +410,7 @@ export function createApp({
         const { repoIds } = input;
         if (repoIds !== undefined && !isStringList(repoIds)) throw problem('repoIds must be a list.');
         repoIds?.forEach(repoById);
-        return json(res, 202, { ok: true, status: sync.refresh(repoIds) });
+        return json(res, 202, /** @satisfies {RefreshResponse} */ ({ ok: true, status: sync.refresh(repoIds) }));
       },
     },
     {
@@ -374,7 +422,7 @@ export function createApp({
         if (!Array.isArray(ids) || ids.length > 1000 || !isStringList(ids)) throw problem('Send up to 1000 explicit event IDs.');
         if (seen !== undefined && typeof seen !== 'boolean') throw problem('seen must be true or false.');
         store.acknowledge(ids, seen !== false);
-        return json(res, 200, { ok: true });
+        return json(res, 200, /** @satisfies {OkResponse} */ ({ ok: true }));
       },
     },
     {
@@ -387,7 +435,7 @@ export function createApp({
           store.setSetting('refreshResumedAt', Date.now());
         }
         store.setSetting('refreshEnabled', input.refreshEnabled);
-        return json(res, 200, { ok: true });
+        return json(res, 200, /** @satisfies {OkResponse} */ ({ ok: true }));
       },
     },
     // Only demo mode has this route; in live mode the path is a plain 404.
@@ -398,7 +446,7 @@ export function createApp({
             path: '/api/demo/event',
             handler: async ({ req, res }) => {
               await body(req);
-              return json(res, 201, addDemoEvent(store));
+              return json(res, 201, /** @satisfies {DemoEventResponse} */ (addDemoEvent(store)));
             },
           },
         ])
@@ -408,10 +456,15 @@ export function createApp({
       path: /^\/api\/push\/([^/]+)\/(\d+)\/commits$/,
       handler: async ({ res, url, params: [rawId, pushId] }) => {
         const repo = enabledRepoById(decodeURIComponent(rawId));
-        if (!provider.pushCommits) return json(res, 200, { items: [], nextCursor: null, message: 'Open Azure DevOps for commit details.' });
+        if (!provider.pushCommits)
+          return json(
+            res,
+            200,
+            /** @satisfies {PushCommitsResponse} */ ({ items: [], nextCursor: null, message: 'Open Azure DevOps for commit details.' }),
+          );
         const skip = Number(url.searchParams.get('skip') || 0);
         if (!Number.isSafeInteger(skip) || skip < 0) throw problem('Invalid page offset.');
-        return json(res, 200, await provider.pushCommits(repo, Number(pushId), { skip }));
+        return json(res, 200, /** @satisfies {PushCommitsResponse} */ (await provider.pushCommits(repo, Number(pushId), { skip })));
       },
     },
   ];
@@ -422,7 +475,7 @@ export function createApp({
       const url = new URL(String(req.url), `http://${req.headers.host}`);
       const path = url.pathname;
       if (req.method === 'GET' && (await staticFile(path, res))) return;
-      if (!path.startsWith('/api/')) return json(res, 404, { message: 'Not found.' });
+      if (!path.startsWith('/api/')) return json(res, 404, /** @satisfies {ErrorResponse} */ ({ message: 'Not found.' }));
       if (!['GET', 'POST', 'PATCH', 'DELETE'].includes(req.method ?? '')) throw problem('Method not allowed.', 405);
       if (req.method !== 'GET' && req.headers['x-repo-pulse-token'] !== csrfToken)
         throw problem('Reload the page before making changes.', 403);
@@ -431,16 +484,20 @@ export function createApp({
         const match = typeof route.path === 'string' ? route.path === path && [path] : route.path.exec(path);
         if (match) return await route.handler({ req, res, url, params: match.slice(1) });
       }
-      return json(res, 404, { message: 'Not found.' });
+      return json(res, 404, /** @satisfies {ErrorResponse} */ ({ message: 'Not found.' }));
     } catch (caught) {
       const error = /** @type {RequestError} */ (caught);
       // Adapter errors carry already-redacted, actionable text; unexpected errors stay local.
       const status = error.status || (error.code === 'NOT_FOUND' ? 404 : error.code === 'BAD_REQUEST' ? 400 : error.code ? 502 : 500);
       if (status === 500) console.error('Request failed:', error.name);
-      return json(res, status, {
-        message: status === 500 ? 'Something went wrong. Try again; cached data is kept.' : error.message,
-        code: error.code,
-      });
+      return json(
+        res,
+        status,
+        /** @satisfies {ErrorResponse} */ ({
+          message: status === 500 ? 'Something went wrong. Try again; cached data is kept.' : error.message,
+          code: error.code,
+        }),
+      );
     }
   });
 }
@@ -475,9 +532,11 @@ export async function startApp({ demo = false, port = 4317, dataDir = resolve(RO
   const sync = liveSync || {
     start() {},
     stop() {},
+    /** @returns {{ demo: true }} */
     refresh() {
       return { demo: true };
     },
+    /** @returns {DemoSyncStatus} */
     status() {
       return { demo: true, running: false };
     },

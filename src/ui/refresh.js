@@ -8,11 +8,15 @@ import { isActivity } from './navigation.js';
  * @typedef {import('../activity.js').ActivityPage} ActivityPage
  * @typedef {import('./activity-data.js').EventDetail} EventDetail
  * @typedef {import('./activity-data.js').ActivityView & {eventId: string|null, generation: number}} View
- * @typedef {{id: string, disabled?: boolean}} Repo
- * @typedef {{ repos?: Repo[], watched?: Repo[], streams?: {repoId?: string}[], settings?: Record<string, unknown>,
- *   diagnostics?: Record<string, unknown>, activityRevision?: string }} Metadata
- * @typedef {(ActivityPage | { items: ActivityPage['items'], loading?: boolean }) & { error?: string }} DisplayActivity
- * @typedef {Metadata & {repos: Repo[], watched: Repo[], activity: DisplayActivity, events: ActivityEvent[], detailLoading?: boolean}} PageState
+ * @typedef {import('../api.js').StateResponse} StateResponse
+ * @typedef {typeof import('../api.js').request} Request
+ * @typedef {StateResponse['repos'][number]} Repo
+ * @typedef {Partial<Omit<StateResponse, 'settings' | 'diagnostics'>> & { watched?: Repo[],
+ *   settings?: Partial<StateResponse['settings']>, diagnostics?: Partial<StateResponse['diagnostics']> }} Metadata
+ * @typedef {Pick<ActivityPage, 'items'> & Partial<Omit<ActivityPage, 'items'>> & { loading?: boolean, error?: string }} DisplayActivity
+ *   Before the first page arrives only `items` and `loading` are set.
+ * @typedef {Metadata & {repos: Repo[], watched: Repo[], streams: StateResponse['streams'], settings: Partial<StateResponse['settings']>,
+ *   diagnostics: Partial<StateResponse['diagnostics']>, activity: DisplayActivity, events: ActivityEvent[], detailLoading?: boolean}} PageState
  * @typedef {{ view: View, force: boolean, more: boolean }} RefreshJob
  * @typedef {{ type: 'applied'|'superseded' } | { type: 'failed', error: Error }} RefreshOutcome
  */
@@ -40,7 +44,7 @@ const viewKey = ({ route, eventId, repoIds, search, kind, generation }) =>
 
 /**
  * @param {{
- *   request: (path: string) => Promise<unknown>,
+ *   request: Request,
  *   getView: () => View, reconcileRepositories: (repos: Repo[]) => void,
  *   onUpdate: (event: {metadata: string, force: boolean}) => void, onError: (error: Error, force: boolean) => void
  * }} options
