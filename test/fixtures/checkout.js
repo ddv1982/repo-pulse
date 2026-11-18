@@ -4,6 +4,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createCheckoutGit } from '../../server/checkout-git.js';
 
+// Fixture repositories and the checkout code under test commit; a clean machine or CI runner has no Git identity.
+for (const [key, value] of Object.entries({ GIT_AUTHOR_NAME: 'Test', GIT_AUTHOR_EMAIL: 'test@example.test', GIT_COMMITTER_NAME: 'Test', GIT_COMMITTER_EMAIL: 'test@example.test' })) {
+  process.env[key] ??= value;
+}
+
 export function git(path, ...args) {
   return execFileSync('git', ['-C', path, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
 }
