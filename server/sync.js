@@ -20,7 +20,7 @@ import { actorName, branchName, safeAzureUrl } from '../src/events.js';
 /** A stream while a read is in flight: the window and the refresh generation it answers are fixed. */
 /** @typedef {StreamState & { window: StreamWindow, windowGeneration: number, lastAttempt: string, pending: true }} StartedStream */
 /** What `normalize` reads from a stream state; backfill passes `historical: true`. */
-/** @typedef {{ initialized: boolean, historical?: boolean, window?: StreamWindow }} NormalizeState */
+/** @typedef {{ initialized: boolean, historical?: boolean }} NormalizeState */
 /** Raw Azure DevOps JSON. Its shape is checked by the code that reads it, not by the compiler. */
 /** @typedef {any} AzureRecord */
 /** @typedef {{ id: string, disabled?: boolean, webUrl: string, azureId?: string, organization: string, project: string }} WatchedRepo */
@@ -123,7 +123,6 @@ function failPage(state, at, error, intervalMs) {
   const delay = Math.min(30 * 60000, intervalMs * 2 ** Math.min(failures - 1, 4));
   // Caught values are untyped; provider errors carry a user-facing message only when they have a code.
   const { code, message } = /** @type {{ code?: string, message: string }} */ (error);
-  // A manual request ends with its failure; retrying is left to the user while automatic checks are off.
   return { ...state, manual: false, failures, error: { code: code || 'SYNC_FAILED',
     message: code ? message : 'Could not refresh this Azure activity stream.' }, nextAt: iso(at + delay) };
 }
