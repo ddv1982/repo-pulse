@@ -6,9 +6,9 @@ import { dateTime, escape as e } from './format.js';
 /** @typedef {{ results: Map<string, ConnectionStatus>, local: ConnectionStatus | null, pending: string | null, repoId: string }} ConnectionState */
 /** @typedef {Pick<import('./refresh.js').PageState, 'demo' | 'streams'>} ConnectionPage */
 
-/** @param {(ConnectionStatus & { checking?: boolean }) | undefined} connection */
+/** @param {ConnectionStatus | undefined} connection */
 export function connectionResult(connection) {
-  if (!connection || connection.checking) return '<p class="help" role="status">Detecting your existing Azure CLI configuration…</p>';
+  if (!connection) return '<p class="help" role="status">Detecting your existing Azure CLI configuration…</p>';
   return `<div class="connection-summary"><span class="${connection.available ? 'status-good' : 'status-bad'}" role="status">
     ${connection.available ? 'Using existing Azure CLI' : 'Azure CLI needs attention'}</span>
     ${connection.account?.name ? `<span class="help" title="Azure CLI account context">${e(connection.account.name)}</span>` : ''}
