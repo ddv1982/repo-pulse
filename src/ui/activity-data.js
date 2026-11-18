@@ -8,7 +8,13 @@
 
 const PAGE_SIZE = 50;
 /** @param {ActivityView} ui */
-const keyFor = ui => JSON.stringify({ view: ui.route === 'activity' ? 'all' : 'new', repoIds: ui.repoIds === null ? null : [...ui.repoIds].sort(), kind: ui.kind || '', search: ui.search || '' });
+const keyFor = ui =>
+  JSON.stringify({
+    view: ui.route === 'activity' ? 'all' : 'new',
+    repoIds: ui.repoIds === null ? null : [...ui.repoIds].sort(),
+    kind: ui.kind || '',
+    search: ui.search || '',
+  });
 /** @param {ActivityItem} item */
 const itemKey = item => item.groupKey;
 
@@ -33,11 +39,15 @@ export function createActivityData(request) {
   let revision;
   /** @type {ActivityPage|undefined} */
   let result;
-  let capacity = PAGE_SIZE, generation = 0;
+  let capacity = PAGE_SIZE,
+    generation = 0;
 
   return {
     reset(size = PAGE_SIZE) {
-      key = undefined; result = undefined; revision = undefined; generation++;
+      key = undefined;
+      result = undefined;
+      revision = undefined;
+      generation++;
       capacity = Number.isSafeInteger(size) && size >= PAGE_SIZE ? size : PAGE_SIZE;
     },
     capacity: () => capacity,
@@ -45,7 +55,10 @@ export function createActivityData(request) {
     async read(ui, { more = false, force = false, activityRevision } = {}) {
       ui = { ...ui };
       const nextKey = keyFor(ui);
-      if (key !== undefined && key !== nextKey) { result = undefined; capacity = PAGE_SIZE; }
+      if (key !== undefined && key !== nextKey) {
+        result = undefined;
+        capacity = PAGE_SIZE;
+      }
       key = nextKey;
       const current = ++generation;
       if (ui.repoIds?.length === 0) return (result = { items: [], nextCursor: null, total: 0, newItems: 0, newUpdates: 0 });

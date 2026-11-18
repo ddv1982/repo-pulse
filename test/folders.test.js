@@ -12,11 +12,17 @@ test('file-picker defaults to projects and returns immediate folders, breadcrumb
   for (const name of ['zeta', 'alpha', '.hidden', 'node_modules']) await mkdir(join(projects, name), { recursive: true });
   await writeFile(join(projects, 'private.txt'), 'never returned');
   const calls = [];
-  const discover = async path => { calls.push(path); return { repositories: [{ localPath: join(path, 'alpha'), remotes: [] }], warnings: [] }; };
+  const discover = async path => {
+    calls.push(path);
+    return { repositories: [{ localPath: join(path, 'alpha'), remotes: [] }], warnings: [] };
+  };
   const result = await browseFolders(undefined, { home, discover });
   assert.equal(result.path, projects);
   assert.equal(result.parent, home);
-  assert.deepEqual(result.folders.map(folder => folder.name), ['alpha', 'zeta']);
+  assert.deepEqual(
+    result.folders.map(folder => folder.name),
+    ['alpha', 'zeta'],
+  );
   assert.equal(result.breadcrumbs.at(-1).path, projects);
   assert.deepEqual(calls, [projects]);
   assert.equal(JSON.stringify(result).includes('private.txt'), false);
@@ -28,6 +34,9 @@ test('missing projects falls back home; unavailable folders return actionable sa
   t.after(() => rm(home, { recursive: true, force: true }));
   const discover = async () => ({ repositories: [], warnings: [] });
   assert.equal((await browseFolders(undefined, { home, discover })).path, home);
-  await assert.rejects(browseFolders(join(home, 'missing'), { home, discover }), error => error.status === 400 && /cannot be opened/.test(error.message));
+  await assert.rejects(
+    browseFolders(join(home, 'missing'), { home, discover }),
+    error => error.status === 400 && /cannot be opened/.test(error.message),
+  );
   await assert.rejects(browseFolders({}, { home, discover }), { status: 400 });
 });

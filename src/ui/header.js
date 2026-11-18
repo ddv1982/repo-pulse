@@ -17,9 +17,13 @@ export function scopeLabel(state, ui) {
 }
 
 export function renderHeader(state, ui) {
-  const streamTimes = state.streams.map(stream => stream.lastSuccess).filter(Boolean).map(value => new Date(value).valueOf()).filter(Number.isFinite);
+  const streamTimes = state.streams
+    .map(stream => stream.lastSuccess)
+    .filter(Boolean)
+    .map(value => new Date(value).valueOf())
+    .filter(Number.isFinite);
   const automatic = state.settings.refreshEnabled !== false;
-  const freshness = (streamTimes.length ? `Last Azure check ${dateTime(Math.max(...streamTimes))}` : 'No Azure check yet');
+  const freshness = streamTimes.length ? `Last Azure check ${dateTime(Math.max(...streamTimes))}` : 'No Azure check yet';
   const switchInput = suffix => `<input class="setting-switch" type="checkbox" role="switch" id="header-auto-${suffix}" data-auto-toggle
     aria-label="Automatic checks" ${automatic ? 'checked' : ''}>`;
   const refreshTitle = e(`Refresh activity across selected repositories. ${freshness}`);

@@ -15,8 +15,13 @@ const page = document.querySelector('#page');
 const header = document.querySelector('#header');
 const dialog = document.querySelector('#confirm-dialog');
 const ui = {
-  route: 'catchup', eventId: null, repoIds: null, search: '', kind: '',
-  filtersOpen: undefined, activityRoute: 'catchup',
+  route: 'catchup',
+  eventId: null,
+  repoIds: null,
+  search: '',
+  kind: '',
+  filtersOpen: undefined,
+  activityRoute: 'catchup',
 };
 let pendingConfirmation;
 let dialogOpener;
@@ -25,19 +30,34 @@ let lastRendered = {};
 let toastTimer;
 
 let searchTimer;
-const connection = createConnectionController({ request, render() {
-  if (ui.route === 'settings') renderPage();
-  const status = document.querySelector('#connection-status');
-  if (status) {
-    const focused = status.contains(document.activeElement);
-    status.innerHTML = connectionResult(connection.state.results.get(''));
-    if (focused) status.querySelector('button')?.focus({ preventScroll: true });
-  }
-} });
+const connection = createConnectionController({
+  request,
+  render() {
+    if (ui.route === 'settings') renderPage();
+    const status = document.querySelector('#connection-status');
+    if (status) {
+      const focused = status.contains(document.activeElement);
+      status.innerHTML = connectionResult(connection.state.results.get(''));
+      if (focused) status.querySelector('button')?.focus({ preventScroll: true });
+    }
+  },
+});
 ui.connection = connection.state;
 const commitResults = new Map();
-const picker = createRepositoryPicker({ request, getRepos: () => refresh.state.watched, onAdded: async count => { await load({ force: true }); toast(`${count} repositories watched.`); } });
-const typeFilter = createTypeFilter({ onChange: value => { ui.kind = value; activityChanged(); } });
+const picker = createRepositoryPicker({
+  request,
+  getRepos: () => refresh.state.watched,
+  onAdded: async count => {
+    await load({ force: true });
+    toast(`${count} repositories watched.`);
+  },
+});
+const typeFilter = createTypeFilter({
+  onChange: value => {
+    ui.kind = value;
+    activityChanged();
+  },
+});
 const historyImport = createHistoryImport(document.querySelector('#history-dialog'), {
   start: (repoId, days) => request('/api/backfill', { method: 'POST', body: { repoId, days } }),
   onStarted: async id => {
@@ -49,19 +69,30 @@ const historyImport = createHistoryImport(document.querySelector('#history-dialo
   },
 });
 
-const seen = createSeenActions({ page, request, getEvents: () => refresh.state.events,
-  reload: () => load({ force: true }), toast });
-const view = createBrowserView({ page, header, demo: document.querySelector('#demo'),
-  picker, typeFilter, onPageRendered: seen.updateShownCount });
-const checkoutPanel = createCheckoutPanel({ page, request,
-  isVisible: () => ui.route === 'repositories' && !refresh.state.demo && refresh.state.repos.some(repo => repo.localPath) });
+const seen = createSeenActions({ page, request, getEvents: () => refresh.state.events, reload: () => load({ force: true }), toast });
+const view = createBrowserView({
+  page,
+  header,
+  demo: document.querySelector('#demo'),
+  picker,
+  typeFilter,
+  onPageRendered: seen.updateShownCount,
+});
+const checkoutPanel = createCheckoutPanel({
+  page,
+  request,
+  isVisible: () => ui.route === 'repositories' && !refresh.state.demo && refresh.state.repos.some(repo => repo.localPath),
+});
 const navigation = createNavigation({ ui, captureGroups: view.captureGroups, activityCapacity: () => refresh.capacity() });
 
 function renderOptions() {
   const restored = navigation.takeRestoration(refresh.state.activity?.loading);
   const { generation } = navigation.view();
   return {
-    restored, returnRoute: navigation.returnRoute, commits: commitResults.get(ui.eventId), checkouts: checkoutPanel.snapshots,
+    restored,
+    returnRoute: navigation.returnRoute,
+    commits: commitResults.get(ui.eventId),
+    checkouts: checkoutPanel.snapshots,
     isCurrent: () => navigation.view().generation === generation,
   };
 }
@@ -76,15 +107,19 @@ function render() {
 }
 
 function refreshTarget(force) {
-  return view.refreshTarget(force, busy || dialog.open || historyImport.open || ui.route === 'repositories' && picker.active());
+  return view.refreshTarget(force, busy || dialog.open || historyImport.open || (ui.route === 'repositories' && picker.active()));
 }
 
 function activityChanged({ debounce = false, header = false } = {}) {
   navigation.invalidate();
   refresh.resetActivity();
-  if (header) render(); else renderPage();
+  if (header) render();
+  else renderPage();
   clearTimeout(searchTimer);
-  if (debounce) searchTimer = setTimeout(() => { void load({ force: true }); }, 250);
+  if (debounce)
+    searchTimer = setTimeout(() => {
+      void load({ force: true });
+    }, 250);
   else void load({ force: true });
 }
 
@@ -131,7 +166,12 @@ function toast(message, { undo = false } = {}) {
   clearTimeout(toastTimer);
   element.innerHTML = `${e(message)}${undo ? '<button type="button" data-action="undo-ack">Undo</button>' : ''}`;
   element.hidden = false;
-  toastTimer = setTimeout(() => { element.hidden = true; }, undo ? 20000 : 6000);
+  toastTimer = setTimeout(
+    () => {
+      element.hidden = true;
+    },
+    undo ? 20000 : 6000,
+  );
 }
 
 function confirm(title, description, callback, label = 'Confirm', { subject = '', destructive = false } = {}) {
@@ -157,8 +197,13 @@ function closeDialog() {
 async function withAction(callback) {
   if (busy) return;
   busy = true;
-  try { await callback(); } catch (error) { showError(error.message); }
-  finally { busy = false; }
+  try {
+    await callback();
+  } catch (error) {
+    showError(error.message);
+  } finally {
+    busy = false;
+  }
 }
 
 function setRefreshPending(pending) {
@@ -172,8 +217,12 @@ function setRefreshPending(pending) {
 
 const actions = {
   ...createCheckoutActions({ checkoutPanel, confirm, toast }),
-  'load-more-activity': async () => { await load({ force: true, more: true }); },
-  'retry-activity': async () => { await load({ force: true }); },
+  'load-more-activity': async () => {
+    await load({ force: true, more: true });
+  },
+  'retry-activity': async () => {
+    await load({ force: true });
+  },
   'open-history-import': element => {
     const repo = refresh.state.repos.find(item => item.id === element.dataset.id);
     if (repo) historyImport.show(repo);
@@ -182,10 +231,14 @@ const actions = {
     try {
       await navigator.clipboard.writeText(JSON.stringify({ ...refresh.state.diagnostics, mergeQueue: refresh.state.mergeQueue }, null, 2));
       toast('Diagnostics copied.');
-    } catch { toast('Copy is unavailable in this browser.'); }
+    } catch {
+      toast('Copy is unavailable in this browser.');
+    }
   },
-  'check-connection': element => { void connection.check(element.dataset.repoId || '', { force: true }); },
-  'refresh': async () => {
+  'check-connection': element => {
+    void connection.check(element.dataset.repoId || '', { force: true });
+  },
+  refresh: async () => {
     setRefreshPending(true);
     try {
       await request('/api/refresh', { method: 'POST', body: { ...(ui.repoIds === null ? {} : { repoIds: ui.repoIds }) } });
@@ -200,30 +253,64 @@ const actions = {
     await load({ force: true });
     toast('Fictional incoming hotfix added.');
   },
-  'detail': element => { navigation.remember(element.dataset.id); location.hash = `event/${encodeURIComponent(element.dataset.id)}`; },
-  'back-to-results': () => { location.hash = activityHref(navigation.returnRoute); },
+  detail: element => {
+    navigation.remember(element.dataset.id);
+    location.hash = `event/${encodeURIComponent(element.dataset.id)}`;
+  },
+  'back-to-results': () => {
+    location.hash = activityHref(navigation.returnRoute);
+  },
   'copy-commit': async element => {
-    try { await navigator.clipboard.writeText(element.dataset.value || ''); toast('Commit copied.'); }
-    catch { toast('Copy unavailable in this browser. Open Azure DevOps to copy the full commit.'); }
+    try {
+      await navigator.clipboard.writeText(element.dataset.value || '');
+      toast('Commit copied.');
+    } catch {
+      toast('Copy unavailable in this browser. Open Azure DevOps to copy the full commit.');
+    }
   },
   ...seen.actions,
   'cancel-dialog': closeDialog,
-  'confirm-dialog': async () => { const callback = pendingConfirmation; closeDialog(); if (callback) await callback(); },
-  'clear-filters': () => { ui.search = ''; ui.kind = ''; activityChanged(); },
+  'confirm-dialog': async () => {
+    const callback = pendingConfirmation;
+    closeDialog();
+    if (callback) await callback();
+  },
+  'clear-filters': () => {
+    ui.search = '';
+    ui.kind = '';
+    activityChanged();
+  },
   'dismiss-error': clearNotice,
-  'all-repos': () => { ui.repoIds = null; activityChanged({ header: true }); },
-  'no-repos': () => { ui.repoIds = []; activityChanged({ header: true }); },
+  'all-repos': () => {
+    ui.repoIds = null;
+    activityChanged({ header: true });
+  },
+  'no-repos': () => {
+    ui.repoIds = [];
+    activityChanged({ header: true });
+  },
   'remove-repo': element => {
     const repo = refresh.state.watched.find(item => item.id === element.dataset.id);
-    confirm(`Remove ${repo.name} from this app?`, 'This deletes its local watch and cached history only. The checkout, Azure repository and remote data are unchanged.', async () => {
-      await request(`/api/repos/${encodeURIComponent(repo.id)}`, { method: 'DELETE' });
-      await load({ force: true });
-    }, 'Remove local watch');
+    confirm(
+      `Remove ${repo.name} from this app?`,
+      'This deletes its local watch and cached history only. The checkout, Azure repository and remote data are unchanged.',
+      async () => {
+        await request(`/api/repos/${encodeURIComponent(repo.id)}`, { method: 'DELETE' });
+        await load({ force: true });
+      },
+      'Remove local watch',
+    );
   },
   'load-commits': async element => {
     const { eventId } = ui;
-    try { commitResults.set(eventId, await request(`/api/push/${encodeURIComponent(element.dataset.repoId)}/${encodeURIComponent(element.dataset.pushId)}/commits`)); }
-    catch (error) { commitResults.set(eventId, { error: error.message }); }
+    try {
+      commitResults.set(
+        eventId,
+        await request(`/api/push/${encodeURIComponent(element.dataset.repoId)}/${encodeURIComponent(element.dataset.pushId)}/commits`),
+      );
+    } catch (error) {
+      commitResults.set(eventId, { error: error.message });
+    }
     if (ui.route === 'event' && ui.eventId === eventId) renderPage();
   },
 };
@@ -232,7 +319,10 @@ document.addEventListener('click', event => {
   const monitoring = header.querySelector('.header-overflow[open]');
   if (monitoring && !monitoring.contains(event.target)) monitoring.open = false;
   const theme = event.target.closest('[data-theme]');
-  if (theme) { window.repoPulseTheme?.set(theme.dataset.theme); return; }
+  if (theme) {
+    window.repoPulseTheme?.set(theme.dataset.theme);
+    return;
+  }
   if (event.target.closest('#repo-toggle')) {
     const panel = document.querySelector('#repo-panel');
     panel.hidden = !panel.hidden;
@@ -252,14 +342,18 @@ document.addEventListener('click', event => {
 });
 
 document.addEventListener('input', event => {
-  if (event.target.id === 'feed-search') { ui.search = event.target.value; activityChanged({ debounce: true }); }
+  if (event.target.id === 'feed-search') {
+    ui.search = event.target.value;
+    activityChanged({ debounce: true });
+  }
 });
 
 document.addEventListener('change', event => {
   if (event.target.matches('[data-scope-repo]')) {
     // Disabled repositories have no checkbox; keep their place in the scope for when they are enabled.
     const disabled = refresh.state.watched.filter(repo => repo.disabled && (ui.repoIds === null || ui.repoIds.includes(repo.id)));
-    ui.repoIds = [...document.querySelectorAll('[data-scope-repo]:checked')].map(input => input.dataset.scopeRepo)
+    ui.repoIds = [...document.querySelectorAll('[data-scope-repo]:checked')]
+      .map(input => input.dataset.scopeRepo)
       .concat(disabled.map(repo => repo.id));
     activityChanged();
     view.updateScopeLabel(refresh.state, ui);
@@ -310,9 +404,13 @@ page.addEventListener('toggle', seen.updateShownCount, true);
 page.addEventListener('click', event => {
   if (!event.target.closest('details[data-filter-panel] > summary')) return;
   const filters = event.target.closest('details[data-filter-panel]');
-  requestAnimationFrame(() => { if (filters.isConnected) ui.filtersOpen = filters.open; });
+  requestAnimationFrame(() => {
+    if (filters.isConnected) ui.filtersOpen = filters.open;
+  });
 });
-dialog.addEventListener('cancel', () => { pendingConfirmation = null; });
+dialog.addEventListener('cancel', () => {
+  pendingConfirmation = null;
+});
 document.addEventListener('keydown', event => {
   const monitoring = header.querySelector('.header-overflow[open]');
   if (event.key === 'Escape' && monitoring?.contains(document.activeElement)) {
@@ -325,8 +423,14 @@ document.addEventListener('keydown', event => {
     document.querySelector('#repo-toggle').setAttribute('aria-expanded', 'false');
     document.querySelector('#repo-toggle').focus();
   }
-  if (event.key === '/' && !dialog.open && !historyImport.open && !['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement?.tagName)) {
-    event.preventDefault(); document.querySelector('#feed-search')?.focus();
+  if (
+    event.key === '/' &&
+    !dialog.open &&
+    !historyImport.open &&
+    !['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement?.tagName)
+  ) {
+    event.preventDefault();
+    document.querySelector('#feed-search')?.focus();
   }
 });
 
@@ -342,11 +446,17 @@ function route() {
 }
 
 window.addEventListener('hashchange', route);
-window.addEventListener('focus', () => { void load(); });
-document.addEventListener('visibilitychange', () => { if (!document.hidden) void load(); });
+window.addEventListener('focus', () => {
+  void load();
+});
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden) void load();
+});
 window.matchMedia('(min-width:640px)').addEventListener('change', () => {
   if (['catchup', 'activity'].includes(ui.route)) renderPage();
 });
 navigation.initialize();
 await load({ force: true });
-setInterval(() => { if (!document.hidden) void load(); }, 5000);
+setInterval(() => {
+  if (!document.hidden) void load();
+}, 5000);

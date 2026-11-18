@@ -16,7 +16,6 @@ export function renderMergeEvidence(data = {}) {
   </section>`;
 }
 
-
 export function mergeEvidenceBadge(event) {
   const label = activityMergeBadge(event);
   if (!label) return '';
@@ -28,6 +27,11 @@ function renderPr(pr) {
   const source = branchName(pr.sourceRefName);
   const target = branchName(pr.targetRefName);
   const closer = typeof pr.closedBy === 'string' ? pr.closedBy : pr.closedBy?.displayName;
-  const strategy = { noFastForward: 'Merge commit', squash: 'Squash', rebase: 'Rebase and fast-forward', rebaseMerge: 'Rebase with merge commit' }[pr.mergeStrategy];
+  const strategy = {
+    noFastForward: 'Merge commit',
+    squash: 'Squash',
+    rebase: 'Rebase and fast-forward',
+    rebaseMerge: 'Rebase with merge commit',
+  }[pr.mergeStrategy];
   return `<li>${azureLink(pr.url, `PR #${id}`) || `PR #${e(id)}`}${source ? ` · ${e(source)}` : ''}${target ? ` → ${e(target)}` : ''}${strategy ? ` · ${e(strategy)}` : ''}${closer ? ` · PR closed by ${e(closer)}` : ''}${pr.mergeCommit ? ` · result <code title="${e(pr.mergeCommit)}">${e(pr.mergeCommit.slice(0, 8))}</code>` : ''}</li>`;
 }

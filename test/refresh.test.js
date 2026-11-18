@@ -20,7 +20,8 @@ test('an obsolete filter cannot publish its rows or an error after navigation', 
         requested.resolve();
         return delayed.promise;
       },
-      getView: () => view, reconcileRepositories: () => {},
+      getView: () => view,
+      reconcileRepositories: () => {},
       onUpdate: () => updates.push(refresh.state.events.map(event => event.id)),
       onError: error => errors.push(error.message),
     });
@@ -44,16 +45,20 @@ test('forced refresh callers complete after their coalesced follow-up read', asy
   let requests = 0;
   const updates = [];
   const refresh = createRefreshController({
-    request: () => ++requests === 1 ? firstRead.promise : secondRead.promise,
+    request: () => (++requests === 1 ? firstRead.promise : secondRead.promise),
     getView: () => ({ ...initialView, route: 'settings' }),
-    reconcileRepositories: () => {}, onUpdate: () => updates.push(refresh.state.activityRevision), onError: assert.fail,
+    reconcileRepositories: () => {},
+    onUpdate: () => updates.push(refresh.state.activityRevision),
+    onError: assert.fail,
   });
   const inFlight = refresh.load();
   const forced = refresh.load({ force: true });
   const coalesced = refresh.load({ force: true });
   assert.equal(forced, coalesced);
   let complete = false;
-  forced.then(() => { complete = true; });
+  forced.then(() => {
+    complete = true;
+  });
   firstRead.resolve(metadata);
   await inFlight;
   assert.equal(complete, false);
@@ -77,8 +82,10 @@ test('a new non-Activity view gets a refresh while older metadata is in flight',
       received.resolve();
       return previousRead.promise;
     },
-    getView: () => view, reconcileRepositories: () => {},
-    onUpdate: () => updates.push(refresh.state.activityRevision), onError: assert.fail,
+    getView: () => view,
+    reconcileRepositories: () => {},
+    onUpdate: () => updates.push(refresh.state.activityRevision),
+    onError: assert.fail,
   });
   const old = refresh.load();
   await received.promise;
@@ -93,16 +100,36 @@ test('a new non-Activity view gets a refresh while older metadata is in flight',
 test('disabled repositories stay watched but leave the shown repositories and their streams', async () => {
   const reconciled = [];
   const refresh = createRefreshController({
-    request: path => path === '/api/state' ? {
-      repos: [{ id: 'orders' }, { id: 'billing', disabled: true }],
-      streams: [{ repoId: 'orders', stream: 'refs' }, { repoId: 'billing', stream: 'refs' }], activityRevision: '1',
-    } : page('orders'),
-    getView: () => initialView, reconcileRepositories: repos => reconciled.push(repos.map(repo => repo.id)),
-    onUpdate: () => {}, onError: error => { throw error; },
+    request: path =>
+      path === '/api/state'
+        ? {
+            repos: [{ id: 'orders' }, { id: 'billing', disabled: true }],
+            streams: [
+              { repoId: 'orders', stream: 'refs' },
+              { repoId: 'billing', stream: 'refs' },
+            ],
+            activityRevision: '1',
+          }
+        : page('orders'),
+    getView: () => initialView,
+    reconcileRepositories: repos => reconciled.push(repos.map(repo => repo.id)),
+    onUpdate: () => {},
+    onError: error => {
+      throw error;
+    },
   });
   await refresh.load();
-  assert.deepEqual(refresh.state.watched.map(repo => repo.id), ['orders', 'billing']);
-  assert.deepEqual(refresh.state.repos.map(repo => repo.id), ['orders']);
-  assert.deepEqual(refresh.state.streams.map(stream => stream.repoId), ['orders']);
+  assert.deepEqual(
+    refresh.state.watched.map(repo => repo.id),
+    ['orders', 'billing'],
+  );
+  assert.deepEqual(
+    refresh.state.repos.map(repo => repo.id),
+    ['orders'],
+  );
+  assert.deepEqual(
+    refresh.state.streams.map(stream => stream.repoId),
+    ['orders'],
+  );
   assert.deepEqual(reconciled, [['orders', 'billing']]);
 });

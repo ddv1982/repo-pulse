@@ -61,15 +61,25 @@ const ZERO = /^0+$/;
 const DAY = 86400000;
 const LIVE_TURNS = 6;
 /** @param {unknown} value */
-const fingerprint = (value) => createHash('sha256').update(JSON.stringify(value)).digest('hex').slice(0, 24);
+const fingerprint = value => createHash('sha256').update(JSON.stringify(value)).digest('hex').slice(0, 24);
 /** @param {number} ms */
-const iso = (ms) => new Date(ms).toISOString();
+const iso = ms => new Date(ms).toISOString();
 /** @param {AzureRecord} pr */
-const prState = (pr) => ({ status: pr.status, isDraft: Boolean(pr.isDraft), title: pr.title,
-  source: pr.lastMergeSourceCommit?.commitId, target: pr.targetRefName });
+const prState = pr => ({
+  status: pr.status,
+  isDraft: Boolean(pr.isDraft),
+  title: pr.title,
+  source: pr.lastMergeSourceCommit?.commitId,
+  target: pr.targetRefName,
+});
 /** @param {AzureRecord} build */
-const buildState = (build) => ({ status: build.status, result: build.result, finishTime: build.finishTime,
-  sourceVersion: build.sourceVersion, sourceBranch: build.sourceBranch });
+const buildState = build => ({
+  status: build.status,
+  result: build.result,
+  finishTime: build.finishTime,
+  sourceVersion: build.sourceVersion,
+  sourceBranch: build.sourceBranch,
+});
 
 /**
  * Opens a read. A stream resuming a paged read keeps its window and the generation it
@@ -77,9 +87,12 @@ const buildState = (build) => ({ status: build.status, result: build.result, fin
  * @param {StreamState} state @param {number} at @param {number} overlapMs @returns {StartedStream}
  */
 function startPage(state, at, overlapMs) {
-  const window = state.window || { since: iso(state.lastSuccess ? Date.parse(state.lastSuccess) - overlapMs : at - 7 * DAY), until: iso(at) };
+  const window = state.window || {
+    since: iso(state.lastSuccess ? Date.parse(state.lastSuccess) - overlapMs : at - 7 * DAY),
+    until: iso(at),
+  };
   // The refresh generation at the time this window opened; later refreshes need another read.
-  const windowGeneration = state.window ? state.windowGeneration ?? 0 : state.refreshGeneration || 0;
+  const windowGeneration = state.window ? (state.windowGeneration ?? 0) : state.refreshGeneration || 0;
   return { ...state, window, windowGeneration, lastAttempt: iso(at), pending: true };
 }
 
@@ -91,8 +104,16 @@ function startPage(state, at, overlapMs) {
  * @returns {StreamState}
  */
 function nextPage(state, latest, { at, cursor, pendingItems, activeIds }) {
-  return { ...state, refreshGeneration: latest.refreshGeneration, manual: latest.manual,
-    cursor, pendingItems, activeIds, nextAt: iso(at), error: null };
+  return {
+    ...state,
+    refreshGeneration: latest.refreshGeneration,
+    manual: latest.manual,
+    cursor,
+    pendingItems,
+    activeIds,
+    nextAt: iso(at),
+    error: null,
+  };
 }
 
 /**
@@ -105,9 +126,17 @@ function nextPage(state, latest, { at, cursor, pendingItems, activeIds }) {
 function completePage(state, latest, { at, delayMs, quietCycles }) {
   const refreshDue = (latest.refreshGeneration || 0) > state.windowGeneration;
   return {
-    repoId: state.repoId, stream: state.stream, initialized: true, lastSuccess: state.window.until,
-    lastAttempt: iso(at), nextAt: iso(at + delayMs), quietCycles,
-    error: null, pending: false, failures: 0, refreshGeneration: latest.refreshGeneration,
+    repoId: state.repoId,
+    stream: state.stream,
+    initialized: true,
+    lastSuccess: state.window.until,
+    lastAttempt: iso(at),
+    nextAt: iso(at + delayMs),
+    quietCycles,
+    error: null,
+    pending: false,
+    failures: 0,
+    refreshGeneration: latest.refreshGeneration,
     ...(refreshDue ? { manual: latest.manual, nextAt: iso(at) } : {}),
   };
 }
@@ -123,8 +152,13 @@ function failPage(state, at, error, intervalMs) {
   const delay = Math.min(30 * 60000, intervalMs * 2 ** Math.min(failures - 1, 4));
   // Caught values are untyped; provider errors carry a user-facing message only when they have a code.
   const { code, message } = /** @type {{ code?: string, message: string }} */ (error);
-  return { ...state, manual: false, failures, error: { code: code || 'SYNC_FAILED',
-    message: code ? message : 'Could not refresh this Azure activity stream.' }, nextAt: iso(at + delay) };
+  return {
+    ...state,
+    manual: false,
+    failures,
+    error: { code: code || 'SYNC_FAILED', message: code ? message : 'Could not refresh this Azure activity stream.' },
+    nextAt: iso(at + delay),
+  };
 }
 
 /**
@@ -142,8 +176,18 @@ function requestRefresh(state, at, manual) {
  *   background?: Partial<Record<BackgroundKind, () => unknown>>,
  *   onPrCompleted?: (repo: WatchedRepo, data: Record<string, unknown>) => void }} options
  */
-export function createSync({ store, provider, now = Date.now, intervalMs = 180000, isForeground = () => true,
-  refsIntervalMs = 600000, pollMs = 1000, overlapMs = 120000, background = {}, onPrCompleted }) {
+export function createSync({
+  store,
+  provider,
+  now = Date.now,
+  intervalMs = 180000,
+  isForeground = () => true,
+  refsIntervalMs = 600000,
+  pollMs = 1000,
+  overlapMs = 120000,
+  background = {},
+  onPrCompleted,
+}) {
   /** @type {ReturnType<typeof setTimeout>|undefined} */
   let timer;
   /** @type {Promise<void>|null|undefined} */
@@ -165,7 +209,7 @@ export function createSync({ store, provider, now = Date.now, intervalMs = 18000
     for (const repo of store.listRepos()) {
       if (store.getSetting(`baseline:${repo.id}`, null) === null) store.setSetting(`baseline:${repo.id}`, iso(now()));
       for (const stream of STREAMS) {
-        if (!current.some((state) => state.repoId === repo.id && state.stream === stream)) {
+        if (!current.some(state => state.repoId === repo.id && state.stream === stream)) {
           store.saveStream({ repoId: repo.id, stream, initialized: false, nextAt: iso(now()), error: null });
         }
       }
@@ -177,9 +221,19 @@ export function createSync({ store, provider, now = Date.now, intervalMs = 18000
    */
   function makeEvent(repo, kind, sourceId, detail, imported) {
     const observedAt = iso(now());
-    return { id: `${repo.id}:${kind}:${sourceId}`, repoId: repo.id, kind, observedAt,
-      actor: 'Unknown', branch: '', summary: '', url: repo.webUrl, ...detail, imported,
-      seen: imported };
+    return {
+      id: `${repo.id}:${kind}:${sourceId}`,
+      repoId: repo.id,
+      kind,
+      observedAt,
+      actor: 'Unknown',
+      branch: '',
+      summary: '',
+      url: repo.webUrl,
+      ...detail,
+      imported,
+      seen: imported,
+    };
   }
   // PRs and builds are snapshots: an event is emitted only when their fingerprint changes.
   /** @param {WatchedRepo} repo @param {string} type @param {string} key @param {{ status: string }} value @param {boolean} historical */
@@ -187,8 +241,12 @@ export function createSync({ store, provider, now = Date.now, intervalMs = 18000
     const previous = store.getEntity(repo.id, type, key);
     const changed = !previous || JSON.stringify(previous.fingerprint) !== JSON.stringify(value);
     const revision = (previous?.revision || 0) + Number(changed);
-    return { previous, changed, sourceId: historical ? `history:${key}:${fingerprint(value)}` : `${key}:${(previous?.revision || 0) + 1}:${fingerprint(value)}`,
-      entity: historical ? null : { type, id: key, data: { fingerprint: value, status: value.status, revision } } };
+    return {
+      previous,
+      changed,
+      sourceId: historical ? `history:${key}:${fingerprint(value)}` : `${key}:${(previous?.revision || 0) + 1}:${fingerprint(value)}`,
+      entity: historical ? null : { type, id: key, data: { fingerprint: value, status: value.status, revision } },
+    };
   }
   /**
    * @typedef {{ repo: WatchedRepo, add: (kind: ActivityKind, sourceId: string, detail: EventDetail) => void,
@@ -207,23 +265,50 @@ export function createSync({ store, provider, now = Date.now, intervalMs = 18000
       const actor = actorName(item.pushedBy);
       const data = { pushId: item.pushId, refUpdates: branches, commits: item.commits || [] };
       const url = safeAzureUrl(item._links?.web?.href, `${repo.webUrl}/pushes?pushId=${encodeURIComponent(source)}`);
-      add('push', source, { title: `${actor} pushed${branches.length ? ` to ${branches.map((r) => branchName(r.name)).join(', ')}` : ''}`,
-        branch: branchName(branches[0]?.name), actor, time, url,
-        summary: branches.length ? branches.map((ref) => `${ref.oldObjectId?.slice(0, 7) || '?'} → ${ref.newObjectId?.slice(0, 7) || '?'}`).join(' · ') : 'Repository push', data });
+      add('push', source, {
+        title: `${actor} pushed${branches.length ? ` to ${branches.map(r => branchName(r.name)).join(', ')}` : ''}`,
+        branch: branchName(branches[0]?.name),
+        actor,
+        time,
+        url,
+        summary: branches.length
+          ? branches.map(ref => `${ref.oldObjectId?.slice(0, 7) || '?'} → ${ref.newObjectId?.slice(0, 7) || '?'}`).join(' · ')
+          : 'Repository push',
+        data,
+      });
       entities.push({ type: 'push', id: source, data: { date: time } });
-      jobs.push({ id: `merge:${repo.id}:push:${source}`, type: 'merge', repoId: repo.id, eventId: `${repo.id}:push:${source}`, status: 'pending', nextAt: iso(now()) });
+      jobs.push({
+        id: `merge:${repo.id}:push:${source}`,
+        type: 'merge',
+        repoId: repo.id,
+        eventId: `${repo.id}:push:${source}`,
+        status: 'pending',
+        nextAt: iso(now()),
+      });
       for (const ref of branches) {
         const created = ref.oldObjectId && ZERO.test(ref.oldObjectId);
         const deleted = ref.newObjectId && ZERO.test(ref.newObjectId);
-        if (created || deleted) add(created ? 'branch-created' : 'branch-deleted', `${source}:${ref.name}`, {
-          title: `${created ? 'New branch' : 'Branch deleted'} · ${branchName(ref.name)}`,
-          branch: branchName(ref.name), actor, time, url,
-          summary: `${created ? 'Created' : 'Deleted'} in push ${source}`, data: { ...data, evidence: 'push', ...ref } });
+        if (created || deleted)
+          add(created ? 'branch-created' : 'branch-deleted', `${source}:${ref.name}`, {
+            title: `${created ? 'New branch' : 'Branch deleted'} · ${branchName(ref.name)}`,
+            branch: branchName(ref.name),
+            actor,
+            time,
+            url,
+            summary: `${created ? 'Created' : 'Deleted'} in push ${source}`,
+            data: { ...data, evidence: 'push', ...ref },
+          });
         // Azure lists pushes newest first. Keep a source watermark across pages/snapshots,
         // while retaining every historical event independently of the current ref state.
         const previous = refs?.get(ref.name);
         if (!historical && (!previous?.lastPushId || Number(item.pushId) > previous.lastPushId)) {
-          const current = { name: ref.name, objectId: ref.newObjectId, active: !deleted, evidence: 'push', lastPushId: Number(item.pushId) };
+          const current = {
+            name: ref.name,
+            objectId: ref.newObjectId,
+            active: !deleted,
+            evidence: 'push',
+            lastPushId: Number(item.pushId),
+          };
           refs?.set(ref.name, current);
           entities.push({ type: 'ref', id: ref.name, data: current });
         }
@@ -235,23 +320,41 @@ export function createSync({ store, provider, now = Date.now, intervalMs = 18000
       const { previous, changed, sourceId, entity } = snapshot(repo, 'pr', key, prState(item), historical);
       if (changed) {
         const unchangedStatus = previous?.fingerprint?.status === item.status;
-        const time = previous && !historical && unchangedStatus ? iso(now())
-          : (item.status !== 'active' ? item.closedDate : null) || (!previous ? item.creationDate : null) || iso(now());
+        const time =
+          previous && !historical && unchangedStatus
+            ? iso(now())
+            : (item.status !== 'active' ? item.closedDate : null) || (!previous ? item.creationDate : null) || iso(now());
         // Active PRs can expose a successful preview merge. Only completion establishes
         // the actual merge result; retain its metadata from this existing response.
-        const completion = item.status === 'completed' ? {
-          mergeCommit: item.lastMergeCommit?.commitId, targetCommit: item.lastMergeTargetCommit?.commitId,
-          mergeStatus: item.mergeStatus, mergeStrategy: item.completionOptions?.mergeStrategy, closedBy: actorName(item.closedBy),
-          sourceRepositoryId: item.forkSource ? item.forkSource.repository?.id : item.repository?.id,
-          targetRepositoryId: item.repository?.id,
-        } : {};
-        add('pr', sourceId, { title: `PR ${key} · ${item.title || 'Untitled'}`,
-          branch: branchName(item.sourceRefName), actor: actorName(item.createdBy), time,
+        const completion =
+          item.status === 'completed'
+            ? {
+                mergeCommit: item.lastMergeCommit?.commitId,
+                targetCommit: item.lastMergeTargetCommit?.commitId,
+                mergeStatus: item.mergeStatus,
+                mergeStrategy: item.completionOptions?.mergeStrategy,
+                closedBy: actorName(item.closedBy),
+                sourceRepositoryId: item.forkSource ? item.forkSource.repository?.id : item.repository?.id,
+                targetRepositoryId: item.repository?.id,
+              }
+            : {};
+        add('pr', sourceId, {
+          title: `PR ${key} · ${item.title || 'Untitled'}`,
+          branch: branchName(item.sourceRefName),
+          actor: actorName(item.createdBy),
+          time,
           summary: `${item.isDraft ? 'Draft · ' : ''}${item.status || 'unknown'} → ${branchName(item.targetRefName)}`,
           url: safeAzureUrl(item._links?.web?.href, `${repo.webUrl}/pullrequest/${encodeURIComponent(key)}`),
-          data: { pullRequestId: item.pullRequestId, status: item.status, isDraft: item.isDraft,
-            sourceRefName: item.sourceRefName, targetRefName: item.targetRefName, sourceCommit: item.lastMergeSourceCommit?.commitId,
-            ...completion } });
+          data: {
+            pullRequestId: item.pullRequestId,
+            status: item.status,
+            isDraft: item.isDraft,
+            sourceRefName: item.sourceRefName,
+            targetRefName: item.targetRefName,
+            sourceCommit: item.lastMergeSourceCommit?.commitId,
+            ...completion,
+          },
+        });
       }
       if (entity) entities.push(entity);
     },
@@ -260,13 +363,27 @@ export function createSync({ store, provider, now = Date.now, intervalMs = 18000
       const key = String(item.id);
       const { changed, sourceId, entity } = snapshot(repo, 'build', key, buildState(item), historical);
       if (changed) {
-        add('build', sourceId, { title: `${item.definition?.name || 'Pipeline'} · ${item.buildNumber || key}`,
-          branch: branchName(item.sourceBranch), actor: actorName(item.requestedFor || item.requestedBy),
+        add('build', sourceId, {
+          title: `${item.definition?.name || 'Pipeline'} · ${item.buildNumber || key}`,
+          branch: branchName(item.sourceBranch),
+          actor: actorName(item.requestedFor || item.requestedBy),
           time: item.finishTime || item.startTime || item.queueTime || iso(now()),
           summary: `${item.status || 'unknown'}${item.result ? ` · ${item.result}` : ''} · ${(item.sourceVersion || '').slice(0, 7)}`,
-          url: safeAzureUrl(item._links?.web?.href, `${repo.organization}/${encodeURIComponent(repo.project)}/_build/results?buildId=${encodeURIComponent(key)}`),
-          data: { id: item.id, buildId: item.id, status: item.status, result: item.result, sourceVersion: item.sourceVersion,
-            sourceBranch: item.sourceBranch, definition: item.definition, reason: item.reason } });
+          url: safeAzureUrl(
+            item._links?.web?.href,
+            `${repo.organization}/${encodeURIComponent(repo.project)}/_build/results?buildId=${encodeURIComponent(key)}`,
+          ),
+          data: {
+            id: item.id,
+            buildId: item.id,
+            status: item.status,
+            result: item.result,
+            sourceVersion: item.sourceVersion,
+            sourceBranch: item.sourceBranch,
+            definition: item.definition,
+            reason: item.reason,
+          },
+        });
       }
       if (entity) entities.push(entity);
     },
@@ -302,9 +419,9 @@ export function createSync({ store, provider, now = Date.now, intervalMs = 18000
    * @returns {SyncBatch}
    */
   function reconcileRefs(repo, records, state) {
-    const before = new Map(store.listEntities(repo.id, 'ref').map((entry) => [entry.id, entry.data]));
+    const before = new Map(store.listEntities(repo.id, 'ref').map(entry => [entry.id, entry.data]));
     /** @type {Map<string, AzureRecord>} */
-    const current = new Map(records.filter((item) => item.name?.startsWith('refs/heads/')).map((item) => [item.name, item]));
+    const current = new Map(records.filter(item => item.name?.startsWith('refs/heads/')).map(item => [item.name, item]));
     /** @type {SyncEvent[]} */
     const events = [];
     /** @type {Entity[]} */
@@ -312,22 +429,46 @@ export function createSync({ store, provider, now = Date.now, intervalMs = 18000
     for (const [name, item] of current) {
       const previous = before.get(name);
       if (state.initialized && (!previous || previous.active === false)) {
-        events.push(makeEvent(repo, 'branch-created', `ref:${name}:${fingerprint([item.objectId, state.window.until])}`, {
-          title: `Branch first seen · ${branchName(name)}`, branch: branchName(name), time: iso(now()),
-          summary: 'Discovered in remote refs; creation time and actor unknown',
-          data: { name, objectId: item.objectId, evidence: 'snapshot' }, actor: 'Unknown' }, false));
+        events.push(
+          makeEvent(
+            repo,
+            'branch-created',
+            `ref:${name}:${fingerprint([item.objectId, state.window.until])}`,
+            {
+              title: `Branch first seen · ${branchName(name)}`,
+              branch: branchName(name),
+              time: iso(now()),
+              summary: 'Discovered in remote refs; creation time and actor unknown',
+              data: { name, objectId: item.objectId, evidence: 'snapshot' },
+              actor: 'Unknown',
+            },
+            false,
+          ),
+        );
       }
       entities.push({ type: 'ref', id: name, data: { name, objectId: item.objectId, active: true, lastPushId: previous?.lastPushId } });
     }
-    if (state.initialized) for (const [name, old] of before) {
-      if (old.active !== false && !current.has(name)) {
-        events.push(makeEvent(repo, 'branch-deleted', `ref:${name}:${fingerprint([old.objectId, state.window.until])}`, {
-          title: `Branch no longer listed · ${branchName(name)}`, branch: branchName(name), time: iso(now()),
-          summary: 'Missing from complete refs snapshot; deletion time and actor unknown',
-          data: { name, objectId: old.objectId, evidence: 'snapshot' } }, false));
-        entities.push({ type: 'ref', id: name, data: { ...old, active: false } });
+    if (state.initialized)
+      for (const [name, old] of before) {
+        if (old.active !== false && !current.has(name)) {
+          events.push(
+            makeEvent(
+              repo,
+              'branch-deleted',
+              `ref:${name}:${fingerprint([old.objectId, state.window.until])}`,
+              {
+                title: `Branch no longer listed · ${branchName(name)}`,
+                branch: branchName(name),
+                time: iso(now()),
+                summary: 'Missing from complete refs snapshot; deletion time and actor unknown',
+                data: { name, objectId: old.objectId, evidence: 'snapshot' },
+              },
+              false,
+            ),
+          );
+          entities.push({ type: 'ref', id: name, data: { ...old, active: false } });
+        }
       }
-    }
     return { events, entities };
   }
   /** @param {boolean} automatic */
@@ -336,7 +477,7 @@ export function createSync({ store, provider, now = Date.now, intervalMs = 18000
     const other = nextBackground === 'merge' ? 'history' : 'merge';
     for (const kind of [nextBackground, other]) {
       if (kind === 'merge' && !automatic) continue;
-      if (!await background[kind]?.()) continue;
+      if (!(await background[kind]?.())) continue;
       lastTurn[kind] = iso(now());
       nextBackground = kind === 'merge' ? 'history' : 'merge';
       liveTurns = 0;
@@ -348,15 +489,25 @@ export function createSync({ store, provider, now = Date.now, intervalMs = 18000
     if (stopped) return;
     ensureStreams();
     const automatic = store.getSetting('refreshEnabled', true) !== false;
-    const repos = new Map(store.listRepos().filter((repo) => !repo.disabled).map((repo) => [repo.id, repo]));
-    const due = store.getStreams().filter((state) => repos.has(state.repoId) && (automatic || state.manual) && Date.parse(String(state.nextAt || 0)) <= now());
+    const repos = new Map(
+      store
+        .listRepos()
+        .filter(repo => !repo.disabled)
+        .map(repo => [repo.id, repo]),
+    );
+    const due = store
+      .getStreams()
+      .filter(state => repos.has(state.repoId) && (automatic || state.manual) && Date.parse(String(state.nextAt || 0)) <= now());
     due.sort((a, b) => (Date.parse(String(a.lastAttempt || 0)) || 0) - (Date.parse(String(b.lastAttempt || 0)) || 0));
-    if (!due.length) { await runBackground(automatic); return; }
-    if (liveTurns >= LIVE_TURNS && await runBackground(automatic)) return;
+    if (!due.length) {
+      await runBackground(automatic);
+      return;
+    }
+    if (liveTurns >= LIVE_TURNS && (await runBackground(automatic))) return;
     liveTurns = Math.min(liveTurns + 1, LIVE_TURNS);
     lastTurn.live = iso(now());
     // Rotating equal-priority entries avoids repeatedly selecting a multi-page first stream.
-    const index = due.findIndex((state) => `${state.repoId}:${state.stream}` === lastKey);
+    const index = due.findIndex(state => `${state.repoId}:${state.stream}` === lastKey);
     const state = due[index === 0 && due.length > 1 ? 1 : 0];
     // `due` only holds streams of enabled repositories in `repos`.
     const repo = /** @type {WatchedRepo} */ (repos.get(state.repoId));
@@ -367,7 +518,7 @@ export function createSync({ store, provider, now = Date.now, intervalMs = 18000
       const page = await provider.read(repo, state.stream, { since: window.since, until: window.until, cursor: state.cursor || null });
       if (!page || !Array.isArray(page.items)) throw new Error('Azure returned an invalid page.');
       // Removal while the provider was in flight must not resurrect a local watch.
-      if (stopped || !store.listRepos().some((entry) => entry.id === repo.id && !entry.disabled)) return;
+      if (stopped || !store.listRepos().some(entry => entry.id === repo.id && !entry.disabled)) return;
       const complete = !page.nextCursor;
       /** @type {SyncBatch} */
       let output;
@@ -375,28 +526,34 @@ export function createSync({ store, provider, now = Date.now, intervalMs = 18000
       let pendingItems;
       /** @type {string[]|undefined} */
       const activeIds = ['activeBuilds', 'prs'].includes(state.stream)
-        ? [...(state.activeIds || []), ...page.items.map((item) => String(item.id || item.pullRequestId))] : undefined;
+        ? [...(state.activeIds || []), ...page.items.map(item => String(item.id || item.pullRequestId))]
+        : undefined;
       let items = page.items;
       if (complete && state.stream === 'activeBuilds' && provider.buildsById) {
-        const missing = store.listEntities(repo.id, 'build').filter((entry) =>
-          entry.data.status !== 'completed' && !activeIds?.includes(entry.id)).slice(0, 20).map((entry) => entry.id);
-        if (missing.length) items = [...items, ...await provider.buildsById(repo, missing)];
+        const missing = store
+          .listEntities(repo.id, 'build')
+          .filter(entry => entry.data.status !== 'completed' && !activeIds?.includes(entry.id))
+          .slice(0, 20)
+          .map(entry => entry.id);
+        if (missing.length) items = [...items, ...(await provider.buildsById(repo, missing))];
       }
       if (complete && state.stream === 'prs' && provider.pullRequest) {
-        const missing = store.listEntities(repo.id, 'pr').filter((entry) =>
-          entry.data.status === 'active' && !activeIds?.includes(entry.id)).slice(0, 3);
+        const missing = store
+          .listEntities(repo.id, 'pr')
+          .filter(entry => entry.data.status === 'active' && !activeIds?.includes(entry.id))
+          .slice(0, 3);
         for (const entry of missing) {
-          if (stopped || !store.listRepos().some((current) => current.id === repo.id && !current.disabled)) return;
+          if (stopped || !store.listRepos().some(current => current.id === repo.id && !current.disabled)) return;
           items = [...items, await provider.pullRequest(repo, entry.id)];
         }
       }
-      if (stopped || !store.listRepos().some((entry) => entry.id === repo.id && !entry.disabled)) return;
+      if (stopped || !store.listRepos().some(entry => entry.id === repo.id && !entry.disabled)) return;
       if (state.stream === 'refs') {
         pendingItems = [...(state.pendingItems || []), ...page.items];
         output = complete ? reconcileRefs(repo, pendingItems, working) : { events: [], entities: [] };
       } else output = normalize(repo, state.stream, items, working);
       // A refresh requested after this window opened must survive the commit of a page read before it.
-      const latest = store.getStreams().find((entry) => entry.repoId === repo.id && entry.stream === state.stream) || state;
+      const latest = store.getStreams().find(entry => entry.repoId === repo.id && entry.stream === state.stream) || state;
       const quietCycles = output.events.some(event => !event.imported) ? 0 : (state.quietCycles || 0) + 1;
       const cadence = !isForeground() || quietCycles >= 2 ? Math.max(intervalMs, 300000) : intervalMs;
       const next = complete
@@ -406,7 +563,7 @@ export function createSync({ store, provider, now = Date.now, intervalMs = 18000
       for (const event of output.events) if (event.kind === 'pr' && event.data?.status === 'completed') onPrCompleted?.(repo, event.data);
       counters.pages++;
     } catch (error) {
-      if (!store.listRepos().some((entry) => entry.id === repo.id)) return;
+      if (!store.listRepos().some(entry => entry.id === repo.id)) return;
       store.saveStream(failPage(working, now(), error, intervalMs));
       counters.errors++;
     }
@@ -414,45 +571,74 @@ export function createSync({ store, provider, now = Date.now, intervalMs = 18000
   // Due streams normally start within seconds; one full budget minute late means the shared CLI queue is behind.
   function lag() {
     const automatic = store.getSetting('refreshEnabled', true) !== false;
-    const enabled = new Set(store.listRepos().filter((repo) => !repo.disabled).map((repo) => repo.id));
-    const delays = store.getStreams().filter((state) => enabled.has(state.repoId) && (automatic || state.manual))
-      .map((state) => now() - Date.parse(String(state.nextAt || 0))).filter((delay) => delay > 60000);
+    const enabled = new Set(
+      store
+        .listRepos()
+        .filter(repo => !repo.disabled)
+        .map(repo => repo.id),
+    );
+    const delays = store
+      .getStreams()
+      .filter(state => enabled.has(state.repoId) && (automatic || state.manual))
+      .map(state => now() - Date.parse(String(state.nextAt || 0)))
+      .filter(delay => delay > 60000);
     return { overdueStreams: delays.length, maxDelayMs: delays.length ? Math.max(...delays) : 0 };
   }
   function tick() {
     if (active) return active;
-    active = runPage().finally(() => { active = null; });
+    active = runPage().finally(() => {
+      active = null;
+    });
     return active;
   }
   function schedule() {
     if (stopped) return;
     // A failed turn must not reject unobserved (that would end the process) or stop polling.
-    timer = setTimeout(() => { tick().catch(() => { counters.errors++; }).finally(schedule); }, pollMs);
+    timer = setTimeout(() => {
+      tick()
+        .catch(() => {
+          counters.errors++;
+        })
+        .finally(schedule);
+    }, pollMs);
     timer.unref?.();
   }
   return {
-    start() { if (timer) return; stopped = false; ensureStreams(); schedule(); },
-    stop() { stopped = true; clearTimeout(timer); timer = undefined; return active; },
+    start() {
+      if (timer) return;
+      stopped = false;
+      ensureStreams();
+      schedule();
+    },
+    stop() {
+      stopped = true;
+      clearTimeout(timer);
+      timer = undefined;
+      return active;
+    },
     tick,
     normalize,
     /** @param {string[]} [repoIds] */
     refresh(repoIds) {
       const repos = store.listRepos();
-      if (repoIds && repoIds.some((id) => !repos.some((repo) => repo.id === id))) throw Object.assign(new Error('Repository is not watched.'), { code: 'NOT_FOUND' });
+      if (repoIds && repoIds.some(id => !repos.some(repo => repo.id === id)))
+        throw Object.assign(new Error('Repository is not watched.'), { code: 'NOT_FOUND' });
       // Batch additions must register every repository even when refresh requests coalesce.
       ensureStreams();
       // Cooldown is per repository so a second added repository still gets its initial import.
-      const enabled = repos.filter((repo) => !repo.disabled).map((repo) => repo.id);
-      const targets = (repoIds || enabled).filter((id) => enabled.includes(id) && !(now() - (refreshedAt.get(id) ?? NaN) < 30000));
+      const enabled = repos.filter(repo => !repo.disabled).map(repo => repo.id);
+      const targets = (repoIds || enabled).filter(id => enabled.includes(id) && !(now() - (refreshedAt.get(id) ?? NaN) < 30000));
       if (!targets.length && repos.length) return { scheduled: false, cooldown: true };
       for (const id of targets) refreshedAt.set(id, now());
       for (const state of store.getStreams()) {
-        const repo = repos.find((entry) => entry.id === state.repoId);
-        if (repo && targets.includes(repo.id)) store.saveStream(requestRefresh(state, now(), store.getSetting('refreshEnabled', true) === false));
+        const repo = repos.find(entry => entry.id === state.repoId);
+        if (repo && targets.includes(repo.id))
+          store.saveStream(requestRefresh(state, now(), store.getSetting('refreshEnabled', true) === false));
       }
       return { scheduled: true };
     },
-    status() { return { running: Boolean(active), stopped, ...counters, streams: store.getStreams().length,
-      lastTurn: { ...lastTurn }, lag: lag() }; },
+    status() {
+      return { running: Boolean(active), stopped, ...counters, streams: store.getStreams().length, lastTurn: { ...lastTurn }, lag: lag() };
+    },
   };
 }

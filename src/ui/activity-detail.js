@@ -1,6 +1,17 @@
 import { renderMergeEvidence } from './merge-evidence.js';
 import { groupActivity } from '../activity.js';
-import { escape as e, branchName, labels, dateTime, azureLink, activityLabel, activityTone, activityTitle, activitySummary, triggerLabel } from './format.js';
+import {
+  escape as e,
+  branchName,
+  labels,
+  dateTime,
+  azureLink,
+  activityLabel,
+  activityTone,
+  activityTitle,
+  activitySummary,
+  triggerLabel,
+} from './format.js';
 import { renderTrail } from './activity-trail.js';
 import { activityHref } from './navigation.js';
 
@@ -24,11 +35,20 @@ export function renderDetail(event, state, commits, { returnRoute = 'catchup', l
     [record.kind === 'pr' ? 'Created by' : 'By', e(record.actor || 'Not supplied by Azure')],
     [new Date(record.time).valueOf() === new Date(record.observedAt).valueOf() ? 'Time' : 'Source time', e(dateTime(record.time))],
   ];
-  if (new Date(record.time).valueOf() !== new Date(record.observedAt).valueOf()) fields.push(['Observed locally', e(dateTime(record.observedAt))]);
+  if (new Date(record.time).valueOf() !== new Date(record.observedAt).valueOf())
+    fields.push(['Observed locally', e(dateTime(record.observedAt))]);
   if (record.kind === 'pr' && data.targetRefName) fields.push(['Target branch', e(branchName(data.targetRefName))]);
   if (sha) fields.push([record.kind === 'pr' ? 'Source commit' : 'Commit', commit(sha)]);
   if (record.kind === 'pr' && data.status === 'completed' && data.mergeCommit) fields.push(['Merge commit', commit(data.mergeCommit)]);
-  if (data.mergeStrategy) fields.push(['Merge strategy', e({ noFastForward: 'Merge commit', squash: 'Squash', rebase: 'Rebase and fast-forward', rebaseMerge: 'Rebase with merge commit' }[data.mergeStrategy] || 'Not supplied')]);
+  if (data.mergeStrategy)
+    fields.push([
+      'Merge strategy',
+      e(
+        { noFastForward: 'Merge commit', squash: 'Squash', rebase: 'Rebase and fast-forward', rebaseMerge: 'Rebase with merge commit' }[
+          data.mergeStrategy
+        ] || 'Not supplied',
+      ),
+    ]);
   if (record.kind === 'pr' && data.closedBy) fields.push(['PR closed by', e(data.closedBy)]);
   if (data.reason) fields.push(['Trigger', e(triggerLabel(data.reason))]);
   if (data.pullRequestId) fields.push(['Pull request', `#${e(data.pullRequestId)}`]);

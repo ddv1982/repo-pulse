@@ -29,17 +29,28 @@ export const branchProblem = message => Object.assign(new Error(message), { stat
 export function memoryFollowups() {
   /** @type {Map<string, Followup>} */
   const values = new Map();
-  return { get: id => values.get(id), save: (id, plan) => { values.set(id, plan); } };
+  return {
+    get: id => values.get(id),
+    save: (id, plan) => {
+      values.set(id, plan);
+    },
+  };
 }
 
 /** @param {unknown} input @returns {input is BranchAction} */
 export function isBranchAction(input) {
   if (!input || typeof input !== 'object' || !('operation' in input)) return false;
-  if (input.operation === 'switch-update') return 'prId' in input && Number.isSafeInteger(input.prId) &&
-    'result' in input && isCommit(input.result);
+  if (input.operation === 'switch-update')
+    return 'prId' in input && Number.isSafeInteger(input.prId) && 'result' in input && isCommit(input.result);
   if (!('planId' in input) || typeof input.planId !== 'string' || !/^[a-f0-9-]{36}$/.test(input.planId)) return false;
-  if (input.operation === 'carry') return 'commits' in input && Array.isArray(input.commits) &&
-    input.commits.length > 0 && input.commits.length <= 30 && input.commits.every(isCommit);
+  if (input.operation === 'carry')
+    return (
+      'commits' in input &&
+      Array.isArray(input.commits) &&
+      input.commits.length > 0 &&
+      input.commits.length <= 30 &&
+      input.commits.every(isCommit)
+    );
   return input.operation === 'review' || input.operation === 'remove';
 }
 
@@ -55,8 +66,11 @@ async function readRef(run, path, ref) {
       try {
         await run(path, ['show-ref', '--quiet', '--verify', '--', ref]);
       } catch (quietError) {
-        if (quietError instanceof Error && (('code' in quietError && quietError.code === 1) ||
-            ('status' in quietError && quietError.status === 1))) return null;
+        if (
+          quietError instanceof Error &&
+          (('code' in quietError && quietError.code === 1) || ('status' in quietError && quietError.status === 1))
+        )
+          return null;
       }
     }
   }
@@ -75,22 +89,29 @@ export function branchFollowups({ run, hooks, followups, statusAt, updateAt, rea
   /** @param {LinkedRepo} repo @param {string} path @param {ActiveCheckout} snapshot */
   function eligiblePlan(repo, path, snapshot) {
     const plan = followups.get(repo.id);
-    return plan?.path === path && plan.targetRef === `refs/heads/${snapshot.branch}` &&
-      snapshot.identity === plan.targetIdentity ? plan : undefined;
+    return plan?.path === path && plan.targetRef === `refs/heads/${snapshot.branch}` && snapshot.identity === plan.targetIdentity
+      ? plan
+      : undefined;
   }
 
   /** @param {LinkedRepo} repo @param {string} path @param {ActiveCheckout} snapshot */
   async function decorate(repo, path, snapshot) {
     const plan = eligiblePlan(repo, path, snapshot);
-    if (!plan || (plan.archive && await readRef(run, path, `refs/heads/${plan.source}`).catch(() => undefined) === null)) return snapshot;
-    const workspace = plan.workspace && await access(join(plan.workspace, '.git')).then(() => plan.workspace, () => undefined);
+    if (!plan || (plan.archive && (await readRef(run, path, `refs/heads/${plan.source}`).catch(() => undefined)) === null)) return snapshot;
+    const workspace =
+      plan.workspace &&
+      (await access(join(plan.workspace, '.git')).then(
+        () => plan.workspace,
+        () => undefined,
+      ));
     return { ...snapshot, followup: { id: plan.id, source: plan.source, workspace } };
   }
 
   /** @param {LinkedRepo} repo @param {string} path @param {ActiveCheckout} expected */
   async function unchangedClean(repo, path, expected) {
     const { snapshot, target } = await statusAt(path, repo);
-    if (!matchesIntent(snapshot, expected) || snapshot.dirty || snapshot.state === 'in-progress' || !target) throw branchProblem('The checkout changed or has local work. Review it in Git and try again.');
+    if (!matchesIntent(snapshot, expected) || snapshot.dirty || snapshot.state === 'in-progress' || !target)
+      throw branchProblem('The checkout changed or has local work. Review it in Git and try again.');
     return { snapshot, target };
   }
 
@@ -108,10 +129,26 @@ export function branchFollowups({ run, hooks, followups, statusAt, updateAt, rea
     await unchangedClean(repo, path, snapshot);
     const name = advice.branch;
     /** @type {Followup} */
-    const plan = { id: randomUUID(), path, source: branch, sourceHead: head,
-      targetRef: receipt.target, result: receipt.result, recordedSource: receipt.sourceHead };
+    const plan = {
+      id: randomUUID(),
+      path,
+      source: branch,
+      sourceHead: head,
+      targetRef: receipt.target,
+      result: receipt.result,
+      recordedSource: receipt.sourceHead,
+    };
     try {
-      await run(path, ['-c', `core.hooksPath=${hooks}`, 'switch', '--no-guess', '--no-overwrite-ignore', '--no-recurse-submodules', '--', name]);
+      await run(path, [
+        '-c',
+        `core.hooksPath=${hooks}`,
+        'switch',
+        '--no-guess',
+        '--no-overwrite-ignore',
+        '--no-recurse-submodules',
+        '--',
+        name,
+      ]);
     } catch {
       throw branchProblem(`Git could not switch to ${name}. Check for an occupied worktree or files that would be overwritten.`);
     }
@@ -139,13 +176,22 @@ export function branchFollowups({ run, hooks, followups, statusAt, updateAt, rea
     const tip = await readRef(run, path, ref);
     if (tip !== plan.sourceHead) return { kind: 'changed' };
     if (await worktreeUsesBranch(run, path, ref)) return { kind: 'occupied' };
-    if (!snapshot.head || await ancestry(run, path, plan.result, snapshot.head) !== true) return { kind: 'unknown' };
+    if (!snapshot.head || (await ancestry(run, path, plan.result, snapshot.head)) !== true) return { kind: 'unknown' };
     const canRemove = !snapshot.dirty && snapshot.state !== 'in-progress';
-    if (await ancestry(run, path, tip, snapshot.head) === true || tip === plan.recordedSource) return { kind: 'included', canRemove };
-    if (!plan.recordedSource || await ancestry(run, path, plan.recordedSource, tip) !== true) return { kind: 'unknown', canRemove };
+    if ((await ancestry(run, path, tip, snapshot.head)) === true || tip === plan.recordedSource) return { kind: 'included', canRemove };
+    if (!plan.recordedSource || (await ancestry(run, path, plan.recordedSource, tip)) !== true) return { kind: 'unknown', canRemove };
     const range = `${plan.recordedSource}..${tip}`;
-    const output = await run(path, ['log', '-z', '--no-show-signature', '--reverse', '--topo-order',
-      '--max-count=31', '--format=%H%x00%P%x00%s', range, '--']);
+    const output = await run(path, [
+      'log',
+      '-z',
+      '--no-show-signature',
+      '--reverse',
+      '--topo-order',
+      '--max-count=31',
+      '--format=%H%x00%P%x00%s',
+      range,
+      '--',
+    ]);
     const fields = output.split('\0');
     const commits = [];
     // Offer only a linear continuation of the recorded PR source.
@@ -195,8 +241,19 @@ export function branchFollowups({ run, hooks, followups, statusAt, updateAt, rea
       if (await isSymbolicRef(run, path, archive)) throw branchProblem('The recovery reference is symbolic. Review it in Git.');
       const saved = await readRef(run, path, archive);
       if (saved && saved !== plan.sourceHead) throw branchProblem('The recovery reference changed. Review the local branches in Git.');
-      if (!saved) await run(path, ['-c', `core.hooksPath=${hooks}`, 'update-ref', '--no-deref', '--create-reflog',
-        '-m', `Archive local branch ${plan.source}`, archive, plan.sourceHead, '0'.repeat(plan.sourceHead.length)]);
+      if (!saved)
+        await run(path, [
+          '-c',
+          `core.hooksPath=${hooks}`,
+          'update-ref',
+          '--no-deref',
+          '--create-reflog',
+          '-m',
+          `Archive local branch ${plan.source}`,
+          archive,
+          plan.sourceHead,
+          '0'.repeat(plan.sourceHead.length),
+        ]);
       const archived = { ...plan, archive };
       followups.save(repo.id, archived);
       await remove(path, archived, ref);
@@ -208,8 +265,13 @@ export function branchFollowups({ run, hooks, followups, statusAt, updateAt, rea
     }
     const selected = new Set(action.commits);
     const commits = details.commits?.filter(commit => selected.has(commit.id)) ?? [];
-    if (selected.size !== action.commits.length || commits.length !== selected.size || !commits.length ||
-      await readRef(run, path, ref) !== plan.sourceHead) throw branchProblem('The selected commits or old branch changed. Review the branch again.');
+    if (
+      selected.size !== action.commits.length ||
+      commits.length !== selected.size ||
+      !commits.length ||
+      (await readRef(run, path, ref)) !== plan.sourceHead
+    )
+      throw branchProblem('The selected commits or old branch changed. Review the branch again.');
     const branch = details.branch;
     const workspace = await mkdtemp(join(dirname(path), '.repo-pulse-follow-up-'));
     try {
@@ -220,12 +282,21 @@ export function branchFollowups({ run, hooks, followups, statusAt, updateAt, rea
     }
     followups.save(repo.id, { ...plan, workspace });
     try {
-      await run(workspace, ['-c', `core.hooksPath=${hooks}`, '-c', 'rerere.enabled=false', 'cherry-pick',
-        '--no-gpg-sign', ...commits.map(commit => commit.id)]);
+      await run(workspace, [
+        '-c',
+        `core.hooksPath=${hooks}`,
+        '-c',
+        'rerere.enabled=false',
+        'cherry-pick',
+        '--no-gpg-sign',
+        ...commits.map(commit => commit.id),
+      ]);
     } catch {
       const operation = await statusAt(workspace, repo).catch(() => null);
-      const guidance = operation?.snapshot.state === 'in-progress' ? 'Continue or abort the cherry-pick in this worktree'
-        : 'Review the Git status and commit configuration in this worktree';
+      const guidance =
+        operation?.snapshot.state === 'in-progress'
+          ? 'Continue or abort the cherry-pick in this worktree'
+          : 'Review the Git status and commit configuration in this worktree';
       return { message: `Git could not finish applying the selected commits on ${branch}.`, nextStep: `${guidance}: ${workspace}` };
     }
     const applied = `Applied ${commits.length} selected ${commits.length === 1 ? 'commit' : 'commits'} on ${branch}.`;
@@ -237,7 +308,16 @@ export function branchFollowups({ run, hooks, followups, statusAt, updateAt, rea
     }
     try {
       await unchangedClean(repo, path, snapshot);
-      await run(path, ['-c', `core.hooksPath=${hooks}`, 'switch', '--no-guess', '--no-overwrite-ignore', '--no-recurse-submodules', '--', branch]);
+      await run(path, [
+        '-c',
+        `core.hooksPath=${hooks}`,
+        'switch',
+        '--no-guess',
+        '--no-overwrite-ignore',
+        '--no-recurse-submodules',
+        '--',
+        branch,
+      ]);
       return { message: applied };
     } catch {
       return { message: applied, nextStep: `Switch to ${branch} in Git when this checkout is ready.` };

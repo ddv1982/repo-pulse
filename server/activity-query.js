@@ -20,9 +20,18 @@ function decodeCursor(cursor, filterKey) {
   if (!cursor) return undefined;
   try {
     const value = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8'));
-    if (Number.isSafeInteger(value.maxSequence) && value.maxSequence >= 0 && value.filterKey === filterKey &&
-      Number.isFinite(value.after?.observed) && Number.isFinite(value.after?.time) && typeof value.after?.key === 'string') return value;
-  } catch { /* Invalid or outdated cursor. */ }
+    if (
+      Number.isSafeInteger(value.maxSequence) &&
+      value.maxSequence >= 0 &&
+      value.filterKey === filterKey &&
+      Number.isFinite(value.after?.observed) &&
+      Number.isFinite(value.after?.time) &&
+      typeof value.after?.key === 'string'
+    )
+      return value;
+  } catch {
+    /* Invalid or outdated cursor. */
+  }
   throw invalidFilter();
 }
 
@@ -74,7 +83,8 @@ export function createActivityQuery(db, hydrate, requireRepo) {
     const needle = search.toLowerCase();
     const filterKey = JSON.stringify({ selected, view, filter, search: needle });
     const position = decodeCursor(cursor, filterKey);
-    const maxSequence = position?.maxSequence ?? Number(db.prepare('SELECT COALESCE(MAX(sequence),0) AS id FROM activity_members').get()?.id);
+    const maxSequence =
+      position?.maxSequence ?? Number(db.prepare('SELECT COALESCE(MAX(sequence),0) AS id FROM activity_members').get()?.id);
     const conditions = ['m.sequence<=?'];
     /** @type {SqlValue[]} */
     const params = [maxSequence];
@@ -94,10 +104,12 @@ export function createActivityQuery(db, hydrate, requireRepo) {
     const match = filter.type === 'status' ? 'WHERE status=?' : filter.type === 'evidence' ? 'WHERE evidence=?' : '';
     const after = position?.after;
     const boundary = after ? 'WHERE (time, observed, key) < (?, ?, ?)' : '';
-    const optionsQuery = position ? 'NULL' : rawKind
-      ? `(SELECT json_group_array(json_object('kind',kind,'status',status,'evidence',evidence)) FROM
+    const optionsQuery = position
+      ? 'NULL'
+      : rawKind
+        ? `(SELECT json_group_array(json_object('kind',kind,'status',status,'evidence',evidence)) FROM
           (SELECT DISTINCT kind,status,evidence FROM (${grouped('scoped')}) ${visible}))`
-      : "(SELECT json_group_array(json_object('kind',kind,'status',status,'evidence',evidence)) FROM (SELECT DISTINCT kind,status,evidence FROM visible))";
+        : "(SELECT json_group_array(json_object('kind',kind,'status',status,'evidence',evidence)) FROM (SELECT DISTINCT kind,status,evidence FROM visible))";
 
     /** @type {SqlValue[]} */
     const queryParams = [...params];
@@ -106,7 +118,9 @@ export function createActivityQuery(db, hydrate, requireRepo) {
     }
     if (after) queryParams.push(after.time, after.observed, after.key);
     queryParams.push(pageSize + 1);
-    const page = db.prepare(`
+    const page = db
+      .prepare(
+        `
       WITH scoped AS (
         SELECT m.event_id,m.group_key,m.kind,m.status_id,m.evidence_id,m.observed,m.time,
           CASE WHEN e.seen=0 AND e.imported=0 THEN 1 ELSE 0 END AS unseen
@@ -120,19 +134,27 @@ export function createActivityQuery(db, hydrate, requireRepo) {
         (SELECT json_group_array(json_object('kind',kind,'count',count,'newItems',newItems,'newUpdates',newUpdates))
           FROM (SELECT kind,COUNT(*) AS count,SUM(unseen>0) AS newItems,SUM(unseen) AS newUpdates FROM matched GROUP BY kind)) AS counts,
         ${optionsQuery} AS options
-    `).get(...queryParams);
+    `,
+      )
+      .get(...queryParams);
     const groups = /** @type {Group[]} */ (JSON.parse(String(page?.groups)));
     const countRows = /** @type {CountRow[]} */ (JSON.parse(String(page?.counts)));
     const options = page?.options ? filterOptions(JSON.parse(String(page.options))) : undefined;
     const selectedGroups = groups.slice(0, pageSize);
     const groupScope = rawKind ? `${scope} AND m.kind=?` : scope;
     const rowParams = rawKind && filter.type === 'kind' ? [...params, filter.id] : params;
-    const raw = selectedGroups.length ? db.prepare(`
+    const raw = selectedGroups.length
+      ? db
+          .prepare(
+            `
       SELECT e.data,e.seen,e.imported,n.data AS enrichment,m.group_key AS activity_key
       FROM events e LEFT JOIN enrichment n ON n.event_id=e.id
       JOIN activity_members m ON m.event_id=e.id JOIN repositories r ON r.id=e.repo_id
       WHERE ${groupScope} AND m.group_key IN (${selectedGroups.map(() => '?').join(',')})
-    `).all(...rowParams, ...selectedGroups.map(group => group.key)) : [];
+    `,
+          )
+          .all(...rowParams, ...selectedGroups.map(group => group.key))
+      : [];
     /** @type {Map<string, ActivityEvent[]>} */
     const members = new Map();
     for (const row of raw) {
@@ -146,7 +168,9 @@ export function createActivityQuery(db, hydrate, requireRepo) {
     const counts = {};
     /** @type {Record<string, number>} */
     const newCounts = {};
-    let total = 0, newItems = 0, newUpdates = 0;
+    let total = 0,
+      newItems = 0,
+      newUpdates = 0;
     for (const row of countRows) {
       counts[row.kind] = row.count;
       newCounts[row.kind] = row.newItems;
@@ -155,10 +179,13 @@ export function createActivityQuery(db, hydrate, requireRepo) {
       newUpdates += row.newUpdates;
     }
     const last = selectedGroups.at(-1);
-    const nextCursor = groups.length > pageSize && last
-      ? Buffer.from(JSON.stringify({ maxSequence, filterKey, after: { observed: last.observed, time: last.time, key: last.key } })).toString('base64url')
-      : null;
+    const nextCursor =
+      groups.length > pageSize && last
+        ? Buffer.from(
+            JSON.stringify({ maxSequence, filterKey, after: { observed: last.observed, time: last.time, key: last.key } }),
+          ).toString('base64url')
+        : null;
     return { items, nextCursor, total, newItems, newUpdates, counts, newCounts, filterOptions: options };
-  };
+  }
   return queryActivity;
 }

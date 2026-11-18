@@ -5,37 +5,48 @@ import { activityKey, lifecycleKey, supportingPushKey } from '../src/activity.js
 import { activityStatusId, activityEvidenceId, activitySearchText } from '../src/activity-text.js';
 import { createActivityQuery } from './activity-query.js';
 
-const parse = (row) => row ? JSON.parse(row.data) : undefined;
-const badRequest = (message) => Object.assign(new Error(message), { code: 'BAD_REQUEST' });
-const stamp = (value) => Number.isFinite(Date.parse(value)) ? Date.parse(value) : 0;
+const parse = row => (row ? JSON.parse(row.data) : undefined);
+const badRequest = message => Object.assign(new Error(message), { code: 'BAD_REQUEST' });
+const stamp = value => (Number.isFinite(Date.parse(value)) ? Date.parse(value) : 0);
 /** SQLite owns durable events, cursor transactions and indexed view-only activity membership. */
 export function createStore(path = ':memory:') {
   if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
   const db = new DatabaseSync(path);
   if (path !== ':memory:') chmodSync(path, 0o600);
-  const q = (sql) => db.prepare(sql);
+  const q = sql => db.prepare(sql);
   const activityRevision = () => q("SELECT data FROM settings WHERE key='activityRevision'").get()?.data || '0';
-  const bumpActivity = () => q(`INSERT INTO settings(key,data) VALUES('activityRevision','1')
+  const bumpActivity = () =>
+    q(`INSERT INTO settings(key,data) VALUES('activityRevision','1')
     ON CONFLICT(key) DO UPDATE SET data=CAST(data AS INTEGER)+1`).run();
-  const transaction = (fn) => {
+  const transaction = fn => {
     db.exec('BEGIN IMMEDIATE');
-    try { const result = fn(); db.exec('COMMIT'); return result; }
-    catch (error) { db.exec('ROLLBACK'); throw error; }
+    try {
+      const result = fn();
+      db.exec('COMMIT');
+      return result;
+    } catch (error) {
+      db.exec('ROLLBACK');
+      throw error;
+    }
   };
-  const requireRepo = (id) => {
+  const requireRepo = id => {
     const repo = parse(q('SELECT data FROM repositories WHERE id=?').get(id));
     if (!repo) throw Object.assign(new Error('Repository is not watched.'), { code: 'NOT_FOUND' });
     return repo;
   };
-  const hydrate = (row) => {
+  const hydrate = row => {
     if (!row) return undefined;
     const event = parse(row);
     const overlay = row.enrichment ? JSON.parse(row.enrichment) : {};
     return { ...event, data: { ...event.data, ...overlay }, seen: Boolean(row.seen), imported: Boolean(row.imported) };
   };
   function indexLabels(event) {
-    q(`UPDATE activity_members SET status_id=?, evidence_id=?, search_text=? WHERE event_id=?`)
-      .run(activityStatusId(event), activityEvidenceId(event), activitySearchText(event), event.id);
+    q(`UPDATE activity_members SET status_id=?, evidence_id=?, search_text=? WHERE event_id=?`).run(
+      activityStatusId(event),
+      activityEvidenceId(event),
+      activitySearchText(event),
+      event.id,
+    );
   }
   function saveMembership(event) {
     let key = activityKey(event);
@@ -43,63 +54,125 @@ export function createStore(path = ':memory:') {
     if (candidate && q('SELECT 1 FROM activity_members WHERE group_key=? AND kind=?').get(candidate, 'branch-deleted')) key = candidate;
     q(`INSERT INTO activity_members(event_id,group_key,kind,status_id,evidence_id,search_text,observed,time)
        VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(event_id) DO UPDATE SET group_key=excluded.group_key,kind=excluded.kind,
-       status_id=excluded.status_id,evidence_id=excluded.evidence_id,search_text=excluded.search_text,observed=excluded.observed,time=excluded.time`)
-      .run(event.id, key, event.kind, activityStatusId(event), activityEvidenceId(event), activitySearchText(event), stamp(event.observedAt), stamp(event.time));
+       status_id=excluded.status_id,evidence_id=excluded.evidence_id,search_text=excluded.search_text,observed=excluded.observed,time=excluded.time`).run(
+      event.id,
+      key,
+      event.kind,
+      activityStatusId(event),
+      activityEvidenceId(event),
+      activitySearchText(event),
+      stamp(event.observedAt),
+      stamp(event.time),
+    );
     if (event.kind === 'branch-deleted' && lifecycleKey(event)) {
       const siblings = q(`SELECT e.data,e.seen,e.imported FROM events e WHERE e.repo_id=?
-        AND json_extract(e.data,'$.kind')='push' AND CAST(json_extract(e.data,'$.data.pushId') AS TEXT)=?`)
-        .all(event.repoId, String(event.data.pushId));
-      for (const row of siblings) if (supportingPushKey(parse(row)) === key)
-        q('UPDATE activity_members SET group_key=? WHERE event_id=?').run(key, parse(row).id);
+        AND json_extract(e.data,'$.kind')='push' AND CAST(json_extract(e.data,'$.data.pushId') AS TEXT)=?`).all(
+        event.repoId,
+        String(event.data.pushId),
+      );
+      for (const row of siblings)
+        if (supportingPushKey(parse(row)) === key) q('UPDATE activity_members SET group_key=? WHERE event_id=?').run(key, parse(row).id);
     }
   }
   function saveJob(job) {
     requireRepo(job.repoId);
-    if (typeof job.id !== 'string' || !job.id || typeof job.type !== 'string' || !job.type) throw badRequest('Job ID and type are required.');
+    if (typeof job.id !== 'string' || !job.id || typeof job.type !== 'string' || !job.type)
+      throw badRequest('Job ID and type are required.');
     q(`INSERT INTO jobs(id,repo_id,type,next_at,data) VALUES(?,?,?,?,?) ON CONFLICT(id)
-       DO UPDATE SET repo_id=excluded.repo_id,type=excluded.type,next_at=excluded.next_at,data=excluded.data`)
-      .run(job.id, job.repoId, job.type, job.nextAt || '1970-01-01T00:00:00.000Z', JSON.stringify(job));
+       DO UPDATE SET repo_id=excluded.repo_id,type=excluded.type,next_at=excluded.next_at,data=excluded.data`).run(
+      job.id,
+      job.repoId,
+      job.type,
+      job.nextAt || '1970-01-01T00:00:00.000Z',
+      JSON.stringify(job),
+    );
   }
   // Each step upgrades a database below its version and is recorded in user_version once it has run.
   // A fresh database runs every step against empty tables and ends at the last version.
   const migrations = [
-    [2, () => {
-      // Membership and metadata jobs are added without rewriting any existing event or read flag.
-      for (const row of q('SELECT data FROM events ORDER BY rowid').all()) saveMembership(parse(row));
-      for (const row of q("SELECT data FROM events WHERE json_extract(data,'$.kind')='push'").all()) {
-        const event = parse(row);
-        saveJob({ id: `merge:${event.id}`, type: 'merge', repoId: event.repoId, eventId: event.id,
-          status: 'pending', nextAt: '1970-01-01T00:00:00.000Z' });
-      }
-    }],
-    [4, () => {
-      // Push associations can be empty when refs move to an already-created PR result.
-      // Retry those histories once with range enumeration; cached metadata and read flags stay intact.
-      for (const row of q("SELECT data FROM events WHERE json_extract(data,'$.kind')='push'").all()) {
-        const event = parse(row);
-        const eligible = Array.isArray(event.data?.refUpdates) && event.data.refUpdates.some((ref) => ref.name?.startsWith('refs/heads/') &&
-          typeof ref.oldObjectId === 'string' && ref.oldObjectId.length && !/^0+$/.test(ref.oldObjectId) &&
-          typeof ref.newObjectId === 'string' && ref.newObjectId.length && !/^0+$/.test(ref.newObjectId) && ref.oldObjectId !== ref.newObjectId);
-        if (eligible) saveJob({ id: `merge:${event.id}`,type: 'merge',repoId: event.repoId,eventId: event.id,
-          status: 'pending',stage: 'commits',cursor: null,nextAt: '1970-01-01T00:00:00.000Z' });
-      }
-    }],
-    [7, () => {
-      for (const row of q('SELECT e.data,e.seen,e.imported,n.data AS enrichment FROM events e LEFT JOIN enrichment n ON n.event_id=e.id').iterate()) indexLabels(hydrate(row));
-      db.exec('DROP INDEX IF EXISTS activity_label; DROP INDEX IF EXISTS activity_evidence;');
-    }],
-    [8, () => {
-      // Paused repositories kept showing cached activity; disabled ones are hidden everywhere except Repositories.
-      db.exec(`UPDATE repositories SET data=json_remove(json_set(data,'$.disabled',
+    [
+      2,
+      () => {
+        // Membership and metadata jobs are added without rewriting any existing event or read flag.
+        for (const row of q('SELECT data FROM events ORDER BY rowid').all()) saveMembership(parse(row));
+        for (const row of q("SELECT data FROM events WHERE json_extract(data,'$.kind')='push'").all()) {
+          const event = parse(row);
+          saveJob({
+            id: `merge:${event.id}`,
+            type: 'merge',
+            repoId: event.repoId,
+            eventId: event.id,
+            status: 'pending',
+            nextAt: '1970-01-01T00:00:00.000Z',
+          });
+        }
+      },
+    ],
+    [
+      4,
+      () => {
+        // Push associations can be empty when refs move to an already-created PR result.
+        // Retry those histories once with range enumeration; cached metadata and read flags stay intact.
+        for (const row of q("SELECT data FROM events WHERE json_extract(data,'$.kind')='push'").all()) {
+          const event = parse(row);
+          const eligible =
+            Array.isArray(event.data?.refUpdates) &&
+            event.data.refUpdates.some(
+              ref =>
+                ref.name?.startsWith('refs/heads/') &&
+                typeof ref.oldObjectId === 'string' &&
+                ref.oldObjectId.length &&
+                !/^0+$/.test(ref.oldObjectId) &&
+                typeof ref.newObjectId === 'string' &&
+                ref.newObjectId.length &&
+                !/^0+$/.test(ref.newObjectId) &&
+                ref.oldObjectId !== ref.newObjectId,
+            );
+          if (eligible)
+            saveJob({
+              id: `merge:${event.id}`,
+              type: 'merge',
+              repoId: event.repoId,
+              eventId: event.id,
+              status: 'pending',
+              stage: 'commits',
+              cursor: null,
+              nextAt: '1970-01-01T00:00:00.000Z',
+            });
+        }
+      },
+    ],
+    [
+      7,
+      () => {
+        for (const row of q(
+          'SELECT e.data,e.seen,e.imported,n.data AS enrichment FROM events e LEFT JOIN enrichment n ON n.event_id=e.id',
+        ).iterate())
+          indexLabels(hydrate(row));
+        db.exec('DROP INDEX IF EXISTS activity_label; DROP INDEX IF EXISTS activity_evidence;');
+      },
+    ],
+    [
+      8,
+      () => {
+        // Paused repositories kept showing cached activity; disabled ones are hidden everywhere except Repositories.
+        db.exec(`UPDATE repositories SET data=json_remove(json_set(data,'$.disabled',
         json(CASE WHEN json_extract(data,'$.paused') THEN 'true' ELSE 'false' END)),'$.paused');`);
-    }],
-    [9, () => {
-      // Pull now uses git merge --ff-only, so the crash journal for the custom fast-forward is gone.
-      db.exec('DROP TABLE IF EXISTS pull_operations;');
-    }],
+      },
+    ],
+    [
+      9,
+      () => {
+        // Pull now uses git merge --ff-only, so the crash journal for the custom fast-forward is gone.
+        db.exec('DROP TABLE IF EXISTS pull_operations;');
+      },
+    ],
   ];
   const version = q('PRAGMA user_version').get().user_version;
-  if (version > migrations.at(-1)[0]) { db.close(); throw new Error('This database was created by a newer Repo Pulse version.'); }
+  if (version > migrations.at(-1)[0]) {
+    db.close();
+    throw new Error('This database was created by a newer Repo Pulse version.');
+  }
   db.exec('PRAGMA foreign_keys = ON');
   transaction(() => {
     db.exec(`
@@ -132,9 +205,13 @@ export function createStore(path = ':memory:') {
       // This runs before every step because saveMembership in step 2 already writes status_id and evidence_id.
       const columns = q('PRAGMA table_info(activity_members)').all();
       if (columns.some(column => column.name === 'label')) {
-        db.exec('ALTER TABLE activity_members RENAME COLUMN label TO status_id; ALTER TABLE activity_members RENAME COLUMN evidence TO evidence_id;');
+        db.exec(
+          'ALTER TABLE activity_members RENAME COLUMN label TO status_id; ALTER TABLE activity_members RENAME COLUMN evidence TO evidence_id;',
+        );
       } else if (!columns.some(column => column.name === 'status_id')) {
-        db.exec("ALTER TABLE activity_members ADD COLUMN status_id TEXT NOT NULL DEFAULT ''; ALTER TABLE activity_members ADD COLUMN evidence_id TEXT NOT NULL DEFAULT '';");
+        db.exec(
+          "ALTER TABLE activity_members ADD COLUMN status_id TEXT NOT NULL DEFAULT ''; ALTER TABLE activity_members ADD COLUMN evidence_id TEXT NOT NULL DEFAULT '';",
+        );
       }
     }
     for (const [target, run] of migrations) {
@@ -154,19 +231,35 @@ export function createStore(path = ':memory:') {
       const time = event.time || event.observedAt || new Date().toISOString();
       const observedAt = event.observedAt || time;
       const value = { ...event, time, observedAt };
-      const result = statement.run(event.id,event.repoId,time,observedAt,Number(Boolean(event.seen || imported)),Number(imported),JSON.stringify(value));
-      if (result.changes) { saveMembership(value); inserted = true; }
+      const result = statement.run(
+        event.id,
+        event.repoId,
+        time,
+        observedAt,
+        Number(Boolean(event.seen || imported)),
+        Number(imported),
+        JSON.stringify(value),
+      );
+      if (result.changes) {
+        saveMembership(value);
+        inserted = true;
+      }
     }
     if (inserted) bumpActivity();
   }
   function saveStream(state) {
     requireRepo(state.repoId);
-    q('INSERT INTO streams(repo_id,stream,data) VALUES(?,?,?) ON CONFLICT(repo_id,stream) DO UPDATE SET data=excluded.data')
-      .run(state.repoId,state.stream,JSON.stringify(state));
+    q('INSERT INTO streams(repo_id,stream,data) VALUES(?,?,?) ON CONFLICT(repo_id,stream) DO UPDATE SET data=excluded.data').run(
+      state.repoId,
+      state.stream,
+      JSON.stringify(state),
+    );
   }
   function saveEntities(repoId, entities) {
-    const upsert = q('INSERT INTO entities(repo_id,type,id,data) VALUES(?,?,?,?) ON CONFLICT(repo_id,type,id) DO UPDATE SET data=excluded.data');
-    for (const entity of entities) upsert.run(repoId,entity.type,String(entity.id),JSON.stringify(entity.data));
+    const upsert = q(
+      'INSERT INTO entities(repo_id,type,id,data) VALUES(?,?,?,?) ON CONFLICT(repo_id,type,id) DO UPDATE SET data=excluded.data',
+    );
+    for (const entity of entities) upsert.run(repoId, entity.type, String(entity.id), JSON.stringify(entity.data));
   }
   function enrichEvent(id, data) {
     const event = hydrate(q(`${selectEvents} WHERE e.id=?`).get(id));
@@ -176,7 +269,7 @@ export function createStore(path = ':memory:') {
     const overlay = { ...old, ...data };
     const serialized = JSON.stringify(overlay);
     if (serialized === JSON.stringify(old)) return event;
-    q('INSERT INTO enrichment(event_id,data) VALUES(?,?) ON CONFLICT(event_id) DO UPDATE SET data=excluded.data').run(id,serialized);
+    q('INSERT INTO enrichment(event_id,data) VALUES(?,?) ON CONFLICT(event_id) DO UPDATE SET data=excluded.data').run(id, serialized);
     // Enrichment affects search/details only, never alert identity, timing or acknowledgement.
     indexLabels({ ...event, data: { ...event.data, ...overlay } });
     bumpActivity();
@@ -199,9 +292,12 @@ export function createStore(path = ':memory:') {
     saveRepo(repo) {
       if (!repo.id || !repo.name) throw badRequest('Repository ID and name are required.');
       const old = parse(q('SELECT data FROM repositories WHERE id=?').get(repo.id));
-      const value = { disabled: false,...old,...repo };
+      const value = { disabled: false, ...old, ...repo };
       transaction(() => {
-        q('INSERT INTO repositories(id,data) VALUES(?,?) ON CONFLICT(id) DO UPDATE SET data=excluded.data').run(value.id,JSON.stringify(value));
+        q('INSERT INTO repositories(id,data) VALUES(?,?) ON CONFLICT(id) DO UPDATE SET data=excluded.data').run(
+          value.id,
+          JSON.stringify(value),
+        );
         if (old?.name !== value.name || Boolean(old?.disabled) !== Boolean(value.disabled)) bumpActivity();
       });
       return value;
@@ -215,20 +311,32 @@ export function createStore(path = ':memory:') {
         q("DELETE FROM rules WHERE json_extract(data,'$.repoId')=?").run(id);
       });
     },
-    listEvents({ repoIds,limit = 1000,unseen = false } = {}) {
-      const capped = Math.max(1,Math.min(Number(limit) || 1000,5000));
+    listEvents({ repoIds, limit = 1000, unseen = false } = {}) {
+      const capped = Math.max(1, Math.min(Number(limit) || 1000, 5000));
       if (repoIds?.length === 0) return [];
-      const where = [], params = [];
-      if (repoIds) { repoIds.forEach(requireRepo); where.push(`e.repo_id IN (${repoIds.map(() => '?').join(',')})`); params.push(...repoIds); }
+      const where = [],
+        params = [];
+      if (repoIds) {
+        repoIds.forEach(requireRepo);
+        where.push(`e.repo_id IN (${repoIds.map(() => '?').join(',')})`);
+        params.push(...repoIds);
+      }
       if (unseen) where.push('e.seen=0 AND e.imported=0');
-      return q(`${selectEvents} ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY e.time DESC,e.observed_at DESC,e.rowid DESC LIMIT ?`)
-        .all(...params,capped).map(hydrate);
+      return q(
+        `${selectEvents} ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY e.time DESC,e.observed_at DESC,e.rowid DESC LIMIT ?`,
+      )
+        .all(...params, capped)
+        .map(hydrate);
     },
     queryActivity,
-    getEvent: (id) => hydrate(q(`${selectEvents} WHERE e.id=?`).get(id)),
+    getEvent: id => hydrate(q(`${selectEvents} WHERE e.id=?`).get(id)),
     getEventGroup(id) {
       const member = q('SELECT group_key FROM activity_members WHERE event_id=?').get(id);
-      return member ? q(`${selectEvents} JOIN activity_members m ON m.event_id=e.id WHERE m.group_key=? ORDER BY m.observed DESC,m.time DESC,e.id DESC`).all(member.group_key).map(hydrate) : [];
+      return member
+        ? q(`${selectEvents} JOIN activity_members m ON m.event_id=e.id WHERE m.group_key=? ORDER BY m.observed DESC,m.time DESC,e.id DESC`)
+            .all(member.group_key)
+            .map(hydrate)
+        : [];
     },
     completedCheckoutPulls(repoId, source) {
       const rows = q(`SELECT data FROM events WHERE repo_id=? AND json_extract(data,'$.kind')='pr'
@@ -236,21 +344,30 @@ export function createStore(path = ':memory:') {
         ORDER BY time DESC LIMIT 40`).all(repoId, source);
       const candidates = new Map();
       for (const row of rows) {
-        const event = parse(row), data = event.data;
+        const event = parse(row),
+          data = event.data;
         if (candidates.has(data.pullRequestId)) continue;
-        candidates.set(data.pullRequestId, { id: data.pullRequestId, source, target: data.targetRefName,
-          sourceId: data.sourceRepositoryId, targetId: data.targetRepositoryId, head: data.sourceCommit,
-          result: data.mergeCommit, strategy: data.mergeStrategy, url: event.url });
+        candidates.set(data.pullRequestId, {
+          id: data.pullRequestId,
+          source,
+          target: data.targetRefName,
+          sourceId: data.sourceRepositoryId,
+          targetId: data.targetRepositoryId,
+          head: data.sourceCommit,
+          result: data.mergeCommit,
+          strategy: data.mergeStrategy,
+          url: event.url,
+        });
       }
       return [...candidates.values()];
     },
-    findPushEventsForCommits(repoId,commitIds,targetRef) {
+    findPushEventsForCommits(repoId, commitIds, targetRef) {
       requireRepo(repoId);
       const ids = [...new Set(commitIds || [])];
       if (!ids.length) return [];
       const marks = ids.map(() => '?').join(',');
       const target = targetRef ? "AND json_extract(ref.value,'$.name')=?" : '';
-      const params = targetRef ? [repoId,targetRef,...ids,targetRef,...ids,...ids] : [repoId,...ids,...ids,...ids];
+      const params = targetRef ? [repoId, targetRef, ...ids, targetRef, ...ids, ...ids] : [repoId, ...ids, ...ids, ...ids];
       return q(`${selectEvents} WHERE e.repo_id=? AND json_extract(e.data,'$.kind')='push'
         AND EXISTS (SELECT 1 FROM json_each(e.data,'$.data.refUpdates') ref WHERE 1=1 ${target})
         AND (EXISTS (SELECT 1 FROM json_each(e.data,'$.data.refUpdates') ref
@@ -258,43 +375,75 @@ export function createStore(path = ':memory:') {
           OR EXISTS (SELECT 1 FROM json_each(n.data,'$.mergeEvidence.introducedCommitIds') commit_id
             WHERE commit_id.value IN (${marks}))
           OR EXISTS (SELECT 1 FROM json_each(n.data,'$.mergeEvidence.candidateCommitIds') candidate_id
-            WHERE candidate_id.value IN (${marks}))) ORDER BY e.observed_at DESC,e.id DESC`).all(...params).map(hydrate);
+            WHERE candidate_id.value IN (${marks}))) ORDER BY e.observed_at DESC,e.id DESC`)
+        .all(...params)
+        .map(hydrate);
     },
-    enrichEvent(id,data) { return transaction(() => enrichEvent(id,data)); },
-    commitEnrichment({ jobId,eventId,data,entities = [],job = null }) {
+    enrichEvent(id, data) {
+      return transaction(() => enrichEvent(id, data));
+    },
+    commitEnrichment({ jobId, eventId, data, entities = [], job = null }) {
       return transaction(() => {
-        const enriched = enrichEvent(eventId,data);
-        saveEntities(enriched.repoId,entities);
+        const enriched = enrichEvent(eventId, data);
+        saveEntities(enriched.repoId, entities);
         if (jobId) q('DELETE FROM jobs WHERE id=?').run(jobId);
         if (job) saveJob(job);
         return enriched;
       });
     },
-    acknowledge(ids,seen = true) {
+    acknowledge(ids, seen = true) {
       if (!Array.isArray(ids) || ids.length > 5000) throw badRequest('An explicit list of up to 5000 event IDs is required.');
       transaction(() => {
         const value = Number(Boolean(seen));
         const statement = q('UPDATE events SET seen=? WHERE id=? AND imported=0 AND seen<>?');
         let changed = false;
-        for (const id of ids) if (statement.run(value,id,value).changes) changed = true;
+        for (const id of ids) if (statement.run(value, id, value).changes) changed = true;
         if (changed) bumpActivity();
       });
     },
-    insertEvents(events) { return transaction(() => insertEvents(events)); },
+    insertEvents(events) {
+      return transaction(() => insertEvents(events));
+    },
     getStreams: () => q('SELECT data FROM streams').all().map(parse),
     saveStream,
-    getEntity: (repoId,type,id) => parse(q('SELECT data FROM entities WHERE repo_id=? AND type=? AND id=?').get(repoId,type,String(id))),
-    listEntities: (repoId,type) => q('SELECT id,data FROM entities WHERE repo_id=? AND type=?').all(repoId,type).map((r) => ({ id: r.id,data: parse(r) })),
-    commitPage({ repoId,stream,state,events = [],entities = [],jobs = [] }) {
-      return transaction(() => { requireRepo(repoId); insertEvents(events); saveEntities(repoId,entities); jobs.forEach(saveJob); if (state) saveStream({ ...state,repoId,stream }); });
+    getEntity: (repoId, type, id) =>
+      parse(q('SELECT data FROM entities WHERE repo_id=? AND type=? AND id=?').get(repoId, type, String(id))),
+    listEntities: (repoId, type) =>
+      q('SELECT id,data FROM entities WHERE repo_id=? AND type=?')
+        .all(repoId, type)
+        .map(r => ({ id: r.id, data: parse(r) })),
+    commitPage({ repoId, stream, state, events = [], entities = [], jobs = [] }) {
+      return transaction(() => {
+        requireRepo(repoId);
+        insertEvents(events);
+        saveEntities(repoId, entities);
+        jobs.forEach(saveJob);
+        if (state) saveStream({ ...state, repoId, stream });
+      });
     },
-    listJobs({ type,repoId,status,dueBefore } = {}) {
-      const where = [], params = [];
-      if (type) { where.push('type=?'); params.push(type); }
-      if (repoId) { requireRepo(repoId); where.push('repo_id=?'); params.push(repoId); }
-      if (status) { where.push("json_extract(data,'$.status')=?"); params.push(status); }
-      if (dueBefore) { where.push('next_at<=?'); params.push(dueBefore); }
-      return q(`SELECT data FROM jobs ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY next_at,id`).all(...params).map(parse);
+    listJobs({ type, repoId, status, dueBefore } = {}) {
+      const where = [],
+        params = [];
+      if (type) {
+        where.push('type=?');
+        params.push(type);
+      }
+      if (repoId) {
+        requireRepo(repoId);
+        where.push('repo_id=?');
+        params.push(repoId);
+      }
+      if (status) {
+        where.push("json_extract(data,'$.status')=?");
+        params.push(status);
+      }
+      if (dueBefore) {
+        where.push('next_at<=?');
+        params.push(dueBefore);
+      }
+      return q(`SELECT data FROM jobs ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY next_at,id`)
+        .all(...params)
+        .map(parse);
     },
     mergeQueueSummary() {
       return q(`SELECT COUNT(*) AS pending,
@@ -303,8 +452,11 @@ export function createStore(path = ':memory:') {
         WHERE j.type='merge' AND NOT COALESCE(json_extract(r.data,'$.disabled'),0)`).get();
     },
     saveJob,
-    removeJob(id) { q('DELETE FROM jobs WHERE id=?').run(id); },
-    getSetting, setSetting,
+    removeJob(id) {
+      q('DELETE FROM jobs WHERE id=?').run(id);
+    },
+    getSetting,
+    setSetting,
     close: () => db.close(),
   };
   return store;

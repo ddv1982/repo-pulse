@@ -55,8 +55,15 @@ if (require.main === module && process.argv[2] === 'prepared') {
   };
   (async () => {
     readFileSync(0, 'utf8');
-    if (!ref?.startsWith('refs/heads/') || !archive?.startsWith('refs/repo-pulse/archive/') ||
-      await isSymbolicRef(git, path, ref) || await isSymbolicRef(git, path, archive) ||
-      await worktreeUsesBranch(git, path, ref)) process.exitCode = 1;
-  })().catch(() => { process.exitCode = 1; });
+    if (
+      !ref?.startsWith('refs/heads/') ||
+      !archive?.startsWith('refs/repo-pulse/archive/') ||
+      (await isSymbolicRef(git, path, ref)) ||
+      (await isSymbolicRef(git, path, archive)) ||
+      (await worktreeUsesBranch(git, path, ref))
+    )
+      process.exitCode = 1;
+  })().catch(() => {
+    process.exitCode = 1;
+  });
 }

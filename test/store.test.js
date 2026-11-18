@@ -4,7 +4,14 @@ import { mkdtempSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createStore } from '../server/store.js';
-const repo = { id: 'one', name: 'One', azureId: 'a', organization: 'https://dev.azure.com/org', project: 'P', webUrl: 'https://dev.azure.com/org/P/_git/One' };
+const repo = {
+  id: 'one',
+  name: 'One',
+  azureId: 'a',
+  organization: 'https://dev.azure.com/org',
+  project: 'P',
+  webUrl: 'https://dev.azure.com/org/P/_git/One',
+};
 const event = (id, extra = {}) => ({ id, repoId: 'one', kind: 'push', title: id, time: '2026-11-17T10:00:00Z', ...extra });
 
 test('durable exact acknowledgement does not consume hidden or incoming events', () => {
@@ -17,8 +24,14 @@ test('durable exact acknowledgement does not consume hidden or incoming events',
   store.insertEvents([event('incoming'), event('shown')]);
   store.close();
   store = createStore(path);
-  assert.deepEqual(store.listEvents({ unseen: true }).map((e) => e.id).sort(), ['hidden', 'incoming']);
-  assert.equal(store.listEvents().find((e) => e.id === 'history').seen, true);
+  assert.deepEqual(
+    store
+      .listEvents({ unseen: true })
+      .map(e => e.id)
+      .sort(),
+    ['hidden', 'incoming'],
+  );
+  assert.equal(store.listEvents().find(e => e.id === 'history').seen, true);
   store.acknowledge(['shown'], false);
   assert.equal(store.listEvents({ unseen: true }).length, 3);
   assert.equal(statSync(path).mode & 0o777, 0o600);
@@ -29,8 +42,14 @@ test('durable exact acknowledgement does not consume hidden or incoming events',
 test('page transaction rolls back events and checkpoint together', () => {
   const store = createStore();
   store.saveRepo(repo);
-  assert.throws(() => store.commitPage({ repoId: 'one', stream: 'pushes',
-    state: { cursor: 2 }, events: [event('good'), event('bad', { repoId: 'missing' })] }));
+  assert.throws(() =>
+    store.commitPage({
+      repoId: 'one',
+      stream: 'pushes',
+      state: { cursor: 2 },
+      events: [event('good'), event('bad', { repoId: 'missing' })],
+    }),
+  );
   assert.equal(store.listEvents().length, 0);
   assert.equal(store.getStreams().length, 0);
   store.commitPage({ repoId: 'one', stream: 'pushes', state: { cursor: 2 }, events: [event('good')] });
@@ -44,7 +63,10 @@ test('repository removal cascades only its local data', () => {
   store.saveRepo({ ...repo, id: 'two' });
   store.insertEvents([event('one'), event('two', { repoId: 'two' })]);
   store.removeRepo('one');
-  assert.deepEqual(store.listEvents().map((e) => e.id), ['two']);
+  assert.deepEqual(
+    store.listEvents().map(e => e.id),
+    ['two'],
+  );
   assert.throws(() => store.listEvents({ repoIds: ['unknown'] }));
   store.close();
 });

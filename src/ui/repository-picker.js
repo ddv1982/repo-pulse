@@ -14,46 +14,96 @@ export function displayLocalPath(path, root) {
 }
 function highlight(text, query) {
   const index = lower(text).indexOf(lower(query));
-  return !query || index < 0 ? e(text) : `${e(text.slice(0, index))}<mark>${e(text.slice(index, index + query.length))}</mark>${e(text.slice(index + query.length))}`;
+  return !query || index < 0
+    ? e(text)
+    : `${e(text.slice(0, index))}<mark>${e(text.slice(index, index + query.length))}</mark>${e(text.slice(index + query.length))}`;
 }
 
 /** Self-contained local picker: no Azure reads until the explicit commit action. */
 export function createRepositoryPicker({ request, getRepos, onAdded }) {
-  let host, boundHost, data, beforeBrowse, query = '', mode = 'checkouts', open = false, active = 0;
-  let loading = false, adding = false, restoringFocus = false, error = '', message = '', generation = 0, remembered;
+  let host,
+    boundHost,
+    data,
+    beforeBrowse,
+    query = '',
+    mode = 'checkouts',
+    open = false,
+    active = 0;
+  let loading = false,
+    adding = false,
+    restoringFocus = false,
+    error = '',
+    message = '',
+    generation = 0,
+    remembered;
   const selected = new Map();
-  try { remembered = localStorage.getItem(KEY) || undefined; } catch { /* Optional browser preference. */ }
-  const items = () => (data?.repositories || []).flatMap(repo => repo.remotes.map(remote => ({ localPath: repo.localPath, remote, multiple: repo.remotes.length > 1 })));
-  const watched = item => getRepos().some(repo => repo.localPath && lower(repo.organization) === lower(item.remote.organization) && lower(repo.project) === lower(item.remote.project) && lower(repo.name) === lower(item.remote.repoName));
+  try {
+    remembered = localStorage.getItem(KEY) || undefined;
+  } catch {
+    /* Optional browser preference. */
+  }
+  const items = () =>
+    (data?.repositories || []).flatMap(repo =>
+      repo.remotes.map(remote => ({ localPath: repo.localPath, remote, multiple: repo.remotes.length > 1 })),
+    );
+  const watched = item =>
+    getRepos().some(
+      repo =>
+        repo.localPath &&
+        lower(repo.organization) === lower(item.remote.organization) &&
+        lower(repo.project) === lower(item.remote.project) &&
+        lower(repo.name) === lower(item.remote.repoName),
+    );
   function closeOutside(event) {
     if (!open || adding || !host?.isConnected || !event.target.isConnected || host.contains(event.target)) return;
-    open = false; render();
+    open = false;
+    render();
   }
   // One listener per picker instance, not one per mount/re-render.
   document.addEventListener('pointerdown', closeOutside);
   document.addEventListener('focusin', closeOutside);
   function options() {
-    if (mode === 'folders') return [
-      ...(data?.parent ? [{ name: 'Up one folder', path: data.parent, up: true }] : []),
-      ...(data?.folders || []).filter(folder => lower(folder.name).includes(lower(query))),
-    ];
-    return items().filter(item => [item.remote.repoName, item.localPath, item.remote.name, item.remote.project, item.remote.organization].some(value => lower(value).includes(lower(query))));
+    if (mode === 'folders')
+      return [
+        ...(data?.parent ? [{ name: 'Up one folder', path: data.parent, up: true }] : []),
+        ...(data?.folders || []).filter(folder => lower(folder.name).includes(lower(query))),
+      ];
+    return items().filter(item =>
+      [item.remote.repoName, item.localPath, item.remote.name, item.remote.project, item.remote.organization].some(value =>
+        lower(value).includes(lower(query)),
+      ),
+    );
   }
   function remember() {
     if (!data) return;
     remembered = data.path;
-    try { localStorage.setItem(KEY, remembered); } catch { /* Picking still works without storage. */ }
+    try {
+      localStorage.setItem(KEY, remembered);
+    } catch {
+      /* Picking still works without storage. */
+    }
   }
   async function readFolder(path) {
     const current = ++generation;
-    loading = true; error = ''; query = ''; active = 0; render();
+    loading = true;
+    error = '';
+    query = '';
+    active = 0;
+    render();
     try {
       const result = await request('/api/folders', { method: 'POST', body: path === undefined ? {} : { path } });
       if (current !== generation) return;
-      data = result; message = '';
+      data = result;
+      message = '';
       if (mode === 'checkouts') remember();
-    } catch (cause) { if (current === generation) error = cause.message; }
-    finally { if (current === generation) { loading = false; render(); } }
+    } catch (cause) {
+      if (current === generation) error = cause.message;
+    } finally {
+      if (current === generation) {
+        loading = false;
+        render();
+      }
+    }
   }
   function render() {
     if (!host?.isConnected) return;
@@ -65,23 +115,44 @@ export function createRepositoryPicker({ request, getRepos, onAdded }) {
     const mixedProjects = new Set(all.map(item => lower(item.remote.project))).size > 1;
     const home = homePrefix(data?.path);
     const homeIndex = data?.breadcrumbs.findIndex(crumb => crumb.path === home) ?? -1;
-    const crumbs = homeIndex >= 0 ? data.breadcrumbs.slice(homeIndex).map((crumb, index) => index === 0 ? { ...crumb, name: '~' } : crumb) : data?.breadcrumbs || [];
+    const crumbs =
+      homeIndex >= 0
+        ? data.breadcrumbs.slice(homeIndex).map((crumb, index) => (index === 0 ? { ...crumb, name: '~' } : crumb))
+        : data?.breadcrumbs || [];
     active = Math.max(0, Math.min(active, list.length - 1));
     const label = mode === 'folders' ? 'Find a folder' : 'Search local repositories';
     host.innerHTML = `<div class="picker-root-row"><nav class="picker-crumbs" aria-label="Local folder">${data ? crumbs.map((crumb, index) => `${index > 0 && !/^(?:\/|[A-Za-z]:[\\/])$/.test(crumbs[index - 1].path) ? '<span aria-hidden="true">/</span>' : ''}${index === crumbs.length - 1 ? `<span aria-current="location" title="${e(crumb.path)}">${e(crumb.name)}</span>` : `<button class="ghost sm" type="button" data-picker="navigate" data-path="${e(crumb.path)}" title="${e(crumb.path)}">${e(crumb.name)}</button>`}`).join('') : '<span class="dim">Your projects folder</span>'}</nav><div class="actions"><button class="btn sm" type="button" data-picker="browse" ${adding ? 'disabled' : ''}>Change folder</button><button class="ghost sm" type="button" data-picker="rescan" aria-label="Rescan folder" title="Rescan local folder" ${loading || adding ? 'disabled' : ''}>↻</button></div></div>
       <label for="checkout-search" class="picker-label">${label}</label><div class="picker-input"><input id="checkout-search" class="search" role="combobox" autocomplete="off" aria-expanded="${open}" aria-controls="checkout-options" aria-autocomplete="list" ${open && list.length && !loading ? `aria-activedescendant="checkout-option-${active}"` : ''} placeholder="${mode === 'folders' ? 'Folder name or /path/to/folder' : 'Search repository or folder name…'}" value="${e(query)}" ${adding ? 'readonly' : ''}><button class="ghost" type="button" data-picker="toggle" aria-label="${open ? 'Close' : 'Open'} repository picker" ${adding ? 'disabled' : ''}>▾</button></div>
-      <div class="picker-results" ${open ? '' : 'hidden'}><ul id="checkout-options" role="listbox" aria-label="${label}" ${mode === 'checkouts' ? 'aria-multiselectable="true"' : ''} ${loading ? 'aria-busy="true"' : ''}>${loading ? '<li class="picker-empty" role="presentation">Reading local folders…</li>' : list.length ? list.map((item, index) => {
-        if (mode === 'folders') return `<li id="checkout-option-${index}" role="option" aria-selected="false" data-picker-option="${index}" class="picker-option ${index === active ? 'active' : ''}"><span aria-hidden="true">${item.up ? '↑' : '▸'}</span><span><b>${highlight(item.name, query)}</b><small title="${e(item.path)}">${e(displayLocalPath(item.path, data.path))}</small></span>${data.repositories.some(repo => repo.localPath === item.path) ? '<span class="chip">Git</span>' : ''}</li>`;
-        const disabled = watched(item), checked = selected.has(keyOf(item));
-        const context = [mixedProjects ? item.remote.project : '', mixedOrganizations ? item.remote.organization.replace(/^https:\/\/dev\.azure\.com\//, '') : ''].filter(Boolean).join(' · ');
-        return `<li id="checkout-option-${index}" role="option" aria-selected="${checked}" aria-disabled="${disabled || adding}" data-picker-option="${index}" title="${e(`${item.localPath} · ${item.remote.project} · ${item.remote.organization}`)}" class="picker-option ${index === active ? 'active' : ''}"><span class="picker-check" aria-hidden="true">${disabled || checked ? '☑' : '☐'}</span><span><b>${highlight(item.remote.repoName, query)}</b><small title="${e(item.localPath)}">${highlight(displayLocalPath(item.localPath, data.path), query)}</small>${context ? `<small>${e(context)}</small>` : ''}</span><span class="picker-badges">${item.multiple ? `<span class="chip">${e(item.remote.name)}</span>` : ''}${disabled ? '<span class="chip">Watched</span>' : ''}</span></li>`;
-      }).join('') : `<li class="picker-empty" role="presentation">${mode === 'folders' ? 'No matching subfolders.' : query ? `No checkout matches “${e(query)}”.` : 'No Azure Git checkouts here. Change folder to find your repositories.'}</li>`}</ul><p class="help picker-count">${loading ? 'Only local disk is read.' : `${list.length} ${mode === 'folders' ? 'folders' : 'checkout remotes'} shown · no Azure requests`}</p></div>
+      <div class="picker-results" ${open ? '' : 'hidden'}><ul id="checkout-options" role="listbox" aria-label="${label}" ${mode === 'checkouts' ? 'aria-multiselectable="true"' : ''} ${loading ? 'aria-busy="true"' : ''}>${
+        loading
+          ? '<li class="picker-empty" role="presentation">Reading local folders…</li>'
+          : list.length
+            ? list
+                .map((item, index) => {
+                  if (mode === 'folders')
+                    return `<li id="checkout-option-${index}" role="option" aria-selected="false" data-picker-option="${index}" class="picker-option ${index === active ? 'active' : ''}"><span aria-hidden="true">${item.up ? '↑' : '▸'}</span><span><b>${highlight(item.name, query)}</b><small title="${e(item.path)}">${e(displayLocalPath(item.path, data.path))}</small></span>${data.repositories.some(repo => repo.localPath === item.path) ? '<span class="chip">Git</span>' : ''}</li>`;
+                  const disabled = watched(item),
+                    checked = selected.has(keyOf(item));
+                  const context = [
+                    mixedProjects ? item.remote.project : '',
+                    mixedOrganizations ? item.remote.organization.replace(/^https:\/\/dev\.azure\.com\//, '') : '',
+                  ]
+                    .filter(Boolean)
+                    .join(' · ');
+                  return `<li id="checkout-option-${index}" role="option" aria-selected="${checked}" aria-disabled="${disabled || adding}" data-picker-option="${index}" title="${e(`${item.localPath} · ${item.remote.project} · ${item.remote.organization}`)}" class="picker-option ${index === active ? 'active' : ''}"><span class="picker-check" aria-hidden="true">${disabled || checked ? '☑' : '☐'}</span><span><b>${highlight(item.remote.repoName, query)}</b><small title="${e(item.localPath)}">${highlight(displayLocalPath(item.localPath, data.path), query)}</small>${context ? `<small>${e(context)}</small>` : ''}</span><span class="picker-badges">${item.multiple ? `<span class="chip">${e(item.remote.name)}</span>` : ''}${disabled ? '<span class="chip">Watched</span>' : ''}</span></li>`;
+                })
+                .join('')
+            : `<li class="picker-empty" role="presentation">${mode === 'folders' ? 'No matching subfolders.' : query ? `No checkout matches “${e(query)}”.` : 'No Azure Git checkouts here. Change folder to find your repositories.'}</li>`
+      }</ul><p class="help picker-count">${loading ? 'Only local disk is read.' : `${list.length} ${mode === 'folders' ? 'folders' : 'checkout remotes'} shown · no Azure requests`}</p></div>
       ${error ? `<div class="banner warn" role="alert"><div>${e(error)}</div></div>` : ''}${(data?.warnings || []).map(warning => `<p class="help">${e(warning)}</p>`).join('')}
       ${mode === 'folders' ? `<div class="actions picker-footer"><button class="btn primary sm" type="button" data-picker="use" ${!data || loading ? 'disabled' : ''}>Use this folder</button><button class="ghost sm" type="button" data-picker="cancel">Cancel</button></div>` : `<div class="picker-chips">${[...selected].map(([key, item]) => `<span class="chip">${e(item.remote.repoName)}${item.multiple ? ` · ${e(item.remote.name)}` : ''}<button type="button" data-picker="remove" data-key="${e(key)}" aria-label="Remove ${e(item.remote.repoName)} ${e(item.remote.name)}" ${adding ? 'disabled' : ''}>×</button></span>`).join('')}</div><div class="actions picker-footer"><button class="btn primary" type="button" data-picker="add" ${!selected.size || adding ? 'disabled' : ''}>${adding ? 'Watching selected…' : `Watch ${selected.size} selected`}</button><span class="help">Nothing is added until you press Watch selected.</span></div>`}
       <p class="help" role="status" aria-live="polite">${e(message || (!loading && open ? `${list.length} matches. ${selected.size} selected.` : ''))}</p>`;
     if (focused) {
-      const input = host.querySelector('#checkout-search'); restoringFocus = true;
-      input.focus({ preventScroll: true }); input.setSelectionRange(...selection); restoringFocus = false;
+      const input = host.querySelector('#checkout-search');
+      restoringFocus = true;
+      input.focus({ preventScroll: true });
+      input.setSelectionRange(...selection);
+      restoringFocus = false;
     }
   }
   async function choose(index) {
@@ -90,31 +161,87 @@ export function createRepositoryPicker({ request, getRepos, onAdded }) {
     if (!item) return;
     active = index;
     if (mode === 'folders') return readFolder(item.path);
-    if (!watched(item)) { const key = keyOf(item); if (selected.has(key)) selected.delete(key); else selected.set(key, item); }
+    if (!watched(item)) {
+      const key = keyOf(item);
+      if (selected.has(key)) selected.delete(key);
+      else selected.set(key, item);
+    }
     render();
     host.querySelector('#checkout-search').focus({ preventScroll: true });
   }
-  function useFolder() { mode = 'checkouts'; query = ''; active = 0; remember(); render(); host.querySelector('#checkout-search').focus(); }
+  function useFolder() {
+    mode = 'checkouts';
+    query = '';
+    active = 0;
+    remember();
+    render();
+    host.querySelector('#checkout-search').focus();
+  }
   async function add() {
     if (adding || !selected.size) return;
-    adding = true; error = ''; message = ''; render();
-    let added = 0; const failures = [];
+    adding = true;
+    error = '';
+    message = '';
+    render();
+    let added = 0;
+    const failures = [];
     for (const [key, item] of [...selected]) {
-      try { await request('/api/repos', { method: 'POST', body: { path: item.localPath, remote: item.remote.name } }); selected.delete(key); added++; }
-      catch (cause) { failures.push(`${item.remote.repoName} · ${item.remote.name}: ${cause.message}`); }
+      try {
+        await request('/api/repos', { method: 'POST', body: { path: item.localPath, remote: item.remote.name } });
+        selected.delete(key);
+        added++;
+      } catch (cause) {
+        failures.push(`${item.remote.repoName} · ${item.remote.name}: ${cause.message}`);
+      }
     }
-    try { if (added) await onAdded(added); }
-    catch (cause) { failures.push(cause.message); }
-    adding = false; error = failures.join(' '); message = `${added} repositories watched. All their remote branches are watched.`; render();
+    try {
+      if (added) await onAdded(added);
+    } catch (cause) {
+      failures.push(cause.message);
+    }
+    adding = false;
+    error = failures.join(' ');
+    message = `${added} repositories watched. All their remote branches are watched.`;
+    render();
   }
   const actions = {
-    toggle() { open = !open; render(); if (open && !data && !loading) void readFolder(remembered); },
-    browse() { if (mode !== 'folders') beforeBrowse = data; mode = 'folders'; open = true; query = ''; render(); if (!data && !loading) void readFolder(remembered); host.querySelector('#checkout-search').focus(); },
-    navigate(element) { open = true; query = ''; return readFolder(element.dataset.path); },
-    rescan() { open = true; return readFolder(data?.path || remembered); },
+    toggle() {
+      open = !open;
+      render();
+      if (open && !data && !loading) void readFolder(remembered);
+    },
+    browse() {
+      if (mode !== 'folders') beforeBrowse = data;
+      mode = 'folders';
+      open = true;
+      query = '';
+      render();
+      if (!data && !loading) void readFolder(remembered);
+      host.querySelector('#checkout-search').focus();
+    },
+    navigate(element) {
+      open = true;
+      query = '';
+      return readFolder(element.dataset.path);
+    },
+    rescan() {
+      open = true;
+      return readFolder(data?.path || remembered);
+    },
     use: useFolder,
-    cancel() { generation++; loading = false; data = beforeBrowse || data; mode = 'checkouts'; query = ''; error = ''; render(); },
-    remove(element) { selected.delete(element.dataset.key); render(); },
+    cancel() {
+      generation++;
+      loading = false;
+      data = beforeBrowse || data;
+      mode = 'checkouts';
+      query = '';
+      error = '';
+      render();
+    },
+    remove(element) {
+      selected.delete(element.dataset.key);
+      render();
+    },
     add,
   };
   return {
@@ -127,23 +254,75 @@ export function createRepositoryPicker({ request, getRepos, onAdded }) {
       boundHost = host;
       host.onclick = event => {
         const option = event.target.closest('[data-picker-option]');
-        if (option) { void choose(Number(option.dataset.pickerOption)); return; }
+        if (option) {
+          void choose(Number(option.dataset.pickerOption));
+          return;
+        }
         const button = event.target.closest('[data-picker]');
-        if (button && !button.disabled) { event.preventDefault(); void actions[button.dataset.picker]?.(button); }
+        if (button && !button.disabled) {
+          event.preventDefault();
+          void actions[button.dataset.picker]?.(button);
+        }
       };
-      host.onmousedown = event => { if (event.target.closest('[data-picker-option]')) event.preventDefault(); };
-      host.addEventListener('focusin', event => { if (!restoringFocus && event.target.id === 'checkout-search' && !open) { open = true; render(); if (!data && !loading) void readFolder(remembered); } });
-      host.oninput = event => { if (event.target.id === 'checkout-search') { query = event.target.value; open = true; active = 0; render(); } };
+      host.onmousedown = event => {
+        if (event.target.closest('[data-picker-option]')) event.preventDefault();
+      };
+      host.addEventListener('focusin', event => {
+        if (!restoringFocus && event.target.id === 'checkout-search' && !open) {
+          open = true;
+          render();
+          if (!data && !loading) void readFolder(remembered);
+        }
+      });
+      host.oninput = event => {
+        if (event.target.id === 'checkout-search') {
+          query = event.target.value;
+          open = true;
+          active = 0;
+          render();
+        }
+      };
       host.onkeydown = event => {
         if (event.target.id !== 'checkout-search' || adding) return;
         const list = options();
-        if (event.key === 'Escape') { event.preventDefault(); if (mode === 'folders') actions.cancel(); else { if (!open) query = ''; open = false; render(); } }
-        else if (event.key === 'Enter') { event.preventDefault(); if (event.ctrlKey || event.metaKey) { if (mode === 'folders') useFolder(); else void add(); } else if (mode === 'folders' && /^[~/]/.test(query)) void readFolder(query); else if (!open) { open = true; render(); } else void choose(active); }
-        else if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) {
-          event.preventDefault(); open = true;
-          active = event.key === 'Home' ? 0 : event.key === 'End' ? list.length - 1 : Math.max(0, Math.min(list.length - 1, active + (event.key === 'ArrowDown' ? 1 : -1)));
-          render(); host.querySelector(`#checkout-option-${active}`)?.scrollIntoView({ block: 'nearest' });
-        } else if (event.key === 'Backspace' && !query) { if (mode === 'folders' && data?.parent) { event.preventDefault(); void readFolder(data.parent); } else { selected.delete([...selected.keys()].at(-1)); render(); } }
+        if (event.key === 'Escape') {
+          event.preventDefault();
+          if (mode === 'folders') actions.cancel();
+          else {
+            if (!open) query = '';
+            open = false;
+            render();
+          }
+        } else if (event.key === 'Enter') {
+          event.preventDefault();
+          if (event.ctrlKey || event.metaKey) {
+            if (mode === 'folders') useFolder();
+            else void add();
+          } else if (mode === 'folders' && /^[~/]/.test(query)) void readFolder(query);
+          else if (!open) {
+            open = true;
+            render();
+          } else void choose(active);
+        } else if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) {
+          event.preventDefault();
+          open = true;
+          active =
+            event.key === 'Home'
+              ? 0
+              : event.key === 'End'
+                ? list.length - 1
+                : Math.max(0, Math.min(list.length - 1, active + (event.key === 'ArrowDown' ? 1 : -1)));
+          render();
+          host.querySelector(`#checkout-option-${active}`)?.scrollIntoView({ block: 'nearest' });
+        } else if (event.key === 'Backspace' && !query) {
+          if (mode === 'folders' && data?.parent) {
+            event.preventDefault();
+            void readFolder(data.parent);
+          } else {
+            selected.delete([...selected.keys()].at(-1));
+            render();
+          }
+        }
       };
     },
   };

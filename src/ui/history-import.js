@@ -31,14 +31,18 @@ export function createHistoryImport(dialog, { start, onStarted }) {
   let submitting = false;
 
   dialog.querySelector('[data-history-cancel]').addEventListener('click', () => dialog.close());
-  dialog.addEventListener('cancel', event => { if (submitting) event.preventDefault(); });
+  dialog.addEventListener('cancel', event => {
+    if (submitting) event.preventDefault();
+  });
   form.addEventListener('submit', async event => {
     event.preventDefault();
     if (submitting) return;
     const range = new FormData(form).get('history-range');
     const id = repoId;
     submitting = true;
-    controls.forEach(control => { control.disabled = true; });
+    controls.forEach(control => {
+      control.disabled = true;
+    });
     error.hidden = true;
     try {
       await start(id, range === 'all' ? range : Number(range));
@@ -48,7 +52,9 @@ export function createHistoryImport(dialog, { start, onStarted }) {
       return;
     } finally {
       submitting = false;
-      controls.forEach(control => { control.disabled = false; });
+      controls.forEach(control => {
+        control.disabled = false;
+      });
       if (!error.hidden) form.querySelector('[type="submit"]').focus();
     }
     dialog.close();
@@ -56,7 +62,9 @@ export function createHistoryImport(dialog, { start, onStarted }) {
   });
 
   return {
-    get open() { return dialog.open; },
+    get open() {
+      return dialog.open;
+    },
     show(repo) {
       repoId = repo.id;
       repositoryName.textContent = repo.name;

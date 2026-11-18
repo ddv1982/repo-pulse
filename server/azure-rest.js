@@ -16,8 +16,11 @@ const refused = message => Object.assign(new Error(message), { stderr: 'not in t
  */
 export function useSystemNetworkSettings(env = process.env) {
   // Python Requests accepts a proxy without a scheme; Node refuses one at startup.
-  const proxyEnv = Object.fromEntries(Object.entries(env).filter(([key]) => /^(https?|no)_proxy$/i.test(key))
-    .map(([key, value]) => [key, /^no_proxy$/i.test(key) || !value || value.includes('://') ? value : `http://${value}`]));
+  const proxyEnv = Object.fromEntries(
+    Object.entries(env)
+      .filter(([key]) => /^(https?|no)_proxy$/i.test(key))
+      .map(([key, value]) => [key, /^no_proxy$/i.test(key) || !value || value.includes('://') ? value : `http://${value}`]),
+  );
   setGlobalProxyFromEnv(proxyEnv);
   tls.setDefaultCACertificates([...new Set([...tls.getCACertificates('default'), ...tls.getCACertificates('system')])]);
 }
@@ -29,16 +32,19 @@ function flags(args) {
   for (const arg of args) {
     if (arg.startsWith('--')) {
       if (Object.hasOwn(values, arg)) throw refused('Repeated Azure CLI flag.');
-      values[current = arg] = [];
+      values[(current = arg)] = [];
     } else if (current) values[current].push(arg);
   }
   return values;
 }
 
-const pairs = (entries = []) => Object.fromEntries(entries.map(entry => {
-  const split = entry.indexOf('=');
-  return [entry.slice(0, split), entry.slice(split + 1)];
-}));
+const pairs = (entries = []) =>
+  Object.fromEntries(
+    entries.map(entry => {
+      const split = entry.indexOf('=');
+      return [entry.slice(0, split), entry.slice(split + 1)];
+    }),
+  );
 
 /** A route value must be one non-empty path segment; `.` and `..` would make URL parsing move up the path. */
 function segment(value) {
@@ -49,8 +55,10 @@ function segment(value) {
 function requestFor(args) {
   const values = flags(args);
   const organization = normalizeOrganization(values['--organization']?.[0]);
-  const area = values['--area']?.[0], resource = values['--resource']?.[0]?.toLowerCase();
-  const method = values['--http-method']?.[0], inFile = values['--in-file']?.[0];
+  const area = values['--area']?.[0],
+    resource = values['--resource']?.[0]?.toLowerCase();
+  const method = values['--http-method']?.[0],
+    inFile = values['--in-file']?.[0];
   const route = pairs(values['--route-parameters']);
   const readQuery = area === 'git' && READ_QUERIES.has(resource);
   if (readQuery ? method !== 'POST' || !inFile : method !== 'GET' || inFile) throw refused('Only Azure DevOps reads are allowed.');
@@ -86,23 +94,43 @@ export function createRestExecutor({ cliExecutor, fetch = globalThis.fetch, now 
       .then(() => cliExecutor(['account', 'get-access-token', '--resource', AZURE_DEVOPS_RESOURCE], options))
       .then(stdout => {
         let data;
-        try { data = typeof stdout === 'string' ? JSON.parse(stdout) : stdout; } catch { data = null; }
-        const expiresAt = Number.isFinite(data?.expires_on) ? data.expires_on * 1000 : typeof data?.expiresOn === 'string' ? Date.parse(data.expiresOn) : NaN;
+        try {
+          data = typeof stdout === 'string' ? JSON.parse(stdout) : stdout;
+        } catch {
+          data = null;
+        }
+        const expiresAt = Number.isFinite(data?.expires_on)
+          ? data.expires_on * 1000
+          : typeof data?.expiresOn === 'string'
+            ? Date.parse(data.expiresOn)
+            : NaN;
         if (typeof data?.accessToken !== 'string' || !data.accessToken || !Number.isFinite(expiresAt)) {
           throw Object.assign(new Error('Azure CLI did not return a usable token.'), { stderr: 'authentication unavailable' });
         }
         token = { value: data.accessToken, expiresAt };
         return token.value;
       })
-      .finally(() => { renewal = undefined; });
+      .finally(() => {
+        renewal = undefined;
+      });
     return renewal;
   }
   async function send(request, body, options, bearer) {
     const signal = AbortSignal.any([options.signal, AbortSignal.timeout(options.timeoutMs)].filter(Boolean));
     try {
-      return await fetch(request.url, { method: request.method, signal, redirect: 'error', body,
+      return await fetch(request.url, {
+        method: request.method,
+        signal,
+        redirect: 'error',
+        body,
         // Without this header Azure DevOps answers a rejected token with a 302 to its sign-in page instead of a 401.
-        headers: { authorization: `Bearer ${bearer}`, accept: 'application/json', 'x-tfs-fedauthredirect': 'Suppress', ...(body ? { 'content-type': 'application/json' } : {}) } });
+        headers: {
+          authorization: `Bearer ${bearer}`,
+          accept: 'application/json',
+          'x-tfs-fedauthredirect': 'Suppress',
+          ...(body ? { 'content-type': 'application/json' } : {}),
+        },
+      });
     } catch (error) {
       throw transportError(error);
     }

@@ -24,7 +24,13 @@ async function setup(t, { followup = false, conflict = false, run } = {}) {
   const { checkout } = await adapter.update(repo, 'check', await adapter.status(repo));
   assert.equal(checkout.diagnostic.advice.destination, 'local');
   assert.equal(git(local, 'rev-parse', 'origin/release'), pr.result);
-  return { ...fixture, adapter, tip, first, second, checkout,
+  return {
+    ...fixture,
+    adapter,
+    tip,
+    first,
+    second,
+    checkout,
     switchTarget: () => adapter.branchAction(repo, { operation: 'switch-update', prId: pr.id, result: pr.result }, checkout),
     act: (target, operation, extra) => adapter.branchAction(repo, { operation, planId: target.followup.id, ...extra }, target),
   };
@@ -68,8 +74,17 @@ test('a remote source recreated between Check and confirmation blocks the switch
 test('a diverged target remains checked out and is reported as a partial success', async t => {
   const { local, pr, switchTarget } = await setup(t);
   git(local, 'switch', 'release');
-  const commit = git(local, '-c', 'user.name=Test', '-c', 'user.email=test@example.test', 'commit',
-    '--allow-empty', '-m', 'unpublished target commit');
+  const commit = git(
+    local,
+    '-c',
+    'user.name=Test',
+    '-c',
+    'user.email=test@example.test',
+    'commit',
+    '--allow-empty',
+    '-m',
+    'unpublished target commit',
+  );
   assert.match(commit, /unpublished/);
   const target = git(local, 'rev-parse', 'HEAD');
   git(local, 'switch', 'topic');
@@ -83,8 +98,7 @@ test('a diverged target remains checked out and is reported as a partial success
 function interceptGit(beforeRun) {
   return async (path, args, options) => {
     beforeRun(path, options);
-    const command = exec('git', ['-C', path, ...args], { env: { ...process.env, GIT_OPTIONAL_LOCKS: '0',
-      ...options?.guard } });
+    const command = exec('git', ['-C', path, ...args], { env: { ...process.env, GIT_OPTIONAL_LOCKS: '0', ...options?.guard } });
     if (options?.input) {
       command.child.stdin.on('error', () => {});
       command.child.stdin.end(options.input);
@@ -173,7 +187,10 @@ test('carry applies only selected follow-up commits and leaves both original bra
   const { local, first, second, tip, switchTarget, act } = await setup(t, { followup: true });
   const { checkout } = await switchTarget();
   const { review } = await act(checkout, 'review');
-  assert.deepEqual(review.commits.map(commit => commit.id), [first, second]);
+  assert.deepEqual(
+    review.commits.map(commit => commit.id),
+    [first, second],
+  );
   await assert.rejects(act(checkout, 'carry', { commits: [tip] }), /selected commits/);
   const result = await act(checkout, 'carry', { commits: [second] });
   assert.equal(result.checkout.branch, review.branch);

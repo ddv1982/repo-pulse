@@ -21,17 +21,25 @@ export function renderSettings(state, connection) {
           <span class="settings-chevron" aria-hidden="true"></span>
         </summary>
         <div class="settings-content">
-          ${state.demo ? '<p class="help">Demo mode uses fictional data.</p>' : `
+          ${
+            state.demo
+              ? '<p class="help">Demo mode uses fictional data.</p>'
+              : `
           <div class="connection-summary">
-            ${state.repos.length ? `<label>Repository <select class="control" id="connection-repo">
+            ${
+              state.repos.length
+                ? `<label>Repository <select class="control" id="connection-repo">
               ${state.repos.map(repo => `<option value="${e(repo.id)}" ${repo.id === repoId ? 'selected' : ''}>${e(repo.name)} · ${e(repo.project)}</option>`).join('')}
-            </select></label>` : ''}
+            </select></label>`
+                : ''
+            }
             <button class="btn sm" type="button" id="check-settings-connection" data-action="check-connection" data-repo-id="${e(repoId)}" ${connection.pending === null ? '' : 'aria-disabled="true"'}>Check connection</button>
           </div>
           ${local?.version ? `<p class="help">Azure CLI ${e(local.version)}${local.extension ? ` · azure-devops ${e(local.extension)}` : ''}</p>` : ''}
           ${local?.account?.name ? `<p class="help">Azure CLI account context · ${e(local.account.name)}</p>` : ''}
           ${result?.access?.message || result?.available === false ? `<p class="help">${e(result.access?.message ?? result.message)}</p>` : ''}
-          <p class="help">The connection check reads repository details. CI permissions and local Git upstream access are separate.</p>`}
+          <p class="help">The connection check reads repository details. CI permissions and local Git upstream access are separate.</p>`
+          }
         </div>
       </details>
       <label class="settings-row settings-toggle" for="refresh-enabled">

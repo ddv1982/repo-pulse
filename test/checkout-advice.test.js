@@ -35,7 +35,10 @@ test('same branch name, foreign source identity, dirty checkout and missing targ
   const { repo, pr, remote, local, original } = squashFixture(t);
   git(local, 'fetch', 'origin', 'release');
   git(local, 'branch', '--track', 'release', 'origin/release');
-  for (const [candidate, targetVerified] of [[{ ...pr, head: original }, true], [{ ...pr, sourceId: 'fork' }, false]]) {
+  for (const [candidate, targetVerified] of [
+    [{ ...pr, head: original }, true],
+    [{ ...pr, sourceId: 'fork' }, false],
+  ]) {
     const adapter = createCheckoutGit({ matchesRemote: url => url === remote, findPulls: async () => [candidate] });
     const { checkout } = await adapter.update(repo, 'check', await adapter.status(repo));
     assert.equal(checkout.diagnostic.advice.verified, false);
@@ -63,13 +66,30 @@ test('checkout PR lookup consults the provider only when cache has no exact evid
   const cached = { ...pr, result: undefined };
   const lookup = createCheckoutLookup({
     cached: () => [cached],
-    lookup: async () => { calls++; return [pr]; },
+    lookup: async () => {
+      calls++;
+      return [pr];
+    },
   });
   assert.deepEqual(await lookup(repo, pr.source, pr.head), [pr]);
   assert.equal(calls, 1);
-  assert.deepEqual(await createCheckoutLookup({ cached: () => [pr], lookup: async () => { calls++; return []; } })(repo, pr.source, pr.head), [pr]);
+  assert.deepEqual(
+    await createCheckoutLookup({
+      cached: () => [pr],
+      lookup: async () => {
+        calls++;
+        return [];
+      },
+    })(repo, pr.source, pr.head),
+    [pr],
+  );
   assert.equal(calls, 1);
-  const fallback = createCheckoutLookup({ cached: () => [cached], lookup: async () => { throw new Error('Unavailable'); } });
+  const fallback = createCheckoutLookup({
+    cached: () => [cached],
+    lookup: async () => {
+      throw new Error('Unavailable');
+    },
+  });
   assert.deepEqual(await fallback(repo, pr.source, pr.head), [cached]);
 });
 
@@ -111,7 +131,10 @@ test('a local rebase in progress names the operation and blocks update actions',
   git(local, 'switch', 'main');
   commit(local, 'feature.txt', 'conflicting main edit');
   git(local, 'switch', 'topic');
-  assert.throws(() => git(local, 'rebase', 'main'), error => error.status === 1);
+  assert.throws(
+    () => git(local, 'rebase', 'main'),
+    error => error.status === 1,
+  );
   const checkout = await checkoutGit.status(repo);
   assert.equal(checkout.state, 'in-progress');
   assert.equal(checkout.diagnostic.title, 'Rebase in progress');
@@ -126,7 +149,12 @@ test('a rewrite fetched outside Repo Pulse still compares to the saved baseline'
   const rows = new Map();
   const options = {
     matchesRemote: url => url === remote,
-    observations: { get: id => rows.get(id), save: (id, value) => { rows.set(id, value); } },
+    observations: {
+      get: id => rows.get(id),
+      save: (id, value) => {
+        rows.set(id, value);
+      },
+    },
   };
   const adapter = createCheckoutGit(options);
   await adapter.update(repo, 'check', await adapter.status(repo));
@@ -144,8 +172,8 @@ test('authentication failures stay distinct from a missing ref and redact Git st
   const adapter = createCheckoutGit({
     matchesRemote: url => url === remote,
     run: async (path, args) => {
-      if (args[2] === 'fetch') throw Object.assign(new Error('fetch failure'),
-        { stderr: 'fatal: Authentication failed for credential-bearing fixture' });
+      if (args[2] === 'fetch')
+        throw Object.assign(new Error('fetch failure'), { stderr: 'fatal: Authentication failed for credential-bearing fixture' });
       return git(path, ...args);
     },
   });
@@ -205,7 +233,12 @@ test('an unresolved ancestor check survives repeated checks even when HEAD match
   const rows = new Map();
   const options = {
     matchesRemote: url => url === remote,
-    observations: { get: id => rows.get(id), save: (id, value) => { rows.set(id, value); } },
+    observations: {
+      get: id => rows.get(id),
+      save: (id, value) => {
+        rows.set(id, value);
+      },
+    },
     run: async (path, args) => {
       if (args[0] === 'merge-base' && args[2] === previous && args[3] === original) {
         attempts++;

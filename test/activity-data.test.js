@@ -13,9 +13,16 @@ test('local history appends cursor pages and polling retains the loaded window',
   const client = createActivityData(async path => {
     const query = new URL(path, 'http://local').searchParams;
     calls.push(query);
-    const start = Number(query.get('cursor') || 0), limit = Number(query.get('limit'));
+    const start = Number(query.get('cursor') || 0),
+      limit = Number(query.get('limit'));
     const items = Array.from({ length: Math.min(limit, 1120 - start) }, (_, index) => record(index + start));
-    return { items, nextCursor: start + items.length < 1120 ? String(start + items.length) : null, total: 1120, newItems: 1120, newUpdates: 1120 };
+    return {
+      items,
+      nextCursor: start + items.length < 1120 ? String(start + items.length) : null,
+      total: 1120,
+      newItems: 1120,
+      newUpdates: 1120,
+    };
   });
   assert.equal((await client.read(ui)).items.length, 50);
   assert.equal((await client.read(ui, { more: true })).items.length, 100);
@@ -23,7 +30,10 @@ test('local history appends cursor pages and polling retains the loaded window',
   assert.equal((await client.read(ui)).items.length, 100);
   client.reset(450);
   assert.equal((await client.read(ui)).items.length, 450);
-  assert.deepEqual(calls.slice(-3).map(query => Number(query.get('limit'))), [200, 200, 50]);
+  assert.deepEqual(
+    calls.slice(-3).map(query => Number(query.get('limit'))),
+    [200, 200, 50],
+  );
   const filtered = await client.read({ ...ui, kind: 'pr', search: 'old feature', repoIds: ['one'] });
   assert.equal(filtered.items.length, 50);
   assert.equal(calls.at(-1).get('kind'), 'pr');
@@ -36,7 +46,10 @@ test('a changed filter cancels a stale page and an empty scope never queries all
   let calls = 0;
   const client = createActivityData(async () => {
     calls++;
-    if (calls === 1) return new Promise(done => { resolve = done; });
+    if (calls === 1)
+      return new Promise(done => {
+        resolve = done;
+      });
     return { items: [record(2)], nextCursor: null, total: 1, newItems: 1, newUpdates: 1 };
   });
   const old = client.read(ui);
@@ -68,9 +81,15 @@ test('a new revision replaces an old cursor snapshot when Load more is clicked',
   const client = createActivityData(async path => {
     const query = new URL(path, 'http://local').searchParams;
     calls.push(query);
-    const offset = Number(query.get('cursor') || 0), limit = Number(query.get('limit'));
-    return { items: Array.from({ length: limit }, (_, index) => record(offset + index)),
-      nextCursor: String(offset + limit), total: 200, newItems: 200, newUpdates: 200 };
+    const offset = Number(query.get('cursor') || 0),
+      limit = Number(query.get('limit'));
+    return {
+      items: Array.from({ length: limit }, (_, index) => record(offset + index)),
+      nextCursor: String(offset + limit),
+      total: 200,
+      newItems: 200,
+      newUpdates: 200,
+    };
   });
   const first = await client.read(ui, { activityRevision: '1' });
   assert.equal(await client.read(ui, { activityRevision: '1' }), first);
@@ -86,7 +105,10 @@ test('a new revision replaces an old cursor snapshot when Load more is clicked',
 test('a failed response from a superseded filter does not replace the current view', async () => {
   let reject;
   const client = createActivityData(async path => {
-    if (!path.includes('search=')) return new Promise((resolve, fail) => { reject = fail; });
+    if (!path.includes('search='))
+      return new Promise((resolve, fail) => {
+        reject = fail;
+      });
     return { items: [record(2)], nextCursor: null, total: 1, newItems: 1, newUpdates: 1 };
   });
   const previous = client.read(ui);

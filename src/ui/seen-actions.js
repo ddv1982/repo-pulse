@@ -4,18 +4,22 @@ export function eventIds(element) {
   try {
     const ids = JSON.parse(element.dataset.eventIds);
     if (Array.isArray(ids)) return ids.filter(id => typeof id === 'string');
-  } catch { /* A row may carry only its representative ID. */ }
+  } catch {
+    /* A row may carry only its representative ID. */
+  }
   return element.dataset.id ? [element.dataset.id] : element.dataset.eventId ? [element.dataset.eventId] : [];
 }
 
 function shownUnseenIds(page, events) {
   const unseen = new Set(events.filter(isUnseen).map(event => event.id));
-  const ids = [...page.querySelectorAll('li[data-event-id]')].filter(element => {
-    for (let ancestor = element.parentElement; ancestor && ancestor !== page; ancestor = ancestor.parentElement) {
-      if (ancestor.hidden || ancestor.tagName === 'DETAILS' && !ancestor.open) return false;
-    }
-    return true;
-  }).flatMap(eventIds);
+  const ids = [...page.querySelectorAll('li[data-event-id]')]
+    .filter(element => {
+      for (let ancestor = element.parentElement; ancestor && ancestor !== page; ancestor = ancestor.parentElement) {
+        if (ancestor.hidden || (ancestor.tagName === 'DETAILS' && !ancestor.open)) return false;
+      }
+      return true;
+    })
+    .flatMap(eventIds);
   return [...new Set(ids)].filter(id => unseen.has(id));
 }
 
@@ -27,12 +31,18 @@ export function createSeenActions({ page, getEvents, request, reload, toast }) {
     let failure;
     for (let offset = 0; offset < ids.length; offset += 250) {
       const batch = ids.slice(offset, offset + 250);
-      try { await request('/api/ack', { method: 'POST', body: { ids: batch, seen } }); completed.push(...batch); }
-      catch (error) { failure = error; break; }
+      try {
+        await request('/api/ack', { method: 'POST', body: { ids: batch, seen } });
+        completed.push(...batch);
+      } catch (error) {
+        failure = error;
+        break;
+      }
     }
     if (seen && completed.length) undoIds = completed;
     await reload();
-    if (completed.length) toast(`${completed.length} update${completed.length === 1 ? '' : 's'} marked ${seen ? 'seen' : 'unseen'}.`, { undo: seen });
+    if (completed.length)
+      toast(`${completed.length} update${completed.length === 1 ? '' : 's'} marked ${seen ? 'seen' : 'unseen'}.`, { undo: seen });
     if (failure) throw new Error(`${completed.length} of ${ids.length} updates changed; remaining updates were kept. ${failure.message}`);
   }
 
@@ -47,7 +57,9 @@ export function createSeenActions({ page, getEvents, request, reload, toast }) {
     actions: {
       'ack-item': element => {
         const available = getEvents();
-        const events = eventIds(element).map(id => available.find(item => item.id === id)).filter(event => event && !event.imported);
+        const events = eventIds(element)
+          .map(id => available.find(item => item.id === id))
+          .filter(event => event && !event.imported);
         const unseen = events.filter(isUnseen);
         const ids = (unseen.length ? unseen : events).map(event => event.id);
         if (ids.length) return acknowledge([...new Set(ids)], unseen.length > 0);

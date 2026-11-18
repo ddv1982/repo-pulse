@@ -8,15 +8,22 @@ export async function browseFolders(input, { home = homedir(), discover = discov
   let path;
   if (input === undefined || input === '') {
     const projects = join(home, 'projects');
-    path = await stat(projects).then(entry => entry.isDirectory() ? projects : home).catch(() => home);
+    path = await stat(projects)
+      .then(entry => (entry.isDirectory() ? projects : home))
+      .catch(() => home);
   } else {
-    if (typeof input !== 'string' || input.includes('\0') || input.length > 4096) throw Object.assign(new Error('Choose a valid local folder.'), { status: 400 });
+    if (typeof input !== 'string' || input.includes('\0') || input.length > 4096)
+      throw Object.assign(new Error('Choose a valid local folder.'), { status: 400 });
     path = resolve(input === '~' ? home : input.startsWith('~/') ? join(home, input.slice(2)) : input);
   }
   let entries;
-  try { entries = await readdir(path, { withFileTypes: true }); }
-  catch { throw Object.assign(new Error('This folder cannot be opened. Choose another local folder.'), { status: 400 }); }
-  const folders = entries.filter(entry => entry.isDirectory() && !entry.name.startsWith('.') && entry.name !== 'node_modules')
+  try {
+    entries = await readdir(path, { withFileTypes: true });
+  } catch {
+    throw Object.assign(new Error('This folder cannot be opened. Choose another local folder.'), { status: 400 });
+  }
+  const folders = entries
+    .filter(entry => entry.isDirectory() && !entry.name.startsWith('.') && entry.name !== 'node_modules')
     .sort((a, b) => a.name.localeCompare(b.name));
   const root = parse(path).root;
   let part = root;
@@ -28,7 +35,12 @@ export async function browseFolders(input, { home = homedir(), discover = discov
   const found = await discover(path);
   const warnings = [...found.warnings];
   if (folders.length > 200) warnings.push('Showing the first 200 folders. Choose a narrower folder to continue.');
-  return { path, parent: dirname(path) === path ? null : dirname(path), breadcrumbs,
+  return {
+    path,
+    parent: dirname(path) === path ? null : dirname(path),
+    breadcrumbs,
     folders: folders.slice(0, 200).map(entry => ({ name: entry.name, path: join(path, entry.name) })),
-    repositories: found.repositories, warnings };
+    repositories: found.repositories,
+    warnings,
+  };
 }

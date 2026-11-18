@@ -5,19 +5,41 @@ import { createRestExecutor, AZURE_DEVOPS_RESOURCE } from '../server/azure-rest.
 
 const ORG = 'https://dev.azure.com/example';
 const TOKEN = 'secret-token-value';
-const invoke = (area, resource, route, query = []) => ['devops', 'invoke', '--organization', ORG, '--detect', 'false', '--area', area, '--resource', resource,
-  '--api-version', '7.1', '--http-method', 'GET', '--route-parameters', ...route, ...(query.length ? ['--query-parameters', ...query] : [])];
+const invoke = (area, resource, route, query = []) => [
+  'devops',
+  'invoke',
+  '--organization',
+  ORG,
+  '--detect',
+  'false',
+  '--area',
+  area,
+  '--resource',
+  resource,
+  '--api-version',
+  '7.1',
+  '--http-method',
+  'GET',
+  '--route-parameters',
+  ...route,
+  ...(query.length ? ['--query-parameters', ...query] : []),
+];
 
 function harness({ responses = [], expiresIn = 3600, start = Date.parse('2026-11-18T10:00:00Z'), tokenOutput, tokenDelay = false } = {}) {
   let time = start;
-  const requests = [], cliCalls = [];
+  const requests = [],
+    cliCalls = [];
   const cliExecutor = async args => {
     cliCalls.push(args);
     if (args[0] === 'account' && args[1] === 'get-access-token') {
       if (tokenDelay) await new Promise(setImmediate);
       const custom = tokenOutput?.(cliCalls.length);
       if (custom !== undefined) return custom;
-      return JSON.stringify({ accessToken: `${TOKEN}-${cliCalls.length}`, expires_on: Math.floor(time / 1000) + expiresIn, tokenType: 'Bearer' });
+      return JSON.stringify({
+        accessToken: `${TOKEN}-${cliCalls.length}`,
+        expires_on: Math.floor(time / 1000) + expiresIn,
+        tokenType: 'Bearer',
+      });
     }
     return JSON.stringify({ via: 'cli', args });
   };
@@ -30,11 +52,22 @@ function harness({ responses = [], expiresIn = 3600, start = Date.parse('2026-11
   };
   const executor = createRestExecutor({ cliExecutor, fetch, now: () => time });
   const cli = createAzureCli({ executor, limitPerMinute: 1000, now: () => time });
-  return { cli, requests, cliCalls, advance(ms) { time += ms; } };
+  return {
+    cli,
+    requests,
+    cliCalls,
+    advance(ms) {
+      time += ms;
+    },
+  };
 }
 
 test('invoke reads go to the matching REST URL with a bearer token and keep the continuation token', async () => {
-  const { cli, requests, cliCalls } = harness({ responses: [{ status: 200, body: { count: 1, value: [{ name: 'refs/heads/main' }] }, headers: { 'x-ms-continuationtoken': 'next-page' } }] });
+  const { cli, requests, cliCalls } = harness({
+    responses: [
+      { status: 200, body: { count: 1, value: [{ name: 'refs/heads/main' }] }, headers: { 'x-ms-continuationtoken': 'next-page' } },
+    ],
+  });
   const result = await cli.run(invoke('git', 'refs', ['project=Proj Id', 'repositoryId=repo-1'], ['filter=heads/', '$top=100']));
   assert.deepEqual(result, { count: 1, value: [{ name: 'refs/heads/main' }], continuationToken: 'next-page' });
   const url = new URL(requests[0].url);
@@ -44,7 +77,11 @@ test('invoke reads go to the matching REST URL with a bearer token and keep the 
   assert.equal(url.searchParams.get('api-version'), '7.1');
   assert.equal(requests[0].init.method, 'GET');
   assert.equal(requests[0].init.headers.authorization, `Bearer ${TOKEN}-1`);
-  assert.equal(requests[0].init.headers['x-tfs-fedauthredirect'], 'Suppress', 'a rejected token is answered with 401, not a sign-in redirect');
+  assert.equal(
+    requests[0].init.headers['x-tfs-fedauthredirect'],
+    'Suppress',
+    'a rejected token is answered with 401, not a sign-in redirect',
+  );
   assert.deepEqual(cliCalls, [['account', 'get-access-token', '--resource', AZURE_DEVOPS_RESOURCE]]);
   cli.close();
 });
@@ -54,15 +91,20 @@ test('commit, build and connection reads use their own routes', async () => {
   await cli.run(invoke('git', 'commits', ['project=P', 'repositoryId=r', `commitId=${'a'.repeat(40)}`], ['changeCount=0']));
   await cli.run(invoke('build', 'builds', ['project=P'], ['buildIds=1,2']));
   await cli.run(invoke('location', 'connectionData', []));
-  assert.deepEqual(requests.map(request => new URL(request.url).pathname), [
-    `/example/P/_apis/git/repositories/r/commits/${'a'.repeat(40)}`, '/example/P/_apis/build/builds', '/example/_apis/connectionData']);
+  assert.deepEqual(
+    requests.map(request => new URL(request.url).pathname),
+    [`/example/P/_apis/git/repositories/r/commits/${'a'.repeat(40)}`, '/example/P/_apis/build/builds', '/example/_apis/connectionData'],
+  );
   cli.close();
 });
 
 test('the token is reused until shortly before it expires and replaced after a 401', async () => {
-  const { cli, requests, cliCalls, advance } = harness({ responses: [{ status: 200 }, { status: 200 }, { status: 200 }, { status: 401 }, { status: 200 }] });
+  const { cli, requests, cliCalls, advance } = harness({
+    responses: [{ status: 200 }, { status: 200 }, { status: 200 }, { status: 401 }, { status: 200 }],
+  });
   const read = () => cli.run(invoke('git', 'pushes', ['project=P', 'repositoryId=r'], [`$skip=${requests.length}`]));
-  await read(); await read();
+  await read();
+  await read();
   assert.equal(cliCalls.length, 1, 'one token for both reads');
   advance(56 * 60000);
   await read();
@@ -81,7 +123,10 @@ test('read queries POST their validated body to the batch route', async () => {
   assert.equal(requests[0].init.method, 'POST');
   assert.equal(requests[0].init.headers['content-type'], 'application/json');
   assert.deepEqual(JSON.parse(requests[0].init.body), { ids });
-  await assert.rejects(cli.runReadQuery({ organization: ORG, project: 'P', repositoryId: 'r', resource: 'commitsbatch' }, { ids: ['short'] }), { code: 'INVALID_QUERY' });
+  await assert.rejects(
+    cli.runReadQuery({ organization: ORG, project: 'P', repositoryId: 'r', resource: 'commitsbatch' }, { ids: ['short'] }),
+    { code: 'INVALID_QUERY' },
+  );
   assert.equal(requests.length, 1);
   cli.close();
 });
@@ -89,7 +134,10 @@ test('read queries POST their validated body to the batch route', async () => {
 test('other CLI commands still run through az, and writes and token requests are still refused', async () => {
   const { cli, requests, cliCalls } = harness();
   assert.deepEqual(await cli.run(['account', 'show']), { via: 'cli', args: ['account', 'show'] });
-  for (const args of [['account', 'get-access-token'], ['devops', 'invoke', '--area', 'git', '--resource', 'pushes', '--api-version', '7.1', '--http-method', 'DELETE']]) {
+  for (const args of [
+    ['account', 'get-access-token'],
+    ['devops', 'invoke', '--area', 'git', '--resource', 'pushes', '--api-version', '7.1', '--http-method', 'DELETE'],
+  ]) {
     await assert.rejects(cli.run(args), { code: 'READ_ONLY' });
   }
   assert.equal(requests.length, 0);
@@ -99,12 +147,19 @@ test('other CLI commands still run through az, and writes and token requests are
 
 test('HTTP and network failures are classified without exposing the token', async () => {
   const cases = [
-    [{ status: 429 }, 'THROTTLED'], [{ status: 403 }, 'FORBIDDEN'], [{ status: 404 }, 'NOT_FOUND'], [{ status: 503 }, 'UNAVAILABLE'],
-    [{ error: new TypeError('fetch failed') }, 'UNAVAILABLE'], [{ error: Object.assign(new Error('timed out'), { name: 'TimeoutError' }) }, 'TIMEOUT'],
+    [{ status: 429 }, 'THROTTLED'],
+    [{ status: 403 }, 'FORBIDDEN'],
+    [{ status: 404 }, 'NOT_FOUND'],
+    [{ status: 503 }, 'UNAVAILABLE'],
+    [{ error: new TypeError('fetch failed') }, 'UNAVAILABLE'],
+    [{ error: Object.assign(new Error('timed out'), { name: 'TimeoutError' }) }, 'TIMEOUT'],
   ];
   for (const [response, code] of cases) {
     const { cli } = harness({ responses: [response] });
-    const error = await cli.run(invoke('git', 'pushes', ['project=P', 'repositoryId=r'])).then(() => null, failure => failure);
+    const error = await cli.run(invoke('git', 'pushes', ['project=P', 'repositoryId=r'])).then(
+      () => null,
+      failure => failure,
+    );
     assert.equal(error?.code, code, JSON.stringify(response));
     assert.doesNotMatch(JSON.stringify({ message: error.message, ...error }), new RegExp(TOKEN));
     assert.doesNotMatch(JSON.stringify(cli.diagnostics()), new RegExp(TOKEN));
@@ -113,7 +168,12 @@ test('HTTP and network failures are classified without exposing the token', asyn
 });
 
 test('a missing Azure CLI is reported as missing when the token is requested', async () => {
-  const executor = createRestExecutor({ cliExecutor: async () => { throw Object.assign(new Error('spawn az ENOENT'), { code: 'ENOENT' }); }, fetch: async () => assert.fail('no request without a token') });
+  const executor = createRestExecutor({
+    cliExecutor: async () => {
+      throw Object.assign(new Error('spawn az ENOENT'), { code: 'ENOENT' });
+    },
+    fetch: async () => assert.fail('no request without a token'),
+  });
   const cli = createAzureCli({ executor });
   await assert.rejects(cli.run(invoke('git', 'pushes', ['project=P', 'repositoryId=r'])), { code: 'CLI_MISSING' });
   cli.close();
@@ -131,8 +191,11 @@ test('duplicate flags and dot route segments are refused before any request', as
 });
 
 test('an unusable token response is not cached and does not leak into the error', async () => {
-  const { cli, cliCalls } = harness({ tokenOutput: call => call === 1 ? `{"accessToken":"${TOKEN}-broken"` : undefined });
-  const error = await cli.run(invoke('git', 'pushes', ['project=P', 'repositoryId=r'])).then(() => null, failure => failure);
+  const { cli, cliCalls } = harness({ tokenOutput: call => (call === 1 ? `{"accessToken":"${TOKEN}-broken"` : undefined) });
+  const error = await cli.run(invoke('git', 'pushes', ['project=P', 'repositoryId=r'])).then(
+    () => null,
+    failure => failure,
+  );
   assert.equal(error?.code, 'AUTH_REQUIRED');
   assert.doesNotMatch(JSON.stringify({ message: error.message, ...error }), new RegExp(TOKEN));
   await cli.run(invoke('git', 'pushes', ['project=P', 'repositoryId=r'], ['$skip=1']));
@@ -141,7 +204,10 @@ test('an unusable token response is not cached and does not leak into the error'
 });
 
 test('concurrent 401s for one token share a single renewal', async () => {
-  const { cli, cliCalls } = harness({ tokenDelay: true, responses: init => init.headers.authorization.endsWith('-1') ? { status: 401 } : { status: 200 } });
+  const { cli, cliCalls } = harness({
+    tokenDelay: true,
+    responses: init => (init.headers.authorization.endsWith('-1') ? { status: 401 } : { status: 200 }),
+  });
   await Promise.all([0, 1].map(skip => cli.run(invoke('git', 'pushes', ['project=P', 'repositoryId=r'], [`$skip=${skip}`]))));
   assert.equal(cliCalls.length, 2, 'one initial token and one shared renewal');
   cli.close();
@@ -150,7 +216,20 @@ test('concurrent 401s for one token share a single renewal', async () => {
 test('response body failures keep their timeout and invalid-response classification', async () => {
   const body = json => ({ raw: { ok: true, status: 200, headers: new Headers(), json } });
   const timeout = Object.assign(new Error('body stalled'), { name: 'TimeoutError' });
-  for (const [response, code] of [[body(async () => { throw timeout; }), 'TIMEOUT'], [body(async () => { throw new SyntaxError('bad json'); }), 'INVALID_RESPONSE']]) {
+  for (const [response, code] of [
+    [
+      body(async () => {
+        throw timeout;
+      }),
+      'TIMEOUT',
+    ],
+    [
+      body(async () => {
+        throw new SyntaxError('bad json');
+      }),
+      'INVALID_RESPONSE',
+    ],
+  ]) {
     const { cli } = harness({ responses: [response] });
     await assert.rejects(cli.run(invoke('git', 'pushes', ['project=P', 'repositoryId=r'])), { code });
     cli.close();
@@ -164,41 +243,67 @@ test('a token with an unusable expiry is reported as a sign-in problem', async (
 });
 
 test('a replacement token rejected on the retry is not sent again', async () => {
-  const { cli, requests } = harness({ responses: init => init.headers.authorization.endsWith('-3') ? { status: 200 } : { status: 401 } });
+  const { cli, requests } = harness({ responses: init => (init.headers.authorization.endsWith('-3') ? { status: 200 } : { status: 401 }) });
   await assert.rejects(cli.run(invoke('git', 'pushes', ['project=P', 'repositoryId=r'])), { code: 'AUTH_REQUIRED' });
   const before = requests.length;
   await cli.run(invoke('git', 'pushes', ['project=P', 'repositoryId=r'], ['$skip=1']));
-  assert.deepEqual(requests.slice(before).map(request => request.init.headers.authorization), [`Bearer ${TOKEN}-3`]);
+  assert.deepEqual(
+    requests.slice(before).map(request => request.init.headers.authorization),
+    [`Bearer ${TOKEN}-3`],
+  );
   cli.close();
 });
 
 test('discarded error responses have their bodies cancelled', async () => {
   const cancelled = [];
-  const failing = status => ({ raw: new Response(new ReadableStream({ cancel() { cancelled.push(status); } }), { status }) });
+  const failing = status => ({
+    raw: new Response(
+      new ReadableStream({
+        cancel() {
+          cancelled.push(status);
+        },
+      }),
+      { status },
+    ),
+  });
   const { cli } = harness({ responses: [failing(401), failing(503)] });
   await assert.rejects(cli.run(invoke('git', 'pushes', ['project=P', 'repositoryId=r'])), { code: 'UNAVAILABLE' });
   assert.deepEqual(cancelled, [401, 503]);
   cli.close();
 });
 
-for (const scheme of ['http://', '']) test(`live network settings send REST reads through the configured proxy${scheme ? '' : ' without a scheme'} and trust the system certificates`, async () => {
-  const { createServer } = await import('node:http');
-  const { execFile } = await import('node:child_process');
-  let hits = 0;
-  const proxy = createServer().on('connect', (request, socket) => { hits++; socket.end('HTTP/1.1 502 Bad Gateway\r\n\r\n'); });
-  await new Promise(done => proxy.listen(0, '127.0.0.1', done));
-  const moduleUrl = new URL('../server/azure-rest.js', import.meta.url).href;
-  const script = `import tls from 'node:tls'; import { useSystemNetworkSettings } from ${JSON.stringify(moduleUrl)};
+for (const scheme of ['http://', ''])
+  test(`live network settings send REST reads through the configured proxy${scheme ? '' : ' without a scheme'} and trust the system certificates`, async () => {
+    const { createServer } = await import('node:http');
+    const { execFile } = await import('node:child_process');
+    let hits = 0;
+    const proxy = createServer().on('connect', (request, socket) => {
+      hits++;
+      socket.end('HTTP/1.1 502 Bad Gateway\r\n\r\n');
+    });
+    await new Promise(done => proxy.listen(0, '127.0.0.1', done));
+    const moduleUrl = new URL('../server/azure-rest.js', import.meta.url).href;
+    const script = `import tls from 'node:tls'; import { useSystemNetworkSettings } from ${JSON.stringify(moduleUrl)};
     const before = tls.getCACertificates('default').length;
     useSystemNetworkSettings();
     const after = new Set(tls.getCACertificates('default'));
     const system = tls.getCACertificates('system').every(cert => after.has(cert));
     await fetch('https://dev.azure.com/', { signal: AbortSignal.timeout(5000) }).catch(() => {});
     console.log(JSON.stringify({ system, grew: after.size >= before }));`;
-  const stdout = await new Promise((resolve, reject) => execFile(process.execPath, ['--input-type=module', '-e', script],
-    { env: { ...Object.fromEntries(Object.entries(process.env).filter(([key]) => !/^(https?|no|all)_proxy$/i.test(key))),
-      HTTPS_PROXY: `${scheme}127.0.0.1:${proxy.address().port}` }, timeout: 10000 },
-    (error, out) => error ? reject(error) : resolve(out))).finally(() => proxy.close());
-  assert.deepEqual(JSON.parse(stdout.trim().split('\n').at(-1)), { system: true, grew: true });
-  assert.equal(hits, 1, 'the REST request went through the proxy');
-});
+    const stdout = await new Promise((resolve, reject) =>
+      execFile(
+        process.execPath,
+        ['--input-type=module', '-e', script],
+        {
+          env: {
+            ...Object.fromEntries(Object.entries(process.env).filter(([key]) => !/^(https?|no|all)_proxy$/i.test(key))),
+            HTTPS_PROXY: `${scheme}127.0.0.1:${proxy.address().port}`,
+          },
+          timeout: 10000,
+        },
+        (error, out) => (error ? reject(error) : resolve(out)),
+      ),
+    ).finally(() => proxy.close());
+    assert.deepEqual(JSON.parse(stdout.trim().split('\n').at(-1)), { system: true, grew: true });
+    assert.equal(hits, 1, 'the REST request went through the proxy');
+  });

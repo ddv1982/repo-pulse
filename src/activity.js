@@ -30,8 +30,11 @@ const sourceId = value => {
 
 /** @param {ActivityEvent} a @param {ActivityEvent} b */
 function newestFirst(a, b) {
-  return timestamp(b.observedAt) - timestamp(a.observedAt) || timestamp(b.time) - timestamp(a.time) ||
-    (String(a.id) < String(b.id) ? 1 : String(a.id) > String(b.id) ? -1 : 0);
+  return (
+    timestamp(b.observedAt) - timestamp(a.observedAt) ||
+    timestamp(b.time) - timestamp(a.time) ||
+    (String(a.id) < String(b.id) ? 1 : String(a.id) > String(b.id) ? -1 : 0)
+  );
 }
 
 /** @param {ActivityEvent} event */
@@ -49,8 +52,14 @@ export function lifecycleKey(event) {
 /** @param {ActivityEvent} event */
 export function supportingPushKey(event) {
   const data = event.data;
-  if (event.kind !== 'push' || !Array.isArray(data?.refUpdates) || data.refUpdates.length !== 1 ||
-    !Array.isArray(data.commits) || data.commits.length) return null;
+  if (
+    event.kind !== 'push' ||
+    !Array.isArray(data?.refUpdates) ||
+    data.refUpdates.length !== 1 ||
+    !Array.isArray(data.commits) ||
+    data.commits.length
+  )
+    return null;
   const ref = data.refUpdates[0];
   const kind = /^0+$/.test(ref.oldObjectId || '') ? 'branch-created' : 'branch-deleted';
   // Push-list commit coverage is incomplete. A new branch may carry real work even
@@ -62,8 +71,9 @@ export function supportingPushKey(event) {
 /** @param {ActivityEvent} event */
 export function activityKey(event) {
   const build = event.kind === 'build' ? sourceId(event.data?.buildId || event.data?.id) : null;
-  return build ? JSON.stringify(['build', event.repoId, build]) : lifecycleKey(event) ||
-    JSON.stringify(['event', event.repoId, event.kind, event.id]);
+  return build
+    ? JSON.stringify(['build', event.repoId, build])
+    : lifecycleKey(event) || JSON.stringify(['event', event.repoId, event.kind, event.id]);
 }
 
 /** View-only grouping. Raw events and their exact acknowledgement flags remain untouched.
@@ -81,7 +91,8 @@ export function groupActivity(events) {
     if (items) items.push(event);
     else groups.set(groupKey, [event]);
   }
-  return [...groups].flatMap(([groupKey, items]) => projectActivity(groupKey, items) || [])
+  return [...groups]
+    .flatMap(([groupKey, items]) => projectActivity(groupKey, items) || [])
     .sort((a, b) => newestFirst(a.events[0], b.events[0]));
 }
 
@@ -94,11 +105,19 @@ export function groupActivity(events) {
 export function projectActivity(groupKey, items, representativeId) {
   const ordered = [...items].sort(newestFirst);
   // A deletion is the primary fact when its supporting push is folded into the group.
-  const representative = representativeId ? ordered.find(event => event.id === representativeId)
+  const representative = representativeId
+    ? ordered.find(event => event.id === representativeId)
     : ordered.find(event => lifecycleKey(event) === groupKey) || ordered[0];
   if (!representative) return undefined;
   const unseenIds = [...new Set(ordered.filter(isUnseen).map(event => event.id))];
-  return { ...representative, events: ordered, eventIds: [...new Set(ordered.map(event => event.id))],
-    unseenIds, unseen: unseenIds.length > 0, seen: unseenIds.length === 0,
-    imported: ordered.every(event => event.imported), groupKey };
+  return {
+    ...representative,
+    events: ordered,
+    eventIds: [...new Set(ordered.map(event => event.id))],
+    unseenIds,
+    unseen: unseenIds.length > 0,
+    seen: unseenIds.length === 0,
+    imported: ordered.every(event => event.imported),
+    groupKey,
+  };
 }

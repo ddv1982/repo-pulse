@@ -7,22 +7,52 @@ import { branchName } from './events.js';
 
 /** @type {Record<string, string>} */
 const statusLabels = {
-  'new-branch': 'New branch', 'branch-deleted': 'Branch deleted', unlisted: 'No longer listed', push: 'Push',
-  merged: 'Merged', 'pr-abandoned': 'PR abandoned', 'draft-pr': 'Draft PR', 'open-pr': 'Open PR', 'pr-updated': 'PR updated',
-  queued: 'Queued', running: 'Running', canceling: 'Canceling', succeeded: 'Succeeded', failed: 'Failed',
-  canceled: 'Canceled', 'partially-succeeded': 'Partially succeeded', skipped: 'Skipped', unknown: 'Unknown', activity: 'Activity',
+  'new-branch': 'New branch',
+  'branch-deleted': 'Branch deleted',
+  unlisted: 'No longer listed',
+  push: 'Push',
+  merged: 'Merged',
+  'pr-abandoned': 'PR abandoned',
+  'draft-pr': 'Draft PR',
+  'open-pr': 'Open PR',
+  'pr-updated': 'PR updated',
+  queued: 'Queued',
+  running: 'Running',
+  canceling: 'Canceling',
+  succeeded: 'Succeeded',
+  failed: 'Failed',
+  canceled: 'Canceled',
+  'partially-succeeded': 'Partially succeeded',
+  skipped: 'Skipped',
+  unknown: 'Unknown',
+  activity: 'Activity',
 };
 /** @type {Record<string, string>} */
 const evidenceLabels = { 'pr-linked': 'Completed PR linked', 'merge-commit': 'Merge commit' };
 const statusIds = new Map(Object.entries(statusLabels).map(([id, label]) => [label, id]));
 const evidenceIds = new Map(Object.entries(evidenceLabels).map(([id, label]) => [label, id]));
 
-export const labels = { 'branch-created': statusLabels['new-branch'], 'branch-deleted': statusLabels['branch-deleted'], push: statusLabels.push, pr: 'Pull request', build: 'CI run' };
+export const labels = {
+  'branch-created': statusLabels['new-branch'],
+  'branch-deleted': statusLabels['branch-deleted'],
+  push: statusLabels.push,
+  pr: 'Pull request',
+  build: 'CI run',
+};
 
 /** @type {Record<string, [string, ActivityTone]>} */
-const buildStates = { notStarted: ['queued', 'info'], postponed: ['queued', 'info'], inProgress: ['running', 'info'], cancelling: ['canceling', 'warn'],
-  succeeded: ['succeeded', 'ok'], failed: ['failed', 'crit'], canceled: ['canceled', 'warn'], partiallySucceeded: ['partially-succeeded', 'warn'],
-  succeededWithIssues: ['partially-succeeded', 'warn'], skipped: ['skipped', 'neutral'] };
+const buildStates = {
+  notStarted: ['queued', 'info'],
+  postponed: ['queued', 'info'],
+  inProgress: ['running', 'info'],
+  cancelling: ['canceling', 'warn'],
+  succeeded: ['succeeded', 'ok'],
+  failed: ['failed', 'crit'],
+  canceled: ['canceled', 'warn'],
+  partiallySucceeded: ['partially-succeeded', 'warn'],
+  succeededWithIssues: ['partially-succeeded', 'warn'],
+  skipped: ['skipped', 'neutral'],
+};
 
 /** @param {Pick<ActivityEvent, 'data'>} event */
 function buildPresentation(event) {
@@ -79,16 +109,32 @@ export function activityTitle(event) {
 /** @param {string | undefined} value */
 export function triggerLabel(value) {
   /** @type {Record<string, string>} */
-  const descriptions = { manual: 'Triggered manually', individualCI: 'Triggered by a push', batchedCI: 'Triggered by grouped pushes', pullRequest: 'Pull request validation', schedule: 'Scheduled', scheduleForced: 'Scheduled', buildCompletion: 'Triggered by a pipeline', resourceTrigger: 'Triggered by a resource' };
+  const descriptions = {
+    manual: 'Triggered manually',
+    individualCI: 'Triggered by a push',
+    batchedCI: 'Triggered by grouped pushes',
+    pullRequest: 'Pull request validation',
+    schedule: 'Scheduled',
+    scheduleForced: 'Scheduled',
+    buildCompletion: 'Triggered by a pipeline',
+    resourceTrigger: 'Triggered by a resource',
+  };
   return descriptions[value ?? ''] || 'Not supplied';
 }
 
 /** @param {ActivityEvent} event */
 export function activitySummary(event) {
   if (event.kind === 'build') return triggerLabel(event.data?.reason);
-  if (event.kind === 'pr' && event.data?.targetRefName) return `${event.data.status === 'completed' ? 'Merged into' : 'Target:'} ${branchName(event.data.targetRefName)}`;
-  if (event.kind === 'branch-created') return event.data?.evidence === 'snapshot' || event.data?.evidence === 'refs' ? 'First seen remotely; creation time not supplied' : 'New remote branch';
-  if (event.kind === 'branch-deleted') return event.data?.evidence === 'snapshot' || event.data?.evidence === 'refs' ? 'Not in the latest branch list; deletion not confirmed' : 'Remote branch deleted';
+  if (event.kind === 'pr' && event.data?.targetRefName)
+    return `${event.data.status === 'completed' ? 'Merged into' : 'Target:'} ${branchName(event.data.targetRefName)}`;
+  if (event.kind === 'branch-created')
+    return event.data?.evidence === 'snapshot' || event.data?.evidence === 'refs'
+      ? 'First seen remotely; creation time not supplied'
+      : 'New remote branch';
+  if (event.kind === 'branch-deleted')
+    return event.data?.evidence === 'snapshot' || event.data?.evidence === 'refs'
+      ? 'Not in the latest branch list; deletion not confirmed'
+      : 'Remote branch deleted';
   const refs = event.data?.refUpdates;
   if (refs?.length === 1 && /^0+$/.test(refs[0].newObjectId || '')) return 'Remote branch deleted';
   if (refs?.length === 1 && /^0+$/.test(refs[0].oldObjectId || '')) return `Branch starts at ${(refs[0].newObjectId || '').slice(0, 8)}`;
@@ -108,8 +154,18 @@ export const activityMergeBadge = event => evidenceLabels[activityEvidenceId(eve
 
 /** @param {ActivityEvent} event */
 export function activitySearchText(event) {
-  return [event.title, event.branch, event.actor, event.summary, activityLabel(event), activitySummary(event), activityMergeBadge(event),
-    JSON.stringify(event.data || {})].join(' ').toLowerCase();
+  return [
+    event.title,
+    event.branch,
+    event.actor,
+    event.summary,
+    activityLabel(event),
+    activitySummary(event),
+    activityMergeBadge(event),
+    JSON.stringify(event.data || {}),
+  ]
+    .join(' ')
+    .toLowerCase();
 }
 
 /** @typedef {{ type: 'all' } | { type: 'kind' | 'status' | 'evidence', id: string }} ActivityFilter */
