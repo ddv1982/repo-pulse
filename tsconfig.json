@@ -15,6 +15,8 @@
     "server/sync.js",
     "server/activity-query.js",
     "server/checkout-git.js",
-    "src/ui/refresh.js"
+    "src/ui/refresh.js",
+    "server/azure-cli.js",
+    "server/azure-rest.js"
   ]
 }
