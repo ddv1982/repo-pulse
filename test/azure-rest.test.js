@@ -44,6 +44,7 @@ test('invoke reads go to the matching REST URL with a bearer token and keep the 
   assert.equal(url.searchParams.get('api-version'), '7.1');
   assert.equal(requests[0].init.method, 'GET');
   assert.equal(requests[0].init.headers.authorization, `Bearer ${TOKEN}-1`);
+  assert.equal(requests[0].init.headers['x-tfs-fedauthredirect'], 'Suppress', 'a rejected token is answered with 401, not a sign-in redirect');
   assert.deepEqual(cliCalls, [['account', 'get-access-token', '--resource', AZURE_DEVOPS_RESOURCE]]);
   cli.close();
 });

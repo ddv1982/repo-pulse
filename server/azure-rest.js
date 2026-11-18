@@ -101,7 +101,8 @@ export function createRestExecutor({ cliExecutor, fetch = globalThis.fetch, now 
     const signal = AbortSignal.any([options.signal, AbortSignal.timeout(options.timeoutMs)].filter(Boolean));
     try {
       return await fetch(request.url, { method: request.method, signal, redirect: 'error', body,
-        headers: { authorization: `Bearer ${bearer}`, accept: 'application/json', ...(body ? { 'content-type': 'application/json' } : {}) } });
+        // Without this header Azure DevOps answers a rejected token with a 302 to its sign-in page instead of a 401.
+        headers: { authorization: `Bearer ${bearer}`, accept: 'application/json', 'x-tfs-fedauthredirect': 'Suppress', ...(body ? { 'content-type': 'application/json' } : {}) } });
     } catch (error) {
       throw transportError(error);
     }
