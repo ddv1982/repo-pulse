@@ -62,7 +62,7 @@ A push-associated commit list can be empty when a target branch moves to an alre
   made with an Azure CLI token; other commands still start `az`, which can make several requests
   internally. Normal checks are around three minutes, quiet/background checks five minutes and refs
   ten minutes, subject to queueing and backoff.
-- Under sustained live work, the scheduler offers a background turn after six live turns. Eligible history and merge jobs alternate. These are scheduler turns, so CLI queueing and provider response times still affect freshness.
+- Under sustained live work, the scheduler offers a background turn after six live turns. Eligible history and merge jobs alternate. These are scheduler turns, so queueing and provider response times still affect freshness.
 - Effective Azure identity/cross-account cache isolation is not verified. Use one CLI context; an
   installation or cached account check is not proof of access to every repository/environment.
 

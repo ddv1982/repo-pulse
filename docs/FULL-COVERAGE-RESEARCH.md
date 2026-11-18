@@ -24,8 +24,8 @@ Important corrections to automated research:
 
 ## Installed CLI and history observations
 
-- Azure DevOps Services uses the existing CLI credential context. The DevOps extension can fall back to a PAT, so `az account show` does not establish the effective DevOps identity.
-- In the inspected extension, JSON output from `az devops invoke` included `continuation_token` but omitted other response headers, including `Retry-After`. Verify SDK backoff and continuation before relying on either.
+- Activity reads use a Microsoft Entra token from `az account get-access-token` and call the REST API directly, so the identity is the CLI's signed-in account. The DevOps extension's PAT fallback no longer applies to these reads; the connection check makes one REST read to prove access.
+- REST responses expose all headers, including `x-ms-continuationtoken` (used for paging) and `Retry-After` (not yet used: a throttled read is reported as such and retried after the normal failure backoff).
 - The inspected API version parser accepted `7.1` and `7.1-preview`, but rejected `7.1-preview.1`. Verify preview endpoints with the installed CLI before adding them.
 - Build list windows can use queue time while displayed events use completion time. Historical imports filter against the overall requested range so a build crossing an internal page window is not lost.
 
@@ -179,8 +179,8 @@ Tests below must exercise the provider contract, durable store/scheduler and vis
 ## Remaining proof questions
 
 1. Which of our organization's web/API branch/tag/lock operations produce readable push or hook records? Public docs do not establish universal coverage; validate in a controlled test repo.
-2. Does the installed invoke path expose required POST/query results, paging and throttling information reliably? Its current resource discovery/version/header limitations still apply.
-3. Can effective DevOps identity be verified with the same CLI credential path, including PAT fallback, without adding another sign-in? This remains a gate, not an assumed capability.
+2. Answered: activity reads now use REST directly, which exposes POST query results, continuation tokens and throttling headers.
+3. Answered: activity reads use the CLI's Entra token, so the effective identity is the signed-in CLI account, and the connection check verifies repository access with a REST read. PAT-only setups are not supported for activity reads.
 4. What historical push/commit/PR evidence remains available for long outages or removed objects? No universal durable Pushes retention guarantee was established.
 5. Which pipeline/environment/external-deployer mappings and permissions actually exist? Documentation alone cannot prove a specific organization's coverage.
 
