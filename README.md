@@ -15,7 +15,7 @@ A local Azure DevOps activity feed for testers. Watch multiple repositories for 
 
 ## Run locally
 
-Requires **Node.js 26+**, Git, Azure CLI, and the `azure-devops` extension. Repo Pulse uses your existing Azure CLI sign-in.
+Requires **Node.js 26+**, Git, Azure CLI, and the `azure-devops` extension. Repo Pulse uses your existing Azure CLI sign-in. See [Set up the Azure CLI](#set-up-the-azure-cli) if you have not used it before.
 
 ```sh
 npm ci
@@ -25,6 +25,14 @@ npm start
 Open [localhost:4317](http://127.0.0.1:4317). In **Repositories**, choose **Add repositories** and select your local checkouts. Watching a repository includes all its remote branches.
 
 To try it without Azure, run `npm run demo` instead. Demo data is fictional and stored separately.
+
+## Set up the Azure CLI
+
+1. Install the [Azure CLI](https://learn.microsoft.com/cli/azure/install-azure-cli).
+2. Add the Azure DevOps extension: `az extension add --name azure-devops`
+3. Sign in with the account that can read your repositories: `az login`
+
+Then start Repo Pulse and use **Settings → Check connection**. Your checkouts need an Azure DevOps remote (`dev.azure.com` over HTTPS or SSH). **Check for updates** and **Pull** use your normal Git credentials, such as your SSH key.
 
 ## Use Repo Pulse
 
