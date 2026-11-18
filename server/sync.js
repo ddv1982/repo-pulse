@@ -3,7 +3,9 @@ import { createHash } from 'node:crypto';
 import { actorName, branchName, safeAzureUrl } from '../src/events.js';
 
 /** @typedef {import('../src/activity.js').ActivityKind} ActivityKind */
-/** @typedef {'pushes'|'refs'|'prs'|'closedPrs'|'builds'|'activeBuilds'} StreamName */
+/** @typedef {import('./azure-client.js').AzureStream} StreamName */
+/** @typedef {import('./azure-client.js').AzureProvider} AzureProvider */
+/** @typedef {import('./azure-client.js').PageCursor} PageCursor */
 /** The time range one read covers. It stays fixed across the pages of that read. */
 /** @typedef {{ since: string, until: string }} StreamWindow */
 /** @typedef {{ code: string, message: string }} StreamError */
@@ -14,16 +16,15 @@ import { actorName, branchName, safeAzureUrl } from '../src/events.js';
  *   repoId: string, stream: StreamName, initialized: boolean, nextAt: string, error: StreamError|null,
  *   lastAttempt?: string, lastSuccess?: string, pending?: boolean, failures?: number, quietCycles?: number,
  *   window?: StreamWindow, windowGeneration?: number, refreshGeneration?: number, manual?: boolean,
- *   cursor?: unknown, pendingItems?: AzureRecord[], activeIds?: string[]
+ *   cursor?: PageCursor|null, pendingItems?: AzureRecord[], activeIds?: string[]
  * }} StreamState
  */
 /** A stream while a read is in flight: the window and the refresh generation it answers are fixed. */
 /** @typedef {StreamState & { window: StreamWindow, windowGeneration: number, lastAttempt: string, pending: true }} StartedStream */
 /** What `normalize` reads from a stream state; backfill passes `historical: true`. */
 /** @typedef {{ initialized: boolean, historical?: boolean }} NormalizeState */
-/** Raw Azure DevOps JSON. Its shape is checked by the code that reads it, not by the compiler. */
-/** @typedef {any} AzureRecord */
-/** @typedef {{ id: string, disabled?: boolean, webUrl: string, azureId?: string, organization: string, project: string }} WatchedRepo */
+/** @typedef {import('./azure-client.js').AzureRecord} AzureRecord */
+/** @typedef {import('./azure-client.js').AzureRepo & { id: string, disabled?: boolean }} WatchedRepo */
 /**
  * @typedef {{ id: string, repoId: string, kind: ActivityKind, observedAt: string, time: string, actor: string,
  *   branch: string, summary: string, url: string, title?: string, data?: Record<string, unknown>,
@@ -46,13 +47,8 @@ import { actorName, branchName, safeAzureUrl } from '../src/events.js';
  *   commitPage: (page: SyncBatch & { repoId: string, stream: StreamName, state: StreamState }) => void
  * }} SyncStore
  */
-/**
- * @typedef {{
- *   read: (repo: WatchedRepo, stream: StreamName, page: StreamWindow & { cursor: unknown }) => Promise<{ items: AzureRecord[], nextCursor?: unknown }>,
- *   buildsById?: (repo: WatchedRepo, ids: string[]) => Promise<AzureRecord[]>,
- *   pullRequest?: (repo: WatchedRepo, id: string) => Promise<AzureRecord>
- * }} SyncProvider
- */
+/** Sync needs `read`; the active-build and PR follow-ups run only when the provider offers them. */
+/** @typedef {Pick<AzureProvider, 'read'> & Partial<Pick<AzureProvider, 'buildsById'|'pullRequest'>>} SyncProvider */
 /** @typedef {'merge'|'history'} BackgroundKind */
 
 /** @type {StreamName[]} */
@@ -100,7 +96,7 @@ function startPage(state, at, overlapMs) {
  * Stores the cursor for the next page of the same window. `latest` is the stored state,
  * whose refresh request may be newer than the one this page started with.
  * @param {StartedStream} state @param {StreamState} latest
- * @param {{ at: number, cursor: unknown, pendingItems?: AzureRecord[], activeIds?: string[] }} page
+ * @param {{ at: number, cursor: PageCursor|null, pendingItems?: AzureRecord[], activeIds?: string[] }} page
  * @returns {StreamState}
  */
 function nextPage(state, latest, { at, cursor, pendingItems, activeIds }) {

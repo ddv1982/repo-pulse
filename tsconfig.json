@@ -18,6 +18,7 @@
     "server/checkout-git.js",
     "src/ui/refresh.js",
     "server/azure-cli.js",
-    "server/azure-rest.js"
+    "server/azure-rest.js",
+    "server/azure-client.js"
   ]
 }

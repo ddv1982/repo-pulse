@@ -3,9 +3,9 @@
 /** @typedef {import('../src/activity.js').ActivityEvent} ActivityEvent */
 /** @typedef {'pushes'|'closedPrs'|'builds'} HistoryStream */
 /** @typedef {{ since: string, until: string }} HistoryWindow */
-/** @typedef {{ id: string, disabled?: boolean }} WatchedRepo */
+/** @typedef {import('./azure-client.js').AzureRepo & { id: string, disabled?: boolean }} WatchedRepo */
 /** @typedef {{ code: string, message: string }} JobError */
-/** @typedef {{ items: unknown[], nextCursor?: Record<string, unknown>|null }} SourcePage */
+/** @typedef {import('./azure-client.js').AzurePage} SourcePage */
 /**
  * @typedef {{ id: string, type: 'backfill', repoId: string, days: number|'all',
  *   status: 'pending'|'running'|'retrying'|'completed', startedAt: string, nextAt: string,
@@ -41,7 +41,7 @@ const failure = (message, status) => Object.assign(new Error(message), { status 
 /**
  * @param {{
  *   store: HistoryStore,
- *   provider: {read: (repo: WatchedRepo, stream: HistoryStream, page: HistoryWindow & {cursor: SourcePage['nextCursor']}) => Promise<SourcePage>},
+ *   provider: Pick<import('./azure-client.js').AzureProvider, 'read'>,
  *   normalize: (repo: WatchedRepo, stream: HistoryStream, records: unknown[], state: {initialized: false, historical: true, window: HistoryWindow}) => HistoryBatch,
  *   now?: () => number
  * }} options
