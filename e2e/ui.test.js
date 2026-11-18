@@ -989,3 +989,28 @@ test('a backed-up Azure budget is explained on Activity and quantified in Settin
   await page.locator('#troubleshooting-toggle').click();
   await expect(page.locator('.diagnostic-summary')).toContainText('4 checks waiting · up to 9 min late');
 });
+
+test('Escape before the first state load does not throw', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'repo-pulse-ui-'));
+  const runtime = await startApp({ demo: true, port: 0, dataDir: directory });
+  const browser = await chromium.launch({ executablePath: await browserPath(), headless: true });
+  t.after(async () => {
+    await browser.close();
+    await runtime.close();
+    await rm(directory, { recursive: true, force: true });
+  });
+  const page = await browser.newPage();
+  const errors = [];
+  page.on('pageerror', error => errors.push(error.message));
+  let releaseState;
+  const stateHeld = new Promise(resolve => (releaseState = resolve));
+  await page.route('**/api/state', async route => {
+    await stateHeld;
+    await route.continue();
+  });
+  await page.goto(runtime.url, { waitUntil: 'domcontentloaded' });
+  await page.keyboard.press('Escape');
+  releaseState();
+  await expect(page.locator('#repo-toggle')).toBeVisible();
+  assert.deepEqual(errors, []);
+});

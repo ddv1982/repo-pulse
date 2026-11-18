@@ -1,4 +1,5 @@
 import { escape as e } from './format.js';
+import { required } from './dom.js';
 
 const KEY = 'repo-pulse-picker-folder';
 const keyOf = item => JSON.stringify([item.localPath, item.remote.name]);
@@ -174,7 +175,7 @@ export function createRepositoryPicker({ request, getRepos, onAdded }) {
       ${footerMarkup()}
       <p class="help" role="status" aria-live="polite">${e(message || (!loading && open ? `${list.length} matches. ${selected.size} selected.` : ''))}</p>`;
     if (focused) {
-      const input = host.querySelector('#checkout-search');
+      const input = required('#checkout-search', HTMLInputElement, host);
       restoringFocus = true;
       input.focus({ preventScroll: true });
       input.setSelectionRange(...selection);
@@ -193,7 +194,7 @@ export function createRepositoryPicker({ request, getRepos, onAdded }) {
       else selected.set(key, item);
     }
     render();
-    host.querySelector('#checkout-search').focus({ preventScroll: true });
+    required('#checkout-search', HTMLInputElement, host).focus({ preventScroll: true });
   }
   function useFolder() {
     mode = 'checkouts';
@@ -201,7 +202,7 @@ export function createRepositoryPicker({ request, getRepos, onAdded }) {
     active = 0;
     remember();
     render();
-    host.querySelector('#checkout-search').focus();
+    required('#checkout-search', HTMLInputElement, host).focus();
   }
   async function add() {
     if (adding || !selected.size) return;
@@ -243,7 +244,7 @@ export function createRepositoryPicker({ request, getRepos, onAdded }) {
       query = '';
       render();
       if (!data && !loading) void readFolder(remembered);
-      host.querySelector('#checkout-search').focus();
+      required('#checkout-search', HTMLInputElement, host).focus();
     },
     navigate(element) {
       open = true;

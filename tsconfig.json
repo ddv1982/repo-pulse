@@ -24,6 +24,7 @@
     "src/ui/activity-summary.js",
     "src/ui/health.js",
     "src/ui/icons.js",
-    "src/ui/type-filter.js"
+    "src/ui/type-filter.js",
+    "src/ui/dom.js"
   ]
 }

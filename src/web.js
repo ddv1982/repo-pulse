@@ -10,10 +10,11 @@ import { createRefreshController } from './ui/refresh.js';
 import { createBrowserView } from './ui/browser-view.js';
 import { createSeenActions } from './ui/seen-actions.js';
 import { createHistoryImport } from './ui/history-import.js';
+import { required } from './ui/dom.js';
 
-const page = document.querySelector('#page');
-const header = document.querySelector('#header');
-const dialog = document.querySelector('#confirm-dialog');
+const page = required('#page');
+const header = required('#header');
+const dialog = required('#confirm-dialog', HTMLDialogElement);
 const ui = {
   route: 'catchup',
   eventId: null,
@@ -58,7 +59,7 @@ const typeFilter = createTypeFilter({
     activityChanged();
   },
 });
-const historyImport = createHistoryImport(document.querySelector('#history-dialog'), {
+const historyImport = createHistoryImport(required('#history-dialog', HTMLDialogElement), {
   start: (repoId, days) => request('/api/backfill', { method: 'POST', body: { repoId, days } }),
   onStarted: async id => {
     await load({ force: true });
@@ -73,7 +74,7 @@ const seen = createSeenActions({ page, request, getEvents: () => refresh.state.e
 const view = createBrowserView({
   page,
   header,
-  demo: document.querySelector('#demo'),
+  demo: required('#demo'),
   picker,
   typeFilter,
   onPageRendered: seen.updateShownCount,
@@ -137,7 +138,7 @@ const refresh = createRefreshController({
         lastRendered = { metadata, activity, events };
       }
     }
-    if (document.querySelector('#notice')?.dataset.networkError) clearNotice();
+    if (required('#notice').dataset.networkError) clearNotice();
     void checkoutPanel.refresh();
   },
   onError(error, force) {
@@ -149,20 +150,20 @@ const refresh = createRefreshController({
 const load = refresh.load;
 
 function showError(message, network = false) {
-  const notice = document.querySelector('#notice');
+  const notice = required('#notice');
   notice.innerHTML = `<div class="banner crit" role="alert"><span class="ic">!</span><div><strong>Something needs attention</strong><span class="error-message">${e(message)}</span> <button class="ghost sm" type="button" data-action="dismiss-error">Dismiss</button></div></div>`;
   if (network) notice.dataset.networkError = 'true';
   else delete notice.dataset.networkError;
 }
 
 function clearNotice() {
-  const notice = document.querySelector('#notice');
+  const notice = required('#notice');
   notice.innerHTML = '';
   delete notice.dataset.networkError;
 }
 
 function toast(message, { undo = false } = {}) {
-  const element = document.querySelector('#toast');
+  const element = required('#toast');
   clearTimeout(toastTimer);
   element.innerHTML = `${e(message)}${undo ? '<button type="button" data-action="undo-ack">Undo</button>' : ''}`;
   element.hidden = false;
@@ -177,12 +178,12 @@ function toast(message, { undo = false } = {}) {
 function confirm(title, description, callback, label = 'Confirm', { subject = '', destructive = false } = {}) {
   pendingConfirmation = callback;
   dialogOpener = document.activeElement;
-  document.querySelector('#confirm-title').textContent = title;
-  const subjectLine = document.querySelector('#confirm-subject');
+  required('#confirm-title').textContent = title;
+  const subjectLine = required('#confirm-subject');
   subjectLine.textContent = subject;
   subjectLine.hidden = !subject;
-  document.querySelector('#confirm-description').textContent = description;
-  const button = document.querySelector('#confirm-button');
+  required('#confirm-description').textContent = description;
+  const button = required('#confirm-button', HTMLButtonElement);
   button.textContent = label;
   button.classList.toggle('danger', destructive);
   dialog.showModal();
@@ -324,15 +325,15 @@ document.addEventListener('click', event => {
     return;
   }
   if (event.target.closest('#repo-toggle')) {
-    const panel = document.querySelector('#repo-panel');
+    const panel = required('#repo-panel');
     panel.hidden = !panel.hidden;
-    document.querySelector('#repo-toggle').setAttribute('aria-expanded', String(!panel.hidden));
+    required('#repo-toggle').setAttribute('aria-expanded', String(!panel.hidden));
     return;
   }
   const panel = document.querySelector('#repo-panel');
   if (panel && !panel.hidden && !event.target.closest('#repo-panel')) {
     panel.hidden = true;
-    document.querySelector('#repo-toggle').setAttribute('aria-expanded', 'false');
+    required('#repo-toggle').setAttribute('aria-expanded', 'false');
   }
   const element = event.target.closest('[data-action]');
   if (element && actions[element.dataset.action]) {
@@ -415,13 +416,16 @@ document.addEventListener('keydown', event => {
   const monitoring = header.querySelector('.header-overflow[open]');
   if (event.key === 'Escape' && monitoring?.contains(document.activeElement)) {
     monitoring.open = false;
-    monitoring.querySelector('summary').focus();
+    required('summary', HTMLElement, monitoring).focus();
     return;
   }
-  if (event.key === 'Escape' && !document.querySelector('#repo-panel')?.hidden) {
-    document.querySelector('#repo-panel').hidden = true;
-    document.querySelector('#repo-toggle').setAttribute('aria-expanded', 'false');
-    document.querySelector('#repo-toggle').focus();
+  // The header, and with it the scope panel, renders only after the first state load.
+  const panel = document.querySelector('#repo-panel');
+  if (event.key === 'Escape' && panel instanceof HTMLElement && panel.hidden === false) {
+    panel.hidden = true;
+    const toggle = required('#repo-toggle');
+    toggle.setAttribute('aria-expanded', 'false');
+    toggle.focus();
   }
   if (
     event.key === '/' &&
