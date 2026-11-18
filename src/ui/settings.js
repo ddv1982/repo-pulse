@@ -1,17 +1,45 @@
 import { connectionStatus } from './connection.js';
 import { escape as e } from './format.js';
 
-export function renderSettings(state, connection) {
-  const { settings, diagnostics = {}, mergeQueue = {} } = state;
-  const repoId = state.repos.some(repo => repo.id === connection.repoId) ? connection.repoId : state.repos[0]?.id || '';
-  const result = connection.results.get(repoId);
+function repositorySelect(repos, repoId) {
+  if (!repos.length) return '';
+  return `<label>Repository <select class="control" id="connection-repo">
+              ${repos.map(repo => `<option value="${e(repo.id)}" ${repo.id === repoId ? 'selected' : ''}>${e(repo.name)} · ${e(repo.project)}</option>`).join('')}
+            </select></label>`;
+}
+
+function connectionDetails(state, connection, repoId, result) {
   const local = result?.version || result?.available === false ? result : connection.local;
+  return `
+          <div class="connection-summary">
+            ${repositorySelect(state.repos, repoId)}
+            <button class="btn sm" type="button" id="check-settings-connection" data-action="check-connection" data-repo-id="${e(repoId)}" ${connection.pending === null ? '' : 'aria-disabled="true"'}>Check connection</button>
+          </div>
+          ${local?.version ? `<p class="help">Azure CLI ${e(local.version)}${local.extension ? ` · azure-devops ${e(local.extension)}` : ''}</p>` : ''}
+          ${local?.account?.name ? `<p class="help">Azure CLI account context · ${e(local.account.name)}</p>` : ''}
+          ${result?.access?.message || result?.available === false ? `<p class="help">${e(result.access?.message ?? result.message)}</p>` : ''}
+          <p class="help">The connection check reads repository details. CI permissions and local Git upstream access are separate.</p>`;
+}
+
+function diagnosticSummary(diagnostics, mergeQueue) {
   const { startsLastMinute, limitPerMinute, running, concurrency, lastError } = diagnostics;
   const { pending = 0, errors = 0 } = mergeQueue;
   const lag = diagnostics.sync?.lag;
   const cli = limitPerMinute
     ? `${e(startsLastMinute)} of ${e(limitPerMinute)} Azure calls in the last minute · ${e(running)} of ${e(concurrency)} in progress`
     : 'No CLI activity to report';
+  return `<dl class="diagnostic-summary">
+            <div><dt>Azure calls</dt><dd>${cli}</dd></div>
+            ${lag?.overdueStreams ? `<div><dt>Checks behind</dt><dd>${e(lag.overdueStreams)} checks waiting · up to ${e(Math.round(lag.maxDelayMs / 60000))} min late</dd></div>` : ''}
+            <div><dt>Merge checks</dt><dd>${e(pending)} pending${errors ? ` · ${e(errors)} retrying` : ''}</dd></div>
+            ${lastError?.message ? `<div><dt>Last CLI issue</dt><dd>${e(lastError.message)}</dd></div>` : ''}
+          </dl>`;
+}
+
+export function renderSettings(state, connection) {
+  const { settings, diagnostics = {}, mergeQueue = {} } = state;
+  const repoId = state.repos.some(repo => repo.id === connection.repoId) ? connection.repoId : state.repos[0]?.id || '';
+  const result = connection.results.get(repoId);
   return `<div class="section-heading"><h1>Settings</h1></div>
     <div class="card settings-card">
       <details data-group="azure-connection">
@@ -21,25 +49,7 @@ export function renderSettings(state, connection) {
           <span class="settings-chevron" aria-hidden="true"></span>
         </summary>
         <div class="settings-content">
-          ${
-            state.demo
-              ? '<p class="help">Demo mode uses fictional data.</p>'
-              : `
-          <div class="connection-summary">
-            ${
-              state.repos.length
-                ? `<label>Repository <select class="control" id="connection-repo">
-              ${state.repos.map(repo => `<option value="${e(repo.id)}" ${repo.id === repoId ? 'selected' : ''}>${e(repo.name)} · ${e(repo.project)}</option>`).join('')}
-            </select></label>`
-                : ''
-            }
-            <button class="btn sm" type="button" id="check-settings-connection" data-action="check-connection" data-repo-id="${e(repoId)}" ${connection.pending === null ? '' : 'aria-disabled="true"'}>Check connection</button>
-          </div>
-          ${local?.version ? `<p class="help">Azure CLI ${e(local.version)}${local.extension ? ` · azure-devops ${e(local.extension)}` : ''}</p>` : ''}
-          ${local?.account?.name ? `<p class="help">Azure CLI account context · ${e(local.account.name)}</p>` : ''}
-          ${result?.access?.message || result?.available === false ? `<p class="help">${e(result.access?.message ?? result.message)}</p>` : ''}
-          <p class="help">The connection check reads repository details. CI permissions and local Git upstream access are separate.</p>`
-          }
+          ${state.demo ? '<p class="help">Demo mode uses fictional data.</p>' : connectionDetails(state, connection, repoId, result)}
         </div>
       </details>
       <label class="settings-row settings-toggle" for="refresh-enabled">
@@ -49,12 +59,7 @@ export function renderSettings(state, connection) {
       <details data-group="troubleshooting">
         <summary class="settings-row" id="troubleshooting-toggle">Troubleshooting <span class="settings-chevron" aria-hidden="true"></span></summary>
         <div class="settings-content">
-          <dl class="diagnostic-summary">
-            <div><dt>Azure calls</dt><dd>${cli}</dd></div>
-            ${lag?.overdueStreams ? `<div><dt>Checks behind</dt><dd>${e(lag.overdueStreams)} checks waiting · up to ${e(Math.round(lag.maxDelayMs / 60000))} min late</dd></div>` : ''}
-            <div><dt>Merge checks</dt><dd>${e(pending)} pending${errors ? ` · ${e(errors)} retrying` : ''}</dd></div>
-            ${lastError?.message ? `<div><dt>Last CLI issue</dt><dd>${e(lastError.message)}</dd></div>` : ''}
-          </dl>
+          ${diagnosticSummary(diagnostics, mergeQueue)}
           <p class="help">Activity reads are single Azure DevOps requests. Connection checks start the Azure CLI, which can make several requests.</p>
           <button class="btn sm" type="button" id="copy-diagnostics" data-action="copy-diagnostics">Copy diagnostics</button>
         </div>
