@@ -1,33 +1,48 @@
+// @ts-check
+
 import { escape as e, dateTime } from './format.js';
 import { icons, themeSwitch } from './icons.js';
 import { activityHref, isActivity } from './navigation.js';
 
+/** @typedef {Pick<import('./refresh.js').PageState, 'repos'>} ScopeState */
+/** @typedef {ScopeState & Pick<import('./refresh.js').PageState, 'streams' | 'settings'>} HeaderState */
+/** @typedef {Pick<import('./navigation.js').NavigationState, 'repoIds'>} ScopeView */
+/** web.js sets `refreshing` while a refresh runs. @typedef {ScopeView & Pick<import('./navigation.js').NavigationState, 'route' | 'activityRoute'> & { refreshing?: boolean }} HeaderView */
+
+/** @param {ScopeState} state @param {ScopeView} ui */
 function selectedRepos(state, ui) {
   return state.repos.filter(repo => ui.repoIds === null || ui.repoIds.includes(repo.id));
 }
 
+/** @param {ScopeState} state @param {ScopeView} ui */
 export function scopeName(state, ui) {
   const count = ui.repoIds === null ? state.repos.length : selectedRepos(state, ui).length;
   return `${ui.repoIds === null ? 'All ' : ''}${count} repositor${count === 1 ? 'y' : 'ies'}${ui.repoIds === null ? '' : ' shown'}`;
 }
 
+/** @param {ScopeState} state @param {ScopeView} ui */
 export function scopeLabel(state, ui) {
   const selected = selectedRepos(state, ui);
   return `<span class="scope-label-long">${e(scopeName(state, ui))}</span><span class="scope-label-short" aria-hidden="true">${selected.length} repo${selected.length === 1 ? '' : 's'}</span> ▾`;
 }
 
+/** @param {HeaderState} state @param {HeaderView} ui */
 export function renderHeader(state, ui) {
   const streamTimes = state.streams
     .map(stream => stream.lastSuccess)
-    .filter(Boolean)
+    .filter(value => value !== undefined)
     .map(value => new Date(value).valueOf())
     .filter(Number.isFinite);
   const automatic = state.settings.refreshEnabled !== false;
   const freshness = streamTimes.length ? `Last Azure check ${dateTime(Math.max(...streamTimes))}` : 'No Azure check yet';
-  const switchInput = suffix => `<input class="setting-switch" type="checkbox" role="switch" id="header-auto-${suffix}" data-auto-toggle
+  const switchInput = (
+    /** @type {'desktop' | 'mobile'} */ suffix,
+  ) => `<input class="setting-switch" type="checkbox" role="switch" id="header-auto-${suffix}" data-auto-toggle
     aria-label="Automatic checks" ${automatic ? 'checked' : ''}>`;
   const refreshTitle = e(`Refresh activity across selected repositories. ${freshness}`);
-  const refresh = suffix => `<button type="button" class="${suffix === 'mobile' ? 'ghost mobile-refresh' : 'monitor-refresh'}"
+  const refresh = (
+    /** @type {'desktop' | 'mobile'} */ suffix,
+  ) => `<button type="button" class="${suffix === 'mobile' ? 'ghost mobile-refresh' : 'monitor-refresh'}"
     id="header-refresh-${suffix}" data-action="refresh"
     aria-label="Refresh activity" aria-busy="${Boolean(ui.refreshing)}" aria-disabled="${Boolean(ui.refreshing)}"
     data-idle-title="${refreshTitle}" title="${ui.refreshing ? 'Refreshing activity…' : refreshTitle}">

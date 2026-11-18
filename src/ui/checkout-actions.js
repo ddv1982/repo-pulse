@@ -1,4 +1,19 @@
+// @ts-check
+
+/** @typedef {import('./checkout.js').CheckoutSnapshot} CheckoutSnapshot */
+/** @typedef {import('./checkout.js').CheckoutOperation} CheckoutOperation */
+/** @typedef {(element: HTMLElement) => Promise<void> | void} Action */
+
+/**
+ * @param {{
+ *   checkoutPanel: ReturnType<typeof import('./checkout.js').createCheckoutPanel>,
+ *   confirm: (title: string, description: string, callback: () => Promise<void>, label?: string, options?: { subject?: string, destructive?: boolean }) => void,
+ *   toast: (message: string) => void,
+ * }} options
+ * @returns {Record<string, Action>}
+ */
 export function createCheckoutActions({ checkoutPanel, confirm, toast }) {
+  /** @param {string} id @param {CheckoutOperation} operation @param {CheckoutSnapshot} checkout @param {Record<string, unknown>} [options] */
   async function updateCheckout(id, operation, checkout, options) {
     const { branch, head, upstream, identity } = checkout;
     try {
@@ -18,22 +33,25 @@ export function createCheckoutActions({ checkoutPanel, confirm, toast }) {
     }
   }
 
+  /** @param {HTMLElement} element @param {Exclude<CheckoutOperation, 'check' | 'pull'>} operation */
   function branchAction(element, operation) {
-    const id = element.dataset.id;
+    const id = element.dataset.id ?? '';
     const checkout = checkoutPanel.snapshots[id];
     if (!checkout) return;
     if (operation === 'switch-update') {
       const advice = checkout.diagnostic?.advice;
-      if (!advice?.receipt) return;
+      const receipt = advice?.receipt;
+      if (!advice || !receipt) return;
       return confirm(
         `Switch to ${advice.branch} and update?`,
         `Git will switch this checkout to ${advice.branch} and fast-forward it if possible. You can review the old local branch afterward.`,
-        () => updateCheckout(id, operation, checkout, { prId: advice.id, result: advice.receipt.result }),
+        () => updateCheckout(id, operation, checkout, { prId: advice.id, result: receipt.result }),
         'Switch and update',
       );
     }
     const followup = checkout.followup;
     if (!followup) return;
+    /** @type {{ planId: string, commits?: string[] }} */
     const options = { planId: followup.id };
     const perform = () => updateCheckout(id, operation, checkout, options);
     if (operation === 'remove') {
@@ -46,10 +64,14 @@ export function createCheckoutActions({ checkoutPanel, confirm, toast }) {
       );
     }
     if (operation === 'carry') {
-      options.commits = [...element.closest('[data-checkout-review]').querySelectorAll('input:checked')].map(input => input.value);
+      const reviewPanel = element.closest('[data-checkout-review]');
+      if (!reviewPanel) throw new Error('Repo Pulse: missing required element [data-checkout-review]');
+      options.commits = [...reviewPanel.querySelectorAll('input:checked')]
+        .filter(input => input instanceof HTMLInputElement)
+        .map(input => input.value);
       if (!options.commits.length) return toast('Select at least one commit to carry.');
       return confirm(
-        `Apply selected commits to ${checkout.review.branch}?`,
+        `Apply selected commits to ${checkout.review?.branch}?`,
         'Git will apply your selection on a new local branch in its original order, then switch to it. If Git stops, the follow-up stays in a separate worktree.',
         perform,
         'Create branch and apply',
@@ -60,12 +82,12 @@ export function createCheckoutActions({ checkoutPanel, confirm, toast }) {
 
   return {
     'check-checkout': element => {
-      const id = element.dataset.id;
+      const id = element.dataset.id ?? '';
       const checkout = checkoutPanel.snapshots[id];
       if (checkout?.canCheck) return updateCheckout(id, 'check', checkout);
     },
     'pull-checkout': element => {
-      const id = element.dataset.id;
+      const id = element.dataset.id ?? '';
       const checkout = checkoutPanel.snapshots[id];
       if (!checkout?.canPull) return;
       confirm(

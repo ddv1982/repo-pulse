@@ -1,5 +1,22 @@
+// @ts-check
+
 import { azureLink, escape as e } from './format.js';
 
+/** @typedef {import('../../server/checkout-git.js').CheckoutStatus} CheckoutStatus */
+/** @typedef {import('../../server/checkout-git.js').BlockedCheckout} BlockedCheckout */
+/** @typedef {import('../../server/checkout-observations.js').CheckoutDiagnostic} CheckoutDiagnostic */
+/** @typedef {import('../../server/checkout-branches.js').Review} Review */
+/** @typedef {import('../../server/checkout-branches.js').Followup} Followup */
+/**
+ * One repository's checkout as this page reads it. Every /api/checkouts entry fits: the server adds `followup`
+ * when a branch follow-up is open, and the page keeps the `review` and `nextStep` a branch action returned.
+ * @typedef {{ state: CheckoutStatus['state'], canPull?: boolean, followup?: Pick<Followup, 'id' | 'source' | 'workspace'>,
+ *   review?: Review, nextStep?: string } & Partial<Omit<BlockedCheckout, 'state' | 'canPull'>>} CheckoutSnapshot
+ */
+/** @typedef {{ checkout: CheckoutSnapshot, updated?: boolean, message?: string, review?: Review, nextStep?: string }} CheckoutUpdate */
+/** @typedef {'check' | 'pull' | 'switch-update' | 'review' | 'remove' | 'carry'} CheckoutOperation */
+
+/** @type {Record<string, string | undefined>} */
 const statusLabels = {
   'not-linked': 'No local checkout linked',
   unavailable: 'Checkout unavailable',
@@ -15,19 +32,26 @@ const statusLabels = {
   current: 'Matches last fetched upstream',
   diverged: 'Branches diverged',
 };
+/** @type {Set<string | undefined>} */
 const attention = new Set(['diverged', 'unavailable', 'in-progress', 'different-remote', 'upstream-rewritten']);
+/** @type {Set<string | undefined>} */
 const errors = new Set(['upstream-missing', 'fetch-failed']);
 const exactCheckTime = new Intl.DateTimeFormat([], { dateStyle: 'medium', timeStyle: 'medium' });
 const relativeCheckTime = new Intl.RelativeTimeFormat([], { numeric: 'always' });
+/** States whose ahead and behind counts compare the branch with its upstream. @type {Set<string | undefined>} */
+const comparableStates = new Set(['current', 'behind', 'ahead', 'diverged', 'dirty']);
 
+/** @param {string} at */
 function checkAge(at) {
   const minutes = Math.max(0, Math.floor((Date.now() - Date.parse(at)) / 60000));
   if (minutes === 0) return 'Checked just now';
+  /** @type {[number, Intl.RelativeTimeFormatUnit]} */
   const [count, unit] =
     minutes < 60 ? [minutes, 'minute'] : minutes < 1440 ? [Math.floor(minutes / 60), 'hour'] : [Math.floor(minutes / 1440), 'day'];
   return `Checked ${relativeCheckTime.format(-count, unit)}`;
 }
 
+/** @param {CheckoutSnapshot} checkout @param {boolean} countsKnown */
 function uncheckedStatus(checkout, countsKnown) {
   const { ahead, behind, lastBranchCheck } = checkout;
   if (lastBranchCheck && !lastBranchCheck.matchesFetchedTip) return 'Remote changed since last check';
@@ -37,11 +61,12 @@ function uncheckedStatus(checkout, countsKnown) {
   return checkout.canCheck && countsKnown ? 'Not checked yet' : '';
 }
 
+/** @param {CheckoutSnapshot | undefined} checkout */
 function branchStatus(checkout) {
   if (checkout?.diagnostic?.title) return checkout.diagnostic.title;
   if (checkout?.state === 'upstream-missing' || checkout?.state === 'fetch-failed') return statusLabels[checkout.state];
-  const comparable = ['current', 'behind', 'ahead', 'diverged', 'dirty'].includes(checkout?.state);
-  if (!comparable) return checkout?.state === 'unknown' ? '' : statusLabels[checkout?.state] || 'Reading local checkout…';
+  const comparable = checkout !== undefined && comparableStates.has(checkout.state);
+  if (!comparable) return checkout?.state === 'unknown' ? '' : statusLabels[checkout?.state ?? ''] || 'Reading local checkout…';
   const { ahead, behind, lastBranchCheck } = checkout;
   const countsKnown = Number.isInteger(ahead) && Number.isInteger(behind);
   const checked = lastBranchCheck?.matchesFetchedTip && countsKnown;
@@ -52,8 +77,10 @@ function branchStatus(checkout) {
   return 'Up to date';
 }
 
+/** @type {Record<string, string | undefined>} */
 const strategyNames = { rebase: ' via rebase', rebaseMerge: ' via rebase and merge', squash: ' via squash' };
 
+/** @param {string} id @param {CheckoutDiagnostic | undefined} diagnostic @param {unknown} canSwitch */
 function diagnosticMarkup(id, diagnostic, canSwitch) {
   if (!diagnostic) return '';
   const { message, suggestion, advice, comparison } = diagnostic;
@@ -63,7 +90,7 @@ function diagnosticMarkup(id, diagnostic, canSwitch) {
     ${
       advice
         ? `<p>${azureLink(advice.url, `PR #${advice.id}`) || `PR #${e(advice.id)}`} was completed into
-      <code>${e(advice.branch)}</code>${e(strategyNames[advice.strategy] || '')}.
+      <code>${e(advice.branch)}</code>${e(strategyNames[advice.strategy ?? ''] || '')}.
       ${
         canSwitch && !advice.verified
           ? 'You can review your local commits after switching.'
@@ -95,7 +122,7 @@ function diagnosticMarkup(id, diagnostic, canSwitch) {
     }
     </div>
     ${
-      canSwitch
+      canSwitch && advice
         ? `<button type="button" class="btn primary sm" id="checkout-switch-${e(id)}"
       data-action="switch-checkout-target" data-id="${e(id)}">Switch to ${e(advice.branch)} and update</button>`
         : ''
@@ -111,9 +138,11 @@ const reviewMessages = {
   occupied: 'The old branch is checked out in another worktree.',
 };
 
+/** @param {string} id @param {CheckoutSnapshot} checkout */
 function reviewMarkup(id, checkout) {
   const { followup, review } = checkout;
   if (!followup) return '';
+  /** @param {'review' | 'carry' | 'remove'} name @param {string} label */
   const action = (name, label) => `<button class="btn sm" type="button" id="checkout-${name}-${e(id)}"
     data-action="${name}-checkout-branch" data-id="${e(id)}">${label}</button>`;
   const workspace = followup.workspace
@@ -143,6 +172,7 @@ function reviewMarkup(id, checkout) {
   );
 }
 
+/** @param {string} id @param {CheckoutSnapshot | undefined} checkout */
 function updateOptions(id, checkout) {
   if (!checkout?.canPull || !checkout.dirty) return '';
   return `<details class="checkout-update-options help" data-group="checkout-update-${e(id)}">
@@ -154,11 +184,13 @@ function updateOptions(id, checkout) {
   </details>`;
 }
 
+/** @param {CheckoutSnapshot | undefined} checkout */
 function lastCheckMarkup(checkout) {
   const at = checkout?.lastBranchCheck?.at;
   return at ? `Last successful Git check <time datetime="${e(at)}">${e(exactCheckTime.format(new Date(at)))}</time>` : '';
 }
 
+/** @param {string} id @param {CheckoutSnapshot | undefined} checkout */
 function guidanceMarkup(id, checkout) {
   return [
     updateOptions(id, checkout),
@@ -175,6 +207,7 @@ function guidanceMarkup(id, checkout) {
   ].join('');
 }
 
+/** @param {string | undefined} state @param {string | undefined} label */
 function statusTone(state, label) {
   if (errors.has(state)) return 'crit';
   if (attention.has(state)) return 'warn';
@@ -182,18 +215,20 @@ function statusTone(state, label) {
   return state === 'behind' ? 'info' : 'neutral';
 }
 
+/** @param {CheckoutSnapshot | undefined} checkout */
 function checkTimeMarkup(checkout) {
   const last = checkout?.lastBranchCheck;
   const showTime =
     last?.matchesFetchedTip &&
-    Number.isInteger(checkout.ahead) &&
-    Number.isInteger(checkout.behind) &&
-    ['current', 'behind', 'ahead', 'diverged', 'dirty'].includes(checkout.state);
+    Number.isInteger(checkout?.ahead) &&
+    Number.isInteger(checkout?.behind) &&
+    comparableStates.has(checkout?.state);
   return showTime
     ? `<time class="help" datetime="${e(last.at)}" data-branch-check-time title="${e(exactCheckTime.format(new Date(last.at)))}">${e(checkAge(last.at))}</time>`
     : '';
 }
 
+/** @param {string} id @param {CheckoutSnapshot | undefined} checkout */
 function statusMarkup(id, checkout) {
   const branch = checkout?.branch || (checkout?.state === 'detached' ? checkout.head?.slice(0, 8) : '');
   const label = branchStatus(checkout);
@@ -207,41 +242,49 @@ function statusMarkup(id, checkout) {
     ${checkout?.canPull ? `<button type="button" class="btn primary sm" id="checkout-pull-${e(id)}" data-action="pull-checkout" data-id="${e(id)}">Pull</button>` : ''}`;
 }
 
+/** @param {string} id @param {CheckoutSnapshot | undefined} checkout @param {string | undefined} part */
 export function renderCheckout(id, checkout, part) {
   if (part === 'last-check') return lastCheckMarkup(checkout);
   if (part === 'guidance') return guidanceMarkup(id, checkout);
   return statusMarkup(id, checkout);
 }
 
+/** @param {{ page: HTMLElement, request: typeof import('../api.js').request, isVisible: () => boolean }} options */
 export function createCheckoutPanel({ page, request, isVisible }) {
+  /** @type {Record<string, CheckoutSnapshot>} */
   let snapshots = {};
-  let reading,
+  let reading = false,
     mutating = false,
     generation = 0;
 
+  /** @param {Record<string, CheckoutSnapshot>} next */
   function publish(next) {
     const before = snapshots;
     snapshots = next;
     if (!isVisible()) return;
     for (const target of page.querySelectorAll('[data-checkout-part]')) {
-      const { checkoutId, checkoutPart } = target.dataset;
+      if (!(target instanceof HTMLElement)) continue;
+      const { checkoutId = '', checkoutPart } = target.dataset;
       if (JSON.stringify(before[checkoutId]) === JSON.stringify(next[checkoutId])) {
         const time = target.querySelector('[data-branch-check-time]');
-        if (time) {
+        if (time instanceof HTMLTimeElement) {
           const label = checkAge(time.dateTime);
           if (time.textContent !== label) time.textContent = label;
         }
         continue;
       }
-      const focusedId = target.contains(document.activeElement) ? document.activeElement.id : '';
-      const updateOptionsOpen = target.querySelector('.checkout-update-options')?.open;
+      const focused = document.activeElement;
+      const focusedId = focused && target.contains(focused) ? focused.id : '';
+      const options = target.querySelector('.checkout-update-options');
+      const updateOptionsOpen = options instanceof HTMLDetailsElement && options.open;
       target.innerHTML = renderCheckout(checkoutId, next[checkoutId], checkoutPart);
       if (updateOptionsOpen) target.querySelector('.checkout-update-options')?.setAttribute('open', '');
-      if (focusedId)
-        (
+      if (focusedId) {
+        const replacement =
           document.getElementById(focusedId) ||
-          (target.hidden || !target.textContent.trim() ? target.closest('article').querySelector('[data-checkout-part=status]') : target)
-        )?.focus({ preventScroll: true });
+          (target.hidden || !target.textContent.trim() ? target.closest('article')?.querySelector('[data-checkout-part=status]') : target);
+        if (replacement instanceof HTMLElement) replacement.focus({ preventScroll: true });
+      }
     }
   }
 
@@ -254,6 +297,7 @@ export function createCheckoutPanel({ page, request, isVisible }) {
       const issued = generation;
       reading = true;
       try {
+        /** @type {Record<string, CheckoutSnapshot>} */
         const next = await request('/api/checkouts');
         if (!mutating && issued === generation) {
           for (const [id, checkout] of Object.entries(next)) {
@@ -277,20 +321,25 @@ export function createCheckoutPanel({ page, request, isVisible }) {
         if (!mutating && issued === generation)
           publish(
             Object.fromEntries(
-              [...page.querySelectorAll('[data-checkout-part="status"]')].map(element => [
-                element.dataset.checkoutId,
-                { state: 'unavailable' },
-              ]),
+              [...page.querySelectorAll('[data-checkout-part="status"]')]
+                .filter(element => element instanceof HTMLElement)
+                .map(element => [element.dataset.checkoutId ?? '', { state: /** @type {const} */ ('unavailable') }]),
             ),
           );
       } finally {
         reading = false;
       }
     },
+    /**
+     * @param {string} id @param {CheckoutOperation} operation
+     * @param {Pick<CheckoutSnapshot, 'branch' | 'head' | 'upstream' | 'identity'>} expected @param {Record<string, unknown>} [options]
+     * @returns {Promise<CheckoutUpdate>}
+     */
     async update(id, operation, expected, options = {}) {
       mutating = true;
       generation++;
       try {
+        /** @type {CheckoutUpdate} */
         const result = await request(`/api/repos/${encodeURIComponent(id)}/checkout`, {
           method: 'POST',
           body: { ...options, operation, expected },
