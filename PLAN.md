@@ -16,10 +16,10 @@ Count the casts with `grep -rnE '@type \{[^}]*\} \*/ \(' src web | grep -v '@typ
 
 Phase 1: server types describe what routes send
 
-- [ ] `CheckoutStatus` (server/checkout-git.js) includes the `followup` that `branches.decorate` adds. Check: a probe file that reads `followup` from `CheckoutsResponse` fails `tsc` before the change and passes after it.
-- [ ] `StateResponse.jobs` is typed `HistoryJob[]`, since the route only lists backfill jobs, and the `HistoryJob` cast in src/ui/repositories.js is removed. Check: the cast count drops by 1 and `tsc` passes.
-- [ ] The demo provider's `checkConnection` returns a `ConnectionStatus`, so `ConnectionResponse` is a single type and not a union with a demo-only shape. Check: the demo e2e tests pass, and Settings in `npm run demo` shows the same connection text as before.
-- [ ] `CheckoutSnapshot` and `ConnectionResult` in src/ui are built from the tightened server types instead of restating their fields. Check: `tsc` passes and the render comparison for checkout.js and connection.js reports 0 differences.
+- [x] `CheckoutStatus` (server/checkout-git.js) includes the `followup` that `branches.decorate` adds. Check: a probe file that reads `followup` from `CheckoutsResponse` fails `tsc` before the change and passes after it.
+- [x] `StateResponse.jobs` is typed `HistoryJob[]`, since the route only lists backfill jobs, and the `HistoryJob` cast in src/ui/repositories.js is removed. Check: the cast count drops by 1 and `tsc` passes.
+- [x] The demo provider's `checkConnection` returns a `ConnectionStatus`, so `ConnectionResponse` is a single type and not a union with a demo-only shape. Check: the demo e2e tests pass, and Settings in `npm run demo` shows the same connection text as before.
+- [x] `CheckoutSnapshot` and `ConnectionResult` in src/ui are built from the tightened server types instead of restating their fields. Check: `tsc` passes and the render comparison for checkout.js and connection.js reports 0 differences.
 
 Phase 2: casts become checks
 

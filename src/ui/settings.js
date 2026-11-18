@@ -5,7 +5,7 @@ import { escape as e } from './format.js';
 
 /** @typedef {import('./refresh.js').PageState} PageState */
 /** @typedef {import('./connection.js').ConnectionState} ConnectionState */
-/** @typedef {import('./connection.js').ConnectionResult} ConnectionResult */
+/** @typedef {import('./connection.js').ConnectionStatus} ConnectionStatus */
 
 /** @param {PageState['repos']} repos @param {string} repoId */
 function repositorySelect(repos, repoId) {
@@ -15,7 +15,7 @@ function repositorySelect(repos, repoId) {
             </select></label>`;
 }
 
-/** @param {PageState} state @param {ConnectionState} connection @param {string} repoId @param {ConnectionResult | undefined} result */
+/** @param {PageState} state @param {ConnectionState} connection @param {string} repoId @param {ConnectionStatus | undefined} result */
 function connectionDetails(state, connection, repoId, result) {
   const local = result?.version || result?.available === false ? result : connection.local;
   return `
