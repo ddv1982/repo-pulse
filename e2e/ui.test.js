@@ -654,3 +654,17 @@ test('completed PRs clearly show a merge into the target and optional source/res
   await expect(page.getByText('Merged by', { exact: true })).toHaveCount(0);
   await expect(page.getByText('Squash', { exact: true })).toBeVisible();
 });
+
+test('a backed-up Azure budget is explained on Activity and quantified in Settings', async t => {
+  const { page } = await setup(t);
+  await page.route('**/api/state', async route => {
+    const state = await (await route.fetch()).json();
+    await route.fulfill({ json: { ...state, diagnostics: { ...state.diagnostics, sync: { ...state.diagnostics.sync, lag: { overdueStreams: 4, maxDelayMs: 9 * 60000 } } } } });
+  });
+  await page.reload();
+  await expect(page.getByRole('status').filter({ hasText: 'Updates are delayed' })).toContainText('about 9 minutes behind schedule');
+  await page.screenshot({ path: 'test-results/budget-lag.png', fullPage: true });
+  await page.getByRole('link', { name: 'Settings', exact: true }).click();
+  await page.locator('#troubleshooting-toggle').click();
+  await expect(page.locator('.diagnostic-summary')).toContainText('4 checks waiting · up to 9 min late');
+});

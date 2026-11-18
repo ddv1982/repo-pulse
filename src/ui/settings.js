@@ -8,6 +8,7 @@ export function renderSettings(state, connection) {
   const local = result?.version || result?.available === false ? result : connection.local;
   const { startsLastMinute, limitPerMinute, running, concurrency, lastError } = diagnostics;
   const { pending = 0, errors = 0 } = mergeQueue;
+  const lag = diagnostics.sync?.lag;
   const cli = limitPerMinute
     ? `${e(startsLastMinute)} of ${e(limitPerMinute)} starts in the last minute · ${e(running)} of ${e(concurrency)} processes running`
     : 'No CLI activity to report';
@@ -42,6 +43,7 @@ export function renderSettings(state, connection) {
         <div class="settings-content">
           <dl class="diagnostic-summary">
             <div><dt>Azure CLI</dt><dd>${cli}</dd></div>
+            ${lag?.overdueStreams ? `<div><dt>Checks behind</dt><dd>${e(lag.overdueStreams)} checks waiting · up to ${e(Math.round(lag.maxDelayMs / 60000))} min late</dd></div>` : ''}
             <div><dt>Merge checks</dt><dd>${e(pending)} pending${errors ? ` · ${e(errors)} retrying` : ''}</dd></div>
             ${lastError?.message ? `<div><dt>Last CLI issue</dt><dd>${e(lastError.message)}</dd></div>` : ''}
           </dl>

@@ -43,4 +43,21 @@ In the earlier engineering run, the 12-repository fixture had 25,000 events and 
 
 The hardening run used 20 sequential samples after three warm-ups per workload. The 25,000-event fixture measured 55 ms for the first page, 25 ms for search, and 108 ms to refresh 250 items, all at p95. The 75,000-event mixed fixture measured 200 ms, 103 ms, and 421 ms respectively. The query plan showed repeated grouping, so the query now builds the visible groups once for the page, counts, and filter choices. The measured workload does not justify a database change or a worker.
 
+## Check the Azure CLI budget
+
+Run `node scripts/measure-budget.js` to simulate live polling and merge enrichment against the shared limit of 12 Azure CLI calls per minute. It runs the real sync, enrichment and Azure client code with a fake clock and a fake CLI. Options set the repository counts, pushes per hour, commits per push, the assumed duration of one CLI call, and the simulated minutes. The call duration of 1.5 s is an assumption, not a measurement, and the fake CLI returns commits without parents as the real list APIs do.
+
+On 2026-11-18, 120 simulated minutes with the tab in the foreground and 4 pushes per hour per repository gave:
+
+| Repositories | Commits per push | Calls per minute | Push delay p95 | Merge jobs left of pushes |
+| --- | --- | --- | --- | --- |
+| 1 | 5 | 1.9 | 4.1 min | 0 of 8 |
+| 5 | 5 | 9.3 | 4.7 min | 1 of 40 |
+| 10 | 5 | 12.0 | 6.6 min | 74 of 80 |
+| 20 | 5 | 12.0 | 10.7 min | 154 of 160 |
+| 5 | 20 | 12.0 | 5.0 min | 29 of 40 |
+| 20 | 20 | 12.0 | 10.8 min | 159 of 160 |
+
+Live polling keeps priority, so a saturated budget mainly delays merge evidence, which stops keeping up from about 10 repositories, or 5 with larger pushes. Push detection slows more gradually.
+
 For verified Azure API details and future proof cases, see the [coverage research](FULL-COVERAGE-RESEARCH.md).
