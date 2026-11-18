@@ -8,6 +8,8 @@ import { chromium, expect } from '@playwright/test';
 import { startApp, createApp } from '../server.js';
 import { createStore } from '../server/store.js';
 import { createSync } from '../server/sync.js';
+import { createAzureCli } from '../server/azure-cli.js';
+import { createAzureClient } from '../server/azure-client.js';
 
 async function browserPath() {
   if (process.env.CHROME) return process.env.CHROME;
@@ -206,15 +208,54 @@ test('disabling a repository hides it everywhere except Repositories until it is
 });
 
 test('empty live startup detects existing CLI locally and prompts only local repo selection', async t => {
-  const { page, runtime } = await setup(t, false);
+  const store = createStore();
+  const commands = [];
+  const cli = createAzureCli({
+    executor: async args => {
+      commands.push(args.slice(0, 2).join(' '));
+      if (args[0] === 'version') return { 'azure-cli': '2.93.0' };
+      if (args[0] === 'extension') return { version: '1.0.2' };
+      if (args[0] === 'account') return { user: { name: 'tester@example.test' } };
+      throw new Error(`Unexpected Azure CLI call: ${args.join(' ')}`);
+    },
+  });
+  const provider = createAzureClient({ cli });
+  const sync = createSync({ store, provider });
+  const server = createApp({ store, provider, sync, cli });
+  let browser;
+  const errors = [];
+  t.after(async () => {
+    await browser?.close().catch(() => {});
+    await sync.stop();
+    if (server.listening) await new Promise(resolve => server.close(resolve));
+    cli.close();
+    store.close();
+    assert.deepEqual(errors, []);
+  });
+  await new Promise((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', resolve);
+  });
+  sync.start();
+  browser = await chromium.launch({ executablePath: await browserPath(), headless: true });
+  const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  page.on('pageerror', error => errors.push(error.message));
+  const url = `http://127.0.0.1:${server.address().port}`;
+  await page.goto(url);
   await expect(page.getByRole('heading', { name: 'Repositories', exact: true })).toBeVisible();
   await expect(page.getByText('No repositories watched yet.')).toBeVisible();
-  // This test runs the machine's real Azure CLI, whose first start can take well over five seconds on a CI runner.
-  await expect(page.locator('#connection-status').getByRole('button', { name: 'Check again' })).toBeVisible({ timeout: 30000 });
+  await expect(page.locator('#connection-status').getByRole('button', { name: 'Check again' })).toBeVisible();
+  await expect(page.locator('#connection-status')).toContainText('Using existing Azure CLI');
   await expect(page.locator('input[type="url"]')).toHaveCount(0);
-  const state = await (await fetch(runtime.url + '/api/state')).json();
+  await sync.tick();
+  const state = await (await fetch(url + '/api/state')).json();
   assert.equal(state.demo, false);
   assert.ok(state.diagnostics.totalStarts > 0 && state.diagnostics.totalStarts <= 3, 'only cached local CLI/extension/account checks');
+  assert.deepEqual(
+    [...new Set(commands)].sort(),
+    ['account show', 'extension show', 'version'],
+    'no Azure reads before a repository is watched',
+  );
 });
 
 test('focused search keeps its value and selection while incoming matching activity renders', async t => {
