@@ -1,4 +1,5 @@
 import { escape as e, dateTime } from './format.js';
+import { required } from './dom.js';
 
 function statusFor(job) {
   if (job.status === 'completed') return ['Import finished', 'ok'];
@@ -23,14 +24,14 @@ export function renderHistoryProgress(repo, job) {
 }
 
 export function createHistoryImport(dialog, { start, onStarted }) {
-  const form = dialog.querySelector('form');
-  const repositoryName = dialog.querySelector('#history-repository');
-  const error = dialog.querySelector('[role="alert"]');
+  const form = required('form', HTMLFormElement, dialog);
+  const repositoryName = required('#history-repository', HTMLElement, dialog);
+  const error = required('[role="alert"]', HTMLElement, dialog);
   const controls = form.querySelectorAll('input, button');
   let repoId;
   let submitting = false;
 
-  dialog.querySelector('[data-history-cancel]').addEventListener('click', () => dialog.close());
+  required('[data-history-cancel]', HTMLElement, dialog).addEventListener('click', () => dialog.close());
   dialog.addEventListener('cancel', event => {
     if (submitting) event.preventDefault();
   });
@@ -55,7 +56,7 @@ export function createHistoryImport(dialog, { start, onStarted }) {
       controls.forEach(control => {
         control.disabled = false;
       });
-      if (!error.hidden) form.querySelector('[type="submit"]').focus();
+      if (!error.hidden) required('[type="submit"]', HTMLElement, form).focus();
     }
     dialog.close();
     await onStarted(id);

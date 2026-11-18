@@ -3,6 +3,7 @@ import { renderFeed, renderDetail } from './feed.js';
 import { renderRepositories } from './repositories.js';
 import { renderSettings } from './settings.js';
 import { eventIds } from './seen-actions.js';
+import { required } from './dom.js';
 
 export function createBrowserView({ page, header, demo, picker, typeFilter, onPageRendered }) {
   function captureGroups() {
@@ -80,7 +81,7 @@ export function createBrowserView({ page, header, demo, picker, typeFilter, onPa
       const focusedId = header.contains(document.activeElement) ? document.activeElement.id : '';
       const menuOpen = header.querySelector('.header-overflow')?.open;
       header.innerHTML = renderHeader(state, ui);
-      if (menuOpen) header.querySelector('.header-overflow').open = true;
+      if (menuOpen) required('.header-overflow', HTMLDetailsElement, header).open = true;
       if (focusedId) document.getElementById(focusedId)?.focus({ preventScroll: true });
       window.repoPulseTheme?.apply();
       renderPage(state, ui, options);
@@ -89,7 +90,7 @@ export function createBrowserView({ page, header, demo, picker, typeFilter, onPa
         : '';
     },
     updateScopeLabel(state, ui) {
-      const toggle = header.querySelector('#repo-toggle');
+      const toggle = required('#repo-toggle', HTMLElement, header);
       toggle.innerHTML = scopeLabel(state, ui);
       toggle.setAttribute('aria-label', scopeName(state, ui));
     },
