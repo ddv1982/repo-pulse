@@ -25,6 +25,7 @@
     "src/ui/health.js",
     "src/ui/icons.js",
     "src/ui/type-filter.js",
-    "src/ui/dom.js"
+    "src/ui/dom.js",
+    "src/ui/repository-picker.js"
   ]
 }
