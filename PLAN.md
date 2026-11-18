@@ -28,9 +28,9 @@ Phase 1 findings (2 enabled repositories, 18 November 2026): one repository has 
 
 Phase 2: access gaps are visible
 
-- [ ] Stream errors keep the HTTP class: 401/403 become `access-denied`, 404 on a supported route becomes `unsupported`, everything else stays `failed`. Check: a sync test where the refs read throws HTTP 403 stores `access-denied`, and the same test with HTTP 500 stores `failed`.
-- [ ] The Repositories health chips say what cannot be read ("No access to tags", "Pull request threads not supported") instead of "Check failed" for those two states, and the label is readable without color. Check: an e2e test seeds a denied stream in demo mode and finds the text; a failed stream still shows "Check failed".
-- [ ] A denied or unsupported stream marks the repository's Activity as partial, so an empty or short feed is not read as "nothing happened". Check: e2e test shows the partial notice for a denied stream and not for a healthy one. Failed streams do not need this, because checkpoints do not advance on failure and the overlap recovers the window.
+- [x] Stream errors keep the HTTP class. Already true on 2a8c6e1: `classifyCliError` turns 403 into `FORBIDDEN` and 404 into `NOT_FOUND` (test/azure-rest.test.js), and `failPage` stores that code on the stream. No separate `unsupported` state was added, because a 404 on a repository route means the repository is missing or hidden, which `NOT_FOUND`'s message already says.
+- [x] The Repositories health chip names what cannot be read ("No access to recent CI runs") instead of "Check failed" when a read is refused, and keeps "Check failed" for other failures. Check: presentation test and the demo e2e test (billing-web's refused CI read) both fail on the old label and pass with the new one.
+- [x] A refused stream marks Activity as partial. Already true on 2a8c6e1: the feed counts every stream error as partial coverage (src/ui/feed.js) and says "This does not confirm that nothing changed". Failed streams need nothing more, because checkpoints do not advance on failure and the overlap recovers the window.
 
 Phase 3: tags
 

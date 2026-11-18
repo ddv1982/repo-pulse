@@ -176,6 +176,8 @@ test('disabling a repository hides it everywhere except Repositories until it is
   await page.getByRole('link', { name: 'Repositories', exact: true }).click();
   const toggle = page.getByRole('switch', { name: 'Watch billing-web' });
   await expect(toggle).toBeChecked();
+  await expect(page.locator('.repo-entry', { has: toggle }).locator('.repo-overview .chip')).toHaveText('No access to recent CI runs');
+  await expect(page.locator('.repo-entry .chip', { hasText: 'No access' })).toHaveCount(1);
   await toggle.click();
   await expect(toggle).not.toBeChecked();
   await expect(page.getByText('3 watched · 1 disabled')).toBeVisible();

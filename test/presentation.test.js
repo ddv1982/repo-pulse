@@ -43,6 +43,21 @@ test('repository health treats intentionally disabled checks as neither overdue 
   assert.equal(repositoryHealth(repo, [stream], { now }).label, 'Up to date');
   assert.equal(repositoryHealth(repo, [], { now }).show, false);
   assert.equal(repositoryHealth(repo, [{ ...stream, error: 'Read refused' }], { now }).label, 'Check failed');
+  const refused = { code: 'FORBIDDEN', message: 'Azure DevOps refused this read.' };
+  const failed = { code: 'UNAVAILABLE', message: 'Azure DevOps could not be reached.' };
+  assert.equal(repositoryHealth(repo, [{ ...stream, stream: 'builds', error: refused }], { now }).label, 'No access to recent CI runs');
+  assert.equal(
+    repositoryHealth(
+      repo,
+      [
+        { ...stream, error: failed },
+        { ...stream, stream: 'refs', error: refused },
+      ],
+      { now },
+    ).label,
+    'No access to branches',
+  );
+  assert.equal(repositoryHealth(repo, [{ ...stream, error: failed }], { now }).label, 'Check failed');
   assert.equal(repositoryHealth(repo, [stream], { now: now + 11 * 60000 }).label, 'Check overdue');
   assert.equal(repositoryHealth(repo, [stream], { now: now + 11 * 60000, automatic: false }).show, false);
   assert.equal(repositoryHealth(repo, [{ ...stream, error: 'Read refused' }], { now, automatic: false }).show, false);
