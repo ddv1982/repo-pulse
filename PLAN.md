@@ -22,7 +22,9 @@ Each phase is its own PR. A phase is done when `npm run check`, `check:types`, `
 
 Phase 1: prove the Azure responses (read-only)
 
-- [ ] A read-only probe script (`scripts/probe-coverage.js`) reads, for one watched repository: refs with `filter=tags/` and `peelTags=true`, one push containing a tag update, a pull request's `reviewers`, its `threads`, its policy evaluations, and project PRs filtered by `sourceRepositoryId`. It writes status code, field names and latency per request, with no identities, names or IDs, to `docs/probe-results.md`. Check: the script makes only GET or allowlisted read POST requests (asserted by a unit test on its request list), and the results file shows a status for all six reads.
+- [x] A read-only probe script (`scripts/probe-coverage.js`) reads, for one watched repository: refs with `filter=tags/` and `peelTags=true`, one push containing a tag update, a pull request's `reviewers`, its `threads`, its policy evaluations, and project PRs filtered by `sourceRepositoryId`. It writes status code, field names and latency per request, with no identities, names or IDs, to `docs/probe-results.md`. Check: the script makes only GET or allowlisted read POST requests (asserted by a unit test on its request list), and the results file shows a status for all six reads.
+
+Phase 1 findings (2 enabled repositories, 18 November 2026): one repository has three lightweight tags and 7 tag updates in its last 100 pushes, and push ref updates carry only name, old and new object IDs. The PR list already carries reviewers with `vote`, `hasDeclined` and `isFlagged`, and its only timestamp is `creationDate`, so thread reads need the sweep rule in Phase 7. Every thread on the sampled PRs was a system thread (vote, reviewer and ref updates). Policy evaluations returned `approved` and `queued` for comment requirements and minimum reviewers. `sourceRepositoryId` matched no PRs in either repository, including active PRs from the repository itself, because Azure sets a PR's source repository only for fork PRs (`forkSource`), and no PR came from a fork.
 
 Phase 2: access gaps are visible
 
@@ -44,7 +46,7 @@ Phase 4: history rewrites
 Phase 5: fork and outgoing pull requests
 
 - [ ] Every PR snapshot keeps its source repository and project, and a PR from another repository into the watched one is labelled as a fork PR. No new request. Check: sync test with a fork PR, and a test that adding the field does not change existing PR fingerprints (no burst of activity on upgrade).
-- [ ] A new `outgoingPrs` stream reads PRs whose source is the watched repository within its project (`sourceRepositoryId`), and the normalizer stops dropping PRs that target another repository. Check: sync test that an outgoing PR is kept with its target repository, and the budget measurement at 20 repositories. Cross-project targets stay out unless Phase 1 shows the org uses them.
+- [x] ~~A new `outgoingPrs` stream reads PRs whose source is the watched repository.~~ Not built. Azure only links PRs across repositories through forks, and Phase 1 found no fork PRs, so the stream would cost one read per repository every few minutes for nothing observable. Revisit when a watched repository has forks.
 
 Phase 6: review votes
 
