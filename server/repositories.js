@@ -5,8 +5,15 @@ import { stat, readdir, realpath } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { homedir } from 'node:os';
 
+/** @typedef {ReturnType<typeof parseRemote>} ParsedRemote */
+/** A Git remote keeps the parsed Azure identity, but `name` is the remote's name and `repoName` the Azure repository. */
+/** @typedef {ParsedRemote} DiscoveredRemote */
+/** @typedef {{ localPath: string, remotes: DiscoveredRemote[] }} DiscoveredCheckout */
+/** @typedef {{ repositories: DiscoveredCheckout[], warnings: string[] }} Discovery */
+
 const exec = promisify(execFile);
 const invalid = () => Object.assign(new Error('Use an Azure DevOps Services HTTPS or SSH repository URL.'), { code: 'INVALID_REPOSITORY' });
+/** @param {string} value */
 const component = value => {
   let decoded;
   try {
@@ -22,7 +29,7 @@ const component = value => {
 export function normalizeOrganization(value) {
   let url;
   try {
-    url = new URL(value);
+    url = new URL(String(value));
   } catch {
     throw invalid();
   }
@@ -36,6 +43,7 @@ export function normalizeOrganization(value) {
   throw invalid();
 }
 
+/** @param {unknown} value */
 export function parseRemote(value) {
   if (typeof value !== 'string' || value.length > 4096 || /[\x00-\x1f]/.test(value)) throw invalid();
   let organization, project, name;
@@ -81,6 +89,7 @@ export function parseRemote(value) {
   };
 }
 
+/** @param {unknown} organization @param {unknown} azureId */
 export function repositoryKey(organization, azureId) {
   return createHash('sha256')
     .update(`${normalizeOrganization(organization)}\0${String(azureId).toLowerCase()}`)
@@ -89,12 +98,15 @@ export function repositoryKey(organization, azureId) {
 }
 
 /** Explicit bounded discovery; Git reads worktree/linked configs without fetching. */
+/** @param {unknown} inputPath @returns {Promise<Discovery>} */
 export async function discoverRepositories(inputPath) {
   if (typeof inputPath !== 'string' || !inputPath.trim() || inputPath.includes('\0'))
     throw new Error('Choose a local checkout or its parent folder.');
   const path = resolve(inputPath.startsWith('~/') ? `${homedir()}/${inputPath.slice(2)}` : inputPath);
   if (!(await stat(path)).isDirectory()) throw new Error('Choose a folder.');
+  /** @type {Discovery} */
   const result = { repositories: [], warnings: [] };
+  /** @param {string} localPath */
   async function readCheckout(localPath) {
     try {
       const { stdout } = await exec('git', ['-C', localPath, 'rev-parse', '--show-toplevel'], {
@@ -114,8 +126,9 @@ export async function discoverRepositories(inputPath) {
           })
         ).stdout;
       } catch (error) {
-        if (error.code !== 1) throw error;
+        if (/** @type {{ code?: unknown }} */ (error).code !== 1) throw error;
       }
+      /** @type {DiscoveredRemote[]} */
       const remotes = [];
       for (const line of output.split('\n').filter(Boolean)) {
         const match = line.match(/^remote\.(.+)\.url\s+(.+)$/);
@@ -130,7 +143,7 @@ export async function discoverRepositories(inputPath) {
       if (remotes.length) result.repositories.push({ localPath, remotes });
       return true;
     } catch (error) {
-      if (error.code === 'ENOENT') throw new Error('Git is not installed.');
+      if (/** @type {NodeJS.ErrnoException} */ (error).code === 'ENOENT') throw new Error('Git is not installed.');
       return false;
     }
   }

@@ -4,6 +4,7 @@ import { homedir } from 'node:os';
 import { discoverRepositories } from './repositories.js';
 
 /** Only immediate folder names and Git remotes; browsing never contacts Azure. */
+/** @param {unknown} input @param {{ home?: string, discover?: typeof discoverRepositories }} [options] */
 export async function browseFolders(input, { home = homedir(), discover = discoverRepositories } = {}) {
   let path;
   if (input === undefined || input === '') {

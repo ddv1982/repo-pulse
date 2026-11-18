@@ -16,7 +16,8 @@ import { createActivityQuery } from './activity-query.js';
 /** @typedef {ActivityEvent & { observedAt: string, data?: EventData & Record<string, unknown> }} StoredEvent */
 /** An event as the store returns it: the read flags come from their columns and enrichment is merged into `data`. */
 /** @typedef {StoredEvent & { seen: boolean, imported: boolean }} HydratedEvent */
-/** @typedef {{ id: string, name: string, disabled?: boolean, organization?: string, project?: string, webUrl?: string, azureId?: string, localPath?: string }} Repository */
+/** Every watched repository was resolved through Azure (or is a demo fixture), so its Azure identity is always present. */
+/** @typedef {import('./azure-client.js').AzureRepo & { id: string, name: string, disabled?: boolean, localPath?: string }} Repository */
 /** Merge and backfill jobs share the indexed columns; every other field belongs to the job type. */
 /** @typedef {{ id: string, type: string, repoId: string, nextAt?: string, status?: string, eventId?: string, [field: string]: unknown }} Job */
 /** Settings hold any JSON value, written with JSON.stringify. */
@@ -495,8 +496,12 @@ export function createStore(path = ':memory:') {
     listEntities: (repoId, type) =>
       q('SELECT id,data FROM entities WHERE repo_id=? AND type=?')
         .all(repoId, type)
-        .map(r => ({ id: r.id, data: readEntity(r) })),
-    /** @param {{ repoId: string, stream: StreamName, state?: StreamState, events?: ActivityEvent[], entities?: EntityInput[], jobs?: Job[] }} page */
+        .map(r => ({ id: /** @type {string} */ (r.id), data: readEntity(r) })),
+    /**
+     * Sync pages carry their stream state; backfill and enrichment pages carry none.
+     * @param {{ repoId: string, events?: ActivityEvent[], entities?: EntityInput[], jobs?: Job[] }
+     *   & ({ stream: StreamName, state: StreamState } | { stream?: undefined, state?: undefined })} page
+     */
     commitPage({ repoId, stream, state, events = [], entities = [], jobs = [] }) {
       return transaction(() => {
         requireRepo(repoId);

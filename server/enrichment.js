@@ -5,8 +5,15 @@ const unique = values => [...new Set(values.filter(Boolean))];
 const failure = (code, message) => Object.assign(new Error(message), { code });
 const EVIDENCE_VERSION = 2;
 
-/** Durable, low-priority semantic work. Each tick performs one page or a tiny hydration batch. */
-export function createEnrichment({ store, provider, now = Date.now, negativeTtlMs = 300000, positiveTtlMs = 900000 } = {}) {
+/**
+ * Durable, low-priority semantic work. Each tick performs one page or a tiny hydration batch.
+ * @param {{
+ *   store: ReturnType<typeof import('./store.js').createStore>,
+ *   provider: Pick<import('./azure-client.js').AzureProvider, 'pushCommits'|'refCommits'|'commitsByIds'|'queryPullRequests'>,
+ *   now?: () => number, negativeTtlMs?: number, positiveTtlMs?: number
+ * }} options
+ */
+export function createEnrichment({ store, provider, now = Date.now, negativeTtlMs = 300000, positiveTtlMs = 900000 }) {
   let active, lastJob;
   const available = repoId => store.listRepos().some(repo => repo.id === repoId && !repo.disabled);
   const commit = (repoId, id) => store.getEntity(repoId, 'commit', id);
