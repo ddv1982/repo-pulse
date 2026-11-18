@@ -358,3 +358,46 @@ test('v8 migration turns paused repositories into disabled ones', () => {
       [{ id: 'paused',disabled: true,paused: undefined },{ id: 'active',disabled: false,paused: undefined }]);
   } finally { store.close(); rmSync(dir,{ recursive: true }); }
 });
+
+test('a v6 database keeps event IDs, seen flags and repositories when its activity labels become status IDs', () => {
+  const dir = mkdtempSync(join(tmpdir(),'pulse-migration-')), path = join(dir,'v6.sqlite');
+  const db = new DatabaseSync(path);
+  db.exec(`CREATE TABLE repositories(id TEXT PRIMARY KEY,data TEXT NOT NULL);
+    CREATE TABLE events(id TEXT PRIMARY KEY,repo_id TEXT NOT NULL REFERENCES repositories(id) ON DELETE CASCADE,
+      time TEXT NOT NULL,observed_at TEXT NOT NULL,seen INTEGER NOT NULL,imported INTEGER NOT NULL,data TEXT NOT NULL);
+    CREATE TABLE activity_members(sequence INTEGER PRIMARY KEY AUTOINCREMENT,event_id TEXT UNIQUE NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+      group_key TEXT NOT NULL,kind TEXT NOT NULL,label TEXT NOT NULL DEFAULT '',evidence TEXT NOT NULL DEFAULT '',search_text TEXT NOT NULL,observed REAL NOT NULL,time REAL NOT NULL);
+    CREATE INDEX activity_label ON activity_members(label);
+    PRAGMA user_version=6;`);
+  db.prepare('INSERT INTO repositories VALUES(?,?)').run(repo.id,JSON.stringify({ ...repo,paused: true }));
+  const seen = build('seen-build','completed',{ data: { buildId: 42,status: 'completed',result: 'succeeded' } });
+  const unseen = event('unseen-push',{ data: { pushId: 12 } });
+  for (const [raw,flag] of [[seen,1],[unseen,0]]) {
+    db.prepare('INSERT INTO events VALUES(?,?,?,?,?,?,?)').run(raw.id,repo.id,raw.time,raw.observedAt,flag,0,JSON.stringify(raw));
+    db.prepare('INSERT INTO activity_members(event_id,group_key,kind,label,evidence,search_text,observed,time) VALUES(?,?,?,?,?,?,?,?)')
+      .run(raw.id,raw.id,raw.kind,'old label','old evidence','',0,0);
+  }
+  db.close();
+  const store = createStore(path);
+  assert.deepEqual(store.listEvents().map(({ id,seen }) => ({ id,seen })).sort((a,b) => a.id.localeCompare(b.id)),
+    [{ id: 'seen-build',seen: true },{ id: 'unseen-push',seen: false }]);
+  assert.equal(store.listRepos()[0].disabled,true);
+  store.close();
+  const check = new DatabaseSync(path);
+  const columns = check.prepare('PRAGMA table_info(activity_members)').all().map(column => column.name);
+  assert.ok(columns.includes('status_id') && columns.includes('evidence_id') && !columns.includes('label'));
+  assert.deepEqual(check.prepare('SELECT event_id,status_id FROM activity_members ORDER BY event_id').all().map(row => ({ ...row })),
+    [{ event_id: 'seen-build',status_id: 'succeeded' },{ event_id: 'unseen-push',status_id: 'push' }], 'labels are reindexed as status IDs');
+  check.close(); rmSync(dir,{ recursive: true });
+});
+
+test('a fresh database is created with its final activity columns', () => {
+  const dir = mkdtempSync(join(tmpdir(),'pulse-fresh-')), path = join(dir,'fresh.sqlite');
+  createStore(path).close();
+  const check = new DatabaseSync(path);
+  const columns = check.prepare('PRAGMA table_info(activity_members)').all();
+  assert.deepEqual(columns.filter(column => ['status_id','evidence_id'].includes(column.name)).map(({ name,notnull,dflt_value }) => ({ name,notnull,dflt_value })),
+    [{ name: 'status_id',notnull: 1,dflt_value: "''" },{ name: 'evidence_id',notnull: 1,dflt_value: "''" }]);
+  assert.equal(check.prepare('PRAGMA user_version').get().user_version,8);
+  check.close(); rmSync(dir,{ recursive: true });
+});

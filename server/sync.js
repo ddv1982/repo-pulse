@@ -42,6 +42,90 @@ export function createSync({ store, provider, now = Date.now, intervalMs = 18000
       actor: 'Unknown', branch: '', summary: '', url: repo.webUrl, ...detail, imported,
       seen: imported };
   }
+  // PRs and builds are snapshots: an event is emitted only when their fingerprint changes.
+  function snapshot(repo, type, key, value, historical) {
+    const previous = store.getEntity(repo.id, type, key);
+    const changed = !previous || JSON.stringify(previous.fingerprint) !== JSON.stringify(value);
+    const revision = (previous?.revision || 0) + Number(changed);
+    return { previous, changed, sourceId: historical ? `history:${key}:${fingerprint(value)}` : `${key}:${(previous?.revision || 0) + 1}:${fingerprint(value)}`,
+      entity: historical ? null : { type, id: key, data: { fingerprint: value, status: value.status, revision } } };
+  }
+  const normalizers = {
+    pushes(item, { repo, add, entities, jobs, refs, historical }) {
+      const source = String(item.pushId);
+      if (!item.pushId || store.getEntity(repo.id, 'push', source)) return;
+      const updates = item.refUpdates || [];
+      const branches = updates.filter((ref) => ref.name?.startsWith('refs/heads/'));
+      const time = item.date || iso(now());
+      const actor = actorName(item.pushedBy);
+      const data = { pushId: item.pushId, refUpdates: branches, commits: item.commits || [] };
+      const url = safeAzureUrl(item._links?.web?.href, `${repo.webUrl}/pushes?pushId=${encodeURIComponent(source)}`);
+      add('push', source, { title: `${actor} pushed${branches.length ? ` to ${branches.map((r) => branchName(r.name)).join(', ')}` : ''}`,
+        branch: branchName(branches[0]?.name), actor, time, url,
+        summary: branches.length ? branches.map((ref) => `${ref.oldObjectId?.slice(0, 7) || '?'} → ${ref.newObjectId?.slice(0, 7) || '?'}`).join(' · ') : 'Repository push', data });
+      entities.push({ type: 'push', id: source, data: { date: time } });
+      jobs.push({ id: `merge:${repo.id}:push:${source}`, type: 'merge', repoId: repo.id, eventId: `${repo.id}:push:${source}`, status: 'pending', nextAt: iso(now()) });
+      for (const ref of branches) {
+        const created = ref.oldObjectId && ZERO.test(ref.oldObjectId);
+        const deleted = ref.newObjectId && ZERO.test(ref.newObjectId);
+        if (created || deleted) add(created ? 'branch-created' : 'branch-deleted', `${source}:${ref.name}`, {
+          title: `${created ? 'New branch' : 'Branch deleted'} · ${branchName(ref.name)}`,
+          branch: branchName(ref.name), actor, time, url,
+          summary: `${created ? 'Created' : 'Deleted'} in push ${source}`, data: { ...data, evidence: 'push', ...ref } });
+        // Azure lists pushes newest first. Keep a source watermark across pages/snapshots,
+        // while retaining every historical event independently of the current ref state.
+        const previous = refs.get(ref.name);
+        if (!historical && (!previous?.lastPushId || Number(item.pushId) > previous.lastPushId)) {
+          const current = { name: ref.name, objectId: ref.newObjectId, active: !deleted, evidence: 'push', lastPushId: Number(item.pushId) };
+          refs.set(ref.name, current);
+          entities.push({ type: 'ref', id: ref.name, data: current });
+        }
+      }
+    },
+    prs(item, { repo, add, entities, historical }) {
+      if (!item.pullRequestId || (item.repository?.id && item.repository.id.toLowerCase() !== repo.azureId?.toLowerCase())) return;
+      const key = String(item.pullRequestId);
+      const { previous, changed, sourceId, entity } = snapshot(repo, 'pr', key, prState(item), historical);
+      if (changed) {
+        const unchangedStatus = previous?.fingerprint?.status === item.status;
+        const time = previous && !historical && unchangedStatus ? iso(now())
+          : (item.status !== 'active' ? item.closedDate : null) || (!previous ? item.creationDate : null) || iso(now());
+        // Active PRs can expose a successful preview merge. Only completion establishes
+        // the actual merge result; retain its metadata from this existing response.
+        const completion = item.status === 'completed' ? {
+          mergeCommit: item.lastMergeCommit?.commitId, targetCommit: item.lastMergeTargetCommit?.commitId,
+          mergeStatus: item.mergeStatus, mergeStrategy: item.completionOptions?.mergeStrategy, closedBy: actorName(item.closedBy),
+          sourceRepositoryId: item.forkSource ? item.forkSource.repository?.id : item.repository?.id,
+          targetRepositoryId: item.repository?.id,
+        } : {};
+        add('pr', sourceId, { title: `PR ${key} · ${item.title || 'Untitled'}`,
+          branch: branchName(item.sourceRefName), actor: actorName(item.createdBy), time,
+          summary: `${item.isDraft ? 'Draft · ' : ''}${item.status || 'unknown'} → ${branchName(item.targetRefName)}`,
+          url: safeAzureUrl(item._links?.web?.href, `${repo.webUrl}/pullrequest/${encodeURIComponent(key)}`),
+          data: { pullRequestId: item.pullRequestId, status: item.status, isDraft: item.isDraft,
+            sourceRefName: item.sourceRefName, targetRefName: item.targetRefName, sourceCommit: item.lastMergeSourceCommit?.commitId,
+            ...completion } });
+      }
+      if (entity) entities.push(entity);
+    },
+    builds(item, { repo, add, entities, historical }) {
+      if (!item.id || item.repository?.id?.toLowerCase() !== repo.azureId?.toLowerCase()) return;
+      const key = String(item.id);
+      const { changed, sourceId, entity } = snapshot(repo, 'build', key, buildState(item), historical);
+      if (changed) {
+        add('build', sourceId, { title: `${item.definition?.name || 'Pipeline'} · ${item.buildNumber || key}`,
+          branch: branchName(item.sourceBranch), actor: actorName(item.requestedFor || item.requestedBy),
+          time: item.finishTime || item.startTime || item.queueTime || iso(now()),
+          summary: `${item.status || 'unknown'}${item.result ? ` · ${item.result}` : ''} · ${(item.sourceVersion || '').slice(0, 7)}`,
+          url: safeAzureUrl(item._links?.web?.href, `${repo.organization}/${encodeURIComponent(repo.project)}/_build/results?buildId=${encodeURIComponent(key)}`),
+          data: { id: item.id, buildId: item.id, status: item.status, result: item.result, sourceVersion: item.sourceVersion,
+            sourceBranch: item.sourceBranch, definition: item.definition, reason: item.reason } });
+      }
+      if (entity) entities.push(entity);
+    },
+  };
+  normalizers.closedPrs = normalizers.prs;
+  normalizers.activeBuilds = normalizers.builds;
   function normalize(repo, stream, records, state) {
     const events = [];
     const entities = [];
@@ -54,80 +138,8 @@ export function createSync({ store, provider, now = Date.now, intervalMs = 18000
       const imported = !state.initialized && Date.parse(time) <= Date.parse(baseline);
       events.push(makeEvent(repo, kind, sourceId, { ...detail, time }, historical || imported));
     };
-    for (const item of records) {
-      if (stream === 'pushes') {
-        const source = String(item.pushId);
-        if (!item.pushId || store.getEntity(repo.id, 'push', source)) continue;
-        const updates = item.refUpdates || [];
-        const branches = updates.filter((ref) => ref.name?.startsWith('refs/heads/'));
-        const time = item.date || iso(now());
-        const actor = actorName(item.pushedBy);
-        const data = { pushId: item.pushId, refUpdates: branches, commits: item.commits || [] };
-        const url = safeAzureUrl(item._links?.web?.href, `${repo.webUrl}/pushes?pushId=${encodeURIComponent(source)}`);
-        add('push', source, { title: `${actor} pushed${branches.length ? ` to ${branches.map((r) => branchName(r.name)).join(', ')}` : ''}`,
-          branch: branchName(branches[0]?.name), actor, time, url,
-          summary: branches.length ? branches.map((ref) => `${ref.oldObjectId?.slice(0, 7) || '?'} → ${ref.newObjectId?.slice(0, 7) || '?'}`).join(' · ') : 'Repository push', data });
-        entities.push({ type: 'push', id: source, data: { date: time } });
-        jobs.push({ id: `merge:${repo.id}:push:${source}`, type: 'merge', repoId: repo.id, eventId: `${repo.id}:push:${source}`, status: 'pending', nextAt: iso(now()) });
-        for (const ref of branches) {
-          const created = ref.oldObjectId && ZERO.test(ref.oldObjectId);
-          const deleted = ref.newObjectId && ZERO.test(ref.newObjectId);
-          if (created || deleted) add(created ? 'branch-created' : 'branch-deleted', `${source}:${ref.name}`, {
-            title: `${created ? 'New branch' : 'Branch deleted'} · ${branchName(ref.name)}`,
-            branch: branchName(ref.name), actor, time, url,
-            summary: `${created ? 'Created' : 'Deleted'} in push ${source}`, data: { ...data, evidence: 'push', ...ref } });
-          // Azure lists pushes newest first. Keep a source watermark across pages/snapshots,
-          // while retaining every historical event independently of the current ref state.
-          const previous = refs.get(ref.name);
-          if (!historical && (!previous?.lastPushId || Number(item.pushId) > previous.lastPushId)) {
-            const current = { name: ref.name, objectId: ref.newObjectId, active: !deleted, evidence: 'push', lastPushId: Number(item.pushId) };
-            refs.set(ref.name, current);
-            entities.push({ type: 'ref', id: ref.name, data: current });
-          }
-        }
-      } else if (stream === 'prs' || stream === 'closedPrs') {
-        if (!item.pullRequestId || (item.repository?.id && item.repository.id.toLowerCase() !== repo.azureId?.toLowerCase())) continue;
-        const key = String(item.pullRequestId);
-        const value = prState(item);
-        const previous = store.getEntity(repo.id, 'pr', key);
-        if (!previous || JSON.stringify(previous.fingerprint) !== JSON.stringify(value)) {
-          const unchangedStatus = previous?.fingerprint?.status === item.status;
-          const time = previous && !historical && unchangedStatus ? iso(now())
-            : (item.status !== 'active' ? item.closedDate : null) || (!previous ? item.creationDate : null) || iso(now());
-          // Active PRs can expose a successful preview merge. Only completion establishes
-          // the actual merge result; retain its metadata from this existing response.
-          const completion = item.status === 'completed' ? {
-            mergeCommit: item.lastMergeCommit?.commitId, targetCommit: item.lastMergeTargetCommit?.commitId,
-            mergeStatus: item.mergeStatus, mergeStrategy: item.completionOptions?.mergeStrategy, closedBy: actorName(item.closedBy),
-            sourceRepositoryId: item.forkSource ? item.forkSource.repository?.id : item.repository?.id,
-            targetRepositoryId: item.repository?.id,
-          } : {};
-          add('pr', historical ? `history:${key}:${fingerprint(value)}` : `${key}:${(previous?.revision || 0) + 1}:${fingerprint(value)}`, { title: `PR ${key} · ${item.title || 'Untitled'}`,
-            branch: branchName(item.sourceRefName), actor: actorName(item.createdBy), time,
-            summary: `${item.isDraft ? 'Draft · ' : ''}${item.status || 'unknown'} → ${branchName(item.targetRefName)}`,
-            url: safeAzureUrl(item._links?.web?.href, `${repo.webUrl}/pullrequest/${encodeURIComponent(key)}`),
-            data: { pullRequestId: item.pullRequestId, status: item.status, isDraft: item.isDraft,
-              sourceRefName: item.sourceRefName, targetRefName: item.targetRefName, sourceCommit: item.lastMergeSourceCommit?.commitId,
-              ...completion } });
-        }
-        if (!historical) entities.push({ type: 'pr', id: key, data: { fingerprint: value, status: item.status, revision: (previous?.revision || 0) + Number(!previous || JSON.stringify(previous.fingerprint) !== JSON.stringify(value)) } });
-      } else if (stream === 'builds' || stream === 'activeBuilds') {
-        if (!item.id || item.repository?.id?.toLowerCase() !== repo.azureId?.toLowerCase()) continue;
-        const key = String(item.id);
-        const value = buildState(item);
-        const previous = store.getEntity(repo.id, 'build', key);
-        if (!previous || JSON.stringify(previous.fingerprint) !== JSON.stringify(value)) {
-          const time = item.finishTime || item.startTime || item.queueTime || iso(now());
-          add('build', historical ? `history:${key}:${fingerprint(value)}` : `${key}:${(previous?.revision || 0) + 1}:${fingerprint(value)}`, { title: `${item.definition?.name || 'Pipeline'} · ${item.buildNumber || key}`,
-            branch: branchName(item.sourceBranch), actor: actorName(item.requestedFor || item.requestedBy), time,
-            summary: `${item.status || 'unknown'}${item.result ? ` · ${item.result}` : ''} · ${(item.sourceVersion || '').slice(0, 7)}`,
-            url: safeAzureUrl(item._links?.web?.href, `${repo.organization}/${encodeURIComponent(repo.project)}/_build/results?buildId=${encodeURIComponent(key)}`),
-            data: { id: item.id, buildId: item.id, status: item.status, result: item.result, sourceVersion: item.sourceVersion,
-              sourceBranch: item.sourceBranch, definition: item.definition, reason: item.reason } });
-        }
-        if (!historical) entities.push({ type: 'build', id: key, data: { fingerprint: value, status: item.status, revision: (previous?.revision || 0) + Number(!previous || JSON.stringify(previous.fingerprint) !== JSON.stringify(value)) } });
-      }
-    }
+    const normalizeItem = normalizers[stream];
+    if (normalizeItem) for (const item of records) normalizeItem(item, { repo, add, entities, jobs, refs, historical });
     return { events, entities, jobs };
   }
   function reconcileRefs(repo, records, state) {
