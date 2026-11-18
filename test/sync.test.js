@@ -414,3 +414,28 @@ test('a failed manual refresh is not retried while automatic checks are off', as
   assert.equal(calls, 1, 'no Azure call without another refresh request');
   store.close();
 });
+
+for (const automatic of [true, false]) {
+  test(`a refresh requested during a read stays due after that page commits (automatic checks ${automatic ? 'on' : 'off'})`, async () => {
+    const store = createStore();
+    store.saveRepo(repo);
+    store.setSetting('refreshEnabled', automatic);
+    let time = BASE, release, calls = 0;
+    const sync = createSync({ store, now: () => time, intervalMs: 180000, provider: { read() {
+      if (++calls > 1) return Promise.resolve({ items: [], nextCursor: null });
+      return new Promise(done => { release = () => done({ items: [], nextCursor: null }); });
+    } } });
+    sync.refresh([repo.id]);
+    for (const state of store.getStreams()) if (state.stream !== 'pushes') store.saveStream({ ...state, nextAt: '2099-01-01T00:00:00Z', manual: false });
+    const reading = sync.tick();
+    await new Promise(setImmediate);
+    time += 40000;
+    assert.equal(sync.refresh([repo.id]).scheduled, true);
+    release(); await reading;
+    const pushes = store.getStreams().find(state => state.stream === 'pushes');
+    assert.equal(pushes.nextAt, new Date(time).toISOString(), 'the refresh is still due');
+    await sync.tick();
+    assert.equal(calls, 2, 'the requested refresh reads again');
+    store.close();
+  });
+}

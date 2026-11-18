@@ -215,13 +215,18 @@ export function createSync({ store, provider, now = Date.now, intervalMs = 18000
         pendingItems = [...(state.pendingItems || []), ...page.items];
         output = complete ? reconcileRefs(repo, pendingItems, working) : { events: [], entities: [] };
       } else output = normalize(repo, state.stream, items, working);
+      // A refresh requested after this window was fixed must survive the commit of a page read before it.
+      const latest = store.getStreams().find((entry) => entry.repoId === repo.id && entry.stream === state.stream) || state;
+      const requested = { refreshRequestedAt: latest.refreshRequestedAt, manual: latest.manual };
+      const refreshDue = Date.parse(latest.refreshRequestedAt) > Date.parse(window.until);
       const quietCycles = output.events.some(event => !event.imported) ? 0 : (state.quietCycles || 0) + 1;
       const cadence = !isForeground() || quietCycles >= 2 ? Math.max(intervalMs, 300000) : intervalMs;
       const next = complete ? {
         repoId: repo.id, stream: state.stream, initialized: true, lastSuccess: window.until,
         lastAttempt: iso(now()), nextAt: iso(now() + (state.stream === 'refs' ? refsIntervalMs : cadence)), quietCycles,
         error: null, pending: false, failures: 0,
-      } : { ...working, cursor: page.nextCursor, pendingItems, activeIds, nextAt: iso(now()), error: null };
+        ...(refreshDue ? { ...requested, nextAt: iso(now()) } : {}),
+      } : { ...working, ...requested, cursor: page.nextCursor, pendingItems, activeIds, nextAt: iso(now()), error: null };
       store.commitPage({ repoId: repo.id, stream: state.stream, state: next, ...output });
       for (const event of output.events) if (event.kind === 'pr' && event.data?.status === 'completed') onPrCompleted?.(repo, event.data);
       counters.pages++;
@@ -263,7 +268,7 @@ export function createSync({ store, provider, now = Date.now, intervalMs = 18000
       for (const id of targets) refreshedAt.set(id, now());
       for (const state of store.getStreams()) {
         const repo = repos.find((entry) => entry.id === state.repoId);
-        if (repo && targets.includes(repo.id)) store.saveStream({ ...state, nextAt: iso(now()), manual: store.getSetting('refreshEnabled', true) === false });
+        if (repo && targets.includes(repo.id)) store.saveStream({ ...state, nextAt: iso(now()), refreshRequestedAt: iso(now()), manual: store.getSetting('refreshEnabled', true) === false });
       }
       return { scheduled: true };
     },
