@@ -1,11 +1,28 @@
 import { escape as e } from './format.js';
 import { required } from './dom.js';
 
+/** @typedef {import('../../server.js').FoldersResponse} FoldersResponse */
+/** @typedef {import('../../server.js').Repository} Repository */
+/** @typedef {import('../../server/repositories.js').DiscoveredRemote} DiscoveredRemote */
+/** A subfolder row, or the row that leads up to the parent folder. @typedef {FoldersResponse['folders'][number] & { up?: boolean }} FolderOption */
+/** One remote of a local checkout: a checkout with several remotes gets one row per remote. @typedef {{ localPath: string, remote: DiscoveredRemote, multiple: boolean }} CheckoutItem */
+/** Whether the listed checkouts span several organizations or projects, so rows must name them. @typedef {{ organizations: boolean, projects: boolean }} Mixed */
+/**
+ * @typedef {object} PickerHost
+ * @property {typeof import('../api.js').request} request
+ * @property {() => Repository[]} getRepos The watched repositories; their checkouts are shown as already watched.
+ * @property {(count: number) => unknown} onAdded Called after at least one repository was added.
+ */
+
 const KEY = 'repo-pulse-picker-folder';
+/** @param {CheckoutItem} item */
 const keyOf = item => JSON.stringify([item.localPath, item.remote.name]);
+/** @param {unknown} value */
 const lower = value => String(value || '').toLowerCase();
+/** @param {string} [path] */
 const homePrefix = path => String(path || '').match(/^(\/home\/[^/]+|\/Users\/[^/]+)(?=\/|$)|^([A-Za-z]:\\Users\\[^\\]+)(?=\\|$)/)?.[0];
 
+/** @param {string} path @param {string} [root] */
 export function displayLocalPath(path, root) {
   const value = String(path || '');
   const home = homePrefix(value);
@@ -13,6 +30,7 @@ export function displayLocalPath(path, root) {
   if (root && (value.startsWith(`${root}/`) || value.startsWith(`${root}\\`))) return `.${value.slice(root.length)}`;
   return value;
 }
+/** @param {string} text @param {string} query */
 function highlight(text, query) {
   const index = lower(text).indexOf(lower(query));
   return !query || index < 0
@@ -20,14 +38,22 @@ function highlight(text, query) {
     : `${e(text.slice(0, index))}<mark>${e(text.slice(index, index + query.length))}</mark>${e(text.slice(index + query.length))}`;
 }
 
-/** Self-contained local picker: no Azure reads until the explicit commit action. */
+/** @param {unknown} cause */
+const messageOf = cause => (cause instanceof Error ? cause.message : String(cause));
+
+/** Self-contained local picker: no Azure reads until the explicit commit action. @param {PickerHost} callbacks */
 export function createRepositoryPicker({ request, getRepos, onAdded }) {
-  let host,
-    boundHost,
-    data,
-    beforeBrowse,
-    query = '',
-    mode = 'checkouts',
+  /** @type {HTMLElement | undefined} */
+  let host;
+  /** @type {HTMLElement | undefined} */
+  let boundHost;
+  /** @type {FoldersResponse | undefined} The folder whose checkouts are listed, or the one being browsed. */
+  let data;
+  /** @type {FoldersResponse | undefined} The listed folder before browsing started, restored on Cancel. */
+  let beforeBrowse;
+  /** @type {'checkouts' | 'folders'} */
+  let mode = 'checkouts';
+  let query = '',
     open = false,
     active = 0;
   let loading = false,
@@ -35,18 +61,22 @@ export function createRepositoryPicker({ request, getRepos, onAdded }) {
     restoringFocus = false,
     error = '',
     message = '',
-    generation = 0,
-    remembered;
+    generation = 0;
+  /** @type {string | undefined} */
+  let remembered;
+  /** @type {Map<string, CheckoutItem>} */
   const selected = new Map();
   try {
     remembered = localStorage.getItem(KEY) || undefined;
   } catch {
     /* Optional browser preference. */
   }
+  /** @returns {CheckoutItem[]} */
   const items = () =>
     (data?.repositories || []).flatMap(repo =>
       repo.remotes.map(remote => ({ localPath: repo.localPath, remote, multiple: repo.remotes.length > 1 })),
     );
+  /** @param {CheckoutItem} item */
   const watched = item =>
     getRepos().some(
       repo =>
@@ -55,20 +85,28 @@ export function createRepositoryPicker({ request, getRepos, onAdded }) {
         lower(repo.project) === lower(item.remote.project) &&
         lower(repo.name) === lower(item.remote.repoName),
     );
+  /** @param {Event} event */
   function closeOutside(event) {
-    if (!open || adding || !host?.isConnected || !event.target.isConnected || host.contains(event.target)) return;
+    const target = event.target;
+    if (!open || adding || !host?.isConnected || !(target instanceof Node) || !target.isConnected || host.contains(target)) return;
     open = false;
     render();
   }
   // One listener per picker instance, not one per mount/re-render.
   document.addEventListener('pointerdown', closeOutside);
   document.addEventListener('focusin', closeOutside);
+  /** @returns {FolderOption[] | CheckoutItem[]} */
   function options() {
-    if (mode === 'folders')
-      return [
-        ...(data?.parent ? [{ name: 'Up one folder', path: data.parent, up: true }] : []),
-        ...(data?.folders || []).filter(folder => lower(folder.name).includes(lower(query))),
-      ];
+    return mode === 'folders' ? folderOptions() : checkoutOptions();
+  }
+  /** @returns {FolderOption[]} */
+  function folderOptions() {
+    return [
+      ...(data?.parent ? [{ name: 'Up one folder', path: data.parent, up: true }] : []),
+      ...(data?.folders || []).filter(folder => lower(folder.name).includes(lower(query))),
+    ];
+  }
+  function checkoutOptions() {
     return items().filter(item =>
       [item.remote.repoName, item.localPath, item.remote.name, item.remote.project, item.remote.organization].some(value =>
         lower(value).includes(lower(query)),
@@ -84,6 +122,7 @@ export function createRepositoryPicker({ request, getRepos, onAdded }) {
       /* Picking still works without storage. */
     }
   }
+  /** @param {string} [path] */
   async function readFolder(path) {
     const current = ++generation;
     loading = true;
@@ -98,7 +137,7 @@ export function createRepositoryPicker({ request, getRepos, onAdded }) {
       message = '';
       if (mode === 'checkouts') remember();
     } catch (cause) {
-      if (current === generation) error = cause.message;
+      if (current === generation) error = messageOf(cause);
     } finally {
       if (current === generation) {
         loading = false;
@@ -107,11 +146,12 @@ export function createRepositoryPicker({ request, getRepos, onAdded }) {
     }
   }
   function breadcrumbs() {
-    const home = homePrefix(data?.path);
-    const homeIndex = data?.breadcrumbs.findIndex(crumb => crumb.path === home) ?? -1;
+    if (!data) return [];
+    const home = homePrefix(data.path);
+    const homeIndex = data.breadcrumbs.findIndex(crumb => crumb.path === home);
     return homeIndex >= 0
       ? data.breadcrumbs.slice(homeIndex).map((crumb, index) => (index === 0 ? { ...crumb, name: '~' } : crumb))
-      : data?.breadcrumbs || [];
+      : data.breadcrumbs;
   }
   function crumbsMarkup() {
     if (!data) return '<span class="dim">Your projects folder</span>';
@@ -123,9 +163,11 @@ export function createRepositoryPicker({ request, getRepos, onAdded }) {
       )
       .join('');
   }
+  /** @param {FolderOption} item @param {number} index */
   function folderOption(item, index) {
-    return `<li id="checkout-option-${index}" role="option" aria-selected="false" data-picker-option="${index}" class="picker-option ${index === active ? 'active' : ''}"><span aria-hidden="true">${item.up ? '↑' : '▸'}</span><span><b>${highlight(item.name, query)}</b><small title="${e(item.path)}">${e(displayLocalPath(item.path, data.path))}</small></span>${data.repositories.some(repo => repo.localPath === item.path) ? '<span class="chip">Git</span>' : ''}</li>`;
+    return `<li id="checkout-option-${index}" role="option" aria-selected="false" data-picker-option="${index}" class="picker-option ${index === active ? 'active' : ''}"><span aria-hidden="true">${item.up ? '↑' : '▸'}</span><span><b>${highlight(item.name, query)}</b><small title="${e(item.path)}">${e(displayLocalPath(item.path, data?.path))}</small></span>${data?.repositories.some(repo => repo.localPath === item.path) ? '<span class="chip">Git</span>' : ''}</li>`;
   }
+  /** @param {CheckoutItem} item @param {number} index @param {Mixed} mixed */
   function checkoutOption(item, index, mixed) {
     const disabled = watched(item),
       checked = selected.has(keyOf(item));
@@ -135,8 +177,9 @@ export function createRepositoryPicker({ request, getRepos, onAdded }) {
     ]
       .filter(Boolean)
       .join(' · ');
-    return `<li id="checkout-option-${index}" role="option" aria-selected="${checked}" aria-disabled="${disabled || adding}" data-picker-option="${index}" title="${e(`${item.localPath} · ${item.remote.project} · ${item.remote.organization}`)}" class="picker-option ${index === active ? 'active' : ''}"><span class="picker-check" aria-hidden="true">${disabled || checked ? '☑' : '☐'}</span><span><b>${highlight(item.remote.repoName, query)}</b><small title="${e(item.localPath)}">${highlight(displayLocalPath(item.localPath, data.path), query)}</small>${context ? `<small>${e(context)}</small>` : ''}</span><span class="picker-badges">${item.multiple ? `<span class="chip">${e(item.remote.name)}</span>` : ''}${disabled ? '<span class="chip">Watched</span>' : ''}</span></li>`;
+    return `<li id="checkout-option-${index}" role="option" aria-selected="${checked}" aria-disabled="${disabled || adding}" data-picker-option="${index}" title="${e(`${item.localPath} · ${item.remote.project} · ${item.remote.organization}`)}" class="picker-option ${index === active ? 'active' : ''}"><span class="picker-check" aria-hidden="true">${disabled || checked ? '☑' : '☐'}</span><span><b>${highlight(item.remote.repoName, query)}</b><small title="${e(item.localPath)}">${highlight(displayLocalPath(item.localPath, data?.path), query)}</small>${context ? `<small>${e(context)}</small>` : ''}</span><span class="picker-badges">${item.multiple ? `<span class="chip">${e(item.remote.name)}</span>` : ''}${disabled ? '<span class="chip">Watched</span>' : ''}</span></li>`;
   }
+  /** @param {FolderOption[] | CheckoutItem[]} list The rows options() returned for the current mode. */
   function optionsMarkup(list) {
     if (loading) return '<li class="picker-empty" role="presentation">Reading local folders…</li>';
     if (!list.length) {
@@ -148,13 +191,15 @@ export function createRepositoryPicker({ request, getRepos, onAdded }) {
             : 'No Azure Git checkouts here. Change folder to find your repositories.';
       return `<li class="picker-empty" role="presentation">${empty}</li>`;
     }
-    if (mode === 'folders') return list.map(folderOption).join('');
+    if (mode === 'folders') return folderOptions().map(folderOption).join('');
     const all = items();
     const mixed = {
       organizations: new Set(all.map(item => lower(item.remote.organization))).size > 1,
       projects: new Set(all.map(item => lower(item.remote.project))).size > 1,
     };
-    return list.map((item, index) => checkoutOption(item, index, mixed)).join('');
+    return checkoutOptions()
+      .map((item, index) => checkoutOption(item, index, mixed))
+      .join('');
   }
   function footerMarkup() {
     if (mode === 'folders')
@@ -163,8 +208,9 @@ export function createRepositoryPicker({ request, getRepos, onAdded }) {
   }
   function render() {
     if (!host?.isConnected) return;
-    const focused = host.contains(document.activeElement) && document.activeElement.id === 'checkout-search';
-    const selection = focused ? [document.activeElement.selectionStart, document.activeElement.selectionEnd] : null;
+    const current = document.activeElement;
+    const focused = current instanceof HTMLInputElement && host.contains(current) && current.id === 'checkout-search';
+    const selection = focused ? { start: current.selectionStart, end: current.selectionEnd } : null;
     const list = options();
     active = Math.max(0, Math.min(active, list.length - 1));
     const label = mode === 'folders' ? 'Find a folder' : 'Search local repositories';
@@ -174,20 +220,26 @@ export function createRepositoryPicker({ request, getRepos, onAdded }) {
       ${error ? `<div class="banner warn" role="alert"><div>${e(error)}</div></div>` : ''}${(data?.warnings || []).map(warning => `<p class="help">${e(warning)}</p>`).join('')}
       ${footerMarkup()}
       <p class="help" role="status" aria-live="polite">${e(message || (!loading && open ? `${list.length} matches. ${selected.size} selected.` : ''))}</p>`;
-    if (focused) {
+    if (selection) {
       const input = required('#checkout-search', HTMLInputElement, host);
       restoringFocus = true;
       input.focus({ preventScroll: true });
-      input.setSelectionRange(...selection);
+      input.setSelectionRange(selection.start, selection.end);
       restoringFocus = false;
     }
   }
+  /** @param {number} index */
   async function choose(index) {
     if (loading || adding) return;
-    const item = options()[index];
+    if (mode === 'folders') {
+      const folder = folderOptions()[index];
+      if (!folder) return;
+      active = index;
+      return readFolder(folder.path);
+    }
+    const item = checkoutOptions()[index];
     if (!item) return;
     active = index;
-    if (mode === 'folders') return readFolder(item.path);
     if (!watched(item)) {
       const key = keyOf(item);
       if (selected.has(key)) selected.delete(key);
@@ -211,6 +263,7 @@ export function createRepositoryPicker({ request, getRepos, onAdded }) {
     message = '';
     render();
     let added = 0;
+    /** @type {string[]} */
     const failures = [];
     for (const [key, item] of [...selected]) {
       try {
@@ -218,19 +271,29 @@ export function createRepositoryPicker({ request, getRepos, onAdded }) {
         selected.delete(key);
         added++;
       } catch (cause) {
-        failures.push(`${item.remote.repoName} · ${item.remote.name}: ${cause.message}`);
+        failures.push(`${item.remote.repoName} · ${item.remote.name}: ${messageOf(cause)}`);
       }
     }
     try {
       if (added) await onAdded(added);
     } catch (cause) {
-      failures.push(cause.message);
+      failures.push(messageOf(cause));
     }
     adding = false;
     error = failures.join(' ');
     message = `${added} repositories watched. All their remote branches are watched.`;
     render();
   }
+  function cancel() {
+    generation++;
+    loading = false;
+    data = beforeBrowse || data;
+    mode = 'checkouts';
+    query = '';
+    error = '';
+    render();
+  }
+  /** The buttons' data-picker actions. @type {Record<string, (button: HTMLButtonElement) => unknown>} */
   const actions = {
     toggle() {
       open = !open;
@@ -256,53 +319,47 @@ export function createRepositoryPicker({ request, getRepos, onAdded }) {
       return readFolder(data?.path || remembered);
     },
     use: useFolder,
-    cancel() {
-      generation++;
-      loading = false;
-      data = beforeBrowse || data;
-      mode = 'checkouts';
-      query = '';
-      error = '';
-      render();
-    },
+    cancel,
     remove(element) {
-      selected.delete(element.dataset.key);
+      selected.delete(element.dataset.key ?? '');
       render();
     },
     add,
   };
   return {
     active: () => adding || open,
+    /** @param {HTMLElement | null} element */
     mount(element) {
-      host = element;
+      host = element ?? undefined;
       if (!host) return;
       render();
       if (boundHost === host) return;
       boundHost = host;
       host.onclick = event => {
+        if (!(event.target instanceof Element)) return;
         const option = event.target.closest('[data-picker-option]');
-        if (option) {
+        if (option instanceof HTMLElement) {
           void choose(Number(option.dataset.pickerOption));
           return;
         }
         const button = event.target.closest('[data-picker]');
-        if (button && !button.disabled) {
+        if (button instanceof HTMLButtonElement && !button.disabled) {
           event.preventDefault();
-          void actions[button.dataset.picker]?.(button);
+          void actions[button.dataset.picker ?? '']?.(button);
         }
       };
       host.onmousedown = event => {
-        if (event.target.closest('[data-picker-option]')) event.preventDefault();
+        if (event.target instanceof Element && event.target.closest('[data-picker-option]')) event.preventDefault();
       };
       host.addEventListener('focusin', event => {
-        if (!restoringFocus && event.target.id === 'checkout-search' && !open) {
+        if (!restoringFocus && event.target instanceof Element && event.target.id === 'checkout-search' && !open) {
           open = true;
           render();
           if (!data && !loading) void readFolder(remembered);
         }
       });
       host.oninput = event => {
-        if (event.target.id === 'checkout-search') {
+        if (event.target instanceof HTMLInputElement && event.target.id === 'checkout-search') {
           query = event.target.value;
           open = true;
           active = 0;
@@ -310,11 +367,11 @@ export function createRepositoryPicker({ request, getRepos, onAdded }) {
         }
       };
       host.onkeydown = event => {
-        if (event.target.id !== 'checkout-search' || adding) return;
+        if (!(event.target instanceof Element) || event.target.id !== 'checkout-search' || adding) return;
         const list = options();
         if (event.key === 'Escape') {
           event.preventDefault();
-          if (mode === 'folders') actions.cancel();
+          if (mode === 'folders') cancel();
           else {
             if (!open) query = '';
             open = false;
@@ -340,13 +397,13 @@ export function createRepositoryPicker({ request, getRepos, onAdded }) {
                 ? list.length - 1
                 : Math.max(0, Math.min(list.length - 1, active + (event.key === 'ArrowDown' ? 1 : -1)));
           render();
-          host.querySelector(`#checkout-option-${active}`)?.scrollIntoView({ block: 'nearest' });
+          host?.querySelector(`#checkout-option-${active}`)?.scrollIntoView({ block: 'nearest' });
         } else if (event.key === 'Backspace' && !query) {
           if (mode === 'folders' && data?.parent) {
             event.preventDefault();
             void readFolder(data.parent);
           } else {
-            selected.delete([...selected.keys()].at(-1));
+            selected.delete([...selected.keys()].at(-1) ?? '');
             render();
           }
         }
