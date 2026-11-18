@@ -30,8 +30,8 @@ Phase 2: casts become checks
 
 Phase 3: escaping is tested, not assumed
 
-- [ ] A unit test renders the feed, detail, repositories, settings, header and checkout views with every text field from Azure or Git set to `<x-probe>`, and asserts that the output never contains that tag unescaped. Check: the test fails when one `e()` call in activity-detail.js is removed, and passes when it is restored.
-- [ ] Any unescaped field the test finds is fixed at the point where its fragment is built. Check: the new test passes, and the render comparison with ordinary input reports 0 differences.
+- [x] A unit test renders the feed, detail, repositories, settings, header and checkout views with every text field from Azure or Git set to `<x-probe>`, and asserts that the output never contains that tag unescaped. Check: the test fails when one `e()` call in activity-detail.js is removed, and passes when it is restored.
+- [x] Any unescaped field the test finds is fixed at the point where its fragment is built. Check: the new test passes, and the render comparison with ordinary input reports 0 differences. The test found none, so no render code changed.
 
 Phase 4: split checkout.js
 
