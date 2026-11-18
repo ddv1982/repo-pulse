@@ -1,6 +1,7 @@
 /**
  * Look up an element the UI cannot work without. A missing or mistyped element is a broken page, so fail with the
  * selector in the message instead of a later "cannot read properties of null".
+ * The default Type is cast because HTMLElement fits T only when T keeps its default, which JSDoc cannot express.
  * @template {Element} [T=HTMLElement]
  * @param {string} selector
  * @param {new (...args: any[]) => T} [Type]

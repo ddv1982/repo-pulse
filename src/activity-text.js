@@ -197,5 +197,6 @@ export function activityFilterLabel(value) {
   if (filter.type === 'all') return 'All types';
   if (filter.type === 'status') return statusLabels[filter.id] || filter.id;
   if (filter.type === 'evidence') return evidenceLabels[filter.id] || filter.id;
+  // Widening only: labels is a string table, and an unknown id falls back to the id itself.
   return /** @type {Record<string, string>} */ (labels)[filter.id] || filter.id;
 }

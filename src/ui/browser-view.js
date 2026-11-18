@@ -20,12 +20,17 @@ import { required } from './dom.js';
  *   typeFilter: { mount: (element: HTMLElement | null) => void }, onPageRendered: () => void }} options
  */
 export function createBrowserView({ page, header, demo, picker, typeFilter, onPageRendered }) {
-  const groupElements = () => /** @type {NodeListOf<HTMLDetailsElement>} */ (page.querySelectorAll('details[data-group]'));
+  const groupElements = () => [...page.querySelectorAll('details[data-group]')].filter(element => element instanceof HTMLDetailsElement);
+  /** @param {string} selector */
+  const shown = selector => {
+    const element = document.querySelector(selector);
+    return element instanceof HTMLElement && !element.hidden;
+  };
 
   /** @returns {[string, boolean][]} */
   function captureGroups() {
     // The selector guarantees data-group, so the fallback never applies.
-    return [...groupElements()].map(element => [element.dataset.group ?? '', element.open]);
+    return groupElements().map(element => [element.dataset.group ?? '', element.open]);
   }
 
   /** @param {PageState} state @param {BrowserUi} ui @param {RenderOptions} options */
@@ -56,7 +61,9 @@ export function createBrowserView({ page, header, demo, picker, typeFilter, onPa
     const typeMenu = page.querySelector('.type-menu');
     typeFilter.mount(typeMenu instanceof HTMLElement ? typeMenu : null);
     for (const [name, open] of groups) {
-      [...groupElements()].find(element => element.dataset.group === name)?.toggleAttribute('open', open);
+      groupElements()
+        .find(element => element.dataset.group === name)
+        ?.toggleAttribute('open', open);
     }
     if (focusId) {
       const current = document.getElementById(focusId);
@@ -68,14 +75,16 @@ export function createBrowserView({ page, header, demo, picker, typeFilter, onPa
       if (selection && replacement instanceof HTMLInputElement) replacement.setSelectionRange(...selection);
     }
     onPageRendered();
+    // web/theme.js defines repoPulseTheme on window before the modules load; the optional call covers its absence.
     /** @type {ThemedWindow} */ (window).repoPulseTheme?.apply();
     if (restored) {
       requestAnimationFrame(() => {
         if (!isCurrent()) return;
-        const row = [.../** @type {NodeListOf<HTMLElement>} */ (page.querySelectorAll('li[data-event-id]'))].find(
-          element => restored.eventId != null && eventIds(element).includes(restored.eventId),
+        const row = [...page.querySelectorAll('li[data-event-id]')].find(
+          element => element instanceof HTMLElement && restored.eventId != null && eventIds(element).includes(restored.eventId),
         );
-        /** @type {HTMLElement | null | undefined} */ (row?.querySelector('.feed-title'))?.focus({ preventScroll: true });
+        const title = row?.querySelector('.feed-title');
+        if (title instanceof HTMLElement) title.focus({ preventScroll: true });
         window.scrollTo({ top: restored.scrollY, behavior: 'instant' });
       });
     }
@@ -83,7 +92,7 @@ export function createBrowserView({ page, header, demo, picker, typeFilter, onPa
 
   /** @param {boolean} force @param {boolean} interacting @returns {'page' | 'full' | null} */
   function refreshTarget(force, interacting) {
-    if (/** @type {HTMLElement | null} */ (document.querySelector('#repo-panel'))?.hidden === false) return force ? 'page' : null;
+    if (shown('#repo-panel')) return force ? 'page' : null;
     if (force) return 'full';
     const focused = document.activeElement;
     const refreshable =
@@ -92,7 +101,7 @@ export function createBrowserView({ page, header, demo, picker, typeFilter, onPa
       (focused?.id && focused.matches('.settings-card *, .repo-entry *, .repo-add > summary'));
     const preserve =
       interacting ||
-      /** @type {HTMLElement | null} */ (document.querySelector('#kind-panel'))?.hidden === false ||
+      shown('#kind-panel') ||
       (!refreshable &&
         (['INPUT', 'SELECT', 'TEXTAREA'].includes(focused?.tagName ?? '') || (page.contains(focused) && focused !== document.body)));
     return preserve ? null : 'full';
@@ -106,10 +115,12 @@ export function createBrowserView({ page, header, demo, picker, typeFilter, onPa
     render(state, ui, options) {
       const active = document.activeElement;
       const focusedId = active && header.contains(active) ? active.id : '';
-      const menuOpen = /** @type {HTMLDetailsElement | null} */ (header.querySelector('.header-overflow'))?.open;
+      const menu = header.querySelector('.header-overflow');
+      const menuOpen = menu instanceof HTMLDetailsElement && menu.open;
       header.innerHTML = renderHeader(state, ui);
       if (menuOpen) required('.header-overflow', HTMLDetailsElement, header).open = true;
       if (focusedId) document.getElementById(focusedId)?.focus({ preventScroll: true });
+      // As in renderPage: theme.js runs first, and the optional call covers its absence.
       /** @type {ThemedWindow} */ (window).repoPulseTheme?.apply();
       renderPage(state, ui, options);
       demo.innerHTML = state.demo
