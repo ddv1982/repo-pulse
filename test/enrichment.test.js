@@ -501,3 +501,22 @@ test('an unreadable old tip listed among the job commits does not loop hydration
   await drain(f.store, f.worker());
   assert.deepEqual(f.store.listJobs({ type: 'merge' }), [], 'the job finishes');
 });
+
+test('refreshing evidence after an unproven range reads that range again', async t => {
+  const f = fixture(t, {
+    async refCommits() {
+      throw Object.assign(new Error('The requested Azure DevOps resource was not found.'), { code: 'NOT_FOUND' });
+    },
+  });
+  const worker = f.worker();
+  await drain(f.store, worker);
+  assert.equal(f.store.getEvent('push').data.mergeEvidence.introducedCommitsComplete, false, 'an unproven range is not complete');
+  f.provider.refCommits = async (_repo, from, to, cursor) => {
+    f.calls.ranges.push({ from, to, cursor });
+    return { items: [{ commitId: merge }, { commitId: tip }], nextCursor: null };
+  };
+  assert.equal(worker.reconcilePr(repo, { status: 'completed', mergeCommit: merge, targetRefName: completed.targetRefName }).scheduled, 1);
+  await drain(f.store, worker);
+  assert.equal(f.calls.ranges.length, 1, 'the range is read again');
+  assert.equal(f.store.getEvent('push').data.mergeEvidence.refRanges[0].complete, true);
+});

@@ -107,7 +107,7 @@ export function createEnrichment({ store, provider, now = Date.now, negativeTtlM
       evidenceVersion: EVIDENCE_VERSION,
       candidateCommitIds: job.commitIds || [],
       candidateCommitCount: (job.commitIds || []).length,
-      introducedCommitsComplete: Boolean(job.rangesComplete && (job.stage === 'hydrate' || job.stage === 'prs')),
+      introducedCommitsComplete: Boolean(job.rangesComplete && (job.stage === 'hydrate' || job.stage === 'prs')) && rangesProven(job),
     };
   }
   /** @param {Repository} repo @param {StoredEvent} event @param {MergeJob} job @param {EntityInput[]} [entities] */
@@ -194,6 +194,8 @@ export function createEnrichment({ store, provider, now = Date.now, negativeTtlM
     };
     saveStep(repo, event, next, entities);
   }
+  /** @param {MergeJob} job */
+  const rangesProven = job => !(job.refRanges || []).some(range => range.complete === false);
   /**
    * Unequal tips alone never mean a rewrite: only a read of what the old tip reaches decides it.
    * @param {Repository} repo @param {import('./merge-evidence.js').MergeUpdate} ref
@@ -362,7 +364,8 @@ export function createEnrichment({ store, provider, now = Date.now, negativeTtlM
     );
     evidence.evidenceVersion = EVIDENCE_VERSION;
     evidence.candidateCommitCount = ids.length;
-    evidence.introducedCommitsComplete = true;
+    // A refresh reuses saved ranges only when every one was read; an unproven range is read again.
+    evidence.introducedCommitsComplete = rangesProven(job);
     store.commitEnrichment({ jobId: job.id, eventId: event.id, data: { mergeEvidence: evidence } });
   }
   /** @type {Record<Stage, StageHandler>} */
