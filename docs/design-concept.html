@@ -1,0 +1,1064 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Repo Pulse concept</title>
+<meta name="description" content="Standalone Repo Pulse screen concept using fictional data.">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:">
+<script>
+/* Apply the saved or system theme before first paint, even when storage is blocked. */
+(function () {
+  var choice = 'system';
+  try { choice = localStorage.getItem('rp-theme') || 'system'; } catch (e) {}
+  if (choice !== 'light' && choice !== 'dark') choice = 'system';
+  var dark = choice === 'dark' || (choice === 'system' && window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches);
+  document.documentElement.classList.toggle('dark', dark);
+})();
+</script>
+<style>
+/* Prototype color tokens use OKLCH values. */
+:root {
+  color-scheme: light;
+  --radius: 0.5rem;
+  --font-sans: -apple-system, BlinkMacSystemFont, 'Inter Variable', 'Segoe UI', system-ui, sans-serif;
+  --font-mono: ui-monospace, 'SF Mono', 'SFMono-Regular', Menlo, Consolas, 'Liberation Mono', monospace;
+  --background: oklch(0.955 0.02 236);
+  --foreground: oklch(0.17 0.02 264);
+  --card: #fff;
+  --muted: oklch(0.962 0.004 264);
+  --table-head: oklch(0.985 0.002 264);
+  --muted-foreground: oklch(0.44 0.016 264);
+  --accent: oklch(0.955 0.005 264);
+  --border: oklch(0.9 0.006 264);
+  --input: oklch(0.865 0.008 264);
+  --primary: oklch(0.488 0.217 264);
+  --primary-foreground: #fff;
+  --critical: oklch(0.52 0.2 25);
+  --warning: oklch(0.52 0.13 58);
+  --ok: oklch(0.47 0.1 162);
+  --critical-solid: oklch(63.7% 0.237 25.331);
+  --warning-solid: oklch(76.9% 0.188 70.08);
+  --ok-solid: oklch(69.6% 0.17 162.48);
+  --critical-wash: color-mix(in oklab, var(--critical-solid) 5%, transparent);
+  --warning-wash: color-mix(in oklab, var(--warning-solid) 5%, transparent);
+  /* Unseen updates and new branches use a subtle primary tint. */
+  --primary-wash: color-mix(in oklab, var(--primary) 5%, transparent);
+  --shadow-sm: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);
+  --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+  --sky:
+    radial-gradient(56rem 26rem at 96% -8rem, oklch(0.995 0.022 85), transparent 72%),
+    radial-gradient(30rem 7rem at 16% 13rem, oklch(1 0 0 / 0.75), transparent 70%),
+    radial-gradient(18rem 5rem at 27% 10.5rem, oklch(1 0 0 / 0.7), transparent 70%),
+    radial-gradient(34rem 8rem at 74% 31rem, oklch(1 0 0 / 0.7), transparent 70%),
+    radial-gradient(20rem 5.5rem at 62% 28.5rem, oklch(1 0 0 / 0.65), transparent 70%),
+    radial-gradient(38rem 9rem at 30% 86%, oklch(1 0 0 / 0.7), transparent 70%),
+    radial-gradient(22rem 6rem at 88% 72%, oklch(1 0 0 / 0.6), transparent 70%),
+    linear-gradient(to bottom, oklch(0.925 0.042 238), oklch(0.955 0.024 234) 55%, oklch(0.975 0.014 85));
+  --stars: none;
+  --beams: conic-gradient(from 180deg at 96% -8rem,
+    transparent 3deg, oklch(1 0.012 90 / 0.5) 9deg, transparent 16deg,
+    transparent 19deg, oklch(1 0.012 90 / 0.85) 28deg, transparent 38deg,
+    transparent 41deg, oklch(1 0.012 90 / 0.55) 46deg, transparent 51deg,
+    transparent 54deg, oklch(1 0.012 90 / 0.9) 63deg, transparent 73deg,
+    transparent 76deg, oklch(1 0.012 90 / 0.6) 82deg, transparent 88deg);
+  /* Aliases kept for older markup in this file. */
+  --fg: var(--foreground);
+  --info: var(--primary);
+  --neutral-solid: color-mix(in oklab, var(--muted-foreground) 60%, transparent);
+}
+:root.dark {
+  color-scheme: dark;
+  --background: oklch(0.11 0.025 275);
+  --foreground: oklch(97% 0 0);
+  --card: color-mix(in srgb, oklch(14.5% 0 0) 97%, #fff);
+  --muted: oklch(1 0 0 / 3%);
+  --table-head: color-mix(in srgb, var(--card) 94%, #fff);
+  --muted-foreground: oklch(70.8% 0 0);
+  --accent: oklch(1 0 0 / 4%);
+  --border: oklch(1 0 0 / 8%);
+  --input: oklch(1 0 0 / 11%);
+  --primary: oklch(0.571 0.21 264);
+  --critical: oklch(70.4% 0.191 22.216);
+  --warning: oklch(82.8% 0.189 84.429);
+  --ok: oklch(76.5% 0.177 163.223);
+  --critical-wash: color-mix(in oklab, var(--critical-solid) 7%, transparent);
+  --warning-wash: color-mix(in oklab, var(--warning-solid) 7%, transparent);
+  --primary-wash: color-mix(in oklab, var(--primary) 9%, transparent);
+  --info: oklch(0.72 0.14 264); /* RP: primary as text on dark cards needs a lighter step for 4.5:1 */
+  --sky:
+    radial-gradient(56rem 32rem at 90% -8rem, oklch(0.4 0.14 288 / 0.6), transparent 72%),
+    radial-gradient(50rem 28rem at 2% 106%, oklch(0.42 0.1 200 / 0.4), transparent 72%),
+    radial-gradient(64rem 18rem at 38% 44%, oklch(0.34 0.09 262 / 0.3), transparent 72%),
+    linear-gradient(to bottom, oklch(0.2 0.06 266), oklch(0.15 0.045 270) 45%, oklch(0.1 0.025 278));
+  --beams: none;
+  --stars:
+    radial-gradient(circle at 239px 294px, oklch(1 0 0 / 0.53) 0.48px, transparent 1.08px),
+    radial-gradient(circle at 549px 72px, oklch(0.97 0.03 85 / 0.75) 0.64px, transparent 1.24px),
+    radial-gradient(circle at 732px 268px, oklch(1 0 0 / 0.86) 0.88px, transparent 1.48px),
+    radial-gradient(circle at 407px 246px, oklch(1 0 0 / 0.37) 0.57px, transparent 1.17px),
+    radial-gradient(circle at 68px 44px, oklch(0.97 0.03 85 / 0.5) 0.61px, transparent 1.21px),
+    radial-gradient(circle at 330px 243px, oklch(1 0 0 / 0.77) 0.98px, transparent 1.58px),
+    radial-gradient(circle at 308px 105px, oklch(0.97 0.03 85 / 0.3) 0.56px, transparent 1.16px),
+    radial-gradient(circle at 202px 255px, oklch(1 0 0 / 0.54) 0.71px, transparent 1.31px),
+    radial-gradient(circle at 533px 303px, oklch(1 0 0 / 0.85) 0.81px, transparent 1.41px),
+    radial-gradient(circle at 102px 270px, oklch(0.97 0.03 85 / 0.4) 0.51px, transparent 1.11px),
+    radial-gradient(circle at 38px 483px, oklch(0.95 0.035 250 / 0.55) 0.63px, transparent 1.23px),
+    radial-gradient(circle at 38px 79px, oklch(1 0 0 / 0.94) 1.01px, transparent 1.61px),
+    radial-gradient(circle at 163px 80px, oklch(1 0 0 / 0.52) 0.5px, transparent 1.1px),
+    radial-gradient(circle at 342px 459px, oklch(1 0 0 / 0.75) 0.59px, transparent 1.19px),
+    radial-gradient(circle at 584px 118px, oklch(1 0 0 / 0.77) 0.94px, transparent 1.54px),
+    radial-gradient(circle at 363px 332px, oklch(1 0 0 / 0.36) 0.48px, transparent 1.08px),
+    radial-gradient(circle at 12px 95px, oklch(1 0 0 / 0.57) 0.62px, transparent 1.22px),
+    radial-gradient(circle at 418px 118px, oklch(1 0 0 / 0.79) 0.77px, transparent 1.37px),
+    radial-gradient(circle at 29px 312px, oklch(1 0 0 / 0.39) 0.45px, transparent 1.05px),
+    radial-gradient(circle at 476px 292px, oklch(0.97 0.03 85 / 0.74) 0.64px, transparent 1.24px),
+    radial-gradient(circle at 305px 403px, oklch(0.97 0.03 85 / 0.78) 1px, transparent 1.6px),
+    radial-gradient(circle at 327px 15px, oklch(1 0 0 / 0.34) 0.48px, transparent 1.08px),
+    radial-gradient(circle at 424px 93px, oklch(1 0 0 / 0.56) 0.71px, transparent 1.31px),
+    radial-gradient(circle at 709px 8px, oklch(1 0 0 / 0.88) 0.8px, transparent 1.4px);
+}
+
+/* Two fixed sky layers sit behind the page. The base color is on html. */
+html { background: var(--background); color: var(--foreground); font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
+body { margin: 0; font-size: 14px; line-height: 20px; }
+body::before, body::after { content: ''; position: fixed; inset: 0; z-index: -1; pointer-events: none;
+  background-image: var(--sky); background-repeat: no-repeat; }
+body::after { background-image: var(--stars); background-repeat: repeat; background-size: 419px 367px, 613px 541px, 877px 769px; }
+:root:not(.dark) body::after { background-image: var(--beams); background-repeat: no-repeat; background-size: auto;
+  -webkit-mask-image: radial-gradient(120rem 75rem at 96% -8rem, black 20%, transparent 72%);
+  mask-image: radial-gradient(120rem 75rem at 96% -8rem, black 20%, transparent 72%); }
+.theme-switching *, .theme-switching *::before, .theme-switching *::after { transition: none !important; }
+:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+
+*, *::before, *::after { box-sizing: border-box; }
+a { color: inherit; }
+button, select, input { font: inherit; color: inherit; }
+h1, h2, h3, p { margin: 0; }
+[hidden] { display: none !important; }
+.mono { font-family: var(--font-mono); font-size: 13px; }
+.dim { color: var(--muted-foreground); }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+kbd { font-family: var(--font-mono); font-size: 12px; border: 1px solid var(--border); border-radius: 4px; padding: 0 4px; }
+
+/* Page and header layout. */
+.wrap { max-width: 1536px; margin: 0 auto; padding: 12px 16px 24px; }
+header.app { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-bottom: 8px; position: relative; }
+.hg { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; max-width: 100%; }
+.hg.end { flex-grow: 1; justify-content: space-between; gap: 8px 16px; }
+.brand { font-size: 18px; line-height: 28px; font-weight: 600; letter-spacing: -0.025em; white-space: nowrap; }
+/* Controls, buttons, and segmented navigation. */
+.control, .btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 36px; max-width: 100%;
+  border: 1px solid var(--input); background: var(--card); border-radius: var(--radius); padding: 0 10px;
+  font-size: 14px; font-weight: 500; white-space: nowrap; cursor: pointer; transition: background-color .15s; text-decoration: none; }
+.control:hover, .btn:hover { background: var(--accent); }
+:root:not(.dark) .control:hover, :root:not(.dark) .btn:hover { background: var(--accent); }
+.btn.primary { background: var(--primary); border-color: var(--primary); color: var(--primary-foreground); }
+.btn.sm { height: 28px; padding: 0 8px; font-size: 12px; }
+.ghost { display: inline-flex; align-items: center; justify-content: center; height: 36px; padding: 0 10px; border: 0; background: none;
+  border-radius: var(--radius); font-size: 14px; font-weight: 500; white-space: nowrap; color: var(--muted-foreground);
+  text-decoration: none; cursor: pointer; transition: background-color .15s, color .15s; }
+.ghost:hover { background: color-mix(in oklab, var(--foreground) 6%, transparent); color: var(--foreground); }
+.ghost.sm { height: 28px; padding: 0 8px; font-size: 12px; }
+.seg { display: inline-flex; gap: 2px; height: 36px; padding: 2px; border: 1px solid var(--input); border-radius: var(--radius); background: var(--muted); }
+.seg > a, .seg > button { display: inline-flex; align-items: center; justify-content: center; border: 0; background: none; border-radius: 6px;
+  padding: 0 10px; font-size: 12px; font-weight: 500; color: var(--muted-foreground); text-decoration: none; cursor: pointer;
+  transition: color .15s; white-space: nowrap; }
+.seg > a:hover, .seg > button:hover { color: var(--foreground); }
+.seg > [aria-current="page"], .seg > [aria-pressed="true"] { background: var(--card); color: var(--foreground); box-shadow: var(--shadow-sm); }
+/* Theme buttons use 16px icons with a 1.75 stroke. */
+.seg.theme > button { width: 32px; padding: 0; }
+.seg.theme svg { width: 16px; height: 16px; display: block; }
+.fresh { font-size: 12px; color: var(--muted-foreground); white-space: nowrap; }
+
+/* Repository scope menu. */
+.menu { position: relative; max-width: 100%; }
+.menu-panel { position: absolute; top: 100%; left: 0; z-index: 30; margin-top: 4px; width: 340px; max-width: calc(100vw - 32px);
+  border: 1px solid var(--border); border-radius: var(--radius); background: var(--card); padding: 4px; box-shadow: var(--shadow-lg); }
+.menu-panel .opt { display: grid; grid-template-columns: 16px minmax(0, 1fr) auto; gap: 2px 10px; align-items: center; padding: 6px 8px;
+  border-radius: 6px; cursor: pointer; }
+.menu-panel .opt:hover { background: var(--accent); }
+.menu-panel .opt input { margin: 0; accent-color: var(--primary); width: 16px; height: 16px; }
+.menu-panel .opt b { font-weight: 500; min-width: 0; overflow-wrap: anywhere; }
+.menu-panel .opt small { grid-column: 2; font-size: 12px; color: var(--muted-foreground); }
+.menu-panel .opt .pill { grid-column: 3; grid-row: 1; }
+.menu-panel .mfoot { display: flex; justify-content: space-between; gap: 8px; align-items: center; padding: 6px 8px 4px; margin-top: 2px;
+  border-top: 1px solid var(--border); font-size: 12px; color: var(--muted-foreground); }
+
+/* Mockup notice: one muted line, not a banner. */
+.mock { display: flex; flex-wrap: wrap; gap: 4px 6px; align-items: center; font-size: 12px; color: var(--muted-foreground); margin: 0 0 12px; }
+.mock .tag { border: 1px dashed var(--muted-foreground); border-radius: 6px; padding: 0 6px; font-weight: 600; }
+.mock nav { display: contents; }
+.mock nav a { text-decoration: none; padding: 2px 6px; border-radius: 6px; }
+.mock nav a:hover { background: color-mix(in oklab, var(--foreground) 6%, transparent); color: var(--foreground); }
+.mock nav a[aria-current="true"] { color: var(--foreground); font-weight: 600; }
+
+/* Panels: rounded-xl border bg-card (opaque in both themes), hairline-divided cells. */
+.card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+.mb { margin-bottom: 16px; }
+.summary .top { padding: 12px 16px; }
+.headline { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 16px; }
+.headline p { font-size: 16px; line-height: 24px; font-weight: 600; letter-spacing: -0.025em; }
+.headline p b { color: var(--info); font-weight: 600; }
+.legend { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: 12px; line-height: 16px; color: var(--muted-foreground); }
+.legend li { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.legend .n { font-weight: 500; color: var(--foreground); font-variant-numeric: tabular-nums; }
+.sw { width: 8px; height: 8px; border-radius: 2px; flex: none; }
+.bar { display: flex; gap: 2px; height: 4px; margin-top: 10px; border-radius: 999px; overflow: hidden; background: var(--card); }
+.bar span { display: block; height: 100%; }
+.c-watch { background: var(--primary); }
+.c-other { background: color-mix(in oklab, var(--primary) 45%, transparent); }
+:root.dark .c-other { background: color-mix(in oklab, var(--primary) 60%, transparent); }
+.c-muted { background: color-mix(in oklab, var(--muted-foreground) 30%, transparent); }
+.cells { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); margin-left: -1px; width: calc(100% + 1px); }
+.cell { min-width: 0; border-top: 1px solid var(--border); border-left: 1px solid var(--border); padding: 12px 16px; }
+.cell .label { font-size: 12px; line-height: 16px; color: var(--muted-foreground); }
+.cell .val { margin-top: 2px; font-size: 20px; line-height: 28px; font-weight: 600; letter-spacing: -0.025em; font-variant-numeric: tabular-nums; }
+.cell .sub { margin-top: 2px; font-size: 12px; line-height: 16px; color: var(--muted-foreground); }
+.cell .sub a { color: inherit; }
+.cell.span { grid-column: span 2; }
+.states2 { display: grid; margin-left: -1px; width: calc(100% + 1px); }
+.states2 > div { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 8px; min-width: 0; border-top: 1px solid var(--border);
+  border-left: 1px solid var(--border); padding: 8px 16px; font-size: 12px; color: var(--muted-foreground); }
+.states2 b { font-size: 14px; font-weight: 600; color: var(--foreground); }
+.t-crit { color: var(--critical); } .t-warn { color: var(--warning); } .t-ok { color: var(--ok); } .t-info { color: var(--info); }
+
+/* Notices use subtle borders and status tints. */
+.banner { display: flex; gap: 10px; align-items: flex-start; padding: 10px 14px; border-radius: var(--radius); margin: 0 0 16px;
+  border: 1px solid; font-size: 14px; }
+.banner.warn { background: color-mix(in oklab, var(--warning-solid) 10%, transparent); border-color: color-mix(in oklab, var(--warning-solid) 25%, transparent); }
+.banner.crit { background: color-mix(in oklab, var(--critical-solid) 10%, transparent); border-color: color-mix(in oklab, var(--critical-solid) 20%, transparent); }
+.banner.info { background: color-mix(in oklab, var(--primary) 8%, transparent); border-color: color-mix(in oklab, var(--primary) 20%, transparent); }
+.banner strong { display: block; font-weight: 600; }
+.banner.warn .ic, .banner.warn strong { color: var(--warning); }
+.banner.crit .ic, .banner.crit strong { color: var(--critical); }
+.banner .ic { font-weight: 700; flex: none; }
+/* RP: warning text on its own 10% tint needs one step darker than --warning in light (4.5:1). */
+:root:not(.dark) .banner.warn .ic, :root:not(.dark) .banner.warn strong { color: oklch(0.46 0.12 58); }
+
+/* Search, filters, and reset action. */
+.toolbar { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; margin: 0 0 16px; }
+.search { width: 100%; max-width: 384px; height: 36px; border: 1px solid var(--input); background: var(--card); border-radius: var(--radius);
+  padding: 0 12px; font-size: 14px; outline: none; }
+.search::placeholder { color: var(--muted-foreground); }
+.search:focus { border-color: var(--primary); box-shadow: 0 0 0 2px color-mix(in oklab, var(--primary) 30%, transparent); }
+.hint { font-size: 12px; color: var(--muted-foreground); }
+.spacer { flex: 1; }
+.filters { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.filters .f { border: 0; background: none; border-radius: 6px; padding: 4px 10px; font-size: 12px; font-weight: 500; color: var(--muted-foreground); cursor: pointer; }
+.filters .f:hover { color: var(--foreground); }
+.filters .f[aria-pressed="true"] { background: var(--card); color: var(--foreground); box-shadow: var(--shadow-sm); }
+.filters.seg .f { height: 100%; }
+label.tog { display: inline-flex; gap: 6px; align-items: center; font-size: 12px; color: var(--muted-foreground); }
+label.tog input { accent-color: var(--primary); }
+
+/* Feed groups use muted headings and thin row dividers. */
+.feed { position: relative; }
+.colhead { display: none; }
+.ghead { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; padding: 10px 12px; background: color-mix(in oklab, var(--muted) 40%, transparent);
+  font-size: 14px; font-weight: 600; list-style: none; cursor: pointer; border-top: 1px solid var(--border); }
+section.group:first-of-type > .ghead, section.group:first-of-type > details > .ghead { border-top: 0; }
+h2.ghead { cursor: default; }
+details > summary::-webkit-details-marker { display: none; }
+.ghead .chev { width: 16px; height: 16px; flex: none; color: var(--muted-foreground); transition: transform .15s; }
+details[open] > summary .chev { transform: rotate(90deg); }
+h2.ghead .chev { visibility: hidden; }
+summary.ghead { color: var(--muted-foreground); }
+summary.ghead:hover { color: var(--foreground); }
+.pill { display: inline-flex; align-items: center; justify-content: center; min-width: 40px; border-radius: 6px; padding: 2px 8px; font-size: 12px; line-height: 16px;
+  font-weight: 500; background: color-mix(in oklab, var(--foreground) 5%, transparent); color: color-mix(in oklab, var(--foreground) 70%, transparent); font-variant-numeric: tabular-nums; }
+.pill.u { background: color-mix(in oklab, var(--primary) 10%, transparent); color: var(--info); }
+.ghead .note { font-weight: 400; font-size: 12px; color: var(--muted-foreground); }
+.count { display: inline-flex; min-width: 28px; justify-content: center; border-radius: 6px; padding: 0 8px; font-size: 12px; font-weight: 500;
+  background: color-mix(in oklab, var(--foreground) 5%, transparent); color: color-mix(in oklab, var(--foreground) 70%, transparent); }
+
+ul.rows, ol.rows { list-style: none; margin: 0; padding: 0; }
+.row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px 12px; align-items: start; padding: 12px; border-top: 1px solid var(--border);
+  transition: background-color .15s; background-repeat: no-repeat; }
+.row:hover, .row:focus-within { background-color: var(--accent); }
+.row.crit { background-image: linear-gradient(90deg, var(--critical-wash), transparent 36%); }
+.row.new { background-image: linear-gradient(90deg, var(--primary-wash), transparent 36%); }
+.row.warn { background-image: linear-gradient(90deg, var(--warning-wash), transparent 36%); }
+.kind { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 500; white-space: nowrap; min-height: 24px; }
+.kind .d { width: 6px; height: 6px; border-radius: 999px; flex: none; background: var(--neutral-solid); }
+.kind.crit .d { background: var(--critical-solid); } .kind.info .d { background: var(--primary); } .kind.ok .d { background: var(--ok-solid); }
+.kind.br { color: var(--info); font-weight: 600; }
+.kind.br svg { width: 14px; height: 14px; flex: none; }
+.subject { min-width: 0; grid-column: 1 / -1; }
+.subject a { text-decoration: none; display: block; border-radius: 2px; }
+.subject a:hover .ref, .subject a:hover .title { text-decoration: underline; text-underline-offset: 2px; }
+.ref { font-family: var(--font-mono); font-size: 13px; overflow-wrap: anywhere; }
+.ref .repo { color: var(--muted-foreground); }
+.row.new .ref.lead { font-size: 14px; font-weight: 600; }
+.title { display: block; font-weight: 500; overflow-wrap: anywhere; }
+.subref { display: block; font-family: var(--font-mono); font-size: 12px; color: var(--muted-foreground); overflow-wrap: anywhere; }
+.event { grid-column: 1 / -1; min-width: 0; font-size: 13px; color: var(--foreground); }
+.event .mono { font-size: 12px; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.chip { display: inline-flex; align-items: center; gap: 6px; border-radius: 6px; padding: 2px 8px; font-size: 12px; line-height: 16px; font-weight: 500;
+  border: 1px solid transparent; background: color-mix(in oklab, var(--foreground) 5%, transparent); color: color-mix(in oklab, var(--foreground) 75%, transparent); }
+.chip.rule::before { content: "Rule"; font-size: 10px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--muted-foreground); }
+.chip.unk { background: none; border: 1px dotted var(--muted-foreground); color: var(--muted-foreground); }
+.chip.unk::before { content: "Unknown"; font-size: 10px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
+.chip.part { background: none; border: 1px dotted var(--warning-solid); color: var(--warning); }
+.chip.fail, .chip.okc, .chip.run { background: none; border-color: var(--border); }
+.chip.fail { color: var(--critical); } .chip.okc { color: var(--ok); } .chip.run { color: var(--info); }
+.chip.fail::before, .chip.okc::before, .chip.run::before { content: ""; width: 6px; height: 6px; border-radius: 999px; background: currentColor; }
+.chip.name { background: none; border: 1px dashed var(--input); color: var(--muted-foreground); }
+.chip.new { background: color-mix(in oklab, var(--primary) 10%, transparent); color: var(--info); font-weight: 600; }
+.counts { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted-foreground); white-space: nowrap; font-variant-numeric: tabular-nums; min-height: 24px; }
+.counts b { color: var(--info); font-weight: 600; }
+.rowact { display: flex; align-items: center; gap: 2px; grid-column: 2; grid-row: 1; justify-self: end; }
+.rowact .ghost { height: 40px; }
+.foot { padding: 10px 16px; font-size: 12px; color: var(--muted-foreground); border-top: 1px solid var(--border); }
+.foot a { color: inherit; }
+.phase { display: inline-flex; align-items: center; border: 1px solid color-mix(in oklab, var(--primary) 55%, transparent); color: var(--info);
+  border-radius: 999px; font-size: 10px; line-height: 16px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; padding: 0 7px; white-space: nowrap; }
+.later { border-style: dashed; border-color: var(--input); }
+.notes { margin: 16px 0 0; font-size: 12px; color: var(--muted-foreground); max-width: 920px; padding-left: 18px; }
+.notes li { margin: 3px 0; }
+
+/* Activity, detail and settings screens reuse the same parts. */
+.feed-day { padding: 8px 16px; background: color-mix(in oklab, var(--muted) 40%, transparent); font-weight: 600; font-size: 13px; border-top: 1px solid var(--border); }
+.divider { display: flex; align-items: center; gap: 10px; padding: 6px 16px; color: var(--info); font-size: 12px; font-weight: 600; border-top: 1px solid var(--border); }
+.divider.hist { color: var(--muted-foreground); }
+.divider::before, .divider::after { content: ""; height: 1px; flex: 1; background: currentColor; opacity: .35; }
+.ev { display: grid; grid-template-columns: 52px 118px minmax(0, 1fr) auto auto; gap: 12px; padding: 10px 16px; border-top: 1px solid var(--border); align-items: start; }
+.ev:hover { background: var(--accent); }
+.ev time { font-family: var(--font-mono); font-size: 12px; color: var(--muted-foreground); padding-top: 1px; }
+.ev .kind { font-size: 12px; }
+.ev.unseen time { color: var(--info); font-weight: 600; }
+.ev.unseen .kind::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--primary); flex: none; }
+.ev .ext, .row .ext { color: var(--muted-foreground); text-decoration: none; padding: 2px 6px; border-radius: 6px; font-size: 13px; white-space: nowrap; }
+.ev .ext:hover { background: color-mix(in oklab, var(--foreground) 6%, transparent); color: var(--foreground); }
+.crumb { font-size: 13px; color: var(--muted-foreground); margin: 0 0 8px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.dhead { padding: 16px; display: flex; gap: 16px; align-items: flex-start; flex-wrap: wrap; }
+.dhead h1 { font-size: 18px; line-height: 28px; font-weight: 600; letter-spacing: -0.025em; overflow-wrap: anywhere; }
+.dhead .meta { font-size: 13px; color: var(--muted-foreground); display: flex; gap: 4px 12px; flex-wrap: wrap; }
+.actions { display: flex; gap: 6px; flex-wrap: wrap; margin-left: auto; }
+.facts { display: flex; flex-wrap: wrap; gap: 6px; padding: 12px 16px; border-top: 1px solid var(--border); }
+.grid2 { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 16px; margin-top: 16px; }
+.stack { display: grid; gap: 16px; align-content: start; }
+.block h2 { font-size: 14px; font-weight: 600; padding: 10px 16px; background: var(--table-head); border-bottom: 1px solid var(--border);
+  display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.block h2 .count, .block h2 .phase { margin-left: auto; }
+.block h2 .count + .phase { margin-left: 0; }
+.push { padding: 10px 16px; border-top: 1px solid var(--border); }
+.push:first-of-type { border-top: 0; }
+.push .who { font-size: 13px; }
+.refupd { font-family: var(--font-mono); font-size: 12px; color: var(--muted-foreground); overflow-wrap: anywhere; }
+.commit { display: grid; grid-template-columns: 70px minmax(0, 1fr); gap: 8px; font-size: 13px; padding: 2px 0 2px 14px; }
+.commit .sha { font-family: var(--font-mono); font-size: 12px; color: var(--info); }
+.highlight { background: var(--primary-wash); box-shadow: inset 3px 0 0 var(--primary); }
+table.t { width: 100%; border-collapse: collapse; font-size: 13px; }
+.t th { text-align: left; font-weight: 500; color: var(--muted-foreground); font-size: 12px; padding: 8px 16px; background: var(--table-head);
+  box-shadow: inset 0 -1px 0 var(--border); }
+.t td { padding: 9px 16px; border-top: 1px solid var(--border); vertical-align: top; }
+.t td, .t th { overflow-wrap: anywhere; }
+.lvl { display: inline-flex; gap: 6px; align-items: center; font-weight: 600; }
+.lvl .m { width: 12px; height: 12px; border-radius: 3px; border: 2px solid var(--ok-solid); flex: none; }
+.lvl.rec .m { background: var(--ok-solid); }
+.lvl.unk .m { border-style: dotted; border-color: var(--neutral-solid); }
+.ok-t { color: var(--ok); font-weight: 600; } .warn-t { color: var(--warning); font-weight: 600; } .crit-t { color: var(--critical); font-weight: 600; } .info-t { color: var(--info); font-weight: 600; }
+.form { padding: 16px; display: grid; gap: 14px; }
+.field label { display: block; font-weight: 600; font-size: 13px; margin-bottom: 4px; }
+.field input, .field select { width: 100%; max-width: 520px; height: 36px; border: 1px solid var(--input); background: var(--card); border-radius: var(--radius); padding: 0 10px; }
+.help { font-size: 12px; color: var(--muted-foreground); margin-top: 4px; }
+.steps { display: grid; gap: 12px; max-width: 860px; margin: 0 auto; }
+.step h2 { font-size: 15px; font-weight: 600; display: flex; gap: 10px; align-items: center; padding: 12px 16px; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+.step .num { width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; font-size: 12px; background: var(--muted); border: 1px solid var(--border); flex: none; }
+.step.done h2 { border-bottom: 0; }
+.step.done .num { background: var(--ok-solid); color: #fff; border-color: var(--ok-solid); }
+.checklist { list-style: none; padding: 0; margin: 0; display: grid; gap: 6px; font-size: 13px; }
+.checklist li { display: grid; grid-template-columns: 22px minmax(0, 1fr); gap: 6px; }
+pre.cmd { margin: 4px 0 0; font-family: var(--font-mono); font-size: 12px; background: var(--muted); border: 1px solid var(--border); border-radius: 6px; padding: 6px 10px; overflow-x: auto; }
+.settings { display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: 16px; }
+.snav { display: grid; gap: 2px; align-content: start; font-size: 14px; }
+.snav a { text-decoration: none; padding: 6px 10px; border-radius: 6px; color: var(--muted-foreground); }
+.snav a:hover { color: var(--foreground); }
+.snav a[aria-current="true"] { background: var(--card); color: var(--foreground); font-weight: 500; box-shadow: var(--shadow-sm); }
+.switch { width: 30px; height: 18px; border-radius: 999px; background: var(--ok-solid); display: inline-block; position: relative; vertical-align: middle; }
+.switch::after { content: ""; position: absolute; width: 14px; height: 14px; border-radius: 50%; background: #fff; top: 2px; right: 2px; }
+.switch.off { background: var(--neutral-solid); } .switch.off::after { right: auto; left: 2px; }
+.statesgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr)); gap: 16px; }
+.state h3 { font-size: 12px; font-weight: 600; padding: 8px 14px; background: var(--table-head); border-bottom: 1px solid var(--border); color: var(--muted-foreground); }
+.state .body { padding: 14px; font-size: 13px; }
+.state .banner { margin: 0; }
+.skel { height: 12px; border-radius: 4px; background: var(--muted); border: 1px solid var(--border); margin: 8px 0; }
+.empty { text-align: center; padding: 18px 8px; }
+.empty .big { font-size: 15px; font-weight: 600; margin-bottom: 4px; }
+.keys { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 230px), 1fr)); gap: 6px 18px; font-size: 13px; padding: 14px 16px; }
+.roadmap { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 210px), 1fr)); gap: 12px; }
+.roadmap .card { padding: 12px 14px; font-size: 13px; }
+.roadmap h3 { font-size: 14px; font-weight: 600; margin-bottom: 6px; display: flex; gap: 8px; align-items: center; }
+.roadmap ul { margin: 0; padding-left: 18px; }
+dialog { border: 1px solid var(--border); border-radius: 12px; background: var(--card); color: var(--foreground); padding: 0; max-width: min(460px, calc(100% - 32px)); box-shadow: var(--shadow-lg); }
+dialog::backdrop { background: oklch(0 0 0 / 0.35); }
+dialog .dbody { padding: 16px; display: grid; gap: 10px; font-size: 14px; }
+dialog .dfoot { display: flex; gap: 8px; justify-content: flex-end; padding: 12px 16px; border-top: 1px solid var(--border); }
+.toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); background: var(--foreground); color: var(--card); padding: 8px 14px;
+  border-radius: var(--radius); font-size: 13px; max-width: calc(100% - 32px); box-shadow: var(--shadow-lg); }
+
+/* Layout breakpoints at 640px and 1024px. */
+@media (max-width: 639px) {
+  .menu { position: static; }
+  .menu-panel { left: 0; right: 0; width: auto; max-width: none; }
+}
+@media (min-width: 640px) {
+  .wrap { padding: 12px 24px 24px; }
+  .cells { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .states2 { grid-template-columns: 1fr 1fr; }
+  .row { grid-template-columns: 9rem minmax(0, 1fr) auto; }
+  .subject { grid-column: 2; }
+  .row > .kind { grid-column: 1; grid-row: 1; }
+  .event { grid-column: 2; }
+  .rowact { grid-column: 3; }
+  .counts { grid-column: 3; grid-row: 2; justify-self: end; }
+}
+@media (min-width: 1024px) {
+  .cells { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+  .cell.span { grid-column: auto; }
+  .colhead, .row { display: grid; grid-template-columns: 9rem minmax(0, 1.3fr) minmax(0, 1.7fr) 6.5rem 7.5rem; gap: 12px; }
+  .colhead { padding: 8px 12px; background: var(--table-head); font-size: 12px; font-weight: 500; color: var(--muted-foreground);
+    box-shadow: inset 0 -1px 0 var(--border); }
+  .colhead span:nth-child(4) { text-align: right; }
+  .row { align-items: start; padding: 10px 12px; }
+  .subject { grid-column: 2; }
+  .event { grid-column: 3; grid-row: 1; }
+  .counts { grid-column: 4; grid-row: 1; justify-content: flex-end; }
+  .rowact { grid-column: 5; grid-row: 1; }
+  .rowact .ghost { height: 28px; }
+}
+@media (max-width: 1279px) { .grid2 { grid-template-columns: 1fr; } }
+@media (max-width: 767px) {
+  .settings { grid-template-columns: 1fr; }
+  .snav { grid-auto-flow: column; overflow-x: auto; }
+  .ev { grid-template-columns: 46px minmax(0, 1fr) auto; }
+  .ev .kind { grid-column: 2; } .ev .ext { grid-column: 3; grid-row: 1; }
+  .ev .body, .ev .whyc { grid-column: 1 / -1; }
+  .t.evid thead { display: none; }
+  .t.evid tr { display: grid; gap: 2px; padding: 10px 16px; border-top: 1px solid var(--border); }
+  .t.evid td { display: block; padding: 0; border: 0; }
+  .actions { margin-left: 0; }
+  .t th, .t td { padding-left: 10px; padding-right: 10px; }
+  .btn, .ev .ext { min-height: 44px; }
+  .btn.sm { min-height: 36px; }
+  .hg.end { justify-content: flex-start; }
+  .tabs { order: 5; width: 100%; height: 44px; }
+  .tabs > a { flex: 1; }
+  .fresh .long, .mock .long { display: none; }
+  .mock { flex-wrap: nowrap; }
+  .mock nav { display: flex; min-width: 0; overflow-x: auto; white-space: nowrap; scrollbar-width: thin; }
+  .mock > span { white-space: nowrap; }
+}
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+<header class="app">
+  <div class="hg">
+    <h1 class="brand">Repo Pulse</h1>
+    <div class="menu" id="repo-menu">
+      <button type="button" class="control" id="repo-toggle" aria-expanded="false" aria-controls="repo-panel" aria-label="Repositories shown: all 4 watched" title="Choose which watched repositories the feed shows">
+        <span id="repo-label">All 4 repositories</span> ▾</button>
+      <div class="menu-panel" id="repo-panel" role="group" aria-label="Repositories shown" hidden>
+        <label class="opt"><input type="checkbox" value="orders-api" checked><b>orders-api</b><span class="pill u">7</span><small>Orders · example-org</small></label>
+        <label class="opt"><input type="checkbox" value="orders-web" checked><b>orders-web</b><span class="pill u">3</span><small>Orders · example-org</small></label>
+        <label class="opt"><input type="checkbox" value="billing-web" checked><b>billing-web</b><span class="pill u">2</span><small>Billing · example-org · CI runs unknown (403)</small></label>
+        <label class="opt"><input type="checkbox" value="herd-sync" checked><b>herd-sync</b><span class="pill u">2</span><small>Herd · example-org</small></label>
+        <div class="mfoot"><span>Counts are unseen events. Changing scope marks nothing seen.</span><button type="button" class="ghost sm" id="repo-all">All</button></div>
+      </div>
+    </div>
+  </div>
+  <nav class="seg tabs" aria-label="Main">
+    <a href="#catchup" data-tab="catchup">Catch-up</a><a href="#activity" data-tab="activity">Activity</a><a href="#rules" data-tab="rules">Rules</a>
+  </nav>
+  <div class="hg end">
+    <div class="hg">
+      <span class="fresh" title="Adaptive refresh within the CLI budget; each repository is checked about every 2 to 5 minutes">Updated 10:41<span class="long"> · next check 10:43</span></span>
+      <button type="button" class="ghost" data-static aria-label="Refresh now" title="Refresh now (joins the scheduled check)">↻</button>
+    </div>
+    <div class="hg">
+      <a class="ghost" href="#settings">Settings</a>
+      <div class="seg theme" role="group" aria-label="Theme">
+        <button type="button" data-theme-set="system" aria-pressed="true" aria-label="System" title="System"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M12 16v4m-4 0h8"/></svg></button>
+        <button type="button" data-theme-set="light" aria-pressed="false" aria-label="Light" title="Light"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M2 12h2m16 0h2M4.93 4.93l1.42 1.42m11.3 11.3 1.42 1.42M4.93 19.07l1.42-1.42m11.3-11.3 1.42-1.42"/></svg></button>
+        <button type="button" data-theme-set="dark" aria-pressed="false" aria-label="Dark" title="Dark"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M20.9 13.1A9 9 0 0 1 10.9 3.1 9 9 0 1 0 20.9 13.1Z"/></svg></button>
+      </div>
+    </div>
+  </div>
+</header>
+<div class="mock" role="note"><span class="tag">Mockup</span><span>fictional data<span class="long"> · repositories and people invented · not connected to Azure DevOps</span> ·</span>
+  <nav aria-label="Concept screens"><a href="#catchup">Catch-up</a><a href="#activity">Activity</a><a href="#branch">Branch</a><a href="#pr">PR</a><a href="#rules">Rules</a><a href="#settings">Settings</a><a href="#welcome">Onboarding</a><a href="#states">States</a><a href="#keys">Keys</a><a href="#deployments">Deployments · phase 3</a><a href="#roadmap">Roadmap</a></nav></div>
+<div id="live" class="sr" aria-live="polite"></div>
+
+<!-- ============ CATCH-UP (phase 1) ============ -->
+<main id="screen-catchup" data-screen="catchup">
+  <h1 class="sr">Catch-up</h1>
+  <section class="card summary mb" aria-label="Catch-up summary">
+    <div class="top">
+      <div class="headline">
+        <p><b>5</b> of 14 unseen events match your watch rules</p>
+        <ul class="legend" aria-label="Unseen events by section">
+          <li><span class="sw c-watch" aria-hidden="true"></span><span class="n">5</span> Watched</li>
+          <li><span class="sw c-other" aria-hidden="true"></span><span class="n">9</span> Other unseen</li>
+          <li><span class="sw c-muted" aria-hidden="true"></span><span class="n">3</span> Hidden by mute rules</li>
+        </ul>
+      </div>
+      <div class="bar" aria-hidden="true"><span class="c-watch" style="flex:5"></span><span class="c-other" style="flex:9"></span><span class="c-muted" style="flex:3"></span></div>
+    </div>
+    <div class="cells">
+      <div class="cell"><div class="label">New branches</div><div class="val t-info">2</div><div class="sub">1 hotfix/*, 1 feature/* · no PR yet</div></div>
+      <div class="cell"><div class="label">Unseen pushes</div><div class="val">8</div><div class="sub">3 to branches without a PR</div></div>
+      <div class="cell"><div class="label">PRs changed state</div><div class="val">3</div><div class="sub">1 opened · 1 completed · 1 abandoned</div></div>
+      <div class="cell"><div class="label">CI runs failed · unseen</div><div class="val t-crit">1</div><div class="sub">of 9 unseen runs</div></div>
+      <div class="cell span"><div class="label">Streams not current</div><div class="val t-warn">1</div><div class="sub"><a href="#states">billing-web CI runs · 403</a></div></div>
+    </div>
+    <div class="states2">
+      <div><span>Scope</span><b id="scope-count">4 of 4</b><span id="scope-note">repositories · all branches of each</span></div>
+      <div><span>Monitoring since</span><b>Tue 10 Nov 10:41</b><span>7 days imported before, not unseen · checks every 2–5 min</span></div>
+    </div>
+  </section>
+
+  <div class="banner warn" role="status"><span class="ic" aria-hidden="true">!</span><div><strong>billing-web · CI runs not read since 10:12</strong>Azure DevOps refused the request (403) for project Billing. Pushes and pull requests are current; CI chips for billing-web say "unknown".</div></div>
+
+  <div class="toolbar">
+    <input class="search" type="search" placeholder="Search branches, PRs, people, commits…" aria-label="Search catch-up">
+    <span class="hint">press <kbd>/</kbd> to search</span>
+    <div class="seg filters" role="group" aria-label="Event kind">
+      <button type="button" class="f" aria-pressed="true">All</button><button type="button" class="f" aria-pressed="false">Branches</button><button type="button" class="f" aria-pressed="false">Pushes</button><button type="button" class="f" aria-pressed="false">PRs</button><button type="button" class="f" aria-pressed="false">CI runs</button>
+    </div>
+    <span class="spacer"></span>
+    <button type="button" class="btn" id="mark-shown"><span>Mark shown seen (<span id="shown-n">9</span>)</span></button>
+  </div>
+
+  <div class="card feed">
+    <div class="colhead" aria-hidden="true"><span>Kind</span><span>Repository · branch or PR</span><span>Latest event and evidence</span><span>Unseen</span><span></span></div>
+    <section class="group" aria-labelledby="g-watched">
+      <h2 class="ghead" id="g-watched"><svg class="chev" aria-hidden="true" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="m6 4 4 4-4 4" stroke-linecap="round" stroke-linejoin="round"/></svg>Watched <span class="pill u" id="watch-n">5</span><span class="note">match your watch rules</span></h2>
+      <ul class="rows">
+        <li class="row crit" data-repo="orders-api" data-unseen="1">
+          <span class="kind crit"><span class="d"></span>CI failed</span>
+          <span class="subject"><a href="#branch"><span class="ref"><span class="repo">orders-api / </span>main</span><span class="subref">run 20261117.6 · orders-api CI</span></a></span>
+          <span class="event">Failed on <span class="mono">3f9a2c1</span> (merge of PR 1177) · 10:22
+            <span class="chips"><span class="chip rule">CI failures on main</span></span></span>
+          <span class="counts"><b>1 unseen</b></span>
+          <span class="rowact"><a class="ghost sm ext" href="#catchup" data-static aria-label="Open run 20261117.6 in Azure DevOps">Azure ↗</a><button type="button" class="ghost sm" data-static aria-label="Mark this group's shown events seen">Seen</button></span>
+        </li>
+        <li class="row" data-repo="orders-api" data-unseen="2">
+          <span class="kind info"><span class="d"></span>Pushed</span>
+          <span class="subject"><a href="#branch"><span class="ref"><span class="repo">orders-api / </span>feature/MAN-4812-dose-limit</span><span class="subref">PR 1182 → main · PR 1190 → release/2026.11</span></a></span>
+          <span class="event">Sam Ortega pushed 3 commits · tip <span class="mono">77b2d13 → e19f402</span> · 09:58
+            <span class="chips"><span class="chip rule">branch feature/MAN-*</span><span class="chip run">PR 1182 build running</span></span></span>
+          <span class="counts"><b>2 unseen</b> · 6 seen</span>
+          <span class="rowact"><a class="ghost sm ext" href="#catchup" data-static aria-label="Open branch in Azure DevOps">Azure ↗</a><button type="button" class="ghost sm" data-static aria-label="Mark this group's shown events seen">Seen</button></span>
+        </li>
+        <li class="row" data-repo="billing-web" data-unseen="2">
+          <span class="kind info"><span class="d"></span>Pushed</span>
+          <span class="subject"><a href="#pr"><span class="title">PR 1175 · Retry export on timeout</span><span class="subref">billing-web / fix/BIL-2210-export-retry → main</span></a></span>
+          <span class="event">Priya Nair pushed 1 commit · Mon 18:05
+            <span class="chips"><span class="chip rule">this PR</span><span class="chip unk">CI runs: 403</span></span></span>
+          <span class="counts"><b>2 unseen</b> · 4 seen</span>
+          <span class="rowact"><a class="ghost sm ext" href="#catchup" data-static aria-label="Open PR 1175 in Azure DevOps">Azure ↗</a><button type="button" class="ghost sm" data-static aria-label="Mark this group's shown events seen">Seen</button></span>
+        </li>
+      </ul>
+    </section>
+    <section class="group"><details open><summary class="ghead"><svg class="chev" aria-hidden="true" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="m6 4 4 4-4 4" stroke-linecap="round" stroke-linejoin="round"/></svg>Other unseen <span class="pill u" id="other-n">9</span><span class="note">new branches first, then newest</span></summary>
+      <ul class="rows">
+        <li class="row new" data-repo="orders-api" data-unseen="1">
+          <span class="kind br"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="5" r="2"/><circle cx="6" cy="19" r="2"/><circle cx="18" cy="7" r="2"/><path d="M6 7v10M18 9c0 5-6 4-11 8"/></svg>New branch</span>
+          <span class="subject"><a href="#branch"><span class="ref lead"><span class="repo">orders-api / </span>hotfix/2026.11.2-dose-rounding</span><span class="subref">no PR yet · created at existing commit 3f9a2c1</span></a></span>
+          <span class="event">Ana Ruiz created the branch at <span class="mono">3f9a2c1</span> (tip of main) · no new commits · 10:36
+            <span class="chips"><span class="chip name" title="Name pattern only. It says nothing about urgency, ownership or deployment.">name matches hotfix/*</span><span class="chip">no CI run yet</span></span></span>
+          <span class="counts"><b>1 unseen</b></span>
+          <span class="rowact"><a class="ghost sm ext" href="#catchup" data-static aria-label="Open hotfix branch in Azure DevOps">Azure ↗</a><button type="button" class="ghost sm" data-static aria-label="Mark this group's shown events seen">Seen</button></span>
+        </li>
+        <li class="row new" data-repo="orders-api" data-unseen="1">
+          <span class="kind br"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="5" r="2"/><circle cx="6" cy="19" r="2"/><circle cx="18" cy="7" r="2"/><path d="M6 7v10M18 9c0 5-6 4-11 8"/></svg>New branch</span>
+          <span class="subject"><a href="#branch"><span class="ref lead"><span class="repo">orders-api / </span>feature/MAN-4830-audit-log</span><span class="subref">no PR yet · created by push 8846</span></a></span>
+          <span class="event">Lars de Wit pushed 4 commits, creating the branch · 10:31
+            <span class="chips"><span class="chip run">branch CI running on 0c41d7e</span></span></span>
+          <span class="counts"><b>1 unseen</b></span>
+          <span class="rowact"><a class="ghost sm ext" href="#catchup" data-static aria-label="Open feature branch in Azure DevOps">Azure ↗</a><button type="button" class="ghost sm" data-static aria-label="Mark this group's shown events seen">Seen</button></span>
+        </li>
+        <li class="row" data-repo="herd-sync" data-unseen="2">
+          <span class="kind ok"><span class="d"></span>PR completed</span>
+          <span class="subject"><a href="#pr"><span class="title">PR 1171 · Upgrade logging library</span><span class="subref">herd-sync / chore/logging-8.2 → main</span></a></span>
+          <span class="event">Completed by Ana Ruiz · merge commit <span class="mono">9f3a0c1</span> · 09:12
+            <span class="chips"><span class="chip okc">CI passed on 9f3a0c1</span></span></span>
+          <span class="counts"><b>2 unseen</b></span>
+          <span class="rowact"><a class="ghost sm ext" href="#catchup" data-static aria-label="Open PR 1171 in Azure DevOps">Azure ↗</a><button type="button" class="ghost sm" data-static aria-label="Mark this group's shown events seen">Seen</button></span>
+        </li>
+      </ul>
+      <div class="foot">2 more groups · 5 unseen (orders-web 3, orders-api 2) · <a href="#activity">see every event in Activity</a></div>
+    </details></section>
+    <section class="group"><details><summary class="ghead"><svg class="chev" aria-hidden="true" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="m6 4 4 4-4 4" stroke-linecap="round" stroke-linejoin="round"/></svg>Seen in the last 7 days <span class="pill">23</span><span class="note">groups</span></summary></details></section>
+    <section class="group"><details><summary class="ghead"><svg class="chev" aria-hidden="true" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="m6 4 4 4-4 4" stroke-linecap="round" stroke-linejoin="round"/></svg>Hidden by mute rules <span class="pill">3</span><span class="note">branch pattern spike/* (3) · rules you added; none by default</span></summary></details></section>
+  </div>
+  <ul class="notes">
+    <li>Counts are events, not groups: a new push in an already seen group brings the group back with "1 unseen · N seen".</li>
+    <li>"Mark shown seen" sends the exact event IDs in the expanded rows as rendered. Collapsed groups, other repositories, filtered, muted and newly arrived events stay unseen. Try the repository menu, then the button.</li>
+    <li>Every branch of each selected repository is monitored, whatever is checked out locally. A hotfix/* name is a label, not urgency. No readiness or deployment claim appears in phase 1.</li>
+  </ul>
+</main>
+
+<!-- ============ ACTIVITY (phase 1) ============ -->
+<main id="screen-activity" data-screen="activity" hidden>
+  <h1 class="sr">Activity</h1>
+  <div class="toolbar" style="margin-top:0">
+    <input class="search" type="search" placeholder="Search activity…" aria-label="Search activity">
+    <div class="seg filters" role="group" aria-label="Event kind">
+      <button type="button" class="f" aria-pressed="true">All</button><button type="button" class="f" aria-pressed="false">Branches</button><button class="f" aria-pressed="false">Pushes</button><button class="f" aria-pressed="false">PRs</button><button class="f" aria-pressed="false">CI runs</button>
+    </div>
+    <label class="tog"><input type="checkbox"> Unseen only</label>
+    <label class="tog"><input type="checkbox"> Watched only</label>
+    <label class="tog"><input type="checkbox"> Include muted (3)</label>
+  </div>
+  <div class="card">
+    <div class="feed-day" style="border-top:0">Today · Tue 17 Nov</div>
+    <ol class="rows">
+      <li class="ev unseen"><time datetime="2026-11-17T10:36">10:36</time><span class="kind info-t">New branch</span>
+        <span class="body">Ana Ruiz created <span class="mono">hotfix/2026.11.2-dose-rounding</span> at existing commit <span class="mono">3f9a2c1</span>, no new commits · orders-api</span><span class="whyc"></span><a class="ext" href="#activity" data-static aria-label="Open branch in Azure DevOps">↗</a></li>
+      <li class="ev unseen"><time datetime="2026-11-17T10:31">10:31</time><span class="kind info-t">New branch</span>
+        <span class="body">Lars de Wit pushed 4 commits, creating <span class="mono">feature/MAN-4830-audit-log</span> · orders-api</span><span class="whyc"></span><a class="ext" href="#activity" data-static aria-label="Open push in Azure DevOps">↗</a></li>
+      <li class="ev unseen"><time datetime="2026-11-17T10:22">10:22</time><span class="kind" style="color:var(--critical)">✕ CI failed</span>
+        <span class="body">orders-api CI 20261117.6 on <span class="mono">main @ 3f9a2c1</span></span><span class="whyc"><span class="chip rule">CI failures on main</span></span><a class="ext" href="#activity" data-static aria-label="Open run in Azure DevOps">↗</a></li>
+      <li class="ev unseen"><time datetime="2026-11-17T09:58" title="Observed 09:59">09:58</time><span class="kind">Push</span>
+        <span class="body">Sam Ortega pushed 3 commits to <span class="mono">feature/MAN-4812-dose-limit</span> · tip <span class="mono">77b2d13 → e19f402</span> · ancestry not checked</span><span class="whyc"><span class="chip rule">feature/MAN-*</span></span><a class="ext" href="#activity" data-static aria-label="Open push in Azure DevOps">↗</a></li>
+      <li class="ev unseen"><time datetime="2026-11-17T09:12">09:12</time><span class="kind">PR completed</span>
+        <span class="body">Ana Ruiz completed PR 1171 "Upgrade logging library" into <span class="mono">main</span> · herd-sync</span><span class="whyc"></span><a class="ext" href="#activity" data-static aria-label="Open PR in Azure DevOps">↗</a></li>
+    </ol>
+    <div class="feed-day">Monday · 16 Nov</div>
+    <ol class="rows">
+      <li class="ev unseen"><time datetime="2026-11-16T18:05">18:05</time><span class="kind">Push</span>
+        <span class="body">Priya Nair pushed 1 commit to <span class="mono">fix/BIL-2210-export-retry</span> · PR 1175</span><span class="whyc"><span class="chip rule">this PR</span></span><a class="ext" href="#activity" data-static aria-label="Open push in Azure DevOps">↗</a></li>
+    </ol>
+    <div class="divider" role="separator">Unseen above</div>
+    <ol class="rows">
+      <li class="ev"><time datetime="2026-11-16T17:10">17:10</time><span class="kind">3 pushes</span>
+        <span class="body">Sam Ortega · 7 commits to <span class="mono">feature/MAN-4812-dose-limit</span> within 15 min · <button class="btn sm" data-static>Expand</button></span><span class="whyc"></span><a class="ext" href="#activity" data-static aria-label="Open in Azure DevOps">↗</a></li>
+      <li class="ev"><time datetime="2026-11-16T15:02">15:02</time><span class="kind">PR opened</span>
+        <span class="body">Sam Ortega opened draft PR 1182 "Dose limit per herd group" → <span class="mono">main</span></span><span class="whyc"></span><a class="ext" href="#activity" data-static aria-label="Open PR in Azure DevOps">↗</a></li>
+    </ol>
+    <div class="divider hist" role="separator">Imported history · before monitoring started Tue 10 Nov 10:41</div>
+    <ol class="rows">
+      <li class="ev"><time datetime="2026-11-09T14:40">Mon 9</time><span class="kind">Push</span>
+        <span class="body">Ana Ruiz pushed 2 commits to <span class="mono">main</span> · herd-sync</span><span class="whyc"></span><a class="ext" href="#activity" data-static aria-label="Open in Azure DevOps">↗</a></li>
+    </ol>
+  </div>
+</main>
+
+<!-- ============ BRANCH DETAIL (phase 1, later blocks tagged) ============ -->
+<main id="screen-branch" data-screen="branch" hidden>
+  <div class="crumb"><a href="#catchup">← Catch-up</a> · <span>2 of 3 in Watched</span> · <kbd>j</kbd>/<kbd>k</kbd> next/previous · <kbd>Esc</kbd> back</div>
+  <div class="card">
+    <div class="dhead">
+      <div style="min-width:0">
+        <h1 class="mono" style="font-size:18px">feature/MAN-4812-dose-limit</h1>
+        <div class="meta"><span>orders-api · Orders · example-org</span><span>created Mon 16 Nov 14:03 by push 8791 (Sam Ortega)</span>
+          <span>an earlier branch with this name existed 2 to 9 Oct · <a href="#branch">separate history</a></span></div>
+      </div>
+      <div class="actions">
+        <button class="btn" data-static>Open in Azure DevOps ↗</button><button class="btn" data-static aria-pressed="true">Watching</button>
+        <button class="btn" data-static>Mute…</button><button class="btn primary" data-static>Mark shown seen (2)</button>
+      </div>
+    </div>
+    <div class="facts" aria-label="Current facts">
+      <span class="chip">tip e19f402 at push 8840 · 09:58</span>
+      <span class="chip run">PR 1182 → main · active</span>
+      <span class="chip">PR 1190 → release/2026.11 · draft</span>
+      <span class="chip okc">Branch CI passed on e19f402</span>
+    </div>
+  </div>
+
+  <div class="grid2">
+    <div class="card block">
+      <h2>Pushes <span class="count">5</span></h2>
+      <div class="push highlight">
+        <div class="who"><span class="info-t">● Unseen</span> · <b>Sam Ortega</b> pushed 3 commits · <time>Tue 09:58</time></div>
+        <div class="refupd">refs/heads/feature/MAN-4812-dose-limit: 77b2d13 → e19f402 · ancestry not checked <span class="phase" style="margin-left:4px">Phase 2 checks it</span></div>
+        <div class="commit"><span class="sha">e19f402</span><span>Clamp dose limit at herd-group level</span></div>
+        <div class="commit"><span class="sha">c03b7aa</span><span>Add validation message for zero limit</span></div>
+        <div class="commit"><span class="sha">5d2e118</span><span>Rename DoseLimitPolicy to HerdDoseLimit <span class="dim">· authored Fri 13 Nov</span></span></div>
+      </div>
+      <div class="push">
+        <div class="who"><b>Sam Ortega</b> pushed 3 commits · <time>Mon 17:10</time></div>
+        <div class="refupd">5b0e9aa → 77b2d13</div>
+        <div class="commit"><span class="sha">77b2d13</span><span>Fix rounding in limit check</span></div>
+        <div class="dim" style="font-size:12.5px;padding-left:14px"><button class="btn sm" data-static>Load 2 more commits</button></div>
+      </div>
+      <div class="push dim" style="font-size:12.5px">3 earlier pushes · <button class="btn sm" data-static>Show</button></div>
+    </div>
+
+    <div class="stack">
+      <div class="card block">
+        <h2>Pull requests from this branch <span class="count">2</span></h2>
+        <table class="t"><tbody>
+          <tr><td><a href="#pr">PR 1182</a> → <span class="mono">main</span></td><td>Active since Mon 16:58 (was draft)</td></tr>
+          <tr><td>PR 1190 → <span class="mono">release/2026.11</span></td><td>Draft · opened Tue 08:30</td></tr>
+        </tbody></table>
+        <div class="foot">PR builds test each PR's merge result and are listed on the PR page.</div>
+      </div>
+      <div class="card block">
+        <h2>CI runs on this branch <span class="count">2</span></h2>
+        <table class="t"><thead><tr><th>Result</th><th>Run</th><th>Built</th><th>When</th></tr></thead><tbody>
+          <tr><td class="ok-t">✓ Passed</td><td class="mono">20261117.4</td><td><span class="mono">e19f402</span> · current tip</td><td>09:59</td></tr>
+          <tr><td class="ok-t">✓ Passed</td><td class="mono">20261116.7</td><td><span class="mono">77b2d13</span> · no longer the tip</td><td>Mon 17:11</td></tr>
+        </tbody></table>
+      </div>
+    </div>
+  </div>
+
+  <div class="grid2">
+    <div class="card block later">
+      <h2>Changed files <span class="phase">Phase 2</span></h2>
+      <div class="push">Loaded on request. <span class="chip part">files read for 3 of 5 commits</span> Path rules report "not checked" for the rest, never "no match".</div>
+    </div>
+    <div class="card block later">
+      <h2>Deployment records <span class="phase">Phase 3</span></h2>
+      <div class="push">Recorded environment deployments whose artifacts contain one of this branch's revisions. See <a href="#deployments">Deployments</a>.</div>
+    </div>
+  </div>
+</main>
+
+<!-- ============ PR DETAIL (phase 1, later blocks tagged) ============ -->
+<main id="screen-pr" data-screen="pr" hidden>
+  <div class="crumb"><a href="#catchup">← Catch-up</a> · <kbd>Esc</kbd> back</div>
+  <div class="card">
+    <div class="dhead">
+      <div style="min-width:0">
+        <h1>PR 1182 · Dose limit per herd group</h1>
+        <div class="meta"><span>orders-api</span><span class="mono">feature/MAN-4812-dose-limit → main</span><span>opened by Sam Ortega Mon 15:02</span></div>
+      </div>
+      <div class="actions"><button class="btn" data-static>Open in Azure DevOps ↗</button><button class="btn" data-static>Watch</button><button class="btn primary" data-static>Mark shown seen (1)</button></div>
+    </div>
+    <div class="facts"><span class="chip run">Active</span><span class="chip">Same source branch also has PR 1190 → release/2026.11</span></div>
+  </div>
+  <div class="grid2">
+    <div class="stack">
+      <div class="card block">
+        <h2>State changes observed</h2>
+        <table class="t"><tbody>
+          <tr><td>Mon 15:02</td><td>Opened as draft</td></tr>
+          <tr><td>Mon 16:58</td><td>Published (observed 16:59)</td></tr>
+        </tbody></table>
+        <div class="foot">Observed by polling. Changes between two refreshes, or while Repo Pulse was closed, can be missed.</div>
+      </div>
+      <div class="card block">
+        <h2>PR builds (merge result) <span class="count">2</span></h2>
+        <table class="t"><thead><tr><th>Result</th><th>Run</th><th>Built</th><th>When</th></tr></thead><tbody>
+          <tr><td class="info-t">● Running</td><td class="mono">20261117.5</td><td><span class="mono">refs/pull/1182/merge @ 8a71e02</span></td><td>10:00</td></tr>
+          <tr><td class="crit-t">✕ Failed</td><td class="mono">20261116.8</td><td><span class="mono">refs/pull/1182/merge @ 41c0b9d</span></td><td>Mon 17:14</td></tr>
+        </tbody></table>
+      </div>
+    </div>
+    <div class="stack">
+      <div class="card block later">
+        <h2>Reviewers and votes <span class="phase">Phase 2</span></h2>
+        <div class="push">Ana Ruiz: approved · Lars de Wit: no vote. A vote is not a policy result.</div>
+      </div>
+      <div class="card block later">
+        <h2>Policies and discussion <span class="phase">Phase 2</span></h2>
+        <div class="push">Policy evaluations (build validation, linked work item) and discussion activity, each with its own coverage label.</div>
+      </div>
+      <div class="card block later">
+        <h2>Deployment records <span class="phase">Phase 3</span></h2>
+        <div class="push">After completion: records whose artifacts contain the merge commit.</div>
+      </div>
+    </div>
+  </div>
+</main>
+
+<!-- ============ RULES (phase 1 basic, phase 2 tagged) ============ -->
+<main id="screen-rules" data-screen="rules" hidden>
+  <h1 class="sr">Rules</h1>
+  <div class="banner info"><span class="ic" aria-hidden="true">i</span><div><strong>How rules combine</strong>The more specific scope wins (single branch or PR, then branch pattern, then repository). At equal scope, watch wins over mute. A failed CI run on a watched branch is never hidden. Nothing is muted until you add a rule.</div></div>
+  <div class="toolbar" style="margin-top:0"><button class="btn primary" data-static>Add rule</button></div>
+  <div class="card block">
+    <h2>Watch <span class="count">3</span></h2>
+    <table class="t"><thead><tr><th>Rule</th><th>Scope</th><th>Matched · 7 days</th><th>On</th></tr></thead><tbody>
+      <tr><td>CI failures on <span class="mono">main</span>, <span class="mono">release/*</span></td><td>All repositories</td><td>2</td><td><span class="switch" role="img" aria-label="On"></span></td></tr>
+      <tr><td>Branch pattern <span class="mono">feature/MAN-*</span></td><td>orders-api</td><td>23</td><td><span class="switch" role="img" aria-label="On"></span></td></tr>
+      <tr><td>PR 1175</td><td>billing-web</td><td>6</td><td><span class="switch" role="img" aria-label="On"></span></td></tr>
+    </tbody></table>
+  </div>
+  <div class="card block" style="margin-top:16px">
+    <h2>Mute <span class="count">1</span></h2>
+    <table class="t"><thead><tr><th>Rule</th><th>Scope</th><th>Matched · 7 days</th><th>On</th></tr></thead><tbody>
+      <tr><td>Branch pattern <span class="mono">spike/*</span></td><td>orders-api</td><td>12 hidden · 0 watched</td><td><span class="switch" role="img" aria-label="On"></span></td></tr>
+    </tbody></table>
+  </div>
+  <div class="card block later" style="margin-top:16px">
+    <h2>Suggested rules, off until you choose <span class="phase">Phase 2</span></h2>
+    <table class="t"><thead><tr><th>Suggestion</th><th>Would hide · 7 days</th><th>Use</th></tr></thead><tbody>
+      <tr><td>Mute branch pattern <span class="mono">renovate/*</span></td><td>31 events · 0 in watched scope</td><td><span class="switch off" role="img" aria-label="Off"></span></td></tr>
+      <tr><td>Mute pushes by Project Collection Build Service</td><td>6 events · <span class="warn-t">2 on release/* (watched)</span></td><td><span class="switch off" role="img" aria-label="Off"></span></td></tr>
+    </tbody></table>
+    <div class="foot">An automation identity does not make an event irrelevant: a build-service push can be a version bump on a release branch. Phase 2 also adds path, author/pusher and pipeline rules and saved filters.</div>
+  </div>
+</main>
+
+<!-- ============ SETTINGS (phase 1) ============ -->
+<main id="screen-settings" data-screen="settings" hidden>
+  <h1 class="sr">Settings</h1>
+  <div class="settings">
+    <nav class="snav" aria-label="Settings sections">
+      <a href="#settings" aria-current="true">Azure CLI</a><a href="#settings">Repositories</a><a href="#settings">Refresh and diagnostics</a><a href="#settings">Local data</a><a href="#settings">Display</a>
+    </nav>
+    <div class="stack">
+      <div class="card block"><h2>Azure CLI</h2>
+        <div class="form">
+          <ul class="checklist">
+            <li><span class="ok-t">✓</span><span>Azure CLI 2.93.0 found</span></li>
+            <li><span class="ok-t">✓</span><span>azure-devops extension 1.0.2 found</span></li>
+            <li><span class="ok-t">✓</span><span>Signed in as tess.tester@example.com (az account show)</span></li>
+            <li><span class="ok-t">✓</span><span>example-org: Azure DevOps saw Tess Tester · checked 10:40</span></li>
+          </ul>
+          <div><button class="btn" data-static>Run check again</button></div>
+          <div class="help"><b>How to reconnect.</b> Run these in a terminal, then Run check again. Repo Pulse never signs in for you and never changes your default account, subscription, organization or project.
+            <pre class="cmd">az login
+az extension update --name azure-devops</pre></div>
+        </div></div>
+      <div class="card block"><h2>Repositories <span class="count">4</span></h2>
+        <table class="t"><thead><tr><th>Repository</th><th>Pushes</th><th>Pull requests</th><th>CI runs</th></tr></thead><tbody>
+          <tr><td>orders-api <span class="dim">· Orders</span></td><td class="ok-t">10:41</td><td class="ok-t">10:41</td><td class="ok-t">10:41</td></tr>
+          <tr><td>orders-web <span class="dim">· Orders</span></td><td class="ok-t">10:41</td><td class="ok-t">10:41</td><td class="ok-t">10:41</td></tr>
+          <tr><td>billing-web <span class="dim">· Billing</span></td><td class="ok-t">10:41</td><td class="ok-t">10:41</td><td class="warn-t">403 since 10:12</td></tr>
+          <tr><td>herd-sync <span class="dim">· Herd</span></td><td class="ok-t">10:41</td><td class="ok-t">10:41</td><td class="ok-t">10:41</td></tr>
+        </tbody></table>
+        <div class="foot"><button class="btn sm" data-static>Add repository</button> by folder path or repository URL. Removing a repository deletes its cached history.</div></div>
+      <div class="card block"><h2>Refresh</h2>
+        <div class="form">
+          <div class="field"><label for="iv">Refresh while the app runs</label><select id="iv"><option>Adaptive, low load (default)</option><option>Fixed, every 5 minutes</option><option>Refresh off</option></select>
+            <div class="help">Adaptive (default): low load first. With several repositories expect each to be checked about every 2 to 5 minutes; 1 minute is a best-effort target for an active feed only. Quiet repositories and a hidden tab slow to 5 minutes; activity or focus speeds them up again. The CLI budget always wins.</div></div>
+          <table class="t"><thead><tr><th>Repository</th><th>Last success</th><th>Next check</th><th>Detection latency</th><th></th></tr></thead><tbody>
+            <tr><td>orders-api</td><td>10:41</td><td>10:43</td><td>about 2 min</td><td><button class="btn sm" data-static>Pause</button></td></tr>
+            <tr><td>herd-sync</td><td>10:38</td><td>10:43 (quiet)</td><td>about 5 min</td><td><button class="btn sm" data-static>Pause</button></td></tr>
+          </tbody></table>
+          <div class="help">Diagnostics: 11 of 12 CLI starts used in the last minute · 2 subprocesses max · last cycle 9.8 s · upstream requests: unknown (not exposed by the CLI). No fixed repository limit.</div>
+        </div></div>
+      <div class="card block"><h2>Local data</h2>
+        <div class="form"><div>History kept for 90 days. Imported history boundary: orders-api 10 Nov 10:41, others 12 Nov 08:15. <button class="btn sm" data-static>Export</button> <button class="btn sm" data-static>Clear cache</button></div></div></div>
+    </div>
+  </div>
+</main>
+
+<!-- ============ ONBOARDING (phase 1) ============ -->
+<main id="screen-welcome" data-screen="welcome" hidden>
+  <div class="steps">
+    <div><h1 style="margin:8px 0 2px;font-size:22px">Set up Repo Pulse</h1><p class="dim" style="margin:0 0 6px">Read-only. Uses your existing Azure CLI sign-in. Repo Pulse sees what reached Azure DevOps; unpushed work is not visible.</p></div>
+    <div class="card step done"><h2><span class="num" aria-hidden="true">✓</span>Azure CLI ready <span class="dim" style="font-weight:400;margin-left:auto">az 2.93.0 · azure-devops 1.0.2 · signed in as tess.tester@example.com</span></h2></div>
+    <div class="card step"><h2><span class="num">2</span>Add a repository</h2>
+      <div class="form">
+        <div class="field"><label for="src">Folder path or repository URL</label><input id="src" value="~/src/orders-api">
+          <div class="help">Repo Pulse reads the folder's Git remotes only. It does not fetch, pull or check out.</div></div>
+        <fieldset style="border:0;padding:0;margin:0"><legend style="font-weight:600;font-size:13px;margin-bottom:4px">Remote</legend>
+          <label class="tog" style="color:var(--fg)"><input type="radio" name="rm" checked> origin · <span class="mono">git@ssh.dev.azure.com:v3/example-org/Orders/orders-api</span></label><br>
+          <label class="tog" style="color:var(--fg)"><input type="radio" name="rm"> upstream · <span class="mono">https://dev.azure.com/example-org/Shared/_git/orders-api</span></label></fieldset>
+        <div class="card" style="padding:12px 14px">
+          <div style="font-weight:600;margin-bottom:6px">Resolved: example-org / Orders / orders-api <span class="dim mono" style="font-weight:400">id 6c1e…a92f</span></div>
+          <div class="dim" style="font-size:12.5px;margin-bottom:8px">Azure DevOps identity used by the CLI: Tess Tester. An SSH key or clone is not API access; these reads are what count.</div>
+          <ul class="checklist">
+            <li><span class="ok-t">✓</span><span>List pushes · ok</span></li>
+            <li><span class="ok-t">✓</span><span>List pull requests · ok</span></li>
+            <li><span class="ok-t">✓</span><span>List pipeline runs in project Orders · ok</span></li>
+            <li><span class="dim" aria-hidden="true">○</span><span class="dim">Environment deployment history · not tested (phase 3)</span></li>
+          </ul>
+        </div>
+        <div><button class="btn primary" data-static>Add repository</button> <button class="btn" data-static>Add another</button></div>
+      </div></div>
+    <div class="card step"><h2><span class="num">3</span>Start</h2>
+      <div class="form"><div>Import the last <b>7 days</b> as history, then monitor from now. Imported events are listed under their own label and are not counted as unseen.</div>
+        <div><button class="btn primary" data-static>Start</button></div></div></div>
+    <p class="dim" style="font-size:12.5px;margin:0">Repositories may come from several organizations reachable by the same CLI identity. Different Azure accounts at once are not supported.</p>
+  </div>
+</main>
+
+<!-- ============ STATES (phase 1) ============ -->
+<main id="screen-states" data-screen="states" hidden>
+  <h1 class="sr">States</h1>
+  <div class="statesgrid">
+    <div class="card state"><h3>First load / importing</h3><div class="body"><div class="skel" style="width:60%"></div><div class="skel"></div><div class="skel" style="width:80%"></div><div class="dim" style="font-size:12.5px">Importing 7 days for orders-api: pushes done, PRs 40 so far, CI runs pending. Nothing counted unseen yet.</div></div></div>
+    <div class="card state"><h3>Partial</h3><div class="body"><div class="banner warn"><span class="ic" aria-hidden="true">!</span><div><strong>billing-web · CI runs refused (403) since 10:12</strong>Pushes and PRs current. Headline says "at least 14 unseen".</div></div></div></div>
+    <div class="card state"><h3>History gap</h3><div class="body"><div class="banner warn"><span class="ic" aria-hidden="true">!</span><div><strong>Pushes 09:00 to 09:40 not fully read · orders-api</strong>Stopped at page 3. Retrying at 10:43. The gap stays listed in Activity until filled.</div></div></div></div>
+    <div class="card state"><h3>Stale</h3><div class="body"><div class="banner warn"><span class="ic" aria-hidden="true">!</span><div><strong>Showing data from 10:02 (39 min old)</strong>Last cycle failed: network unreachable. Check VPN. <button class="btn sm" data-static>Retry</button></div></div></div></div>
+    <div class="card state"><h3>CLI sign-in needed</h3><div class="body"><div class="banner crit"><span class="ic" aria-hidden="true">✕</span><div><strong>Azure CLI not signed in for example-org</strong>Run <span class="mono">az login</span> in a terminal, then <button class="btn sm" data-static>Check again</button>. Refresh paused for this organization; data below is from 09:40.</div></div></div></div>
+    <div class="card state"><h3>Throttled</h3><div class="body"><div class="banner info"><span class="ic" aria-hidden="true">i</span><div><strong>Azure DevOps is limiting requests</strong>Next attempt about 10:47 (backoff). An exact time is shown only when the response provides one.</div></div></div></div>
+    <div class="card state"><h3>Nothing unseen</h3><div class="body empty"><div class="big">Nothing unseen</div><div class="dim">All 4 repositories read at 10:41. Shown only when every stream succeeded.</div></div></div>
+    <div class="card state"><h3>Filtered</h3><div class="body empty"><div class="big">No events match "Watched only"</div><div class="dim">3 unseen events hidden by filters.</div><button class="btn sm" data-static style="margin-top:6px">Clear filters</button></div></div>
+    <div class="card state"><h3>All muted</h3><div class="body empty"><div class="big">12 unseen events, all hidden by mute rules</div><div class="dim">spike/* (10), repository herd-legacy (2)</div><button class="btn sm" data-static style="margin-top:6px">Show</button></div></div>
+    <div class="card state"><h3>Branch no longer found</h3><div class="body"><b class="mono">feature/HS-702-retry</b> is no longer listed since 09:14 (last seen 08:59). Deleted, renamed or no longer readable; Azure did not say which. With a deletion push on record this reads "Deleted by push 8840, Ana Ruiz, Tue 09:12".</div></div>
+  </div>
+</main>
+
+<!-- ============ DEPLOYMENTS (phase 3) ============ -->
+<main id="screen-deployments" data-screen="deployments" hidden>
+  <div class="banner info"><span class="phase" style="margin-top:2px">Phase 3</span><div><strong>Deployments · later phase, after phase 0 proves the deployment source</strong>Example uses YAML environment records. Nothing here is inferred from stage or branch names.</div></div>
+  <div class="card block later">
+    <h2>Recorded deployments · billing-web <span class="phase">Phase 3</span></h2>
+    <table class="t evid"><thead><tr><th>Environment</th><th>Latest record</th><th>Run and revisions</th><th>Chain</th><th>When</th></tr></thead><tbody>
+      <tr><td><b>TST</b> <span class="dim mono">billing-tst</span></td><td><span class="lvl rec"><span class="m"></span>Deployment recorded · succeeded</span><br><span class="dim">attempt 2 (attempt 1 failed)</span></td><td>Run 20261117.2 · billing-web <span class="mono">9f3a0c1</span> · billing-db <span class="mono">a0d4410</span></td><td><span class="ok-t">complete</span></td><td>07:55</td></tr>
+      <tr><td><b>ACC</b> <span class="dim mono">billing-acc</span></td><td><span class="lvl rec"><span class="m"></span>Later deployment of an earlier run</span><br><span class="dim">run 20261115.3 after 20261116.4</span></td><td>Run 20261115.3 · billing-web <span class="mono">c71e002</span> · billing-db <span class="dim">revision unknown</span></td><td><span class="warn-t">incomplete: billing-db artifact not linked to a run</span></td><td>Mon 16:40</td></tr>
+      <tr><td><b>PRD</b></td><td><span class="lvl unk"><span class="m"></span>Unknown: cannot read</span></td><td class="dim">Environment history refused (403)</td><td></td><td></td></tr>
+      <tr><td><b>CI stage</b> <span class="dim mono">Deploy_TST</span></td><td colspan="4" class="dim">Stage results stay in the run's pipeline view (phase 2). A succeeded stage is not a deployment record and does not appear in this table.</td></tr>
+    </tbody></table>
+    <div class="foot">These are recorded deployment attempts. They do not show what is currently running; manual or external changes are not visible here.</div>
+  </div>
+</main>
+
+<!-- ============ ROADMAP ============ -->
+<main id="screen-roadmap" data-screen="roadmap" hidden>
+  <h1 style="font-size:18px;margin:4px 0 12px">Phases</h1>
+  <div class="roadmap">
+    <div class="card"><h3><span class="phase">Phase 0</span>Proof</h3><ul><li>CLI check, identity, capability report</li><li>Pagination, throttling, subprocess cost measured</li><li>Deployment source inventoried</li></ul></div>
+    <div class="card"><h3><span class="phase">Phase 1</span>Catch-up MVP</h3><ul><li>Pushes incl. no-PR branches</li><li>PR state, CI results, exact links</li><li>Per-event unseen, mark shown seen</li><li>Basic repo/branch watch and mute</li><li>Freshness and partial states</li></ul></div>
+    <div class="card"><h3><span class="phase">Phase 2</span>Relevance and details</h3><ul><li>Changed files, path rules</li><li>Votes, policies, discussion</li><li>Stages, tests, artifacts</li><li>Rewrite evidence, suggested rules (off)</li></ul></div>
+    <div class="card"><h3><span class="phase">Phase 3</span>Deployment proof</h3><ul><li>Recorded deployments, attempts</li><li>Artifact to run to revision chains</li><li>Environment comparison</li></ul></div>
+    <div class="card"><h3><span class="phase">Phase 4</span>Convenience</h3><ul><li>Opt-in notifications, digest</li><li>Copy/export evidence summary</li><li>Local ahead/behind status</li><li>Packaging</li></ul></div>
+  </div>
+</main>
+
+<!-- ============ KEYBOARD ============ -->
+<main id="screen-keys" data-screen="keys" hidden>
+  <div class="card block"><h2>Keyboard shortcuts <span class="dim" style="font-weight:400">press ? anywhere · disabled while typing</span></h2>
+    <div class="keys">
+      <div><kbd>/</kbd> search</div><div><kbd>g</kbd> <kbd>c</kbd> Catch-up</div><div><kbd>g</kbd> <kbd>a</kbd> Activity</div><div><kbd>g</kbd> <kbd>r</kbd> Rules</div>
+      <div><kbd>j</kbd> / <kbd>k</kbd> next / previous</div><div><kbd>Enter</kbd> open detail</div><div><kbd>Esc</kbd> back / close</div><div><kbd>o</kbd> open in Azure DevOps</div>
+      <div><kbd>m</kbd> mark this group's shown events seen</div><div><kbd>Shift</kbd>+<kbd>M</kbd> mark shown seen</div><div><kbd>u</kbd> mark unseen again</div>
+      <div><kbd>w</kbd> watch / unwatch</div><div><kbd>x</kbd> mute menu</div><div><kbd>y</kbd> copy Azure DevOps link</div>
+      <div><kbd>c</kbd> copy evidence summary <span class="phase">Phase 4</span></div><div><kbd>?</kbd> this overlay</div>
+    </div></div>
+  <p class="notes" style="padding-left:0">In this mockup, <kbd>g</kbd> then <kbd>c</kbd>/<kbd>a</kbd>/<kbd>r</kbd>, <kbd>j</kbd>/<kbd>k</kbd> on Catch-up rows, <kbd>Shift</kbd>+<kbd>M</kbd>, <kbd>Esc</kbd> and <kbd>?</kbd> work. Other controls show a "not functional" notice.</p>
+</main>
+</div>
+
+</div>
+
+<dialog id="confirm" aria-labelledby="confirm-title">
+  <form method="dialog">
+    <div class="dbody">
+      <h2 id="confirm-title" style="font-size:16px">Mark <span data-n="shown">9</span> shown events seen?</h2>
+      <div>These are the <span data-n="shown">9</span> unseen events in the expanded <b>Watched</b> and <b>Other unseen</b> rows as currently rendered.</div>
+      <div class="dim"><span data-n="stay">8</span> unseen events stay unseen: <span data-n="notshown">5</span> not shown in this list (collapsed groups or repositories outside the current scope) and 3 hidden by mute rules. Events that arrive after this list was rendered are not included.</div>
+    </div>
+    <div class="dfoot"><button class="btn" value="cancel">Cancel</button><button class="btn primary" value="ok">Mark <span data-n="shown">9</span> seen</button></div>
+  </form>
+</dialog>
+<div class="toast" id="toast" role="status" hidden></div>
+
+<script>
+(() => {
+  const root = document.documentElement;
+
+  /* Screens */
+  const screens = [...document.querySelectorAll('[data-screen]')];
+  const tabMap = { branch: 'catchup', pr: 'catchup' };
+  function show() {
+    const id = (location.hash || '#catchup').slice(1);
+    const target = screens.find(s => s.dataset.screen === id) ? id : 'catchup';
+    screens.forEach(s => { s.hidden = s.dataset.screen !== target; });
+    document.querySelectorAll('.mock nav a').forEach(a => a.setAttribute('aria-current', String(a.getAttribute('href') === '#' + target)));
+    const tab = tabMap[target] || target;
+    document.querySelectorAll('[data-tab]').forEach(a => a.dataset.tab === tab ? a.setAttribute('aria-current', 'page') : a.removeAttribute('aria-current'));
+  }
+  addEventListener('hashchange', show); show();
+
+  /* The system option follows OS changes. Manual selections persist when storage is available. */
+  const KEY = 'rp-theme';
+  const darkQuery = window.matchMedia ? matchMedia('(prefers-color-scheme: dark)') : { matches: false, addEventListener() {} };
+  let theme = 'system';
+  try { const v = localStorage.getItem(KEY); if (v === 'light' || v === 'dark' || v === 'system') theme = v; } catch (e) {}
+  function applyTheme() {
+    root.classList.add('theme-switching');
+    root.classList.toggle('dark', theme === 'dark' || (theme === 'system' && darkQuery.matches));
+    getComputedStyle(document.body).color;
+    requestAnimationFrame(() => root.classList.remove('theme-switching'));
+    document.querySelectorAll('[data-theme-set]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.themeSet === theme)));
+  }
+  document.querySelectorAll('[data-theme-set]').forEach(b => b.addEventListener('click', () => {
+    theme = b.dataset.themeSet;
+    try { localStorage.setItem(KEY, theme); } catch (e) {}
+    applyTheme();
+  }));
+  if (darkQuery.addEventListener) darkQuery.addEventListener('change', applyTheme);
+  else if (darkQuery.addListener) darkQuery.addListener(applyTheme);
+  applyTheme();
+
+  /* Toast for controls that are layout only */
+  const toast = document.getElementById('toast');
+  let tt;
+  function note(msg) { toast.textContent = msg; toast.hidden = false; clearTimeout(tt); tt = setTimeout(() => { toast.hidden = true; }, 2400); }
+  document.addEventListener('click', e => {
+    const el = e.target.closest('[data-static]');
+    if (el) { e.preventDefault(); note('Mockup only: this control is not functional.'); }
+  });
+  document.querySelectorAll('.filters .f').forEach(b => b.addEventListener('click', () => note('Mockup only: kind filters are not functional.')));
+
+  /* Repository scope: multi-select. Hides rows of deselected repositories and recounts what
+     "Mark shown seen" would send. Nothing is acknowledged by changing scope. */
+  const TOTAL_UNSEEN = 14, MUTED = 3, REPOS = 4;
+  const toggle = document.getElementById('repo-toggle');
+  const panel = document.getElementById('repo-panel');
+  const boxes = [...panel.querySelectorAll('input[type=checkbox]')];
+  function setOpen(open) { panel.hidden = !open; toggle.setAttribute('aria-expanded', String(open)); }
+  toggle.addEventListener('click', () => setOpen(panel.hidden));
+  document.addEventListener('click', e => { if (!panel.hidden && !e.target.closest('#repo-menu')) setOpen(false); });
+  panel.addEventListener('keydown', e => { if (e.key === 'Escape') { e.stopPropagation(); setOpen(false); toggle.focus(); } });
+  document.getElementById('repo-all').addEventListener('click', () => { boxes.forEach(b => { b.checked = true; }); scope(); });
+  boxes.forEach(b => b.addEventListener('change', scope));
+  function scope() {
+    const on = boxes.filter(b => b.checked).map(b => b.value);
+    const all = on.length === REPOS;
+    const label = all ? 'All 4 repositories' : on.length === 0 ? 'No repositories' : on.length === 1 ? on[0] : on.length + ' of 4 repositories';
+    document.getElementById('repo-label').textContent = label;
+    toggle.setAttribute('aria-label', 'Repositories shown: ' + (all ? 'all 4 watched' : on.length + ' of 4, ' + on.join(', ')));
+    let shown = 0;
+    document.querySelectorAll('#screen-catchup .row[data-repo]').forEach(r => {
+      const vis = on.includes(r.dataset.repo);
+      r.hidden = !vis;
+      if (vis) shown += +r.dataset.unseen;
+    });
+    const outside = boxes.filter(b => !b.checked).reduce((n, b) => n + +b.closest('.opt').querySelector('.pill').textContent, 0);
+    document.getElementById('shown-n').textContent = shown;
+    document.getElementById('scope-count').textContent = on.length + ' of 4';
+    document.getElementById('scope-note').textContent = all ? 'repositories · all branches of each' : 'repositories · ' + outside + ' unseen in the others, still unseen';
+    document.querySelectorAll('[data-n="shown"]').forEach(n => { n.textContent = shown; });
+    document.querySelectorAll('[data-n="notshown"]').forEach(n => { n.textContent = TOTAL_UNSEEN - shown; });
+    document.querySelectorAll('[data-n="stay"]').forEach(n => { n.textContent = TOTAL_UNSEEN + MUTED - shown; });
+    document.getElementById('mark-shown').disabled = shown === 0;
+    document.getElementById('live').textContent = 'Showing ' + label + '. ' + shown + ' unseen events listed.';
+  }
+
+  /* Mark shown seen: confirmation with shown and not-shown counts */
+  const dlg = document.getElementById('confirm');
+  function confirmShown() {
+    if (typeof dlg.showModal === 'function') dlg.showModal(); else note('Mark shown seen asks for confirmation with shown and not-shown counts.');
+  }
+  document.getElementById('mark-shown').addEventListener('click', confirmShown);
+  dlg.addEventListener('close', () => { if (dlg.returnValue === 'ok') note('Mockup: ' + document.getElementById('shown-n').textContent + ' events would be marked seen; nothing changes here.'); });
+
+  /* Keyboard */
+  let g = false;
+  addEventListener('keydown', e => {
+    if (e.target.closest('input, select, textarea') || e.metaKey || e.ctrlKey || e.altKey || dlg.open) return;
+    if (e.key === 'Escape' && !panel.hidden) { setOpen(false); toggle.focus(); return; }
+    if (g) { g = false; const m = { c: 'catchup', a: 'activity', r: 'rules' }[e.key]; if (m) location.hash = m; return; }
+    if (e.key === 'g') { g = true; return; }
+    if (e.key === '?') { location.hash = 'keys'; return; }
+    if (e.key === 'Escape') { location.hash = 'catchup'; return; }
+    if (e.key === 'M' && e.shiftKey && !document.getElementById('screen-catchup').hidden) { confirmShown(); return; }
+    if (e.key === '/') { const s = document.querySelector('main:not([hidden]) .search'); if (s) { e.preventDefault(); s.focus(); } return; }
+    if (e.key === 'j' || e.key === 'k') {
+      const rows = [...document.querySelectorAll('main:not([hidden]) .row:not([hidden]) .subject a')].filter(a => a.offsetParent);
+      if (!rows.length) return;
+      const i = rows.indexOf(document.activeElement);
+      const n = e.key === 'j' ? Math.min(rows.length - 1, i + 1) : Math.max(0, i - 1);
+      rows[n].focus();
+    }
+  });
+})();
+</script>
+</body>
+</html>
