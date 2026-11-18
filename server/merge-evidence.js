@@ -228,10 +228,13 @@ export function classifyMergeEvidence(
     notes.push('No completed PR association observed at this check; source branch and integration intent remain unknown.');
   if ([...prs.values()].some(pr => pr.relationship === 'constituent-related'))
     notes.push('A completed PR is related, but its resulting revision was not established among the introduced commits.');
+  // A range whose old tip Azure could not read leaves that update's introduced commits unproven.
+  const unproven = (refRanges || []).some(range => range.complete === false && range.update?.status === 'unknown');
+  if (unproven) notes.push('Azure could not list the commits a branch update introduced; coverage for that update is unproven.');
   const introducedCommitIds =
     refRanges === undefined ? [...introduced.keys()] : [...new Set(refRanges.flatMap(range => range.commitIds || []))];
   return {
-    status: complete && !graphGap ? 'complete' : 'partial',
+    status: complete && !graphGap && !unproven ? 'complete' : 'partial',
     checkedAt,
     associationExpiresAt,
     candidateCommitIds: [...introduced.keys()],

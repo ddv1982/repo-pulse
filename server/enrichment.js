@@ -292,10 +292,9 @@ export function createEnrichment({ store, provider, now = Date.now, negativeTtlM
   async function hydrateStage(repo, event, job) {
     // An old tip Azure could not read for the history check stays unknown instead of failing hydration forever.
     const unreadable = new Set((job.refRanges || []).filter(range => range.update?.status === 'unknown').map(range => range.oldObjectId));
-    const ids = unique([
-      ...(job.commitIds || []),
-      ...mergeUpdates(event).flatMap(ref => [unreadable.has(ref.oldObjectId) ? undefined : ref.oldObjectId, ref.newObjectId]),
-    ]);
+    const ids = unique([...(job.commitIds || []), ...mergeUpdates(event).flatMap(ref => [ref.oldObjectId, ref.newObjectId])]).filter(
+      id => !unreadable.has(id),
+    );
     const missing = ids.filter(id => !Array.isArray(commit(repo.id, id)?.parents)).slice(0, 2);
     if (!missing.length) {
       saveStep(repo, event, { ...job, stage: 'prs' });

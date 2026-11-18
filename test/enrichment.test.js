@@ -476,4 +476,28 @@ test('an old tip Azure cannot read for the forward range ends as unknown instead
   const range = f.store.getEvent('push').data.mergeEvidence.refRanges[0];
   assert.deepEqual(range.update, { status: 'unknown' });
   assert.equal(range.complete, false, 'introduced commits stay unproven');
+  const evidence = f.store.getEvent('push').data.mergeEvidence;
+  assert.equal(evidence.status, 'partial', 'coverage is not claimed complete');
+  assert.ok(
+    evidence.limitations.some(note => /could not list/.test(note)),
+    'the limitation says why',
+  );
+});
+
+test('an unreadable old tip listed among the job commits does not loop hydration', async t => {
+  const f = fixture(t, {
+    async commitsByIds(_repo, ids) {
+      if (ids.includes(old)) throw Object.assign(new Error('Not found.'), { code: 'EVIDENCE_UNAVAILABLE' });
+      return objects.filter(item => ids.includes(item.commitId));
+    },
+  });
+  f.store.saveJob({
+    ...f.store.listJobs()[0],
+    stage: 'hydrate',
+    commitIds: [old],
+    rangesComplete: true,
+    refRanges: [{ ...push.data.refUpdates[0], commitIds: [], complete: false, update: { status: 'unknown' } }],
+  });
+  await drain(f.store, f.worker());
+  assert.deepEqual(f.store.listJobs({ type: 'merge' }), [], 'the job finishes');
 });
