@@ -87,10 +87,10 @@ is shown before the fix.
 - [x] Report which tests fail and what each failure would mean for a user. This is the concrete list of what the custom code buys. The recovery tests (interruption before files change, after files change, and after the ref commit, plus PID reuse) are expected to stop applying rather than fail, since a merge leaves no journal.
 - [x] You choose. Replace it (phase 9), or keep the custom code Decision: keep, recorded in `docs/MAINTAINING.md` (the reversible default; no answer was given for this question). and record why in `docs/MAINTAINING.md`. Note that PLAN.md phase 1 ("Make Pull recoverable") is the work this would remove.
 
-### Phase 9. Replace the custom fast-forward (only if chosen at gate B). Skipped: gate B kept the custom code.
-- [ ] Switch `fastForward` to the merge command. Delete the private index handling, `withLockedRefs`, the pull journal, `pull-owner.js`, and the recovery states that only exist for them. Remove their callers in the same change.
-- [ ] Remove `pull_operations` from the schema with a migration, and cover it with a migration test.
-- [ ] Run all checks and `npm run test:ui`, then do a manual Pull in a disposable clone with unrelated local edits.
+### Phase 9. Replace the custom fast-forward (only if chosen at gate B). Gate B's keep decision was later reversed: Pull now uses plain Git.
+- [x] Switch `fastForward` to the merge command. Delete the private index handling, `withLockedRefs`, the pull journal, `pull-owner.js`, and the recovery states that only exist for them. Remove their callers in the same change.
+- [x] Remove `pull_operations` from the schema with a migration, and cover it with a migration test.
+- [x] Run all checks and `npm run test:ui`, then do a manual Pull in a disposable clone with unrelated local edits.
 
 ## Wrap-up
 - [ ] Reread this file and list every unchecked item along with the reason it is unchecked.

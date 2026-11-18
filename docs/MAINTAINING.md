@@ -7,7 +7,7 @@
 | [server.js](../server.js) | Loopback HTTP, request validation, CSRF, and runtime wiring |
 | [server/azure-cli.js](../server/azure-cli.js), [server/azure-rest.js](../server/azure-rest.js) and [server/azure-client.js](../server/azure-client.js) | Azure command allowlist, queue, token-based REST reads, endpoint queries, and paging |
 | [server/sync.js](../server/sync.js), [server/backfill.js](../server/backfill.js), and [server/enrichment.js](../server/enrichment.js) | Live polling, historical imports, and evidence collection |
-| [server/store.js](../server/store.js) | SQLite events, migrations, atomic checkpoints, and Pull journal |
+| [server/store.js](../server/store.js) | SQLite events, migrations, and atomic checkpoints |
 | [server/activity-query.js](../server/activity-query.js) | Scoped Activity rows, stable filter IDs, counts, and paging |
 | [server/repositories.js](../server/repositories.js) and [server/checkout-git.js](../server/checkout-git.js) | Checkout discovery, local Git status, explicit fetch, and guarded fast-forward |
 | [src/web.js](../src/web.js) and [src/ui/](../src/ui/) | Browser wiring, view rendering, refresh coordination, navigation, and exact seen actions |
@@ -16,16 +16,6 @@
 The app uses Node 26, built-in SQLite, plain JavaScript, and CSS. It has no runtime npm dependencies or build step. Live and demo databases are separate and ignored by Git. `PORT` changes the loopback port. `REPO_PULSE_DATA_DIR` changes the storage directory. Use one Azure CLI account context for each local data directory.
 
 Keep Azure reads in the shared queue. `devops invoke` reads go over HTTPS with an Azure DevOps token from `az account get-access-token`, which is renewed five minutes before it expires and after a 401. The token stays inside `azure-rest.js`: it is never returned, logged or put in an error, and `run()` still refuses token commands. Other commands, such as the connection check and `repos show`, still start `az`. Explicit Git operations must act on the linked checkout and its verified upstream. Store raw events and checkpoints together. Enrichment can add evidence to a record without changing its ID or seen state.
-
-## Recover an interrupted Pull
-
-Repo Pulse records a Pull in SQLite before it locks or changes the checkout. On restart it clears that record if the branch, index, and working files are already consistent at the recorded starting or target commit. On Linux it checks the recorded process start time as well as the PID. If it cannot verify a still-live PID belongs to a different process, it keeps the checkout blocked. Recovery never writes to the checkout or removes locks.
-
-If the repository shows **Pull interrupted**, first make sure no Git operation is still running there. Review the branch and changes with `git status`, `git diff`, and `git diff --cached` before making changes. The app keeps Pull blocked while an index lock exists or the recorded branch is inconsistent. If a stale lock remains, verify its ownership before resolving it manually in Git. Save any edits made after the interruption before restoring or finishing the update.
-
-## Why Pull does not use git merge
-
-On 2026-11-18 a prototype replaced the custom fast-forward with `git merge --ff-only --no-overwrite-ignore <tip>` after the same pre-checks. Every behavioural test in `test/checkout-git.test.js` still passed: local edits kept, ignored files protected, an edit during the fetch blocked, and a branch switch unable to advance either branch. Four tests failed. One checks that the worktree update goes through the locked private index, and three in `test/checkout-recovery.test.js` interrupt Pull inside that mechanism. The custom code stays for what only it provides: the pull journal that reports an interrupted Pull after a crash, and an `update-ref` transaction that verifies the tracking ref has not moved while HEAD advances. Replacing it would delete about a third of `checkout-git.js`, `pull-owner.js` and the `pull_operations` table, so revisit it if that recovery path is no longer wanted.
 
 ## Run checks
 
