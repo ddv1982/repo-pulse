@@ -123,6 +123,7 @@ function failPage(state, at, error, intervalMs) {
   const delay = Math.min(30 * 60000, intervalMs * 2 ** Math.min(failures - 1, 4));
   // Caught values are untyped; provider errors carry a user-facing message only when they have a code.
   const { code, message } = /** @type {{ code?: string, message: string }} */ (error);
+  // A manual request ends with its failure; retrying is left to the user while automatic checks are off.
   return { ...state, manual: false, failures, error: { code: code || 'SYNC_FAILED',
     message: code ? message : 'Could not refresh this Azure activity stream.' }, nextAt: iso(at + delay) };
 }
