@@ -46,7 +46,7 @@ export function createAzureClient({ cli, now = Date.now } = {}) {
         const extension = await cached('cli-extension', () => cli.run(['extension', 'show', '--name', 'azure-devops']), 300_000);
         const result = { available: true, version: version['azure-cli'], extension: extension.version, identity: null, identityVerified: false,
           signedIn: false, message: 'Azure CLI and the DevOps extension are already installed. Existing CLI credentials will be used when you add a repository.' };
-        // Local account metadata only: never acquire, print or return a token.
+        // account show reads local account metadata only; it never acquires, prints or returns a token.
         try {
           const account = await cached('cli-account', () => cli.run(['account', 'show']), 30_000);
           if (account.user?.name) {
