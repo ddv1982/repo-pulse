@@ -246,7 +246,8 @@ export function createEnrichment({ store, provider, now = Date.now, negativeTtlM
     if (!mergeUpdates(event).length) return finishWithoutUpdates;
     const stage = job.stage || 'commits';
     if (['hydrate', 'prs'].includes(stage) && !job.rangesComplete) return restartRanges;
-    if (!Object.hasOwn(stages, stage)) throw failure('INVALID_JOB', 'Merge enrichment could not resume its saved stage.');
+    if (typeof stage !== 'string' || !Object.hasOwn(stages, stage))
+      throw failure('INVALID_JOB', 'Merge enrichment could not resume its saved stage.');
     return stages[stage];
   }
   async function advance(repo, event, job) {
