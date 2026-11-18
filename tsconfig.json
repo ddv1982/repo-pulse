@@ -8,36 +8,5 @@
     "target": "ES2024",
     "types": ["node"]
   },
-  "include": [
-    "server.js",
-    "server/**/*.js",
-    "src/activity.js",
-    "src/activity-text.js",
-    "src/ui/activity-data.js",
-    "src/ui/refresh.js",
-    "src/api.js",
-    "src/ui/activity-detail.js",
-    "src/ui/feed.js",
-    "src/ui/format.js",
-    "src/ui/merge-evidence.js",
-    "src/ui/activity-trail.js",
-    "src/ui/activity-summary.js",
-    "src/ui/health.js",
-    "src/ui/icons.js",
-    "src/ui/type-filter.js",
-    "src/ui/dom.js",
-    "src/ui/repository-picker.js",
-    "web/theme.js",
-    "src/ui/navigation.js",
-    "src/ui/header.js",
-    "src/ui/connection.js",
-    "src/ui/settings.js",
-    "src/ui/seen-actions.js",
-    "src/ui/history-import.js",
-    "src/ui/checkout.js",
-    "src/ui/checkout-actions.js",
-    "src/ui/repositories.js",
-    "src/ui/browser-view.js",
-    "src/web.js"
-  ]
+  "include": ["server.js", "server/**/*.js", "src/**/*.js", "web/**/*.js"]
 }
