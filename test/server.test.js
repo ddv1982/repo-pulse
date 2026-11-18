@@ -8,14 +8,13 @@ import { createStore } from '../server/store.js';
 import { createApp } from '../server.js';
 import { seedDemo } from '../server/demo.js';
 
-async function fixture(t, { demo = true } = {}) {
+async function fixture(t, { demo = true, ...options } = {}) {
   const directory = await mkdtemp(join(tmpdir(), 'repo-pulse-server-'));
   const store = createStore(join(directory, 'test.sqlite'));
   seedDemo(store);
   const calls = [];
   const sync = { refresh(ids) { calls.push(ids); return { queued: true }; }, status() { return { running: false }; } };
-  const provider = { checkConnection: async () => ({ available: true, identity: 'test' }) };
-  const app = createApp({ store, provider, sync, demo });
+  const app = createApp({ store, provider: { checkConnection: async () => ({ available: true, identity: 'test' }) }, sync, demo, ...options });
   await new Promise(resolve => app.listen(0, '127.0.0.1', resolve));
   const url = `http://127.0.0.1:${app.address().port}`;
   t.after(async () => { await new Promise(resolve => app.close(resolve)); store.close(); await rm(directory, { recursive: true, force: true }); });
@@ -56,14 +55,18 @@ test('acknowledges exact shown IDs; a concurrently incoming demo branch stays un
   assert.ok(undo.filter(event => shown.includes(event.id)).every(event => !event.seen));
 });
 
-test('refresh coalesces through sync interface, pauses persist and bad input is rejected', async t => {
+test('refresh coalesces through sync interface, disabling persists and bad input is rejected', async t => {
   const { mutate, calls, state, url } = await fixture(t);
   assert.equal((await mutate('/api/refresh', { repoIds: [state.repos[0].id] })).status, 202);
   assert.deepEqual(calls, [[state.repos[0].id]]);
   assert.equal((await mutate('/api/refresh', { repoIds: ['unknown'] })).status, 404);
-  assert.equal((await mutate(`/api/repos/${state.repos[0].id}`, { paused: true }, { method: 'PATCH' })).status, 200);
+  assert.equal((await mutate(`/api/repos/${state.repos[0].id}`, { paused: true }, { method: 'PATCH' })).status, 400);
+  assert.equal((await mutate(`/api/repos/${state.repos[0].id}`, { disabled: true }, { method: 'PATCH' })).status, 200);
   const after = await (await fetch(url + '/api/state')).json();
-  assert.equal(after.repos.find(repo => repo.id === state.repos[0].id).paused, true);
+  assert.equal(after.repos.find(repo => repo.id === state.repos[0].id).disabled, true);
+  assert.equal(calls.length, 1);
+  assert.equal((await mutate(`/api/repos/${state.repos[0].id}`, { disabled: false }, { method: 'PATCH' })).status, 200);
+  assert.deepEqual(calls.at(-1), [state.repos[0].id]);
   assert.equal((await mutate('/api/settings', { refreshEnabled: false })).status, 200);
   assert.equal((await mutate('/api/settings', { refreshEnabled: true })).status, 200);
   const resumed = (await (await fetch(url + '/api/state')).json()).settings.refreshResumedAt;
@@ -71,6 +74,55 @@ test('refresh coalesces through sync interface, pauses persist and bad input is 
   assert.equal((await mutate('/api/settings', { refreshEnabled: true })).status, 200);
   assert.equal((await (await fetch(url + '/api/state')).json()).settings.refreshResumedAt, resumed);
   assert.equal((await mutate('/api/repos', { url: 'https://dev.azure.com/example/Demo/_git/test' })).status, 400);
+});
+
+test('a disabled repository disappears from activity and event details until enabled again', async t => {
+  const { mutate, url, state } = await fixture(t);
+  const activity = async (query = '') => (await (await fetch(`${url}/api/activity${query}`)).json()).items.flatMap(item => item.events);
+  const id = 'demo-billing';
+  const eventId = (await activity()).find(event => event.repoId === id).id;
+  const revision = state.activityRevision;
+  assert.equal((await mutate(`/api/repos/${id}`, { disabled: true }, { method: 'PATCH' })).status, 200);
+  const after = await (await fetch(url + '/api/state')).json();
+  assert.notEqual(after.activityRevision, revision);
+  assert.ok(after.repos.some(repo => repo.id === id && repo.disabled));
+  assert.ok((await activity()).length > 0);
+  assert.ok((await activity()).every(event => event.repoId !== id));
+  assert.deepEqual(await activity(`?repoIds=${id}`), []);
+  assert.ok((await activity(`?repoIds=${id},demo-orders`)).every(event => event.repoId === 'demo-orders'));
+  assert.equal((await fetch(`${url}/api/events/${encodeURIComponent(eventId)}`)).status, 404);
+  assert.equal((await mutate(`/api/repos/${id}`, { disabled: false }, { method: 'PATCH' })).status, 200);
+  assert.ok((await activity()).some(event => event.repoId === id));
+  assert.equal((await fetch(`${url}/api/events/${encodeURIComponent(eventId)}`)).status, 200);
+});
+
+test('checkout status skips disabled repositories', async t => {
+  const checked = [];
+  const checkoutGit = { status: async repo => { checked.push(repo.id); return { state: 'clean' }; } };
+  const { url, store } = await fixture(t, { demo: false, checkoutGit });
+  store.saveRepo({ ...store.getRepo('demo-billing'), disabled: true });
+  const result = await (await fetch(url + '/api/checkouts')).json();
+  assert.deepEqual(Object.keys(result).sort(), ['demo-orders', 'demo-shared']);
+  assert.deepEqual(checked.sort(), ['demo-orders', 'demo-shared']);
+});
+
+test('a disabled repository makes no direct Azure reads', async t => {
+  const reads = [];
+  const provider = { checkConnection: async (org, repo) => { reads.push(['connection', repo?.id]); return { available: true }; },
+    pushCommits: async repo => { reads.push(['commits', repo.id]); return { items: [], nextCursor: null }; } };
+  const checkoutGit = { status: async () => ({ state: 'clean' }), update: async repo => { reads.push(['checkout', repo.id]); return {}; } };
+  const { url, store, mutate } = await fixture(t, { demo: false, provider, checkoutGit });
+  store.saveRepo({ ...store.getRepo('demo-billing'), disabled: true });
+  assert.equal((await fetch(`${url}/api/push/demo-billing/1/commits`)).status, 409);
+  assert.equal((await fetch(`${url}/api/connection?repoId=demo-billing`)).status, 409);
+  const expected = { branch: 'main', head: 'a', upstream: 'origin/main', identity: 'i' };
+  assert.equal((await mutate('/api/repos/demo-billing/checkout', { operation: 'check', expected })).status, 409);
+  assert.deepEqual(reads, []);
+  store.saveJob({ id: 'merge:x', type: 'merge', repoId: 'demo-billing' });
+  assert.deepEqual({ ...store.mergeQueueSummary() }, { pending: 0, errors: 0 });
+  store.saveRepo({ ...store.getRepo('demo-billing'), disabled: false });
+  assert.deepEqual({ ...store.mergeQueueSummary() }, { pending: 1, errors: 0 });
+  assert.equal((await fetch(`${url}/api/push/demo-billing/1/commits`)).status, 200);
 });
 
 test('live mode cannot generate demo activity or expose arbitrary files', async t => {

@@ -18,9 +18,8 @@ export function scopeLabel(state, ui) {
 
 export function renderHeader(state, ui) {
   const streamTimes = state.streams.map(stream => stream.lastSuccess).filter(Boolean).map(value => new Date(value).valueOf()).filter(Number.isFinite);
-  const paused = state.repos.filter(repo => repo.paused).length;
   const automatic = state.settings.refreshEnabled !== false;
-  const freshness = (streamTimes.length ? `Last Azure check ${dateTime(Math.max(...streamTimes))}` : 'No Azure check yet') + (paused ? ` · ${paused} paused` : '');
+  const freshness = (streamTimes.length ? `Last Azure check ${dateTime(Math.max(...streamTimes))}` : 'No Azure check yet');
   const switchInput = suffix => `<input class="setting-switch" type="checkbox" role="switch" id="header-auto-${suffix}" data-auto-toggle
     aria-label="Automatic checks" ${automatic ? 'checked' : ''}>`;
   const refreshTitle = e(`Refresh activity across selected repositories. ${freshness}`);
@@ -29,7 +28,7 @@ export function renderHeader(state, ui) {
     aria-label="Refresh activity" aria-busy="${Boolean(ui.refreshing)}" aria-disabled="${Boolean(ui.refreshing)}"
     data-idle-title="${refreshTitle}" title="${ui.refreshing ? 'Refreshing activity…' : refreshTitle}">
     ${icons.refresh}${suffix === 'mobile' ? '<span>Refresh activity</span>' : ''}</button>`;
-  return `<div class="hg header-brand"><a class="brand" href="#activity/new" style="text-decoration:none">Repo Pulse</a><div class="menu"><button class="control" id="repo-toggle" type="button" aria-expanded="false" aria-controls="repo-panel" aria-label="${e(scopeName(state, ui))}" title="Changing visible repositories marks nothing seen">${scopeLabel(state, ui)}</button><div class="menu-panel" id="repo-panel" role="group" aria-label="Repositories shown" hidden>${state.repos.map(repo => `<label class="opt"><input type="checkbox" data-scope-repo="${e(repo.id)}" ${ui.repoIds === null || ui.repoIds.includes(repo.id) ? 'checked' : ''}><b>${e(repo.name)}</b><small>${e(repo.project)}${repo.paused ? ' · paused' : ''}</small></label>`).join('') || '<p class="help" style="padding:8px">Add repositories to begin watching.</p>'}<div class="mfoot"><span>Scope changes mark nothing seen.</span><button class="ghost sm" type="button" data-action="all-repos">All</button><button class="ghost sm" type="button" data-action="no-repos">None</button></div></div></div></div>
+  return `<div class="hg header-brand"><a class="brand" href="#activity/new" style="text-decoration:none">Repo Pulse</a><div class="menu"><button class="control" id="repo-toggle" type="button" aria-expanded="false" aria-controls="repo-panel" aria-label="${e(scopeName(state, ui))}" title="Changing visible repositories marks nothing seen">${scopeLabel(state, ui)}</button><div class="menu-panel" id="repo-panel" role="group" aria-label="Repositories shown" hidden>${state.repos.map(repo => `<label class="opt"><input type="checkbox" data-scope-repo="${e(repo.id)}" ${ui.repoIds === null || ui.repoIds.includes(repo.id) ? 'checked' : ''}><b>${e(repo.name)}</b><small>${e(repo.project)}</small></label>`).join('') || '<p class="help" style="padding:8px">Add repositories to begin watching.</p>'}<div class="mfoot"><span>Scope changes mark nothing seen.</span><button class="ghost sm" type="button" data-action="all-repos">All</button><button class="ghost sm" type="button" data-action="no-repos">None</button></div></div></div></div>
     <nav class="seg tabs" aria-label="Main">
       <a href="${activityHref(ui.activityRoute)}" ${isActivity(ui.route) || ui.route === 'event' ? 'aria-current="page"' : ''}>Activity</a>
       <a href="#repositories" ${ui.route === 'repositories' ? 'aria-current="page"' : ''}>Repositories</a>

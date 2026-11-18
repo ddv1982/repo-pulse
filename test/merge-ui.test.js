@@ -23,6 +23,5 @@ test('the repository import row shows retry and pause without exposing a second 
   assert.match(markup, /Import retrying/);
   assert.match(markup, /&lt;Read denied&gt;/);
   assert.match(renderHistoryButton(repo, job), /disabled>Import older activity/);
-  assert.match(renderHistoryProgress({ ...repo, paused: true }, job), /Import paused/);
   assert.doesNotMatch(renderHistoryButton(repo, { status: 'completed' }), /disabled/);
 });

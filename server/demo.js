@@ -1,8 +1,8 @@
 const ago = minutes => new Date(Date.now() - minutes * 60_000).toISOString();
 export const demoRepos = [
-  { id: 'demo-orders', azureId: 'orders', organization: 'https://dev.azure.com/example', project: 'Demo', name: 'orders-api', webUrl: 'https://dev.azure.com/example/Demo/_git/orders-api', paused: false },
-  { id: 'demo-billing', azureId: 'billing', organization: 'https://dev.azure.com/example', project: 'Demo', name: 'billing-web', webUrl: 'https://dev.azure.com/example/Demo/_git/billing-web', paused: false },
-  { id: 'demo-shared', azureId: 'shared', organization: 'https://dev.azure.com/example', project: 'Demo', name: 'shared-components', webUrl: 'https://dev.azure.com/example/Demo/_git/shared-components', paused: false },
+  { id: 'demo-orders', azureId: 'orders', organization: 'https://dev.azure.com/example', project: 'Demo', name: 'orders-api', webUrl: 'https://dev.azure.com/example/Demo/_git/orders-api', disabled: false },
+  { id: 'demo-billing', azureId: 'billing', organization: 'https://dev.azure.com/example', project: 'Demo', name: 'billing-web', webUrl: 'https://dev.azure.com/example/Demo/_git/billing-web', disabled: false },
+  { id: 'demo-shared', azureId: 'shared', organization: 'https://dev.azure.com/example', project: 'Demo', name: 'shared-components', webUrl: 'https://dev.azure.com/example/Demo/_git/shared-components', disabled: false },
 ];
 
 export function seedDemo(store) {

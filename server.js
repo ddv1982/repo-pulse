@@ -87,6 +87,12 @@ export function createApp({ store, provider, sync, cli, backfill, demo = false, 
     if (!repo) throw problem('Repository is not watched.', 404);
     return repo;
   };
+  const enabledRepoById = id => {
+    const repo = repoById(id);
+    if (repo.disabled) throw problem('Repository is disabled. Enable it on Repositories first.', 409);
+    return repo;
+  };
+  const enabledRepoIds = () => store.listRepos().filter(repo => !repo.disabled).map(repo => repo.id);
   return createServer(async (req, res) => {
     Object.entries(HEADERS).forEach(([key, value]) => res.setHeader(key, value));
     try {
@@ -113,8 +119,10 @@ export function createApp({ store, provider, sync, cli, backfill, demo = false, 
         catch { throw problem('Invalid activity cursor.'); }
         const view = query.get('view') || 'all';
         if (!['new', 'all'].includes(view)) throw problem('Invalid activity view.');
-        const repoIds = query.has('repoIds') ? query.get('repoIds').split(',').filter(Boolean) : undefined;
-        repoIds?.forEach(repoById);
+        const requested = query.has('repoIds') ? query.get('repoIds').split(',').filter(Boolean) : undefined;
+        requested?.forEach(repoById);
+        const enabled = enabledRepoIds();
+        const repoIds = (requested || enabled).filter(id => enabled.includes(id));
         const limit = Number(query.get('limit') || 50);
         if (!Number.isInteger(limit) || limit < 1 || limit > 200) throw problem('Choose a page size from 1 to 200.');
         const result = store.queryActivity({ repoIds, view, kind: query.get('kind') || '', search: (query.get('search') || '').slice(0, 300), limit, cursor });
@@ -124,7 +132,7 @@ export function createApp({ store, provider, sync, cli, backfill, demo = false, 
       if (req.method === 'GET' && eventRoute) {
         const id = decodeURIComponent(eventRoute[1]);
         const event = store.getEvent(id);
-        if (!event) throw problem('Activity not found.', 404);
+        if (!event || !enabledRepoIds().includes(event.repoId)) throw problem('Activity not found.', 404);
         return json(res, 200, { event, events: store.getEventGroup(id) });
       }
       if (req.method === 'POST' && path === '/api/backfill') {
@@ -138,7 +146,7 @@ export function createApp({ store, provider, sync, cli, backfill, demo = false, 
         const org = url.searchParams.get('organization') || undefined;
         if (org && !/^https:\/\/dev\.azure\.com\/[A-Za-z0-9_.-]+\/?$/.test(org)) throw problem('Use https://dev.azure.com/your-organization.');
         const repoId = url.searchParams.get('repoId');
-        return json(res, 200, await provider.checkConnection(org, repoId === null ? undefined : repoById(repoId)));
+        return json(res, 200, await provider.checkConnection(org, repoId === null ? undefined : enabledRepoById(repoId)));
       }
       if (req.method === 'POST' && path === '/api/discover') {
         const input = await body(req);
@@ -166,12 +174,12 @@ export function createApp({ store, provider, sync, cli, backfill, demo = false, 
         const repo = await provider.resolveRepository(remote);
         if (remote.localPath) repo.localPath = remote.localPath;
         const existing = store.listRepos().find(item => item.id === repo.id);
-        store.saveRepo({ ...repo, paused: existing?.paused || false });
+        store.saveRepo({ ...repo, disabled: existing?.disabled || false });
         sync.refresh([repo.id]);
         return json(res, 201, repo);
       }
       if (req.method === 'GET' && path === '/api/checkouts') {
-        const repos = store.listRepos();
+        const repos = store.listRepos().filter(repo => !repo.disabled);
         const results = [];
         if (!demo) for (let i = 0; i < repos.length; i += 2) {
           results.push(...await Promise.all(repos.slice(i, i + 2).map(async repo => [repo.id, await checkoutGit.status(repo)])));
@@ -181,7 +189,7 @@ export function createApp({ store, provider, sync, cli, backfill, demo = false, 
       const checkoutRoute = path.match(/^\/api\/repos\/([^/]+)\/checkout$/);
       if (req.method === 'POST' && checkoutRoute) {
         if (demo) throw problem('Demo checkouts cannot be updated.', 403);
-        const repo = repoById(decodeURIComponent(checkoutRoute[1]));
+        const repo = enabledRepoById(decodeURIComponent(checkoutRoute[1]));
         const input = await body(req) || {};
         const { operation, expected } = input;
         if (isBranchAction(input) && isCheckoutIntent(expected)) {
@@ -197,9 +205,9 @@ export function createApp({ store, provider, sync, cli, backfill, demo = false, 
         const id = decodeURIComponent(repoRoute[1]);
         const repo = repoById(id);
         const input = await body(req);
-        if (typeof input.paused !== 'boolean') throw problem('paused must be true or false.');
-        store.saveRepo({ ...repo, paused: input.paused });
-        if (!input.paused) sync.refresh([id]);
+        if (typeof input.disabled !== 'boolean') throw problem('disabled must be true or false.');
+        store.saveRepo({ ...repo, disabled: input.disabled });
+        if (!input.disabled) sync.refresh([id]);
         return json(res, 200, { ok: true });
       }
       if (repoRoute && req.method === 'DELETE') {
@@ -236,7 +244,7 @@ export function createApp({ store, provider, sync, cli, backfill, demo = false, 
       }
       const commitsRoute = path.match(/^\/api\/push\/([^/]+)\/(\d+)\/commits$/);
       if (req.method === 'GET' && commitsRoute) {
-        const repo = repoById(decodeURIComponent(commitsRoute[1]));
+        const repo = enabledRepoById(decodeURIComponent(commitsRoute[1]));
         if (!provider.pushCommits) return json(res, 200, { items: [], nextCursor: null, message: 'Open Azure DevOps for commit details.' });
         const skip = Number(url.searchParams.get('skip') || 0);
         if (!Number.isSafeInteger(skip) || skip < 0) throw problem('Invalid page offset.');

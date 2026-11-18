@@ -37,23 +37,20 @@ function group(title, records, state, { open = true, description = '' } = {}) {
 
 function healthFor(state, ui) {
   const streams = state.streams.filter(stream => ui.repoIds === null || ui.repoIds.includes(stream.repoId));
-  const paused = state.repos.filter(repo => repo.paused && (ui.repoIds === null || ui.repoIds.includes(repo.id)));
-  const pausedIds = new Set(paused.map(repo => repo.id));
   const status = streams.map(stream => ({ stream,
-    ...streamHealth(stream, { scheduled: state.settings.refreshEnabled !== false && !pausedIds.has(stream.repoId), resumedAt: state.settings.refreshResumedAt }),
+    ...streamHealth(stream, { scheduled: state.settings.refreshEnabled !== false, resumedAt: state.settings.refreshResumedAt }),
   }));
   const errors = status.filter(item => item.error);
   const pending = status.filter(item => item.pending);
   const resuming = status.some(item => item.resuming);
   const stale = status.filter(item => item.stale && !item.pending);
 
-  return { paused, errors, pending, resuming, stale, problemStreams: [...new Set([...errors, ...stale])],
-    partial: Boolean(errors.length || pending.length || resuming || stale.length || paused.length || state.settings.refreshEnabled === false) };
+  return { errors, pending, resuming, stale, problemStreams: [...new Set([...errors, ...stale])],
+    partial: Boolean(errors.length || pending.length || resuming || stale.length || state.settings.refreshEnabled === false) };
 }
 
 function monitoringNotice(state, health) {
-  const message = state.settings.refreshEnabled === false ? '<strong>Automatic Azure checks are off</strong>Showing cached activity. <a href="#settings">Enable checks</a> or refresh manually.'
-    : health.paused.length ? `<strong>${health.paused.length} selected repositories paused</strong>Showing cached activity. <a href="#repositories">Manage repositories</a>.` : '';
+  const message = state.settings.refreshEnabled === false ? '<strong>Automatic Azure checks are off</strong>Showing cached activity. <a href="#settings">Enable checks</a> or refresh manually.' : '';
   const error = health.errors[0];
   return `${message ? `<div class="banner info"><div>${message}</div></div>` : ''}${error ? `<div class="banner warn" role="status"><div><strong>Some activity could not refresh</strong>${e(streamLabel(error.stream.stream))}: ${e(error.error)} <a href="#repositories">Check repository details</a>.</div></div>` : health.stale.length ? '<div class="banner warn"><div><strong>Some cached activity is stale</strong><a href="#repositories">Check repository details</a> for the last successful checks.</div></div>' : health.resuming && !message ? '<div class="banner info" role="status"><div><strong>Catching up after enabling Auto checks</strong>Showing cached activity as checks run.</div></div>' : health.pending.length && !message ? '<div class="banner info"><div><strong>Initial import in progress</strong>Existing history is imported separately from new updates.</div></div>' : ''}`;
 }

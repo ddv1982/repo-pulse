@@ -33,7 +33,6 @@ test('repository health treats intentionally disabled checks as neither overdue 
   assert.equal(repositoryHealth(repo, [stream], { now }).label, 'Up to date');
   assert.equal(repositoryHealth(repo, [], { now }).show, false);
   assert.equal(repositoryHealth(repo, [{ ...stream, error: 'Read refused' }], { now }).label, 'Check failed');
-  assert.equal(repositoryHealth({ ...repo, paused: true }, [stream], { now }).label, 'Paused');
   assert.equal(repositoryHealth(repo, [stream], { now: now + 11 * 60000 }).label, 'Check overdue');
   assert.equal(repositoryHealth(repo, [stream], { now: now + 11 * 60000, automatic: false }).show, false);
   assert.equal(repositoryHealth(repo, [{ ...stream, error: 'Read refused' }], { now, automatic: false }).show, false);
@@ -52,7 +51,7 @@ test('resuming automatic checks distinguishes cached history from an overdue che
 
 test('repository details keep failure text and one timestamp without routine source labels', () => {
   const state = {
-    repos: [{ id: 'r', name: 'Orders' }], settings: { refreshEnabled: false },
+    watched: [{ id: 'r', name: 'Orders' }], settings: { refreshEnabled: false },
     streams: [
       { repoId: 'r', stream: 'refs', initialized: true, lastSuccess: '2026-11-01T10:00:00Z' },
       { repoId: 'r', stream: 'prs', initialized: true, nextAt: '2026-11-01T10:00:00Z', error: 'Read refused' },
@@ -63,6 +62,24 @@ test('repository details keep failure text and one timestamp without routine sou
   assert.match(markup, /Last check failures/);
   assert.match(markup, /Read refused/);
   assert.doesNotMatch(markup, /Needs attention|Check overdue|Check failed|Next check|>Branches ·/);
+});
+
+test('a disabled repository row offers only enabling or removing it', () => {
+  const state = {
+    watched: [{ id: 'on', name: 'Orders', project: 'Shop', localPath: '/src/orders' },
+      { id: 'off', name: 'Billing', project: 'Shop', localPath: '/src/billing', disabled: true }],
+    settings: {}, streams: [{ repoId: 'on', stream: 'refs', initialized: true, error: 'Read refused' }],
+  };
+  const markup = renderRepositories(state, {});
+  const [enabled, disabled] = markup.split('<article').slice(1);
+  assert.match(markup, /2 watched · 1 disabled/);
+  assert.match(enabled, /role="switch"[^>]*data-repo-toggle[^>]*data-id="on"[^>]*checked/);
+  assert.match(enabled, /Details for Orders/);
+  assert.match(disabled, /role="switch"[^>]*data-repo-toggle[^>]*data-id="off"/);
+  assert.doesNotMatch(disabled, /checked/);
+  assert.match(disabled, />Disabled</);
+  assert.match(disabled, /data-action="remove-repo"/);
+  assert.doesNotMatch(disabled, /Details for|checkout-state|Check for updates|Import older/);
 });
 
 const view = { repoIds: null, route: 'catchup', kind: '', search: '' };

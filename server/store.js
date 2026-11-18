@@ -18,7 +18,7 @@ export function createStore(path = ':memory:') {
   const bumpActivity = () => q(`INSERT INTO settings(key,data) VALUES('activityRevision','1')
     ON CONFLICT(key) DO UPDATE SET data=CAST(data AS INTEGER)+1`).run();
   const version = q('PRAGMA user_version').get().user_version;
-  if (version > 7) { db.close(); throw new Error('This database was created by a newer Repo Pulse version.'); }
+  if (version > 8) { db.close(); throw new Error('This database was created by a newer Repo Pulse version.'); }
   db.exec('PRAGMA foreign_keys = ON');
   const transaction = (fn) => {
     db.exec('BEGIN IMMEDIATE');
@@ -122,6 +122,12 @@ export function createStore(path = ':memory:') {
       for (const row of q('SELECT e.data,e.seen,e.imported,n.data AS enrichment FROM events e LEFT JOIN enrichment n ON n.event_id=e.id').iterate()) indexLabels(hydrate(row));
       db.exec("DROP INDEX IF EXISTS activity_label; DROP INDEX IF EXISTS activity_evidence; PRAGMA user_version = 7;");
     }
+    if (version < 8) {
+      // Paused repositories kept showing cached activity; disabled ones are hidden everywhere except Repositories.
+      db.exec(`UPDATE repositories SET data=json_remove(json_set(data,'$.disabled',
+        json(CASE WHEN json_extract(data,'$.paused') THEN 'true' ELSE 'false' END)),'$.paused');
+        PRAGMA user_version = 8;`);
+    }
   });
   const selectEvents = 'SELECT e.data,e.seen,e.imported,n.data AS enrichment FROM events e LEFT JOIN enrichment n ON n.event_id=e.id';
   function insertEvents(events) {
@@ -192,10 +198,10 @@ export function createStore(path = ':memory:') {
     saveRepo(repo) {
       if (!repo.id || !repo.name) throw badRequest('Repository ID and name are required.');
       const old = parse(q('SELECT data FROM repositories WHERE id=?').get(repo.id));
-      const value = { paused: false,...old,...repo };
+      const value = { disabled: false,...old,...repo };
       transaction(() => {
         q('INSERT INTO repositories(id,data) VALUES(?,?) ON CONFLICT(id) DO UPDATE SET data=excluded.data').run(value.id,JSON.stringify(value));
-        if (old?.name !== value.name) bumpActivity();
+        if (old?.name !== value.name || Boolean(old?.disabled) !== Boolean(value.disabled)) bumpActivity();
       });
       return value;
     },
@@ -291,8 +297,9 @@ export function createStore(path = ':memory:') {
     },
     mergeQueueSummary() {
       return q(`SELECT COUNT(*) AS pending,
-        COUNT(CASE WHEN json_extract(data,'$.error') IS NOT NULL THEN 1 END) AS errors
-        FROM jobs WHERE type='merge'`).get();
+        COUNT(CASE WHEN json_extract(j.data,'$.error') IS NOT NULL THEN 1 END) AS errors
+        FROM jobs j JOIN repositories r ON r.id=j.repo_id
+        WHERE j.type='merge' AND NOT COALESCE(json_extract(r.data,'$.disabled'),0)`).get();
     },
     saveJob,
     removeJob(id) { q('DELETE FROM jobs WHERE id=?').run(id); },

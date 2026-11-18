@@ -637,6 +637,8 @@ button, a, input, select { touch-action: manipulation; }
 .repo-details-content { display: grid; gap: 6px; margin-top: 4px; }
 .checkout-check:empty { display: none; }
 .repo-entry > .history-progress { grid-column: 1 / -1; }
+.repo-list > .repo-entry.repo-disabled { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; }
+.repo-disabled h3 { color: var(--muted-foreground); }
 .repo-entry:not(:has(.repo-details[open])) .history-extra { display: none; }
 @media (max-width: 639px) {
   .repo-list > .repo-entry { grid-template-columns: minmax(0, 1fr) 55px; }

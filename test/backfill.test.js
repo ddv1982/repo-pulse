@@ -109,14 +109,14 @@ test('pause, removal and concurrent tick calls cannot duplicate work or resurrec
   let release, reads = 0;
   const { store, backfill } = setup({ read() { reads++; return new Promise(resolve => { release = () => resolve({ items: [{ id: 1, date: iso(BASE - DAY) }], nextCursor: null }); }); } });
   backfill.start(repo.id);
-  store.saveRepo({ ...repo, paused: true });
+  store.saveRepo({ ...repo, disabled: true });
   assert.equal(await backfill.tick(), false); assert.equal(reads, 0);
-  store.saveRepo({ ...repo, paused: false });
+  store.saveRepo({ ...repo, disabled: false });
   const first = backfill.tick(), same = backfill.tick();
   assert.equal(first, same); assert.equal(reads, 1);
-  store.saveRepo({ ...repo, paused: true }); release(); await first;
+  store.saveRepo({ ...repo, disabled: true }); release(); await first;
   assert.equal(store.listEvents().length, 0);
-  store.saveRepo({ ...repo, paused: false });
+  store.saveRepo({ ...repo, disabled: false });
   const second = backfill.tick();
   store.removeRepo(repo.id); release(); await second;
   assert.equal(store.listJobs().length, 0); assert.equal(store.listEvents().length, 0);

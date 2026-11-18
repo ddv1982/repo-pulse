@@ -170,8 +170,6 @@ test('repository history import scopes the confirmed range and keeps progress vi
   store.saveJob({ ...job, status: 'retrying', pages: 2, error: { message: 'Read denied' } });
   await expect(orders.getByText('Import retrying', { exact: true })).toBeVisible({ timeout: 8000 });
   await expect(orders.getByText('Read denied', { exact: true })).toBeVisible();
-  store.saveRepo({ id: 'orders', name: 'Orders', paused: true });
-  await expect(orders.getByText('Import paused', { exact: true })).toBeVisible({ timeout: 8000 });
   store.saveJob({ ...job, status: 'completed', pages: 3 });
   await expect(orders.getByText('Import finished', { exact: true })).toBeVisible({ timeout: 8000 });
   await expect(trigger).toBeEnabled();

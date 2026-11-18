@@ -91,7 +91,7 @@ export function createAzureClient({ cli, now = Date.now } = {}) {
       const raw = await cli.run(['repos', 'show', '--repository', name, '--project', project, '--organization', organization, '--detect', 'false']);
       if (!raw?.id || !raw?.name || !raw?.project?.name) throw cliError('INVALID_RESPONSE', 'Azure CLI did not resolve this repository.');
       return { id: repositoryKey(organization, raw.id), organization, project: raw.project.name, projectId: raw.project.id,
-        azureId: raw.id, name: raw.name, webUrl: `${organization}/${encodeURIComponent(raw.project.name)}/_git/${encodeURIComponent(raw.name)}`, paused: false };
+        azureId: raw.id, name: raw.name, webUrl: `${organization}/${encodeURIComponent(raw.project.name)}/_git/${encodeURIComponent(raw.name)}`, disabled: false };
     },
     async read(repo, stream, { since, until, cursor } = {}) {
       const skip = Number(cursor?.skip || 0);

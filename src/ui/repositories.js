@@ -7,10 +7,11 @@ import { displayLocalPath } from './repository-picker.js';
 
 export function renderRepositories(state, ui, checkouts = {}) {
   const jobs = new Map(state.jobs?.map(job => [job.repoId, job]));
+  const disabled = state.watched.filter(repo => repo.disabled).length;
   return `<div class="repo-heading">
     <h1 class="sr">Repositories</h1>
-    <div class="section-heading"><span class="dim">${state.repos.length} watched</span></div>
-    <details class="repo-add" data-group="add-repositories" ${state.repos.length ? '' : 'open'}>
+    <div class="section-heading"><span class="dim">${state.watched.length} watched${disabled ? ` · ${disabled} disabled` : ''}</span></div>
+    <details class="repo-add" data-group="add-repositories" ${state.watched.length ? '' : 'open'}>
       <summary class="btn sm" id="add-repositories" aria-label="Add repositories">Add repositories</summary>
       <div class="card repo-add-body">
         <div id="repository-picker" class="card-pad"></div>
@@ -19,9 +20,28 @@ export function renderRepositories(state, ui, checkouts = {}) {
     </details>
     </div>
     <section class="card block repo-list" aria-label="Watched repositories">
-      ${state.repos.length ? state.repos.map(repo => renderRepo(repo, state.streams, state.demo ? null : jobs.get(repo.id),
+      ${state.watched.length ? state.watched.map(repo => repo.disabled ? renderDisabledRepo(repo) : renderRepo(repo, state.streams, state.demo ? null : jobs.get(repo.id),
         state.demo ? { state: 'not-linked' } : checkouts[repo.id], state.demo, state.settings)).join('') : '<div class="card-pad"><p>No repositories watched yet.</p><p class="help">Add a local checkout to watch all its remote branches.</p></div>'}
     </section>`;
+}
+
+function repoSwitch(repo) {
+  return `<input class="setting-switch" type="checkbox" role="switch" id="enable-${e(repo.id)}" data-repo-toggle data-id="${e(repo.id)}"
+    aria-label="Watch ${e(repo.name)}" title="${repo.disabled ? 'Disabled: no checks and hidden from Activity' : 'Enabled: checked and shown in Activity'}" ${repo.disabled ? '' : 'checked'}>`;
+}
+
+function renderDisabledRepo(repo) {
+  const id = e(repo.id);
+  return `<article class="repo-card repo-entry repo-disabled">
+    <div class="repo-overview">
+      ${repoSwitch(repo)}
+      <h3>${e(repo.name)}</h3>
+      <span class="chip name">Disabled</span>
+    </div>
+    <div class="repo-disabled-actions">
+      <button class="ghost sm" type="button" id="remove-${id}" data-action="remove-repo" data-id="${id}">Remove watch</button>
+    </div>
+  </article>`;
 }
 
 function renderRepo(repo, streams, job, checkout, demo, settings) {
@@ -34,6 +54,7 @@ function renderRepo(repo, streams, job, checkout, demo, settings) {
   const gitStatus = checkout ?? (repo.localPath ? undefined : { state: 'not-linked' });
   return `<article class="repo-card repo-entry">
     <div class="repo-overview">
+      ${repoSwitch(repo)}
       <h3>${e(repo.name)}</h3>
       ${health.show ? `<span class="chip ${health.className}">${health.label}</span>` : ''}
     </div>
@@ -49,13 +70,12 @@ function renderRepo(repo, streams, job, checkout, demo, settings) {
         <p class="help checkout-last-check" data-checkout-part="last-check" data-checkout-id="${id}">${renderCheckout(repo.id, gitStatus, 'last-check')}</p>
         ${repo.localPath ? `<p class="help mono local-path" title="${e(repo.localPath)}">${e(displayLocalPath(repo.localPath))}</p>` : ''}
         ${repo.localPath ? '<p class="help">Check for updates compares your current branch with its remote. Use Refresh activity to check watched branches across the selected repositories.</p>' : ''}
-        ${!checked.length && automatic && !repo.paused && !failed.length ? '<p class="help">Waiting for the first check.</p>' : ''}
+        ${!checked.length && automatic && !failed.length ? '<p class="help">Waiting for the first check.</p>' : ''}
         ${failed.length ? `<ul class="repo-check-errors help" aria-label="Last check failures">${failed.map(item =>
           `<li><strong>${e(item.label)}</strong>: ${e(item.message)}</li>`).join('')}</ul>` : ''}
         <div class="actions">
           ${demo ? '' : renderHistoryButton(repo, job)}
           ${azureLink(repo.webUrl)}
-          <button class="btn sm" type="button" id="pause-${id}" data-action="pause-repo" data-id="${id}">${repo.paused ? 'Resume' : 'Pause'}</button>
           <button class="ghost sm" type="button" id="remove-${id}" data-action="remove-repo" data-id="${id}">Remove watch</button>
         </div>
       </div>

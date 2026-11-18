@@ -91,9 +91,9 @@ test('provider failures retain positive evidence and pause/removal races do not 
   assert.equal(f.store.getEvent('push').data.mergeEvidence.prs[0].pullRequestId, 7);
   let release;
   const waiting = fixture(t, { pushCommits() { return new Promise(resolve => { release = () => resolve({ items: [], nextCursor: null }); }); } });
-  const pending = waiting.worker().tick(); waiting.store.saveRepo({ ...repo, paused: true }); release(); await pending;
+  const pending = waiting.worker().tick(); waiting.store.saveRepo({ ...repo, disabled: true }); release(); await pending;
   assert.equal(waiting.store.getEvent('push').data.mergeEvidence, undefined);
-  waiting.store.saveRepo({ ...repo, paused: false });
+  waiting.store.saveRepo({ ...repo, disabled: false });
   const another = waiting.worker().tick(); waiting.store.removeRepo(repo.id); release(); await another;
   assert.equal(waiting.store.getEvent('push'), undefined); assert.equal(waiting.store.listJobs().length, 0);
 });
