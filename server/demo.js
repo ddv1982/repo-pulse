@@ -1,3 +1,12 @@
+/** @typedef {ReturnType<typeof import('./store.js').createStore>} Store */
+/** @typedef {import('../src/activity.js').ActivityEvent} ActivityEvent */
+/** Fixtures carry provider fields beyond EventData, as stored events do. */
+/** @typedef {ActivityEvent & { data?: import('../src/activity.js').EventData & Record<string, unknown> }} DemoEvent */
+/** @typedef {import('./azure-client.js').AzureStream} AzureStream */
+
+/** @type {AzureStream[]} */
+const STREAMS = ['pushes', 'refs', 'prs', 'closedPrs', 'builds', 'activeBuilds'];
+/** @param {number} minutes */
 const ago = minutes => new Date(Date.now() - minutes * 60_000).toISOString();
 export const demoRepos = [
   {
@@ -29,10 +38,12 @@ export const demoRepos = [
   },
 ];
 
+/** @param {Store} store */
 export function seedDemo(store) {
   if (store.getSetting('demoSeeded', false)) return;
   for (const repo of demoRepos) store.saveRepo(repo);
   const source = demoRepos[0].webUrl;
+  /** @type {DemoEvent[]} */
   const events = [
     {
       id: 'demo-branch-1',
@@ -116,7 +127,7 @@ export function seedDemo(store) {
   ];
   store.insertEvents(events.map(event => ({ observedAt: ago(0), seen: false, imported: false, ...event })));
   for (const repo of demoRepos) {
-    for (const stream of ['pushes', 'refs', 'prs', 'closedPrs', 'builds', 'activeBuilds']) {
+    for (const stream of STREAMS) {
       store.saveStream({
         repoId: repo.id,
         stream,
@@ -135,9 +146,11 @@ export function seedDemo(store) {
   store.setSetting('demoSeeded', true);
 }
 
+/** @param {Store} store */
 export function addDemoEvent(store) {
-  const counter = store.getSetting('demoCounter', 0) + 1;
+  const counter = Number(store.getSetting('demoCounter', 0)) + 1;
   store.setSetting('demoCounter', counter);
+  /** @type {ActivityEvent} */
   const event = {
     id: `demo-incoming-${counter}`,
     repoId: 'demo-orders',

@@ -1,7 +1,35 @@
 import { classifyMergeEvidence, mergeUpdates } from './merge-evidence.js';
 
+/** @typedef {import('./store.js').Repository} Repository */
+/** @typedef {import('./store.js').HydratedEvent} StoredEvent */
+/** @typedef {import('./store.js').EntityInput} EntityInput */
+/** @typedef {import('./azure-client.js').AzureRecord} AzureRecord */
+/** @typedef {import('./azure-client.js').PageCursor} PageCursor */
+/** @typedef {import('./azure-client.js').PullRequestAssociation} PullRequestAssociation */
+/** @typedef {import('./merge-evidence.js').CommitRecord} CommitRecord */
+/** @typedef {import('./merge-evidence.js').RefRange} RefRange */
+/** @typedef {{ associations: PullRequestAssociation[], checkedAt: string, expiresAt: string }} PrSnapshot */
+/** @typedef {{ code: string, message: string }} JobError */
+/** @typedef {'commits'|'ranges'|'hydrate'|'prs'} Stage */
+/**
+ * A merge job as enrichment saves it. Sync and backfill create it with only the identifying fields.
+ * @typedef {{ id: string, type: 'merge', repoId: string, eventId: string, status: string, nextAt: string,
+ *   stage?: Stage, cursor?: PageCursor | null, commitIds?: string[], refIndex?: number, refCursor?: PageCursor | null,
+ *   refRanges?: RefRange[], rangesComplete?: boolean, prSnapshots?: Record<string, PrSnapshot>, attempts?: number,
+ *   error?: JobError | null }} MergeJob
+ */
+/**
+ * Classified evidence plus the progress fields enrichment adds before saving it.
+ * @typedef {import('./merge-evidence.js').MergeEvidence & { evidenceVersion?: number, candidateCommitCount?: number,
+ *   introducedCommitsComplete?: boolean }} EnrichedEvidence
+ */
+/** @typedef {(repo: Repository, event: StoredEvent, job: MergeJob) => void | Promise<void>} StageHandler */
+
+/** @param {number} value */
 const iso = value => new Date(value).toISOString();
-const unique = values => [...new Set(values.filter(Boolean))];
+/** @param {(string | null | undefined)[]} values */
+const unique = values => [...new Set(values.filter(/** @returns {value is string} */ value => Boolean(value)))];
+/** @param {string} code @param {string} message */
 const failure = (code, message) => Object.assign(new Error(message), { code });
 const EVIDENCE_VERSION = 2;
 
@@ -14,10 +42,26 @@ const EVIDENCE_VERSION = 2;
  * }} options
  */
 export function createEnrichment({ store, provider, now = Date.now, negativeTtlMs = 300000, positiveTtlMs = 900000 }) {
-  let active, lastJob;
+  /** @type {Promise<boolean> | null | undefined} */
+  let active;
+  /** @type {string | undefined} */
+  let lastJob;
+  // The store holds persisted JSON. Merge jobs, commit and commit-pr entities, and saved
+  // evidence are only ever written by this module, so these readers name their shapes.
+  /** @param {{ type: 'merge', repoId?: string, dueBefore?: string }} filter */
+  const mergeJobs = filter => /** @type {MergeJob[]} */ (store.listJobs(filter));
+  /** @param {StoredEvent} event */
+  const savedEvidence = event => /** @type {Partial<EnrichedEvidence> | undefined} */ (event.data?.mergeEvidence);
+  /** @param {string} repoId @param {string} id */
+  const prSnapshot = (repoId, id) => /** @type {PrSnapshot | undefined} */ (store.getEntity(repoId, 'commit-pr', id));
+  /** @param {string} repoId */
   const available = repoId => store.listRepos().some(repo => repo.id === repoId && !repo.disabled);
-  const commit = (repoId, id) => store.getEntity(repoId, 'commit', id);
-  const records = job => (job.commitIds || []).map(id => commit(job.repoId, id)).filter(Boolean);
+  /** @param {string} repoId @param {string} id */
+  const commit = (repoId, id) => /** @type {CommitRecord | undefined} */ (store.getEntity(repoId, 'commit', id));
+  /** @param {MergeJob} job */
+  const records = job =>
+    (job.commitIds || []).map(id => commit(job.repoId, id)).filter(/** @returns {item is CommitRecord} */ item => Boolean(item));
+  /** @param {string} repoId @param {AzureRecord[]} items @returns {EntityInput[]} */
   function cacheEntries(repoId, items) {
     if (items.some(item => !item?.commitId)) throw failure('INVALID_RESPONSE', 'Some commit identities are unavailable.');
     return items.map(item => {
@@ -29,13 +73,15 @@ export function createEnrichment({ store, provider, now = Date.now, negativeTtlM
       };
     });
   }
+  /** @param {Repository} repo @param {StoredEvent} event @param {CommitRecord[]} introduced */
   function graphRecords(repo, event, introduced) {
     const graph = new Map(introduced.map(item => [item.commitId, item]));
     const pending = mergeUpdates(event).flatMap(ref => [ref.oldObjectId, ref.newObjectId]);
     const visited = new Set();
     while (pending.length) {
       const id = pending.pop();
-      if (visited.has(id)) continue;
+      // The loop condition means pop() always returns an element; ids are strings.
+      if (id === undefined || visited.has(id)) continue;
       visited.add(id);
       const item = graph.get(id) || commit(repo.id, id);
       if (!item) continue;
@@ -44,6 +90,7 @@ export function createEnrichment({ store, provider, now = Date.now, negativeTtlM
     }
     return [...graph.values()];
   }
+  /** @param {Repository} repo @param {StoredEvent} event @param {MergeJob} job */
   function partial(repo, event, job) {
     const introduced = records(job);
     const evidence = classifyMergeEvidence(repo, event, introduced, [], {
@@ -60,11 +107,12 @@ export function createEnrichment({ store, provider, now = Date.now, negativeTtlM
       evidenceVersion: EVIDENCE_VERSION,
       candidateCommitIds: job.commitIds || [],
       candidateCommitCount: (job.commitIds || []).length,
-      introducedCommitsComplete: Boolean(job.rangesComplete && ['hydrate', 'prs'].includes(job.stage)),
+      introducedCommitsComplete: Boolean(job.rangesComplete && (job.stage === 'hydrate' || job.stage === 'prs')),
     };
   }
+  /** @param {Repository} repo @param {StoredEvent} event @param {MergeJob} job @param {EntityInput[]} [entities] */
   function saveStep(repo, event, job, entities = []) {
-    const previous = event.data?.mergeEvidence;
+    const previous = savedEvidence(event);
     const progress = partial(repo, event, job);
     // Previously established positive evidence remains visible while a refresh is incomplete.
     if (!progress.prs.length && previous?.prs?.length) progress.prs = previous.prs;
@@ -78,15 +126,15 @@ export function createEnrichment({ store, provider, now = Date.now, negativeTtlM
     });
   }
   async function runStep() {
+    /** @param {StoredEvent | undefined} event */
     const priority = event => (!event ? -1 : event.imported ? 2 : event.seen ? 1 : 0);
-    const ranked = store
-      .listJobs({ type: 'merge', dueBefore: iso(now()) })
+    const ranked = mergeJobs({ type: 'merge', dueBefore: iso(now()) })
       .filter(job => available(job.repoId))
       .map(job => ({ job, event: store.getEvent(job.eventId) }))
       .sort(
         (a, b) =>
           priority(a.event) - priority(b.event) ||
-          (Date.parse(b.event?.time) || 0) - (Date.parse(a.event?.time) || 0) ||
+          (Date.parse(b.event?.time ?? '') || 0) - (Date.parse(a.event?.time ?? '') || 0) ||
           a.job.id.localeCompare(b.job.id),
       );
     const due = ranked.filter(item => priority(item.event) === priority(ranked[0]?.event)).map(item => item.job);
@@ -103,7 +151,9 @@ export function createEnrichment({ store, provider, now = Date.now, negativeTtlM
     return true;
   }
   // A provider call can outlast the repo being disabled or the push event being removed.
+  /** @param {Repository} repo @param {StoredEvent} event */
   const gone = (repo, event) => !available(repo.id) || !store.getEvent(event.id);
+  /** @type {StageHandler} */
   function finishWithoutUpdates(repo, event, job) {
     store.commitEnrichment({
       jobId: job.id,
@@ -111,6 +161,7 @@ export function createEnrichment({ store, provider, now = Date.now, negativeTtlM
       data: { mergeEvidence: classifyMergeEvidence(repo, event, [], [], { checkedAt: iso(now()) }) },
     });
   }
+  /** @type {StageHandler} */
   function restartRanges(repo, event, job) {
     saveStep(repo, event, {
       ...job,
@@ -122,12 +173,14 @@ export function createEnrichment({ store, provider, now = Date.now, negativeTtlM
       prSnapshots: undefined,
     });
   }
+  /** @type {StageHandler} */
   async function commitsStage(repo, event, job) {
     if (!event.data?.pushId) throw failure('EVIDENCE_UNAVAILABLE', 'The push identity is unavailable for commit enrichment.');
     const page = await provider.pushCommits(repo, event.data.pushId, job.cursor || {});
     if (gone(repo, event)) return;
     if (!Array.isArray(page?.items)) throw failure('INVALID_RESPONSE', 'Pushed commit data is unavailable.');
     const entities = cacheEntries(repo.id, page.items);
+    /** @type {MergeJob} */
     const next = {
       ...job,
       stage: page.nextCursor ? 'commits' : 'ranges',
@@ -141,6 +194,7 @@ export function createEnrichment({ store, provider, now = Date.now, negativeTtlM
     };
     saveStep(repo, event, next, entities);
   }
+  /** @type {StageHandler} */
   async function rangesStage(repo, event, job) {
     const refs = mergeUpdates(event),
       index = job.refIndex || 0,
@@ -178,6 +232,7 @@ export function createEnrichment({ store, provider, now = Date.now, negativeTtlM
       entities,
     );
   }
+  /** @type {StageHandler} */
   async function hydrateStage(repo, event, job) {
     const ids = unique([...(job.commitIds || []), ...mergeUpdates(event).flatMap(ref => [ref.oldObjectId, ref.newObjectId])]);
     const missing = ids.filter(id => !Array.isArray(commit(repo.id, id)?.parents)).slice(0, 2);
@@ -197,6 +252,7 @@ export function createEnrichment({ store, provider, now = Date.now, negativeTtlM
       hydrated.map(item => ({ type: 'commit', id: item.commitId, data: item })),
     );
   }
+  /** @type {StageHandler} */
   async function prsStage(repo, event, job) {
     const ids = job.commitIds || [];
     // A bounded job checks each commit once. Earlier batches may expire while the
@@ -204,7 +260,7 @@ export function createEnrichment({ store, provider, now = Date.now, negativeTtlM
     const snapshots = { ...job.prSnapshots };
     for (const id of ids) {
       if (snapshots[id]) continue;
-      const found = store.getEntity(repo.id, 'commit-pr', id);
+      const found = prSnapshot(repo.id, id);
       if (Array.isArray(found?.associations) && Date.parse(found.expiresAt) > now()) snapshots[id] = found;
     }
     const stale = ids.filter(id => !snapshots[id]).slice(0, 25);
@@ -213,6 +269,7 @@ export function createEnrichment({ store, provider, now = Date.now, negativeTtlM
       if (gone(repo, event)) return;
       if (!Array.isArray(associations)) throw failure('INVALID_RESPONSE', 'Pull request associations are unavailable.');
       const entities = stale.map(id => {
+        /** @type {PullRequestAssociation[]} */
         const matches = associations.filter(item => item.commitId === id);
         return {
           type: 'commit-pr',
@@ -230,6 +287,7 @@ export function createEnrichment({ store, provider, now = Date.now, negativeTtlM
     }
     const caches = ids.map(id => snapshots[id]);
     const introduced = records(job);
+    /** @type {EnrichedEvidence} */
     const evidence = classifyMergeEvidence(
       repo,
       event,
@@ -247,8 +305,12 @@ export function createEnrichment({ store, provider, now = Date.now, negativeTtlM
     evidence.introducedCommitsComplete = true;
     store.commitEnrichment({ jobId: job.id, eventId: event.id, data: { mergeEvidence: evidence } });
   }
+  /** @type {Record<Stage, StageHandler>} */
   const stages = { commits: commitsStage, ranges: rangesStage, hydrate: hydrateStage, prs: prsStage };
-  /** Picks the handler for the job's saved stage. A stage handler that returns early leaves the job as it was. */
+  /**
+   * Picks the handler for the job's saved stage. A stage handler that returns early leaves the job as it was.
+   * @param {StoredEvent} event @param {MergeJob} job @returns {StageHandler}
+   */
   function stageHandler(event, job) {
     if (!mergeUpdates(event).length) return finishWithoutUpdates;
     const stage = job.stage || 'commits';
@@ -257,17 +319,21 @@ export function createEnrichment({ store, provider, now = Date.now, negativeTtlM
       throw failure('INVALID_JOB', 'Merge enrichment could not resume its saved stage.');
     return stages[stage];
   }
+  /** @param {Repository} repo @param {StoredEvent} event @param {MergeJob} job */
   async function advance(repo, event, job) {
     try {
       await stageHandler(event, job)(repo, event, job);
-    } catch (error) {
-      if (gone(repo, event)) return;
+    } catch (caught) {
+      const error = /** @type {Error & { code?: string }} */ (caught);
+      // Same test as gone(), keeping the row it reads.
+      const current = available(repo.id) ? store.getEvent(event.id) : undefined;
+      if (!current) return;
       const attempts = (job.attempts || 0) + 1;
       const safe = {
         code: error.code || 'ENRICHMENT_FAILED',
         message: error.code ? error.message : 'Merge evidence could not be read. Retrying later.',
       };
-      const previous = store.getEvent(event.id).data?.mergeEvidence || partial(repo, event, job);
+      const previous = savedEvidence(current) || partial(repo, event, job);
       store.commitEnrichment({
         jobId: job.id,
         eventId: event.id,
@@ -301,6 +367,7 @@ export function createEnrichment({ store, provider, now = Date.now, negativeTtlM
     status() {
       return { running: Boolean(active), ...store.mergeQueueSummary() };
     },
+    /** @param {{ id: string }} repo @param {AzureRecord} input */
     reconcilePr(repo, input) {
       const pr = input.data || input;
       if (pr.status !== 'completed') return { scheduled: 0 };
@@ -309,14 +376,14 @@ export function createEnrichment({ store, provider, now = Date.now, negativeTtlM
       if (!ids.length || !target) return { scheduled: 0 };
       const pushes = store.findPushEventsForCommits(repo.id, ids, target);
       for (const event of pushes) {
-        const metadata = event.data?.mergeEvidence;
+        const metadata = savedEvidence(event);
         const introduced = metadata?.candidateCommitIds || metadata?.introducedCommitIds || [];
-        const existing = store.listJobs({ type: 'merge', repoId: repo.id }).find(job => job.eventId === event.id);
+        const existing = mergeJobs({ type: 'merge', repoId: repo.id }).find(job => job.eventId === event.id);
         const known = unique([...introduced, ...(existing?.commitIds || []), ...ids]);
         const entities = known.map(id => ({
           type: 'commit-pr',
           id,
-          data: { ...(store.getEntity(repo.id, 'commit-pr', id) || {}), expiresAt: iso(0) },
+          data: { ...(prSnapshot(repo.id, id) || {}), expiresAt: iso(0) },
         }));
         // Completion evidence invalidates PR matches, not unfinished commit paging
         // or parent hydration. Only a fully listed finished operation can jump to PRs.
