@@ -1045,3 +1045,36 @@ test('adding a reviewer who has not voted is not PR activity', async () => {
   assert.equal(store.listEvents().length, 1);
   store.close();
 });
+
+test('a refs snapshot saved before tags restarts and still notices a branch deleted meanwhile', async () => {
+  let cursorSeen;
+  const { store, sync } = setup(
+    {
+      async read(_repo, _stream, { cursor }) {
+        cursorSeen = cursor;
+        return { items: [{ name: 'refs/heads/main', objectId: 'a' }], nextCursor: null, restarted: true };
+      },
+    },
+    ['refs'],
+  );
+  const refs = store.getStreams().find(state => state.stream === 'refs');
+  store.commitPage({
+    repoId: 'one',
+    stream: 'refs',
+    state: {
+      ...refs,
+      initialized: true,
+      cursor: { token: 'heads-only' },
+      pendingItems: [{ name: 'refs/heads/old', objectId: 'b' }],
+      nextAt: new Date(BASE).toISOString(),
+    },
+    entities: [
+      { type: 'ref', id: 'refs/heads/main', data: { name: 'refs/heads/main', objectId: 'a', active: true } },
+      { type: 'ref', id: 'refs/heads/old', data: { name: 'refs/heads/old', objectId: 'b', active: true } },
+    ],
+  });
+  await sync.tick();
+  assert.deepEqual(cursorSeen, { token: 'heads-only' });
+  assert.equal(store.getEntity('one', 'ref', 'refs/heads/old').active, false);
+  store.close();
+});

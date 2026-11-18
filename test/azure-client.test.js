@@ -465,8 +465,9 @@ test('refs restart a snapshot saved by the branch-only query and ask policies fo
       },
     },
   });
-  await client.read(repo, 'refs', { cursor: { token: 'from-heads-only' } });
+  const restarted = await client.read(repo, 'refs', { cursor: { token: 'from-heads-only' } });
   assert(!calls[0].some(arg => arg.startsWith('continuationToken=')));
+  assert.equal(restarted.restarted, true);
   await client.read(repo, 'refs', { cursor: { token: 'all', allRefs: true } });
   assert(calls[1].includes('continuationToken=all'));
   await client.prReview(repo, 4);

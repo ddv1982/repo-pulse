@@ -14,7 +14,7 @@ import { cliError, normalizeCommitIds } from './azure-cli.js';
  * Build reads also keep their coarse window in `from` and `to`.
  * @typedef {{ skip?: number, token?: string, from?: string, to?: string, allRefs?: boolean }} PageCursor
  */
-/** @typedef {{ items: AzureRecord[], nextCursor: PageCursor | null }} AzurePage */
+/** `restarted` marks a first page read in place of the saved cursor's page. @typedef {{ items: AzureRecord[], nextCursor: PageCursor | null, restarted?: boolean }} AzurePage */
 /** @typedef {{ since?: string, until?: string, cursor?: PageCursor | null }} ReadOptions */
 /**
  * @typedef {{ id: number, source: string, target: string, sourceId: string, targetId: string,
@@ -280,6 +280,7 @@ export function createAzureClient({ cli, now = Date.now } = {}) {
           });
           const page = pageOf(response, { skip, mode });
           if (page.nextCursor) page.nextCursor.allRefs = true;
+          if (cursor?.token && !cursor.allRefs) page.restarted = true;
           return page;
         }
         case 'prs':
