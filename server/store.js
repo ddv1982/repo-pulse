@@ -17,9 +17,6 @@ export function createStore(path = ':memory:') {
   const activityRevision = () => q("SELECT data FROM settings WHERE key='activityRevision'").get()?.data || '0';
   const bumpActivity = () => q(`INSERT INTO settings(key,data) VALUES('activityRevision','1')
     ON CONFLICT(key) DO UPDATE SET data=CAST(data AS INTEGER)+1`).run();
-  const version = q('PRAGMA user_version').get().user_version;
-  if (version > 9) { db.close(); throw new Error('This database was created by a newer Repo Pulse version.'); }
-  db.exec('PRAGMA foreign_keys = ON');
   const transaction = (fn) => {
     db.exec('BEGIN IMMEDIATE');
     try { const result = fn(); db.exec('COMMIT'); return result; }
@@ -63,6 +60,47 @@ export function createStore(path = ':memory:') {
        DO UPDATE SET repo_id=excluded.repo_id,type=excluded.type,next_at=excluded.next_at,data=excluded.data`)
       .run(job.id, job.repoId, job.type, job.nextAt || '1970-01-01T00:00:00.000Z', JSON.stringify(job));
   }
+  // Each step upgrades a database below its version and is recorded in user_version once it has run.
+  // A fresh database runs every step against empty tables and ends at the last version.
+  const migrations = [
+    [2, () => {
+      // Membership and metadata jobs are added without rewriting any existing event or read flag.
+      for (const row of q('SELECT data FROM events ORDER BY rowid').all()) saveMembership(parse(row));
+      for (const row of q("SELECT data FROM events WHERE json_extract(data,'$.kind')='push'").all()) {
+        const event = parse(row);
+        saveJob({ id: `merge:${event.id}`, type: 'merge', repoId: event.repoId, eventId: event.id,
+          status: 'pending', nextAt: '1970-01-01T00:00:00.000Z' });
+      }
+    }],
+    [4, () => {
+      // Push associations can be empty when refs move to an already-created PR result.
+      // Retry those histories once with range enumeration; cached metadata and read flags stay intact.
+      for (const row of q("SELECT data FROM events WHERE json_extract(data,'$.kind')='push'").all()) {
+        const event = parse(row);
+        const eligible = Array.isArray(event.data?.refUpdates) && event.data.refUpdates.some((ref) => ref.name?.startsWith('refs/heads/') &&
+          typeof ref.oldObjectId === 'string' && ref.oldObjectId.length && !/^0+$/.test(ref.oldObjectId) &&
+          typeof ref.newObjectId === 'string' && ref.newObjectId.length && !/^0+$/.test(ref.newObjectId) && ref.oldObjectId !== ref.newObjectId);
+        if (eligible) saveJob({ id: `merge:${event.id}`,type: 'merge',repoId: event.repoId,eventId: event.id,
+          status: 'pending',stage: 'commits',cursor: null,nextAt: '1970-01-01T00:00:00.000Z' });
+      }
+    }],
+    [7, () => {
+      for (const row of q('SELECT e.data,e.seen,e.imported,n.data AS enrichment FROM events e LEFT JOIN enrichment n ON n.event_id=e.id').iterate()) indexLabels(hydrate(row));
+      db.exec('DROP INDEX IF EXISTS activity_label; DROP INDEX IF EXISTS activity_evidence;');
+    }],
+    [8, () => {
+      // Paused repositories kept showing cached activity; disabled ones are hidden everywhere except Repositories.
+      db.exec(`UPDATE repositories SET data=json_remove(json_set(data,'$.disabled',
+        json(CASE WHEN json_extract(data,'$.paused') THEN 'true' ELSE 'false' END)),'$.paused');`);
+    }],
+    [9, () => {
+      // Pull now uses git merge --ff-only, so the crash journal for the custom fast-forward is gone.
+      db.exec('DROP TABLE IF EXISTS pull_operations;');
+    }],
+  ];
+  const version = q('PRAGMA user_version').get().user_version;
+  if (version > migrations.at(-1)[0]) { db.close(); throw new Error('This database was created by a newer Repo Pulse version.'); }
+  db.exec('PRAGMA foreign_keys = ON');
   transaction(() => {
     db.exec(`
       CREATE TABLE IF NOT EXISTS repositories (id TEXT PRIMARY KEY, data TEXT NOT NULL);
@@ -91,6 +129,7 @@ export function createStore(path = ':memory:') {
     `);
     if (version < 7) {
       // Databases from before version 7 have no status columns, or the older label and evidence names.
+      // This runs before every step because saveMembership in step 2 already writes status_id and evidence_id.
       const columns = q('PRAGMA table_info(activity_members)').all();
       if (columns.some(column => column.name === 'label')) {
         db.exec('ALTER TABLE activity_members RENAME COLUMN label TO status_id; ALTER TABLE activity_members RENAME COLUMN evidence TO evidence_id;');
@@ -98,40 +137,10 @@ export function createStore(path = ':memory:') {
         db.exec("ALTER TABLE activity_members ADD COLUMN status_id TEXT NOT NULL DEFAULT ''; ALTER TABLE activity_members ADD COLUMN evidence_id TEXT NOT NULL DEFAULT '';");
       }
     }
-    if (version < 2) {
-      // Membership and metadata jobs are added without rewriting any existing event or read flag.
-      for (const row of q('SELECT data FROM events ORDER BY rowid').all()) saveMembership(parse(row));
-      for (const row of q("SELECT data FROM events WHERE json_extract(data,'$.kind')='push'").all()) {
-        const event = parse(row);
-        saveJob({ id: `merge:${event.id}`, type: 'merge', repoId: event.repoId, eventId: event.id,
-          status: 'pending', nextAt: '1970-01-01T00:00:00.000Z' });
-      }
-    }
-    if (version < 4) {
-      // Push associations can be empty when refs move to an already-created PR result.
-      // Retry those histories once with range enumeration; cached metadata and read flags stay intact.
-      for (const row of q("SELECT data FROM events WHERE json_extract(data,'$.kind')='push'").all()) {
-        const event = parse(row);
-        const eligible = Array.isArray(event.data?.refUpdates) && event.data.refUpdates.some((ref) => ref.name?.startsWith('refs/heads/') &&
-          typeof ref.oldObjectId === 'string' && ref.oldObjectId.length && !/^0+$/.test(ref.oldObjectId) &&
-          typeof ref.newObjectId === 'string' && ref.newObjectId.length && !/^0+$/.test(ref.newObjectId) && ref.oldObjectId !== ref.newObjectId);
-        if (eligible) saveJob({ id: `merge:${event.id}`,type: 'merge',repoId: event.repoId,eventId: event.id,
-          status: 'pending',stage: 'commits',cursor: null,nextAt: '1970-01-01T00:00:00.000Z' });
-      }
-    }
-    if (version < 7) {
-      for (const row of q('SELECT e.data,e.seen,e.imported,n.data AS enrichment FROM events e LEFT JOIN enrichment n ON n.event_id=e.id').iterate()) indexLabels(hydrate(row));
-      db.exec("DROP INDEX IF EXISTS activity_label; DROP INDEX IF EXISTS activity_evidence; PRAGMA user_version = 7;");
-    }
-    if (version < 8) {
-      // Paused repositories kept showing cached activity; disabled ones are hidden everywhere except Repositories.
-      db.exec(`UPDATE repositories SET data=json_remove(json_set(data,'$.disabled',
-        json(CASE WHEN json_extract(data,'$.paused') THEN 'true' ELSE 'false' END)),'$.paused');
-        PRAGMA user_version = 8;`);
-    }
-    if (version < 9) {
-      // Pull now uses git merge --ff-only, so the crash journal for the custom fast-forward is gone.
-      db.exec('DROP TABLE IF EXISTS pull_operations; PRAGMA user_version = 9;');
+    for (const [target, run] of migrations) {
+      if (version >= target) continue;
+      run();
+      db.exec(`PRAGMA user_version = ${target}`);
     }
   });
   const selectEvents = 'SELECT e.data,e.seen,e.imported,n.data AS enrichment FROM events e LEFT JOIN enrichment n ON n.event_id=e.id';
