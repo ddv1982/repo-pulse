@@ -169,7 +169,8 @@ test('empty live startup detects existing CLI locally and prompts only local rep
   const { page, runtime } = await setup(t, false);
   await expect(page.getByRole('heading', { name: 'Repositories', exact: true })).toBeVisible();
   await expect(page.getByText('No repositories watched yet.')).toBeVisible();
-  await expect(page.locator('#connection-status').getByRole('button', { name: 'Check again' })).toBeVisible();
+  // This test runs the machine's real Azure CLI, whose first start can take well over five seconds on a CI runner.
+  await expect(page.locator('#connection-status').getByRole('button', { name: 'Check again' })).toBeVisible({ timeout: 30000 });
   await expect(page.locator('input[type="url"]')).toHaveCount(0);
   const state = await (await fetch(runtime.url + '/api/state')).json();
   assert.equal(state.demo, false);
