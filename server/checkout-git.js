@@ -298,7 +298,6 @@ export function createCheckoutGit({ run = runGit, matchesRemote = matchesWatched
       const rewrite = observed?.verified ? observed : retained ?? observed;
       const observedAfterFetch = { identity: snapshot.identity, tracking: tip, pending, rewrite, lastCheck: saved?.lastCheck };
       observations.save(repo.id, observedAfterFetch);
-      if (operation !== 'check' && snapshot.head) await refuseIgnoredOverlap(path, snapshot.head, tip);
       const after = await statusAt(path, repo);
       if (!sameCheckout(after.snapshot)) throw problem('The checkout or its upstream changed during the check. The branch was not updated.');
       if (snapshot.branch && before.gitDirectory && before.gitDirectory === after.gitDirectory) {
@@ -313,6 +312,8 @@ export function createCheckoutGit({ run = runGit, matchesRemote = matchesWatched
       }
       if (after.snapshot.state === 'current') return { checkout: after.snapshot, updated: false };
       if (!after.snapshot.canPull) throw problem('The checkout is no longer eligible.');
+      // Checked after identity and eligibility so a rewritten upstream or changed checkout is reported first.
+      await refuseIgnoredOverlap(path, after.snapshot.head, tip);
       await run(path, ['merge-base', '--is-ancestor', after.snapshot.head, tip]);
       await fastForward(path, tip);
       return { checkout: (await statusAt(path, repo)).snapshot, updated: true };
