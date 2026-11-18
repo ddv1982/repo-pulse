@@ -16,10 +16,15 @@ async function measure(scenario) {
     const run = Math.floor(index / 2);
     const isBuild = scenario.mixedRuns && run % 5 === 0;
     return {
-      id: `${isBuild ? 'build' : 'push'}-${index}`, repoId: ids[(isBuild ? run : index) % ids.length], kind: isBuild ? 'build' : 'push',
-      seen: index % 11 !== 0, branch: `feature/${index % 100}`, title: isBuild ? `Run ${run}` : `Push ${index}`,
+      id: `${isBuild ? 'build' : 'push'}-${index}`,
+      repoId: ids[(isBuild ? run : index) % ids.length],
+      kind: isBuild ? 'build' : 'push',
+      seen: index % 11 !== 0,
+      branch: `feature/${index % 100}`,
+      title: isBuild ? `Run ${run}` : `Push ${index}`,
       time: new Date(Date.UTC(2026, 0, 1, 0, index)).toISOString(),
-      data: isBuild ? { buildId: run + 1, status: index % 2 ? 'completed' : 'inProgress', result: index % 2 ? 'succeeded' : undefined }
+      data: isBuild
+        ? { buildId: run + 1, status: index % 2 ? 'completed' : 'inProgress', result: index % 2 ? 'succeeded' : undefined }
         : { pushId: index + 1 },
     };
   });

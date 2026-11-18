@@ -20,8 +20,24 @@ export function renderRepositories(state, ui, checkouts = {}) {
     </details>
     </div>
     <section class="card block repo-list" aria-label="Watched repositories">
-      ${state.watched.length ? state.watched.map(repo => repo.disabled ? renderDisabledRepo(repo) : renderRepo(repo, state.streams, state.demo ? null : jobs.get(repo.id),
-        state.demo ? { state: 'not-linked' } : checkouts[repo.id], state.demo, state.settings)).join('') : '<div class="card-pad"><p>No repositories watched yet.</p><p class="help">Add a local checkout to watch all its remote branches.</p></div>'}
+      ${
+        state.watched.length
+          ? state.watched
+              .map(repo =>
+                repo.disabled
+                  ? renderDisabledRepo(repo)
+                  : renderRepo(
+                      repo,
+                      state.streams,
+                      state.demo ? null : jobs.get(repo.id),
+                      state.demo ? { state: 'not-linked' } : checkouts[repo.id],
+                      state.demo,
+                      state.settings,
+                    ),
+              )
+              .join('')
+          : '<div class="card-pad"><p>No repositories watched yet.</p><p class="help">Add a local checkout to watch all its remote branches.</p></div>'
+      }
     </section>`;
 }
 
@@ -71,8 +87,13 @@ function renderRepo(repo, streams, job, checkout, demo, settings) {
         ${repo.localPath ? `<p class="help mono local-path" title="${e(repo.localPath)}">${e(displayLocalPath(repo.localPath))}</p>` : ''}
         ${repo.localPath ? '<p class="help">Check for updates compares your current branch with its remote. Use Refresh activity to check watched branches across the selected repositories.</p>' : ''}
         ${!checked.length && automatic && !failed.length ? '<p class="help">Waiting for the first check.</p>' : ''}
-        ${failed.length ? `<ul class="repo-check-errors help" aria-label="Last check failures">${failed.map(item =>
-          `<li><strong>${e(item.label)}</strong>: ${e(item.message)}</li>`).join('')}</ul>` : ''}
+        ${
+          failed.length
+            ? `<ul class="repo-check-errors help" aria-label="Last check failures">${failed
+                .map(item => `<li><strong>${e(item.label)}</strong>: ${e(item.message)}</li>`)
+                .join('')}</ul>`
+            : ''
+        }
         <div class="actions">
           ${demo ? '' : renderHistoryButton(repo, job)}
           ${azureLink(repo.webUrl)}

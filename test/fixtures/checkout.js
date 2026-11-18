@@ -5,7 +5,12 @@ import { join } from 'node:path';
 import { createCheckoutGit } from '../../server/checkout-git.js';
 
 // Fixture repositories and the checkout code under test commit; a clean machine or CI runner has no Git identity.
-for (const [key, value] of Object.entries({ GIT_AUTHOR_NAME: 'Test', GIT_AUTHOR_EMAIL: 'test@example.test', GIT_COMMITTER_NAME: 'Test', GIT_COMMITTER_EMAIL: 'test@example.test' })) {
+for (const [key, value] of Object.entries({
+  GIT_AUTHOR_NAME: 'Test',
+  GIT_AUTHOR_EMAIL: 'test@example.test',
+  GIT_COMMITTER_NAME: 'Test',
+  GIT_COMMITTER_EMAIL: 'test@example.test',
+})) {
   process.env[key] ??= value;
 }
 
@@ -55,8 +60,16 @@ export function squashFixture(t) {
   git(source, 'push', 'origin', 'release');
   git(remote, 'update-ref', '-d', 'refs/heads/topic');
   const repo = { ...fixture.repo, azureId: 'azure-repo' };
-  const pr = { id: 101, source: 'refs/heads/topic', target: 'refs/heads/release',
-    sourceId: repo.azureId, targetId: repo.azureId, head, result, strategy: 'squash',
-    url: 'https://dev.azure.com/example/Testing/_git/Orders/pullrequest/101' };
+  const pr = {
+    id: 101,
+    source: 'refs/heads/topic',
+    target: 'refs/heads/release',
+    sourceId: repo.azureId,
+    targetId: repo.azureId,
+    head,
+    result,
+    strategy: 'squash',
+    url: 'https://dev.azure.com/example/Testing/_git/Orders/pullrequest/101',
+  };
   return { ...fixture, repo, pr };
 }

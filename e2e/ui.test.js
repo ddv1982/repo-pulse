@@ -13,7 +13,10 @@ async function browserPath() {
   if (process.env.CHROME) return process.env.CHROME;
   if (existsSync(chromium.executablePath())) return chromium.executablePath();
   const cache = join(homedir(), '.cache', 'ms-playwright');
-  for (const name of (await readdir(cache).catch(() => [])).filter(name => /^chromium-\d+$/.test(name)).sort().reverse()) {
+  for (const name of (await readdir(cache).catch(() => []))
+    .filter(name => /^chromium-\d+$/.test(name))
+    .sort()
+    .reverse()) {
     for (const relative of ['chrome-linux64/chrome', 'chrome-linux/chrome']) {
       const candidate = join(cache, name, relative);
       if (existsSync(candidate)) return candidate;
@@ -34,12 +37,29 @@ async function setup(t, demo = true) {
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 }, colorScheme: 'light' });
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
-  page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
-  t.after(async () => { await browser.close(); await runtime.close(); await rm(directory, { recursive: true, force: true }); assert.deepEqual(errors, []); });
+  page.on('console', message => {
+    if (message.type() === 'error') errors.push(message.text());
+  });
+  t.after(async () => {
+    await browser.close();
+    await runtime.close();
+    await rm(directory, { recursive: true, force: true });
+    assert.deepEqual(errors, []);
+  });
   await page.goto(runtime.url);
   await expect(page.getByRole('link', { name: 'Repo Pulse', exact: true })).toBeVisible();
   await mkdir('test-results', { recursive: true });
-  return { page, get runtime() { return runtime; }, async restart() { await runtime.close(); runtime = await startApp({ demo, port: 0, dataDir: directory }); await page.goto(runtime.url); } };
+  return {
+    page,
+    get runtime() {
+      return runtime;
+    },
+    async restart() {
+      await runtime.close();
+      runtime = await startApp({ demo, port: 0, dataDir: directory });
+      await page.goto(runtime.url);
+    },
+  };
 }
 
 test('approved light/dark/System UI and responsive routes work without remote traffic', async t => {
@@ -47,7 +67,9 @@ test('approved light/dark/System UI and responsive routes work without remote tr
   await expect(page.getByText('Demo mode · fictional repositories and people')).toBeVisible();
   await expect(page.locator('[data-event-id="demo-branch-1"]')).toContainText('hotfix/2026.11-dose-rounding');
   const remoteReads = [];
-  page.on('request', request => { if (/\/api\/(refresh|connection|repos)(\?|$)/.test(request.url())) remoteReads.push(request.url()); });
+  page.on('request', request => {
+    if (/\/api\/(refresh|connection|repos)(\?|$)/.test(request.url())) remoteReads.push(request.url());
+  });
   await page.getByRole('button', { name: 'Light', exact: true }).click();
   await page.screenshot({ path: 'test-results/app-light.png', fullPage: true });
   await page.getByRole('button', { name: 'Dark', exact: true }).click();
@@ -86,19 +108,37 @@ test('repo subset acknowledgement preserves hidden/incoming events and survives 
   await expect(page.locator('[data-event-id]')).toHaveCount(2);
   const before = await (await fetch(app.runtime.url + '/api/state')).json();
   let incoming;
-  await page.route('**/api/ack', async route => {
-    const response = await fetch(app.runtime.url + '/api/demo/event', { method: 'POST', headers: { 'content-type': 'application/json', 'x-repo-pulse-token': before.csrfToken }, body: '{}' });
-    incoming = await response.json();
-    await route.continue();
-  }, { times: 1 });
+  await page.route(
+    '**/api/ack',
+    async route => {
+      const response = await fetch(app.runtime.url + '/api/demo/event', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-repo-pulse-token': before.csrfToken },
+        body: '{}',
+      });
+      incoming = await response.json();
+      await route.continue();
+    },
+    { times: 1 },
+  );
   await page.getByRole('button', { name: 'Mark shown seen (2)', exact: true }).click();
   await expect(page.getByRole('dialog')).not.toBeVisible();
   await expect(page.getByRole('button', { name: 'Mark shown seen (0)', exact: true })).toBeDisabled();
-  assert.ok(app.runtime.store.listEvents().filter(event => event.repoId === 'demo-billing').every(event => event.seen));
+  assert.ok(
+    app.runtime.store
+      .listEvents()
+      .filter(event => event.repoId === 'demo-billing')
+      .every(event => event.seen),
+  );
   assert.equal(app.runtime.store.getEvent(incoming.id).seen, false);
   assert.equal(app.runtime.store.getEvent('demo-branch-1').seen, false);
   await app.restart();
-  assert.ok(app.runtime.store.listEvents().filter(event => event.repoId === 'demo-billing').every(event => event.seen));
+  assert.ok(
+    app.runtime.store
+      .listEvents()
+      .filter(event => event.repoId === 'demo-billing')
+      .every(event => event.seen),
+  );
   assert.equal(app.runtime.store.getEvent(incoming.id).seen, false);
   await page.locator('[data-event-id="demo-branch-1"] .feed-title').click();
   await expect(page.getByRole('heading', { name: 'hotfix/2026.11-dose-rounding' })).toBeVisible();
@@ -184,7 +224,13 @@ test('focused search keeps its value and selection while incoming matching activ
   await search.evaluate(input => input.setSelectionRange(2, 5));
   await expect(search).toBeFocused();
   const state = await (await fetch(runtime.url + '/api/state')).json();
-  const incoming = await (await fetch(runtime.url + '/api/demo/event', { method: 'POST', headers: { 'content-type': 'application/json', 'x-repo-pulse-token': state.csrfToken }, body: '{}' })).json();
+  const incoming = await (
+    await fetch(runtime.url + '/api/demo/event', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-repo-pulse-token': state.csrfToken },
+      body: '{}',
+    })
+  ).json();
   await expect(page.locator(`[data-event-id="${incoming.id}"]`)).toBeVisible({ timeout: 12000 });
   await expect(search).toBeFocused();
   await expect(search).toHaveValue('hotfix/');
@@ -193,8 +239,17 @@ test('focused search keeps its value and selection while incoming matching activ
 
 async function setupPicker(t, { existing = true } = {}) {
   const store = createStore();
-  const organization = 'https://dev.azure.com/example', project = 'Demo';
-  if (existing) store.saveRepo({ id: 'existing', azureId: 'existing', name: 'existing', localPath: '/workspace/projects/existing', organization, project });
+  const organization = 'https://dev.azure.com/example',
+    project = 'Demo';
+  if (existing)
+    store.saveRepo({
+      id: 'existing',
+      azureId: 'existing',
+      name: 'existing',
+      localPath: '/workspace/projects/existing',
+      organization,
+      project,
+    });
   const remote = (name, repoName) => ({ name, repoName, organization, project, url: `${organization}/${project}/_git/${repoName}` });
   const repositories = [
     { localPath: '/workspace/projects/alpha', remotes: [remote('origin', 'alpha-api'), remote('upstream', 'alpha-upstream')] },
@@ -206,12 +261,32 @@ async function setupPicker(t, { existing = true } = {}) {
     calls.browse++;
     path ||= '/workspace/projects';
     if (path === '/missing') throw Object.assign(new Error('This folder cannot be opened. Choose another local folder.'), { status: 400 });
-    return { path, parent: path === '/workspace' ? '/' : '/workspace', breadcrumbs: [{ name: '/', path: '/' }, { name: 'workspace', path: '/workspace' }, ...(path === '/workspace' ? [] : [{ name: path.split('/').at(-1), path }])],
-      folders: [{ name: 'nested', path: '/workspace/projects/nested' }], repositories: path === '/workspace/projects' ? repositories : [], warnings: [] };
+    return {
+      path,
+      parent: path === '/workspace' ? '/' : '/workspace',
+      breadcrumbs: [
+        { name: '/', path: '/' },
+        { name: 'workspace', path: '/workspace' },
+        ...(path === '/workspace' ? [] : [{ name: path.split('/').at(-1), path }]),
+      ],
+      folders: [{ name: 'nested', path: '/workspace/projects/nested' }],
+      repositories: path === '/workspace/projects' ? repositories : [],
+      warnings: [],
+    };
   };
   const provider = {
-    async checkConnection() { return { available: true, signedIn: true, account: { name: 'existing@example.test' }, message: 'Existing Azure CLI sign-in detected.' }; },
-    async resolveRepository(input) { calls.resolve++; return { id: input.name, azureId: input.name, name: input.name, organization, project }; },
+    async checkConnection() {
+      return {
+        available: true,
+        signedIn: true,
+        account: { name: 'existing@example.test' },
+        message: 'Existing Azure CLI sign-in detected.',
+      };
+    },
+    async resolveRepository(input) {
+      calls.resolve++;
+      return { id: input.name, azureId: input.name, name: input.name, organization, project };
+    },
   };
   const sync = createSync({ store, provider });
   const server = createApp({ store, provider, sync, browse, discover: async () => ({ repositories, warnings: [] }) });
@@ -226,7 +301,10 @@ async function setupPicker(t, { existing = true } = {}) {
       if (await picker.count()) t.diagnostic(await picker.innerText());
       t.diagnostic(JSON.stringify(calls));
     }
-    await browser.close(); await new Promise(resolve => server.close(resolve)); store.close(); assert.deepEqual(errors, []);
+    await browser.close();
+    await new Promise(resolve => server.close(resolve));
+    store.close();
+    assert.deepEqual(errors, []);
   });
   await page.goto(`http://127.0.0.1:${server.address().port}/${existing ? '#repositories' : ''}`);
   if (existing) await page.locator('#add-repositories').click();
@@ -268,9 +346,19 @@ test('searchable picker selects multiple checkouts, disambiguates remotes and on
   await page.getByRole('button', { name: 'Watch 2 selected', exact: true }).click();
   await expect(page.getByText('2 repositories watched. All their remote branches are watched.')).toBeVisible();
   assert.equal(calls.resolve, 2);
-  assert.deepEqual(store.listRepos().map(repo => repo.name), ['existing', 'alpha-api', 'beta-web']);
+  assert.deepEqual(
+    store.listRepos().map(repo => repo.name),
+    ['existing', 'alpha-api', 'beta-web'],
+  );
   for (const repoId of ['alpha-api', 'beta-web']) {
-    assert.deepEqual(store.getStreams().filter(stream => stream.repoId === repoId).map(stream => stream.stream).sort(), ['activeBuilds', 'builds', 'closedPrs', 'prs', 'pushes', 'refs']);
+    assert.deepEqual(
+      store
+        .getStreams()
+        .filter(stream => stream.repoId === repoId)
+        .map(stream => stream.stream)
+        .sort(),
+      ['activeBuilds', 'builds', 'closedPrs', 'prs', 'pushes', 'refs'],
+    );
   }
   for (const theme of ['Light', 'Dark']) {
     await page.getByRole('button', { name: theme, exact: true }).click();
@@ -309,8 +397,13 @@ test('folder picker supports keyboard close, browsing, parent navigation and saf
 test('picker keeps a search typed during initial loading and retains failed selections on partial add', async t => {
   const { page, store } = await setupPicker(t);
   let release;
-  const reading = new Promise(resolve => { release = resolve; });
-  await page.route('**/api/folders', async route => { await reading; await route.continue(); });
+  const reading = new Promise(resolve => {
+    release = resolve;
+  });
+  await page.route('**/api/folders', async route => {
+    await reading;
+    await route.continue();
+  });
   const search = page.getByRole('combobox', { name: 'Search local repositories' });
   await search.focus();
   await search.fill('beta');
@@ -321,28 +414,60 @@ test('picker keeps a search typed during initial loading and retains failed sele
   await search.fill('alpha-api');
   await search.press('Enter');
   await page.route('**/api/repos', async route => {
-    if (route.request().postDataJSON().path.endsWith('/beta')) await route.fulfill({ status: 502, contentType: 'application/json', body: JSON.stringify({ message: 'CLI read refused for this repository.' }) });
+    if (route.request().postDataJSON().path.endsWith('/beta'))
+      await route.fulfill({
+        status: 502,
+        contentType: 'application/json',
+        body: JSON.stringify({ message: 'CLI read refused for this repository.' }),
+      });
     else await route.continue();
   });
   await page.getByRole('button', { name: 'Watch 2 selected', exact: true }).click();
   await expect(page.getByRole('alert')).toContainText('beta-web');
   await expect(page.getByRole('alert')).toContainText('CLI read refused');
   await expect(page.getByRole('button', { name: 'Watch 1 selected', exact: true })).toBeEnabled();
-  assert.deepEqual(store.listRepos().map(repo => repo.name), ['existing', 'alpha-api']);
+  assert.deepEqual(
+    store.listRepos().map(repo => repo.name),
+    ['existing', 'alpha-api'],
+  );
 });
 
 async function groupedFixture(t) {
   const app = await setup(t);
   for (const repo of app.runtime.store.listRepos()) app.runtime.store.removeRepo(repo.id);
-  app.runtime.store.saveRepo({ id: 'demo-orders', name: 'Orders', project: 'Demo', organization: 'https://dev.azure.com/example', azureId: 'orders' });
+  app.runtime.store.saveRepo({
+    id: 'demo-orders',
+    name: 'Orders',
+    project: 'Demo',
+    organization: 'https://dev.azure.com/example',
+    azureId: 'orders',
+  });
   const now = Date.now();
-  const record = { repoId: 'demo-orders', kind: 'build', title: 'Orders CI · 20261117.6', branch: 'main', actor: 'Demo developer', seen: false, imported: false,
-    data: { buildId: 700, sourceVersion: 'abcdef0123456789', definition: { name: 'Orders CI' }, reason: 'manual' } };
-  const event = (id, status, offset) => ({ ...record, id, time: new Date(now + offset).toISOString(), observedAt: new Date(now + offset).toISOString(), data: { ...record.data, status } });
+  const record = {
+    repoId: 'demo-orders',
+    kind: 'build',
+    title: 'Orders CI · 20261117.6',
+    branch: 'main',
+    actor: 'Demo developer',
+    seen: false,
+    imported: false,
+    data: { buildId: 700, sourceVersion: 'abcdef0123456789', definition: { name: 'Orders CI' }, reason: 'manual' },
+  };
+  const event = (id, status, offset) => ({
+    ...record,
+    id,
+    time: new Date(now + offset).toISOString(),
+    observedAt: new Date(now + offset).toISOString(),
+    data: { ...record.data, status },
+  });
   app.runtime.store.insertEvents([event('build-queued', 'notStarted', -120000), event('build-running', 'inProgress', -60000)]);
-  for (const stream of ['pushes', 'refs', 'prs', 'closedPrs', 'builds', 'activeBuilds']) app.runtime.store.saveStream({ repoId: 'demo-orders', stream, initialized: true, lastSuccess: new Date(now).toISOString() });
+  for (const stream of ['pushes', 'refs', 'prs', 'closedPrs', 'builds', 'activeBuilds'])
+    app.runtime.store.saveStream({ repoId: 'demo-orders', stream, initialized: true, lastSuccess: new Date(now).toISOString() });
   // Exercise the normal healthy layout, using only the isolated fixture backend.
-  await app.page.route('**/api/state', async route => { const response = await route.fetch(); await route.fulfill({ json: { ...await response.json(), demo: false } }); });
+  await app.page.route('**/api/state', async route => {
+    const response = await route.fetch();
+    await route.fulfill({ json: { ...(await response.json()), demo: false } });
+  });
   await app.page.reload();
   await expect(app.page.locator('li[data-event-id]')).toHaveCount(1);
   return { ...app, event };
@@ -357,11 +482,15 @@ test('build transitions group into one item and exact acknowledgement leaves a l
   await expect(page.locator('li.row .feed-title .title')).toHaveText('Orders CI · 20261117.6');
   await page.locator('.trail > summary').click();
   await expect(page.locator('.trail li')).toHaveCount(2);
-  await page.route('**/api/ack', async route => {
-    const result = event('build-succeeded', 'completed', 0);
-    runtime.store.insertEvents([{ ...result, data: { ...result.data, result: 'succeeded' } }]);
-    await route.continue();
-  }, { times: 1 });
+  await page.route(
+    '**/api/ack',
+    async route => {
+      const result = event('build-succeeded', 'completed', 0);
+      runtime.store.insertEvents([{ ...result, data: { ...result.data, result: 'succeeded' } }]);
+      await route.continue();
+    },
+    { times: 1 },
+  );
   await page.getByRole('button', { name: 'Mark shown seen (2)', exact: true }).click();
   await expect(page.locator('li.row .kind')).toHaveText('Succeeded');
   assert.equal(runtime.store.listEvents().find(item => item.id === 'build-queued').seen, true);
@@ -388,7 +517,10 @@ test('healthy phone catch-up shows first activity and theme icons before the fol
     await page.setViewportSize({ width: 375, height: 812 });
     await expect(page.locator('details[data-filter-panel]')).not.toHaveAttribute('open', '');
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
-    const top = await page.locator('li.row').first().evaluate(element => element.getBoundingClientRect().top);
+    const top = await page
+      .locator('li.row')
+      .first()
+      .evaluate(element => element.getBoundingClientRect().top);
     assert.ok(top < 600, `first activity starts at ${top}px`);
     for (const name of ['System', 'Light', 'Dark']) {
       const box = await page.getByRole('button', { name, exact: true }).boundingBox();
@@ -443,19 +575,39 @@ test('activity hover uses color instead of underlining and retains keyboard focu
     await page.mouse.move(0, 0);
     const initial = await title.evaluate(element => getComputedStyle(element).color);
     await title.hover();
-    const hovered = await title.evaluate(element => ({ color: getComputedStyle(element).color, decoration: getComputedStyle(element).textDecorationLine }));
+    const hovered = await title.evaluate(element => ({
+      color: getComputedStyle(element).color,
+      decoration: getComputedStyle(element).textDecorationLine,
+    }));
     assert.equal(hovered.decoration, 'none');
     assert.notEqual(hovered.color, initial);
-    await title.focus(); await page.keyboard.press('Tab'); await page.keyboard.press('Shift+Tab');
+    await title.focus();
+    await page.keyboard.press('Tab');
+    await page.keyboard.press('Shift+Tab');
     await expect(title).toBeFocused();
-    assert.deepEqual(await title.evaluate(element => ({ style: getComputedStyle(element).outlineStyle, width: getComputedStyle(element).outlineWidth })), { style: 'solid', width: '2px' });
+    assert.deepEqual(
+      await title.evaluate(element => ({ style: getComputedStyle(element).outlineStyle, width: getComputedStyle(element).outlineWidth })),
+      { style: 'solid', width: '2px' },
+    );
     await page.screenshot({ path: `test-results/hover-${theme.toLowerCase()}.png`, fullPage: true });
   }
 });
 
 test('confirmed branch deletion wording replaces legacy missing titles in rows, filters and detail', async t => {
   const { page, runtime } = await groupedFixture(t);
-  runtime.store.insertEvents([{ id: 'branch-deleted', repoId: 'demo-orders', kind: 'branch-deleted', title: 'Branch missing', branch: 'hotfix/finished', actor: 'Demo developer', time: new Date().toISOString(), observedAt: new Date().toISOString(), data: { evidence: 'push', pushId: 801 } }]);
+  runtime.store.insertEvents([
+    {
+      id: 'branch-deleted',
+      repoId: 'demo-orders',
+      kind: 'branch-deleted',
+      title: 'Branch missing',
+      branch: 'hotfix/finished',
+      actor: 'Demo developer',
+      time: new Date().toISOString(),
+      observedAt: new Date().toISOString(),
+      data: { evidence: 'push', pushId: 801 },
+    },
+  ]);
   await page.reload();
   await selectActivityType(page, 'Branch deleted');
   await expect(page.locator('li.row .kind')).toHaveText('Branch deleted');
@@ -470,8 +622,26 @@ test('one Activity group offers clearly distinct New updates and All activity wi
   const { page, runtime } = await groupedFixture(t);
   const now = new Date().toISOString();
   runtime.store.insertEvents([
-    { id: 'seen-push', repoId: 'demo-orders', kind: 'push', title: 'Orders previously seen', branch: 'main', time: now, observedAt: now, seen: true },
-    { id: 'imported-push', repoId: 'demo-orders', kind: 'push', title: 'Orders imported history', branch: 'main', time: now, observedAt: now, imported: true },
+    {
+      id: 'seen-push',
+      repoId: 'demo-orders',
+      kind: 'push',
+      title: 'Orders previously seen',
+      branch: 'main',
+      time: now,
+      observedAt: now,
+      seen: true,
+    },
+    {
+      id: 'imported-push',
+      repoId: 'demo-orders',
+      kind: 'push',
+      title: 'Orders imported history',
+      branch: 'main',
+      time: now,
+      observedAt: now,
+      imported: true,
+    },
   ]);
   await page.reload();
   const main = page.getByRole('navigation', { name: 'Main', exact: true });
@@ -481,7 +651,9 @@ test('one Activity group offers clearly distinct New updates and All activity wi
   await expect(page.getByRole('link', { name: 'New updates', exact: true })).toHaveAttribute('aria-current', 'page');
   await expect(page.locator('li.row')).toHaveCount(1);
   const remoteReads = [];
-  page.on('request', request => { if (/\/api\/(refresh|connection|repos)(\?|$)/.test(request.url())) remoteReads.push(request.url()); });
+  page.on('request', request => {
+    if (/\/api\/(refresh|connection|repos)(\?|$)/.test(request.url())) remoteReads.push(request.url());
+  });
   await page.getByRole('searchbox', { name: 'Search activity' }).fill('Orders');
   await page.getByRole('link', { name: 'All activity', exact: true }).click();
   await expect(page).toHaveURL(/#activity\/all$/);
@@ -489,7 +661,7 @@ test('one Activity group offers clearly distinct New updates and All activity wi
   await expect(page.locator('li.row')).toHaveCount(3);
   await expect(page.locator('[data-event-id="seen-push"]')).toBeVisible();
   const importedHistory = page.locator('details[data-group="Imported history"]');
-  if (await importedHistory.getAttribute('open') === null) await importedHistory.locator('summary').click();
+  if ((await importedHistory.getAttribute('open')) === null) await importedHistory.locator('summary').click();
   await expect(page.locator('[data-event-id="imported-push"]')).toBeVisible();
   await expect(page.getByRole('region', { name: 'Activity summary' })).toContainText('1 new item');
   await expect(page.getByRole('region', { name: 'Activity summary' })).toContainText('Showing 3 of 3 items');
@@ -537,14 +709,28 @@ test('semantic status colors match rows, imported history, details and trails in
     ['skipped', 'build', { status: 'completed', result: 'skipped' }, 'neutral', 'Skipped'],
     ['uncertain', 'branch-deleted', { evidence: 'snapshot' }, 'warn', 'No longer listed'],
   ];
-  runtime.store.insertEvents(cases.map(([id, kind, data], index) => ({ id: `color-${id}`, repoId: 'demo-orders', kind, branch: 'feature/example', title: id,
-    time: new Date(Date.now() - 600000 - index * 1000).toISOString(), observedAt: new Date(Date.now() - 600000).toISOString(), imported: true, seen: true, data: { ...data, ...(kind === 'build' ? { buildId: 800 + index } : {}) } })));
-  runtime.store.insertEvents([{ ...event('canceled-transition', 'completed', 0), data: { ...event('', '', 0).data, status: 'completed', result: 'canceled' } }]);
+  runtime.store.insertEvents(
+    cases.map(([id, kind, data], index) => ({
+      id: `color-${id}`,
+      repoId: 'demo-orders',
+      kind,
+      branch: 'feature/example',
+      title: id,
+      time: new Date(Date.now() - 600000 - index * 1000).toISOString(),
+      observedAt: new Date(Date.now() - 600000).toISOString(),
+      imported: true,
+      seen: true,
+      data: { ...data, ...(kind === 'build' ? { buildId: 800 + index } : {}) },
+    })),
+  );
+  runtime.store.insertEvents([
+    { ...event('canceled-transition', 'completed', 0), data: { ...event('', '', 0).data, status: 'completed', result: 'canceled' } },
+  ]);
   await page.goto(page.url().split('#')[0] + '#activity/all');
   for (const theme of ['Light', 'Dark']) {
     await page.getByRole('button', { name: theme, exact: true }).click();
     const history = page.locator('details[data-group="Imported history"]');
-    if (!await history.evaluate(element => element.open)) await history.locator('summary').first().click();
+    if (!(await history.evaluate(element => element.open))) await history.locator('summary').first().click();
     for (const [id, , , tone, label] of cases) {
       const row = page.locator(`li[data-event-id="color-${id}"]`);
       await expect(row.locator('.kind')).toHaveText(label);
@@ -554,10 +740,23 @@ test('semantic status colors match rows, imported history, details and trails in
     await expect(page.locator('[data-event-id="color-deleted"]')).not.toHaveClass(/(?:^|\s)crit(?:\s|$)/);
     await expect(page.locator('[data-event-id="color-failed"]')).toHaveClass(/(?:^|\s)crit(?:\s|$)/);
     const contrast = await page.evaluate(() => {
-      const canvas = document.createElement('canvas'); canvas.width = canvas.height = 1;
+      const canvas = document.createElement('canvas');
+      canvas.width = canvas.height = 1;
       const context = canvas.getContext('2d');
-      const rgba = color => { context.clearRect(0, 0, 1, 1); context.fillStyle = color; context.fillRect(0, 0, 1, 1); return [...context.getImageData(0, 0, 1, 1).data]; };
-      const luminance = color => color.slice(0, 3).map(value => { const c = value / 255; return c <= .04045 ? c / 12.92 : ((c + .055) / 1.055) ** 2.4; }).reduce((sum, value, index) => sum + value * [.2126, .7152, .0722][index], 0);
+      const rgba = color => {
+        context.clearRect(0, 0, 1, 1);
+        context.fillStyle = color;
+        context.fillRect(0, 0, 1, 1);
+        return [...context.getImageData(0, 0, 1, 1).data];
+      };
+      const luminance = color =>
+        color
+          .slice(0, 3)
+          .map(value => {
+            const c = value / 255;
+            return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+          })
+          .reduce((sum, value, index) => sum + value * [0.2126, 0.7152, 0.0722][index], 0);
       const tokens = getComputedStyle(document.documentElement);
       const names = { crit: '--critical', warn: '--warning', ok: '--ok', info: '--info', neutral: '--muted-foreground' };
       const washes = { crit: '--critical-wash', warn: '--warning-wash', ok: '--ok-wash', info: '--primary-wash' };
@@ -568,15 +767,26 @@ test('semantic status colors match rows, imported history, details and trails in
         let background = rgba(getComputedStyle(row.closest('.card')).backgroundColor);
         if (washes[tone]) {
           const wash = rgba(tokens.getPropertyValue(washes[tone]));
-          background = background.map((value, index) => index === 3 ? 255 : wash[index] * wash[3] / 255 + value * (1 - wash[3] / 255));
+          background = background.map((value, index) => (index === 3 ? 255 : (wash[index] * wash[3]) / 255 + value * (1 - wash[3] / 255)));
         }
-        const first = luminance(foreground), second = luminance(background);
-        return { id: row.dataset.eventId, tone, hasWash: getComputedStyle(row).backgroundImage !== 'none', ratio: (Math.max(first, second) + .05) / (Math.min(first, second) + .05), matchesToken: JSON.stringify(foreground) === JSON.stringify(rgba(tokens.getPropertyValue(names[tone]))) };
+        const first = luminance(foreground),
+          second = luminance(background);
+        return {
+          id: row.dataset.eventId,
+          tone,
+          hasWash: getComputedStyle(row).backgroundImage !== 'none',
+          ratio: (Math.max(first, second) + 0.05) / (Math.min(first, second) + 0.05),
+          matchesToken: JSON.stringify(foreground) === JSON.stringify(rgba(tokens.getPropertyValue(names[tone]))),
+        };
       });
     });
-    for (const result of contrast) { assert.equal(result.matchesToken, true, `${theme} ${result.id} token`); assert.equal(result.hasWash, result.tone !== 'neutral'); assert.ok(result.ratio >= 4.5, `${theme} ${result.id} contrast ${result.ratio}`); }
+    for (const result of contrast) {
+      assert.equal(result.matchesToken, true, `${theme} ${result.id} token`);
+      assert.equal(result.hasWash, result.tone !== 'neutral');
+      assert.ok(result.ratio >= 4.5, `${theme} ${result.id} contrast ${result.ratio}`);
+    }
     const trail = page.locator('[data-event-id="canceled-transition"] .trail');
-    if (!await trail.evaluate(element => element.open)) await trail.locator('summary').click();
+    if (!(await trail.evaluate(element => element.open))) await trail.locator('summary').click();
     await expect(trail.locator('.status-text.warn')).toHaveText('Canceled');
     await expect(trail.locator('.status-text.info')).toHaveCount(2);
     await page.screenshot({ path: `test-results/status-colors-${theme.toLowerCase()}.png`, fullPage: true });
@@ -588,7 +798,17 @@ test('semantic status colors match rows, imported history, details and trails in
 
 test('the app-owned type dropdown is themed, keyboard accessible and stable during local polling', async t => {
   const { page, runtime } = await groupedFixture(t);
-  runtime.store.insertEvents([{ id: 'type-branch', repoId: 'demo-orders', kind: 'branch-created', title: 'New feature branch', branch: 'feature/type', time: new Date().toISOString(), observedAt: new Date().toISOString() }]);
+  runtime.store.insertEvents([
+    {
+      id: 'type-branch',
+      repoId: 'demo-orders',
+      kind: 'branch-created',
+      title: 'New feature branch',
+      branch: 'feature/type',
+      time: new Date().toISOString(),
+      observedAt: new Date().toISOString(),
+    },
+  ]);
   await page.reload();
   await expect(page.locator('select#kind-filter')).toHaveCount(0);
   for (const theme of ['Light', 'Dark']) {
@@ -599,11 +819,33 @@ test('the app-owned type dropdown is themed, keyboard accessible and stable duri
     await expect(panel).toBeVisible();
     await expect(panel.getByRole('option', { name: theme === 'Light' ? 'Running' : 'Succeeded', exact: true })).toBeVisible();
     await expect(panel.getByRole('option', { name: 'Pull request', exact: true })).toHaveCount(0);
-    assert.deepEqual(await page.evaluate(() => ({ panel: getComputedStyle(document.querySelector('#kind-panel')).backgroundColor, card: getComputedStyle(document.querySelector('.summary')).backgroundColor, option: getComputedStyle(document.querySelector('.type-option')).color, body: getComputedStyle(document.body).color })),
-      await page.evaluate(() => ({ panel: getComputedStyle(document.querySelector('.summary')).backgroundColor, card: getComputedStyle(document.querySelector('.summary')).backgroundColor, option: getComputedStyle(document.body).color, body: getComputedStyle(document.body).color })));
+    assert.deepEqual(
+      await page.evaluate(() => ({
+        panel: getComputedStyle(document.querySelector('#kind-panel')).backgroundColor,
+        card: getComputedStyle(document.querySelector('.summary')).backgroundColor,
+        option: getComputedStyle(document.querySelector('.type-option')).color,
+        body: getComputedStyle(document.body).color,
+      })),
+      await page.evaluate(() => ({
+        panel: getComputedStyle(document.querySelector('.summary')).backgroundColor,
+        card: getComputedStyle(document.querySelector('.summary')).backgroundColor,
+        option: getComputedStyle(document.body).color,
+        body: getComputedStyle(document.body).color,
+      })),
+    );
     if (theme === 'Light') {
       const polling = page.waitForResponse(response => new URL(response.url()).pathname === '/api/state', { timeout: 8000 });
-      runtime.store.insertEvents([{ id: 'type-incoming', repoId: 'demo-orders', kind: 'push', title: 'Incoming push', branch: 'feature/type', time: new Date().toISOString(), observedAt: new Date().toISOString() }]);
+      runtime.store.insertEvents([
+        {
+          id: 'type-incoming',
+          repoId: 'demo-orders',
+          kind: 'push',
+          title: 'Incoming push',
+          branch: 'feature/type',
+          time: new Date().toISOString(),
+          observedAt: new Date().toISOString(),
+        },
+      ]);
       await polling;
       await expect(panel).toBeVisible();
     }
@@ -616,7 +858,18 @@ test('the app-owned type dropdown is themed, keyboard accessible and stable duri
     await expect(panel).not.toBeVisible();
     await expect(page.locator('li.row')).toHaveCount(1);
     if (theme === 'Light') {
-      runtime.store.insertEvents([{ id: 'type-build-result', repoId: 'demo-orders', kind: 'build', title: 'Orders CI', branch: 'main', time: new Date().toISOString(), observedAt: new Date().toISOString(), data: { buildId: 700, status: 'completed', result: 'succeeded' } }]);
+      runtime.store.insertEvents([
+        {
+          id: 'type-build-result',
+          repoId: 'demo-orders',
+          kind: 'build',
+          title: 'Orders CI',
+          branch: 'main',
+          time: new Date().toISOString(),
+          observedAt: new Date().toISOString(),
+          data: { buildId: 700, status: 'completed', result: 'succeeded' },
+        },
+      ]);
       await expect(page.locator('li.row .kind')).toHaveText('Succeeded', { timeout: 8000 });
       await expect(toggle).toBeFocused();
     }
@@ -643,7 +896,27 @@ test('the app-owned type dropdown is themed, keyboard accessible and stable duri
 
 test('completed PRs clearly show a merge into the target and optional source/result revisions', async t => {
   const { page, runtime } = await groupedFixture(t);
-  runtime.store.insertEvents([{ id: 'merged-pr', repoId: 'demo-orders', kind: 'pr', title: 'PR 45 · Fix export', branch: 'feature/export', actor: 'PR creator', time: new Date().toISOString(), observedAt: new Date().toISOString(), data: { pullRequestId: 45, status: 'completed', sourceRefName: 'refs/heads/feature/export', targetRefName: 'refs/heads/main', sourceCommit: 'a'.repeat(40), mergeCommit: 'b'.repeat(40), mergeStrategy: 'squash' } }]);
+  runtime.store.insertEvents([
+    {
+      id: 'merged-pr',
+      repoId: 'demo-orders',
+      kind: 'pr',
+      title: 'PR 45 · Fix export',
+      branch: 'feature/export',
+      actor: 'PR creator',
+      time: new Date().toISOString(),
+      observedAt: new Date().toISOString(),
+      data: {
+        pullRequestId: 45,
+        status: 'completed',
+        sourceRefName: 'refs/heads/feature/export',
+        targetRefName: 'refs/heads/main',
+        sourceCommit: 'a'.repeat(40),
+        mergeCommit: 'b'.repeat(40),
+        mergeStrategy: 'squash',
+      },
+    },
+  ]);
   await page.reload();
   await selectActivityType(page, 'Pull request');
   await expect(page.locator('li.row .kind')).toHaveText('Merged');
@@ -651,7 +924,8 @@ test('completed PRs clearly show a merge into the target and optional source/res
   await expect(page.locator('li.row')).toHaveClass(/tone-ok/);
   await page.locator('li.row .feed-title').click();
   await expect(page.locator('.status-chip')).toHaveText('Merged');
-  for (const label of ['Source branch', 'Target branch', 'Source commit', 'Merge commit', 'Created by']) await expect(page.getByText(label, { exact: true })).toBeVisible();
+  for (const label of ['Source branch', 'Target branch', 'Source commit', 'Merge commit', 'Created by'])
+    await expect(page.getByText(label, { exact: true })).toBeVisible();
   await expect(page.getByText('Merged by', { exact: true })).toHaveCount(0);
   await expect(page.getByText('Squash', { exact: true })).toBeVisible();
 });
@@ -660,7 +934,12 @@ test('a backed-up Azure budget is explained on Activity and quantified in Settin
   const { page } = await setup(t);
   await page.route('**/api/state', async route => {
     const state = await (await route.fetch()).json();
-    await route.fulfill({ json: { ...state, diagnostics: { ...state.diagnostics, sync: { ...state.diagnostics.sync, lag: { overdueStreams: 4, maxDelayMs: 9 * 60000 } } } } });
+    await route.fulfill({
+      json: {
+        ...state,
+        diagnostics: { ...state.diagnostics, sync: { ...state.diagnostics.sync, lag: { overdueStreams: 4, maxDelayMs: 9 * 60000 } } },
+      },
+    });
   });
   await page.reload();
   await expect(page.getByRole('status').filter({ hasText: 'Updates are delayed' })).toContainText('about 9 minutes behind schedule');

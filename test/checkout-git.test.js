@@ -82,9 +82,11 @@ test('a local edit made during the fetch blocks the fast-forward', async t => {
   const checkoutGit = createCheckoutGit({
     matchesRemote: url => url === remote,
     run: async (path, args) => {
-      const output = execFileSync('git', ['-C', path, ...args], { encoding: 'utf8',
+      const output = execFileSync('git', ['-C', path, ...args], {
+        encoding: 'utf8',
         env: { ...process.env, GIT_OPTIONAL_LOCKS: '0' },
-        stdio: ['ignore', 'pipe', 'pipe'] });
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
       if (editAfterFetch && args[2] === 'fetch') writeFileSync(join(local, 'feature.txt'), 'edited during fetch');
       return output;
     },
@@ -159,8 +161,11 @@ test('a verified Git check time survives restart and identifies an externally fe
   const { repo, remote, local, advance, original } = checkoutFixture(t);
   const values = new Map();
   let now = Date.parse('2026-11-17T20:25:00Z');
-  const options = { now: () => now, matchesRemote: url => url === remote,
-    observations: { get: id => values.get(id), save: (id, observation) => values.set(id, observation) } };
+  const options = {
+    now: () => now,
+    matchesRemote: url => url === remote,
+    observations: { get: id => values.get(id), save: (id, observation) => values.set(id, observation) },
+  };
   const adapter = createCheckoutGit(options);
   const initial = await adapter.status(repo);
   assert.equal(initial.lastBranchCheck, undefined);
@@ -184,8 +189,10 @@ test('a verified Git check time survives restart and identifies an externally fe
 test('a new clone at the same path needs its own successful check', async t => {
   const { repo, remote, local, original } = checkoutFixture(t);
   const values = new Map();
-  const options = { matchesRemote: url => url === remote,
-    observations: { get: id => values.get(id), save: (id, observation) => values.set(id, observation) } };
+  const options = {
+    matchesRemote: url => url === remote,
+    observations: { get: id => values.get(id), save: (id, observation) => values.set(id, observation) },
+  };
   const adapter = createCheckoutGit(options);
   const result = await adapter.update(repo, 'check', await adapter.status(repo));
   assert.ok(result.checkout.lastBranchCheck);

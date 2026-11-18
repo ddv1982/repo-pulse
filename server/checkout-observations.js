@@ -13,13 +13,26 @@ import { ancestry } from './checkout-advice.js';
 export function memoryObservations() {
   /** @type {Map<string, Observation>} */
   const values = new Map();
-  return { get: id => values.get(id), save: (id, value) => { values.set(id, value); } };
+  return {
+    get: id => values.get(id),
+    save: (id, value) => {
+      values.set(id, value);
+    },
+  };
 }
 
 /** @param {GitRunner} run @param {string} path @param {string} previous @param {string} tip @param {boolean} verified */
 export async function compareUpstream(run, path, previous, tip, verified) {
-  const output = await run(path, ['log', '--no-show-signature', '--left-right', '--max-count=12', '--format=%m%x00%h%x00%s', '-z',
-    `${previous}...${tip}`, '--']).catch(() => '');
+  const output = await run(path, [
+    'log',
+    '--no-show-signature',
+    '--left-right',
+    '--max-count=12',
+    '--format=%m%x00%h%x00%s',
+    '-z',
+    `${previous}...${tip}`,
+    '--',
+  ]).catch(() => '');
   const parts = output.split('\0');
   /** @type {Rewrite['commits']} */
   const commits = [];
@@ -52,17 +65,20 @@ export async function observedRewrite(run, path, baselines, tip) {
  * @returns {CheckoutDiagnostic|undefined}
  */
 export function checkoutDiagnostic(state, status, observed, operation, rewrite) {
-  if (state === 'in-progress' && operation) return {
-    title: `${operation} in progress`,
-    suggestion: 'Finish or abort this operation in Git before checking for updates.',
-  };
+  if (state === 'in-progress' && operation)
+    return {
+      title: `${operation} in progress`,
+      suggestion: 'Finish or abort this operation in Git before checking for updates.',
+    };
   if (state === 'fetch-failed') return observed?.failure;
-  if (state === 'upstream-rewritten' && rewrite) return {
-    title: rewrite.verified ? 'Upstream history changed' : 'Upstream ancestry could not be verified',
-    suggestion: status.dirty ? 'Save your local changes and compare the fetched versions in Git before updating.'
-      : 'Compare the fetched versions in Git before deciding how to reconcile this branch.',
-    comparison: rewrite,
-  };
+  if (state === 'upstream-rewritten' && rewrite)
+    return {
+      title: rewrite.verified ? 'Upstream history changed' : 'Upstream ancestry could not be verified',
+      suggestion: status.dirty
+        ? 'Save your local changes and compare the fetched versions in Git before updating.'
+        : 'Compare the fetched versions in Git before deciding how to reconcile this branch.',
+      comparison: rewrite,
+    };
   if (state !== 'upstream-missing') return undefined;
   const localAhead = (status.ahead ?? 0) > 0;
   const related = observed?.missing?.advice;
@@ -70,8 +86,12 @@ export function checkoutDiagnostic(state, status, observed, operation, rewrite) 
   const message = status.upstream ? `Git could not find ${status.upstream} on the remote.` : undefined;
   if (status.dirty) return { message, advice, suggestion: 'Save your local changes in Git before switching branches.' };
   if (advice?.verified || advice?.targetVerified) {
-    if (advice.destination === 'different-upstream') return { message, advice,
-      suggestion: `Review the upstream of your local ${advice.branch} branch in Git before updating it.${advice.verified ? '' : ' Keep your local branch.'}` };
+    if (advice.destination === 'different-upstream')
+      return {
+        message,
+        advice,
+        suggestion: `Review the upstream of your local ${advice.branch} branch in Git before updating it.${advice.verified ? '' : ' Keep your local branch.'}`,
+      };
     const steps = {
       local: `Switch to ${advice.branch} in Git and check for updates there.`,
       'remote-only': `Fetch and check out ${advice.branch} in Git, then check for updates there.`,
@@ -83,7 +103,11 @@ export function checkoutDiagnostic(state, status, observed, operation, rewrite) 
     if (next !== 'unknown') return { message, advice, suggestion: `To test the merged PR: ${steps[next]} Keep your local branch.` };
   }
   if (localAhead) return { message, advice, suggestion: 'Keep your local branch and review its commits in Git before cleaning it up.' };
-  return { message, advice, suggestion: advice
-    ? 'Keep your local branch and review the pull request before cleaning it up.'
-    : 'Keep your local branch and check the tracked branch in Azure before switching.' };
+  return {
+    message,
+    advice,
+    suggestion: advice
+      ? 'Keep your local branch and review the pull request before cleaning it up.'
+      : 'Keep your local branch and check the tracked branch in Azure before switching.',
+  };
 }

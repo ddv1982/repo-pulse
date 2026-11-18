@@ -12,8 +12,12 @@ async function executable() {
   if (process.env.CHROME) return process.env.CHROME;
   if (existsSync(chromium.executablePath())) return chromium.executablePath();
   const cache = join(homedir(), '.cache', 'ms-playwright');
-  for (const name of (await readdir(cache).catch(() => [])).filter(name => /^chromium-\d+$/.test(name)).sort().reverse()) {
-    for (const relative of ['chrome-linux64/chrome', 'chrome-linux/chrome']) if (existsSync(join(cache, name, relative))) return join(cache, name, relative);
+  for (const name of (await readdir(cache).catch(() => []))
+    .filter(name => /^chromium-\d+$/.test(name))
+    .sort()
+    .reverse()) {
+    for (const relative of ['chrome-linux64/chrome', 'chrome-linux/chrome'])
+      if (existsSync(join(cache, name, relative))) return join(cache, name, relative);
   }
   throw new Error('Install Chromium or set CHROME.');
 }
@@ -26,20 +30,41 @@ async function demo(t) {
   const page = await context.newPage();
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
-  t.after(async () => { await browser.close(); await runtime.close(); await rm(directory, { recursive: true, force: true }); assert.deepEqual(errors, []); });
+  t.after(async () => {
+    await browser.close();
+    await runtime.close();
+    await rm(directory, { recursive: true, force: true });
+    assert.deepEqual(errors, []);
+  });
   return { runtime, page };
 }
 
 function seedHistory(store) {
   const now = Date.now();
   const records = Array.from({ length: 1050 }, (_, index) => ({
-    id: `archive-${index}`, repoId: 'demo-orders', kind: 'push', title: `Archive entry ${index}`,
-    branch: `feature/archive-${index}`, time: new Date(now - (index + 100) * 60000).toISOString(),
-    observedAt: new Date(now - (index + 100) * 60000).toISOString(), imported: true, seen: true,
+    id: `archive-${index}`,
+    repoId: 'demo-orders',
+    kind: 'push',
+    title: `Archive entry ${index}`,
+    branch: `feature/archive-${index}`,
+    time: new Date(now - (index + 100) * 60000).toISOString(),
+    observedAt: new Date(now - (index + 100) * 60000).toISOString(),
+    imported: true,
+    seen: true,
     data: { pushId: 10000 + index },
   }));
-  records.push({ id: 'old-unseen', repoId: 'demo-orders', kind: 'push', title: 'Very old unseen update', branch: 'hotfix/old-unseen',
-    time: new Date(now - 100 * 86400000).toISOString(), observedAt: new Date(now - 100 * 86400000).toISOString(), seen: false, imported: false, data: { pushId: 90000 } });
+  records.push({
+    id: 'old-unseen',
+    repoId: 'demo-orders',
+    kind: 'push',
+    title: 'Very old unseen update',
+    branch: 'hotfix/old-unseen',
+    time: new Date(now - 100 * 86400000).toISOString(),
+    observedAt: new Date(now - 100 * 86400000).toISOString(),
+    seen: false,
+    imported: false,
+    data: { pushId: 90000 },
+  });
   store.insertEvents(records);
 }
 
@@ -94,23 +119,44 @@ test('one long build history keeps every constituent and acknowledges explicit b
   const { runtime, page } = await demo(t);
   runtime.store.acknowledge(runtime.store.listEvents().map(event => event.id));
   const beginning = Date.now() - 60000;
-  const event = (index, time) => ({ id: `long-build-${index}`, repoId: 'demo-orders', kind: 'build', title: 'Long running build', branch: 'main',
-    time: new Date(time).toISOString(), observedAt: new Date(time).toISOString(), seen: false, imported: false,
-    data: { buildId: 7000, status: 'inProgress', sourceVersion: 'abcdef123456' } });
+  const event = (index, time) => ({
+    id: `long-build-${index}`,
+    repoId: 'demo-orders',
+    kind: 'build',
+    title: 'Long running build',
+    branch: 'main',
+    time: new Date(time).toISOString(),
+    observedAt: new Date(time).toISOString(),
+    seen: false,
+    imported: false,
+    data: { buildId: 7000, status: 'inProgress', sourceVersion: 'abcdef123456' },
+  });
   runtime.store.insertEvents(Array.from({ length: 1050 }, (_, index) => event(index, beginning + index)));
   const batches = [];
-  page.on('request', request => { if (request.method() === 'POST' && new URL(request.url()).pathname === '/api/ack') batches.push(request.postDataJSON()); });
+  page.on('request', request => {
+    if (request.method() === 'POST' && new URL(request.url()).pathname === '/api/ack') batches.push(request.postDataJSON());
+  });
   await page.goto(runtime.url + '/#activity/new');
   await expect(page.locator('li.row')).toHaveCount(1);
-  await page.route('**/api/ack', async route => {
-    runtime.store.insertEvents([event('late', Date.now())]);
-    await route.continue();
-  }, { times: 1 });
+  await page.route(
+    '**/api/ack',
+    async route => {
+      runtime.store.insertEvents([event('late', Date.now())]);
+      await route.continue();
+    },
+    { times: 1 },
+  );
   await page.getByRole('button', { name: 'Mark shown seen (1050)', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Mark shown seen (1)', exact: true })).toBeVisible();
-  assert.deepEqual(batches.map(batch => batch.ids.length), [250, 250, 250, 250, 50]);
+  assert.deepEqual(
+    batches.map(batch => batch.ids.length),
+    [250, 250, 250, 250, 50],
+  );
   assert.equal(new Set(batches.flatMap(batch => batch.ids)).size, 1050);
-  assert.equal(batches.some(batch => batch.ids.includes('long-build-late')), false);
+  assert.equal(
+    batches.some(batch => batch.ids.includes('long-build-late')),
+    false,
+  );
   assert.equal(runtime.store.getEvent('long-build-0').seen, true);
   assert.equal(runtime.store.getEvent('long-build-late').seen, false);
   await page.getByRole('button', { name: 'Undo', exact: true }).click();
@@ -119,21 +165,38 @@ test('one long build history keeps every constituent and acknowledges explicit b
 
 test('repository history import scopes the confirmed range and keeps progress visible through polls', async t => {
   const store = createStore();
-  for (const [id, name] of [['orders', 'Orders'], ['billing', 'Billing']]) store.saveRepo({ id, name });
+  for (const [id, name] of [
+    ['orders', 'Orders'],
+    ['billing', 'Billing'],
+  ])
+    store.saveRepo({ id, name });
   const calls = [];
   let failOnce = true;
-  const app = createApp({ store, provider: { checkConnection: async () => ({ available: true }) },
-    sync: { status: () => ({}) }, backfill: { start(repoId, days) {
-      calls.push({ repoId, days });
-      if (failOnce) { failOnce = false; throw Object.assign(new Error('Try this date range again.'), { status: 409 }); }
-      const job = { id: `backfill:${repoId}`, type: 'backfill', repoId, status: 'pending', days, pages: 0 };
-      store.saveJob(job);
-      return job;
-    } } });
+  const app = createApp({
+    store,
+    provider: { checkConnection: async () => ({ available: true }) },
+    sync: { status: () => ({}) },
+    backfill: {
+      start(repoId, days) {
+        calls.push({ repoId, days });
+        if (failOnce) {
+          failOnce = false;
+          throw Object.assign(new Error('Try this date range again.'), { status: 409 });
+        }
+        const job = { id: `backfill:${repoId}`, type: 'backfill', repoId, status: 'pending', days, pages: 0 };
+        store.saveJob(job);
+        return job;
+      },
+    },
+  });
   await new Promise(resolve => app.listen(0, '127.0.0.1', resolve));
   const browser = await chromium.launch({ executablePath: await executable(), headless: true });
   const page = await browser.newPage({ viewport: { width: 375, height: 812 }, colorScheme: 'dark' });
-  t.after(async () => { await browser.close(); await new Promise(resolve => app.close(resolve)); store.close(); });
+  t.after(async () => {
+    await browser.close();
+    await new Promise(resolve => app.close(resolve));
+    store.close();
+  });
   const base = `http://127.0.0.1:${app.address().port}`;
   await page.goto(base + '/#settings');
   await expect(page.getByRole('button', { name: 'Import older activity…' })).toHaveCount(0);
@@ -165,7 +228,10 @@ test('repository history import scopes the confirmed range and keeps progress vi
   await expect(trigger).toBeDisabled();
   await billing.locator('summary').click();
   await expect(billing.getByRole('button', { name: 'Import older activity…' })).toBeEnabled();
-  assert.deepEqual(calls, [{ repoId: 'orders', days: 90 }, { repoId: 'orders', days: 90 }]);
+  assert.deepEqual(calls, [
+    { repoId: 'orders', days: 90 },
+    { repoId: 'orders', days: 90 },
+  ]);
   const job = store.listJobs({ type: 'backfill' })[0];
   store.saveJob({ ...job, status: 'retrying', pages: 2, error: { message: 'Read denied' } });
   await expect(orders.getByText('Import retrying', { exact: true })).toBeVisible({ timeout: 8000 });
@@ -186,7 +252,10 @@ test('compact Settings keeps diagnostics closed until needed and copies the diag
   await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
   await page.goto(runtime.url + '/#settings');
   await mkdir('test-results', { recursive: true });
-  for (const [colorScheme, width] of [['light', 1280], ['dark', 375]]) {
+  for (const [colorScheme, width] of [
+    ['light', 1280],
+    ['dark', 375],
+  ]) {
     await page.emulateMedia({ colorScheme });
     await page.setViewportSize({ width, height: 812 });
     await expect(page.locator('#page').getByRole('switch', { name: 'Automatic checks' })).toBeVisible();
@@ -209,7 +278,9 @@ test('idle Activity polling skips history queries at one page and after loading 
   const { runtime, page } = await demo(t);
   seedHistory(runtime.store);
   let reads = 0;
-  page.on('request', request => { if (new URL(request.url()).pathname === '/api/activity') reads++; });
+  page.on('request', request => {
+    if (new URL(request.url()).pathname === '/api/activity') reads++;
+  });
   const metadata = response => new URL(response.url()).pathname === '/api/state';
   async function readsBetweenPolls() {
     // Sample between metadata responses so the previous poll's Activity work has settled.
@@ -220,21 +291,22 @@ test('idle Activity polling skips history queries at one page and after loading 
   await page.goto(runtime.url + '/#activity/all');
   await expect(page.locator('li.row')).toHaveCount(50);
   const initial = reads;
-  const one = await readsBetweenPolls() - initial;
+  const one = (await readsBetweenPolls()) - initial;
   for (let count = 100; count <= 250; count += 50) {
     await page.getByRole('button', { name: 'Load more', exact: true }).click();
     await expect(page.locator('li.row')).toHaveCount(count);
   }
   const loaded = reads;
-  const several = await readsBetweenPolls() - loaded;
+  const several = (await readsBetweenPolls()) - loaded;
   assert.deepEqual({ one, several }, { one: 0, several: 0 });
 });
 
 test('an open Activity view picks up a seen action in another tab and later merge evidence', async t => {
   const { runtime, page } = await demo(t);
   const id = 'revision-test';
-  runtime.store.insertEvents([{ id, repoId: 'demo-orders', kind: 'push', title: 'Revision test push',
-    time: new Date().toISOString(), data: { pushId: 18000 } }]);
+  runtime.store.insertEvents([
+    { id, repoId: 'demo-orders', kind: 'push', title: 'Revision test push', time: new Date().toISOString(), data: { pushId: 18000 } },
+  ]);
   await page.goto(runtime.url + '/#activity/all');
   const row = page.locator('li[data-event-id="revision-test"]');
   await expect(row).toHaveClass(/\bnew\b/);
@@ -287,9 +359,13 @@ test('Repositories shows the checkout, checks on demand, and pulls only after co
   const store = createStore();
   store.saveRepo(fixture.repo);
   store.setSetting('refreshEnabled', false);
-  store.saveStream({ repoId: 'repo', stream: 'pushes', initialized: true,
-    lastSuccess: new Date(Date.now() - 60 * 60_000).toISOString() });
-  const app = createApp({ store, checkoutGit: fixture.checkoutGit, provider: { checkConnection: async () => ({ available: true }) }, sync: { status: () => ({}) } });
+  store.saveStream({ repoId: 'repo', stream: 'pushes', initialized: true, lastSuccess: new Date(Date.now() - 60 * 60_000).toISOString() });
+  const app = createApp({
+    store,
+    checkoutGit: fixture.checkoutGit,
+    provider: { checkConnection: async () => ({ available: true }) },
+    sync: { status: () => ({}) },
+  });
   await new Promise(resolve => app.listen(0, '127.0.0.1', resolve));
   const browser = await chromium.launch({ executablePath: await executable(), headless: true });
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
@@ -304,7 +380,10 @@ test('Repositories shows the checkout, checks on demand, and pulls only after co
   const base = `http://127.0.0.1:${app.address().port}`;
   const updatePath = base + '/api/repos/repo/checkout';
   const payload = { operation: 'pull', expected: { branch: 'main', upstream: 'origin/main', head: fixture.original } };
-  assert.equal((await fetch(updatePath, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload) })).status, 403);
+  assert.equal(
+    (await fetch(updatePath, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload) })).status,
+    403,
+  );
   await page.goto(base + '/#repositories');
   const row = page.getByRole('article');
   await expect(row.locator('code')).toHaveText('main');
@@ -411,8 +490,24 @@ test('Activity offers statuses and evidence from matching history beyond the fir
   seedHistory(runtime.store);
   const time = '2022-01-01T00:00:00Z';
   runtime.store.insertEvents([
-    { id: 'archived-canceled', repoId: 'demo-orders', kind: 'build', title: 'Archived pipeline', time, imported: true, data: { status: 'completed', result: 'canceled' } },
-    { id: 'archived-merge', repoId: 'demo-orders', kind: 'pr', title: 'Archived merge', time, imported: true, data: { status: 'completed' } },
+    {
+      id: 'archived-canceled',
+      repoId: 'demo-orders',
+      kind: 'build',
+      title: 'Archived pipeline',
+      time,
+      imported: true,
+      data: { status: 'completed', result: 'canceled' },
+    },
+    {
+      id: 'archived-merge',
+      repoId: 'demo-orders',
+      kind: 'pr',
+      title: 'Archived merge',
+      time,
+      imported: true,
+      data: { status: 'completed' },
+    },
   ]);
   runtime.store.enrichEvent('archive-1049', { mergeEvidence: { prs: [{ pullRequestId: 5 }] } });
   await page.goto(runtime.url + '/#activity/all');
@@ -436,10 +531,24 @@ test('New updates filters a grouped run by the status it shows and acknowledges 
   const { runtime, page } = await demo(t);
   const time = new Date(Date.now() + 1000).toISOString();
   runtime.store.insertEvents([
-    { id: 'scope-running', repoId: 'demo-orders', kind: 'build', title: 'Status scope run', time,
-      data: { buildId: 460, status: 'inProgress' } },
-    { id: 'scope-succeeded', repoId: 'demo-orders', kind: 'build', title: 'Status scope run', time, seen: true,
-      observedAt: new Date(Date.now() + 2000).toISOString(), data: { buildId: 460, status: 'completed', result: 'succeeded' } },
+    {
+      id: 'scope-running',
+      repoId: 'demo-orders',
+      kind: 'build',
+      title: 'Status scope run',
+      time,
+      data: { buildId: 460, status: 'inProgress' },
+    },
+    {
+      id: 'scope-succeeded',
+      repoId: 'demo-orders',
+      kind: 'build',
+      title: 'Status scope run',
+      time,
+      seen: true,
+      observedAt: new Date(Date.now() + 2000).toISOString(),
+      data: { buildId: 460, status: 'completed', result: 'succeeded' },
+    },
   ]);
   await page.goto(runtime.url + '/#activity/new');
   await expect(page.locator('[data-event-id="scope-succeeded"] .kind')).toHaveText('Succeeded');
@@ -466,7 +575,12 @@ test('verified PR follow-up switches, reviews and removes the old branch from Re
   store.setSetting('refreshEnabled', false);
   let clock = Date.now();
   const checkoutGit = createCheckoutGit({ matchesRemote: url => url === remote, findPulls: async () => [pr], now: () => clock });
-  const app = createApp({ store, checkoutGit, provider: { checkConnection: async () => ({ available: true }) }, sync: { status: () => ({}) } });
+  const app = createApp({
+    store,
+    checkoutGit,
+    provider: { checkConnection: async () => ({ available: true }) },
+    sync: { status: () => ({}) },
+  });
   await new Promise(resolve => app.listen(0, '127.0.0.1', resolve));
   const browser = await chromium.launch({ executablePath: await executable(), headless: true });
   const page = await browser.newPage({ viewport: { width: 375, height: 812 }, colorScheme: 'dark' });
@@ -505,7 +619,10 @@ test('verified PR follow-up switches, reviews and removes the old branch from Re
   const removal = page.getByRole('dialog', { name: 'Remove local branch?' });
   await expect(removal.locator('code')).toHaveText(oldBranch);
   await expect(removal).toHaveAccessibleDescription(new RegExp(oldBranch.replace('/', '\/')));
-  for (const [width, colorScheme] of [[1280, 'dark'], [320, 'light']]) {
+  for (const [width, colorScheme] of [
+    [1280, 'dark'],
+    [320, 'light'],
+  ]) {
     await page.setViewportSize({ width, height: 812 });
     await page.emulateMedia({ colorScheme });
     await expect.poll(() => removal.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
@@ -532,18 +649,39 @@ test('Settings shows scoped CLI access and header switches share the automatic c
   store.saveStream({ repoId: 'orders', stream: 'pushes', initialized: true, lastSuccess: new Date(Date.now() - 3600000).toISOString() });
   const probes = [];
   let manual = 0;
-  const app = createApp({ store, provider: { async checkConnection(_org, repo) {
-    if (!repo) return { available: true, version: '2.93.0', extension: '1.0.2' };
-    probes.push(repo.id);
-    return { available: true, version: '2.93.0', extension: '1.0.2', access: {
-      status: repo.id === 'billing' ? 'failed' : 'ok', checkedAt: new Date().toISOString(),
-      ...(repo.id === 'billing' ? { code: 'FORBIDDEN', message: 'Check repository permissions.' } : {}),
-    } };
-  } }, sync: { status: () => ({}), refresh() { manual++; } } });
+  const app = createApp({
+    store,
+    provider: {
+      async checkConnection(_org, repo) {
+        if (!repo) return { available: true, version: '2.93.0', extension: '1.0.2' };
+        probes.push(repo.id);
+        return {
+          available: true,
+          version: '2.93.0',
+          extension: '1.0.2',
+          access: {
+            status: repo.id === 'billing' ? 'failed' : 'ok',
+            checkedAt: new Date().toISOString(),
+            ...(repo.id === 'billing' ? { code: 'FORBIDDEN', message: 'Check repository permissions.' } : {}),
+          },
+        };
+      },
+    },
+    sync: {
+      status: () => ({}),
+      refresh() {
+        manual++;
+      },
+    },
+  });
   await new Promise(resolve => app.listen(0, '127.0.0.1', resolve));
   const browser = await chromium.launch({ executablePath: await executable(), headless: true });
   const page = await browser.newPage({ viewport: { width: 1280, height: 850 } });
-  t.after(async () => { await browser.close(); await new Promise(resolve => app.close(resolve)); store.close(); });
+  t.after(async () => {
+    await browser.close();
+    await new Promise(resolve => app.close(resolve));
+    store.close();
+  });
   await page.goto(`http://127.0.0.1:${app.address().port}/#settings`);
   const header = page.locator('#header');
   const settings = page.locator('#page');

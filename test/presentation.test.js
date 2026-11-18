@@ -1,6 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildState, activityLabel, activityTone, activityTitle, triggerLabel, streamLabel, activitySummary, labels } from '../src/ui/format.js';
+import {
+  buildState,
+  activityLabel,
+  activityTone,
+  activityTitle,
+  triggerLabel,
+  streamLabel,
+  activitySummary,
+  labels,
+} from '../src/ui/format.js';
 import { repositoryHealth } from '../src/ui/health.js';
 import { renderRepositories } from '../src/ui/repositories.js';
 import { renderFeed as renderPagedFeed, renderDetail } from '../src/ui/feed.js';
@@ -28,7 +37,8 @@ test('missing branch observations are never presented as confirmed deletions', (
 });
 
 test('repository health treats intentionally disabled checks as neither overdue nor failed', () => {
-  const now = Date.now(), repo = { id: 'r' };
+  const now = Date.now(),
+    repo = { id: 'r' };
   const stream = { repoId: 'r', stream: 'pushes', initialized: true, lastSuccess: new Date(now).toISOString() };
   assert.equal(repositoryHealth(repo, [stream], { now }).label, 'Up to date');
   assert.equal(repositoryHealth(repo, [], { now }).show, false);
@@ -51,7 +61,8 @@ test('resuming automatic checks distinguishes cached history from an overdue che
 
 test('repository details keep failure text and one timestamp without routine source labels', () => {
   const state = {
-    watched: [{ id: 'r', name: 'Orders' }], settings: { refreshEnabled: false },
+    watched: [{ id: 'r', name: 'Orders' }],
+    settings: { refreshEnabled: false },
     streams: [
       { repoId: 'r', stream: 'refs', initialized: true, lastSuccess: '2026-11-01T10:00:00Z' },
       { repoId: 'r', stream: 'prs', initialized: true, nextAt: '2026-11-01T10:00:00Z', error: 'Read refused' },
@@ -66,9 +77,12 @@ test('repository details keep failure text and one timestamp without routine sou
 
 test('a disabled repository row offers only enabling or removing it', () => {
   const state = {
-    watched: [{ id: 'on', name: 'Orders', project: 'Shop', localPath: '/src/orders' },
-      { id: 'off', name: 'Billing', project: 'Shop', localPath: '/src/billing', disabled: true }],
-    settings: {}, streams: [{ repoId: 'on', stream: 'refs', initialized: true, error: 'Read refused' }],
+    watched: [
+      { id: 'on', name: 'Orders', project: 'Shop', localPath: '/src/orders' },
+      { id: 'off', name: 'Billing', project: 'Shop', localPath: '/src/billing', disabled: true },
+    ],
+    settings: {},
+    streams: [{ repoId: 'on', stream: 'refs', initialized: true, error: 'Read refused' }],
   };
   const markup = renderRepositories(state, {});
   const [enabled, disabled] = markup.split('<article').slice(1);
@@ -84,11 +98,37 @@ test('a disabled repository row offers only enabling or removing it', () => {
 
 const view = { repoIds: null, route: 'catchup', kind: '', search: '' };
 function fixture() {
-  const event = { repoId: 'r', kind: 'build', title: 'Orders CI', branch: 'main', actor: 'Developer', seen: false, imported: false, data: { buildId: 42, sourceVersion: 'abc123def456', reason: 'manual' } };
-  return { repos: [{ id: 'r', name: 'Orders' }], settings: {}, streams: [], events: [
-    { ...event, id: 'queued', time: '2026-11-17T10:00:00Z', observedAt: '2026-11-17T10:00:00Z', data: { ...event.data, status: 'notStarted' } },
-    { ...event, id: 'running', time: '2026-11-17T10:01:00Z', observedAt: '2026-11-17T10:01:00Z', data: { ...event.data, status: 'inProgress' } },
-  ] };
+  const event = {
+    repoId: 'r',
+    kind: 'build',
+    title: 'Orders CI',
+    branch: 'main',
+    actor: 'Developer',
+    seen: false,
+    imported: false,
+    data: { buildId: 42, sourceVersion: 'abc123def456', reason: 'manual' },
+  };
+  return {
+    repos: [{ id: 'r', name: 'Orders' }],
+    settings: {},
+    streams: [],
+    events: [
+      {
+        ...event,
+        id: 'queued',
+        time: '2026-11-17T10:00:00Z',
+        observedAt: '2026-11-17T10:00:00Z',
+        data: { ...event.data, status: 'notStarted' },
+      },
+      {
+        ...event,
+        id: 'running',
+        time: '2026-11-17T10:01:00Z',
+        observedAt: '2026-11-17T10:01:00Z',
+        data: { ...event.data, status: 'inProgress' },
+      },
+    ],
+  };
 }
 
 function activityPage(state, ui) {
@@ -96,9 +136,15 @@ function activityPage(state, ui) {
   try {
     for (const repo of state.repos) store.saveRepo(repo);
     store.insertEvents(state.events);
-    return store.queryActivity({ view: ui.route === 'catchup' ? 'new' : 'all',
-      repoIds: ui.repoIds ?? undefined, kind: ui.kind, search: ui.search });
-  } finally { store.close(); }
+    return store.queryActivity({
+      view: ui.route === 'catchup' ? 'new' : 'all',
+      repoIds: ui.repoIds ?? undefined,
+      kind: ui.kind,
+      search: ui.search,
+    });
+  } finally {
+    store.close();
+  }
 }
 
 const renderFeed = (state, ui) => renderPagedFeed({ ...state, activity: activityPage(state, ui) }, ui);
@@ -106,7 +152,9 @@ const renderFeed = (state, ui) => renderPagedFeed({ ...state, activity: activity
 test('one running build counts as one item and two updates; zero summary values stay neutral', () => {
   const state = fixture();
   const markup = renderFeed(state, view);
-  assert.match(markup, /1 new item/); assert.match(markup, /2 updates/); assert.match(markup, /1 running/);
+  assert.match(markup, /1 new item/);
+  assert.match(markup, /2 updates/);
+  assert.match(markup, /1 running/);
   assert.equal((markup.match(/class="val zero"/g) || []).length, 3);
   assert.equal((markup.match(/<li class="row /g) || []).length, 1);
   assert.doesNotMatch(markup, /notStarted|inProgress|class="bar"|0 match your watch rules/);
@@ -123,11 +171,14 @@ test('search filtering never folds hidden raw updates into displayed acknowledge
 test('detail has readable labels, exact group IDs and abbreviated copyable commit', () => {
   const state = fixture();
   const markup = renderDetail(state.events[1], state, null, { returnRoute: 'activity', label: 'Back to Activity' });
-  assert.match(markup, /Back to Activity/); assert.match(markup, /Triggered manually/);
-  assert.match(markup, /title="abc123def456">abc123de/); assert.match(markup, /Copy full commit ID/);
+  assert.match(markup, /Back to Activity/);
+  assert.match(markup, /Triggered manually/);
+  assert.match(markup, /title="abc123def456">abc123de/);
+  assert.match(markup, /Copy full commit ID/);
   assert.doesNotMatch(markup, /sourceVersion|inProgress/);
   assert.match(markup, /Update history/);
-  assert.match(markup, /queued/); assert.match(markup, /running/);
+  assert.match(markup, /queued/);
+  assert.match(markup, /running/);
 });
 
 test('Activity shows ordinary pushes, hotfixes, and new branches in source-time order', () => {
@@ -146,7 +197,11 @@ test('Activity shows ordinary pushes, hotfixes, and new branches in source-time 
 
 test('build source run labels survive grouping in feed and detail, with numeric ID only as fallback', () => {
   const state = fixture();
-  state.events = state.events.map(event => ({ ...event, title: 'Orders CI · 20261117.6', data: { ...event.data, buildId: 700, definition: { name: 'Orders CI' } } }));
+  state.events = state.events.map(event => ({
+    ...event,
+    title: 'Orders CI · 20261117.6',
+    data: { ...event.data, buildId: 700, definition: { name: 'Orders CI' } },
+  }));
   const event = state.events[1];
   assert.equal(activityTitle(event), 'Orders CI · 20261117.6');
   assert.equal(activityTitle({ ...event, title: '' }), 'Orders CI · #700');
@@ -183,8 +238,10 @@ test('all activity states use the shared semantic palette independent of importe
 
 test('row status washes are independent of unseen flags and failure classification', () => {
   const state = fixture();
-  state.events = [{ id: 'deleted', repoId: 'r', kind: 'branch-deleted', title: 'Deleted', branch: 'hotfix/old', data: { evidence: 'push' } },
-    { id: 'failed', repoId: 'r', kind: 'build', title: 'CI', data: { buildId: 42, status: 'completed', result: 'failed' } }];
+  state.events = [
+    { id: 'deleted', repoId: 'r', kind: 'branch-deleted', title: 'Deleted', branch: 'hotfix/old', data: { evidence: 'push' } },
+    { id: 'failed', repoId: 'r', kind: 'build', title: 'CI', data: { buildId: 42, status: 'completed', result: 'failed' } },
+  ];
   const markup = renderFeed(state, view);
   assert.match(markup, /class="kind crit"[^>]*>.*Branch deleted/);
   assert.match(markup, /class="row new tone-crit" data-event-id="deleted"/);
@@ -193,7 +250,13 @@ test('row status washes are independent of unseen flags and failure classificati
 });
 
 test('completed PRs show Merged and target direction, while successful preview merges stay Open', () => {
-  const data = { status: 'active', targetRefName: 'refs/heads/main', sourceRefName: 'refs/heads/feature/fix', mergeStatus: 'succeeded', lastMergeCommit: { commitId: 'preview' } };
+  const data = {
+    status: 'active',
+    targetRefName: 'refs/heads/main',
+    sourceRefName: 'refs/heads/feature/fix',
+    mergeStatus: 'succeeded',
+    lastMergeCommit: { commitId: 'preview' },
+  };
   const preview = { kind: 'pr', data };
   assert.equal(activityLabel(preview), 'Open PR');
   assert.equal(activitySummary(preview), 'Target: main');

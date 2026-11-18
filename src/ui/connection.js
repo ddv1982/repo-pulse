@@ -17,7 +17,8 @@ export function connectionStatus(state, connection, repoId) {
   if (state.demo) return 'Demo mode';
   if (connection.pending === repoId) return 'Checking…';
   if (result && !result.available) return 'Azure CLI needs attention';
-  if (access?.status === 'ok' && Date.parse(access.checkedAt) >= lastRead) return `Repository access verified · ${dateTime(access.checkedAt)}`;
+  if (access?.status === 'ok' && Date.parse(access.checkedAt) >= lastRead)
+    return `Repository access verified · ${dateTime(access.checkedAt)}`;
   if (access?.status === 'failed' && Date.parse(access.checkedAt) >= lastRead) {
     return access.code === 'FORBIDDEN' ? 'Repository access denied' : 'Repository check failed';
   }
@@ -47,6 +48,8 @@ export function createConnectionController({ request, render }) {
         render();
       }
     },
-    select(repoId) { state.repoId = repoId; },
+    select(repoId) {
+      state.repoId = repoId;
+    },
   };
 }

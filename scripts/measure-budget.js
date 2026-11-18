@@ -47,8 +47,13 @@ function simulate(repoTotal) {
     for (let at = start + gap * ((r + 1) / (repoTotal + 1)), id = 1; at < end; at += gap, id++) {
       const ids = Array.from({ length: commitsPerPush }, (_, i) => sha(`${azureId}:${id}:${i}`));
       ids.forEach((commitId, i) => commitsOf.set(commitId, i ? ids[i - 1] : tip));
-      list.push({ pushId: id, date: new Date(at).toISOString(), pushedBy: { displayName: 'Tester' }, commits: ids,
-        refUpdates: [{ name: 'refs/heads/main', oldObjectId: tip, newObjectId: ids.at(-1) }] });
+      list.push({
+        pushId: id,
+        date: new Date(at).toISOString(),
+        pushedBy: { displayName: 'Tester' },
+        commits: ids,
+        refUpdates: [{ name: 'refs/heads/main', oldObjectId: tip, newObjectId: ids.at(-1) }],
+      });
       tip = ids.at(-1);
     }
     pushes.set(azureId, list);
@@ -69,11 +74,15 @@ function simulate(repoTotal) {
     async run(args) {
       charge();
       const resource = args[args.indexOf('--resource') + 1]?.toLowerCase();
-      const query = pairs(args, '--query-parameters'), route = pairs(args, '--route-parameters');
+      const query = pairs(args, '--query-parameters'),
+        route = pairs(args, '--route-parameters');
       const repoPushes = pushes.get(route.repositoryId) || [];
       if (resource === 'pushes') {
-        const from = Date.parse(query['searchCriteria.fromDate']), to = Date.parse(query['searchCriteria.toDate']);
-        const visible = repoPushes.filter(push => Date.parse(push.date) >= from && Date.parse(push.date) <= to && Date.parse(push.date) <= time).reverse();
+        const from = Date.parse(query['searchCriteria.fromDate']),
+          to = Date.parse(query['searchCriteria.toDate']);
+        const visible = repoPushes
+          .filter(push => Date.parse(push.date) >= from && Date.parse(push.date) <= to && Date.parse(push.date) <= time)
+          .reverse();
         const skip = Number(query.$skip || 0);
         return { value: visible.slice(skip, skip + Number(query.$top)).map(({ commits, ...push }) => push) };
       }
@@ -83,7 +92,9 @@ function simulate(repoTotal) {
       }
       if (resource === 'commits') {
         if (route.commitId) return { commitId: route.commitId, parents: [commitsOf.get(route.commitId) || sha('root')] };
-        const page = (ids = [], skip, top) => ({ value: ids.slice(Number(skip || 0), Number(skip || 0) + Number(top)).map(commitId => ({ commitId })) });
+        const page = (ids = [], skip, top) => ({
+          value: ids.slice(Number(skip || 0), Number(skip || 0) + Number(top)).map(commitId => ({ commitId })),
+        });
         if (query.pushId) return page(repoPushes.find(push => push.pushId === Number(query.pushId))?.commits, query.skip, query.top);
         const push = repoPushes.find(item => item.refUpdates[0].newObjectId === query['searchCriteria.compareVersion.version']);
         return page(push?.commits, query['searchCriteria.$skip'], query['searchCriteria.$top']);
@@ -99,16 +110,38 @@ function simulate(repoTotal) {
 
   const store = createStore();
   for (let r = 0; r < repoTotal; r++) {
-    store.saveRepo({ id: `r${r}`, name: `Repo ${r}`, organization: 'https://dev.azure.com/org', project: 'P', projectId: 'p',
-      azureId: `repo-${r}`, webUrl: `https://dev.azure.com/org/P/_git/Repo${r}` });
+    store.saveRepo({
+      id: `r${r}`,
+      name: `Repo ${r}`,
+      organization: 'https://dev.azure.com/org',
+      project: 'P',
+      projectId: 'p',
+      azureId: `repo-${r}`,
+      webUrl: `https://dev.azure.com/org/P/_git/Repo${r}`,
+    });
   }
   const provider = createAzureClient({ cli, now });
   const enrichment = createEnrichment({ store, provider, now });
-  const sync = createSync({ store, provider, now, isForeground: () => true,
+  const sync = createSync({
+    store,
+    provider,
+    now,
+    isForeground: () => true,
     onPrCompleted: (repo, data) => enrichment.reconcilePr(repo, data),
-    background: { merge: () => enrichment.tick(), history: async () => false } });
+    background: { merge: () => enrichment.tick(), history: async () => false },
+  });
   const generated = [...pushes.values()].reduce((total, list) => total + list.length, 0);
-  return { store, sync, end, generated, now: () => time, advance: ms => { time += ms; }, calls: () => calls };
+  return {
+    store,
+    sync,
+    end,
+    generated,
+    now: () => time,
+    advance: ms => {
+      time += ms;
+    },
+    calls: () => calls,
+  };
 }
 
 function percentile(values, p) {
@@ -116,9 +149,11 @@ function percentile(values, p) {
   const sorted = [...values].sort((a, b) => a - b);
   return sorted[Math.min(sorted.length - 1, Math.ceil(p * sorted.length) - 1)];
 }
-const minutesOf = ms => ms === null ? 'n/a' : (ms / 60000).toFixed(1);
+const minutesOf = ms => (ms === null ? 'n/a' : (ms / 60000).toFixed(1));
 
-console.log(`Budget ${LIMIT_PER_MINUTE} calls/min, ${callMs} ms per call, ${pushesPerHour} pushes/hour/repo with ${commitsPerPush} commits, ${minutes} simulated minutes, tab in foreground.`);
+console.log(
+  `Budget ${LIMIT_PER_MINUTE} calls/min, ${callMs} ms per call, ${pushesPerHour} pushes/hour/repo with ${commitsPerPush} commits, ${minutes} simulated minutes, tab in foreground.`,
+);
 console.log('repos | calls/min | pushes | in Activity | delay p50 min | delay p95 min | delay max min | merge jobs left');
 for (const repoTotal of repoCounts) {
   const run = simulate(repoTotal);
@@ -131,7 +166,17 @@ for (const repoTotal of repoCounts) {
   const events = run.store.listEvents({ limit: 5000 }).filter(event => event.kind === 'push');
   const delays = events.map(event => Date.parse(event.observedAt) - Date.parse(event.time));
   const jobs = run.store.listJobs({ type: 'merge' }).length;
-  console.log([repoTotal, (run.calls() / elapsedMinutes).toFixed(1), run.generated, events.length,
-    minutesOf(percentile(delays, 0.5)), minutesOf(percentile(delays, 0.95)), minutesOf(percentile(delays, 1)), jobs].join(' | '));
+  console.log(
+    [
+      repoTotal,
+      (run.calls() / elapsedMinutes).toFixed(1),
+      run.generated,
+      events.length,
+      minutesOf(percentile(delays, 0.5)),
+      minutesOf(percentile(delays, 0.95)),
+      minutesOf(percentile(delays, 1)),
+      jobs,
+    ].join(' | '),
+  );
   run.store.close();
 }

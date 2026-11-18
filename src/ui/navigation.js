@@ -1,11 +1,17 @@
 /** Keep old bookmarks working while exposing one Activity page with two clear views. */
 export function parseRoute(hash) {
-  const [name, value] = String(hash || '').replace(/^#/, '').split('/');
+  const [name, value] = String(hash || '')
+    .replace(/^#/, '')
+    .split('/');
   if (name === 'rules') return { route: 'settings', eventId: null };
   if (name === 'activity') return { route: value === undefined || value === 'all' ? 'activity' : 'catchup', eventId: null };
   if (name === 'event') {
     let eventId = null;
-    try { eventId = value ? decodeURIComponent(value) : null; } catch { /* Invalid bookmark gets the not-found view. */ }
+    try {
+      eventId = value ? decodeURIComponent(value) : null;
+    } catch {
+      /* Invalid bookmark gets the not-found view. */
+    }
     return { route: 'event', eventId };
   }
   return { route: ['repositories', 'settings'].includes(name) ? name : 'catchup', eventId: null };
@@ -21,16 +27,21 @@ function readResultsContext() {
     const value = JSON.parse(sessionStorage.getItem(RESULTS_KEY));
     if (!value || !isActivity(value.route)) return null;
     return {
-      route: value.route, search: typeof value.search === 'string' ? value.search : '',
+      route: value.route,
+      search: typeof value.search === 'string' ? value.search : '',
       kind: typeof value.kind === 'string' ? value.kind : '',
       repoIds: Array.isArray(value.repoIds) ? value.repoIds.filter(id => typeof id === 'string') : null,
-      groups: Array.isArray(value.groups) ? value.groups.filter(entry => Array.isArray(entry) && typeof entry[0] === 'string' && typeof entry[1] === 'boolean') : [],
+      groups: Array.isArray(value.groups)
+        ? value.groups.filter(entry => Array.isArray(entry) && typeof entry[0] === 'string' && typeof entry[1] === 'boolean')
+        : [],
       filtersOpen: typeof value.filtersOpen === 'boolean' ? value.filtersOpen : undefined,
       scrollY: Number.isFinite(value.scrollY) ? Math.max(0, value.scrollY) : 0,
       eventId: typeof value.eventId === 'string' ? value.eventId : null,
       activityCapacity: Number.isSafeInteger(value.activityCapacity) && value.activityCapacity >= 50 ? value.activityCapacity : 50,
     };
-  } catch { return null; }
+  } catch {
+    return null;
+  }
 }
 
 function canonicalRoute() {
@@ -49,12 +60,21 @@ export function createNavigation({ ui, captureGroups, activityCapacity }) {
   function remember(eventId) {
     if (!isActivity(ui.route)) return;
     results = {
-      route: ui.route, search: ui.search, kind: ui.kind,
+      route: ui.route,
+      search: ui.search,
+      kind: ui.kind,
       repoIds: ui.repoIds === null ? null : [...ui.repoIds],
-      groups: captureGroups(), filtersOpen: ui.filtersOpen,
-      scrollY: window.scrollY, eventId, activityCapacity: activityCapacity(),
+      groups: captureGroups(),
+      filtersOpen: ui.filtersOpen,
+      scrollY: window.scrollY,
+      eventId,
+      activityCapacity: activityCapacity(),
     };
-    try { sessionStorage.setItem(RESULTS_KEY, JSON.stringify(results)); } catch { /* Navigation still works without storage. */ }
+    try {
+      sessionStorage.setItem(RESULTS_KEY, JSON.stringify(results));
+    } catch {
+      /* Navigation still works without storage. */
+    }
   }
 
   function invalidate() {
@@ -80,7 +100,9 @@ export function createNavigation({ ui, captureGroups, activityCapacity }) {
       const { route, eventId, search, kind, repoIds } = ui;
       return { route, eventId, search, kind, repoIds, generation };
     },
-    get returnRoute() { return results?.route || 'catchup'; },
+    get returnRoute() {
+      return results?.route || 'catchup';
+    },
     invalidate,
     reconcileRepositories,
     remember,

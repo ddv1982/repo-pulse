@@ -70,41 +70,76 @@ export function createBackfill({ store, provider, normalize, now = Date.now }) {
     const since = period === 'all' ? EARLIEST : requestedAt - period * DAY;
     const complete = since >= until;
     /** @type {HistoryJob} */
-    const job = { id: `backfill:${repoId}`, type: 'backfill', repoId, days: period,
-      status: complete ? 'completed' : 'pending', startedAt: iso(requestedAt), nextAt: iso(requestedAt),
-      rangeStart: iso(since), rangeEnd: iso(until), stream: STREAMS[0], cursor: null,
+    const job = {
+      id: `backfill:${repoId}`,
+      type: 'backfill',
+      repoId,
+      days: period,
+      status: complete ? 'completed' : 'pending',
+      startedAt: iso(requestedAt),
+      nextAt: iso(requestedAt),
+      rangeStart: iso(since),
+      rangeEnd: iso(until),
+      stream: STREAMS[0],
+      cursor: null,
       window: complete ? null : { since: iso(Math.max(since, until - WINDOW)), until: iso(until) },
-      pages: 0, records: 0, windowsCompleted: 0, failures: 0, error: null,
-      note: period === 'all' ? 'All available history since 2010, bounded by provider retention and permissions.' : 'Imports older history before monitoring began; current activity stays in live sync.',
-      ...(complete ? { completedAt: iso(requestedAt) } : {}) };
+      pages: 0,
+      records: 0,
+      windowsCompleted: 0,
+      failures: 0,
+      error: null,
+      note:
+        period === 'all'
+          ? 'All available history since 2010, bounded by provider retention and permissions.'
+          : 'Imports older history before monitoring began; current activity stays in live sync.',
+      ...(complete ? { completedAt: iso(requestedAt) } : {}),
+    };
     store.saveJob(job);
     return job;
   }
   /** @param {HistoryJob} job @param {HistoryWindow} window @param {SourcePage} page @returns {HistoryJob} */
   function nextPage(job, window, page) {
     /** @type {HistoryJob} */
-    const next = { ...job, status: 'pending', nextAt: iso(now()), lastAttempt: iso(now()), lastProgressAt: iso(now()),
-      pages: job.pages + 1, records: job.records + page.items.length, failures: 0, error: null };
+    const next = {
+      ...job,
+      status: 'pending',
+      nextAt: iso(now()),
+      lastAttempt: iso(now()),
+      lastProgressAt: iso(now()),
+      pages: job.pages + 1,
+      records: job.records + page.items.length,
+      failures: 0,
+      error: null,
+    };
     if (page.nextCursor) return { ...next, cursor: page.nextCursor };
     next.cursor = null;
     const index = STREAMS.indexOf(job.stream);
     if (index < STREAMS.length - 1) return { ...next, stream: STREAMS[index + 1] };
     next.windowsCompleted++;
     next.coverageStart = window.since;
-    const until = Date.parse(window.since), lower = Date.parse(job.rangeStart);
+    const until = Date.parse(window.since),
+      lower = Date.parse(job.rangeStart);
     if (until > lower) return { ...next, stream: STREAMS[0], window: { since: iso(Math.max(lower, until - WINDOW)), until: iso(until) } };
     return { ...next, status: 'completed', completedAt: iso(now()), window: null };
   }
   async function runPage() {
-    const repos = new Map(store.listRepos().filter(repo => !repo.disabled).map(repo => [repo.id, repo]));
-    const due = jobs().filter(job => job.status !== 'completed' && repos.has(job.repoId) && Date.parse(job.nextAt) <= now())
+    const repos = new Map(
+      store
+        .listRepos()
+        .filter(repo => !repo.disabled)
+        .map(repo => [repo.id, repo]),
+    );
+    const due = jobs()
+      .filter(job => job.status !== 'completed' && repos.has(job.repoId) && Date.parse(job.nextAt) <= now())
       .sort((a, b) => (Date.parse(a.lastAttempt || '') || 0) - (Date.parse(b.lastAttempt || '') || 0));
     const job = due.find(item => item.id !== lastId) || due[0];
     if (!job) return false;
     lastId = job.id;
     const repo = repos.get(job.repoId);
     if (!repo) return false;
-    const current = () => store.listRepos().some(item => item.id === repo.id && !item.disabled) && jobs().some(item => item.id === job.id && item.startedAt === job.startedAt);
+    const current = () =>
+      store.listRepos().some(item => item.id === repo.id && !item.disabled) &&
+      jobs().some(item => item.id === job.id && item.startedAt === job.startedAt);
     store.saveJob({ ...job, status: 'running', lastAttempt: iso(now()) });
     try {
       const window = job.window;
@@ -115,11 +150,14 @@ export function createBackfill({ store, provider, normalize, now = Date.now }) {
       const output = normalize(repo, job.stream, page.items, { initialized: false, historical: true, window });
       // Build pages are selected by queue time; their completion may cross a page window.
       // The overall import range still prevents post-baseline work becoming imported.
-      const since = Date.parse(job.rangeStart), until = Date.parse(job.rangeEnd);
-      const events = (output.events || []).filter(event => {
-        const time = Date.parse(event.time);
-        return Number.isFinite(time) && time >= since && time <= until;
-      }).map(event => ({ ...event, imported: true, seen: true }));
+      const since = Date.parse(job.rangeStart),
+        until = Date.parse(job.rangeEnd);
+      const events = (output.events || [])
+        .filter(event => {
+          const time = Date.parse(event.time);
+          return Number.isFinite(time) && time >= since && time <= until;
+        })
+        .map(event => ({ ...event, imported: true, seen: true }));
       const ids = new Set(events.map(event => event.id));
       const pushes = new Set(events.filter(event => event.kind === 'push').map(event => String(event.data?.pushId)));
       // Historical snapshots must not regress current PR/build/ref state. Push facts only dedupe IDs.
@@ -129,19 +167,29 @@ export function createBackfill({ store, provider, normalize, now = Date.now }) {
     } catch (error) {
       if (!current()) return true;
       const failures = (job.failures || 0) + 1;
-      const detail = error instanceof Error && 'code' in error && typeof error.code === 'string'
-        ? { code: error.code, message: error.message }
-        : { code: 'HISTORY_FAILED', message: 'Could not import this history page. Existing activity is kept.' };
-      store.saveJob({ ...job, status: 'retrying', lastAttempt: iso(now()), failures,
+      const detail =
+        error instanceof Error && 'code' in error && typeof error.code === 'string'
+          ? { code: error.code, message: error.message }
+          : { code: 'HISTORY_FAILED', message: 'Could not import this history page. Existing activity is kept.' };
+      store.saveJob({
+        ...job,
+        status: 'retrying',
+        lastAttempt: iso(now()),
+        failures,
         nextAt: iso(now() + Math.min(30 * 60000, 60000 * 2 ** Math.min(failures - 1, 5))),
-        error: detail });
+        error: detail,
+      });
     }
     return true;
   }
-  return { start, status: jobs,
+  return {
+    start,
+    status: jobs,
     tick() {
       if (active) return active;
-      active = runPage().finally(() => { active = null; });
+      active = runPage().finally(() => {
+        active = null;
+      });
       return active;
     },
   };

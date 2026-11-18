@@ -13,13 +13,37 @@ async function fixture(t, { demo = true, ...options } = {}) {
   const store = createStore(join(directory, 'test.sqlite'));
   seedDemo(store);
   const calls = [];
-  const sync = { refresh(ids) { calls.push(ids); return { queued: true }; }, status() { return { running: false }; } };
-  const app = createApp({ store, provider: { checkConnection: async () => ({ available: true, identity: 'test' }) }, sync, demo, ...options });
+  const sync = {
+    refresh(ids) {
+      calls.push(ids);
+      return { queued: true };
+    },
+    status() {
+      return { running: false };
+    },
+  };
+  const app = createApp({
+    store,
+    provider: { checkConnection: async () => ({ available: true, identity: 'test' }) },
+    sync,
+    demo,
+    ...options,
+  });
   await new Promise(resolve => app.listen(0, '127.0.0.1', resolve));
   const url = `http://127.0.0.1:${app.address().port}`;
-  t.after(async () => { await new Promise(resolve => app.close(resolve)); store.close(); await rm(directory, { recursive: true, force: true }); });
+  t.after(async () => {
+    await new Promise(resolve => app.close(resolve));
+    store.close();
+    await rm(directory, { recursive: true, force: true });
+  });
   const state = await (await fetch(`${url}/api/state`)).json();
-  const mutate = (path, data, options = {}) => fetch(url + path, { method: 'POST', headers: { 'content-type': 'application/json', 'x-repo-pulse-token': state.csrfToken }, body: JSON.stringify(data), ...options });
+  const mutate = (path, data, options = {}) =>
+    fetch(url + path, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-repo-pulse-token': state.csrfToken },
+      body: JSON.stringify(data),
+      ...options,
+    });
   return { store, app, url, state, mutate, calls };
 }
 
@@ -31,11 +55,18 @@ test('serves real UI and blocks other origins, DNS rebinding, and mutation witho
   assert.match(page.headers.get('content-security-policy'), /frame-ancestors 'none'/);
   assert.equal((await fetch(url + '/api/state', { headers: { origin: 'https://attacker.example' } })).status, 403);
   const hostileHostStatus = await new Promise((resolve, reject) => {
-    const request = httpRequest(url + '/api/state', { headers: { host: 'attacker.example' } }, response => { response.resume(); resolve(response.statusCode); });
-    request.on('error', reject); request.end();
+    const request = httpRequest(url + '/api/state', { headers: { host: 'attacker.example' } }, response => {
+      response.resume();
+      resolve(response.statusCode);
+    });
+    request.on('error', reject);
+    request.end();
   });
   assert.equal(hostileHostStatus, 403);
-  assert.equal((await fetch(url + '/api/ack', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{"ids":[]}' })).status, 403);
+  assert.equal(
+    (await fetch(url + '/api/ack', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{"ids":[]}' })).status,
+    403,
+  );
   assert.equal((await fetch(url + '/package.json')).status, 404);
   assert.equal((await fetch(url + '/server/store.js')).status, 404);
 });
@@ -98,7 +129,12 @@ test('a disabled repository disappears from activity and event details until ena
 
 test('checkout status skips disabled repositories', async t => {
   const checked = [];
-  const checkoutGit = { status: async repo => { checked.push(repo.id); return { state: 'clean' }; } };
+  const checkoutGit = {
+    status: async repo => {
+      checked.push(repo.id);
+      return { state: 'clean' };
+    },
+  };
   const { url, store } = await fixture(t, { demo: false, checkoutGit });
   store.saveRepo({ ...store.getRepo('demo-billing'), disabled: true });
   const result = await (await fetch(url + '/api/checkouts')).json();
@@ -108,9 +144,23 @@ test('checkout status skips disabled repositories', async t => {
 
 test('a disabled repository makes no direct Azure reads', async t => {
   const reads = [];
-  const provider = { checkConnection: async (org, repo) => { reads.push(['connection', repo?.id]); return { available: true }; },
-    pushCommits: async repo => { reads.push(['commits', repo.id]); return { items: [], nextCursor: null }; } };
-  const checkoutGit = { status: async () => ({ state: 'clean' }), update: async repo => { reads.push(['checkout', repo.id]); return {}; } };
+  const provider = {
+    checkConnection: async (org, repo) => {
+      reads.push(['connection', repo?.id]);
+      return { available: true };
+    },
+    pushCommits: async repo => {
+      reads.push(['commits', repo.id]);
+      return { items: [], nextCursor: null };
+    },
+  };
+  const checkoutGit = {
+    status: async () => ({ state: 'clean' }),
+    update: async repo => {
+      reads.push(['checkout', repo.id]);
+      return {};
+    },
+  };
   const { url, store, mutate } = await fixture(t, { demo: false, provider, checkoutGit });
   store.saveRepo({ ...store.getRepo('demo-billing'), disabled: true });
   assert.equal((await fetch(`${url}/api/push/demo-billing/1/commits`)).status, 409);

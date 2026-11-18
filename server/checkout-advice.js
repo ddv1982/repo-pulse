@@ -13,10 +13,15 @@ export const isCommit = (/** @type {unknown} */ value) =>
 
 /** @param {LinkedRepo} repo @param {CheckoutPull} pr */
 function hasSameRepoResult(repo, pr) {
-  return Boolean(typeof repo.azureId === 'string' && repo.azureId &&
-    typeof pr.sourceId === 'string' && pr.sourceId.toLowerCase() === repo.azureId.toLowerCase() &&
-    typeof pr.targetId === 'string' && pr.targetId.toLowerCase() === repo.azureId.toLowerCase() &&
-    isCommit(pr.result));
+  return Boolean(
+    typeof repo.azureId === 'string' &&
+      repo.azureId &&
+      typeof pr.sourceId === 'string' &&
+      pr.sourceId.toLowerCase() === repo.azureId.toLowerCase() &&
+      typeof pr.targetId === 'string' &&
+      pr.targetId.toLowerCase() === repo.azureId.toLowerCase() &&
+      isCommit(pr.result),
+  );
 }
 
 /** @param {LinkedRepo} repo @param {CheckoutPull} pr @param {string} head */
@@ -44,23 +49,38 @@ export async function ancestry(run, path, ancestor, tip) {
  * @returns {Promise<PullAdvice|undefined>}
  */
 export async function adviseMissingUpstream({ run, find, path, url, repo, source, head, branch }) {
-  const candidates = (await find(repo, source, head)).filter(pr =>
-    Number.isSafeInteger(pr?.id) && pr.id > 0 && pr.source === source && typeof pr.target === 'string' &&
-    pr.target.startsWith('refs/heads/') && pr.target !== source);
+  const candidates = (await find(repo, source, head)).filter(
+    pr =>
+      Number.isSafeInteger(pr?.id) &&
+      pr.id > 0 &&
+      pr.source === source &&
+      typeof pr.target === 'string' &&
+      pr.target.startsWith('refs/heads/') &&
+      pr.target !== source,
+  );
   const sameRepo = candidates.filter(pr => hasSameRepoResult(repo, pr));
   const exact = sameRepo.filter(pr => pr.head === head);
   const eligible = exact.length ? exact : sameRepo;
   const choice = eligible[0] || candidates[0];
   if (!choice) return undefined;
   /** @type {PullAdvice} */
-  const advice = { branch: branchName(choice.target), id: choice.id, url: safeAzureUrl(choice.url), strategy: choice.strategy, verified: false };
+  const advice = {
+    branch: branchName(choice.target),
+    id: choice.id,
+    url: safeAzureUrl(choice.url),
+    strategy: choice.strategy,
+    verified: false,
+  };
   if (!eligible.length || new Set(eligible.map(pr => pr.target)).size !== 1 || !choice.result) return advice;
   try {
     await run(path, ['check-ref-format', choice.target]);
     const effective = (await run(path, ['ls-remote', '--get-url', '--', url])).trimEnd();
     if (effective !== url) return advice;
     const output = await run(path, ['ls-remote', '--exit-code', '--refs', '--', url, choice.target, source]);
-    const refs = output.trimEnd().split('\n').map(line => line.split('\t'));
+    const refs = output
+      .trimEnd()
+      .split('\n')
+      .map(line => line.split('\t'));
     if (refs.some(([, ref]) => ref === source)) return advice;
     const tips = refs.filter(([, ref]) => ref === choice.target);
     if (tips.length !== 1 || !isCommit(tips[0][0])) return advice;
@@ -69,9 +89,19 @@ export async function adviseMissingUpstream({ run, find, path, url, repo, source
     if (reachable === null) {
       // Read the target objects so an unfetched remote advance can still be verified.
       // An unqualified destination would move tracking refs through the configured refmap.
-      await run(path, ['-c', `core.hooksPath=${process.platform === 'win32' ? 'NUL' : '/dev/null'}`,
-        'fetch', '--no-tags', '--no-recurse-submodules', '--no-write-fetch-head', '--no-auto-maintenance',
-        '--refmap=', '--', url, choice.target]);
+      await run(path, [
+        '-c',
+        `core.hooksPath=${process.platform === 'win32' ? 'NUL' : '/dev/null'}`,
+        'fetch',
+        '--no-tags',
+        '--no-recurse-submodules',
+        '--no-write-fetch-head',
+        '--no-auto-maintenance',
+        '--refmap=',
+        '--',
+        url,
+        choice.target,
+      ]);
       reachable = await ancestry(run, path, choice.result, tip);
     }
     advice.targetVerified = reachable === true;
@@ -80,7 +110,9 @@ export async function adviseMissingUpstream({ run, find, path, url, repo, source
       advice.receipt = { target: choice.target, result: choice.result, sourceHead: isCommit(choice.head) ? choice.head : undefined };
       advice.destination = await checkoutDestination(run, path, choice.target, branch, url);
     }
-  } catch { /* A related PR can still be shown without verified target evidence. */ }
+  } catch {
+    /* A related PR can still be shown without verified target evidence. */
+  }
   return advice;
 }
 
@@ -91,7 +123,8 @@ async function checkoutDestination(run, path, target, branch, url) {
   try {
     await run(path, ['show-ref', '--verify', '--quiet', target]);
   } catch (error) {
-    if (error instanceof Error && (('code' in error && error.code === 1) || ('status' in error && error.status === 1))) return 'remote-only';
+    if (error instanceof Error && (('code' in error && error.code === 1) || ('status' in error && error.status === 1)))
+      return 'remote-only';
     return 'unknown';
   }
   const upstream = await run(path, ['for-each-ref', '--format=%(upstream:remotename)%00%(upstream:remoteref)', '--', target]);
@@ -112,8 +145,11 @@ export function createCheckoutLookup({ cached, lookup }) {
     if (!lookup || local.some(pr => isExactCheckoutPull(repo, pr, head))) return local;
     try {
       const remote = await lookup(repo, source);
-      return [...new Map([...remote, ...local.filter(pr => !remote.some(candidate => candidate.id === pr.id))]
-        .map(pr => [pr.id, pr])).values()];
-    } catch { return local; }
+      return [
+        ...new Map([...remote, ...local.filter(pr => !remote.some(candidate => candidate.id === pr.id))].map(pr => [pr.id, pr])).values(),
+      ];
+    } catch {
+      return local;
+    }
   };
 }

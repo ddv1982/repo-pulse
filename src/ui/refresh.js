@@ -120,7 +120,9 @@ export function createRefreshController({ request, getView, reconcileRepositorie
   }
 
   return {
-    get state() { return state; },
+    get state() {
+      return state;
+    },
     capacity: activityData.capacity,
     /** @param {number} [capacity] */
     resetActivity(capacity) {
@@ -139,7 +141,9 @@ export function createRefreshController({ request, getView, reconcileRepositorie
       const sameQuery = queued && viewKey(queued.view) === viewKey(view);
       queued = {
         ...(queued || Promise.withResolvers()),
-        view, more: more || Boolean(sameQuery && queued?.more), force: force || more || Boolean(sameQuery && queued?.force),
+        view,
+        more: more || Boolean(sameQuery && queued?.more),
+        force: force || more || Boolean(sameQuery && queued?.force),
       };
       return queued.promise;
     },
