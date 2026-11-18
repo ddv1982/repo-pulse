@@ -11,7 +11,6 @@ import { cliError } from './azure-cli.js';
  * @typedef {import('./azure-cli.js').ExecutorOptions} ExecutorOptions
  * @typedef {{ url: URL, method?: string, inFile?: string }} RestRequest
  * @typedef {{ value: string, expiresAt: number }} CachedToken
- * @typedef {{ accessToken?: unknown, expires_on?: unknown, expiresOn?: unknown }} TokenResponse
  */
 
 /** The Microsoft Entra application ID of Azure DevOps, the audience of its access tokens. */
