@@ -23,6 +23,10 @@ Repo Pulse records a Pull in SQLite before it locks or changes the checkout. On 
 
 If the repository shows **Pull interrupted**, first make sure no Git operation is still running there. Review the branch and changes with `git status`, `git diff`, and `git diff --cached` before making changes. The app keeps Pull blocked while an index lock exists or the recorded branch is inconsistent. If a stale lock remains, verify its ownership before resolving it manually in Git. Save any edits made after the interruption before restoring or finishing the update.
 
+## Why Pull does not use git merge
+
+On 2026-11-18 a prototype replaced the custom fast-forward with `git merge --ff-only --no-overwrite-ignore <tip>` after the same pre-checks. Every behavioural test in `test/checkout-git.test.js` still passed: local edits kept, ignored files protected, an edit during the fetch blocked, and a branch switch unable to advance either branch. Four tests failed. One checks that the worktree update goes through the locked private index, and three in `test/checkout-recovery.test.js` interrupt Pull inside that mechanism. The custom code stays for what only it provides: the pull journal that reports an interrupted Pull after a crash, and an `update-ref` transaction that verifies the tracking ref has not moved while HEAD advances. Replacing it would delete about a third of `checkout-git.js`, `pull-owner.js` and the `pull_operations` table, so revisit it if that recovery path is no longer wanted.
+
 ## Run checks
 
 ```sh
