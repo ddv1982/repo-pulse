@@ -220,19 +220,23 @@ test('empty live startup detects existing CLI locally and prompts only local rep
     },
   });
   const provider = createAzureClient({ cli });
-  const server = createApp({ store, provider, sync: createSync({ store, provider }), cli });
-  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
-  const browser = await chromium.launch({ executablePath: await browserPath(), headless: true });
-  const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  const sync = createSync({ store, provider });
+  const server = createApp({ store, provider, sync, cli });
+  let browser;
   const errors = [];
-  page.on('pageerror', error => errors.push(error.message));
   t.after(async () => {
-    await browser.close();
-    await new Promise(resolve => server.close(resolve));
+    await browser?.close().catch(() => {});
+    await sync.stop();
+    if (server.listening) await new Promise(resolve => server.close(resolve));
     cli.close();
     store.close();
     assert.deepEqual(errors, []);
   });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  sync.start();
+  browser = await chromium.launch({ executablePath: await browserPath(), headless: true });
+  const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  page.on('pageerror', error => errors.push(error.message));
   const url = `http://127.0.0.1:${server.address().port}`;
   await page.goto(url);
   await expect(page.getByRole('heading', { name: 'Repositories', exact: true })).toBeVisible();
@@ -240,6 +244,7 @@ test('empty live startup detects existing CLI locally and prompts only local rep
   await expect(page.locator('#connection-status').getByRole('button', { name: 'Check again' })).toBeVisible();
   await expect(page.locator('#connection-status')).toContainText('Using existing Azure CLI');
   await expect(page.locator('input[type="url"]')).toHaveCount(0);
+  await sync.tick();
   const state = await (await fetch(url + '/api/state')).json();
   assert.equal(state.demo, false);
   assert.ok(state.diagnostics.totalStarts > 0 && state.diagnostics.totalStarts <= 3, 'only cached local CLI/extension/account checks');
