@@ -10,6 +10,8 @@ export default [
       'no-unreachable': 'error',
       'no-dupe-keys': 'error',
       'no-unused-vars': ['error', { args: 'none', caughtErrors: 'none' }],
+      // Every function was brought to 30 or below in November 2026; split a function rather than raising this.
+      complexity: ['error', 30],
     },
   },
   { files: ['**/*.cjs'], languageOptions: { sourceType: 'commonjs', globals: globals.node } },
