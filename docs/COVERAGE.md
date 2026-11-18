@@ -58,8 +58,8 @@ A push-associated commit list can be empty when a target branch moves to an alre
 - The browser polls local metadata and reloads the Activity window when its revision changes. Activity filters include types, statuses, and merge evidence from matching cached history, including items beyond the loaded page. Status filters match the displayed group after search and repository scope are applied. Seen actions still use the exact unseen updates in the shown groups. Manual refresh, navigation, and pagination can still request pages explicitly.
 - Existing raw events remain immutable. Supplemental merge metadata preserves event identity, time and seen/imported flags, and creates no metadata-only notification. Existing pushes are queued once during schema migration.
 - Explicit 30/90-day or all-available-since-2010 import persists one bounded page at a time. Historical imports stop at the monitoring baseline and never rewind live checkpoints. Completed means requested pages succeeded, not universal source retention. Different ranges wait until the active import completes.
-- The shared budget is 60 calls/minute with four in flight. Activity reads are single REST requests
-  made with an Azure CLI token; other commands still start `az`, which can make several requests
+- The shared budget is 60 calls/minute with four in flight. Activity reads normally use one REST request
+  made with an Azure CLI token (one retry after a token renewal); other commands still start `az`, which can make several requests
   internally. Normal checks are around three minutes, quiet/background checks five minutes and refs
   ten minutes, subject to queueing and backoff.
 - Under sustained live work, the scheduler offers a background turn after six live turns. Eligible history and merge jobs alternate. These are scheduler turns, so queueing and provider response times still affect freshness.
