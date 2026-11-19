@@ -257,16 +257,26 @@ export function createStore(path = ':memory:') {
     [
       11,
       () => {
-        // Background merge analysis stopped: its queue goes and saved evidence stays. Evidence an interrupted job left
-        // half done is marked incomplete, since nothing will finish it.
+        // Background merge analysis stopped: its queue goes and saved evidence stays. Evidence a running or retrying job
+        // left behind is marked incomplete without progress or retry wording, since nothing will finish it.
+        const rows = q(`SELECT event_id,data FROM enrichment WHERE json_extract(data,'$.mergeEvidence.status')='enriching'
+          OR event_id IN (SELECT json_extract(data,'$.eventId') FROM jobs WHERE type='merge')`).all();
         q("DELETE FROM jobs WHERE type='merge'").run();
-        const rows = q("SELECT event_id,data FROM enrichment WHERE json_extract(data,'$.mergeEvidence.status')='enriching'").all();
+        /** @param {string} text */
+        const settled = text => text.replace(/\s*Retrying later\.$/, '');
         for (const row of rows) {
           const evidence = JSON.parse(String(row.data)).mergeEvidence;
-          const limitations = (evidence.limitations || []).filter(
-            (/** @type {string} */ item) => item !== 'Merge enrichment is still in progress.',
-          );
-          enrichEvent(String(row.event_id), { mergeEvidence: { ...evidence, status: 'incomplete', limitations } });
+          if (!evidence || ['complete', 'not-applicable'].includes(evidence.status)) continue;
+          const limitations = (evidence.limitations || [])
+            .filter((/** @type {string} */ item) => item !== 'Merge enrichment is still in progress.')
+            .map(settled);
+          const error =
+            evidence.error && typeof evidence.error === 'object'
+              ? { ...evidence.error, message: settled(String(evidence.error.message || '')) }
+              : evidence.error && settled(String(evidence.error));
+          enrichEvent(String(row.event_id), {
+            mergeEvidence: { ...evidence, status: 'incomplete', limitations: [...new Set(limitations)], ...(error ? { error } : {}) },
+          });
         }
       },
     ],

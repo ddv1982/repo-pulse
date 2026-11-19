@@ -1,10 +1,9 @@
-// Simulates live polling and merge enrichment against the shared Azure CLI budget.
+// Simulates live polling against the shared Azure call budget.
 // Usage: node scripts/measure-budget.js [--limit 12] [--repos 1,5,10,20] [--pushes-per-hour 4] [--commits 5] [--call-ms 1500] [--minutes 60]
 //   [--active-prs 0 --pr-every 3]: also spend one threads read and one policy evaluations read per active PR every N minutes.
 import { createHash } from 'node:crypto';
 import { createStore } from '../server/store.js';
 import { createSync } from '../server/sync.js';
-import { createEnrichment } from '../server/enrichment.js';
 import { createAzureClient } from '../server/azure-client.js';
 
 const option = (name, fallback) => {
@@ -135,14 +134,12 @@ function simulate(repoTotal) {
     });
   }
   const provider = createAzureClient({ cli, now });
-  const enrichment = createEnrichment({ store, provider, now });
   const sync = createSync({
     store,
     provider,
     now,
     isForeground: () => true,
-    onPrCompleted: (repo, data) => enrichment.reconcilePr(repo, data),
-    background: { merge: () => enrichment.tick(), history: async () => false },
+    background: { history: async () => false },
   });
   const generated = [...pushes.values()].reduce((total, list) => total + list.length, 0);
   return {
@@ -169,7 +166,7 @@ const minutesOf = ms => (ms === null ? 'n/a' : (ms / 60000).toFixed(1));
 console.log(
   `Budget ${LIMIT_PER_MINUTE} calls/min, ${callMs} ms per call, ${pushesPerHour} pushes/hour/repo with ${commitsPerPush} commits, ${minutes} simulated minutes, tab in foreground${activePrs ? `, ${activePrs} active PRs/repo read twice every ${prEveryMs / 60000} min` : ''}.`,
 );
-console.log('repos | calls/min | pushes | in Activity | delay p50 min | delay p95 min | delay max min | merge jobs left');
+console.log('repos | calls/min | pushes | in Activity | delay p50 min | delay p95 min | delay max min');
 for (const repoTotal of repoCounts) {
   const run = simulate(repoTotal);
   const startedAt = run.now();
@@ -181,7 +178,6 @@ for (const repoTotal of repoCounts) {
   const elapsedMinutes = (run.now() - startedAt) / 60000;
   const events = run.store.listEvents({ limit: 5000 }).filter(event => event.kind === 'push');
   const delays = events.map(event => Date.parse(event.observedAt) - Date.parse(event.time));
-  const jobs = run.store.listJobs({ type: 'merge' }).length;
   console.log(
     [
       repoTotal,
@@ -191,7 +187,6 @@ for (const repoTotal of repoCounts) {
       minutesOf(percentile(delays, 0.5)),
       minutesOf(percentile(delays, 0.95)),
       minutesOf(percentile(delays, 1)),
-      jobs,
     ].join(' | '),
   );
   run.store.close();

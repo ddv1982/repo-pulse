@@ -359,7 +359,15 @@ test('opening a database with merge work left drops the jobs and keeps evidence 
       limitations: ['Source branch unknown', 'Merge enrichment is still in progress.'],
     },
   });
-  for (const id of ['done', 'partial'])
+  store.insertEvents([event('retrying', { data: { refUpdates: [{ name: 'refs/heads/main', oldObjectId: 'a', newObjectId: 'b' }] } })]);
+  store.enrichEvent('retrying', {
+    mergeEvidence: {
+      status: 'partial',
+      error: { code: 'ENRICHMENT_FAILED', message: 'Merge evidence could not be read. Retrying later.' },
+      limitations: ['Merge enrichment is still in progress.', 'Merge evidence could not be read. Retrying later.'],
+    },
+  });
+  for (const id of ['done', 'partial', 'retrying'])
     store.saveJob({ id: `merge:${id}`, type: 'merge', repoId: repo.id, eventId: id, status: 'enriching', nextAt: '2026-11-17T10:00:00Z' });
   store.saveJob({ id: 'backfill:repo', type: 'backfill', repoId: repo.id, status: 'pending', nextAt: '2026-11-17T10:00:00Z' });
   store.close();
@@ -375,6 +383,11 @@ test('opening a database with merge work left drops the jobs and keeps evidence 
   const partial = store.getEvent('partial');
   assert.deepEqual(partial.data.mergeEvidence.candidateCommitIds, ['interior']);
   assert.deepEqual(partial.data.mergeEvidence.limitations, ['Source branch unknown']);
+  assert.equal(partial.data.mergeEvidence.status, 'incomplete');
+  const retrying = store.getEvent('retrying').data.mergeEvidence;
+  assert.equal(retrying.status, 'incomplete');
+  assert.deepEqual(retrying.limitations, ['Merge evidence could not be read.']);
+  assert.deepEqual(retrying.error, { code: 'ENRICHMENT_FAILED', message: 'Merge evidence could not be read.' });
   const html = renderMergeEvidence(partial.data) + mergeEvidenceBadge(partial);
   assert.doesNotMatch(html, /in progress|Checking/i);
   assert.match(html, /Evidence incomplete/);

@@ -1155,12 +1155,13 @@ function recordingProvider(pages) {
 // The merge worker is handed to the scheduler as the app used to wire it, so a regression in either
 // the producers (sync, backfill) or the scheduler shows up as a merge call here.
 test('a sync run over several push pages makes only stream reads and queues no merge work', async () => {
+  let mergeTurns = 0;
   const store = createStore();
   store.saveRepo(repo);
   let time = BASE;
   const { provider, calls } = recordingProvider({ pushes: [[push(1), push(2)], [push(3)], [push(4)]] });
   const enrichment = createEnrichment({ store, provider, now: () => time });
-  const sync = createSync({ store, provider, now: () => time, intervalMs: 1000, background: { merge: () => enrichment.tick() } });
+  const sync = createSync({ store, provider, now: () => time, intervalMs: 1000, background: { merge: () => (mergeTurns++, enrichment.tick()) } });
   for (let i = 0; i < 40; i++) {
     await sync.tick();
     time += 500;
@@ -1171,10 +1172,12 @@ test('a sync run over several push pages makes only stream reads and queues no m
     [],
   );
   assert.deepEqual(store.listJobs({ type: 'merge' }), []);
+  assert.equal(mergeTurns, 0, 'the scheduler never runs a merge turn');
   store.close();
 });
 
 test('a history import page makes only stream reads and queues no merge work', async () => {
+  let mergeTurns = 0;
   const store = createStore();
   store.saveRepo(repo);
   let time = BASE;
@@ -1189,7 +1192,7 @@ test('a history import page makes only stream reads and queues no merge work', a
     store,
     provider,
     now: () => time,
-    background: { merge: () => enrichment.tick(), history: () => backfill.tick() },
+    background: { merge: () => (mergeTurns++, enrichment.tick()), history: () => backfill.tick() },
   });
   backfill = createBackfill({ store, provider, normalize: sync.normalize, now: () => time });
   store.setSetting(`baseline:${repo.id}`, new Date(BASE).toISOString());
@@ -1207,5 +1210,6 @@ test('a history import page makes only stream reads and queues no merge work', a
     [],
   );
   assert.deepEqual(store.listJobs({ type: 'merge' }), []);
+  assert.equal(mergeTurns, 0, 'the scheduler never runs a merge turn');
   store.close();
 });
