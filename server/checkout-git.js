@@ -617,9 +617,9 @@ export function createCheckoutGit({
     try {
       return { checkout: (await statusAt(path, repo)).snapshot, updated: true };
     } catch (caught) {
-      // The branch already moved, so the refusal must not read as if Pull did nothing.
-      const error = /** @type {Error & { diagnostic?: unknown }} */ (caught);
-      if (error.diagnostic) error.message = `The branch was updated to the upstream commit. ${error.message}`;
+      // The branch already moved, so no failure here may read as if Pull did nothing.
+      const error = /** @type {Error} */ (caught);
+      error.message = `The branch was updated to the upstream commit. ${error.message}`;
       throw error;
     }
   }
