@@ -51,17 +51,20 @@ test('on Linux the opener gets a unique owner-only page, not the launch link, an
   await second();
 });
 
-test('macOS and Windows hand the launch link to the opener directly', async () => {
+test('Windows hands the launch link to the opener directly; macOS gets the private page like Linux', async t => {
   const calls = [];
-  for (const platform of ['darwin', 'win32'])
-    await openBrowser('http://127.0.0.1:1234/#launch=abc', { dataDir: '/nonexistent', platform, spawn: fakeSpawn(calls) });
+  await openBrowser('http://127.0.0.1:1234/#launch=abc', { dataDir: '/nonexistent', platform: 'win32', spawn: fakeSpawn(calls) });
   assert.deepEqual(
     calls.map(({ file, args }) => [file, args]),
-    [
-      ['open', ['http://127.0.0.1:1234/#launch=abc']],
-      ['rundll32.exe', ['url.dll,FileProtocolHandler', 'http://127.0.0.1:1234/#launch=abc']],
-    ],
+    [['rundll32.exe', ['url.dll,FileProtocolHandler', 'http://127.0.0.1:1234/#launch=abc']]],
   );
+  const dataDir = await mkdtemp(join(tmpdir(), 'repo-pulse-open-'));
+  t.after(() => rm(dataDir, { recursive: true, force: true }));
+  const remove = await openBrowser('http://127.0.0.1:1234/#launch=abc', { dataDir, platform: 'darwin', spawn: fakeSpawn(calls) });
+  assert.equal(calls[1].file, 'open');
+  assert.match(calls[1].args[0], /^file:\/\/.*launch-[0-9a-f]{16}\.html$/);
+  assert.equal(calls[1].args[0].includes('launch=abc'), false);
+  await remove();
 });
 
 test('a page that cannot be written, or a missing opener, never throws', async t => {

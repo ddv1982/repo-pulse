@@ -28,8 +28,9 @@ export function canOpenBrowser(platform, env) {
 
 /**
  * Opens the launch link in the default browser and returns a function that removes anything it left behind.
- * macOS and Windows do not show one account's process arguments to another, so the link goes to the opener directly.
- * Elsewhere, such as Linux with a readable /proc, the single-use token must not appear on a command line: the link goes
+ * Windows does not show one account's process arguments to another, so there the link goes to the opener directly.
+ * Elsewhere (Linux /proc, macOS ps) other accounts can read them, so the single-use token must not appear on a command
+ * line: the link goes
  * into an owner-only page in the private data directory, the opener gets only that page's file URL, and the page
  * forwards the browser to the link. The page is removed after `keepMs` or by the returned function. Nothing here stops
  * startup: if it fails, the printed link still works.
@@ -40,7 +41,7 @@ export function canOpenBrowser(platform, env) {
 export async function openBrowser(url, { dataDir, platform = process.platform, spawn = nodeSpawn, keepMs = 60_000 }) {
   let target = url;
   let remove = async () => {};
-  if (platform !== 'darwin' && platform !== 'win32') {
+  if (platform !== 'win32') {
     const page = resolve(dataDir, `launch-${randomBytes(8).toString('hex')}.html`);
     const link = new URL(url).href.replace(/"/g, '%22');
     try {
