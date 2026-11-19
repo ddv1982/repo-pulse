@@ -363,6 +363,7 @@ test('conditional includes, transport and signing keys in checkout config are re
     ['ssh.variant', 'plink'],
     ['hook.audit.command', 'touch ran'],
     ['lfs.customtransfer.agent.path', 'agent'],
+    ['remote.origin.lfsurl', 'https://example.test/lfs'],
   ]) {
     git(local, 'config', key, value);
     const status = await createCheckoutGit({ matchesRemote: url => url === remote }).status(repo);
@@ -370,5 +371,8 @@ test('conditional includes, transport and signing keys in checkout config are re
     assert.match(status.diagnostic?.message ?? '', new RegExp(key.toLowerCase().replace(/[.]/g, '\\.')), key);
     git(local, 'config', '--unset', key);
   }
+  // Keys Git LFS writes itself during normal use stay allowed.
+  git(local, 'config', 'lfs.repositoryformatversion', '0');
+  git(local, 'config', 'lfs.https://dev.azure.com/example/Testing/_git/Orders/info/lfs.access', 'basic');
   assert.notEqual((await createCheckoutGit({ matchesRemote: url => url === remote }).status(repo)).state, 'unavailable');
 });

@@ -57,8 +57,10 @@ const commandKeys = new RegExp(
     'includeif\\..*\\.path',
     'ssh\\.variant',
     'protocol\\.version',
-    // A globally installed Git LFS reads these: custom transfer agents run programs, lfs.url moves the endpoint.
-    'lfs\\..*',
+    // A globally installed Git LFS reads these: transfer agents and extensions run programs, the URLs move the endpoint.
+    // Keys LFS writes itself, such as lfs.repositoryformatversion and lfs.<url>.access, stay allowed.
+    'lfs\\.(?:customtransfer\\..*|standalonetransferagent|extension\\..*|url)',
+    'remote\\..*\\.lfsurl',
     // Git 2.54+ can define hooks in config; core.hooksPath does not turn those off.
     'hook\\..*',
   ]
