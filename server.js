@@ -527,7 +527,13 @@ export function createApp({
       }
       // Every API request, reads included, carries the key. A browser on another origin cannot add the header.
       if (!hasAccessKey(req))
-        throw Object.assign(problem('Open Repo Pulse with the link printed in the terminal where it runs.', 401), { code: 'ACCESS_KEY' });
+        throw Object.assign(
+          problem(
+            'Open the newest link printed in the terminal where Repo Pulse runs. Each link works once; restart Repo Pulse for a new one.',
+            401,
+          ),
+          { code: 'ACCESS_KEY' },
+        );
       if (!['GET', 'POST', 'PATCH', 'DELETE'].includes(req.method ?? '')) throw problem('Method not allowed.', 405);
       for (const route of routes) {
         if (route.method !== req.method) continue;
@@ -561,7 +567,7 @@ export function createApp({
 }
 
 /** @param {{ demo?: boolean, port?: number, dataDir?: string }} [options] */
-export async function startApp({ demo = false, port = 4317, dataDir = resolve(ROOT, '.repo-pulse') } = {}) {
+export async function startApp({ demo = false, port = 0, dataDir = resolve(ROOT, '.repo-pulse') } = {}) {
   await secureDataDir(dataDir);
   // Earlier versions kept one key for good; every start now makes its own, so a key from a past run is useless.
   await rm(resolve(dataDir, 'access-key'), { force: true });
@@ -651,7 +657,9 @@ async function secureDataDir(dataDir) {
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
-  const port = Number(process.env.PORT || 4317);
+  // No fixed port by default: a new origin every run means nothing another account served earlier on that port, such as a
+  // service worker, applies to this run.
+  const port = Number(process.env.PORT || 0);
   if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error('PORT must be an integer from 0 to 65535.');
   const runtime = await startApp({ demo: process.argv.includes('--demo'), port, dataDir: process.env.REPO_PULSE_DATA_DIR || undefined });
   console.log(`Repo Pulse${process.argv.includes('--demo') ? ' · demo data, no Azure calls' : ''}: ${runtime.launchUrl}`);

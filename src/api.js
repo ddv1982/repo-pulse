@@ -78,6 +78,14 @@ async function readAccessKey() {
 
 const accessKey = await readAccessKey();
 
+// A new launch link opened in a tab that already shows Repo Pulse changes only the fragment, so this module would not run
+// again. Reload instead, before the hash router sees it.
+window.addEventListener('hashchange', event => {
+  if (!location.hash.startsWith('#launch=')) return;
+  event.stopImmediatePropagation();
+  location.reload();
+});
+
 /**
  * @template {string} P
  * @param {P} path

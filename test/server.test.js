@@ -72,7 +72,8 @@ test('serves real UI and blocks other origins, DNS rebinding, and API requests w
     const read = await globalThis.fetch(url + '/api/state', { headers });
     assert.equal(read.status, 401);
     assert.deepEqual(await read.json(), {
-      message: 'Open Repo Pulse with the link printed in the terminal where it runs.',
+      message:
+        'Open the newest link printed in the terminal where Repo Pulse runs. Each link works once; restart Repo Pulse for a new one.',
       code: 'ACCESS_KEY',
     });
     assert.equal((await globalThis.fetch(url + '/api/ack', { ...ack, headers: { ...ack.headers, ...headers } })).status, 401);
