@@ -82,6 +82,16 @@ test('serves real UI and blocks other origins, DNS rebinding, and API requests w
   assert.equal((await fetch(url + '/api/ack', ack)).status, 200);
   assert.equal((await globalThis.fetch(url + '/api/state', { method: 'PUT' })).status, 401);
   assert.equal((await globalThis.fetch(url + '/app.css')).status, 200);
+  const stylesheet = await globalThis.fetch(url + '/web/app.css');
+  assert.equal(stylesheet.status, 200);
+  assert.equal(stylesheet.headers.get('content-type'), 'text/css; charset=utf-8');
+  const imports = [...(await stylesheet.text()).matchAll(/@import\s+['"]([^'"]+)['"]\s*;/g)].map(match => match[1]);
+  assert.ok(imports.length > 0);
+  for (const href of imports) {
+    const part = await globalThis.fetch(new URL(href, url));
+    assert.equal(part.status, 200, `${href} should be served`);
+    assert.equal(part.headers.get('content-type'), 'text/css; charset=utf-8', `${href} should have text/css content-type`);
+  }
   assert.equal((await fetch(url + '/package.json')).status, 404);
   assert.equal((await fetch(url + '/server/store.js')).status, 404);
 });

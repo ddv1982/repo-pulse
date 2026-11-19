@@ -12,7 +12,7 @@
 | [server/activity-query.js](../server/activity-query.js) | Scoped Activity rows, stable filter IDs, counts, and paging |
 | [server/repositories.js](../server/repositories.js) and [server/checkout-git.js](../server/checkout-git.js) | Checkout discovery, local Git status, explicit fetch, and guarded fast-forward |
 | [src/web.js](../src/web.js) and [src/ui/](../src/ui/) | Browser wiring, view rendering, refresh coordination, navigation, and exact seen actions |
-| [web/app.css](../web/app.css) and [web/theme.js](../web/theme.js) | Day and night backgrounds, light-mode glass, and System, Light, and Dark controls |
+| [web/app.css](../web/app.css), [web/styles/](../web/styles/) and [web/theme.js](../web/theme.js) | Modular CSS tokens, layouts, screen styles, light-mode glass, and System, Light, and Dark controls |
 
 The app uses Node 26, built-in SQLite, plain JavaScript, and CSS. It has no runtime npm dependencies or build step. Live and demo databases are separate and ignored by Git. `PORT` fixes the loopback port; by default each start gets a free port from the OS. `REPO_PULSE_NO_BROWSER=1` stops `npm start` from opening the browser. `REPO_PULSE_DATA_DIR` changes the storage directory. Use one Azure CLI account context for each local data directory.
 

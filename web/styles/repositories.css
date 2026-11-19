@@ -1,0 +1,386 @@
+/* Repositories screen, local folder picker, checkout guidance, and history sync controls. */
+.repo-heading {
+  position: relative;
+}
+.repo-heading .section-heading {
+  justify-content: start;
+  padding-right: 136px;
+  min-height: 34px;
+  gap: 2px 10px;
+}
+.repo-add > summary {
+  position: absolute;
+  top: 0;
+  right: 0;
+  display: inline-flex;
+  cursor: pointer;
+}
+.repo-add-body {
+  margin-bottom: 12px;
+}
+.repo-add > summary::before {
+  content: '+';
+  margin-right: 8px;
+  color: var(--info);
+}
+.repo-add[open] > summary::before {
+  content: '−';
+}
+.repo-add .card-pad {
+  padding-top: 4px;
+}
+.repo-card {
+  padding: 14px 16px;
+  border-top: 1px solid var(--border);
+}
+.repo-card:first-child {
+  border-top: 0;
+}
+.repo-check-errors {
+  margin: 0;
+  padding-inline-start: 18px;
+  overflow-wrap: anywhere;
+}
+.repo-list > .repo-entry {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr) 55px;
+  align-items: start;
+  gap: 8px 14px;
+  position: relative;
+}
+.repo-overview,
+.repo-checkout-line,
+.checkout-state {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+}
+.repo-overview h3 {
+  overflow-wrap: anywhere;
+  font-size: 14px;
+}
+.repo-overview .sync-pill {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.repo-checkout-line {
+  justify-content: space-between;
+}
+.repo-details {
+  grid-column: 3;
+  margin-top: 0;
+}
+.repo-details > summary {
+  position: absolute;
+  top: 12px;
+  right: 16px;
+}
+.repo-details[open] {
+  grid-column: 1 / -1;
+}
+.repo-details:not([open]) {
+  grid-row: 1;
+}
+.repo-details-content {
+  display: grid;
+  gap: 6px;
+  margin-top: 4px;
+}
+.repo-entry > .history-progress {
+  grid-column: 1 / -1;
+}
+.repo-list > .repo-entry.repo-disabled {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+}
+.repo-disabled h3 {
+  color: var(--muted-foreground);
+}
+.repo-entry:not(:has(.repo-details[open])) .history-extra {
+  display: none;
+}
+
+/* Local Git checkout guidance and diagnostics. */
+.checkout-state {
+  flex: 1 1 12rem;
+}
+.checkout-state .subref {
+  overflow-wrap: anywhere;
+}
+.checkout-diagnostic {
+  flex-basis: 100%;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.checkout-diagnostic > * + * {
+  margin-top: 3px;
+}
+.checkout-commits {
+  min-width: 0;
+  margin-block: 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+.checkout-commits label {
+  display: block;
+  padding-block: 4px;
+}
+.checkout-diagnostic summary {
+  cursor: pointer;
+}
+.checkout-diagnostic ul {
+  padding-inline-start: 18px;
+  margin-block: 4px;
+}
+.checkout-guidance {
+  grid-column: 1 / -1;
+  display: grid;
+  justify-items: start;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--muted);
+}
+.checkout-guidance:empty {
+  display: none;
+}
+.checkout-guidance > * {
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+.checkout-guidance > .checkout-diagnostic {
+  width: 100%;
+}
+.checkout-guidance > .checkout-diagnostic:has(.primary) {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+}
+.checkout-update-options {
+  width: 100%;
+}
+.checkout-update-options > summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+  cursor: pointer;
+}
+.checkout-update-options > summary::-webkit-details-marker {
+  display: none;
+}
+.checkout-update-options > p {
+  margin-top: 8px;
+}
+.checkout-last-check:empty {
+  display: none;
+}
+
+/* Older activity sync progress and dialog range options. */
+.history-progress:not([hidden]) {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+}
+.history-progress .help {
+  overflow-wrap: anywhere;
+}
+.history-repository {
+  color: var(--muted-foreground);
+  overflow-wrap: anywhere;
+}
+.history-ranges {
+  min-inline-size: 0;
+  display: grid;
+  gap: 4px;
+  padding: 4px 0 0;
+  border: 0;
+  margin: 0;
+}
+.history-ranges legend {
+  font-weight: 600;
+}
+.history-ranges label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 4px 8px;
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+.history-ranges label:hover,
+.history-ranges label:has(:checked) {
+  background: var(--accent);
+}
+.history-ranges input {
+  accent-color: var(--primary);
+}
+
+/* Local folder repository picker. */
+.picker-root-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+.picker-crumbs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 3px;
+  min-width: 0;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.picker-crumbs .ghost {
+  padding: 2px 4px;
+}
+.picker-label {
+  display: block;
+  font-size: 12px;
+  font-weight: 500;
+  margin-bottom: 6px;
+}
+.picker-input {
+  display: flex;
+  border: 1px solid var(--input);
+  border-radius: var(--radius);
+  background: var(--card);
+}
+.picker-input:focus-within {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+.picker-input .search {
+  flex: 1;
+  border: 0;
+  width: 100%;
+  max-width: none;
+  min-width: 0;
+  background: transparent;
+}
+.picker-input .search:focus {
+  outline: 0;
+  box-shadow: none;
+}
+.picker-results {
+  margin-top: 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--card);
+}
+.picker-results[hidden] {
+  display: none;
+}
+.picker-results ul {
+  list-style: none;
+  padding: 4px;
+  margin: 0;
+  max-height: min(320px, 50vh);
+  overflow-y: auto;
+}
+.picker-option {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  min-height: 44px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.picker-option.active {
+  background: var(--accent);
+  box-shadow: inset 2px 0 var(--primary);
+}
+.picker-option[aria-disabled='true'] {
+  cursor: default;
+  color: var(--muted-foreground);
+}
+.picker-option b {
+  font-weight: 500;
+}
+.picker-option small {
+  display: block;
+  font-size: 12px;
+  color: var(--muted-foreground);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.picker-option mark {
+  background: var(--accent);
+  color: var(--info, var(--foreground));
+  font-weight: 600;
+}
+.picker-badges {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: flex-end;
+}
+.picker-empty,
+.picker-count {
+  padding: 8px 12px;
+}
+.picker-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 12px;
+}
+.picker-chips .chip {
+  max-width: 100%;
+}
+.picker-chips button {
+  border: 0;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+  margin-left: 6px;
+}
+.picker-footer {
+  margin-top: 12px;
+  flex-wrap: wrap;
+  align-items: flex-start;
+}
+.picker-footer .help {
+  flex-basis: 100%;
+}
+
+@media (forced-colors: active) {
+  .picker-option.active {
+    outline: 2px solid Highlight;
+  }
+}
+@media (max-width: 639px) {
+  .repo-list > .repo-entry {
+    grid-template-columns: minmax(0, 1fr) 55px;
+  }
+  .repo-checkout-line {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+  .repo-details:not([open]) {
+    grid-column: 2;
+  }
+  .checkout-guidance {
+    grid-row: 3;
+  }
+  .checkout-state {
+    flex-basis: 100%;
+  }
+}
