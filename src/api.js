@@ -113,9 +113,13 @@ export async function request(path, { method = 'GET', body } = {}) {
   } catch {
     throw new Error(`The local app returned an unreadable response (${response.status}).`);
   }
-  if (!response.ok)
-    throw new Error(
-      value.message || value.error?.message || (typeof value.error === 'string' ? value.error : `Request failed (${response.status}).`),
+  if (!response.ok) {
+    throw Object.assign(
+      new Error(
+        value.message || value.error?.message || (typeof value.error === 'string' ? value.error : `Request failed (${response.status}).`),
+      ),
+      { code: value.code },
     );
+  }
   return value;
 }

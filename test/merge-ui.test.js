@@ -31,7 +31,7 @@ test('saved graph evidence stays readable in the detail without a row badge, and
     mergeEvidence: { ...evidence, prs: [{ pullRequestId: 1, targetRefName: 'refs/heads/main', closedBy: { displayName: '<unsafe>' } }] },
   });
   assert.match(linked, /Completed PR linked/);
-  assert.match(mergeEvidenceBadge({ kind: 'push', data: { mergeEvidence: { prs: [{ pullRequestId: 1 }] } } }), /Completed PR linked/);
+  assert.match(mergeEvidenceBadge({ kind: 'push', data: { mergeEvidence: { prs: [{ pullRequestId: 1 }] } } }), /Related PR evidence/);
   assert.match(linked, /PR closed by &lt;unsafe&gt;/);
   assert.match(renderMergeEvidence({ mergeEvidence: { status: 'not-applicable', commits: [], prs: [] } }), /Branch lifecycle only/);
 });

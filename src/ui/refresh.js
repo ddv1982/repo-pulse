@@ -83,11 +83,13 @@ export function createRefreshController({ request, getView, reconcileRepositorie
   /** @param {RefreshJob} job @returns {Promise<RefreshOutcome>} */
   async function read({ view, force, more }) {
     if (!isCurrent(view)) return { type: 'superseded' };
+    let savedFilters;
     try {
       const payload = await request('/api/state');
       if (!isCurrent(view)) return { type: 'superseded' };
       /** @type {PageState} */
       const next = { ...readMetadata(payload), activity: state.activity, events: state.events };
+      savedFilters = next.savedFilters;
       const metadata = JSON.stringify(payload);
       reconcileRepositories(next.watched);
       const reconciled = getView();
@@ -117,6 +119,7 @@ export function createRefreshController({ request, getView, reconcileRepositorie
     } catch (failure) {
       const error = failure instanceof Error ? failure : new Error(String(failure));
       if (!isCurrent(view)) return { type: 'superseded' };
+      if (savedFilters) state = { ...state, savedFilters };
       if (isActivity(view.route)) state = { ...state, activity: { ...state.activity, loading: false, error: error.message } };
       if (view.route === 'event') state = { ...state, detailLoading: false };
       onError(error, force);

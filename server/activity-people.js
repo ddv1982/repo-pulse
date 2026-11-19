@@ -30,6 +30,6 @@ export function matchesPeople({ kind, actor, data }, terms) {
   return names.some(name => {
     if (typeof name !== 'string' || name === azureDevOpsService) return false;
     const normalized = name.trim().toLowerCase();
-    return normalized && normalized !== 'unknown' && terms.some(term => normalized.includes(term));
+    return normalized && normalized !== 'unknown' && normalized !== 'unknown reviewer' && terms.some(term => normalized.includes(term));
   });
 }

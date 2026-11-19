@@ -748,6 +748,7 @@ test('People filters recorded identities before grouping and binds the cursor to
       event('vote', { kind: 'pr', actor: 'Chris', data: { voteChanges: [{ name: 'Alice Morgan', vote: 10 }] } }),
       event('linked', { actor: 'Microsoft.VisualStudio.Services.TFS' }),
       event('unknown', { actor: 'Unknown' }),
+      event('unnamed-vote', { kind: 'pr', data: { voteChanges: [{ name: 'Unknown reviewer', vote: 10 }] } }),
     ]);
     store.enrichEvent('linked', { mergeEvidence: { prs: [{ pullRequestId: 12, closedBy: { displayName: 'Bob Smith' } }] } });
     const names = ' ALICE, Bob, alice, ';
@@ -766,6 +767,9 @@ test('People filters recorded identities before grouping and binds the cursor to
     assert.equal(store.queryActivity({ people: 'Bob', search: 'branch-only' }).total, 0);
     assert.equal(store.queryActivity({ people: 'unknown, Microsoft' }).total, 0);
     assert.equal(store.queryActivity({ people: '%_' }).total, 0);
+    store.enrichEvent('branch-only', { mergeEvidence: { prs: [{ closedBy: 'Bob Smith' }] } });
+    assert.throws(() => store.queryActivity({ people: names, cursor: first.nextCursor }), { code: 'ACTIVITY_CHANGED' });
+    assert.equal(store.queryActivity({ people: names }).total, 6);
     assert.throws(() => store.queryActivity({ people: 'a'.repeat(301) }), /300 characters/);
   } finally {
     store.close();

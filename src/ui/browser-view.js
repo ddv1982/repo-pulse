@@ -57,6 +57,7 @@ export function createBrowserView({ page, header, demo, syncLive, picker, typeFi
           commits,
           {
             returnRoute,
+            matchingIds: ui.people ? state.activity.items.find(item => item.id === ui.eventId)?.eventIds : undefined,
             label: returnRoute === 'activity' ? 'Back to All activity' : 'Back to New updates',
           },
         ),

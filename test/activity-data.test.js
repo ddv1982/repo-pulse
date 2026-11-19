@@ -117,3 +117,24 @@ test('a failed response from a superseded filter does not replace the current vi
   assert.equal(await previous, null);
   assert.equal(current.items[0].id, 'event-2');
 });
+
+test('People paging restarts from the top if the underlying evidence changes after the metadata read', async () => {
+  const calls = [];
+  const client = createActivityData(async path => {
+    const query = new URL(path, 'http://local').searchParams;
+    calls.push(query);
+    if (query.has('cursor')) throw Object.assign(new Error('Activity changed'), { code: 'ACTIVITY_CHANGED' });
+    const length = Number(query.get('limit'));
+    const offset = calls.length === 1 ? 1 : 0;
+    return { items: Array.from({ length }, (_, index) => record(index + offset)), nextCursor: String(length), total: 150 };
+  });
+  const view = { ...ui, people: 'Alice, Bob' };
+  assert.equal((await client.read(view, { activityRevision: '4' })).items[0].id, 'event-1');
+  const more = await client.read(view, { activityRevision: '4', more: true });
+  assert.equal(more.items.length, 100);
+  assert.equal(more.items[0].id, 'event-0');
+  assert.deepEqual(
+    calls.map(query => query.get('cursor')),
+    [null, '50', null],
+  );
+});

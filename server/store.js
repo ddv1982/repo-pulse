@@ -425,7 +425,7 @@ export function createStore(path = ':memory:') {
     bumpActivity();
     return { ...event, data: { ...event.data, ...overlay } };
   }
-  const queryActivity = createActivityQuery(db, hydrate, requireRepo);
+  const queryActivity = createActivityQuery(db, hydrate, requireRepo, activityRevision);
   /** @template [F=undefined] @param {string} key @param {F} [fallback] @returns {SettingValue | F} */
   function getSetting(key, fallback) {
     const row = q('SELECT data FROM settings WHERE key=?').get(key);

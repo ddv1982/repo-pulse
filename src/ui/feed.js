@@ -35,7 +35,7 @@ export function filterControls(ui, activity, presets = [], selectedId = '') {
   return html`<details class="filters-box" data-filter-panel ${desktop || ui.filtersOpen === true ? html`open` : emptyHtml}><summary class="btn sm">Filters${active ? ` · ${active}` : ''}</summary><div class="toolbar"><input id="feed-search" class="search" type="search" aria-label="Search activity" maxlength="300" placeholder="Search branch, commit, person or repository…" value="${ui.search}">
     <input id="feed-people" class="search" type="search" aria-label="People" placeholder="People, separated by commas" aria-describedby="feed-people-help" maxlength="300" value="${ui.people}">
     ${renderTypeFilter(ui.kind, activity?.filterOptions, activity?.loading)}
-    <span class="spacer"></span><button class="btn sm" type="button" data-action="clear-filters">Clear filters</button></div><p class="help" id="feed-people-help">Separate recorded names with commas. Matches any name.</p>${renderSavedFilters(presets, selectedId)}</details>`;
+    <span class="spacer"></span><button class="btn sm" type="button" data-action="clear-filters">Clear filters</button></div><p class="help" id="feed-people-help">People matches any recorded name. Separate names with commas.</p>${renderSavedFilters(presets, selectedId)}</details>`;
 }
 
 /** @param {ActivityItem} record @param {PageState} state */

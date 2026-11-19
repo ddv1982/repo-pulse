@@ -129,14 +129,17 @@ export function matchesPushResult(data, pr) {
   );
 }
 
+/** @param {ActivityEvent['data']} data */
+export const matchingPushResults = data => (data?.mergeEvidence?.prs || []).filter(pr => matchesPushResult(data, pr));
+
 /** @param {ActivityEvent} event */
 export function activityTitle(event) {
   if (event.kind === 'branch-deleted') return `${activityLabel(event)}${event.branch ? ` · ${branchName(event.branch)}` : ''}`;
   if (event.kind === 'push') {
-    const prs = event.data?.mergeEvidence?.prs;
+    const prs = matchingPushResults(event.data);
     const pr = prs?.[0];
     const id = pr?.pullRequestId ?? pr?.id;
-    if (prs?.length === 1 && id && pr && matchesPushResult(event.data, pr)) {
+    if (prs.length === 1 && id) {
       return `Push to ${branchName(pr.targetRefName)} · Linked PR #${id}`;
     }
     if (event.actor === azureDevOpsService && event.title?.startsWith(`${azureDevOpsService} pushed`)) {
@@ -195,6 +198,9 @@ export function activitySummary(event) {
   if (event.kind === 'branch-deleted') return listed ? 'Not in the latest branch list; deletion not confirmed' : 'Remote branch deleted';
   if (event.kind === 'tag' && event.data?.evidence === 'push') return pushedTagSummary(event.data);
   const refs = event.data?.refUpdates;
+  if (event.kind === 'push' && event.actor === azureDevOpsService && !refs?.length && !event.branch) {
+    return 'Branch details unavailable';
+  }
   if (refs?.length === 1 && /^0+$/.test(refs[0].newObjectId || '')) return 'Remote branch deleted';
   if (refs?.length === 1 && /^0+$/.test(refs[0].oldObjectId || '')) return `Branch starts at ${(refs[0].newObjectId || '').slice(0, 8)}`;
   return event.summary || '';

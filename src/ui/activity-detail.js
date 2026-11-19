@@ -1,7 +1,7 @@
 // @ts-check
 
 import { renderMergeEvidence } from './merge-evidence.js';
-import { groupActivity } from '../activity.js';
+import { groupActivity, isUnseen } from '../activity.js';
 import {
   emptyHtml,
   html,
@@ -100,24 +100,29 @@ function detailFields(record, repo, data, sha, pushId) {
   return fields;
 }
 
-/** @param {ActivityItem} record @param {Repo | undefined} repo @param {string} title */
-function detailHead(record, repo, title) {
-  const ids = JSON.stringify(record.eventIds);
-  const ack = record.imported
+/**
+ * @param {ActivityItem} record @param {Repo | undefined} repo @param {string} title
+ * @param {ActivityEvent[]} matching
+ */
+function detailHead(record, repo, title, matching) {
+  const ids = JSON.stringify(matching.map(event => event.id));
+  const unseen = matching.some(isUnseen);
+  const ack = matching.every(event => event.imported)
     ? emptyHtml
-    : html`<button class="btn" data-action="ack-item" data-id="${record.id}" data-event-ids="${ids}">Mark ${record.unseen ? 'seen' : 'unseen'}</button>`;
+    : html`<button class="btn" data-action="ack-item" data-id="${record.id}" data-event-ids="${ids}">Mark ${unseen ? 'seen' : 'unseen'}</button>`;
   return html`<div class="dhead"><div><h1>${title}</h1><div class="meta">${record.kind.startsWith('branch-') ? 'Branch' : labels[record.kind]} · ${repo?.name} · ${branchName(record.branch)}</div></div><div class="actions">${azureLink(record.url, 'Open in Azure DevOps', 'btn')}${ack}</div></div>`;
 }
 
-/** @param {ActivityItem} record */
-function seenChip(record) {
-  if (record.unseen) return `${record.unseenIds.length} new update${record.unseenIds.length === 1 ? '' : 's'}`;
-  return record.imported ? 'Imported history' : 'Seen';
+/** @param {ActivityEvent[]} matching */
+function seenChip(matching) {
+  const count = matching.filter(isUnseen).length;
+  if (count) return `${count} new update${count === 1 ? '' : 's'}`;
+  return matching.every(event => event.imported) ? 'Imported history' : 'Seen';
 }
 
-/** @param {ActivityItem} record @param {string} tone */
-function detailFacts(record, tone) {
-  return html`<div class="facts"><span class="chip status-chip ${tone}">${activityLabel(record)}</span><span class="chip">${seenChip(record)}</span>${record.kind === 'build' ? html`<span class="chip name">CI outcome · deployment unknown</span>` : emptyHtml}</div>`;
+/** @param {ActivityItem} record @param {string} tone @param {ActivityEvent[]} matching */
+function detailFacts(record, tone, matching) {
+  return html`<div class="facts"><span class="chip status-chip ${tone}">${activityLabel(record)}</span><span class="chip">${seenChip(matching)}</span>${record.kind === 'build' ? html`<span class="chip name">CI outcome · deployment unknown</span>` : emptyHtml}</div>`;
 }
 
 /** @param {ActivityItem} record @param {Repo | undefined} repo @param {PushId} pushId @param {CommitsView | undefined} commits */
@@ -174,9 +179,9 @@ function detailData(record, repo, data, fields, pushId, loaded) {
 
 /**
  * @param {ActivityEvent | undefined} event @param {DetailState} state @param {LoadedView | undefined} commits
- * @param {{ returnRoute?: string, label?: string }} [options]
+ * @param {{ returnRoute?: string, label?: string, matchingIds?: string[] }} [options]
  */
-export function renderDetail(event, state, commits, { returnRoute = 'catchup', label = 'Back to New updates' } = {}) {
+export function renderDetail(event, state, commits, { returnRoute = 'catchup', label = 'Back to New updates', matchingIds } = {}) {
   const back = html`<a class="ghost sm back" data-action="back-to-results" href="${activityHref(returnRoute)}">← ${label}</a>`;
   if (!event) return html`${back}<div class="card empty"><h1>Activity not found</h1></div>`;
   const record = groupActivity(state.events).find(item => item.eventIds.includes(event.id)) || groupActivity([event])[0];
@@ -185,8 +190,9 @@ export function renderDetail(event, state, commits, { returnRoute = 'catchup', l
   const pushId = data.pushId || data.push?.pushId;
   const sha = data.sourceVersion || data.sourceCommit || data.commitId;
   const fields = detailFields(record, repo, data, sha, pushId);
-  return html`<div class="crumb">${back}<span>${repo?.name}</span></div><section class="card">${detailHead(record, repo, activityTitle(record))}
-    ${detailFacts(record, activityTone(record))}
+  const matching = matchingIds ? record.events.filter(item => matchingIds.includes(item.id)) : record.events;
+  return html`<div class="crumb">${back}<span>${repo?.name}</span></div><section class="card">${detailHead(record, repo, activityTitle(record), matching)}
+    ${detailFacts(record, activityTone(record), matching)}
     ${detailData(record, repo, data, fields, pushId, commits)}</section>`;
 }
 

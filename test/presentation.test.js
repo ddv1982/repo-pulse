@@ -325,6 +325,11 @@ test('push headlines name a single matching PR result without inferring the caus
   assert.equal(activityTitle(linked(pr)), 'Push to main · Linked PR #12');
   assert.equal(activityTitle(linked({ ...pr, targetRefName: 'refs/heads/other' })), 'Azure DevOps service pushed to main');
   assert.equal(activityTitle(linked({ ...pr, relationship: 'constituent-related' })), 'Azure DevOps service pushed to main');
+  assert.equal(
+    activityTitle(linked(pr, { ...pr, pullRequestId: 14, relationship: 'constituent-related' })),
+    'Push to main · Linked PR #12',
+  );
   assert.equal(activityTitle(linked(pr, { ...pr, pullRequestId: 13 })), 'Azure DevOps service pushed to main');
   assert.equal(activityTitle({ ...push, actor: 'Alice', title: 'Alice pushed to main' }), 'Alice pushed to main');
+  assert.equal(activitySummary({ ...push, data: {} }), 'Branch details unavailable');
 });
