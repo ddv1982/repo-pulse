@@ -8,7 +8,7 @@ import { win32 } from 'node:path';
 /**
  * @typedef {Error & { code: string }} CliError
  * @typedef {{ code?: string, name?: string, stderr?: unknown, killed?: boolean, message?: string }} ExecFailure
- * @typedef {{ signal: AbortSignal, timeoutMs: number, retryAfter?: (ms: number) => void }} ExecutorOptions
+ * @typedef {{ signal: AbortSignal, timeoutMs: number, retryAfter?: (ms: number) => void, throttledUntil?: () => number }} ExecutorOptions
  * @typedef {(args: string[], options: ExecutorOptions) => Promise<unknown>} Executor
  * @typedef {{ file: string, prefix: string[], env: Record<string, string>, cwd?: string }} AzCommand
  * @typedef {{ args: string[], key: string, resolve: (value: unknown) => void, reject: (reason: unknown) => void }} QueueJob
@@ -229,7 +229,7 @@ export function createAzureCli({
       starts.push(now());
       totalStarts++;
       Promise.resolve()
-        .then(() => executor(job.args, { signal: controller.signal, timeoutMs, retryAfter }))
+        .then(() => executor(job.args, { signal: controller.signal, timeoutMs, retryAfter, throttledUntil: () => throttledUntil }))
         .then(result => {
           if (closed) throw cliError('CLOSED', 'Azure CLI queue is closed.');
           try {

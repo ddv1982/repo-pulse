@@ -204,6 +204,9 @@ export function createRestExecutor({ cliExecutor, fetch = globalThis.fetch, now 
     let response = await send(request, options, bearer);
     if (rejected(response, bearer)) {
       await response.body?.cancel().catch(() => {});
+      // The retry would bypass the queue's Retry-After pause, so the caller's back-off retries it instead.
+      if ((options.throttledUntil?.() ?? 0) > now())
+        throw Object.assign(new Error('Azure DevOps asked us to slow down.'), { stderr: 'HTTP 429' });
       bearer = await accessToken(options);
       response = await send(request, options, bearer);
       rejected(response, bearer);

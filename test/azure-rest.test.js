@@ -364,6 +364,15 @@ test('Retry-After as an HTTP date pauses until that moment', async () => {
   cli.close();
 });
 
+test('a 401 that arrives while a Retry-After pause is active is not retried until the pause ends', async () => {
+  const { cli, requests } = pausing([{ status: 200, headers: { 'retry-after': '30' } }, { status: 401 }, { status: 200 }]);
+  const [first, second] = await Promise.allSettled([cli.run(refs('a')), cli.run(refs('b'))]);
+  assert.equal(first.status, 'fulfilled');
+  assert.equal(second.reason?.code, 'THROTTLED');
+  assert.equal(requests.length, 2, 'no token-refresh retry is sent during the pause');
+  cli.close();
+});
+
 test('an HTTP-date Retry-After is measured from the response Date, so a fast local clock keeps the wait', async () => {
   const start = Date.parse('2026-11-18T10:00:00Z');
   const server = start - 120000;
