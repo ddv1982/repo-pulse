@@ -216,3 +216,10 @@ test('the access key file is reused, kept owner-only and replaced when malformed
   await third.close();
   assert.match(new URL(third.launchUrl).searchParams.get('key'), /^[A-Za-z0-9_-]{43}$/);
 });
+
+test('an invalid repository URL is a bad request', async t => {
+  const { mutate } = await fixture(t, { demo: false, provider: { resolveRepository: async () => assert.fail('not reached') } });
+  const response = await mutate('/api/repos', { url: 'https://%E0%A4%A@dev.azure.com/org/Project/_git/Repo' });
+  assert.equal(response.status, 400);
+  assert.equal((await response.json()).code, 'INVALID_REPOSITORY');
+});

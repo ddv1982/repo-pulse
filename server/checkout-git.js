@@ -280,8 +280,9 @@ export function createCheckoutGit({
   /** @param {string[]} keys */
   function refuseConfiguredCommands(keys) {
     if (!keys.length) return;
-    // URL subsections (url.<base>, http.<url>, credential.<url>, lfs.<url>) can hold a token, so they are not shown.
-    const shown = [...new Set(keys.map(key => key.replace(/^(url|http|credential|lfs)\.[^]+\.([^.]+)$/i, '$1.<url>.$2')))];
+    // Subsections of these families can hold a URL with a token (url.<base>, includeIf.hasconfig:remote.*.url:<url>), so
+    // they are not shown.
+    const shown = [...new Set(keys.map(key => key.replace(/^(url|http|credential|lfs|includeif)\.[^]+\.([^.]+)$/i, '$1.<…>.$2')))];
     const message = `This checkout's own Git config sets ${shown.join(', ')}.`;
     const suggestion = 'Repo Pulse does not run commands from a checkout. Move these settings to your global Git config or remove them.';
     throw Object.assign(problem(`${message} ${suggestion}`), {
