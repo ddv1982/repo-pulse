@@ -719,7 +719,7 @@ test('migration 13 rebuilds search_text from named fields and preserves enrichme
   });
   store.close();
   const db = new DatabaseSync(path);
-  db.prepare("UPDATE activity_members SET search_text=? WHERE event_id='b-1'").run('{"definition":{"url":"_apis/build/definitions/42"}}');
+  db.prepare('UPDATE activity_members SET search_text=?').run('{"definition":{"url":"_apis/build/definitions/42"}}');
   db.exec('PRAGMA user_version=12');
   db.close();
   store = createStore(path);
