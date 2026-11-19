@@ -236,6 +236,14 @@ export function createSync({
   let stopped = false;
   /** @type {Map<string, number>} */
   const refreshedAt = new Map();
+  /** @type {{ repoId: string, stream: StreamName } | null} */
+  let reading = null;
+  /**
+   * User refreshes not yet answered, by `repoId:stream`, with the refresh generation each asked for.
+   * Kept here because the persisted manual flag only marks them while automatic checks are off.
+   * @type {Map<string, { repoId: string, stream: StreamName, generation: number }>}
+   */
+  const requested = new Map();
   /** @type {string|undefined} */
   let lastKey;
   let liveTurns = 0;
@@ -671,6 +679,8 @@ export function createSync({
       : nextPage(working, latest, { at: now(), cursor: page.nextCursor, pendingItems, activeIds });
     store.commitPage({ repoId: repo.id, stream: state.stream, state: next, ...output });
     counters.pages++;
+    const key = `${repo.id}:${state.stream}`;
+    if (complete && (requested.get(key)?.generation ?? 0) <= working.windowGeneration) requested.delete(key);
   }
   async function runPage() {
     if (stopped) return;
@@ -684,6 +694,7 @@ export function createSync({
     if (liveTurns >= LIVE_TURNS && (await runBackground())) return;
     const { state, repo } = takeLiveTurn(due, repos);
     const working = startPage(state, now(), overlapMs);
+    reading = { repoId: state.repoId, stream: state.stream };
     try {
       const read = await readPage(repo, state, working.window);
       if (!read || !watching(repo)) return;
@@ -691,7 +702,10 @@ export function createSync({
     } catch (error) {
       if (!store.listRepos().some(entry => entry.id === repo.id)) return;
       store.saveStream(failPage(working, now(), error, intervalMs));
+      requested.delete(`${repo.id}:${state.stream}`);
       counters.errors++;
+    } finally {
+      reading = null;
     }
   }
   // Due streams normally start within seconds; one full budget minute late means the shared CLI queue is behind.
@@ -758,13 +772,44 @@ export function createSync({
       for (const id of targets) refreshedAt.set(id, now());
       for (const state of store.getStreams()) {
         const repo = repos.find(entry => entry.id === state.repoId);
-        if (repo && targets.includes(repo.id))
-          store.saveStream(requestRefresh(state, now(), store.getSetting('refreshEnabled', true) === false));
+        if (!repo || !targets.includes(repo.id)) continue;
+        const next = requestRefresh(state, now(), store.getSetting('refreshEnabled', true) === false);
+        store.saveStream(next);
+        requested.set(`${next.repoId}:${next.stream}`, {
+          repoId: next.repoId,
+          stream: next.stream,
+          generation: next.refreshGeneration || 0,
+        });
       }
       return { scheduled: true };
     },
     status() {
-      return { running: Boolean(active), stopped, ...counters, streams: store.getStreams().length, lastTurn: { ...lastTurn }, lag: lag() };
+      // The page in flight and unanswered user refreshes are not visible in the persisted streams.
+      /** @type {{ repoId: string, stream: StreamName }[]} */
+      const inProgress = [];
+      const enabled = new Set(
+        store
+          .listRepos()
+          .filter(repo => !repo.disabled)
+          .map(repo => repo.id),
+      );
+      const streams = store.getStreams();
+      for (const [key, { repoId, stream, generation }] of requested) {
+        const state = streams.find(entry => entry.repoId === repoId && entry.stream === stream);
+        // A removed, re-added or disabled repository's streams never answer the generation this refresh asked for.
+        if (!enabled.has(repoId) || (state?.refreshGeneration || 0) < generation) requested.delete(key);
+        else inProgress.push({ repoId, stream });
+      }
+      if (reading) inProgress.push({ ...reading });
+      return {
+        running: Boolean(active),
+        stopped,
+        ...counters,
+        streams: store.getStreams().length,
+        lastTurn: { ...lastTurn },
+        lag: lag(),
+        inProgress: stopped ? [] : inProgress,
+      };
     },
   };
 }
