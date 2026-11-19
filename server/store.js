@@ -169,13 +169,13 @@ export function createStore(path = ':memory:') {
     const introduced = new Set(((proven && evidence.introducedCommitIds) || []).map(commit => String(commit).toLowerCase()));
     let changed = false;
     for (const ref of mergeUpdates(push)) {
+      if (proven && !introduced.has(ref.newObjectId.toLowerCase())) continue;
       const rows = q(`SELECT data FROM events WHERE repo_id=? AND json_extract(data,'$.kind')='pr'
         AND json_extract(data,'$.data.status')='completed' AND json_extract(data,'$.data.targetRefName')=?
         AND lower(json_extract(data,'$.data.mergeCommit'))=? ORDER BY time`).all(push.repoId, ref.name, ref.newObjectId.toLowerCase());
       for (const pr of rows.map(readEventWithData)) {
         const key = `${pr.data.pullRequestId}:${ref.name}`;
         const index = prs.findIndex(item => `${item.pullRequestId ?? item.id}:${item.targetRefName}` === key);
-        if (proven && !introduced.has(ref.newObjectId.toLowerCase())) continue;
         const local = localPrLink(pr);
         if (index < 0) {
           prs.push(local);
@@ -224,10 +224,7 @@ export function createStore(path = ':memory:') {
     [
       7,
       () => {
-        for (const row of q(
-          'SELECT e.data,e.seen,e.imported,n.data AS enrichment FROM events e LEFT JOIN enrichment n ON n.event_id=e.id',
-        ).iterate())
-          indexLabels(hydrate(row));
+        for (const row of q(selectEvents).iterate()) indexLabels(hydrate(row));
         db.exec('DROP INDEX IF EXISTS activity_label; DROP INDEX IF EXISTS activity_evidence;');
       },
     ],
