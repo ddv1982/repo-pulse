@@ -1068,7 +1068,15 @@ test('one persistent live region outside the header announces only changed sync 
   assert.equal(await page.evaluate(() => document.getElementById('sync-live').firstChild === window.syncText), true, 'same text node');
   status = { state: 'delayed', reason: 'about 9 minutes behind', stream: 'pushes' };
   await refreshed();
-  await expect(live).toHaveText('Delayed in orders-api: about 9 minutes behind');
+  await expect(live).toHaveText('Delayed in orders-api');
+  await page.evaluate(() => (window.syncText = document.getElementById('sync-live').firstChild));
+  status = { state: 'delayed', reason: 'about 10 minutes behind', stream: 'pushes' };
+  await refreshed();
+  assert.equal(
+    await page.evaluate(() => document.getElementById('sync-live').firstChild === window.syncText),
+    true,
+    'a new minute count is not announced again',
+  );
   await expect(page.locator('.sync-pill[role], .sync-pill[aria-live]')).toHaveCount(0);
   await page.getByRole('link', { name: 'Repositories', exact: true }).click();
   await expect(page.locator('.repo-entry .sync-pill')).toHaveCount(3);

@@ -72,6 +72,17 @@ export function syncSentence(status, repoName = '') {
   }
 }
 
+/**
+ * What the live region announces: the sentence without the clock time or minute count, which change on every check
+ * and would make a screen reader repeat an unchanged status.
+ * @param {AnySyncStatus} status @param {string} [repoName]
+ */
+export function syncAnnouncement(status, repoName = '') {
+  if (status.state === 'synced') return 'Synced';
+  if (status.state === 'delayed') return `Delayed${repoName ? ` in ${repoName}` : ''}`;
+  return syncSentence(status, repoName);
+}
+
 /** @param {AnySyncStatus} status @param {string} [repoName] */
 export function syncPill(status, repoName) {
   const sentence = e(syncSentence(status, repoName));

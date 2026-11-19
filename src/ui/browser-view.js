@@ -1,5 +1,5 @@
 import { renderHeader, scopeLabel, scopeName } from './header.js';
-import { syncRepoName, syncSentence } from './health.js';
+import { syncAnnouncement, syncRepoName } from './health.js';
 import { renderFeed, renderDetail } from './feed.js';
 import { renderRepositories } from './repositories.js';
 import { renderSettings } from './settings.js';
@@ -120,7 +120,7 @@ export function createBrowserView({ page, header, demo, syncLive, picker, typeFi
       const menu = header.querySelector('.header-overflow');
       const menuOpen = menu instanceof HTMLDetailsElement && menu.open;
       header.innerHTML = renderHeader(state, ui);
-      const sentence = syncSentence(state.syncStatus.overall, syncRepoName(state.repos, state.syncStatus.overall));
+      const sentence = syncAnnouncement(state.syncStatus.overall, syncRepoName(state.repos, state.syncStatus.overall));
       // Writing the same text again would replace the text node and could repeat the announcement.
       if (syncLive.textContent !== sentence) syncLive.textContent = sentence;
       if (menuOpen) required('.header-overflow', HTMLDetailsElement, header).open = true;
