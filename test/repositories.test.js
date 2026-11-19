@@ -3,11 +3,11 @@ import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, writeFile, rm, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { parseRemote, normalizeOrganization, repositoryKey, discoverRepositories } from '../server/repositories.js';
+import { parseRemote, normalizeOrganization, repositoryKey, discoverRepositories, hasRemoteCredentials } from '../server/repositories.js';
 
 test('Azure remote formats normalize to a credential-free canonical identity', () => {
   const forms = [
-    'https://user@dev.azure.com/Org/Project/_git/Repo',
+    'https://Org@dev.azure.com/Org/Project/_git/Repo',
     'git@ssh.dev.azure.com:v3/Org/Project/Repo',
     'ssh://git@ssh.dev.azure.com/v3/Org/Project/Repo',
     'Org@vs-ssh.visualstudio.com:v3/Org/Project/Repo',
@@ -38,6 +38,24 @@ test('unapproved hosts, path injection and organization credentials are rejected
   ])
     assert.throws(() => parseRemote(input));
   assert.throws(() => parseRemote('https://user:secret@dev.azure.com/Org/Project/_git/Repo'), { code: 'REMOTE_PASSWORD' });
+  // A token in the user name is a credential too; Azure's clone URLs put the organization there.
+  assert.throws(() => parseRemote('https://tokenvalue@dev.azure.com/Org/Project/_git/Repo'), { code: 'REMOTE_PASSWORD' });
+  assert.throws(() => parseRemote('ssh://git:secret@ssh.dev.azure.com/v3/Org/Project/Repo'), { code: 'REMOTE_PASSWORD' });
+  assert.equal(parseRemote('https://O%72g@dev.azure.com/%4Frg/Project/_git/Repo').organization, 'https://dev.azure.com/org');
+  assert.throws(
+    () => parseRemote('https://%E0%A4%A@dev.azure.com/Org/Project/_git/Repo'),
+    error => error.code === 'INVALID_REPOSITORY',
+  );
+  assert.equal(hasRemoteCredentials('https://user:secret@example.test/repo.git'), true);
+  assert.equal(hasRemoteCredentials('https://Org@dev.azure.com/Org/Project/_git/Repo'), false);
+  for (const input of [
+    '-oProxyCommand=x@ssh.dev.azure.com:v3/Org/Project/Repo',
+    'ssh://-oProxyCommand=x@ssh.dev.azure.com/v3/Org/Project/Repo',
+  ])
+    assert.throws(
+      () => parseRemote(input),
+      error => error.code !== 'REMOTE_PASSWORD',
+    );
   assert.throws(
     () => parseRemote('https://user:secret@github.com/org/repo'),
     error => error.code !== 'REMOTE_PASSWORD',
@@ -55,7 +73,7 @@ test('explicit discovery reads local Azure remotes without modifying config and 
       await writeFile(join(git, 'HEAD'), 'ref: refs/heads/main\n');
       await writeFile(
         join(git, 'config'),
-        `[core]\n repositoryformatversion = 0\n bare = false\n[remote "origin"]\n url = ${name === 'azure' ? 'https://secret@dev.azure.com/org/Project/_git/Repo' : 'https://github.com/org/repo'}\n`,
+        `[core]\n repositoryformatversion = 0\n bare = false\n[remote "origin"]\n url = ${name === 'azure' ? 'https://org@dev.azure.com/org/Project/_git/Repo' : 'https://github.com/org/repo'}\n`,
       );
     }
     const before = await readFile(join(root, 'azure', '.git', 'config'), 'utf8');
@@ -85,7 +103,7 @@ test('discovery skips a remote with a password in its URL and says why', async (
     const found = await discoverRepositories(root);
     assert.equal(found.repositories.length, 0);
     assert.equal(found.warnings.length, 1);
-    assert.match(found.warnings[0], /\(origin\): Remove the password/);
+    assert.match(found.warnings[0], /\(origin\): Remove the credentials/);
     assert(!JSON.stringify(found).includes('hunter2'));
   } finally {
     await rm(root, { recursive: true, force: true });

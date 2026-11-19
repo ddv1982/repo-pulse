@@ -523,7 +523,15 @@ export function createApp({
     } catch (caught) {
       const error = /** @type {RequestError} */ (caught);
       // Adapter errors carry already-redacted, actionable text; unexpected errors stay local.
-      const status = error.status || (error.code === 'NOT_FOUND' ? 404 : error.code === 'BAD_REQUEST' ? 400 : error.code ? 502 : 500);
+      const status =
+        error.status ||
+        (error.code === 'NOT_FOUND'
+          ? 404
+          : error.code === 'BAD_REQUEST' || error.code === 'INVALID_REPOSITORY'
+            ? 400
+            : error.code
+              ? 502
+              : 500);
       if (status === 500) console.error('Request failed:', error.name);
       return json(
         res,

@@ -43,11 +43,31 @@ export function normalizeOrganization(value) {
   throw invalid();
 }
 
+/**
+ * Git would receive the URL on its command line, where other local users can read it. A token can sit in the user name
+ * too; Azure's own clone URLs use the organization name there, or no user name.
+ * @param {URL} url @param {string} organization the organization as it appears in the URL
+ */
+function refuseCredentials(url, organization) {
+  let user, org;
+  try {
+    user = decodeURIComponent(url.username);
+    org = decodeURIComponent(organization);
+  } catch {
+    throw invalid();
+  }
+  if (url.protocol === 'ssh:' && user.startsWith('-')) throw invalid();
+  if (url.password || (url.protocol === 'https:' && user && user.toLowerCase() !== org.toLowerCase()))
+    throw Object.assign(new Error('Remove the credentials from this remote URL and let a Git credential helper sign in.'), {
+      code: 'REMOTE_PASSWORD',
+    });
+}
+
 /** @param {unknown} value */
 export function parseRemote(value) {
   if (typeof value !== 'string' || value.length > 4096 || /[\x00-\x1f]/.test(value)) throw invalid();
   let organization, project, name;
-  const ssh = value.match(/^(?:[^@/:]+@)?(?:ssh\.dev\.azure\.com|vs-ssh\.visualstudio\.com):v3\/([^/]+)\/([^/]+)\/([^/]+)\/?$/i);
+  const ssh = value.match(/^(?:[^-@/:][^@/:]*@)?(?:ssh\.dev\.azure\.com|vs-ssh\.visualstudio\.com):v3\/([^/]+)\/([^/]+)\/([^/]+)\/?$/i);
   if (ssh) [, organization, project, name] = ssh;
   else {
     let url;
@@ -76,11 +96,7 @@ export function parseRemote(value) {
       if (parts.length !== 3 || parts[1] !== '_git') throw invalid();
       [project, , name] = parts;
     }
-    // Git would receive the URL on its command line, where other local users can read it.
-    if (url.password)
-      throw Object.assign(new Error('Remove the password from this remote URL and let a Git credential helper sign in.'), {
-        code: 'REMOTE_PASSWORD',
-      });
+    refuseCredentials(url, organization);
   }
   organization = `https://dev.azure.com/${encodeURIComponent(component(organization).toLowerCase())}`;
   project = component(project);
@@ -92,6 +108,21 @@ export function parseRemote(value) {
     repoName: name,
     url: `${organization}/${encodeURIComponent(project)}/_git/${encodeURIComponent(name)}`,
   };
+}
+
+/** Whether Git would see credentials in this Azure remote URL. @param {string} url */
+export function hasRemoteCredentials(url) {
+  try {
+    if (new URL(url).password) return true;
+  } catch {
+    /* scp-like SSH remotes are not URLs; parseRemote reads them. */
+  }
+  try {
+    parseRemote(url);
+    return false;
+  } catch (error) {
+    return /** @type {{ code?: unknown }} */ (error).code === 'REMOTE_PASSWORD';
+  }
 }
 
 /** @param {unknown} organization @param {unknown} azureId */
