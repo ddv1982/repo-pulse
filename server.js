@@ -249,17 +249,28 @@ export function createApp({
           refreshEnabled: /** @type {boolean} */ (store.getSetting('refreshEnabled', true)),
           refreshResumedAt: /** @type {number | null} */ (store.getSetting('refreshResumedAt', null)),
         };
+        const diagnostics = { ...(cli?.diagnostics() || {}), sync: status };
         return json(
           res,
           200,
           /** @satisfies {StateResponse} */ ({
             repos,
             streams,
-            diagnostics: { ...(cli?.diagnostics() || {}), sync: status },
+            diagnostics,
             jobs,
             activityRevision: store.activityRevision(),
             settings,
-            syncStatus: syncStatus({ repos, streams, jobs, inProgress, settings, startedAt, now: Date.now(), demo }),
+            syncStatus: syncStatus({
+              repos,
+              streams,
+              jobs,
+              inProgress,
+              settings,
+              startedAt,
+              now: Date.now(),
+              demo,
+              throttledUntil: diagnostics.throttledUntil,
+            }),
             demo,
           }),
         );

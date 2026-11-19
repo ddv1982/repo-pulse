@@ -8,7 +8,7 @@ import { win32 } from 'node:path';
 /**
  * @typedef {Error & { code: string }} CliError
  * @typedef {{ code?: string, name?: string, stderr?: unknown, killed?: boolean, message?: string }} ExecFailure
- * @typedef {{ signal: AbortSignal, timeoutMs: number }} ExecutorOptions
+ * @typedef {{ signal: AbortSignal, timeoutMs: number, retryAfter?: (ms: number) => void, throttledUntil?: () => number }} ExecutorOptions
  * @typedef {(args: string[], options: ExecutorOptions) => Promise<unknown>} Executor
  * @typedef {{ file: string, prefix: string[], env: Record<string, string>, cwd?: string }} AzCommand
  * @typedef {{ args: string[], key: string, resolve: (value: unknown) => void, reject: (reason: unknown) => void }} QueueJob
@@ -16,6 +16,7 @@ import { win32 } from 'node:path';
  */
 
 const exec = promisify(execFile);
+const MAX_RETRY_AFTER_MS = 10 * 60000;
 /** @type {Record<string, Set<string>>} */
 const RESOURCES = {
   git: new Set(['pushes', 'refs', 'pullrequests', 'pullrequestthreads', 'commits']),
@@ -187,6 +188,8 @@ export function createAzureCli({
   let timer,
     closed = false,
     totalStarts = 0,
+    // Azure DevOps asks for this wait in a Retry-After header, on a 429 or on a response that still succeeded.
+    throttledUntil = 0,
     /** @type {LastError | null} */
     lastError = null;
   /**
@@ -202,6 +205,10 @@ export function createAzureCli({
     pump();
     return promise;
   }
+  /** @param {number} ms */
+  function retryAfter(ms) {
+    if (ms > 0) throttledUntil = Math.max(throttledUntil, now() + Math.min(ms, MAX_RETRY_AFTER_MS));
+  }
   function pump() {
     if (closed) return;
     if (timer) {
@@ -209,6 +216,10 @@ export function createAzureCli({
       timer = undefined;
     }
     const time = now();
+    if (pending.length && time < throttledUntil) {
+      timer = setTimer(pump, throttledUntil - time);
+      return;
+    }
     while (starts.length && starts[0] <= time - 60_000) starts.shift();
     while (pending.length && running.size < concurrency && starts.length < limitPerMinute) {
       // The loop condition guarantees a job.
@@ -218,7 +229,7 @@ export function createAzureCli({
       starts.push(now());
       totalStarts++;
       Promise.resolve()
-        .then(() => executor(job.args, { signal: controller.signal, timeoutMs }))
+        .then(() => executor(job.args, { signal: controller.signal, timeoutMs, retryAfter, throttledUntil: () => throttledUntil }))
         .then(result => {
           if (closed) throw cliError('CLOSED', 'Azure CLI queue is closed.');
           try {
@@ -260,6 +271,7 @@ export function createAzureCli({
         concurrency,
         upstreamRequests: null,
         lastError,
+        throttledUntil: throttledUntil > now() ? new Date(throttledUntil).toISOString() : null,
       };
     },
     close() {

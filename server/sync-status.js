@@ -17,6 +17,7 @@
  *   startedAt: number,
  *   now: number,
  *   demo?: boolean,
+ *   throttledUntil?: string | null,
  * }} SyncStatusInput
  */
 
@@ -37,7 +38,7 @@ const time = value => Date.parse(value ?? '');
  * @param {SyncStatusInput} input
  * @returns {{ overall: OverallSyncStatus, repos: Record<string, SyncStatus> }}
  */
-export function syncStatus({ repos, streams, jobs, inProgress, settings, startedAt, now, demo = false }) {
+export function syncStatus({ repos, streams, jobs, inProgress, settings, startedAt, now, demo = false, throttledUntil }) {
   const automatic = settings.refreshEnabled !== false;
   const ranSince = Math.max(startedAt, settings.refreshResumedAt ?? 0);
   /** @param {StreamState} stream */
@@ -61,7 +62,9 @@ export function syncStatus({ repos, streams, jobs, inProgress, settings, started
     const oldest = successes.length ? Math.min(...successes) : NaN;
     const since = own.length && successes.length === own.length ? { since: new Date(oldest).toISOString() } : {};
     if (demo) return { state: 'synced', ...since };
-    if (!automatic && !own.some(stream => stream.manual)) return { state: 'paused', ...since };
+    const importing = jobs.some(job => job.repoId === repoId && job.status !== 'completed');
+    // A history import keeps reading with automatic checks off, so it is not paused.
+    if (!automatic && !importing && !own.some(stream => stream.manual)) return { state: 'paused', ...since };
     const failing = own.find(
       ({ error, failures = 0 }) => error && error.code !== 'THROTTLED' && (failures >= 2 || LASTING.has(error.code)),
     );
@@ -71,13 +74,14 @@ export function syncStatus({ repos, streams, jobs, inProgress, settings, started
         id === repoId && status !== 'completed' && error && error.code !== 'THROTTLED' && (failures >= 2 || LASTING.has(error.code)),
     );
     if (failingImport?.error) return { state: 'problem', reason: failingImport.error.message, stream: 'history', ...since };
+    // The shared queue starts no read for any repository until Azure DevOps's requested wait has passed.
+    if (time(throttledUntil ?? undefined) > now) return { state: 'delayed', reason: 'Azure DevOps asked us to slow down', ...since };
     const behind = own.find(stream => behindBy(stream) !== null);
     if (behind) {
       const minutes = Math.max(1, Math.round(Number(behindBy(behind)) / MINUTE));
       const reason = Number.isFinite(minutes) ? `about ${minutes} minute${minutes === 1 ? '' : 's'} behind` : 'Checks are behind schedule';
       return { state: 'delayed', reason, stream: behind.stream, ...since };
     }
-    const importing = jobs.some(job => job.repoId === repoId && job.status !== 'completed');
     // A stale read that got here is still inside the grace period above, so it is catching up.
     const working = own.some(stream => !stream.initialized || stream.pending || stream.cursor || stream.manual || stale(stream));
     const busy = inProgress.some(entry => entry.repoId === repoId);

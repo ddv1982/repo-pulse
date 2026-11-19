@@ -61,6 +61,18 @@ test('automatic checks off pause every repository unless a manual refresh is out
   assert.equal(manual.overall.state, 'syncing');
 });
 
+test('with automatic checks off a running history import is not paused: it syncs, or waits on Azure throttling', () => {
+  const settings = { refreshEnabled: false, refreshResumedAt: null };
+  const jobs = [{ repoId: 'a', status: 'running' }];
+  const importing = status({ settings, jobs });
+  assert.equal(importing.repos.a.state, 'syncing');
+  assert.equal(importing.repos.b.state, 'paused');
+  const throttled = status({ settings, jobs, throttledUntil: iso(NOW + 30000) });
+  assert.deepEqual(throttled.repos.a, { state: 'delayed', reason: 'Azure DevOps asked us to slow down', since: ago(1) });
+  assert.equal(throttled.repos.b.state, 'paused');
+  assert.equal(status({ settings, jobs: [{ repoId: 'a', status: 'completed' }] }).repos.a.state, 'paused');
+});
+
 test('an access, sign-in or missing CLI error is a problem at once and names the stream and what to do', () => {
   for (const error of [
     forbidden,
@@ -389,4 +401,14 @@ test('a history import that keeps failing is a problem, not endless syncing', ()
   assert.equal(status({ jobs: [{ repoId: 'a', status: 'retrying', failures: 5, error: throttled }] }).repos.a.state, 'syncing');
   const denied = { code: 'FORBIDDEN', message: 'No access to this repository.' };
   assert.equal(status({ jobs: [{ repoId: 'a', status: 'retrying', failures: 1, error: denied }] }).repos.a.state, 'problem');
+});
+
+test('a queue paused by Azure throttling makes every running repository delayed with that reason', () => {
+  const paused = status({ throttledUntil: iso(NOW + 30000) });
+  assert.deepEqual(paused.repos.a, { state: 'delayed', reason: 'Azure DevOps asked us to slow down', since: ago(1) });
+  assert.equal(paused.overall.state, 'delayed');
+  assert.equal(status({ throttledUntil: iso(NOW - 1) }).overall.state, 'synced');
+  assert.equal(status({ throttledUntil: null }).overall.state, 'synced');
+  const problem = status({ throttledUntil: iso(NOW + 30000), a: { builds: { error: forbidden, failures: 1 } } });
+  assert.equal(problem.repos.a.state, 'problem');
 });

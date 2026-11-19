@@ -92,6 +92,17 @@ function requestFor(args) {
 }
 
 /**
+ * Retry-After in milliseconds from delta-seconds or an HTTP date; undefined when absent, unreadable or already past.
+ * @param {string | null} value
+ * @param {number} time
+ */
+function retryAfterMs(value, time) {
+  const text = value?.trim() ?? '';
+  const ms = /^\d+$/.test(text) ? Number(text) * 1000 : /[a-z]/i.test(text) ? Date.parse(text) - time : NaN;
+  return ms > 0 ? ms : undefined;
+}
+
+/**
  * Maps a failed request or body read onto the errors classifyCliError understands.
  * @param {unknown} error
  */
@@ -150,8 +161,9 @@ export function createRestExecutor({ cliExecutor, fetch = globalThis.fetch, now 
    */
   async function send(request, options, bearer) {
     const signal = AbortSignal.any([options.signal, AbortSignal.timeout(options.timeoutMs)].filter(Boolean));
+    let response;
     try {
-      return await fetch(request.url, {
+      response = await fetch(request.url, {
         method: 'GET',
         signal,
         redirect: 'error',
@@ -165,6 +177,11 @@ export function createRestExecutor({ cliExecutor, fetch = globalThis.fetch, now 
     } catch (error) {
       throw transportError(error);
     }
+    // Measuring an HTTP-date from Azure's own Date keeps a skewed local clock from shortening or erasing the wait.
+    const sent = Date.parse(response.headers.get('date') ?? '');
+    const wait = retryAfterMs(response.headers.get('retry-after'), Number.isFinite(sent) ? sent : now());
+    if (wait) options.retryAfter?.(wait);
+    return response;
   }
   /**
    * @param {string[]} args
@@ -183,11 +200,20 @@ export function createRestExecutor({ cliExecutor, fetch = globalThis.fetch, now 
       if (response.status === 401 && token?.value === bearer) token = undefined;
       return response.status === 401;
     };
+    // The queue only holds back calls it has not started; another response can start a Retry-After pause while this
+    // call waits for a token, so every send checks it and the caller's back-off retries instead.
+    const unlessPaused = () => {
+      if ((options.throttledUntil?.() ?? 0) > now())
+        throw Object.assign(new Error('Azure DevOps asked us to slow down.'), { stderr: 'HTTP 429' });
+    };
     let bearer = await accessToken(options);
+    unlessPaused();
     let response = await send(request, options, bearer);
     if (rejected(response, bearer)) {
       await response.body?.cancel().catch(() => {});
+      unlessPaused();
       bearer = await accessToken(options);
+      unlessPaused();
       response = await send(request, options, bearer);
       rejected(response, bearer);
     }

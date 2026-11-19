@@ -106,6 +106,15 @@ test('state carries a sync status per enabled repository and overall', async t =
   assert.ok(Object.entries(live.repos).every(([id, status]) => id === 'demo-billing' || status.state !== 'problem'));
 });
 
+test('a queue paused by Azure throttling shows in diagnostics and makes the other repositories delayed', async t => {
+  const throttledUntil = new Date(Date.now() + 60000).toISOString();
+  const { state } = await fixture(t, { demo: false, cli: { diagnostics: () => ({ throttledUntil }) } });
+  assert.equal(state.diagnostics.throttledUntil, throttledUntil);
+  const others = Object.entries(state.syncStatus.repos).filter(([id]) => id !== 'demo-billing');
+  assert.ok(others.length);
+  for (const [, status] of others) assert.equal(status.reason, 'Azure DevOps asked us to slow down');
+});
+
 test('acknowledges exact shown IDs; a concurrently incoming demo branch stays unseen', async t => {
   const { mutate, url } = await fixture(t);
   const events = async () => (await (await fetch(url + '/api/activity')).json()).items.flatMap(item => item.events);
