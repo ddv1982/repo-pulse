@@ -712,7 +712,10 @@ test('migration 13 rebuilds search_text from named fields and preserves enrichme
   ]);
   store.enrichEvent('p-1', {
     commits: [{ commitId: '3333cccc', comment: 'Enriched note' }],
-    mergeEvidence: { commits: [{ commitId: '4444dddd', parents: ['5555eeee'] }] },
+    mergeEvidence: {
+      commits: [{ commitId: '4444dddd', parents: ['5555eeee'] }],
+      rewrite: [{ ref: 'refs/heads/main', status: 'fast-forward' }],
+    },
   });
   store.close();
   const db = new DatabaseSync(path);
@@ -725,6 +728,7 @@ test('migration 13 rebuilds search_text from named fields and preserves enrichme
   assert.equal(store.queryActivity({ search: '_apis/build/definitions/42' }).total, 0);
   assert.equal(store.queryActivity({ search: 'Enriched note' }).total, 1);
   assert.equal(store.queryActivity({ search: '5555eeee' }).total, 1);
+  assert.equal(store.queryActivity({ search: 'fast-forward' }).total, 1);
   assert.equal(store.getEvent('b-1').seen, true);
   assert.equal(store.getEvent('p-1').imported, true);
   store.close();

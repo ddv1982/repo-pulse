@@ -206,9 +206,14 @@ function addEvidenceSearchTerms(terms, evidence) {
     addSearchTerm(terms, range.name);
     addSearchTerm(terms, range.oldObjectId);
     addSearchTerm(terms, range.newObjectId);
+    addSearchTerm(terms, range.update?.status);
     for (const id of range.commitIds || []) addSearchTerm(terms, id);
   }
-  if (evidence.rewrite?.some(item => item.status === 'rewrite')) terms.add('history rewritten');
+  for (const item of evidence.rewrite || []) {
+    addSearchTerm(terms, item.ref);
+    addSearchTerm(terms, item.status);
+    if (item.status === 'rewrite') terms.add('history rewritten');
+  }
 }
 
 /** @param {Set<string>} terms @param {import('./activity.js').EventData | undefined} data */
