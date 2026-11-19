@@ -1086,7 +1086,8 @@ test('the launch link works once, hides its token, and a stale or forged link ca
   await tab.goto(`${runtime.url}/#launch=forged-token`);
   assert.equal((await forged).status(), 401);
   await tab.goto(runtime.url + '/#repositories');
-  await expect(tab.getByRole('heading', { name: 'Repositories', exact: true })).toBeVisible();
+  // The watched demo repositories load only if the state request was authorized.
+  await expect(tab.getByRole('article').first()).toBeVisible();
   // A launch link opened in the tab that already shows the app reloads it, so the exchange runs again.
   const again = tab.waitForResponse(response => new URL(response.url()).pathname === '/api/session');
   await tab.evaluate(() => {
