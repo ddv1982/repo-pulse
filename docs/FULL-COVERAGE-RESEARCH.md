@@ -25,7 +25,7 @@ Important corrections to automated research:
 ## Installed CLI and history observations
 
 - Activity reads use a Microsoft Entra token from `az account get-access-token` and call the REST API directly, so the identity is the principal that token represents (the CLI account signed in when it was issued; a cached token can outlive an account switch until it is renewed). The DevOps extension's PAT fallback does not apply to these reads. A repository connection check also makes one REST read to prove access; an organization-only check uses `az` and does not.
-- REST responses expose all headers. The adapter uses `x-ms-continuationtoken` for paging and ignores `Retry-After`: a throttled read fails like any other, and with automatic checks on the stream is retried after the normal failure backoff.
+- REST responses expose all headers. The adapter uses `x-ms-continuationtoken` for paging and honours `Retry-After` on any response: the shared queue starts no new read until the wait has passed (capped at ten minutes), and a 429 fails as a throttled read that the stream retries after its normal backoff.
 - Historical, from the CLI-only transport: the inspected `az devops invoke` version parser accepted `7.1` and `7.1-preview` but rejected `7.1-preview.1`. Activity reads now go to REST directly.
 - Build list windows can use queue time while displayed events use completion time. Historical imports filter against the overall requested range so a build crossing an internal page window is not lost.
 
