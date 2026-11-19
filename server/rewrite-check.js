@@ -75,5 +75,9 @@ export function createRewriteCheck({ store, provider, now = Date.now }) {
     }
     return true;
   }
-  return { tick };
+  return {
+    tick,
+    // A reset deletes the jobs these waiting results belong to.
+    reset: () => deferred.clear(),
+  };
 }

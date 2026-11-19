@@ -464,3 +464,17 @@ test('a queue paused by Azure throttling makes every running repository delayed 
   const problem = status({ throttledUntil: iso(NOW + 30000), a: { builds: { error: forbidden, failures: 1 } } });
   assert.equal(problem.repos.a.state, 'problem');
 });
+
+test('a failed reset shows overall even with no enabled repository', () => {
+  const none = syncStatus({
+    repos: [{ id: 'a', disabled: true }],
+    streams: [],
+    jobs: [],
+    inProgress: [],
+    settings: { refreshEnabled: true, refreshResumedAt: null },
+    startedAt: NOW - 60 * MINUTE,
+    now: NOW,
+    resetFailed: true,
+  });
+  assert.deepEqual(none, { overall: { state: 'problem', reason: 'Starting from scratch failed. Try again.' }, repos: {} });
+});

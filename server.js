@@ -28,11 +28,12 @@ import { canOpenBrowser, openBrowser } from './server/open-browser.js';
 /** Live mode passes the Azure client; demo mode passes demoProvider, which answers only the routes demo serves. */
 /** @typedef {AzureProvider | typeof demoProvider} AppProvider */
 /** @typedef {{ demo: true, running: false }} DemoSyncStatus */
-/** Demo mode passes a stub, so the app relies only on the two calls both share with createSync. */
+/** Demo mode passes a stub, so the app relies only on the two calls both share with createSync, and reset in live mode. */
 /**
  * @typedef {{
  *   status: () => import('./server/sync.js').SyncStatus | DemoSyncStatus,
  *   refresh: (repoIds?: string[]) => import('./server/sync.js').RefreshStatus | { demo: true },
+ *   reset?: (clear: () => void) => Promise<void>,
  * }} AppSync
  */
 /** @typedef {{ req: Request, res: Response, url: URL, params: string[] }} RouteContext */
@@ -88,6 +89,7 @@ import { canOpenBrowser, openBrowser } from './server/open-browser.js';
 /** GET /api/pr/:repo/:id/review. @typedef {import('./server/azure-client.js').PullRequestReview & { message?: string }} PrReviewResponse */
 /** POST /api/backfill. @typedef {ReturnType<ReturnType<typeof createBackfill>['start']>} BackfillResponse */
 /** POST /api/refresh. @typedef {{ ok: true, status: ReturnType<AppSync['refresh']> }} RefreshResponse */
+/** POST /api/reset. @typedef {{ started: true }} ResetResponse */
 /** POST /api/discover. @typedef {import('./server/repositories.js').Discovery} DiscoverResponse */
 /** POST /api/folders. @typedef {Awaited<ReturnType<typeof browseFolders>>} FoldersResponse */
 /** POST /api/demo/event. @typedef {ReturnType<typeof addDemoEvent>} DemoEventResponse */
@@ -200,6 +202,10 @@ export function createApp({
   if (typeof accessKey !== 'string' || accessKey.length < 32) throw new Error('createApp needs an access key of at least 32 characters.');
   const expectedKey = Buffer.from(accessKey);
   const startedAt = Date.now();
+  /** The reset in progress, shared by every request that arrives while it runs. @type {Promise<void> | null} */
+  let resetting = null;
+  /** Set when the last reset failed, until another starts, so the page can say so instead of looking unchanged. */
+  let resetFailed = false;
   /** @param {unknown} value @param {Buffer} expected */
   const matches = (value, expected) => {
     const given = Buffer.from(String(value ?? ''));
@@ -270,6 +276,8 @@ export function createApp({
               now: Date.now(),
               demo,
               throttledUntil: diagnostics.throttledUntil,
+              resetting: Boolean(resetting),
+              resetFailed,
             }),
             demo,
           }),
@@ -326,6 +334,8 @@ export function createApp({
         const repo = repoById(input.repoId);
         const days = input.days;
         if (days !== 30 && days !== 90 && days !== 'all') throw problem('Choose 30 days, 90 days or all available history.');
+        // Checked after the body arrives: the reset would delete the job this request creates.
+        if (resetting) throw problem('Starting from scratch is in progress. Try again in a moment.', 409);
         return json(res, 202, /** @satisfies {BackfillResponse} */ (backfill.start(repo.id, days)));
       },
     },
@@ -462,6 +472,29 @@ export function createApp({
         if (repoIds !== undefined && !isStringList(repoIds)) throw problem('repoIds must be a list.');
         repoIds?.forEach(repoById);
         return json(res, 202, /** @satisfies {RefreshResponse} */ ({ ok: true, status: sync.refresh(repoIds) }));
+      },
+    },
+    {
+      method: 'POST',
+      path: '/api/reset',
+      handler: async ({ req, res }) => {
+        await body(req);
+        if (demo || !sync.reset) throw problem('Demo data cannot be cleared. Start live mode to start from scratch.', 403);
+        // The reset waits for the turn in flight, which can sit behind Azure's Retry-After for minutes, so it runs unawaited.
+        if (!resetting) resetFailed = false;
+        resetting ??= sync
+          .reset(() => store.resetActivity())
+          .then(() => {
+            sync.refresh();
+          })
+          .catch(error => {
+            resetFailed = true;
+            console.error('Start from scratch failed:', error.name);
+          })
+          .finally(() => {
+            resetting = null;
+          });
+        return json(res, 202, /** @satisfies {ResetResponse} */ ({ started: true }));
       },
     },
     {
@@ -617,7 +650,15 @@ export async function startApp({ demo = false, port = 0, dataDir = resolve(ROOT,
       // Assigned below, before sync.start() can schedule any work.
       background: { rewrite: () => rewriteCheck?.tick(), history: () => backfill?.tick() },
     });
-  const sync = liveSync || {
+  const sync = (liveSync && {
+    ...liveSync,
+    /** @param {() => void} clear */
+    reset: clear =>
+      liveSync.reset(() => {
+        clear();
+        rewriteCheck?.reset();
+      }),
+  }) || {
     start() {},
     stop() {},
     /** @returns {{ demo: true }} */

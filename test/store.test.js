@@ -148,3 +148,89 @@ test('a saved complete analysis proving the push did not introduce the merge com
   assert.equal(store.getEvent('reset').data.mergeEvidence.prs[0].relationship, 'constituent-related');
   store.close();
 });
+
+test('starting from scratch clears activity, checkpoints, jobs and baselines but keeps repositories and settings', () => {
+  const folder = mkdtempSync(join(tmpdir(), 'pulse-store-'));
+  const path = join(folder, 'state.sqlite');
+  const store = createStore(path);
+  store.saveRepo(repo);
+  store.saveRepo({ ...repo, id: 'two', name: 'Two', disabled: true });
+  const moved = { name: 'refs/heads/main', oldObjectId: 'a'.repeat(40), newObjectId: 'b'.repeat(40) };
+  const pushes = Array.from({ length: 300 }, (_, i) =>
+    event(`push-${i}`, { data: { pushId: i + 1, refUpdates: [moved] }, summary: 'x'.repeat(2000) }),
+  );
+  store.commitPage({
+    repoId: 'one',
+    stream: 'pushes',
+    state: { repoId: 'one', stream: 'pushes', initialized: true, nextAt: '2026-11-19T00:00:00Z' },
+    events: pushes,
+    entities: [{ type: 'push', id: '1', data: { date: '2026-11-17T10:00:00Z' } }],
+    jobs: [{ id: 'rewrite:one', type: 'rewrite', repoId: 'one', eventId: 'push-0' }],
+  });
+  store.saveJob({ id: 'backfill:one', type: 'backfill', repoId: 'one', status: 'pending' });
+  store.enrichEvent('push-0', { mergeEvidence: { status: 'complete' } });
+  for (const [key, value] of [
+    ['baseline:one', '2026-11-01T00:00:00.000Z'],
+    ['baseline:two', '2026-11-01T00:00:00.000Z'],
+    ['checkout:one', { head: 'abc' }],
+    ['checkout-followup:one', { source: 'refs/heads/feature' }],
+    ['refreshEnabled', false],
+    ['refreshResumedAt', 123],
+  ])
+    store.setSetting(key, value);
+  const revision = Number(store.activityRevision());
+  const before = statSync(path).size;
+
+  store.resetActivity();
+
+  const db = new DatabaseSync(path, { readOnly: true });
+  const count = table => db.prepare(`SELECT count(*) AS n FROM ${table}`).get().n;
+  assert.deepEqual(
+    Object.fromEntries(['events', 'activity_members', 'enrichment', 'push_tips', 'entities', 'streams', 'jobs'].map(t => [t, count(t)])),
+    { events: 0, activity_members: 0, enrichment: 0, push_tips: 0, entities: 0, streams: 0, jobs: 0 },
+  );
+  assert.deepEqual(
+    store.listRepos().map(item => [item.id, item.disabled]),
+    [
+      ['one', false],
+      ['two', true],
+    ],
+  );
+  assert.deepEqual(
+    db
+      .prepare('SELECT key FROM settings ORDER BY key')
+      .all()
+      .map(row => row.key),
+    ['activityRevision', 'checkout-followup:one', 'checkout:one', 'refreshEnabled', 'refreshResumedAt'],
+  );
+  assert.equal(Number(store.activityRevision()), revision + 1, 'the page reloads its activity');
+  assert.ok(statSync(path).size < before / 4, `compacted from ${before} to ${statSync(path).size} bytes`);
+  db.close();
+  store.close();
+  rmSync(folder, { recursive: true });
+});
+
+test('a reset whose compaction fails still clears the data and compacts on the next start', () => {
+  const folder = mkdtempSync(join(tmpdir(), 'pulse-store-'));
+  const path = join(folder, 'state.sqlite');
+  let store = createStore(path);
+  store.saveRepo(repo);
+  store.insertEvents([event('one')]);
+  const exec = DatabaseSync.prototype.exec;
+  DatabaseSync.prototype.exec = function (sql) {
+    if (sql === 'VACUUM') throw new Error('database or disk is full');
+    return exec.call(this, sql);
+  };
+  try {
+    assert.doesNotThrow(() => store.resetActivity());
+  } finally {
+    DatabaseSync.prototype.exec = exec;
+  }
+  assert.deepEqual(store.listEvents(), []);
+  assert.equal(store.getSetting('compactPending'), true);
+  store.close();
+  store = createStore(path);
+  assert.equal(store.getSetting('compactPending'), undefined);
+  store.close();
+  rmSync(folder, { recursive: true });
+});

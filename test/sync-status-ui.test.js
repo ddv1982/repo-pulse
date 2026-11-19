@@ -215,3 +215,9 @@ test('a throttling delay keeps the Azure DevOps name capitalised in the pill', (
   );
   assert.equal(syncLabel({ state: 'delayed', reason: 'Checks are behind schedule' }), 'Delayed · checks are behind schedule');
 });
+
+test('a problem that belongs to no repository still shows the Activity banner', () => {
+  const failed = { state: 'problem', reason: 'Starting from scratch failed. Try again.' };
+  const markup = renderFeed({ ...page(failed, {}), repos: [], watched: [] }, { repoIds: null, route: 'catchup', search: '', kind: '' });
+  assert.match(markup, /<div class="banner crit"><div><strong>Problem<\/strong>Starting from scratch failed\. Try again\./);
+});

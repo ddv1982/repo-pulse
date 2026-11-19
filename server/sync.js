@@ -236,7 +236,10 @@ export function createSync({
   let timer;
   /** @type {Promise<void>|null|undefined} */
   let active;
+  // `stopped` is whether stop() asked the scheduler to end; `resetting` only pauses it, so a stop during a reset still wins.
   let stopped = false;
+  let resetting = false;
+  const halted = () => stopped || resetting;
   /** @type {Map<string, number>} */
   const refreshedAt = new Map();
   /** @type {{ repoId: string, stream: StreamName } | null} */
@@ -619,7 +622,7 @@ export function createSync({
   }
   /** @param {WatchedRepo} repo */
   function watching(repo) {
-    return !stopped && store.listRepos().some(entry => entry.id === repo.id && !entry.disabled);
+    return !halted() && store.listRepos().some(entry => entry.id === repo.id && !entry.disabled);
   }
   // Least recently attempted first, limited to enabled repositories and, with automatic refresh off, manual requests.
   /** @param {boolean} automatic */
@@ -716,7 +719,7 @@ export function createSync({
     if (complete && (requested.get(key)?.generation ?? 0) <= working.windowGeneration) requested.delete(key);
   }
   async function runPage() {
-    if (stopped) return;
+    if (halted()) return;
     ensureStreams();
     const automatic = store.getSetting('refreshEnabled', true) !== false;
     const { due, repos } = dueStreams(automatic);
@@ -765,7 +768,9 @@ export function createSync({
     return active;
   }
   function schedule() {
-    if (stopped) return;
+    if (halted()) return;
+    // The turn that a reset waited for can finish after the reset has already scheduled the next one.
+    clearTimeout(timer);
     // A failed turn must not reject unobserved (that would end the process) or stop polling.
     timer = setTimeout(() => {
       tick()
@@ -791,6 +796,28 @@ export function createSync({
     },
     tick,
     normalize,
+    /**
+     * Runs `clear` with no turn in flight, then forgets the refreshes and rotation the cleared data asked for.
+     * @param {() => void} clear
+     */
+    async reset(clear) {
+      const scheduled = Boolean(timer);
+      resetting = true;
+      clearTimeout(timer);
+      timer = undefined;
+      // A page in flight sees `resetting` and drops its result instead of writing it after `clear`.
+      await active?.catch(() => {});
+      try {
+        clear();
+      } finally {
+        requested.clear();
+        refreshedAt.clear();
+        lastKey = undefined;
+        liveTurns = 0;
+        resetting = false;
+        if (scheduled) schedule();
+      }
+    },
     /** @param {string[]} [repoIds] */
     refresh(repoIds) {
       const repos = store.listRepos();
@@ -841,7 +868,7 @@ export function createSync({
         streams: store.getStreams().length,
         lastTurn: { ...lastTurn },
         lag: lag(),
-        inProgress: stopped ? [] : inProgress,
+        inProgress: halted() ? [] : inProgress,
       };
     },
   };

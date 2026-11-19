@@ -8,7 +8,7 @@ import { worstStatus } from '../src/sync-worst.js';
  * `since` is the oldest last success across the repository's streams, absent until every stream has read once.
  * @typedef {{ state: SyncState, reason?: string, since?: string, lastCheck?: string, stream?: StreamState['stream'] | 'history' }} SyncStatus
  */
-/** @typedef {(SyncStatus & { repoId: string }) | { state: 'empty' }} OverallSyncStatus */
+/** @typedef {(SyncStatus & { repoId: string }) | { state: 'empty' } | { state: 'problem', reason: string }} OverallSyncStatus */
 /**
  * @typedef {{
  *   repos: { id: string, disabled?: boolean }[],
@@ -20,6 +20,8 @@ import { worstStatus } from '../src/sync-worst.js';
  *   now: number,
  *   demo?: boolean,
  *   throttledUntil?: string | null,
+ *   resetting?: boolean,
+ *   resetFailed?: boolean,
  * }} SyncStatusInput
  */
 
@@ -76,7 +78,19 @@ const time = value => Date.parse(value ?? '');
  * @param {SyncStatusInput} input
  * @returns {{ overall: OverallSyncStatus, repos: Record<string, SyncStatus> }}
  */
-export function syncStatus({ repos, streams, jobs, inProgress, settings, startedAt, now, demo = false, throttledUntil }) {
+export function syncStatus({
+  repos,
+  streams,
+  jobs,
+  inProgress,
+  settings,
+  startedAt,
+  now,
+  demo = false,
+  throttledUntil,
+  resetting = false,
+  resetFailed = false,
+}) {
   const automatic = settings.refreshEnabled !== false;
   const ranSince = Math.max(startedAt, settings.refreshResumedAt ?? 0);
   /** @param {StreamState} stream */
@@ -102,6 +116,9 @@ export function syncStatus({ repos, streams, jobs, inProgress, settings, started
     // Synced means every stream is within its freshness limit, so the newest read is the honest "last check".
     const fresh = successes.length ? { lastCheck: new Date(Math.max(...successes)).toISOString() } : {};
     if (demo) return { state: 'synced', ...since, ...fresh };
+    // Stored activity is being deleted and then imported again, whatever the streams still say.
+    if (resetting) return { state: 'syncing' };
+    if (resetFailed) return { state: 'problem', reason: 'Starting from scratch failed. Try again.' };
     const importing = jobs.some(job => job.repoId === repoId && job.status !== 'completed');
     // A history import keeps reading with automatic checks off, so it is not paused.
     if (!automatic && !importing && !own.some(stream => stream.manual)) return { state: 'paused', ...since };
@@ -134,7 +151,10 @@ export function syncStatus({ repos, streams, jobs, inProgress, settings, started
   const statuses = {};
   for (const repo of repos) if (!repo.disabled) statuses[repo.id] = repoStatus(repo.id);
   /** @type {OverallSyncStatus} */
-  let overall = worstStatus(Object.entries(statuses).map(([repoId, status]) => ({ ...status, repoId }))) ?? { state: 'empty' };
+  let overall =
+    worstStatus(Object.entries(statuses).map(([repoId, status]) => ({ ...status, repoId }))) ??
+    // With no enabled repository a failed reset has no repository to report it, so the overall status does.
+    (resetFailed ? { state: 'problem', reason: 'Starting from scratch failed. Try again.' } : { state: 'empty' });
   if (overall.state === 'synced') {
     const checks = Object.values(statuses)
       .map(status => time(status.lastCheck))

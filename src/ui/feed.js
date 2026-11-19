@@ -78,9 +78,13 @@ export function renderFeed(state, ui) {
   const shown = state.repos.filter(repo => ui.repoIds === null || ui.repoIds.includes(repo.id));
   // Until every shown repository is synced, an empty or short list does not prove that nothing changed.
   const partial = shown.some(repo => state.syncStatus.repos[repo.id]?.state !== 'synced');
-  const attention = worstStatus(
-    shown.flatMap(repo => (state.syncStatus.repos[repo.id] ? [{ ...state.syncStatus.repos[repo.id], repoId: repo.id }] : [])),
-  );
+  const overall = state.syncStatus.overall;
+  const attention =
+    worstStatus(
+      shown.flatMap(repo => (state.syncStatus.repos[repo.id] ? [{ ...state.syncStatus.repos[repo.id], repoId: repo.id }] : [])),
+    ) ??
+    // A problem that belongs to no repository, such as a failed reset with none enabled, still needs the banner.
+    (overall.state === 'problem' && !('repoId' in overall) ? { ...overall, repoId: '' } : undefined);
   const unseen = records
     .filter(record => record.unseen)
     .sort((a, b) => Number(b.kind === 'branch-created') - Number(a.kind === 'branch-created'));

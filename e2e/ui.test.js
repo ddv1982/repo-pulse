@@ -1194,3 +1194,105 @@ test('the launch link works once, hides its token, and a stale or forged link ca
       .first(),
   ).toBeVisible();
 });
+
+test('Start from scratch in Settings confirms, empties the feed and shows Syncing until the import is back', async t => {
+  const store = createStore();
+  const repo = {
+    id: 'one',
+    name: 'orders-api',
+    azureId: 'a',
+    organization: 'https://dev.azure.com/org',
+    project: 'P',
+    webUrl: 'https://dev.azure.com/org/P/_git/orders-api',
+  };
+  store.saveRepo(repo);
+  const gate = {
+    closed: false,
+    held: 0,
+    /** @type {(() => void)[]} */
+    waiting: [],
+    release() {
+      gate.waiting.splice(0).forEach(resolve => resolve());
+    },
+  };
+  const provider = {
+    async checkConnection() {
+      return { available: true, signedIn: true, account: { name: 'someone@example.test' }, message: 'Signed in.' };
+    },
+    async read(_repo, stream) {
+      if (gate.closed) {
+        gate.held++;
+        await new Promise(resolve => gate.waiting.push(resolve));
+      }
+      const items =
+        stream === 'pushes'
+          ? [
+              {
+                pushId: 1,
+                date: '2026-11-18T10:00:00Z',
+                pushedBy: { displayName: 'Ana' },
+                refUpdates: [{ name: 'refs/heads/main', oldObjectId: 'a'.repeat(40), newObjectId: 'b'.repeat(40) }],
+              },
+            ]
+          : [];
+      return { items, nextCursor: null };
+    },
+  };
+  const sync = createSync({ store, provider, pollMs: 20 });
+  const server = createApp({ store, provider, sync, accessKey: TEST_KEY });
+  let browser;
+  const errors = [];
+  t.after(async () => {
+    gate.closed = false;
+    gate.release();
+    await browser?.close().catch(() => {});
+    await sync.stop();
+    if (server.listening) await new Promise(resolve => server.close(resolve));
+    store.close();
+    assert.deepEqual(errors, []);
+  });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  sync.start();
+  sync.refresh();
+  for (let i = 0; i < 200 && !store.listEvents().length; i++) await new Promise(resolve => setTimeout(resolve, 10));
+  browser = await chromium.launch({ executablePath: await browserPath(), headless: true });
+  const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  page.on('pageerror', error => errors.push(error.message));
+  await rememberKey(page);
+  const url = `http://127.0.0.1:${server.address().port}`;
+  await page.goto(`${url}/#activity/all`);
+  await expect(page.locator('[data-event-id="one:push:1"]')).toHaveCount(1);
+
+  await page.getByRole('link', { name: 'Settings', exact: true }).click();
+  const row = page.locator('.settings-row', { hasText: 'Start from scratch' });
+  await expect(row).toContainText('Deletes stored activity and imports the last seven days again. Your repositories and settings stay.');
+  await row.screenshot({ path: 'test-results/settings-start-from-scratch.png' });
+  gate.closed = true;
+  for (const state of store.getStreams()) store.saveStream({ ...state, nextAt: new Date(0).toISOString() });
+  for (let i = 0; i < 200 && !gate.held; i++) await new Promise(resolve => setTimeout(resolve, 10));
+  assert.equal(gate.held, 1, 'a page is waiting on Azure when the reset is asked for');
+  await row.getByRole('button', { name: 'Start from scratch' }).click();
+  const dialog = page.locator('#confirm-dialog');
+  await expect(dialog).toBeVisible();
+  await expect(dialog.locator('#confirm-title')).toHaveText('Start from scratch?');
+  const confirmButton = dialog.getByRole('button', { name: 'Delete and import again' });
+  await expect(confirmButton).toHaveClass(/danger/);
+  await page.screenshot({ path: 'test-results/settings-start-from-scratch-dialog.png' });
+  await confirmButton.click();
+  await expect(page.locator('#toast')).toHaveText(
+    'Starting from scratch. Stored activity is being deleted, then the last seven days are imported.',
+  );
+  await expect(page.locator('#header .header-tools > .sync-pill')).toHaveText('Syncing…');
+  assert.equal(store.listEvents().length, 1, 'the reset waits for the page in flight');
+  gate.release();
+
+  await page.getByRole('link', { name: 'Activity', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Activity', exact: true })).toBeVisible();
+  await expect(page.locator('[data-event-id]')).toHaveCount(0);
+  await expect(page.locator('.feed .empty .big')).toHaveText('No activity loaded yet');
+  assert.equal(store.listRepos().length, 1);
+
+  gate.closed = false;
+  gate.release();
+  await expect(page.locator('[data-event-id="one:push:1"]')).toHaveCount(1, { timeout: 15000 });
+});

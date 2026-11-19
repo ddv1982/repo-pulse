@@ -28,6 +28,7 @@
  *   : P extends `/api/pr/${string}/${string}/review` ? PrReviewResponse
  *   : P extends '/api/backfill' ? import('../server.js').BackfillResponse
  *   : P extends '/api/refresh' ? import('../server.js').RefreshResponse
+ *   : P extends '/api/reset' ? import('../server.js').ResetResponse
  *   : P extends '/api/discover' ? DiscoverResponse
  *   : P extends '/api/folders' ? FoldersResponse
  *   : P extends '/api/demo/event' ? import('../server.js').DemoEventResponse
