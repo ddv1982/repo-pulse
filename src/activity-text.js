@@ -34,7 +34,9 @@ const statusLabels = {
 const evidenceLabels = { 'pr-linked': 'PR evidence' };
 const statusIds = new Map(Object.entries(statusLabels).map(([id, label]) => [label, id]));
 const evidenceIds = new Map(Object.entries(evidenceLabels).map(([id, label]) => [label, id]));
-evidenceIds.set('Completed PR linked', 'pr-linked');
+// Keep old filter links and persisted search text compatible with the broader display label.
+const legacyPrEvidenceTerm = 'Completed PR linked';
+evidenceIds.set(legacyPrEvidenceTerm, 'pr-linked');
 
 export const labels = {
   'branch-created': statusLabels['new-branch'],
@@ -319,7 +321,7 @@ export function activitySearchText(event) {
     event.summary,
     activityLabel(event),
     activitySummary(event),
-    activityMergeBadge(event),
+    activityEvidenceId(event) ? legacyPrEvidenceTerm : '',
   ])
     addSearchTerm(terms, value);
   addDataSearchTerms(terms, event.data);

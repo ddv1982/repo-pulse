@@ -464,6 +464,7 @@ test('filter options come from the full scoped history and stay available when a
     assert.equal(canceled.items[0].id, 'older-canceled');
     assert.deepEqual(canceled.filterOptions, all.filterOptions);
     assert.equal(store.queryActivity({ ...scope, kind: 'evidence:Completed PR linked' }).items[0].id, 'push-evidence');
+    assert.equal(store.queryActivity({ ...scope, search: 'Completed PR linked' }).items[0].id, 'push-evidence');
     assert.equal(store.queryActivity({ ...scope, view: 'new' }).filterOptions.includes('status:canceled'), false);
     assert.deepEqual(store.queryActivity({ ...scope, search: 'merged' }).filterOptions, ['pr', 'status:merged']);
   } finally {
