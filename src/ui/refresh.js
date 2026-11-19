@@ -46,8 +46,8 @@ function readMetadata(value) {
 }
 
 /** @param {View} view */
-const viewKey = ({ route, eventId, repoIds, search, people, kind, generation }) =>
-  JSON.stringify([route, eventId, repoIds, search, people, kind, generation]);
+const viewKey = ({ route, eventId, repoIds, search, kind, generation }) =>
+  JSON.stringify([route, eventId, repoIds, search, kind, generation]);
 
 /**
  * @param {{

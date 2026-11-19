@@ -1,7 +1,9 @@
+import { joinActivitySearch } from './activity-search.js';
+
 /**
- * @typedef {{ route: string, eventId: string|null, repoIds: string[]|null, search: string, people: string, kind: string,
+ * @typedef {{ route: string, eventId: string|null, repoIds: string[]|null, search: string, kind: string,
  *   filtersOpen: boolean|undefined, activityRoute: string }} NavigationState
- * @typedef {{ route: string, search: string, people: string, kind: string, repoIds: string[]|null, groups: [string, boolean][],
+ * @typedef {{ route: string, search: string, kind: string, repoIds: string[]|null, groups: [string, boolean][],
  *   filtersOpen: boolean|undefined, scrollY: number, eventId: string|null, matchingIds?: string[], activityCapacity: number }} ResultsContext
  * @typedef {{ id: string, disabled?: boolean }} WatchedRepo
  */
@@ -32,16 +34,17 @@ export const activityHref = (/** @type {string} */ route) => `#activity/${route 
 export const isActivity = (/** @type {unknown} */ route) => route === 'catchup' || route === 'activity';
 
 const RESULTS_KEY = 'repo-pulse-results-context';
+const RESULTS_VERSION = 2;
 
 /** Session storage is untrusted JSON, so every field is checked. @returns {ResultsContext | null} */
 function readResultsContext() {
   try {
     const value = JSON.parse(sessionStorage.getItem(RESULTS_KEY) ?? 'null');
     if (!value || !isActivity(value.route)) return null;
+    const search = typeof value.search === 'string' ? value.search : '';
     return {
       route: value.route,
-      search: typeof value.search === 'string' ? value.search : '',
-      people: typeof value.people === 'string' ? value.people : '',
+      search: value.version === RESULTS_VERSION ? search : joinActivitySearch(search, typeof value.people === 'string' ? value.people : ''),
       kind: typeof value.kind === 'string' ? value.kind : '',
       repoIds: Array.isArray(value.repoIds) ? value.repoIds.filter((/** @type {unknown} */ id) => typeof id === 'string') : null,
       groups: Array.isArray(value.groups)
@@ -85,7 +88,6 @@ export function createNavigation({ ui, captureGroups, activityCapacity }) {
     results = {
       route: ui.route,
       search: ui.search,
-      people: ui.people,
       kind: ui.kind,
       repoIds: ui.repoIds === null ? null : [...ui.repoIds],
       groups: captureGroups(),
@@ -96,7 +98,7 @@ export function createNavigation({ ui, captureGroups, activityCapacity }) {
       activityCapacity: activityCapacity(),
     };
     try {
-      sessionStorage.setItem(RESULTS_KEY, JSON.stringify(results));
+      sessionStorage.setItem(RESULTS_KEY, JSON.stringify({ ...results, version: RESULTS_VERSION }));
     } catch {
       /* Navigation still works without storage. */
     }
@@ -123,8 +125,8 @@ export function createNavigation({ ui, captureGroups, activityCapacity }) {
       ui.activityRoute = isActivity(ui.route) ? ui.route : results?.route || 'catchup';
     },
     view() {
-      const { route, eventId, search, people, kind, repoIds } = ui;
-      return { route, eventId, search, people, kind, repoIds, generation };
+      const { route, eventId, search, kind, repoIds } = ui;
+      return { route, eventId, search, kind, repoIds, generation };
     },
     get returnRoute() {
       return results?.route || 'catchup';
@@ -155,8 +157,8 @@ export function createNavigation({ ui, captureGroups, activityCapacity }) {
       if (isActivity(destination)) {
         ui.activityRoute = destination;
         if (previous === 'event' && results?.route === destination) {
-          const { search, people, kind, filtersOpen, repoIds, activityCapacity } = results;
-          Object.assign(ui, { search, people, kind, filtersOpen, repoIds });
+          const { search, kind, filtersOpen, repoIds, activityCapacity } = results;
+          Object.assign(ui, { search, kind, filtersOpen, repoIds });
           pending = results;
           capacity = activityCapacity;
         } else if (previous === destination) {

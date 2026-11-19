@@ -71,9 +71,9 @@ const grouped = (/** @type {string} */ selection) => `
 
 /**
  * Member-level WHERE clause shared by the page query and the member lookup.
- * @param {number} maxSequence @param {string[] | undefined} selected @param {string} needle @param {string[]} people @returns {MemberScope}
+ * @param {number} maxSequence @param {string[] | undefined} selected @param {string[]} needles @param {string[]} people @returns {MemberScope}
  */
-function memberScope(maxSequence, selected, needle, people) {
+function memberScope(maxSequence, selected, needles, people) {
   const conditions = ['m.sequence<=?'];
   /** @type {SqlValue[]} */
   const params = [maxSequence];
@@ -81,9 +81,10 @@ function memberScope(maxSequence, selected, needle, people) {
     conditions.push(selected.length ? `e.repo_id IN (${selected.map(() => '?').join(',')})` : '0');
     params.push(...selected);
   }
-  if (needle) {
-    conditions.push("(instr(m.search_text,?)>0 OR instr(lower(json_extract(r.data,'$.name')),?)>0)");
-    params.push(needle, needle);
+  if (needles.length) {
+    const match = "instr(m.search_text,?)>0 OR instr(lower(json_extract(r.data,'$.name')),?)>0";
+    conditions.push(`(${needles.map(() => match).join(' OR ')})`);
+    params.push(...needles.flatMap(needle => [needle, needle]));
   }
   if (people.length) {
     conditions.push(`matches_people(e.data,n.data,${people.map(() => '?').join(',')})`);
@@ -212,24 +213,35 @@ export function createActivityQuery(db, hydrate, requireRepo, activityRevision) 
     if (!['all', 'new'].includes(view) || typeof search !== 'string' || typeof people !== 'string' || typeof kind !== 'string') {
       throw Object.assign(new Error('Invalid activity filter.'), { code: 'BAD_REQUEST' });
     }
+    if (search.length > 300) {
+      throw Object.assign(new Error('Enter up to 300 characters in Activity search.'), { code: 'BAD_REQUEST' });
+    }
     const pageSize = Math.max(1, Math.min(Number(limit) || 50, 200));
     const selected = repoIds ? [...new Set(repoIds)].sort() : undefined;
     selected?.forEach(requireRepo);
     const filter = parseActivityFilter(kind);
-    const needle = search.toLowerCase();
+    const needles = [
+      ...new Set(
+        search
+          .toLowerCase()
+          .split(',')
+          .map(term => term.trim())
+          .filter(Boolean),
+      ),
+    ].sort();
     const names = parsePeople(people);
-    const filterKey = JSON.stringify({ selected, view, filter, search: needle, people: names });
+    const filterKey = JSON.stringify({ selected, view, filter, search: needles, people: names });
     const position = decodeCursor(cursor, filterKey);
-    const revision = names.length ? activityRevision() : undefined;
+    const revision = needles.length || names.length ? activityRevision() : undefined;
     if (position && revision !== undefined && position.revision !== revision) {
-      throw Object.assign(new Error('Activity changed while loading People results. Try again.'), {
+      throw Object.assign(new Error('Activity changed while loading search results. Try again.'), {
         status: 409,
         code: 'ACTIVITY_CHANGED',
       });
     }
     const maxSequence =
       position?.maxSequence ?? Number(db.prepare('SELECT COALESCE(MAX(sequence),0) AS id FROM activity_members').get()?.id);
-    const member = memberScope(maxSequence, selected, needle, names);
+    const member = memberScope(maxSequence, selected, needles, names);
     const query = pageQuery(member, filter, view, position, pageSize);
     const page = db.prepare(query.sql).get(...query.params);
     const groups = /** @type {Group[]} */ (JSON.parse(String(page?.groups)));

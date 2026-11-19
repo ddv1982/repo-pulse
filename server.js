@@ -312,7 +312,7 @@ export function createApp({
           repoIds,
           view,
           kind: query.get('kind') || '',
-          search: (query.get('search') || '').slice(0, 300),
+          search: query.get('search') || '',
           people: query.get('people') || '',
           limit,
           cursor,

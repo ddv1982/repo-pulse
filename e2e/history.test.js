@@ -793,11 +793,25 @@ test('People and named filters restore a scoped Activity search after app restar
       time: new Date().toISOString(),
     },
     { id: 'bob-person', repoId: 'demo-orders', kind: 'push', title: 'Bob result', actor: 'Bob Example', time: new Date().toISOString() },
+    {
+      id: 'unrelated-search',
+      repoId: 'demo-orders',
+      kind: 'push',
+      title: 'Unrelated change',
+      actor: 'Chris',
+      time: new Date().toISOString(),
+    },
     { id: 'text-only', repoId: 'demo-orders', kind: 'push', title: 'Alice Example branch', actor: 'Chris', time: new Date().toISOString() },
   ]);
   await page.goto(runtime.url + '/#activity/all');
-  const people = page.getByRole('searchbox', { name: 'People' });
+  const people = page.getByRole('searchbox', { name: 'Search activity' });
+  await expect(page.getByRole('searchbox')).toHaveCount(1);
+  await expect(page.locator('li[data-event-id="unrelated-search"]')).toBeVisible();
   await people.fill('Alice Example, Bob Example');
+  await expect(page.locator('li[data-event-id="unrelated-search"]')).toHaveCount(0);
+  await expect(page.locator('li[data-event-id="text-only"]')).toBeVisible();
+  await expect(page.locator('li[data-event-id="bob-person"]')).toBeVisible();
+  await people.fill('people:Alice Example, Bob Example');
   await expect(page.locator('li[data-event-id="alice-person"]')).toBeVisible();
   await expect(page.locator('li[data-event-id="bob-person"]')).toBeVisible();
   await expect(page.locator('li[data-event-id="text-only"]')).toHaveCount(0);
@@ -812,10 +826,16 @@ test('People and named filters restore a scoped Activity search after app restar
   await page.getByRole('button', { name: 'Clear filters' }).click();
   await expect(page.locator('li[data-event-id="text-only"]')).toBeVisible();
   await page.getByRole('button', { name: 'Apply', exact: true }).click();
-  await expect(people).toHaveValue('Alice Example, Bob Example');
+  await expect(people).toHaveValue('people:Alice Example, Bob Example');
+  const mixedSearch = 'result | people:Alice Example, Bob Example';
+  await people.fill(mixedSearch);
   await page.getByRole('button', { name: /^Alice result/ }).click();
+  await expect(page).toHaveURL(/#event\/alice-person$/);
+  await page.reload();
   await page.getByRole('link', { name: /Back to All activity/ }).click();
-  await expect(people).toHaveValue('Alice Example, Bob Example');
+  await expect(people).toHaveValue(mixedSearch);
+  await expect(page.locator('li[data-event-id="alice-person"]')).toBeVisible();
+  await expect(page.locator('li[data-event-id="bob-person"]')).toBeVisible();
 
   await stop();
   const restarted = await startApp({ demo: true, port: 0, dataDir: directory });
@@ -827,16 +847,16 @@ test('People and named filters restore a scoped Activity search after app restar
     await presets.selectOption({ label: 'My team' });
     await page.getByRole('button', { name: 'Apply', exact: true }).click();
     await expect(page).toHaveURL(/#activity\/all$/);
-    await expect(people).toHaveValue('Alice Example, Bob Example');
+    await expect(people).toHaveValue('people:Alice Example, Bob Example');
     await expect(page.locator('li[data-event-id="bob-person"]')).toBeVisible();
     await expect(page.locator('li[data-event-id="text-only"]')).toHaveCount(0);
-    await people.fill(Array.from({ length: 13 }, (_, index) => `Person ${index}`).join(','));
+    await people.fill('people:' + Array.from({ length: 13 }, (_, index) => `Person ${index}`).join(','));
     await expect(page.getByRole('region', { name: 'Repository activity' }).getByText('Activity could not load')).toBeVisible();
     await page.getByRole('button', { name: 'Rename', exact: true }).click();
     await page.getByRole('textbox', { name: 'Filter name' }).fill('Testing team');
     await page.getByRole('dialog').getByRole('button', { name: 'Save', exact: true }).click();
     await expect(presets.locator('option:checked')).toHaveText('Testing team');
-    await people.fill('Alice Example');
+    await people.fill('people:Alice Example');
     await page.getByRole('button', { name: 'Update from current' }).click();
     await expect(page.getByRole('status').filter({ hasText: 'Saved filter updated.' })).toBeVisible();
     await page.getByRole('button', { name: 'Apply', exact: true }).click();
@@ -858,7 +878,7 @@ test('People and named filters restore a scoped Activity search after app restar
     await presets.selectOption({ label: 'Testing team' });
     await page.getByRole('button', { name: 'Apply', exact: true }).click();
     await expect(page.getByText(/saved repositories unavailable/)).toBeVisible();
-    await expect(page.getByText('No activity matches these filters')).toBeVisible();
+    await expect(page.getByRole('region', { name: 'Repository activity' }).getByText('No activity matches these filters')).toBeVisible();
     await expect(page.locator('li[data-event-id="other-repo-alice"]')).toHaveCount(0);
     await page.getByRole('button', { name: 'Delete', exact: true }).click();
     await page.getByRole('button', { name: 'Delete filter', exact: true }).click();
@@ -876,7 +896,7 @@ test('People detail only acknowledges the updates that matched the originating r
     { ...common, id: 'other-build', actor: 'Chris Example', title: 'Chris run', data: { buildId: 18001, status: 'completed' } },
   ]);
   await page.goto(runtime.url + '/#activity/all');
-  await page.getByRole('searchbox', { name: 'People' }).fill('Alice Example');
+  await page.getByRole('searchbox', { name: 'Search activity' }).fill('people:Alice Example');
   await page.locator('[data-event-id="alice-build"] button.feed-title').click();
   await expect(page).toHaveURL(/#event\/alice-build$/);
   await page.reload();

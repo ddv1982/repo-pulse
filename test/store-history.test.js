@@ -776,3 +776,30 @@ test('People filters recorded identities before grouping and binds the cursor to
     store.close();
   }
 });
+
+test('comma-separated text search matches any term within the same repository scope', () => {
+  const store = setup();
+  try {
+    store.saveRepo({ id: 'other', name: 'Elsewhere' });
+    store.insertEvents([
+      event('alice', { actor: 'Alice Morgan' }),
+      event('bob', { actor: 'Bob Smith' }),
+      event('branch', { branch: 'feature/Alice Morgan' }),
+      event('unrelated', { actor: 'Chris' }),
+      event('other-alice', { repoId: 'other', actor: 'Alice Morgan' }),
+    ]);
+    const scope = { repoIds: [repo.id], search: ' Alice Morgan, Bob Smith, alice morgan, ' };
+    const first = store.queryActivity({ ...scope, limit: 1 });
+    const rest = store.queryActivity({ ...scope, search: 'BOB SMITH, alice morgan', cursor: first.nextCursor });
+    assert.equal(first.total, 3);
+    assert.deepEqual([...first.items, ...rest.items].map(item => item.id).sort(), ['alice', 'bob', 'branch']);
+    assert.deepEqual(
+      store.queryActivity({ ...scope, people: 'Alice Morgan' }).items.map(item => item.id),
+      ['alice'],
+    );
+    assert.equal(store.queryActivity({ ...scope, search: ', ,' }).total, 4);
+    assert.throws(() => store.queryActivity({ search: 'a,'.repeat(600) }), /300 characters/);
+  } finally {
+    store.close();
+  }
+});
