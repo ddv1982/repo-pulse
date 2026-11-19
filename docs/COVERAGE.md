@@ -38,11 +38,12 @@ Evidence saved before deeper analysis stopped also enumerated ref ranges, becaus
   A completed PR association is shown only when the push's new tip is the PR's merge commit; multi-parent objects are no longer inspected. Neither invents source branch names or human commands. Fast-forward and squash intent can remain unknowable.
   The "Merge commit" row badge and filter are gone. A merge commit listed in evidence saved earlier still shows under "How this was merged" in the push detail.
 - A commit inside a push that is not its new tip is searchable only through evidence saved earlier. Push tips, PR commits and build commits remain searchable.
-- Branch rename has no semantic event model. History rewrites are no longer checked for new pushes.
-  Evidence saved earlier read, for each moved branch, the commits the old tip reaches and the new
-  tip does not: none is a fast-forward, any is a history rewrite, and an unreadable old tip leaves
-  it unknown. Unequal tips alone are never called a rewrite, and a rewrite does not identify the
-  command that caused it. Tag pushes become tag rows; a tag-only push is not shown as a push.
+- Branch rename has no semantic event model. A new push that moves an existing branch is checked once
+  per moved branch, in the background while automatic checks are on: one Azure read of the commits
+  the old tip reaches and the new tip does not. None is a fast-forward, any is a history rewrite
+  ("History rewritten"), and an old tip Azure no longer has, or a read that keeps failing, leaves it
+  unknown. Imported pushes, from the first sync or a history import, are not checked. Unequal tips
+  alone are never called a rewrite, and a rewrite does not identify the command that caused it. Tag pushes become tag rows; a tag-only push is not shown as a push.
 - A snapshot discovery and a later push record can both describe the same branch. They remain
   separate observations when the app cannot prove a shared branch lifetime/source identity.
 - A branch created and deleted entirely between readable observations may be missed. Loss of ref

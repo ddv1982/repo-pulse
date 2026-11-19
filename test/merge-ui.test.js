@@ -28,6 +28,23 @@ test('saved graph evidence stays readable in the detail without a row badge, and
   assert.match(renderMergeEvidence({ mergeEvidence: { status: 'not-applicable', commits: [], prs: [] } }), /Branch lifecycle only/);
 });
 
+test('the rewrite check result shows on the row and in the detail without a merge verdict', () => {
+  const rewritten = { mergeEvidence: { rewrite: [{ ref: 'refs/heads/main', status: 'rewrite', dropped: 2, more: true }] } };
+  assert.equal(
+    mergeEvidenceBadge({ kind: 'push', data: rewritten }),
+    '<span class="chip status-chip warn">History rewritten · 2+ commits dropped</span>',
+  );
+  const html = renderMergeEvidence(rewritten);
+  assert.match(html, /main · history rewritten, 2\+ commits dropped from the old tip/);
+  assert.doesNotMatch(html, /Evidence incomplete|No completed PR association/);
+  const fastForward = { mergeEvidence: { rewrite: [{ ref: 'refs/heads/main', status: 'fast-forward' }] } };
+  assert.equal(mergeEvidenceBadge({ kind: 'push', data: fastForward }), '');
+  assert.match(renderMergeEvidence(fastForward), /main · fast-forward, no history dropped/);
+  const unknown = { mergeEvidence: { rewrite: [{ ref: 'refs/heads/main', status: 'unknown' }] } };
+  assert.equal(mergeEvidenceBadge({ kind: 'push', data: unknown }), '');
+  assert.match(renderMergeEvidence(unknown), /main · old tip could not be read; rewrite not established/);
+});
+
 test('a push without merge evidence shows nothing about analysis', () => {
   assert.equal(renderMergeEvidence({}), '');
   assert.equal(renderMergeEvidence(), '');

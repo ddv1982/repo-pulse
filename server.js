@@ -14,6 +14,7 @@ import { discoverRepositories, parseRemote } from './server/repositories.js';
 import { seedDemo, addDemoEvent, demoProvider } from './server/demo.js';
 import { syncStatus } from './server/sync-status.js';
 import { createBackfill } from './server/backfill.js';
+import { createRewriteCheck } from './server/rewrite-check.js';
 import { createCheckoutLookup } from './server/checkout-advice.js';
 import { isBranchAction } from './server/checkout-branches.js';
 import { createCheckoutGit, isCheckoutIntent } from './server/checkout-git.js';
@@ -595,6 +596,7 @@ export async function startApp({ demo = false, port = 0, dataDir = resolve(ROOT,
   let lastClientAt = 0;
   /** @type {ReturnType<typeof createBackfill> | undefined} */
   let backfill;
+  const rewriteCheck = azure && createRewriteCheck({ store, provider: azure });
   const liveSync =
     azure &&
     createSync({
@@ -602,7 +604,7 @@ export async function startApp({ demo = false, port = 0, dataDir = resolve(ROOT,
       provider: azure,
       isForeground: () => Date.now() - lastClientAt < 45_000,
       // Assigned below, before sync.start() can schedule any work.
-      background: { history: () => backfill?.tick() },
+      background: { rewrite: () => rewriteCheck?.tick(), history: () => backfill?.tick() },
     });
   const sync = liveSync || {
     start() {},

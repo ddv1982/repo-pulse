@@ -12,9 +12,15 @@ export function renderMergeEvidence(data = {}) {
   if (!evidence) return '';
   const prs = evidence.prs || [];
   const commits = evidence.commits || [];
+  // A rewrite check alone says nothing about how the push was merged.
+  const merge = prs.length || commits.length || evidence.status;
   return `<section class="activity-history stack-gap" aria-label="How this was merged"><h2>How this was merged</h2>
-    <p><span class="chip status-chip ${prs.length ? 'ok' : commits.length ? 'info' : evidence.status === 'not-applicable' ? 'neutral' : 'unk'}">${prs.length ? 'Completed PR linked' : commits.length ? 'Merge commit found' : evidence.status === 'not-applicable' ? 'Branch lifecycle only' : evidence.status === 'complete' ? 'No merge established' : 'Evidence incomplete'}</span>${evidence.checkedAt ? ` <span class="help">Checked ${e(dateTime(evidence.checkedAt))}</span>` : ''}</p>
-    ${prs.length ? `<ul>${prs.map(renderPr).join('')}</ul>` : evidence.status === 'not-applicable' ? '' : '<p class="help">No completed PR association established. This does not prove a push was made outside a PR.</p>'}
+    ${
+      merge
+        ? `<p><span class="chip status-chip ${prs.length ? 'ok' : commits.length ? 'info' : evidence.status === 'not-applicable' ? 'neutral' : 'unk'}">${prs.length ? 'Completed PR linked' : commits.length ? 'Merge commit found' : evidence.status === 'not-applicable' ? 'Branch lifecycle only' : evidence.status === 'complete' ? 'No merge established' : 'Evidence incomplete'}</span>${evidence.checkedAt ? ` <span class="help">Checked ${e(dateTime(evidence.checkedAt))}</span>` : ''}</p>
+    ${prs.length ? `<ul>${prs.map(renderPr).join('')}</ul>` : evidence.status === 'not-applicable' ? '' : '<p class="help">No completed PR association established. This does not prove a push was made outside a PR.</p>'}`
+        : ''
+    }
     ${commits.length ? `<ul>${commits.map(item => `<li><code>${e((item.commitId || '').slice(0, 8))}</code> · ${e(item.parents?.length || 0)} parents${item.branches?.length ? ` · ${e(item.branches.map(branchName).join(', '))}` : ''}</li>`).join('')}</ul><p class="help">Multiple parents establish a graph merge; they do not identify the original branch name or Git command.</p>` : ''}
     ${renderHistory(data)}
     ${(evidence.limitations || []).map(item => `<p class="help">${e(item)}</p>`).join('')}
@@ -25,15 +31,25 @@ export function renderMergeEvidence(data = {}) {
 /** @param {{ dropped?: number, more?: boolean }} update */
 const droppedText = update => `${update.dropped}${update.more ? '+' : ''} commit${update.dropped === 1 && !update.more ? '' : 's'} dropped`;
 
+/** @typedef {{ name?: string, update: { status?: string, dropped?: number, more?: boolean } }} CheckedUpdate */
+/**
+ * Branch updates with a history check: saved as ref ranges by the earlier merge analysis, or by the rewrite check.
+ * @param {EventData} [data] @returns {CheckedUpdate[]}
+ */
+const checkedUpdates = data => [
+  ...(data?.mergeEvidence?.refRanges || []).flatMap(range => (range.update ? [{ name: range.name, update: range.update }] : [])),
+  ...(data?.mergeEvidence?.rewrite || []).map(({ ref, ...update }) => ({ name: ref, update })),
+];
+
 /** Branch updates whose old tip the new tip no longer reaches. @param {EventData} [data] */
-const rewrites = data => (data?.mergeEvidence?.refRanges || []).filter(range => range.update?.status === 'rewrite');
+const rewrites = data => checkedUpdates(data).filter(range => range.update.status === 'rewrite');
 
 /** @param {import('../activity.js').ActivityEvent} event */
 export function mergeEvidenceBadge(event) {
   const label = activityMergeBadge(event);
   const rewritten = event.kind === 'push' ? rewrites(event.data) : [];
   const history = rewritten.length
-    ? `<span class="chip status-chip warn">History rewritten · ${e(rewritten.map(range => droppedText(range.update || {})).join(', '))}</span>`
+    ? `<span class="chip status-chip warn">History rewritten · ${e(rewritten.map(range => droppedText(range.update)).join(', '))}</span>`
     : '';
   if (!label) return history;
   return `<span class="chip status-chip ok">${e(label)}</span>${history}`;
@@ -41,12 +57,12 @@ export function mergeEvidenceBadge(event) {
 
 /** @param {EventData} [data] */
 function renderHistory(data) {
-  const ranges = (data?.mergeEvidence?.refRanges || []).filter(range => range.update);
+  const ranges = checkedUpdates(data);
   if (!ranges.length) return '';
   /** @type {Record<string, string>} */
-  const text = { 'fast-forward': 'fast-forward, no history dropped', unknown: 'old tip unavailable; rewrite not established' };
-  const line = (/** @type {import('../activity.js').EvidenceRange} */ range) =>
-    `<li>${e(branchName(range.name))} · ${range.update?.status === 'rewrite' ? `history rewritten, ${e(droppedText(range.update))} from the old tip` : e(text[range.update?.status ?? ''] || 'not checked')}</li>`;
+  const text = { 'fast-forward': 'fast-forward, no history dropped', unknown: 'old tip could not be read; rewrite not established' };
+  const line = (/** @type {CheckedUpdate} */ range) =>
+    `<li>${e(branchName(range.name))} · ${range.update.status === 'rewrite' ? `history rewritten, ${e(droppedText(range.update))} from the old tip` : e(text[range.update.status ?? ''] || 'not checked')}</li>`;
   return `<ul>${ranges.map(line).join('')}</ul>`;
 }
 
