@@ -4,7 +4,8 @@ import { renderFeed, renderDetail } from './feed.js';
 import { renderRepositories } from './repositories.js';
 import { renderSettings } from './settings.js';
 import { eventIds } from './seen-actions.js';
-import { required } from './dom.js';
+import { required, setHtml } from './dom.js';
+import { emptyHtml, html } from './format.js';
 
 /** @typedef {import('./refresh.js').PageState} PageState */
 /** @typedef {import('./navigation.js').ResultsContext} ResultsContext */
@@ -43,21 +44,24 @@ export function createBrowserView({ page, header, demo, syncLive, picker, typeFi
     /** @type {[number | null, number | null] | null} */
     const selection =
       focused instanceof HTMLInputElement && focused.type === 'search' ? [focused.selectionStart, focused.selectionEnd] : null;
-    if (ui.route === 'repositories') page.innerHTML = renderRepositories(state, ui, checkouts);
-    else if (ui.route === 'settings') page.innerHTML = renderSettings(state, ui.connection);
+    if (ui.route === 'repositories') setHtml(page, renderRepositories(state, ui, checkouts));
+    else if (ui.route === 'settings') setHtml(page, renderSettings(state, ui.connection));
     else if (ui.route === 'event' && state.detailLoading && !state.events.some(event => event.id === ui.eventId))
-      page.innerHTML = '<div class="card loading" role="status">Loading activity details…</div>';
+      setHtml(page, html`<div class="card loading" role="status">Loading activity details…</div>`);
     else if (ui.route === 'event')
-      page.innerHTML = renderDetail(
-        state.events.find(event => event.id === ui.eventId),
-        state,
-        commits,
-        {
-          returnRoute,
-          label: returnRoute === 'activity' ? 'Back to All activity' : 'Back to New updates',
-        },
+      setHtml(
+        page,
+        renderDetail(
+          state.events.find(event => event.id === ui.eventId),
+          state,
+          commits,
+          {
+            returnRoute,
+            label: returnRoute === 'activity' ? 'Back to All activity' : 'Back to New updates',
+          },
+        ),
       );
-    else page.innerHTML = renderFeed(state, ui);
+    else setHtml(page, renderFeed(state, ui));
     const pickerHost = page.querySelector('#repository-picker');
     picker.mount(pickerHost instanceof HTMLElement ? pickerHost : null);
     const typeMenu = page.querySelector('.type-menu');
@@ -119,7 +123,7 @@ export function createBrowserView({ page, header, demo, syncLive, picker, typeFi
       const focusedId = active && header.contains(active) ? active.id : '';
       const menu = header.querySelector('.header-overflow');
       const menuOpen = menu instanceof HTMLDetailsElement && menu.open;
-      header.innerHTML = renderHeader(state, ui);
+      setHtml(header, renderHeader(state, ui));
       const sentence = syncAnnouncement(state.syncStatus.overall, syncRepoName(state.repos, state.syncStatus.overall));
       // Writing the same text again would replace the text node and could repeat the announcement.
       if (syncLive.textContent !== sentence) syncLive.textContent = sentence;
@@ -128,14 +132,17 @@ export function createBrowserView({ page, header, demo, syncLive, picker, typeFi
       // As in renderPage: theme.js runs first, and the optional call covers its absence.
       /** @type {ThemedWindow} */ (window).repoPulseTheme?.apply();
       renderPage(state, ui, options);
-      demo.innerHTML = state.demo
-        ? '<div class="banner info notice"><div><strong>Demo mode · fictional repositories and people</strong>No Azure requests are made. This uses an isolated local database. <button class="btn sm" type="button" data-action="demo-event">Simulate incoming hotfix</button></div></div>'
-        : '';
+      setHtml(
+        demo,
+        state.demo
+          ? html`<div class="banner info notice"><div><strong>Demo mode · fictional repositories and people</strong>No Azure requests are made. This uses an isolated local database. <button class="btn sm" type="button" data-action="demo-event">Simulate incoming hotfix</button></div></div>`
+          : emptyHtml,
+      );
     },
     /** @param {PageState} state @param {BrowserUi} ui */
     updateScopeLabel(state, ui) {
       const toggle = required('#repo-toggle', HTMLElement, header);
-      toggle.innerHTML = scopeLabel(state, ui);
+      setHtml(toggle, scopeLabel(state, ui));
       toggle.setAttribute('aria-label', scopeName(state, ui));
     },
   };

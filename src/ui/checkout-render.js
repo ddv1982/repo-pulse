@@ -1,6 +1,6 @@
 // @ts-check
 
-import { azureLink, escape as e } from './format.js';
+import { azureLink, emptyHtml, html, joinHtml } from './format.js';
 
 /** @typedef {import('./checkout.js').CheckoutSnapshot} CheckoutSnapshot */
 /** @typedef {import('../../server/checkout-observations.js').CheckoutDiagnostic} CheckoutDiagnostic */
@@ -71,15 +71,16 @@ const strategyNames = { rebase: ' via rebase', rebaseMerge: ' via rebase and mer
 
 /** @param {string} id @param {CheckoutDiagnostic | undefined} diagnostic @param {unknown} canSwitch */
 function diagnosticMarkup(id, diagnostic, canSwitch) {
-  if (!diagnostic) return '';
+  if (!diagnostic) return emptyHtml;
   const { message, suggestion, advice, comparison } = diagnostic;
-  return `<div class="checkout-diagnostic help">
+  const adviceLink = advice ? azureLink(advice.url, `PR #${advice.id}`) : emptyHtml;
+  return html`<div class="checkout-diagnostic help">
     <div>
-    ${message && !canSwitch ? `<p>${e(message)}</p>` : ''}
+    ${message && !canSwitch ? html`<p>${message}</p>` : emptyHtml}
     ${
       advice
-        ? `<p>${azureLink(advice.url, `PR #${advice.id}`) || `PR #${e(advice.id)}`} was completed into
-      <code>${e(advice.branch)}</code>${e(strategyNames[advice.strategy ?? ''] || '')}.
+        ? html`<p>${adviceLink.toString() ? adviceLink : `PR #${advice.id}`} was completed into
+      <code>${advice.branch}</code>${strategyNames[advice.strategy ?? ''] || ''}.
       ${
         canSwitch && !advice.verified
           ? 'You can review your local commits after switching.'
@@ -87,34 +88,32 @@ function diagnosticMarkup(id, diagnostic, canSwitch) {
             ? 'Git could not verify the PR result on the target.'
             : ''
       }</p>`
-        : ''
+        : emptyHtml
     }
-    ${!canSwitch ? `<p>${e(suggestion)}</p>` : ''}
+    ${!canSwitch ? html`<p>${suggestion}</p>` : emptyHtml}
     ${
       comparison
-        ? `<details data-group="checkout-compare-${e(id)}">
-      <summary id="checkout-compare-${e(id)}">Compare fetched history</summary>
-      <p>Previous <code title="${e(comparison.previous)}">${e(comparison.previous.slice(0, 12))}</code> ·
-        New <code title="${e(comparison.tip)}">${e(comparison.tip.slice(0, 12))}</code></p>
+        ? html`<details data-group="checkout-compare-${id}">
+      <summary id="checkout-compare-${id}">Compare fetched history</summary>
+      <p>Previous <code title="${comparison.previous}">${comparison.previous.slice(0, 12)}</code> ·
+        New <code title="${comparison.tip}">${comparison.tip.slice(0, 12)}</code></p>
       ${
         comparison.commits.length
-          ? `<ul>${comparison.commits
-              .map(
-                commit => `<li>${commit.side === 'old' ? 'Previous only' : 'New only'} ·
-        <code>${e(commit.id)}</code> ${e(commit.subject)}</li>`,
-              )
-              .join('')}</ul>`
-          : '<p>Inspect the two revisions in Git to see their changes.</p>'
+          ? html`<ul>${comparison.commits.map(
+              commit => html`<li>${commit.side === 'old' ? 'Previous only' : 'New only'} ·
+        <code>${commit.id}</code> ${commit.subject}</li>`,
+            )}</ul>`
+          : html`<p>Inspect the two revisions in Git to see their changes.</p>`
       }
     </details>`
-        : ''
+        : emptyHtml
     }
     </div>
     ${
       canSwitch && advice
-        ? `<button type="button" class="btn primary sm" id="checkout-switch-${e(id)}"
-      data-action="switch-checkout-target" data-id="${e(id)}">Switch to ${e(advice.branch)} and update</button>`
-        : ''
+        ? html`<button type="button" class="btn primary sm" id="checkout-switch-${id}"
+      data-action="switch-checkout-target" data-id="${id}">Switch to ${advice.branch} and update</button>`
+        : emptyHtml
     }
   </div>`;
 }
@@ -130,43 +129,38 @@ const reviewMessages = {
 /** @param {string} id @param {CheckoutSnapshot} checkout */
 function reviewMarkup(id, checkout) {
   const { followup, review } = checkout;
-  if (!followup) return '';
+  if (!followup) return emptyHtml;
   /** @param {'review' | 'carry' | 'remove'} name @param {string} label */
-  const action = (name, label) => `<button class="btn sm" type="button" id="checkout-${name}-${e(id)}"
-    data-action="${name}-checkout-branch" data-id="${e(id)}">${label}</button>`;
+  const action = (name, label) => html`<button class="btn sm" type="button" id="checkout-${name}-${id}"
+    data-action="${name}-checkout-branch" data-id="${id}">${label}</button>`;
   const workspace = followup.workspace
-    ? `<p class="checkout-diagnostic help">Follow-up worktree <code>${e(followup.workspace)}</code></p>`
-    : '';
-  if (!review) return workspace + action('review', 'Review old branch');
-  return (
-    workspace +
-    `<div class="checkout-diagnostic help" data-checkout-review>
-    <p><code>${e(followup.source)}</code> · ${e(reviewMessages[review.kind])}</p>
+    ? html`<p class="checkout-diagnostic help">Follow-up worktree <code>${followup.workspace}</code></p>`
+    : emptyHtml;
+  if (!review) return html`${workspace}${action('review', 'Review old branch')}`;
+  return html`${workspace}<div class="checkout-diagnostic help" data-checkout-review>
+    <p><code>${followup.source}</code> · ${reviewMessages[review.kind]}</p>
     ${
       review.commits?.length && checkout.state === 'current' && !followup.workspace
-        ? `<fieldset class="checkout-commits">
+        ? html`<fieldset class="checkout-commits">
       <legend>Commits to carry onto a new branch</legend>
-      ${review.commits
-        .map(
-          commit => `<label><input type="checkbox" name="checkout-commit" value="${e(commit.id)}">
-        <code>${e(commit.id.slice(0, 8))}</code> ${e(commit.subject)}</label>`,
-        )
-        .join('')}
+      ${review.commits.map(
+        commit => html`<label><input type="checkbox" name="checkout-commit" value="${commit.id}">
+        <code>${commit.id.slice(0, 8)}</code> ${commit.subject}</label>`,
+      )}
       ${action('carry', 'Carry selected commits')}
     </fieldset>`
-        : ''
+        : emptyHtml
     }
-    ${review.canRemove ? action('remove', 'Remove old local branch…') : ''}
-  </div>`
-  );
+    ${review.canRemove ? action('remove', 'Remove old local branch…') : emptyHtml}
+  </div>`;
 }
 
 /** @param {string} id @param {CheckoutSnapshot | undefined} checkout */
 function updateOptions(id, checkout) {
-  if (!checkout?.canPull || !checkout.dirty) return '';
-  return `<details class="checkout-update-options help" data-group="checkout-update-${e(id)}">
-    <summary id="checkout-update-${e(id)}" aria-label="Update options" aria-describedby="checkout-update-reason-${e(id)}">
-      <span id="checkout-update-reason-${e(id)}">Git will check that Pull can keep your local changes.</span>
+  if (!checkout?.canPull || !checkout.dirty) return emptyHtml;
+  return html`<details class="checkout-update-options help" data-group="checkout-update-${id}">
+    <summary id="checkout-update-${id}" aria-label="Update options" aria-describedby="checkout-update-reason-${id}">
+      <span id="checkout-update-reason-${id}">Git will check that Pull can keep your local changes.</span>
       <span class="btn sm" aria-hidden="true">Update options</span>
     </summary>
     <p>Try Pull first. If Git reports overlapping changes, stash your edits or save them on a separate branch, then try Pull again. If you used a stash, reapply it after pulling.</p>
@@ -176,12 +170,12 @@ function updateOptions(id, checkout) {
 /** @param {CheckoutSnapshot | undefined} checkout */
 function lastCheckMarkup(checkout) {
   const at = checkout?.lastBranchCheck?.at;
-  return at ? `Last successful Git check <time datetime="${e(at)}">${e(exactCheckTime.format(new Date(at)))}</time>` : '';
+  return at ? html`Last successful Git check <time datetime="${at}">${exactCheckTime.format(new Date(at))}</time>` : emptyHtml;
 }
 
 /** @param {string} id @param {CheckoutSnapshot | undefined} checkout */
 function guidanceMarkup(id, checkout) {
-  return [
+  return joinHtml([
     updateOptions(id, checkout),
     diagnosticMarkup(
       id,
@@ -191,9 +185,9 @@ function guidanceMarkup(id, checkout) {
         checkout.diagnostic?.advice?.destination === 'local' &&
         checkout.diagnostic.advice.receipt,
     ),
-    checkout ? reviewMarkup(id, checkout) : '',
-    checkout?.nextStep ? `<p class="help" role="status">${e(checkout.nextStep)}</p>` : '',
-  ].join('');
+    checkout ? reviewMarkup(id, checkout) : emptyHtml,
+    checkout?.nextStep ? html`<p class="help" role="status">${checkout.nextStep}</p>` : emptyHtml,
+  ]);
 }
 
 /** @param {string | undefined} state @param {string | undefined} label */
@@ -213,8 +207,8 @@ function checkTimeMarkup(checkout) {
     Number.isInteger(checkout?.behind) &&
     comparableStates.has(checkout?.state);
   return showTime
-    ? `<time class="help" datetime="${e(last.at)}" data-branch-check-time title="${e(exactCheckTime.format(new Date(last.at)))}">${e(checkAge(last.at))}</time>`
-    : '';
+    ? html`<time class="help" datetime="${last.at}" data-branch-check-time title="${exactCheckTime.format(new Date(last.at))}">${checkAge(last.at)}</time>`
+    : emptyHtml;
 }
 
 /** @param {string} id @param {CheckoutSnapshot | undefined} checkout */
@@ -222,13 +216,13 @@ function statusMarkup(id, checkout) {
   const branch = checkout?.branch || (checkout?.state === 'detached' ? checkout.head?.slice(0, 8) : '');
   const label = branchStatus(checkout);
   const tone = statusTone(checkout?.state, label);
-  return `<div class="checkout-state">${branch ? `<code class="subref" title="${e(branch)}">${e(branch)}</code>` : ''}
-    ${label ? `<span class="chip status-chip ${tone}">${e(label)}</span>` : ''}
-    ${checkout?.dirty ? '<span class="chip status-chip neutral">Local changes</span>' : ''}
+  return html`<div class="checkout-state">${branch ? html`<code class="subref" title="${branch}">${branch}</code>` : emptyHtml}
+    ${label ? html`<span class="chip status-chip ${tone}">${label}</span>` : emptyHtml}
+    ${checkout?.dirty ? html`<span class="chip status-chip neutral">Local changes</span>` : emptyHtml}
     ${checkTimeMarkup(checkout)}
     </div>
-    ${checkout?.canCheck ? `<button type="button" class="ghost sm" id="checkout-check-${e(id)}" data-action="check-checkout" data-id="${e(id)}" title="Fetch ${e(checkout.upstream)} and compare it with your current branch">Check for updates</button>` : ''}
-    ${checkout?.canPull ? `<button type="button" class="btn primary sm" id="checkout-pull-${e(id)}" data-action="pull-checkout" data-id="${e(id)}">Pull</button>` : ''}`;
+    ${checkout?.canCheck ? html`<button type="button" class="ghost sm" id="checkout-check-${id}" data-action="check-checkout" data-id="${id}" title="Fetch ${checkout.upstream} and compare it with your current branch">Check for updates</button>` : emptyHtml}
+    ${checkout?.canPull ? html`<button type="button" class="btn primary sm" id="checkout-pull-${id}" data-action="pull-checkout" data-id="${id}">Pull</button>` : emptyHtml}`;
 }
 
 /** @param {string} id @param {CheckoutSnapshot | undefined} checkout @param {string | undefined} part */

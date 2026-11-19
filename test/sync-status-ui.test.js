@@ -1,10 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { renderHeader } from '../src/ui/header.js';
-import { renderRepositories } from '../src/ui/repositories.js';
-import { renderFeed } from '../src/ui/feed.js';
-import { renderSettings } from '../src/ui/settings.js';
+import { renderHeader as renderHeaderHtml } from '../src/ui/header.js';
+import { renderRepositories as renderRepositoriesHtml } from '../src/ui/repositories.js';
+import { renderFeed as renderFeedHtml } from '../src/ui/feed.js';
+import { renderSettings as renderSettingsHtml } from '../src/ui/settings.js';
 import { syncLabel } from '../src/ui/health.js';
+
+const renderHeader = (...args) => String(renderHeaderHtml(...args));
+const renderRepositories = (...args) => String(renderRepositoriesHtml(...args));
+const renderFeed = (...args) => String(renderFeedHtml(...args));
+const renderSettings = (...args) => String(renderSettingsHtml(...args));
 
 // themeSwitch() in the header reads the theme that web/theme.js puts on window.
 Object.assign(globalThis, { window: globalThis });

@@ -1,6 +1,6 @@
 // @ts-check
 
-import { escape as e, buildState } from './format.js';
+import { emptyHtml, html, buildState } from './format.js';
 
 /** @typedef {import('./refresh.js').PageState} PageState */
 
@@ -48,10 +48,9 @@ export function renderSummary(records, state, ui, partial) {
                 ? 'No activity loaded yet'
                 : 'No new updates';
   const repos = state.repos.filter(repo => ui.repoIds === null || ui.repoIds.includes(repo.id)).length;
-  return `<section class="card summary mb" aria-label="Activity summary"><div class="top"><div class="headline"><p><b class="${unseen.length ? '' : 'zero'}">${e(headline)}</b>${updates > unseen.length ? ` · ${updates} updates` : ''}</p><ul class="legend"><li>${repos} repositor${repos === 1 ? 'y' : 'ies'}</li>${!state.activity.loading && !state.activity.error ? `<li>Showing ${records.length} of ${state.activity.total} items</li><li>${state.activity.newItems} total new items · ${state.activity.newUpdates} new updates</li>` : ''}</ul></div><div class="summary-chips" aria-label="Activity counts">${counts
+  return html`<section class="card summary mb" aria-label="Activity summary"><div class="top"><div class="headline"><p><b class="${unseen.length ? '' : 'zero'}">${headline}</b>${updates > unseen.length ? ` · ${updates} updates` : ''}</p><ul class="legend"><li>${repos} repositor${repos === 1 ? 'y' : 'ies'}</li>${!state.activity.loading && !state.activity.error ? html`<li>Showing ${records.length} of ${state.activity.total} items</li><li>${state.activity.newItems} total new items · ${state.activity.newUpdates} new updates</li>` : emptyHtml}</ul></div><div class="summary-chips" aria-label="Activity counts">${counts
     .filter(cell => cell.count)
-    .map(cell => `<span class="chip ${cell.tone || ''}">${e(cell.label)} ${cell.count}${cell.sub ? ` · ${e(cell.sub)}` : ''}</span>`)
-    .join(
-      '',
-    )}</div></div><div class="cells c4">${counts.map(cell => `<div class="cell" data-summary-kind="${e(cell.label)}"><div class="label">${e(cell.label)}</div><div class="val ${cell.count ? cell.tone || 't-info' : 'zero'}">${cell.count}</div>${cell.count && cell.sub ? `<div class="sub">${e(cell.sub)}</div>` : ''}</div>`).join('')}</div></section>`;
+    .map(
+      cell => html`<span class="chip ${cell.tone || ''}">${cell.label} ${cell.count}${cell.sub ? ` · ${cell.sub}` : ''}</span>`,
+    )}</div></div><div class="cells c4">${counts.map(cell => html`<div class="cell" data-summary-kind="${cell.label}"><div class="label">${cell.label}</div><div class="val ${cell.count ? cell.tone || 't-info' : 'zero'}">${cell.count}</div>${cell.count && cell.sub ? html`<div class="sub">${cell.sub}</div>` : emptyHtml}</div>`)}</div></section>`;
 }

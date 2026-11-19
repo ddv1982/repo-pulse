@@ -1,6 +1,6 @@
 // @ts-check
 
-import { escape as e, dateTime } from './format.js';
+import { html, dateTime } from './format.js';
 
 /** @typedef {import('../../server/sync-status.js').SyncStatus} SyncStatus */
 /** @typedef {import('../../server/sync-status.js').OverallSyncStatus} OverallSyncStatus */
@@ -86,8 +86,8 @@ export function syncAnnouncement(status, repoName = '') {
 
 /** @param {AnySyncStatus} status @param {string} [repoName] */
 export function syncPill(status, repoName) {
-  const sentence = e(syncSentence(status, repoName));
-  return `<span class="chip status-chip sync-pill ${tones[status.state]}" aria-label="Sync status: ${sentence}" title="${sentence}">${e(syncLabel(status))}</span>`;
+  const sentence = syncSentence(status, repoName);
+  return html`<span class="chip status-chip sync-pill ${tones[status.state]}" aria-label="Sync status: ${sentence}" title="${sentence}">${syncLabel(status)}</span>`;
 }
 
 /** The repository an overall status concerns. @param {{ id: string, name: string }[]} repos @param {AnySyncStatus} status */

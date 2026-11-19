@@ -18,6 +18,50 @@ import { safeAzureUrl } from '../events.js';
 const entities = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
 /** @param {unknown} value */
 export const escape = value => String(value ?? '').replace(/[&<>"']/g, c => entities[c]);
+
+const SAFE_HTML = Symbol('SafeHtml');
+
+/** Trusted HTML produced only by the `html` tagged template; plain strings cannot impersonate it. */
+export class SafeHtml {
+  #html;
+  /** @param {string} value @param {symbol} token */
+  constructor(value, token) {
+    if (token !== SAFE_HTML) throw new TypeError('Use html`...` to build SafeHtml.');
+    this.#html = value;
+  }
+  toString() {
+    return this.#html;
+  }
+}
+
+/** @typedef {SafeHtml | string | number | boolean | null | undefined | HtmlValue[]} HtmlValue */
+
+/** @param {HtmlValue} value @returns {string} */
+function renderValue(value) {
+  if (value === null || value === undefined) return '';
+  if (value instanceof SafeHtml) return value.toString();
+  if (Array.isArray(value)) return value.map(renderValue).join('');
+  return escape(value);
+}
+
+/**
+ * Tagged template that auto-escapes interpolated values unless they are already SafeHtml.
+ * @param {TemplateStringsArray} strings
+ * @param {...HtmlValue} values
+ * @returns {SafeHtml}
+ */
+export function html(strings, ...values) {
+  let out = strings[0];
+  for (let i = 0; i < values.length; i++) out += renderValue(values[i]) + strings[i + 1];
+  return new SafeHtml(out, SAFE_HTML);
+}
+
+export const emptyHtml = html``;
+
+/** @param {HtmlValue[]} items @param {HtmlValue} [separator] @returns {SafeHtml} */
+export function joinHtml(items, separator = emptyHtml) {
+  return new SafeHtml(items.map(renderValue).join(renderValue(separator)), SAFE_HTML);
+}
 /** @type {Record<string, string | undefined>} */
 const streamLabels = {
   refs: 'Branches',
@@ -42,15 +86,15 @@ export function dateTime(value) {
     : date.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 
-/** @param {unknown} value */
+/** @param {unknown} value @returns {SafeHtml} */
 export function azureLink(value, label = 'Azure ↗', className = 'ghost sm') {
   try {
     const safe = safeAzureUrl(value);
-    if (!safe) return '';
+    if (!safe) return emptyHtml;
     const url = new URL(safe);
-    return `<a class="${className}" href="${escape(url.href)}" target="_blank" rel="noopener noreferrer">${escape(label)}</a>`;
+    return html`<a class="${className}" href="${url.href}" target="_blank" rel="noopener noreferrer">${label}</a>`;
   } catch {
-    return '';
+    return emptyHtml;
   }
 }
 
