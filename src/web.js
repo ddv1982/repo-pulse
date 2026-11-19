@@ -1,5 +1,6 @@
 import { request } from './api.js';
-import { joinActivitySearch, splitActivitySearch } from './ui/activity-search.js';
+import { joinActivitySearch } from './ui/activity-search.js';
+import { activityFilterLabel } from './activity-text.js';
 import { createCheckoutActions } from './ui/checkout-actions.js';
 import { activityBranch } from './activity-branch.js';
 import { createCheckoutPanel } from './ui/checkout.js';
@@ -9,9 +10,11 @@ import { createRepositoryPicker } from './ui/repository-picker.js';
 import { createNavigation, activityHref, isActivity } from './ui/navigation.js';
 import { createTypeFilter } from './ui/type-filter.js';
 import { createRefreshController } from './ui/refresh.js';
-import { createBrowserView } from './ui/browser-view.js';
+import { createBrowserView, replacementFocus } from './ui/browser-view.js';
 import { createSeenActions, eventIds } from './ui/seen-actions.js';
-import { createFilterNameDialog } from './ui/saved-filters.js';
+import { createFilterNameDialog, currentActivityFilters, isSavedFilterModified, savedRepositoryScope } from './ui/saved-filters.js';
+import { createToolbarMenu } from './ui/toolbar-menu.js';
+import { scopeName } from './ui/header.js';
 import { createHistoryImport } from './ui/history-import.js';
 import { required, setHtml } from './ui/dom.js';
 
@@ -27,6 +30,7 @@ let pendingConfirmation;
 /** @type {HTMLElement | SVGElement | null} */
 let dialogOpener;
 let busy = false;
+let deferredSavedFilterRender = false;
 /** @type {{ metadata?: string, activity?: PageState['activity'], events?: PageState['events'] }} */
 let lastRendered = {};
 /** @type {ReturnType<typeof setTimeout> | undefined} */
@@ -69,10 +73,31 @@ const picker = createRepositoryPicker({
   },
 });
 const typeFilter = createTypeFilter({
+  onClose: flushSavedFilterRender,
   onChange: value => {
     // Every type option carries data-kind, so the fallback never applies.
     ui.kind = value ?? '';
     activityChanged();
+  },
+});
+const savedFilterPicker = createToolbarMenu({
+  toggleId: 'saved-filter-toggle',
+  panelId: 'saved-filter-panel',
+  itemSelector: '[data-preset]',
+  onClose: flushSavedFilterRender,
+  onSelect: option => {
+    const preset = refresh.state.savedFilters?.find(filter => filter.id === option.dataset.preset);
+    if (preset) applySavedFilter(preset);
+    else renderPage();
+  },
+});
+const savedFilterActions = createToolbarMenu({
+  toggleId: 'saved-filter-actions-toggle',
+  panelId: 'saved-filter-actions-panel',
+  itemSelector: '[data-filter-action]',
+  onClose: flushSavedFilterRender,
+  onSelect: option => {
+    void withAction(() => actions[option.dataset.filterAction ?? '']?.(option));
   },
 });
 const filterName = createFilterNameDialog(required('#filter-name-dialog', HTMLDialogElement));
@@ -94,7 +119,7 @@ const view = createBrowserView({
   demo: required('#demo'),
   syncLive: required('#sync-live'),
   picker,
-  typeFilter,
+  toolbarMenus: { '.type-menu': typeFilter, '.saved-filter-menu': savedFilterPicker, '.saved-filter-actions': savedFilterActions },
   onPageRendered: seen.updateShownCount,
 });
 const checkoutPanel = createCheckoutPanel({
@@ -141,12 +166,31 @@ function renderPage() {
 }
 
 function render() {
+  deferredSavedFilterRender = false;
   view.render(refresh.state, ui, renderOptions());
   if (ui.route === 'repositories') void connection.check();
 }
 
+const savedFilterMenuOpen = () => savedFilterPicker.expanded || savedFilterActions.expanded;
+
+function flushSavedFilterRender() {
+  if (!deferredSavedFilterRender) return;
+  // Let the click or Tab finish before replacing its target or restoring focus.
+  requestAnimationFrame(() => {
+    if (!deferredSavedFilterRender || savedFilterMenuOpen() || typeFilter.expanded) return;
+    if (view.refreshTarget(true, false) === 'page') {
+      deferredSavedFilterRender = false;
+      renderPage();
+    } else render();
+  });
+}
+
 /** @param {boolean} force */
 function refreshTarget(force) {
+  if (savedFilterMenuOpen() || (deferredSavedFilterRender && typeFilter.expanded)) {
+    deferredSavedFilterRender = true;
+    return null;
+  }
   return view.refreshTarget(
     force,
     busy || dialog.open || historyImport.open || filterName.open || (ui.route === 'repositories' && picker.active()),
@@ -171,6 +215,7 @@ const refresh = createRefreshController({
   getView: navigation.view,
   reconcileRepositories: navigation.reconcileRepositories,
   onUpdate({ metadata, force }) {
+    reconcileSavedFilter();
     const { activity, events } = refresh.state;
     if (force || metadata !== lastRendered.metadata || activity !== lastRendered.activity || events !== lastRendered.events) {
       const target = refreshTarget(force);
@@ -196,6 +241,7 @@ const refresh = createRefreshController({
     }
   },
   onError(error, force) {
+    reconcileSavedFilter();
     showError(`Cannot refresh local state: ${error.message} Last loaded events remain visible.`, true);
     if (isActivity(ui.route) && refreshTarget(force)) renderPage();
     if (ui.route === 'event' && !refresh.state.events.some(event => event.id === ui.eventId)) renderPage();
@@ -253,7 +299,9 @@ function confirm(title, description, callback, label = 'Confirm', { subject = ''
 function closeDialog() {
   dialog.close();
   pendingConfirmation = null;
-  if (dialogOpener?.isConnected) dialogOpener.focus({ preventScroll: true });
+  const opener = dialogOpener?.isConnected ? dialogOpener : replacementFocus(dialogOpener?.id ?? '');
+  dialogOpener = null;
+  opener?.focus({ preventScroll: true });
 }
 
 /** @param {() => unknown} callback */
@@ -281,28 +329,37 @@ function setRefreshPending(pending) {
   }
 }
 
-/** @returns {import('../server/saved-activity-filters.js').ActivityFilters} */
-function currentFilters() {
-  const { search, kind, repoIds, route } = ui;
-  return { ...splitActivitySearch(search), kind, repoIds, view: route === 'activity' ? 'all' : 'new' };
-}
-
 function selectedFilter() {
   return refresh.state.savedFilters?.find(filter => filter.id === ui.savedFilterId);
 }
 
+function reconcileSavedFilter() {
+  if (ui.savedFilterId && refresh.state.savedFilters && !selectedFilter()) ui.savedFilterId = '';
+}
+
 /** @param {import('./ui/saved-filters.js').SavedActivityFilter} preset */
-function applySavedFilter({ filters }) {
+function applySavedFilter({ id, name, filters }) {
   const { search, people, kind, repoIds, view } = filters;
   const watched = refresh.state.watched;
-  const available = new Map(watched.map(repo => [repo.id, repo]));
-  const unavailable = (repoIds || []).filter(id => !available.has(id) || available.get(id)?.disabled);
-  Object.assign(ui, { search: joinActivitySearch(search, people), kind, repoIds: repoIds?.filter(id => available.has(id)) ?? null });
+  const available = new Set(refresh.state.repos.map(repo => repo.id));
+  const unavailable = (repoIds ?? []).filter(id => !available.has(id)).length;
+  Object.assign(ui, {
+    savedFilterId: id,
+    search: joinActivitySearch(search, people),
+    kind,
+    repoIds: savedRepositoryScope(repoIds, watched),
+  });
   const destination = view === 'all' ? 'activity' : 'catchup';
-  if (destination === ui.route) activityChanged({ header: true });
+  const sameView = destination === ui.route;
+  if (sameView) activityChanged({ header: true });
   else location.hash = activityHref(destination);
-  if (unavailable.length)
-    toast(`${unavailable.length} saved repositories unavailable. Showing only available repositories in this filter.`);
+  const destinationMessage = sameView ? '' : ` Opened ${view === 'all' ? 'All activity' : 'New updates'}.`;
+  const scopeMessage = unavailable
+    ? unavailable === repoIds?.length
+      ? ' All saved repositories are unavailable.'
+      : ' Some saved repositories are unavailable.'
+    : '';
+  toast(`Applied “${name}”.${destinationMessage}${scopeMessage}`);
 }
 
 /** @type {Record<string, Action>} */
@@ -370,17 +427,28 @@ const actions = {
     if (callback) await callback();
   },
   'save-filter': () => {
-    const filters = currentFilters();
-    filterName.show('Save Activity filter', '', async name => {
-      const preset = await request('/api/activity-filters', { method: 'POST', body: { name, filters } });
-      ui.savedFilterId = preset.id;
-      await load({ force: true });
-      toast('Filter saved.');
-    });
+    const filters = currentActivityFilters(ui);
+    const summary = `Includes ${filters.view === 'all' ? 'All activity' : 'New updates'} · ${scopeName(refresh.state, filters)} · ${activityFilterLabel(filters.kind)}`;
+    filterName.show(
+      selectedFilter() ? 'Save as new filter' : 'Save Activity filter',
+      '',
+      async name => {
+        const preset = await request('/api/activity-filters', { method: 'POST', body: { name, filters } });
+        ui.savedFilterId = preset.id;
+        await load({ force: true });
+        toast(`Filter “${preset.name}” saved.`);
+      },
+      `${summary}${ui.search ? ` · Search “${ui.search}”` : ''}`,
+    );
   },
-  'apply-filter': () => {
+  'restore-filter': () => {
     const preset = selectedFilter();
     if (preset) applySavedFilter(preset);
+  },
+  'detach-filter': () => {
+    ui.savedFilterId = '';
+    renderPage();
+    document.getElementById('saved-filter-toggle')?.focus({ preventScroll: true });
   },
   'rename-filter': () => {
     const preset = selectedFilter();
@@ -394,7 +462,9 @@ const actions = {
   'update-filter': async () => {
     const preset = selectedFilter();
     if (!preset) return;
-    await request(`/api/activity-filters/${preset.id}`, { method: 'PATCH', body: { filters: currentFilters() } });
+    const filters = currentActivityFilters(ui);
+    if (!isSavedFilterModified(preset.filters, filters, refresh.state.watched)) return;
+    await request(`/api/activity-filters/${preset.id}`, { method: 'PATCH', body: { filters } });
     await load({ force: true });
     toast('Saved filter updated.');
   },
@@ -403,10 +473,10 @@ const actions = {
     if (!preset) return;
     confirm(
       'Delete saved filter?',
-      'You can save this search again from Activity.',
+      'Your current Activity filters will stay applied.',
       async () => {
         await request(`/api/activity-filters/${preset.id}`, { method: 'DELETE' });
-        ui.savedFilterId = '';
+        if (ui.savedFilterId === preset.id) ui.savedFilterId = '';
         await load({ force: true });
         toast('Saved filter deleted.');
       },
@@ -417,7 +487,12 @@ const actions = {
   'clear-filters': () => {
     ui.search = '';
     ui.kind = '';
+    ui.savedFilterId = '';
     activityChanged();
+  },
+  'toggle-activity-filters': () => {
+    ui.filtersOpen = !ui.filtersOpen;
+    renderPage();
   },
   'dismiss-error': clearNotice,
   'all-repos': () => {
@@ -527,10 +602,6 @@ document.addEventListener('input', event => {
 document.addEventListener('change', event => {
   const target = event.target;
   if (!(target instanceof HTMLInputElement || target instanceof HTMLSelectElement)) return;
-  if (target.id === 'saved-filter') {
-    ui.savedFilterId = target.value;
-    renderPage();
-  }
   if (target.matches('[data-scope-repo]')) {
     // Disabled repositories have no checkbox; keep their place in the scope for when they are enabled.
     const disabled = refresh.state.watched.filter(repo => repo.disabled && (ui.repoIds === null || ui.repoIds.includes(repo.id)));
@@ -585,18 +656,9 @@ document.addEventListener('change', event => {
 });
 
 page.addEventListener('toggle', seen.updateShownCount, true);
-page.addEventListener('click', event => {
-  const target = event.target;
-  if (!(target instanceof Element)) return;
-  if (!target.closest('details[data-filter-panel] > summary')) return;
-  const filters = target.closest('details[data-filter-panel]');
-  if (!(filters instanceof HTMLDetailsElement)) return;
-  requestAnimationFrame(() => {
-    if (filters.isConnected) ui.filtersOpen = filters.open;
-  });
-});
-dialog.addEventListener('cancel', () => {
-  pendingConfirmation = null;
+dialog.addEventListener('cancel', event => {
+  event.preventDefault();
+  closeDialog();
 });
 document.addEventListener('keydown', event => {
   const monitoring = header.querySelector('.header-overflow[open]');
@@ -618,9 +680,15 @@ document.addEventListener('keydown', event => {
     !dialog.open &&
     !historyImport.open &&
     !filterName.open &&
+    !savedFilterMenuOpen() &&
     !['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement?.tagName ?? '')
   ) {
     event.preventDefault();
+    const controls = document.getElementById('activity-filters');
+    if (controls?.hidden) {
+      ui.filtersOpen = true;
+      renderPage();
+    }
     const search = document.querySelector('#feed-search');
     if (search instanceof HTMLElement) search.focus();
   }

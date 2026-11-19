@@ -20,7 +20,7 @@ import { icons } from './icons.js';
 import { renderTrail } from './activity-trail.js';
 import { activityHref } from './navigation.js';
 import { renderTypeFilter } from './type-filter.js';
-import { renderSavedFilters } from './saved-filters.js';
+import { currentActivityFilters, isSavedFilterModified, renderSavedFilters } from './saved-filters.js';
 import { mergeEvidenceBadge } from './merge-evidence.js';
 export { renderDetail } from './activity-detail.js';
 
@@ -28,13 +28,25 @@ export { renderDetail } from './activity-detail.js';
 /** @typedef {import('../activity.js').ActivityItem} ActivityItem */
 /** @typedef {Pick<import('./navigation.js').NavigationState, 'route' | 'repoIds' | 'search' | 'kind' | 'filtersOpen'>} FeedView */
 
-/** @param {Pick<FeedView, 'search' | 'kind' | 'filtersOpen'>} ui @param {PageState['activity'] | undefined} activity @param {import('./saved-filters.js').SavedActivityFilter[]} [presets] @param {string} [selectedId] */
-export function filterControls(ui, activity, presets = [], selectedId = '') {
+/** @param {FeedView & {savedFilterId: string}} ui @param {PageState} state */
+export function filterControls(ui, state) {
   const desktop = globalThis.matchMedia?.('(min-width: 640px)').matches ?? true;
   const active = Number(Boolean(ui.search)) + Number(Boolean(ui.kind));
-  return html`<details class="filters-box" data-filter-panel ${desktop || ui.filtersOpen === true ? html`open` : emptyHtml}><summary class="btn sm">Filters${active ? ` · ${active}` : ''}</summary><div class="toolbar"><input id="feed-search" class="search" type="search" aria-label="Search activity" aria-describedby="feed-search-help" placeholder="Search branch, commit, person or repository…" value="${ui.search}">
-    ${renderTypeFilter(ui.kind, activity?.filterOptions, activity?.loading)}
-    <span class="spacer"></span><button class="btn" type="button" data-action="clear-filters">Clear filters</button></div><p class="help" id="feed-search-help">Enter a partial name or other search term. Separate terms with commas to match any. Use <code>people:Ali, Jo</code> to search recorded names only.</p>${renderSavedFilters(presets, selectedId)}</details>`;
+  const open = desktop || ui.filtersOpen === true;
+  const presets = state.savedFilters ?? [];
+  const saved = presets.find(filter => filter.id === ui.savedFilterId);
+  const modified = Boolean(saved && isSavedFilterModified(saved.filters, currentActivityFilters(ui), state.watched));
+  return html`<div class="activity-filter-bar">
+    <button class="btn filters-toggle" id="activity-filters-toggle" data-action="toggle-activity-filters" type="button"
+      aria-expanded="${open}" aria-controls="activity-filters">Filters${active ? ` · ${active}` : ''}</button>
+    ${renderSavedFilters(presets, ui.savedFilterId, modified)}
+    <div class="filters-box" id="activity-filters" ${open ? emptyHtml : html`hidden`}>
+      <div class="toolbar"><input id="feed-search" class="search" type="search" aria-label="Search activity" aria-describedby="feed-search-help" placeholder="Search branch, commit, person or repository…" value="${ui.search}">
+        ${renderTypeFilter(ui.kind, state.activity.filterOptions, state.activity.loading)}
+        ${active ? html`<button class="btn" id="clear-filters" type="button" data-action="clear-filters">Clear search and type</button>` : emptyHtml}
+      </div><p class="help" id="feed-search-help">Enter a partial name or other search term. Separate terms with commas to match any. Use <code>people:Ali, Jo</code> to search recorded names only.</p>
+    </div>
+  </div>`;
 }
 
 /** @param {ActivityItem} record @param {PageState} state */
@@ -104,6 +116,6 @@ export function renderFeed(state, ui) {
       : group('New updates', unseen, state);
   const current = html`aria-current="page"`;
   const viewControl = html`<h1 class="sr">Activity</h1><div class="activity-view"><nav class="seg" aria-label="Activity view" aria-describedby="activity-view-help"><a href="${activityHref('catchup')}" ${ui.route !== 'activity' ? current : emptyHtml}>New updates</a><a href="${activityHref('activity')}" ${ui.route === 'activity' ? current : emptyHtml}>All activity</a></nav><p class="help activity-view-help" id="activity-view-help">${ui.route === 'activity' ? 'Browse recorded updates, including seen and imported history.' : 'Updates you haven’t marked seen yet. Opening a page marks nothing.'}</p></div>`;
-  return html`${viewControl}${renderSummary(records, state, ui, partial)}${statusBanner(state, attention)}${filterControls(ui, state.activity, state.savedFilters, ui.savedFilterId)}
+  return html`${viewControl}${renderSummary(records, state, ui, partial)}${statusBanner(state, attention)}${filterControls(ui, state)}
     <section class="card feed" aria-label="Repository activity">${records.length ? content : html`<div class="empty"><p class="big">${state.activity?.loading ? 'Loading activity…' : state.activity?.error ? 'Activity could not load' : hasQuery || ui.repoIds?.length === 0 ? 'No activity matches these filters' : partial ? 'No activity loaded yet' : ui.route === 'activity' ? 'No activity recorded yet' : 'No new updates'}</p><p class="dim">${state.activity?.error ? state.activity.error : state.activity?.loading ? 'Reading your locally stored history.' : partial ? 'This does not confirm that nothing changed. Check repository status.' : 'Use All activity to browse history, or adjust your filters.'}</p>${state.activity?.error ? html`<button class="btn sm" type="button" data-action="retry-activity">Try again</button>` : emptyHtml}</div>`}${state.activity?.nextCursor ? html`<div class="foot"><button class="btn" type="button" data-action="load-more-activity">Load more</button><span>Showing ${records.length} of ${state.activity.total} recorded items.</span></div>` : emptyHtml}<div class="foot"><button class="btn sm" type="button" data-action="ack-shown" ${unseen.length ? emptyHtml : html`disabled`}>Mark shown seen (${unseen.reduce((sum, record) => sum + record.unseenIds.length, 0)})</button><span>Only the shown updates. Opening this page marks nothing.</span></div></section>`;
 }

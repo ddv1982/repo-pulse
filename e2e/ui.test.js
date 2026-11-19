@@ -401,7 +401,7 @@ test('a New branch detail reviews a rewritten tracking ref before switching, the
   page.on('pageerror', error => errors.push(error.message));
   await rememberKey(page);
   await page.goto(`http://127.0.0.1:${app.address().port}/#activity/all`);
-  await page.locator('.filters-box > summary').click();
+  await page.locator('#activity-filters-toggle').click();
   const search = page.getByRole('searchbox', { name: 'Search activity' });
   await search.fill('checkout-from-activity');
   await page.getByRole('button', { name: new RegExp(`^New branch · ${branch}`) }).click();
@@ -663,14 +663,15 @@ test('mixed control rows use one height per size on desktop and phone', async t 
     [390, 44, 36],
   ]) {
     await page.setViewportSize({ width, height: 900 });
-    if (width < 640) await page.locator('details[data-filter-panel] > summary').click();
-    await page.getByRole('combobox', { name: 'Saved filters' }).selectOption({ label: 'Orders team' });
+    if (width < 640) await expect(page.locator('#activity-filters')).toBeHidden();
+    await page.locator('#saved-filter-toggle').click();
+    await page.getByRole('option', { name: /Orders team/ }).click();
+    if (width < 640) await page.locator('#activity-filters-toggle').click();
+    await page.locator('#feed-search').fill(' ');
     for (const theme of ['Light', 'Dark']) {
       await page.getByRole('button', { name: theme, exact: true }).click();
-      for (const selector of ['#feed-search', '#kind-toggle', '[data-action="clear-filters"]']) await height(selector, standard);
-      for (const selector of ['#saved-filter', '#save-filter', '#apply-filter', '#update-filter', '#rename-filter', '#delete-filter']) {
-        await height(selector, compact);
-      }
+      for (const selector of ['#feed-search', '#kind-toggle', '#clear-filters', '#saved-filter-toggle', '#saved-filter-actions-toggle'])
+        await height(selector, standard);
       await height('.rowact [data-action="ack-item"]', compact);
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
     }
@@ -693,7 +694,7 @@ test('healthy phone catch-up shows first activity and theme icons before the fol
   for (const theme of ['Light', 'Dark']) {
     await page.getByRole('button', { name: theme, exact: true }).click();
     await page.setViewportSize({ width: 375, height: 812 });
-    await expect(page.locator('details[data-filter-panel]')).not.toHaveAttribute('open', '');
+    await expect(page.locator('#activity-filters')).toBeHidden();
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
     const top = await page
       .locator('li.row')
@@ -1063,7 +1064,7 @@ test('the app-owned type dropdown is themed, keyboard accessible and stable duri
     await expect(page.locator('li.row')).toHaveCount(3);
   }
   await page.setViewportSize({ width: 375, height: 812 });
-  await page.locator('details[data-filter-panel] > summary').click();
+  await page.locator('#activity-filters-toggle').click();
   await page.getByRole('button', { name: /^Activity type:/ }).click();
   await expect(page.locator('#kind-panel')).toHaveCSS('top', '44px');
   const box = await page.locator('#kind-panel').boundingBox();

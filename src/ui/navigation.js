@@ -2,9 +2,9 @@ import { joinActivitySearch } from './activity-search.js';
 
 /**
  * @typedef {{ route: string, eventId: string|null, repoIds: string[]|null, search: string, kind: string,
- *   filtersOpen: boolean|undefined, activityRoute: string }} NavigationState
+ *   filtersOpen: boolean|undefined, activityRoute: string, savedFilterId: string }} NavigationState
  * @typedef {{ route: string, search: string, kind: string, repoIds: string[]|null, groups: [string, boolean][],
- *   filtersOpen: boolean|undefined, scrollY: number, eventId: string|null, matchingIds?: string[], activityCapacity: number }} ResultsContext
+ *   filtersOpen: boolean|undefined, savedFilterId: string, scrollY: number, eventId: string|null, matchingIds?: string[], activityCapacity: number }} ResultsContext
  * @typedef {{ id: string, disabled?: boolean }} WatchedRepo
  */
 
@@ -54,6 +54,7 @@ function readResultsContext() {
           )
         : [],
       filtersOpen: typeof value.filtersOpen === 'boolean' ? value.filtersOpen : undefined,
+      savedFilterId: typeof value.savedFilterId === 'string' ? value.savedFilterId : '',
       scrollY: Number.isFinite(value.scrollY) ? Math.max(0, value.scrollY) : 0,
       eventId: typeof value.eventId === 'string' ? value.eventId : null,
       matchingIds: Array.isArray(value.matchingIds)
@@ -95,6 +96,7 @@ export function createNavigation({ ui, captureGroups, activityCapacity }) {
       repoIds: ui.repoIds === null ? null : [...ui.repoIds],
       groups: captureGroups(),
       filtersOpen: ui.filtersOpen,
+      savedFilterId: ui.savedFilterId,
       scrollY: window.scrollY,
       eventId,
       matchingIds,
@@ -170,8 +172,8 @@ export function createNavigation({ ui, captureGroups, activityCapacity }) {
       if (isActivity(destination)) {
         ui.activityRoute = destination;
         if (previous === 'event' && results?.route === destination) {
-          const { search, kind, filtersOpen, repoIds, activityCapacity } = results;
-          Object.assign(ui, { search, kind, filtersOpen, repoIds });
+          const { search, kind, filtersOpen, savedFilterId, repoIds, activityCapacity } = results;
+          Object.assign(ui, { search, kind, filtersOpen, savedFilterId, repoIds });
           pending = results;
           capacity = activityCapacity;
         } else if (previous === destination) {

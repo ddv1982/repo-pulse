@@ -805,6 +805,15 @@ test('People and named filters restore a scoped Activity search after app restar
   ]);
   await page.goto(runtime.url + '/#activity/all');
   const people = page.getByRole('searchbox', { name: 'Search activity' });
+  const presets = page.locator('#saved-filter-toggle');
+  const choosePreset = async name => {
+    await presets.click();
+    await page.getByRole('option', { name: new RegExp(`^${name} `) }).click();
+  };
+  const more = async name => {
+    await page.getByRole('button', { name: 'More saved filter actions' }).click();
+    await page.getByRole('menuitem', { name }).click();
+  };
   await expect(page.getByRole('searchbox')).toHaveCount(1);
   await expect(page.locator('li[data-event-id="unrelated-search"]')).toBeVisible();
   await people.fill('Ali, Bo');
@@ -819,13 +828,13 @@ test('People and named filters restore a scoped Activity search after app restar
   await page.locator('[data-scope-repo="demo-billing"]').uncheck();
   await page.locator('[data-scope-repo="demo-shared"]').uncheck();
   await page.locator('#repo-toggle').click();
-  await page.getByRole('button', { name: 'Save filter' }).click();
+  await page.getByRole('button', { name: 'Save filter…' }).click();
   await page.getByRole('textbox', { name: 'Filter name' }).fill('My team');
   await page.getByRole('dialog').getByRole('button', { name: 'Save', exact: true }).click();
-  await expect(page.getByRole('combobox', { name: 'Saved filters' }).locator('option:checked')).toHaveText('My team');
-  await page.getByRole('button', { name: 'Clear filters' }).click();
+  await expect(presets).toHaveAccessibleName('Saved filter: My team');
+  await page.getByRole('button', { name: 'Clear search and type' }).click();
   await expect(page.locator('li[data-event-id="text-only"]')).toBeVisible();
-  await page.getByRole('button', { name: 'Apply', exact: true }).click();
+  await choosePreset('My team');
   await expect(people).toHaveValue('people:Ali Ex, Bo');
   const mixedSearch = 'result | people:Ali Ex, Bo';
   await people.fill(mixedSearch);
@@ -834,6 +843,7 @@ test('People and named filters restore a scoped Activity search after app restar
   await page.reload();
   await page.getByRole('link', { name: /Back to All activity/ }).click();
   await expect(people).toHaveValue(mixedSearch);
+  await expect(presets).toHaveAccessibleName('Saved filter: My team, modified');
   await expect(page.locator('li[data-event-id="alice-person"]')).toBeVisible();
   await expect(page.locator('li[data-event-id="bob-person"]')).toBeVisible();
 
@@ -846,23 +856,22 @@ test('People and named filters restore a scoped Activity search after app restar
       page.goto(restarted.launchUrl),
     ]);
     await page.goto(restarted.url + '/#activity/new');
-    const presets = page.getByRole('combobox', { name: 'Saved filters' });
-    await presets.selectOption({ label: 'My team' });
-    await page.getByRole('button', { name: 'Apply', exact: true }).click();
+    await choosePreset('My team');
     await expect(page).toHaveURL(/#activity\/all$/);
+    await expect(presets).toBeFocused();
     await expect(people).toHaveValue('people:Ali Ex, Bo');
     await expect(page.locator('li[data-event-id="bob-person"]')).toBeVisible();
     await expect(page.locator('li[data-event-id="text-only"]')).toHaveCount(0);
     await people.fill('people:' + Array.from({ length: 13 }, (_, index) => `Person ${index}`).join(','));
     await expect(page.getByRole('region', { name: 'Repository activity' }).getByText('Activity could not load')).toBeVisible();
-    await page.getByRole('button', { name: 'Rename', exact: true }).click();
+    await more('Rename…');
     await page.getByRole('textbox', { name: 'Filter name' }).fill('Testing team');
     await page.getByRole('dialog').getByRole('button', { name: 'Save', exact: true }).click();
-    await expect(presets.locator('option:checked')).toHaveText('Testing team');
+    await expect(presets).toHaveAccessibleName('Saved filter: Testing team, modified');
     await people.fill('people:Alice Example');
-    await page.getByRole('button', { name: 'Update from current' }).click();
+    await page.getByRole('button', { name: 'Update “Testing team”' }).click();
     await expect(page.getByRole('status').filter({ hasText: 'Saved filter updated.' })).toBeVisible();
-    await page.getByRole('button', { name: 'Apply', exact: true }).click();
+    await expect(presets).toHaveAccessibleName('Saved filter: Testing team');
     await expect(page.locator('li[data-event-id="bob-person"]')).toHaveCount(0);
     const repo = restarted.store.listRepos().find(item => item.id === 'demo-orders');
     restarted.store.saveRepo({ ...repo, disabled: true });
@@ -878,16 +887,199 @@ test('People and named filters restore a scoped Activity search after app restar
       },
     ]);
     await page.reload();
-    await presets.selectOption({ label: 'Testing team' });
-    await page.getByRole('button', { name: 'Apply', exact: true }).click();
-    await expect(page.getByText(/saved repositories unavailable/)).toBeVisible();
+    await choosePreset('Testing team');
+    await expect(page.getByText(/saved repositories are unavailable/)).toBeVisible();
     await expect(page.getByRole('region', { name: 'Repository activity' }).getByText('No activity matches these filters')).toBeVisible();
     await expect(page.locator('li[data-event-id="other-repo-alice"]')).toHaveCount(0);
-    await page.getByRole('button', { name: 'Delete', exact: true }).click();
+    await more('Delete…');
     await page.getByRole('button', { name: 'Delete filter', exact: true }).click();
     await expect(presets).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Save filter…' })).toBeFocused();
+    await expect(people).toHaveValue('people:Alice Example');
   } finally {
     await restarted.close();
+  }
+});
+
+test('saved filters stay available on mobile, apply on keyboard selection, and save variations explicitly', async t => {
+  const { runtime, page } = await demo(t);
+  const filter = view => ({ search: '', people: '', kind: '', repoIds: null, view });
+  const longName = 'A'.repeat(80);
+  runtime.store.setSetting('savedActivityFilters', [
+    { id: 'new', name: 'New changes', filters: filter('new') },
+    { id: 'all', name: longName, filters: filter('all') },
+  ]);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto(runtime.url + '/#activity/new');
+  const toggle = page.locator('#saved-filter-toggle');
+  const drawer = page.locator('#activity-filters');
+  const picker = page.getByRole('listbox', { name: 'Saved filters' });
+  const option = picker.getByRole('option', { name: new RegExp(longName) });
+  await expect(drawer).toBeHidden();
+  await toggle.press('ArrowDown');
+  await page.keyboard.press('End');
+  await expect(option).toBeFocused();
+  await expect(page).toHaveURL(/#activity\/new$/);
+  await page.keyboard.press('Escape');
+  await expect(toggle).toBeFocused();
+  await expect(picker).toBeHidden();
+  await toggle.press('ArrowDown');
+  await page.setViewportSize({ width: 900, height: 844 });
+  await expect(picker).toBeHidden();
+  await expect(toggle).toBeFocused();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(drawer).toBeHidden();
+  await toggle.press('Space');
+  await page.keyboard.press('End');
+  const polled = page.waitForResponse(response => response.url().endsWith('/api/state') && response.ok());
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+  await polled;
+  await expect(option).toBeFocused();
+  const popup = await picker.boundingBox();
+  assert.ok(popup.x >= 0 && popup.x + popup.width <= 390);
+  await page.keyboard.press('Enter');
+  await expect(page).toHaveURL(/#activity\/all$/);
+  await expect(toggle).toBeFocused();
+  await expect(toggle).toHaveAccessibleName(`Saved filter: ${longName}`);
+  await expect(drawer).toBeHidden();
+
+  const search = page.getByRole('searchbox', { name: 'Search activity' });
+  await page.keyboard.press('/');
+  await expect(search).toBeFocused();
+  await search.fill('Orders');
+  await expect(toggle).toHaveAccessibleName(`Saved filter: ${longName}, modified`);
+  await expect(page.getByRole('button', { name: `Update “${longName}”` })).toBeVisible();
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+  await page.getByRole('button', { name: 'More saved filter actions' }).click();
+  const actions = await page.getByRole('menu', { name: 'Saved filter actions' }).boundingBox();
+  assert.ok(actions.x >= 0 && actions.x + actions.width <= 390);
+  await page.getByRole('menuitem', { name: 'Restore saved version' }).click();
+  await expect(search).toHaveValue('');
+  await search.fill('Orders');
+  await page.getByRole('button', { name: 'More saved filter actions' }).click();
+  await page.getByRole('menuitem', { name: 'Save as new…' }).click();
+  await expect(page.getByRole('dialog')).toContainText('Includes All activity');
+  await expect(page.getByRole('dialog')).toContainText('Search “Orders”');
+  await page.getByRole('textbox', { name: 'Filter name' }).fill('Orders variation');
+  await page.getByRole('dialog').getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(toggle).toHaveAccessibleName('Saved filter: Orders variation');
+  assert.equal(runtime.store.getSetting('savedActivityFilters').find(item => item.id === 'all').filters.search, '');
+  await page.getByRole('button', { name: 'More saved filter actions' }).click();
+  await page.getByRole('menuitem', { name: 'Stop using filter' }).click();
+  await expect(toggle).toHaveAccessibleName('Saved filters');
+  await expect(search).toHaveValue('Orders');
+  await toggle.click();
+  await picker.getByRole('option', { name: /Orders variation/ }).click();
+  const existing = runtime.store.getSetting('savedActivityFilters');
+  runtime.store.setSetting(
+    'savedActivityFilters',
+    existing.filter(item => item.name !== 'Orders variation'),
+  );
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+  await expect(toggle).toHaveAccessibleName('Saved filters');
+  await expect(search).toHaveValue('Orders');
+});
+
+test('closing a saved-filter menu delivers a deferred Activity response and deletes keep newer selections', async t => {
+  const { runtime, page } = await demo(t);
+  const filters = search => ({ search, people: '', kind: '', repoIds: null, view: 'new' });
+  runtime.store.setSetting('savedActivityFilters', [
+    { id: 'first', name: 'First preset', filters: filters('first') },
+    { id: 'second', name: 'Second preset', filters: filters('second') },
+  ]);
+  await page.goto(runtime.url + '/#activity/new');
+  await page.reload();
+  const toggle = page.locator('#saved-filter-toggle');
+  const search = page.getByRole('searchbox', { name: 'Search activity' });
+  const activity = page.getByRole('region', { name: 'Repository activity' });
+  await expect(toggle).toBeVisible();
+  let delayed;
+  await page.route(/\/api\/activity\?/, async route => {
+    if (new URL(route.request().url()).searchParams.get('search') === delayed?.term) await delayed.release.promise;
+    await route.continue();
+  });
+  async function respondWithMenuOpen(term, menu = toggle) {
+    const release = Promise.withResolvers();
+    delayed = { term, release };
+    const matches = url => new URL(url).searchParams.get('search') === term;
+    try {
+      const started = page.waitForRequest(request => matches(request.url()), { timeout: 5000 });
+      await search.fill(term);
+      await started;
+      await menu.press('ArrowDown');
+      const completed = page.waitForResponse(response => matches(response.url()), { timeout: 5000 });
+      release.resolve();
+      await completed;
+      await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+      await expect(activity.getByText('Loading activity…')).toBeVisible();
+    } finally {
+      release.resolve();
+      delayed = undefined;
+    }
+  }
+  const save = page.getByRole('button', { name: 'Save filter…' });
+  const options = page.getByRole('listbox', { name: 'Saved filters' });
+  const emptyFeed = activity.getByText('No activity matches these filters');
+  await respondWithMenuOpen('missing keyboard term');
+  await page.keyboard.press('Tab');
+  await expect(save).toBeFocused();
+  await expect(emptyFeed).toBeVisible();
+
+  await respondWithMenuOpen('missing repository term');
+  const scope = page.locator('#repo-toggle');
+  await scope.click();
+  await expect(emptyFeed).toBeVisible();
+  await expect(scope).toHaveAttribute('aria-expanded', 'true');
+  await scope.click();
+
+  await respondWithMenuOpen('missing held click term');
+  const bounds = await save.boundingBox();
+  await page.mouse.move(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
+  await page.mouse.down();
+  try {
+    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    await expect(options).toBeVisible();
+  } finally {
+    await page.mouse.up();
+  }
+  const saveDialog = page.getByRole('dialog', { name: 'Save Activity filter' });
+  await expect(saveDialog).toBeVisible();
+  await expect(emptyFeed).toBeVisible();
+  await saveDialog.getByRole('button', { name: 'Cancel' }).click();
+
+  await toggle.click();
+  await page.getByRole('option', { name: /First preset/ }).click();
+  const more = page.getByRole('button', { name: 'More saved filter actions' });
+  const deleteDialog = page.getByRole('dialog', { name: 'Delete saved filter?' });
+  for (const method of ['Cancel', 'Escape']) {
+    await respondWithMenuOpen(`missing ${method} term`, more);
+    await page.keyboard.press('End');
+    await page.keyboard.press('Enter');
+    await expect(deleteDialog).toBeVisible();
+    await expect(emptyFeed).toBeVisible();
+    if (method === 'Escape') await page.keyboard.press('Escape');
+    else await deleteDialog.getByRole('button', { name: 'Cancel' }).click();
+    await expect(more).toBeFocused();
+  }
+  const finishDelete = Promise.withResolvers();
+  await page.route('**/api/activity-filters/first', async route => {
+    await finishDelete.promise;
+    await route.continue();
+  });
+  try {
+    await page.getByRole('button', { name: 'More saved filter actions' }).click();
+    await page.getByRole('menuitem', { name: 'Delete…' }).click();
+    const deleting = page.waitForRequest(request => request.method() === 'DELETE', { timeout: 5000 });
+    await page.getByRole('button', { name: 'Delete filter', exact: true }).click();
+    await deleting;
+    await toggle.click();
+    await page.getByRole('option', { name: /Second preset/ }).click();
+    finishDelete.resolve();
+    await expect(page.getByRole('status').filter({ hasText: 'Saved filter deleted.' })).toBeVisible();
+    await expect(toggle).toHaveAccessibleName('Saved filter: Second preset');
+    await expect(search).toHaveValue('second');
+  } finally {
+    finishDelete.resolve();
   }
 });
 
