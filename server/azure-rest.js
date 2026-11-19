@@ -204,10 +204,13 @@ export function createRestExecutor({ cliExecutor, fetch = globalThis.fetch, now 
     let response = await send(request, options, bearer);
     if (rejected(response, bearer)) {
       await response.body?.cancel().catch(() => {});
-      // The retry would bypass the queue's Retry-After pause, so the caller's back-off retries it instead.
-      if ((options.throttledUntil?.() ?? 0) > now())
-        throw Object.assign(new Error('Azure DevOps asked us to slow down.'), { stderr: 'HTTP 429' });
+      // The retry would bypass the queue's Retry-After pause, so the caller's back-off retries it instead. Checked
+      // after renewal too, since another response can start a pause while the token is renewed.
+      const paused = () => (options.throttledUntil?.() ?? 0) > now();
+      const slowDown = () => Object.assign(new Error('Azure DevOps asked us to slow down.'), { stderr: 'HTTP 429' });
+      if (paused()) throw slowDown();
       bearer = await accessToken(options);
+      if (paused()) throw slowDown();
       response = await send(request, options, bearer);
       rejected(response, bearer);
     }

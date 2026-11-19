@@ -373,6 +373,32 @@ test('a 401 that arrives while a Retry-After pause is active is not retried unti
   cli.close();
 });
 
+test('a pause that starts while a rejected token is renewed still stops the retry', async () => {
+  let releaseFirst = () => {};
+  const firstResponse = new Promise(resolve => {
+    releaseFirst = () => resolve(new Response('{}', { status: 200, headers: { 'retry-after': '30' } }));
+  });
+  let calls = 0;
+  const timers = [];
+  const h = harness({
+    responses: () => (++calls === 1 ? { raw: firstResponse } : calls === 2 ? { status: 401 } : { status: 200 }),
+    setTimer: (callback, ms) => timers.push({ callback, ms }),
+    tokenOutput: n =>
+      n === 1
+        ? undefined
+        : (async () => {
+            releaseFirst();
+            for (let i = 0; i < 5; i++) await flush();
+            return JSON.stringify({ accessToken: `${TOKEN}-renewed`, expires_on: 4102444800, tokenType: 'Bearer' });
+          })(),
+  });
+  const [first, second] = await Promise.allSettled([h.cli.run(refs('a')), h.cli.run(refs('b'))]);
+  assert.equal(first.status, 'fulfilled');
+  assert.equal(second.reason?.code, 'THROTTLED');
+  assert.equal(h.requests.length, 2, 'the retry is not sent once the pause has started');
+  h.cli.close();
+});
+
 test('an HTTP-date Retry-After is measured from the response Date, so a fast local clock keeps the wait', async () => {
   const start = Date.parse('2026-11-18T10:00:00Z');
   const server = start - 120000;
