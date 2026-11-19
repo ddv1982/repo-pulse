@@ -88,7 +88,8 @@ import { canOpenBrowser, openBrowser } from './server/open-browser.js';
 /** GET /api/push/:repo/:id/commits. @typedef {{ items: PushCommit[], nextCursor: unknown, message?: string }} PushCommitsResponse */
 /** GET /api/pr/:repo/:id/review. @typedef {import('./server/azure-client.js').PullRequestReview & { message?: string }} PrReviewResponse */
 /** POST /api/backfill. @typedef {ReturnType<ReturnType<typeof createBackfill>['start']>} BackfillResponse */
-/** POST /api/refresh and POST /api/reset. @typedef {{ ok: true, status: ReturnType<AppSync['refresh']> }} RefreshResponse */
+/** POST /api/refresh. @typedef {{ ok: true, status: ReturnType<AppSync['refresh']> }} RefreshResponse */
+/** POST /api/reset. @typedef {{ started: true }} ResetResponse */
 /** POST /api/discover. @typedef {import('./server/repositories.js').Discovery} DiscoverResponse */
 /** POST /api/folders. @typedef {Awaited<ReturnType<typeof browseFolders>>} FoldersResponse */
 /** POST /api/demo/event. @typedef {ReturnType<typeof addDemoEvent>} DemoEventResponse */
@@ -201,6 +202,8 @@ export function createApp({
   if (typeof accessKey !== 'string' || accessKey.length < 32) throw new Error('createApp needs an access key of at least 32 characters.');
   const expectedKey = Buffer.from(accessKey);
   const startedAt = Date.now();
+  /** The reset in progress, shared by every request that arrives while it runs. @type {Promise<void> | null} */
+  let resetting = null;
   /** @param {unknown} value @param {Buffer} expected */
   const matches = (value, expected) => {
     const given = Buffer.from(String(value ?? ''));
@@ -271,6 +274,7 @@ export function createApp({
               now: Date.now(),
               demo,
               throttledUntil: diagnostics.throttledUntil,
+              resetting: Boolean(resetting),
             }),
             demo,
           }),
@@ -323,6 +327,8 @@ export function createApp({
       path: '/api/backfill',
       handler: async ({ req, res }) => {
         if (demo || !backfill) throw problem('Historical import is available in live mode.');
+        // The reset would delete the job this request creates.
+        if (resetting) throw problem('Starting from scratch is in progress. Try again in a moment.', 409);
         const input = await body(req);
         const repo = repoById(input.repoId);
         const days = input.days;
@@ -471,8 +477,17 @@ export function createApp({
       handler: async ({ req, res }) => {
         await body(req);
         if (demo || !sync.reset) throw problem('Demo data cannot be cleared. Start live mode to start from scratch.', 403);
-        await sync.reset(() => store.resetActivity());
-        return json(res, 200, /** @satisfies {RefreshResponse} */ ({ ok: true, status: sync.refresh() }));
+        // The reset waits for the turn in flight, which can sit behind Azure's Retry-After for minutes, so it runs unawaited.
+        resetting ??= sync
+          .reset(() => store.resetActivity())
+          .then(() => {
+            sync.refresh();
+          })
+          .catch(error => console.error('Start from scratch failed:', error.name))
+          .finally(() => {
+            resetting = null;
+          });
+        return json(res, 202, /** @satisfies {ResetResponse} */ ({ started: true }));
       },
     },
     {

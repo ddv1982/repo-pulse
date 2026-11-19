@@ -20,6 +20,7 @@ import { worstStatus } from '../src/sync-worst.js';
  *   now: number,
  *   demo?: boolean,
  *   throttledUntil?: string | null,
+ *   resetting?: boolean,
  * }} SyncStatusInput
  */
 
@@ -76,7 +77,18 @@ const time = value => Date.parse(value ?? '');
  * @param {SyncStatusInput} input
  * @returns {{ overall: OverallSyncStatus, repos: Record<string, SyncStatus> }}
  */
-export function syncStatus({ repos, streams, jobs, inProgress, settings, startedAt, now, demo = false, throttledUntil }) {
+export function syncStatus({
+  repos,
+  streams,
+  jobs,
+  inProgress,
+  settings,
+  startedAt,
+  now,
+  demo = false,
+  throttledUntil,
+  resetting = false,
+}) {
   const automatic = settings.refreshEnabled !== false;
   const ranSince = Math.max(startedAt, settings.refreshResumedAt ?? 0);
   /** @param {StreamState} stream */
@@ -102,6 +114,8 @@ export function syncStatus({ repos, streams, jobs, inProgress, settings, started
     // Synced means every stream is within its freshness limit, so the newest read is the honest "last check".
     const fresh = successes.length ? { lastCheck: new Date(Math.max(...successes)).toISOString() } : {};
     if (demo) return { state: 'synced', ...since, ...fresh };
+    // Stored activity is being deleted and then imported again, whatever the streams still say.
+    if (resetting) return { state: 'syncing' };
     const importing = jobs.some(job => job.repoId === repoId && job.status !== 'completed');
     // A history import keeps reading with automatic checks off, so it is not paused.
     if (!automatic && !importing && !own.some(stream => stream.manual)) return { state: 'paused', ...since };

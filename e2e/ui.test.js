@@ -1206,14 +1206,24 @@ test('Start from scratch in Settings confirms, empties the feed and shows Syncin
     webUrl: 'https://dev.azure.com/org/P/_git/orders-api',
   };
   store.saveRepo(repo);
-  const gate = { closed: false, open: () => {} };
-  const opened = new Promise(resolve => (gate.open = resolve));
+  const gate = {
+    closed: false,
+    held: 0,
+    /** @type {(() => void)[]} */
+    waiting: [],
+    release() {
+      gate.waiting.splice(0).forEach(resolve => resolve());
+    },
+  };
   const provider = {
     async checkConnection() {
       return { available: true, signedIn: true, account: { name: 'someone@example.test' }, message: 'Signed in.' };
     },
     async read(_repo, stream) {
-      if (gate.closed) await opened;
+      if (gate.closed) {
+        gate.held++;
+        await new Promise(resolve => gate.waiting.push(resolve));
+      }
       const items =
         stream === 'pushes'
           ? [
@@ -1233,7 +1243,8 @@ test('Start from scratch in Settings confirms, empties the feed and shows Syncin
   let browser;
   const errors = [];
   t.after(async () => {
-    gate.open();
+    gate.closed = false;
+    gate.release();
     await browser?.close().catch(() => {});
     await sync.stop();
     if (server.listening) await new Promise(resolve => server.close(resolve));
@@ -1257,6 +1268,9 @@ test('Start from scratch in Settings confirms, empties the feed and shows Syncin
   await expect(row).toContainText('Deletes stored activity and imports the last seven days again. Your repositories and settings stay.');
   await row.screenshot({ path: 'test-results/settings-start-from-scratch.png' });
   gate.closed = true;
+  for (const state of store.getStreams()) store.saveStream({ ...state, nextAt: new Date(0).toISOString() });
+  for (let i = 0; i < 200 && !gate.held; i++) await new Promise(resolve => setTimeout(resolve, 10));
+  assert.equal(gate.held, 1, 'a page is waiting on Azure when the reset is asked for');
   await row.getByRole('button', { name: 'Start from scratch' }).click();
   const dialog = page.locator('#confirm-dialog');
   await expect(dialog).toBeVisible();
@@ -1265,8 +1279,12 @@ test('Start from scratch in Settings confirms, empties the feed and shows Syncin
   await expect(confirmButton).toHaveClass(/danger/);
   await page.screenshot({ path: 'test-results/settings-start-from-scratch-dialog.png' });
   await confirmButton.click();
-  await expect(page.locator('#toast')).toHaveText('Stored activity deleted. Importing the last seven days.');
+  await expect(page.locator('#toast')).toHaveText(
+    'Starting from scratch. Stored activity is being deleted, then the last seven days are imported.',
+  );
   await expect(page.locator('#header .header-tools > .sync-pill')).toHaveText('Syncing…');
+  assert.equal(store.listEvents().length, 1, 'the reset waits for the page in flight');
+  gate.release();
 
   await page.getByRole('link', { name: 'Activity', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Activity', exact: true })).toBeVisible();
@@ -1274,6 +1292,7 @@ test('Start from scratch in Settings confirms, empties the feed and shows Syncin
   await expect(page.locator('.feed .empty .big')).toHaveText('No activity loaded yet');
   assert.equal(store.listRepos().length, 1);
 
-  gate.open();
+  gate.closed = false;
+  gate.release();
   await expect(page.locator('[data-event-id="one:push:1"]')).toHaveCount(1, { timeout: 15000 });
 });

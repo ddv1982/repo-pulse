@@ -321,7 +321,7 @@ const actions = {
       async () => {
         await request('/api/reset', { method: 'POST', body: {} });
         await load({ force: true });
-        toast('Stored activity deleted. Importing the last seven days.');
+        toast('Starting from scratch. Stored activity is being deleted, then the last seven days are imported.');
       },
       'Delete and import again',
       { destructive: true },

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { createStore } from '../server/store.js';
 import { createSync } from '../server/sync.js';
 import { seedDemo } from '../server/demo.js';
+import { createBackfill } from '../server/backfill.js';
 import { createApp } from '../server.js';
 import { TEST_KEY, keyedFetch } from './fixtures/access.js';
 
@@ -39,9 +40,12 @@ async function live(t, { pollMs } = {}) {
     },
   };
   const sync = createSync({ store, provider, pollMs });
-  const app = createApp({ store, provider, sync, accessKey: TEST_KEY });
+  const backfill = createBackfill({ store, provider, normalize: sync.normalize });
+  const app = createApp({ store, provider, sync, backfill, accessKey: TEST_KEY });
   await new Promise(resolve => app.listen(0, '127.0.0.1', resolve));
   t.after(async () => {
+    control.hold = false;
+    control.release();
     await sync.stop();
     await new Promise(resolve => app.close(resolve));
     store.close();
@@ -49,16 +53,47 @@ async function live(t, { pollMs } = {}) {
   const url = `http://127.0.0.1:${app.address().port}`;
   const reset = (send = fetch) => send(url + '/api/reset', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
   const state = async () => (await fetch(url + '/api/state')).json();
+  const importHistory = () =>
+    fetch(url + '/api/backfill', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ repoId: 'one', days: 30 }),
+    });
   async function drain() {
     for (let i = 0; i < 6; i++) await sync.tick();
   }
+  /** The reset is done once its first import has put back six unread streams. */
+  async function settled() {
+    for (let i = 0; i < 200; i++) {
+      const streams = store.getStreams();
+      if (streams.length === 6 && streams.every(stream => !stream.initialized)) return;
+      await new Promise(resolve => setTimeout(resolve, 10));
+    }
+    throw new Error('The reset did not finish.');
+  }
+  /** Marks every stream due and starts a turn whose read waits for `control.release`. */
+  async function holdPage() {
+    for (const stream of store.getStreams()) store.saveStream({ ...stream, nextAt: new Date(0).toISOString() });
+    control.hold = true;
+    const before = reads.length;
+    const page = sync.tick();
+    while (reads.length === before) await new Promise(resolve => setImmediate(resolve));
+    return { page };
+  }
+  function release() {
+    control.hold = false;
+    control.release();
+  }
   sync.refresh();
   await drain();
-  return { store, sync, reads, offered, control, reset, state, drain };
+  return { store, sync, reads, offered, control, reset, state, drain, settled, holdPage, release, importHistory };
 }
 
+/** Resolves to 'waiting' when `promise` has not settled within `ms`. */
+const within = (promise, ms = 300) => Promise.race([promise, new Promise(resolve => setTimeout(() => resolve('waiting'), ms))]);
+
 test('POST /api/reset needs the access key, clears activity and starts a first import that reads Azure again', async t => {
-  const { store, reads, reset, state, drain } = await live(t);
+  const { store, reads, reset, state, drain, settled } = await live(t);
   assert.equal(store.listEvents().length, 1);
   assert.equal((await state()).syncStatus.overall.state, 'synced');
 
@@ -67,8 +102,9 @@ test('POST /api/reset needs the access key, clears activity and starts a first i
   assert.equal(store.listEvents().length, 1);
 
   const response = await reset();
-  assert.equal(response.status, 200);
-  assert.deepEqual(await response.json(), { ok: true, status: { scheduled: true } });
+  assert.equal(response.status, 202);
+  assert.deepEqual(await response.json(), { started: true });
+  await settled();
   assert.deepEqual(store.listEvents(), []);
   assert.deepEqual(store.listRepos(), [{ ...repo, disabled: false }]);
   assert.deepEqual(store.getSetting('checkout:one'), { head: 'abc' });
@@ -87,27 +123,83 @@ test('POST /api/reset needs the access key, clears activity and starts a first i
   assert.equal((await state()).syncStatus.overall.state, 'synced');
 });
 
-test('a reset during a page in flight leaves none of that page behind', async t => {
-  const { store, sync, offered, control, reset } = await live(t);
-  for (const state of store.getStreams()) store.saveStream({ ...state, nextAt: new Date(0).toISOString() });
+test('a reset during a page in flight answers at once, reports syncing, and leaves none of that page behind', async t => {
+  const { store, offered, reset, state, settled, holdPage, release } = await live(t);
   offered.pushes = [push(2)];
-  control.hold = true;
-  const page = sync.tick();
-  await new Promise(resolve => setImmediate(resolve));
-  const response = reset();
-  await new Promise(resolve => setTimeout(resolve, 50));
-  control.hold = false;
-  control.release();
+  const { page } = await holdPage();
+  const response = await within(reset());
+  assert.notEqual(response, 'waiting', 'the reset answers while the page is still waiting on Azure');
+  assert.equal(response.status, 202);
+  assert.deepEqual(await response.json(), { started: true });
+  const during = (await state()).syncStatus;
+  assert.equal(during.overall.state, 'syncing');
+  assert.deepEqual(during.repos, { one: { state: 'syncing' } });
+  release();
   await page;
-  assert.equal((await response).status, 200);
+  await settled();
   assert.deepEqual(store.listEvents(), []);
-  assert.ok(store.getStreams().every(state => !state.initialized));
+  assert.ok(store.getStreams().every(stream => !stream.initialized));
+});
+
+test('overlapping resets share the one in progress and clear once', async t => {
+  const { store, reset, settled, holdPage, release } = await live(t);
+  let clears = 0;
+  const resetActivity = store.resetActivity.bind(store);
+  store.resetActivity = () => {
+    clears++;
+    resetActivity();
+  };
+  const { page } = await holdPage();
+  const first = await within(reset());
+  const second = await within(reset());
+  release();
+  await page;
+  await settled();
+  await new Promise(resolve => setTimeout(resolve, 50));
+  assert.notEqual(first, 'waiting');
+  assert.notEqual(second, 'waiting');
+  assert.deepEqual([first.status, second.status], [202, 202]);
+  assert.equal(clears, 1, 'the second request joins the first reset');
+});
+
+test('a history import asked for while a reset is pending is refused with a retryable message', async t => {
+  const { store, reset, settled, holdPage, release, importHistory } = await live(t);
+  const { page } = await holdPage();
+  const pending = reset();
+  await within(pending);
+  const refused = await importHistory();
+  assert.equal(refused.status, 409);
+  assert.deepEqual(await refused.json(), { message: 'Starting from scratch is in progress. Try again in a moment.' });
+  release();
+  await page;
+  await pending;
+  await settled();
+  assert.deepEqual(store.listJobs({ type: 'backfill' }), []);
+  assert.equal((await importHistory()).status, 202, 'the import is accepted once the reset is done');
+});
+
+test('a stop during a reset wins and nothing restarts polling', async t => {
+  const { sync, reads, reset, holdPage, release } = await live(t, { pollMs: 5 });
+  sync.start();
+  const { page } = await holdPage();
+  const pending = reset();
+  await within(pending, 50);
+  const stopped = sync.stop();
+  release();
+  await page;
+  await stopped;
+  await pending;
+  await new Promise(resolve => setTimeout(resolve, 100));
+  assert.equal(sync.status().stopped, true, 'the reset does not undo the stop');
+  const after = reads.length;
+  await new Promise(resolve => setTimeout(resolve, 100));
+  assert.equal(reads.length, after, 'no turn runs after the stop');
 });
 
 test('a running scheduler resumes after a reset and imports again without a manual turn', async t => {
   const { store, sync, reset } = await live(t, { pollMs: 5 });
   sync.start();
-  assert.equal((await reset()).status, 200);
+  assert.equal((await reset()).status, 202);
   for (let i = 0; i < 200 && !store.listEvents().length; i++) await new Promise(resolve => setTimeout(resolve, 10));
   assert.deepEqual(
     store.listEvents().map(event => event.id),
