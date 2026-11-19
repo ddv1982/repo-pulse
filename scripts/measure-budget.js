@@ -1,5 +1,5 @@
 // Simulates live polling against the shared Azure call budget.
-// Usage: node scripts/measure-budget.js [--limit 12] [--repos 1,5,10,20] [--pushes-per-hour 4] [--commits 5] [--call-ms 1500] [--minutes 60]
+// Usage: node scripts/measure-budget.js [--limit 12] [--repos 1,5,10,20] [--pushes-per-hour 4] [--call-ms 1500] [--minutes 60]
 //   [--active-prs 0 --pr-every 3]: also spend one threads read and one policy evaluations read per active PR every N minutes.
 import { createHash } from 'node:crypto';
 import { createStore } from '../server/store.js';
@@ -12,7 +12,6 @@ const option = (name, fallback) => {
 };
 const repoCounts = option('repos', '1,5,10,20').split(',').map(Number);
 const pushesPerHour = Number(option('pushes-per-hour', 4));
-const commitsPerPush = Number(option('commits', 5));
 const callMs = Number(option('call-ms', 1500));
 const minutes = Number(option('minutes', 60));
 const LIMIT_PER_MINUTE = Number(option('limit', 12));
@@ -40,23 +39,20 @@ function simulate(repoTotal) {
   }
 
   const pushes = new Map();
-  const commitsOf = new Map();
   for (let r = 0; r < repoTotal; r++) {
     const azureId = `repo-${r}`;
     const list = [];
     let tip = sha(`${azureId}:root`);
     const gap = 3600000 / pushesPerHour;
     for (let at = start + gap * ((r + 1) / (repoTotal + 1)), id = 1; at < end; at += gap, id++) {
-      const ids = Array.from({ length: commitsPerPush }, (_, i) => sha(`${azureId}:${id}:${i}`));
-      ids.forEach((commitId, i) => commitsOf.set(commitId, i ? ids[i - 1] : tip));
+      const next = sha(`${azureId}:${id}`);
       list.push({
         pushId: id,
         date: new Date(at).toISOString(),
         pushedBy: { displayName: 'Tester' },
-        commits: ids,
-        refUpdates: [{ name: 'refs/heads/main', oldObjectId: tip, newObjectId: ids.at(-1) }],
+        refUpdates: [{ name: 'refs/heads/main', oldObjectId: tip, newObjectId: next }],
       });
-      tip = ids.at(-1);
+      tip = next;
     }
     pushes.set(azureId, list);
   }
@@ -86,27 +82,13 @@ function simulate(repoTotal) {
           .filter(push => Date.parse(push.date) >= from && Date.parse(push.date) <= to && Date.parse(push.date) <= time)
           .reverse();
         const skip = Number(query.$skip || 0);
-        return { value: visible.slice(skip, skip + Number(query.$top)).map(({ commits, ...push }) => push) };
+        return { value: visible.slice(skip, skip + Number(query.$top)) };
       }
       if (resource === 'refs') {
         const latest = repoPushes.filter(push => Date.parse(push.date) <= time).at(-1);
         return { value: [{ name: 'refs/heads/main', objectId: latest?.refUpdates[0].newObjectId || sha(`${route.repositoryId}:root`) }] };
       }
-      if (resource === 'commits') {
-        if (route.commitId) return { commitId: route.commitId, parents: [commitsOf.get(route.commitId) || sha('root')] };
-        const page = (ids = [], skip, top) => ({
-          value: ids.slice(Number(skip || 0), Number(skip || 0) + Number(top)).map(commitId => ({ commitId })),
-        });
-        if (query.pushId) return page(repoPushes.find(push => push.pushId === Number(query.pushId))?.commits, query.skip, query.top);
-        const push = repoPushes.find(item => item.refUpdates[0].newObjectId === query['searchCriteria.compareVersion.version']);
-        return page(push?.commits, query['searchCriteria.$skip'], query['searchCriteria.$top']);
-      }
       return { value: [] };
-    },
-    async runReadQuery(repository, body) {
-      charge();
-      if (repository.resource === 'commitsbatch') return { value: body.ids.map(commitId => ({ commitId })) };
-      return { results: body.queries.map(() => ({})) };
     },
   };
 
@@ -164,7 +146,7 @@ function percentile(values, p) {
 const minutesOf = ms => (ms === null ? 'n/a' : (ms / 60000).toFixed(1));
 
 console.log(
-  `Budget ${LIMIT_PER_MINUTE} calls/min, ${callMs} ms per call, ${pushesPerHour} pushes/hour/repo with ${commitsPerPush} commits, ${minutes} simulated minutes, tab in foreground${activePrs ? `, ${activePrs} active PRs/repo read twice every ${prEveryMs / 60000} min` : ''}.`,
+  `Budget ${LIMIT_PER_MINUTE} calls/min, ${callMs} ms per call, ${pushesPerHour} pushes/hour/repo, ${minutes} simulated minutes, tab in foreground${activePrs ? `, ${activePrs} active PRs/repo read twice every ${prEveryMs / 60000} min` : ''}.`,
 );
 console.log('repos | calls/min | pushes | in Activity | delay p50 min | delay p95 min | delay max min');
 for (const repoTotal of repoCounts) {

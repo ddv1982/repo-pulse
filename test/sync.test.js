@@ -4,7 +4,6 @@ import { createStore } from '../server/store.js';
 import { createHash } from 'node:crypto';
 import { createSync } from '../server/sync.js';
 import { createBackfill } from '../server/backfill.js';
-import { createEnrichment } from '../server/enrichment.js';
 import { activityMergeBadge } from '../src/activity-text.js';
 const repo = {
   id: 'one',
@@ -493,7 +492,7 @@ test('ingestion stores pushes and leaves historical imports out of live ref stat
   store.close();
 });
 
-test('real-time due pages precede optional background enrichment and import', async () => {
+test('real-time due pages precede the background history import', async () => {
   const store = createStore();
   store.saveRepo(repo);
   let live = 0,
@@ -1152,22 +1151,12 @@ function recordingProvider(pages) {
   return { provider, calls };
 }
 
-// The merge worker is handed to the scheduler as the app used to wire it, so a regression in either
-// the producers (sync, backfill) or the scheduler shows up as a merge call here.
 test('a sync run over several push pages makes only stream reads and queues no merge work', async () => {
-  let mergeTurns = 0;
   const store = createStore();
   store.saveRepo(repo);
   let time = BASE;
   const { provider, calls } = recordingProvider({ pushes: [[push(1), push(2)], [push(3)], [push(4)]] });
-  const enrichment = createEnrichment({ store, provider, now: () => time });
-  const sync = createSync({
-    store,
-    provider,
-    now: () => time,
-    intervalMs: 1000,
-    background: { merge: () => (mergeTurns++, enrichment.tick()) },
-  });
+  const sync = createSync({ store, provider, now: () => time, intervalMs: 1000 });
   for (let i = 0; i < 40; i++) {
     await sync.tick();
     time += 500;
@@ -1178,12 +1167,10 @@ test('a sync run over several push pages makes only stream reads and queues no m
     [],
   );
   assert.deepEqual(store.listJobs({ type: 'merge' }), []);
-  assert.equal(mergeTurns, 0, 'the scheduler never runs a merge turn');
   store.close();
 });
 
 test('a history import page makes only stream reads and queues no merge work', async () => {
-  let mergeTurns = 0;
   const store = createStore();
   store.saveRepo(repo);
   let time = BASE;
@@ -1191,19 +1178,18 @@ test('a history import page makes only stream reads and queues no merge work', a
   const { provider, calls } = recordingProvider({
     pushes: [[push(5, new Date(BASE - day).toISOString()), push(6, new Date(BASE - 2 * day).toISOString())]],
   });
-  const enrichment = createEnrichment({ store, provider, now: () => time });
   /** @type {ReturnType<typeof createBackfill>} */
   let backfill;
   const sync = createSync({
     store,
     provider,
     now: () => time,
-    background: { merge: () => (mergeTurns++, enrichment.tick()), history: () => backfill.tick() },
+    background: { history: () => backfill.tick() },
   });
   backfill = createBackfill({ store, provider, normalize: sync.normalize, now: () => time });
   store.setSetting(`baseline:${repo.id}`, new Date(BASE).toISOString());
   backfill.start(repo.id, 30);
-  // Automatic checks stay on, which used to let the merge worker run, but no live stream is due.
+  // Automatic checks stay on, but no live stream is due.
   sync.refresh();
   for (const state of store.getStreams()) store.saveStream({ ...state, nextAt: '2099-01-01T00:00:00Z' });
   for (let i = 0; i < 10; i++) {
@@ -1216,6 +1202,5 @@ test('a history import page makes only stream reads and queues no merge work', a
     [],
   );
   assert.deepEqual(store.listJobs({ type: 'merge' }), []);
-  assert.equal(mergeTurns, 0, 'the scheduler never runs a merge turn');
   store.close();
 });

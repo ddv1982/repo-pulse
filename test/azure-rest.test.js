@@ -115,22 +115,6 @@ test('the token is reused until shortly before it expires and replaced after a 4
   cli.close();
 });
 
-test('read queries POST their validated body to the batch route', async () => {
-  const { cli, requests } = harness();
-  const ids = ['b'.repeat(40)];
-  await cli.runReadQuery({ organization: ORG, project: 'P', repositoryId: 'r', resource: 'commitsbatch' }, { ids });
-  assert.equal(new URL(requests[0].url).pathname, '/example/P/_apis/git/repositories/r/commitsbatch');
-  assert.equal(requests[0].init.method, 'POST');
-  assert.equal(requests[0].init.headers['content-type'], 'application/json');
-  assert.deepEqual(JSON.parse(requests[0].init.body), { ids });
-  await assert.rejects(
-    cli.runReadQuery({ organization: ORG, project: 'P', repositoryId: 'r', resource: 'commitsbatch' }, { ids: ['short'] }),
-    { code: 'INVALID_QUERY' },
-  );
-  assert.equal(requests.length, 1);
-  cli.close();
-});
-
 test('other CLI commands still run through az, and writes and token requests are still refused', async () => {
   const { cli, requests, cliCalls } = harness();
   assert.deepEqual(await cli.run(['account', 'show']), { via: 'cli', args: ['account', 'show'] });

@@ -1,6 +1,5 @@
 // @ts-check
 
-import { readFile } from 'node:fs/promises';
 import { setGlobalProxyFromEnv } from 'node:http';
 import tls from 'node:tls';
 import { normalizeOrganization } from './repositories.js';
@@ -9,14 +8,13 @@ import { cliError } from './azure-cli.js';
 /**
  * @typedef {import('./azure-cli.js').Executor} Executor
  * @typedef {import('./azure-cli.js').ExecutorOptions} ExecutorOptions
- * @typedef {{ url: URL, method?: string, inFile?: string }} RestRequest
+ * @typedef {{ url: URL }} RestRequest
  * @typedef {{ value: string, expiresAt: number }} CachedToken
  */
 
 /** The Microsoft Entra application ID of Azure DevOps, the audience of its access tokens. */
 export const AZURE_DEVOPS_RESOURCE = '499b84ac-1321-427f-aa17-267ca6975798';
 const RENEW_BEFORE_MS = 5 * 60000;
-const READ_QUERIES = new Set(['commitsbatch', 'pullrequestquery']);
 /** @param {string} message */
 const refused = message => Object.assign(new Error(message), { stderr: 'not in the command group' });
 
@@ -76,15 +74,12 @@ function requestFor(args) {
   const organization = normalizeOrganization(values['--organization']?.[0]);
   const area = values['--area']?.[0],
     resource = values['--resource']?.[0]?.toLowerCase();
-  const method = values['--http-method']?.[0],
-    inFile = values['--in-file']?.[0];
   const route = pairs(values['--route-parameters']);
-  const readQuery = area === 'git' && READ_QUERIES.has(resource);
-  if (readQuery ? method !== 'POST' || !inFile : method !== 'GET' || inFile) throw refused('Only Azure DevOps reads are allowed.');
+  if (values['--http-method']?.[0] !== 'GET' || values['--in-file']) throw refused('Only Azure DevOps reads are allowed.');
   let path;
   if (area === 'git' && resource === 'pullrequestthreads') {
     path = `${segment(route.project)}/_apis/git/repositories/${segment(route.repositoryId)}/pullRequests/${segment(route.pullRequestId)}/threads`;
-  } else if (area === 'git' && ['pushes', 'refs', 'pullrequests', 'commits', ...READ_QUERIES].includes(resource)) {
+  } else if (area === 'git' && ['pushes', 'refs', 'pullrequests', 'commits'].includes(resource)) {
     path = `${segment(route.project)}/_apis/git/repositories/${segment(route.repositoryId)}/${resource}${route.commitId !== undefined ? `/${segment(route.commitId)}` : ''}`;
   } else if (area === 'build' && resource === 'builds') path = `${segment(route.project)}/_apis/build/builds`;
   else if (area === 'policy' && resource === 'evaluations') path = `${segment(route.project)}/_apis/policy/evaluations`;
@@ -93,7 +88,7 @@ function requestFor(args) {
   const url = new URL(`${organization}/${path}`);
   for (const [key, value] of Object.entries(pairs(values['--query-parameters']))) url.searchParams.set(key, value);
   url.searchParams.set('api-version', values['--api-version']?.[0]);
-  return { url, method, inFile };
+  return { url };
 }
 
 /**
@@ -150,24 +145,21 @@ export function createRestExecutor({ cliExecutor, fetch = globalThis.fetch, now 
   }
   /**
    * @param {RestRequest} request
-   * @param {string | undefined} body
    * @param {ExecutorOptions} options
    * @param {string} bearer
    */
-  async function send(request, body, options, bearer) {
+  async function send(request, options, bearer) {
     const signal = AbortSignal.any([options.signal, AbortSignal.timeout(options.timeoutMs)].filter(Boolean));
     try {
       return await fetch(request.url, {
-        method: request.method,
+        method: 'GET',
         signal,
         redirect: 'error',
-        body,
         // Without this header Azure DevOps answers a rejected token with a 302 to its sign-in page instead of a 401.
         headers: {
           authorization: `Bearer ${bearer}`,
           accept: 'application/json',
           'x-tfs-fedauthredirect': 'Suppress',
-          ...(body ? { 'content-type': 'application/json' } : {}),
         },
       });
     } catch (error) {
@@ -182,7 +174,6 @@ export function createRestExecutor({ cliExecutor, fetch = globalThis.fetch, now 
   return async function restExecutor(args, options) {
     if (args[0] !== 'devops' || args[1] !== 'invoke') return cliExecutor(args, options);
     const request = requestFor(args);
-    const body = request.inFile ? await readFile(request.inFile, 'utf8') : undefined;
     // Only the rejected token is dropped; a token another request already renewed stays in use.
     /**
      * @param {Response} response
@@ -193,11 +184,11 @@ export function createRestExecutor({ cliExecutor, fetch = globalThis.fetch, now 
       return response.status === 401;
     };
     let bearer = await accessToken(options);
-    let response = await send(request, body, options, bearer);
+    let response = await send(request, options, bearer);
     if (rejected(response, bearer)) {
       await response.body?.cancel().catch(() => {});
       bearer = await accessToken(options);
-      response = await send(request, body, options, bearer);
+      response = await send(request, options, bearer);
       rejected(response, bearer);
     }
     if (!response.ok) {
