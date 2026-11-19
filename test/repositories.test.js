@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, writeFile, rm, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { parseRemote, normalizeOrganization, repositoryKey, discoverRepositories } from '../server/repositories.js';
+import { parseRemote, normalizeOrganization, repositoryKey, discoverRepositories, hasRemoteCredentials } from '../server/repositories.js';
 
 test('Azure remote formats normalize to a credential-free canonical identity', () => {
   const forms = [
@@ -40,6 +40,14 @@ test('unapproved hosts, path injection and organization credentials are rejected
   assert.throws(() => parseRemote('https://user:secret@dev.azure.com/Org/Project/_git/Repo'), { code: 'REMOTE_PASSWORD' });
   // A token in the user name is a credential too; Azure's clone URLs put the organization there.
   assert.throws(() => parseRemote('https://tokenvalue@dev.azure.com/Org/Project/_git/Repo'), { code: 'REMOTE_PASSWORD' });
+  assert.throws(() => parseRemote('ssh://git:secret@ssh.dev.azure.com/v3/Org/Project/Repo'), { code: 'REMOTE_PASSWORD' });
+  assert.equal(parseRemote('https://O%72g@dev.azure.com/%4Frg/Project/_git/Repo').organization, 'https://dev.azure.com/org');
+  assert.throws(
+    () => parseRemote('https://%E0%A4%A@dev.azure.com/Org/Project/_git/Repo'),
+    error => error.code === 'INVALID_REPOSITORY',
+  );
+  assert.equal(hasRemoteCredentials('https://user:secret@example.test/repo.git'), true);
+  assert.equal(hasRemoteCredentials('https://Org@dev.azure.com/Org/Project/_git/Repo'), false);
   for (const input of [
     '-oProxyCommand=x@ssh.dev.azure.com:v3/Org/Project/Repo',
     'ssh://-oProxyCommand=x@ssh.dev.azure.com/v3/Org/Project/Repo',

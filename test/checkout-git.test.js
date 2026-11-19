@@ -386,7 +386,9 @@ test('conditional includes, transport and signing keys in checkout config are re
     git(local, 'config', key, value);
     const status = await createCheckoutGit({ matchesRemote: url => url === remote }).status(repo);
     assert.equal(status.state, 'unavailable', key);
-    assert.match(status.diagnostic?.message ?? '', new RegExp(key.toLowerCase().replace(/[.]/g, '\\.')), key);
+    const shown = key.toLowerCase().replace(/^(url|http|credential|lfs)\.[^]+\.([^.]+)$/, '$1.<url>.$2');
+    assert.ok(status.diagnostic?.message?.includes(shown), key);
+    assert.equal(status.diagnostic?.message?.includes('example.test'), false, key);
     git(local, 'config', '--unset', key);
   }
   // Keys Git LFS writes itself during normal use stay allowed.

@@ -247,6 +247,7 @@ export function createCheckoutGit({
         const submodule = resolve(folder, gitlink);
         // Git follows a gitlink that is a symlink, so the scan does too; each folder is read once, so links cannot loop.
         const real = await realpath(submodule).catch(() => null);
+        if (real?.includes('\uFFFD')) throw problem('A submodule path is not valid UTF-8. Rename it to read this checkout.', 404);
         if (!real || visited.has(real)) continue;
         const populated = await access(resolve(submodule, '.git')).then(
           () => true,
@@ -279,7 +280,9 @@ export function createCheckoutGit({
   /** @param {string[]} keys */
   function refuseConfiguredCommands(keys) {
     if (!keys.length) return;
-    const message = `This checkout's own Git config sets ${keys.join(', ')}.`;
+    // URL subsections (url.<base>, http.<url>, credential.<url>, lfs.<url>) can hold a token, so they are not shown.
+    const shown = [...new Set(keys.map(key => key.replace(/^(url|http|credential|lfs)\.[^]+\.([^.]+)$/i, '$1.<url>.$2')))];
+    const message = `This checkout's own Git config sets ${shown.join(', ')}.`;
     const suggestion = 'Repo Pulse does not run commands from a checkout. Move these settings to your global Git config or remove them.';
     throw Object.assign(problem(`${message} ${suggestion}`), {
       diagnostic: { title: 'Checkout Git config runs commands', message, suggestion },
@@ -362,7 +365,7 @@ export function createCheckoutGit({
     const diagnostic = passwordInUrl
       ? {
           title: 'Remote URL contains credentials',
-          suggestion: 'Remove the password from the remote URL and let a Git credential helper sign in.',
+          suggestion: 'Remove the credentials from the remote URL and let a Git credential helper sign in.',
         }
       : checkoutDiagnostic(state, snapshot, observation, operation, rewrite);
     return {
