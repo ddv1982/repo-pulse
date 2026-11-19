@@ -266,8 +266,9 @@ export function createCheckoutGit({
       path = await realpath(repo.localPath);
       const root = (await run(path, ['rev-parse', '--show-toplevel'])).trimEnd();
       if ((await realpath(root)) === path) keys = await configuredCommands(path);
-    } catch {
-      /* The linked folder may have moved or Git may not be available. */
+    } catch (error) {
+      // The linked folder may have moved or Git may not be available; keep a reason this module gave itself.
+      if (/** @type {{ status?: number }} */ (error).status) throw error;
     }
     if (!path || !keys) throw problem('The linked checkout is unavailable.', 404);
     refuseConfiguredCommands(keys);
@@ -617,10 +618,12 @@ export function createCheckoutGit({
     try {
       return { checkout: (await statusAt(path, repo)).snapshot, updated: true };
     } catch (caught) {
-      // The branch already moved, so no failure here may read as if Pull did nothing.
-      const error = /** @type {Error} */ (caught);
-      error.message = `The branch was updated to the upstream commit. ${error.message}`;
-      throw error;
+      // The branch already moved, so no failure here may read as if Pull did nothing. Unexpected errors keep their text local.
+      const error = /** @type {Error & { status?: number, diagnostic?: unknown }} */ (caught);
+      const reason = error.status ? error.message : 'Review the checkout in Git.';
+      throw Object.assign(problem(`The branch was updated to the upstream commit. ${reason}`, error.status === 404 ? 404 : 409), {
+        diagnostic: error.diagnostic,
+      });
     }
   }
 
