@@ -329,6 +329,24 @@ test('a nested repository committed without .gitmodules is read like a submodule
   assert.match(refused.diagnostic?.message ?? '', /filter\.probe\.clean/);
 });
 
+test('a Pull that adds a gitlink over a nested checkout checks that checkout before reading status', async t => {
+  const fixture = checkoutFixture(t);
+  const { repo, checkoutGit, local, source, commit, root = join(local, '..') } = fixture;
+  const marker = join(root, 'filter-ran');
+  const nested = join(local, 'nested');
+  git(local, 'init', '--initial-branch=main', nested);
+  commit(nested, 'n.txt', 'nested');
+  git(nested, 'config', 'filter.probe.clean', `sh -c 'touch "${marker}"; cat'`);
+  writeFileSync(join(nested, '.git', 'info', 'attributes'), '* filter=probe\n');
+  git(source, 'update-index', '--add', '--cacheinfo', `160000,${git(nested, 'rev-parse', 'HEAD')},nested`);
+  git(source, '-c', 'user.email=test@example.test', '-c', 'user.name=Test', 'commit', '-m', 'add gitlink');
+  git(source, 'push', 'origin', 'main');
+  const { checkout } = await checkoutGit.update(repo, 'check', await checkoutGit.status(repo));
+  utimesSync(join(nested, 'n.txt'), new Date(), new Date(Date.now() + 5000));
+  await assert.rejects(checkoutGit.update(repo, 'pull', checkout), /filter\.probe\.clean/);
+  assert.equal(existsSync(marker), false);
+});
+
 test('conditional includes, transport and signing keys in checkout config are refused', async t => {
   const { repo, local, remote } = checkoutFixture(t);
   for (const [key, value] of [

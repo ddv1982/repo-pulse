@@ -268,14 +268,18 @@ export function createCheckoutGit({
       /* The linked folder may have moved or Git may not be available. */
     }
     if (!path || !keys) throw problem('The linked checkout is unavailable.', 404);
-    if (keys.length) {
-      const message = `This checkout's own Git config sets ${keys.join(', ')}.`;
-      const suggestion = 'Repo Pulse does not run commands from a checkout. Move these settings to your global Git config or remove them.';
-      throw Object.assign(problem(`${message} ${suggestion}`), {
-        diagnostic: { title: 'Checkout Git config runs commands', message, suggestion },
-      });
-    }
+    refuseConfiguredCommands(keys);
     return path;
+  }
+
+  /** @param {string[]} keys */
+  function refuseConfiguredCommands(keys) {
+    if (!keys.length) return;
+    const message = `This checkout's own Git config sets ${keys.join(', ')}.`;
+    const suggestion = 'Repo Pulse does not run commands from a checkout. Move these settings to your global Git config or remove them.';
+    throw Object.assign(problem(`${message} ${suggestion}`), {
+      diagnostic: { title: 'Checkout Git config runs commands', message, suggestion },
+    });
   }
 
   /**
@@ -323,6 +327,8 @@ export function createCheckoutGit({
 
   /** @param {string} path @param {LinkedRepo} repo @returns {Promise<{ snapshot: ActiveCheckout, target: Upstream|null, gitDirectory: string|null }>} */
   async function statusAt(path, repo) {
+    // Checked again here because a Pull or branch switch can bring in a gitlink over a nested checkout.
+    refuseConfiguredCommands(await configuredCommands(path));
     const snapshot = readStatus(
       await run(path, ['status', '--porcelain=v2', '--branch', '-z', '--untracked-files=normal', '--ignore-submodules=none']),
     );
