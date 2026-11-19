@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, utimesSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { checkoutFixture, git } from './fixtures/checkout.js';
 import { createCheckoutGit } from '../server/checkout-git.js';
@@ -251,4 +251,32 @@ test('Pull advances the branch even when local Git config asks merges to squash'
   assert.equal(git(local, 'rev-parse', 'HEAD'), tip, 'the branch moved to the upstream tip');
   assert.equal(pulled.updated, true);
   assert.equal(git(local, 'status', '--porcelain'), '', 'nothing was left staged');
+});
+
+test('a checkout whose own Git config runs commands is refused before Git reads it', async t => {
+  const { repo, checkoutGit, local, root = join(local, '..') } = checkoutFixture(t);
+  const marker = join(root, 'filter-ran');
+  // A clean filter runs when status refreshes a tracked file whose timestamp changed.
+  git(local, 'config', 'filter.probe.clean', `sh -c 'touch "${marker}"; cat'`);
+  writeFileSync(join(local, '.git', 'info', 'attributes'), '* filter=probe\n');
+  utimesSync(join(local, 'feature.txt'), new Date(), new Date(Date.now() + 5000));
+  const status = await checkoutGit.status(repo);
+  assert.equal(existsSync(marker), false);
+  assert.equal(status.state, 'unavailable');
+  assert.equal(status.diagnostic?.title, 'Checkout Git config runs commands');
+  assert.match(status.diagnostic?.message ?? '', /filter\.probe\.clean/);
+  await assert.rejects(checkoutGit.update(repo, 'check', status), /filter\.probe\.clean/);
+  assert.equal(existsSync(marker), false);
+});
+
+test('a submodule whose Git config runs commands is refused too', async t => {
+  const { repo, checkoutGit, local, commit } = checkoutFixture(t);
+  const root = join(local, '..');
+  const library = join(root, 'library');
+  git(root, 'init', '--initial-branch=main', library);
+  commit(library, 'lib.txt', 'library');
+  git(local, '-c', 'protocol.file.allow=always', 'submodule', 'add', '--quiet', library, 'lib');
+  assert.equal((await checkoutGit.status(repo)).state !== 'unavailable', true);
+  git(join(local, 'lib'), 'config', 'core.sshCommand', 'ssh -o ProxyCommand=true');
+  await assert.rejects(checkoutGit.update(repo, 'check', await checkoutGit.status(repo)), /core\.sshcommand/i);
 });

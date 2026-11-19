@@ -23,7 +23,7 @@ import { checkoutDiagnostic, memoryObservations, observedRewrite } from './check
  * @typedef {PullableCheckout | BlockedCheckout} ActiveCheckout
  * @typedef {ActiveCheckout & { followup?: import('./checkout-branches.js').FollowupSummary }} DecoratedCheckout
  *   A checkout with an open branch follow-up names it, so the page can offer to review or remove the old branch.
- * @typedef {DecoratedCheckout | { state: 'unavailable'|'not-linked' }} CheckoutStatus
+ * @typedef {DecoratedCheckout | { state: 'unavailable'|'not-linked', diagnostic?: import('./checkout-observations.js').CheckoutDiagnostic }} CheckoutStatus
  * @typedef {(path: string, args: string[], options?: { guard?: NodeJS.ProcessEnv, input?: string }) => Promise<string>} GitRunner
  */
 
@@ -41,6 +41,9 @@ const operations = [
   ['sequencer', 'Git operation'],
 ];
 const hooks = process.platform === 'win32' ? 'NUL' : '/dev/null';
+// Keys in a checkout's own config that make Git run a command or change where and how it connects.
+const commandKeys =
+  /^(?:filter\..+\.(?:clean|smudge|process)|merge\..+\.driver|core\.(?:sshcommand|askpass|gitproxy|alternaterefscommand)|credential\.(?:.+\.)?helper|http\.(?:.+\.)?(?:proxy|sslverify|sslcainfo|sslcapath|sslcert|sslkey|extraheader|cookiefile)|remote\..+\.(?:uploadpack|receivepack|proxy))$/i;
 
 function gitEnvironment() {
   /** @type {NodeJS.ProcessEnv} */
@@ -204,17 +207,40 @@ export function createCheckoutGit({
   let updating = false;
   const branches = branchFollowups({ run, hooks, followups, statusAt, updateAt, readMissing, matchesIntent });
 
+  /** Config keys the checkout or one of its submodules sets itself that would make Git run a command. @param {string} path */
+  async function configuredCommands(path) {
+    const submodules = (await run(path, ['submodule', 'foreach', '--quiet', '--recursive', 'echo "$displaypath"'])).split('\n');
+    const keys = new Set();
+    for (const folder of ['.', ...submodules.filter(Boolean)]) {
+      const listing = await run(resolve(path, folder), ['config', '--show-scope', '--includes', '--name-only', '--list']);
+      for (const line of listing.split('\n')) {
+        const [scope, key = ''] = line.split('\t');
+        if ((scope === 'local' || scope === 'worktree') && commandKeys.test(key)) keys.add(key);
+      }
+    }
+    return [...keys];
+  }
+
   /** @param {LinkedRepo} repo */
   async function checkoutPath(repo) {
     if (!repo.localPath) throw problem('No local checkout linked.', 404);
+    let path, keys;
     try {
-      const path = await realpath(repo.localPath);
+      path = await realpath(repo.localPath);
       const root = (await run(path, ['rev-parse', '--show-toplevel'])).trimEnd();
-      if ((await realpath(root)) === path) return path;
+      if ((await realpath(root)) === path) keys = await configuredCommands(path);
     } catch {
       /* The linked folder may have moved or Git may not be available. */
     }
-    throw problem('The linked checkout is unavailable.', 404);
+    if (!path || !keys) throw problem('The linked checkout is unavailable.', 404);
+    if (keys.length) {
+      const message = `This checkout's own Git config sets ${keys.join(', ')}.`;
+      const suggestion = 'Repo Pulse does not run commands from a checkout. Move these settings to your global Git config or remove them.';
+      throw Object.assign(problem(`${message} ${suggestion}`), {
+        diagnostic: { title: 'Checkout Git config runs commands', message, suggestion },
+      });
+    }
+    return path;
   }
 
   /**
@@ -333,7 +359,8 @@ export function createCheckoutGit({
     if (previous?.path === repo.localPath && previous.until > now()) return previous.value;
     const value = checkoutPath(repo).then(
       path => inspect(path, repo),
-      () => /** @type {const} */ ({ state: 'unavailable' }),
+      /** @param {{ diagnostic?: import('./checkout-observations.js').CheckoutDiagnostic }} error @returns {CheckoutStatus} */
+      error => (error.diagnostic ? { state: 'unavailable', diagnostic: error.diagnostic } : { state: 'unavailable' }),
     );
     readings.set(repo.id, { path: repo.localPath, until: now() + 5000, value });
     return value;
