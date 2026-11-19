@@ -163,20 +163,23 @@ export function createStore(path = ':memory:') {
     const push = hydrate(q(`${selectEvents} WHERE e.id=?`).get(id));
     if (!push) return;
     const evidence = /** @type {import('../src/activity.js').MergeEvidenceData} */ (push.data?.mergeEvidence || {});
-    const prs = evidence.prs || [];
-    /** @type {Map<string, ReturnType<typeof localPrLink>>} */
-    const added = new Map();
+    const prs = [...(evidence.prs || [])];
+    let changed = false;
     for (const ref of mergeUpdates(push)) {
       const rows = q(`SELECT data FROM events WHERE repo_id=? AND json_extract(data,'$.kind')='pr'
         AND json_extract(data,'$.data.status')='completed' AND json_extract(data,'$.data.targetRefName')=?
         AND lower(json_extract(data,'$.data.mergeCommit'))=? ORDER BY time`).all(push.repoId, ref.name, ref.newObjectId.toLowerCase());
       for (const pr of rows.map(readEventWithData)) {
         const key = `${pr.data.pullRequestId}:${ref.name}`;
-        if (!added.has(key) && !prs.some(item => `${item.pullRequestId ?? item.id}:${item.targetRefName}` === key))
-          added.set(key, localPrLink(pr));
+        const index = prs.findIndex(item => `${item.pullRequestId ?? item.id}:${item.targetRefName}` === key);
+        // The tip identity is the strongest relationship; an engine entry for the same PR keeps its metadata.
+        if (index < 0) prs.push(localPrLink(pr));
+        else if (prs[index].relationship !== 'result-introduced') prs[index] = { ...prs[index], relationship: 'result-introduced' };
+        else continue;
+        changed = true;
       }
     }
-    return added.size ? enrichEvent(id, { mergeEvidence: { ...evidence, prs: [...prs, ...added.values()] } }) : undefined;
+    return changed ? enrichEvent(id, { mergeEvidence: { ...evidence, prs } }) : undefined;
   }
   /** @param {StoredEvent} push */
   function indexPush(push) {

@@ -218,8 +218,7 @@ function requestRefresh(state, at, manual) {
  * Every tick does one bounded page, so busy streams cannot monopolize catch-up.
  * @param {{ store: SyncStore, provider: SyncProvider, now?: () => number, intervalMs?: number,
  *   isForeground?: () => boolean, refsIntervalMs?: number, pollMs?: number, overlapMs?: number,
- *   background?: Partial<Record<BackgroundKind, () => unknown>>,
- *   onPrCompleted?: (repo: WatchedRepo, data: Record<string, unknown>) => void }} options
+ *   background?: Partial<Record<BackgroundKind, () => unknown>> }} options
  */
 export function createSync({
   store,
@@ -231,7 +230,6 @@ export function createSync({
   pollMs = 1000,
   overlapMs = 120000,
   background = {},
-  onPrCompleted,
 }) {
   /** @type {ReturnType<typeof setTimeout>|undefined} */
   let timer;
@@ -693,7 +691,6 @@ export function createSync({
       ? completePage(working, latest, { at: now(), delayMs: state.stream === 'refs' ? refsIntervalMs : cadence, quietCycles })
       : nextPage(working, latest, { at: now(), cursor: page.nextCursor, pendingItems, activeIds });
     store.commitPage({ repoId: repo.id, stream: state.stream, state: next, ...output });
-    for (const event of output.events) if (event.kind === 'pr' && event.data?.status === 'completed') onPrCompleted?.(repo, event.data);
     counters.pages++;
   }
   async function runPage() {

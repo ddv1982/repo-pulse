@@ -123,3 +123,19 @@ test('upgrading a database links pairs it already stored and pushes whose PR arr
   store.close();
   rmSync(folder, { recursive: true });
 });
+
+test('the tip match upgrades a weaker link to the same PR and keeps its details', () => {
+  const store = createStore();
+  store.saveRepo(repo);
+  store.insertEvents([moved('push')]);
+  const weaker = { pullRequestId: 'pr', targetRefName: 'refs/heads/main', relationship: 'constituent-related', title: 'Kept' };
+  store.commitEnrichment({ eventId: 'push', data: { mergeEvidence: { status: 'complete', prs: [weaker] } } });
+  store.insertEvents([completedPr('pr')]);
+  assert.deepEqual(
+    store.getEvent('push').data.mergeEvidence.prs.map(pr => [pr.pullRequestId, pr.relationship, pr.title]),
+    [['pr', 'result-introduced', 'Kept']],
+  );
+  store.commitEnrichment({ eventId: 'push', data: { mergeEvidence: { status: 'complete', prs: [weaker] } } });
+  assert.equal(store.getEvent('push').data.mergeEvidence.prs[0].relationship, 'result-introduced', 'an engine save cannot downgrade it');
+  store.close();
+});

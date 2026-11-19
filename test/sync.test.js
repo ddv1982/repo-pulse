@@ -3,7 +3,6 @@ import assert from 'node:assert/strict';
 import { createStore } from '../server/store.js';
 import { createHash } from 'node:crypto';
 import { createSync } from '../server/sync.js';
-import { createEnrichment } from '../server/enrichment.js';
 import { activityMergeBadge } from '../src/activity-text.js';
 const repo = {
   id: 'one',
@@ -1107,25 +1106,26 @@ for (const [order, first, second] of [
     const store = createStore();
     store.saveRepo(repo);
     let time = BASE;
-    const forbidden = new Proxy({}, { get: (_target, name) => () => assert.fail(`merge provider called: ${String(name)}`) });
-    const worker = createEnrichment({ store, provider: forbidden, now: () => time });
     const sync = createSync({
       store,
       provider: { read: async (_repo, stream) => ({ items: offered[stream] || [], nextCursor: null }) },
       now: () => time,
       intervalMs: 1000,
-      onPrCompleted: (current, data) => worker.reconcilePr(current, data),
     });
     sync.refresh();
     for (const state of store.getStreams())
       if (!['pushes', 'closedPrs'].includes(state.stream)) store.saveStream({ ...state, nextAt: '2099-01-01T00:00:00Z' });
+    /** @type {number[]} */
+    const queued = [];
     for (const stream of [first, second]) {
       offered[stream] = items[stream];
       for (let i = 0; i < 2; i++) {
         time += 2000;
         await sync.tick();
       }
+      queued.push(store.listJobs({ type: 'merge' }).length);
     }
+    assert.deepEqual(queued, first === 'pushes' ? [1, 1] : [0, 1], 'only the push queues merge work');
     const pushed = store.getEvent('one:push:30');
     assert.ok(pushed, 'push stored');
     assert.ok(
