@@ -64,17 +64,6 @@ function tagFields(data) {
   ];
 }
 
-/** @param {EventData} data @returns {[string, HtmlValue][]} */
-function prFields(data) {
-  /** @type {[string, HtmlValue][]} */
-  const fields = [];
-  if (data.targetRefName) fields.push(['Target branch', branchName(data.targetRefName)]);
-  if (data.status === 'completed' && data.mergeCommit) fields.push(['Merge commit', commit(data.mergeCommit)]);
-  if (data.closedBy) fields.push(['PR closed by', data.closedBy]);
-  if (data.reviewers?.length) fields.push(['Reviewers', reviewerList(data.reviewers)]);
-  return fields;
-}
-
 /**
  * @param {ActivityItem} record @param {Repo | undefined} repo @param {EventData} data
  * @param {string | undefined} sha @param {PushId} pushId @returns {[string, HtmlValue][]}
@@ -85,19 +74,26 @@ function detailFields(record, repo, data, sha, pushId) {
   const sameTime = new Date(record.time).valueOf() === new Date(record.observedAt ?? NaN).valueOf();
   /** @type {[string, HtmlValue][]} */
   const fields = [
-    ['Repository', `${repo?.name ?? ''}${repo?.project ? ` · ${repo.project}` : ''}`],
+    ['Repository', `${repo?.name || ''}${repo?.project ? ` · ${repo.project}` : ''}`],
     [pr ? 'Source branch' : tag ? 'Tag' : 'Branch', branchName(record.branch) || 'Not supplied'],
     [pr ? 'Created by' : 'By', record.actor || 'Not supplied by Azure'],
     [sameTime ? 'Time' : 'Source time', dateTime(record.time)],
   ];
-  if (!sameTime) fields.push(['Observed locally', dateTime(record.observedAt)]);
-  if (sha) fields.push([pr ? 'Source commit' : 'Commit', commit(sha)]);
+  /** @param {unknown} condition @param {string} label @param {() => HtmlValue} value */
+  const add = (condition, label, value) => {
+    if (condition) fields.push([label, value()]);
+  };
+  add(!sameTime, 'Observed locally', () => dateTime(record.observedAt));
+  add(pr && data.targetRefName, 'Target branch', () => branchName(data.targetRefName));
+  add(sha, pr ? 'Source commit' : 'Commit', () => commit(/** @type {string} */ (sha)));
   if (tag) fields.push(...tagFields(data));
-  if (pr) fields.push(...prFields(data));
-  if (data.mergeStrategy) fields.push(['Merge strategy', mergeStrategies[data.mergeStrategy] || 'Not supplied']);
-  if (data.reason) fields.push(['Trigger', triggerLabel(data.reason)]);
-  if (data.pullRequestId) fields.push(['Pull request', `#${data.pullRequestId}`]);
-  if (pushId) fields.push(['Push', `#${pushId}`]);
+  add(pr && data.status === 'completed' && data.mergeCommit, 'Merge commit', () => commit(/** @type {string} */ (data.mergeCommit)));
+  add(data.mergeStrategy, 'Merge strategy', () => mergeStrategies[data.mergeStrategy ?? ''] || 'Not supplied');
+  add(pr && data.closedBy, 'PR closed by', () => data.closedBy);
+  add(pr && data.reviewers?.length, 'Reviewers', () => reviewerList(/** @type {NonNullable<EventData['reviewers']>} */ (data.reviewers)));
+  add(data.reason, 'Trigger', () => triggerLabel(data.reason));
+  add(data.pullRequestId, 'Pull request', () => `#${data.pullRequestId}`);
+  add(pushId, 'Push', () => `#${pushId}`);
   return fields;
 }
 

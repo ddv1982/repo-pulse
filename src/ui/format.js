@@ -17,17 +17,26 @@ import { safeAzureUrl } from '../events.js';
 /** @type {Record<string, string>} */
 const entities = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
 /** @param {unknown} value */
-export const escape = value => String(value ?? '').replace(/[&<>"']/g, c => entities[c]);
+const escape = value => String(value ?? '').replace(/[&<>"']/g, c => entities[c]);
 
 const SAFE_HTML = Symbol('SafeHtml');
 
-/** Trusted HTML produced only by the `html` tagged template; plain strings cannot impersonate it. */
+/** Trusted HTML produced only by the `html` tagged template; verified via private-field brand check. */
 export class SafeHtml {
   #html;
   /** @param {string} value @param {symbol} token */
   constructor(value, token) {
     if (token !== SAFE_HTML) throw new TypeError('Use html`...` to build SafeHtml.');
     this.#html = value;
+  }
+  /** @param {unknown} value @returns {value is SafeHtml} */
+  static is(value) {
+    return typeof value === 'object' && value !== null && #html in value;
+  }
+  /** @param {unknown} value @returns {string} */
+  static unwrap(value) {
+    if (!SafeHtml.is(value)) throw new TypeError('Repo Pulse: expected SafeHtml.');
+    return value.#html;
   }
   toString() {
     return this.#html;
@@ -39,7 +48,7 @@ export class SafeHtml {
 /** @param {HtmlValue} value @returns {string} */
 function renderValue(value) {
   if (value === null || value === undefined) return '';
-  if (value instanceof SafeHtml) return value.toString();
+  if (SafeHtml.is(value)) return SafeHtml.unwrap(value);
   if (Array.isArray(value)) return value.map(renderValue).join('');
   return escape(value);
 }

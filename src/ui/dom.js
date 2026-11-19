@@ -22,6 +22,5 @@ export function required(selector, Type = /** @type {new () => T} */ (/** @type 
  * @param {SafeHtml} markup
  */
 export function setHtml(element, markup) {
-  if (!(markup instanceof SafeHtml)) throw new TypeError('Repo Pulse: setHtml requires SafeHtml.');
-  element.innerHTML = markup.toString();
+  element.innerHTML = SafeHtml.unwrap(markup);
 }

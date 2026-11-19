@@ -648,11 +648,14 @@ test('html auto-escapes plain values, composes SafeHtml, and setHtml refuses pla
   );
   assert.equal(String(joinHtml(['<a>', safeHtml`<b>ok</b>`], safeHtml`<br>`)), '&lt;a&gt;<br><b>ok</b>');
   assert.throws(() => new SafeHtml('<b>forged</b>', Symbol('fake')), TypeError);
+  const lookalike = Object.create(SafeHtml.prototype, { toString: { value: () => '<b>spoof</b>' } });
+  assert.equal(String(safeHtml`<div>${lookalike}</div>`), '<div>&lt;b&gt;spoof&lt;/b&gt;</div>');
   const fakeElement = /** @type {any} */ ({ innerHTML: '' });
   setHtml(fakeElement, rendered);
   assert.equal(fakeElement.innerHTML, String(rendered));
   assert.throws(() => setHtml(fakeElement, /** @type {any} */ ('<b>plain</b>')), TypeError);
   assert.throws(() => setHtml(fakeElement, /** @type {any} */ ({ toString: () => '<b>spoof</b>' })), TypeError);
+  assert.throws(() => setHtml(fakeElement, /** @type {any} */ (lookalike)), TypeError);
 });
 
 test('setHtml in src/ui/dom.js is the only innerHTML sink across browser source files', () => {
