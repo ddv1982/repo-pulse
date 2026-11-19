@@ -1161,7 +1161,13 @@ test('a sync run over several push pages makes only stream reads and queues no m
   let time = BASE;
   const { provider, calls } = recordingProvider({ pushes: [[push(1), push(2)], [push(3)], [push(4)]] });
   const enrichment = createEnrichment({ store, provider, now: () => time });
-  const sync = createSync({ store, provider, now: () => time, intervalMs: 1000, background: { merge: () => (mergeTurns++, enrichment.tick()) } });
+  const sync = createSync({
+    store,
+    provider,
+    now: () => time,
+    intervalMs: 1000,
+    background: { merge: () => (mergeTurns++, enrichment.tick()) },
+  });
   for (let i = 0; i < 40; i++) {
     await sync.tick();
     time += 500;
