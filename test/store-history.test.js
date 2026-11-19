@@ -671,3 +671,21 @@ test('every older database version and a fresh database end at the latest versio
     rmSync(dir, { recursive: true });
   }
 });
+
+test('a compaction left pending by an earlier start runs on the next start', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'pulse-compact-'));
+  const path = join(dir, 'state.sqlite');
+  createStore(path).close();
+  const raw = new DatabaseSync(path);
+  raw.exec(`PRAGMA foreign_keys=OFF; WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i+1 FROM n WHERE i<200)
+    INSERT INTO entities(repo_id,type,id,data) SELECT 'r','cache','c'||i,hex(zeroblob(2048)) FROM n;
+    DELETE FROM entities; INSERT INTO settings(key,data) VALUES('compactPending','true');`);
+  raw.close();
+  const before = statSync(path).size;
+  createStore(path).close();
+  const after = new DatabaseSync(path);
+  assert.equal(after.prepare("SELECT 1 FROM settings WHERE key='compactPending'").get(), undefined);
+  after.close();
+  assert.ok(statSync(path).size < before / 2, 'the start compacts the file');
+  rmSync(dir, { recursive: true });
+});

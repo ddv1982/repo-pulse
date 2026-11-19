@@ -288,6 +288,7 @@ export function createStore(path = ':memory:') {
         db.exec('DROP TABLE IF EXISTS rules;');
         for (const row of q(`${selectEvents} JOIN activity_members m ON m.event_id=e.id WHERE m.evidence_id='merge-commit'`).all())
           indexLabels(hydrate(row));
+        q("INSERT OR REPLACE INTO settings(key,data) VALUES('compactPending','true')").run();
       },
     ],
   ];
@@ -347,8 +348,16 @@ export function createStore(path = ':memory:') {
       db.exec(`PRAGMA user_version = ${target}`);
     }
   });
-  // Returns the space the deleted caches held to the file system. VACUUM cannot run inside a transaction.
-  if (version < 12) db.exec('VACUUM');
+  // Returns the space deleted caches held to the file system. VACUUM cannot run inside a transaction, and a failure
+  // (for example a full disk) must not stop startup, so the pending flag keeps it for the next start.
+  if (q("SELECT 1 FROM settings WHERE key='compactPending'").get()) {
+    try {
+      db.exec('VACUUM');
+      q("DELETE FROM settings WHERE key='compactPending'").run();
+    } catch {
+      /* Retried on the next start. */
+    }
+  }
   /** @param {ActivityEvent[]} events */
   function insertEvents(events) {
     const statement = q('INSERT OR IGNORE INTO events(id,repo_id,time,observed_at,seen,imported,data) VALUES(?,?,?,?,?,?,?)');

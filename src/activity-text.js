@@ -204,8 +204,9 @@ export function parseActivityFilter(value) {
     return { type: 'status', id: statusIds.get(id) || id };
   }
   if (value.startsWith('evidence:')) {
-    const id = value.slice(9);
-    return { type: 'evidence', id: evidenceIds.get(id) || id };
+    const id = evidenceIds.get(value.slice(9)) || value.slice(9);
+    // A retired filter, such as one restored from an older session, shows everything instead of nothing.
+    return Object.hasOwn(evidenceLabels, id) ? { type: 'evidence', id } : { type: 'all' };
   }
   return { type: 'kind', id: value };
 }
