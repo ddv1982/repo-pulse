@@ -1,6 +1,6 @@
 // @ts-check
 import { createServer } from 'node:http';
-import { readFile, mkdir, writeFile, chmod, rm } from 'node:fs/promises';
+import { readFile, mkdir, writeFile, chmod, rm, link } from 'node:fs/promises';
 import { resolve, dirname, extname, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { randomBytes, timingSafeEqual } from 'node:crypto';
@@ -614,24 +614,33 @@ export async function startApp({ demo = false, port = 4317, dataDir = resolve(RO
 /** One key per data directory, so the browser keeps working across restarts. @param {string} dataDir */
 async function loadAccessKey(dataDir) {
   const file = resolve(dataDir, 'access-key');
-  for (let attempt = 0; attempt < 2; attempt++) {
-    const saved = (await readFile(file, 'utf8').catch(() => '')).trim();
-    if (/^[A-Za-z0-9_-]{43}$/.test(saved)) {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    /** @type {string | null} */
+    let saved = null;
+    try {
+      saved = (await readFile(file, 'utf8')).trim();
+    } catch (error) {
+      if (/** @type {NodeJS.ErrnoException} */ (error).code !== 'ENOENT') throw error;
+    }
+    if (saved !== null && /^[A-Za-z0-9_-]{43}$/.test(saved)) {
       // Owner-only even if the file was created or copied with wider permissions.
       await chmod(file, 0o600);
       return saved;
     }
-    if (saved) await rm(file, { force: true });
+    // An empty or malformed file, for example from an interrupted first start, is replaced.
+    if (saved !== null) await rm(file, { force: true });
     const key = randomBytes(32).toString('base64url');
-    // Exclusive create: when two first starts race, the loser reads the winner's key on the next pass.
-    const created = await writeFile(file, key, { mode: 0o600, flag: 'wx' }).then(
-      () => true,
-      /** @param {NodeJS.ErrnoException} error */ error => {
-        if (error.code !== 'EEXIST') throw error;
-        return false;
-      },
-    );
-    if (created) return key;
+    const draft = `${file}.${randomBytes(6).toString('hex')}`;
+    await writeFile(draft, key, { mode: 0o600, flag: 'wx' });
+    try {
+      // Linking publishes the complete key only if no key file exists yet; a concurrent start reads the winner's key.
+      await link(draft, file);
+      return key;
+    } catch (error) {
+      if (/** @type {NodeJS.ErrnoException} */ (error).code !== 'EEXIST') throw error;
+    } finally {
+      await rm(draft, { force: true });
+    }
   }
   throw new Error(`Could not create ${file}.`);
 }

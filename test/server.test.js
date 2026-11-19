@@ -211,4 +211,8 @@ test('the access key file is reused, kept owner-only and replaced when malformed
   const replaced = new URL(second.launchUrl).searchParams.get('key');
   assert.match(replaced, /^[A-Za-z0-9_-]{43}$/);
   assert.notEqual(replaced, key);
+  await writeFile(file, '');
+  const third = await startApp({ demo: true, port: 0, dataDir: directory });
+  await third.close();
+  assert.match(new URL(third.launchUrl).searchParams.get('key'), /^[A-Za-z0-9_-]{43}$/);
 });
