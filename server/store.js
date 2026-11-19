@@ -172,10 +172,18 @@ export function createStore(path = ':memory:') {
       for (const pr of rows.map(readEventWithData)) {
         const key = `${pr.data.pullRequestId}:${ref.name}`;
         const index = prs.findIndex(item => `${item.pullRequestId ?? item.id}:${item.targetRefName}` === key);
-        // The tip identity is the strongest relationship; an engine entry for the same PR keeps its metadata.
-        if (index < 0) prs.push(localPrLink(pr));
-        else if (prs[index].relationship !== 'result-introduced') prs[index] = { ...prs[index], relationship: 'result-introduced' };
-        else continue;
+        const local = localPrLink(pr);
+        if (index < 0) {
+          prs.push(local);
+          changed = true;
+          continue;
+        }
+        // The tip identity is the strongest relationship; an engine entry for the same PR keeps its metadata and gains
+        // the fields only the stored PR has.
+        const existing = /** @type {Record<string, unknown>} */ (prs[index]);
+        const filled = Object.fromEntries(Object.entries(local).filter(([field, value]) => value != null && existing[field] == null));
+        if (existing.relationship === 'result-introduced' && !Object.keys(filled).length) continue;
+        prs[index] = { ...prs[index], ...filled, relationship: 'result-introduced' };
         changed = true;
       }
     }

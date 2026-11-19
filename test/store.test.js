@@ -132,8 +132,8 @@ test('the tip match upgrades a weaker link to the same PR and keeps its details'
   store.commitEnrichment({ eventId: 'push', data: { mergeEvidence: { status: 'complete', prs: [weaker] } } });
   store.insertEvents([completedPr('pr')]);
   assert.deepEqual(
-    store.getEvent('push').data.mergeEvidence.prs.map(pr => [pr.pullRequestId, pr.relationship, pr.title]),
-    [['pr', 'result-introduced', 'Kept']],
+    store.getEvent('push').data.mergeEvidence.prs.map(pr => [pr.pullRequestId, pr.relationship, pr.title, pr.mergeCommit]),
+    [['pr', 'result-introduced', 'Kept', tip]],
   );
   store.commitEnrichment({ eventId: 'push', data: { mergeEvidence: { status: 'complete', prs: [weaker] } } });
   assert.equal(store.getEvent('push').data.mergeEvidence.prs[0].relationship, 'result-introduced', 'an engine save cannot downgrade it');
