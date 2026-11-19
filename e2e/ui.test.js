@@ -933,6 +933,7 @@ test('the app-owned type dropdown is themed, keyboard accessible and stable duri
   await page.setViewportSize({ width: 375, height: 812 });
   await page.locator('details[data-filter-panel] > summary').click();
   await page.getByRole('button', { name: /^Activity type:/ }).click();
+  await expect(page.locator('#kind-panel')).toHaveCSS('top', '44px');
   const box = await page.locator('#kind-panel').boundingBox();
   assert.ok(box.x >= 0 && box.x + box.width <= 375);
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);

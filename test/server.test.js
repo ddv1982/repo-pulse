@@ -86,7 +86,14 @@ test('serves real UI and blocks other origins, DNS rebinding, and API requests w
   assert.equal(stylesheet.status, 200);
   assert.equal(stylesheet.headers.get('content-type'), 'text/css; charset=utf-8');
   const imports = [...(await stylesheet.text()).matchAll(/@import\s+['"]([^'"]+)['"]\s*;/g)].map(match => match[1]);
-  assert.ok(imports.length > 0);
+  assert.deepEqual(imports, [
+    '/web/styles/tokens.css',
+    '/web/styles/base.css',
+    '/web/styles/layout.css',
+    '/web/styles/feed.css',
+    '/web/styles/repositories.css',
+    '/web/styles/settings.css',
+  ]);
   for (const href of imports) {
     const part = await globalThis.fetch(new URL(href, url));
     assert.equal(part.status, 200, `${href} should be served`);

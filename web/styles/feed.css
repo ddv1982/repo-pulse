@@ -489,7 +489,6 @@ ol.rows {
   .type-panel {
     left: 0;
     right: auto;
-    top: 100%;
     width: 200px;
     max-width: calc(100vw - 32px);
   }
