@@ -26,7 +26,7 @@
  *   introducedCommitIds?: string[], rewrite?: RewriteResult[] }} MergeEvidenceData
  */
 /**
- * Provider fields of an event, plus enrichment. Each kind fills its own subset (see server/sync.js normalizers).
+ * Provider fields of an event, plus enrichment. Each kind fills its own subset (see server/normalize.js).
  * @typedef {RefUpdate & { id?: number|string, buildId?: number|string, pushId?: number|string,
  *   status?: string, result?: string, reason?: string, isDraft?: boolean, evidence?: string,
  *   targetRefName?: string, refUpdates?: RefUpdate[], commits?: unknown[],
