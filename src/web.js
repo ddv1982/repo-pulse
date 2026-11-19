@@ -314,6 +314,19 @@ const actions = {
     ui.repoIds = [];
     activityChanged({ header: true });
   },
+  'reset-activity': () => {
+    confirm(
+      'Start from scratch?',
+      'This deletes all stored activity, seen marks and imported history on this computer, then imports activity from Azure DevOps again. Your repositories, linked checkouts and settings stay.',
+      async () => {
+        await request('/api/reset', { method: 'POST', body: {} });
+        await load({ force: true });
+        toast('Stored activity deleted. Importing it again.');
+      },
+      'Delete and import again',
+      { destructive: true },
+    );
+  },
   'remove-repo': element => {
     // Remove buttons are rendered from the watched list. A repository removed since the render throws here and withAction reports it.
     const repo = refresh.state.watched.find(item => item.id === element.dataset.id);

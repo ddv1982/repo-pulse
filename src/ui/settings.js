@@ -58,6 +58,14 @@ export function renderSettings(state, connection) {
           <button class="btn sm" type="button" id="copy-diagnostics" data-action="copy-diagnostics">Copy diagnostics</button>
         </div>
       </details>
+      ${
+        state.demo
+          ? ''
+          : `<div class="settings-row settings-action">
+        <span><strong id="reset-label">Start from scratch</strong><span class="help" id="reset-help">Deletes stored activity and imports it again. Your repositories and settings stay.</span></span>
+        <button class="btn sm" type="button" data-action="reset-activity" aria-describedby="reset-help">Start from scratch</button>
+      </div>`
+      }
       <details data-group="coverage">
         <summary class="settings-row" id="coverage-toggle">What Repo Pulse tracks <span class="settings-chevron" aria-hidden="true"></span></summary>
         <div class="settings-content help">

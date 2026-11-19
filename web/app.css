@@ -2760,7 +2760,8 @@ select {
 .settings-card > details:first-child {
   border-top: 0;
 }
-.settings-card > .settings-toggle {
+.settings-card > .settings-toggle,
+.settings-card > .settings-action {
   border-top: 1px solid var(--border);
 }
 .connection-state {
