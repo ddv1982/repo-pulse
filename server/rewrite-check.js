@@ -10,7 +10,7 @@
 /** @typedef {import('../src/activity.js').RewriteResult} RewriteResult */
 /**
  * @typedef {Pick<ReturnType<typeof import('./store.js').createStore>,
- *   'listRepos'|'listJobs'|'saveJob'|'removeJob'|'getEvent'|'enrichEvent'>} RewriteStore
+ *   'listRepos'|'listJobs'|'saveJob'|'getEvent'|'saveRewriteResult'>} RewriteStore
  */
 
 const ATTEMPTS = 4;
@@ -23,16 +23,8 @@ const iso = ms => new Date(ms).toISOString();
  * @param {{ store: RewriteStore, provider: Pick<AzureProvider, 'droppedCommits'>, now?: () => number }} options
  */
 export function createRewriteCheck({ store, provider, now = Date.now }) {
-  /** @param {RewriteJob} job @param {RewriteResult} result */
-  function save(job, result) {
-    const event = store.getEvent(job.eventId);
-    if (event) {
-      const evidence = event.data?.mergeEvidence || {};
-      const rewrite = [...(evidence.rewrite || []).filter(item => item.ref !== result.ref), result];
-      store.enrichEvent(job.eventId, { mergeEvidence: { ...evidence, rewrite } });
-    }
-    store.removeJob(job.id);
-  }
+  /** @param {RewriteJob} job @param {RewriteResult} rewrite */
+  const save = (job, rewrite) => store.saveRewriteResult({ eventId: job.eventId, jobId: job.id, rewrite });
   /** @returns {Promise<boolean>} whether a check ran */
   async function tick() {
     const repos = new Map(
@@ -55,9 +47,12 @@ export function createRewriteCheck({ store, provider, now = Date.now }) {
           : { ref: job.ref, status: 'fast-forward' },
       );
     } catch (error) {
+      const code = /** @type {{ code?: unknown }} */ (error)?.code;
+      // Shutdown aborted the call, not Azure; the unchanged job resumes on the next start.
+      if (code === 'CLOSED') return true;
       const attempts = job.attempts + 1;
       // A missing old tip cannot be read on a later attempt either.
-      const missing = /** @type {{ code?: unknown }} */ (error)?.code === 'NOT_FOUND';
+      const missing = code === 'NOT_FOUND';
       if (missing || attempts >= ATTEMPTS) save(job, { ref: job.ref, status: 'unknown' });
       // A repository removed during the call took its job and event with it.
       else if (store.getEvent(job.eventId)) store.saveJob({ ...job, attempts, nextAt: iso(now() + RETRY_MS * 2 ** (attempts - 1)) });

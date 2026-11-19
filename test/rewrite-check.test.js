@@ -1,5 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 import { createStore } from '../server/store.js';
 import { createSync } from '../server/sync.js';
 import { createBackfill } from '../server/backfill.js';
@@ -197,5 +201,55 @@ test('a disabled repository keeps its checks waiting and a removed one drops the
   assert.equal(store.listJobs({ type: 'rewrite' }).length, 1);
   store.removeRepo(repo.id);
   assert.deepEqual(store.listJobs({ type: 'rewrite' }), []);
+  store.close();
+});
+
+test('due rewrite checks and a history import share background turns', async () => {
+  const refs = Array.from({ length: 10 }, (_, i) => move(`b${i}`, A, B));
+  const { store, calls, run, backfill } = setup({ pushes: [push(19, refs)] });
+  await run(1);
+  assert.equal(store.listJobs({ type: 'rewrite' }).length, 10);
+  backfill.start(repo.id, 'all');
+  await run(10);
+  assert.equal(calls.length, 5, 'rewrite checks take the first and every other turn');
+  assert.equal(store.listJobs({ type: 'backfill' })[0].pages, 5, 'history import takes the turns between them');
+  store.close();
+});
+
+test('a check whose result cannot be stored keeps its job and saves no evidence', async () => {
+  const folder = mkdtempSync(join(tmpdir(), 'pulse-rewrite-'));
+  const path = join(folder, 'state.sqlite');
+  const store = createStore(path);
+  store.saveRepo(repo);
+  store.insertEvents([{ id: 'one:push:20', repoId: repo.id, kind: 'push', title: 'push', time: LIVE }]);
+  const job = { id: 'rewrite:one:push:20:refs/heads/main', type: 'rewrite', repoId: repo.id, eventId: 'one:push:20' };
+  store.saveJob({ ...job, ref: 'refs/heads/main', oldObjectId: A, newObjectId: B, attempts: 0, nextAt: new Date(BASE).toISOString() });
+  const raw = new DatabaseSync(path);
+  raw.exec("CREATE TRIGGER fail BEFORE DELETE ON jobs BEGIN SELECT RAISE(ABORT, 'disk full'); END");
+  raw.close();
+  const check = createRewriteCheck({ store, provider: { droppedCommits: async () => commits(1) }, now: () => BASE });
+  await check.tick();
+  assert.equal(store.getEvent('one:push:20').data.mergeEvidence, undefined, 'evidence and job removal commit together');
+  assert.equal(store.listJobs({ type: 'rewrite' }).length, 1);
+  store.close();
+  rmSync(folder, { recursive: true });
+});
+
+test('closing the app during the last attempt leaves the check to resume on restart', async () => {
+  const { store, calls, run, advance } = setup({
+    pushes: [push(21, [move('main', A, B)])],
+    dropped: async () => {
+      throw Object.assign(new Error(calls.length < 4 ? 'busy' : 'closed'), { code: calls.length < 4 ? 'THROTTLED' : 'CLOSED' });
+    },
+  });
+  await run();
+  for (let i = 0; i < 40 && calls.length < 4; i++) {
+    advance(30000);
+    await run(2);
+  }
+  assert.equal(calls.length, 4);
+  const [job] = store.listJobs({ type: 'rewrite' });
+  assert.equal(job?.attempts, 3, 'shutdown does not use up an attempt');
+  assert.equal(store.getEvent('one:push:21').data.mergeEvidence, undefined);
   store.close();
 });

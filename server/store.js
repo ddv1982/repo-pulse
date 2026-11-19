@@ -590,6 +590,22 @@ export function createStore(path = ':memory:') {
       return /** @type {T extends 'backfill' ? import('./backfill.js').HistoryJob[] : Job[]} */ (jobs);
     },
     saveJob,
+    /**
+     * Replaces the result for this ref and removes the job in one write, so a finished check is never run again.
+     * A missing event (its repository was removed) only removes the job.
+     * @param {{ eventId: string, jobId: string, rewrite: import('../src/activity.js').RewriteResult }} result
+     */
+    saveRewriteResult({ eventId, jobId, rewrite }) {
+      transaction(() => {
+        const event = hydrate(q(`${selectEvents} WHERE e.id=?`).get(eventId));
+        if (event) {
+          const evidence = /** @type {import('../src/activity.js').MergeEvidenceData} */ (event.data?.mergeEvidence || {});
+          const results = [...(evidence.rewrite || []).filter(item => item.ref !== rewrite.ref), rewrite];
+          enrichEvent(eventId, { mergeEvidence: { ...evidence, rewrite: results } });
+        }
+        q('DELETE FROM jobs WHERE id=?').run(jobId);
+      });
+    },
     /** @param {string} id */
     removeJob(id) {
       q('DELETE FROM jobs WHERE id=?').run(id);

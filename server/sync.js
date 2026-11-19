@@ -250,6 +250,8 @@ export function createSync({
   /** @type {string|undefined} */
   let lastKey;
   let liveTurns = 0;
+  /** @type {BackgroundKind} */
+  let nextBackground = 'rewrite';
   /** @type {Partial<Record<BackgroundKind|'live', string>>} */
   const lastTurn = {};
   const counters = { pages: 0, errors: 0 };
@@ -598,16 +600,18 @@ export function createSync({
     return { events, entities };
   }
   /**
-   * Rewrite checks go first: each is one call and only live pushes make them, so they cannot starve a history import.
+   * Rewrite checks and history import alternate, so neither queue can take every background turn.
    * History import is explicit, so it also runs while automatic checks are off; rewrite checks wait for them.
    * @param {boolean} automatic
    */
   async function runBackground(automatic) {
-    /** @type {BackgroundKind[]} */
-    const kinds = automatic ? ['rewrite', 'history'] : ['history'];
-    for (const kind of kinds) {
+    /** @type {BackgroundKind} */
+    const other = nextBackground === 'rewrite' ? 'history' : 'rewrite';
+    for (const kind of [nextBackground, other]) {
+      if (kind === 'rewrite' && !automatic) continue;
       if (!(await background[kind]?.())) continue;
       lastTurn[kind] = iso(now());
+      nextBackground = kind === 'rewrite' ? 'history' : 'rewrite';
       liveTurns = 0;
       return true;
     }
