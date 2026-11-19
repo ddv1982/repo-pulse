@@ -154,3 +154,74 @@ test('a retired evidence filter restored from an older session shows all activit
   assert.equal(activityFilterLabel('evidence:merge-commit'), 'All types');
   assert.deepEqual(parseActivityFilter('evidence:pr-linked'), { type: 'evidence', id: 'pr-linked' });
 });
+
+test('activitySearchText indexes named searchable fields and drops raw JSON payload noise', async () => {
+  const { activitySearchText } = await import('../src/activity-text.js');
+  const buildText = activitySearchText({
+    id: 'b-1',
+    repoId: 'r-1',
+    kind: 'build',
+    time: at(1),
+    title: 'CI build #99',
+    actor: 'Ada',
+    branch: 'refs/heads/main',
+    data: {
+      buildId: 99,
+      status: 'completed',
+      result: 'succeeded',
+      sourceVersion: 'deadbeef1234',
+      definition: { name: 'Release Pipeline', url: 'https://dev.azure.com/org/_apis/build/Definitions/7', revision: 42 },
+      repositoryId: 'internal-guid-noise',
+    },
+  });
+  assert.match(buildText, /release pipeline/);
+  assert.match(buildText, /deadbeef1234/);
+  assert.match(buildText, /\b99\b/);
+  assert.match(buildText, /succeeded/);
+  assert.doesNotMatch(buildText, /internal-guid-noise/);
+  assert.doesNotMatch(buildText, /_apis\/build\/definitions/);
+  assert.doesNotMatch(buildText, /"definition"/);
+
+  const pushText = activitySearchText({
+    id: 'p-1',
+    repoId: 'r-1',
+    kind: 'push',
+    time: at(2),
+    actor: 'Ben',
+    branch: 'refs/heads/main',
+    data: {
+      pushId: 501,
+      refUpdates: [{ name: 'refs/heads/main', oldObjectId: 'aaaa1111', newObjectId: 'bbbb2222' }],
+      commits: [{ commitId: 'cccc3333', comment: 'Fix billing retry' }],
+      mergeEvidence: {
+        prs: [
+          {
+            pullRequestId: 77,
+            sourceRefName: 'refs/heads/feat',
+            targetRefName: 'refs/heads/main',
+            mergeCommit: 'bbbb2222',
+            closedBy: 'Cara',
+          },
+        ],
+        commits: [{ commitId: 'dddd4444' }],
+        introducedCommitIds: ['eeee5555'],
+        refRanges: [{ name: 'refs/heads/main', commitIds: ['ffff6666'] }],
+        rewrite: [{ ref: 'refs/heads/main', status: 'rewrite', dropped: 2 }],
+      },
+    },
+  });
+  for (const needle of [
+    '501',
+    'bbbb2222',
+    'cccc3333',
+    'fix billing retry',
+    '77',
+    'cara',
+    'dddd4444',
+    'eeee5555',
+    'ffff6666',
+    'history rewritten',
+  ])
+    assert.ok(pushText.includes(needle), `expected search text to include ${needle}`);
+  assert.doesNotMatch(pushText, /"mergeevidence"/);
+});

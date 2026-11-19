@@ -288,6 +288,14 @@ export function createStore(path = ':memory:') {
         q("INSERT OR REPLACE INTO settings(key,data) VALUES('compactPending','true')").run();
       },
     ],
+    [
+      13,
+      () => {
+        // Index named searchable fields instead of stringifying entire event payloads into search_text.
+        for (const row of q(selectEvents).iterate()) indexLabels(hydrate(row));
+        q("INSERT OR REPLACE INTO settings(key,data) VALUES('compactPending','true')").run();
+      },
+    ],
   ];
   const version = /** @type {{ user_version: number }} */ (q('PRAGMA user_version').get()).user_version;
   if (version > migrations[migrations.length - 1][0]) {
