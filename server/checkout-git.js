@@ -768,7 +768,6 @@ export function createCheckoutGit({
     if (!matchesIntent(snapshot, expected) || snapshot.switchIdentity !== expected.switchIdentity) {
       throw problem('The checkout changed. Review the current branch and try again.');
     }
-    if (snapshot.dirty) throw problem('Save or stash your local changes before switching branches.');
     if (snapshot.state === 'in-progress') throw problem('Finish the Git operation before switching branches.');
   }
 
