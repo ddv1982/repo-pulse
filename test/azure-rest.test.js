@@ -399,6 +399,36 @@ test('a pause that starts while a rejected token is renewed still stops the retr
   h.cli.close();
 });
 
+test('a pause that starts while a first token is fetched stops the first send too', async () => {
+  let releaseFirst = () => {};
+  const firstResponse = new Promise(resolve => {
+    releaseFirst = () => resolve(new Response('{}', { status: 200, headers: { 'retry-after': '30' } }));
+  });
+  let calls = 0;
+  let tokens = 0;
+  const h = harness({
+    responses: () => (++calls === 1 ? { raw: firstResponse } : { status: 200 }),
+    setTimer: () => {},
+    expiresIn: 1,
+    tokenOutput: () =>
+      ++tokens === 1
+        ? undefined
+        : (async () => {
+            releaseFirst();
+            for (let i = 0; i < 5; i++) await flush();
+            return JSON.stringify({ accessToken: `${TOKEN}-fresh`, expires_on: 4102444800, tokenType: 'Bearer' });
+          })(),
+  });
+  const first = h.cli.run(refs('a'));
+  await flush();
+  h.advance(5 * 60000);
+  const [a, b] = await Promise.allSettled([first, h.cli.run(refs('b'))]);
+  assert.equal(a.status, 'fulfilled');
+  assert.equal(b.reason?.code, 'THROTTLED');
+  assert.equal(h.requests.length, 1, 'the second read is not sent once the pause has started');
+  h.cli.close();
+});
+
 test('an HTTP-date Retry-After is measured from the response Date, so a fast local clock keeps the wait', async () => {
   const start = Date.parse('2026-11-18T10:00:00Z');
   const server = start - 120000;
