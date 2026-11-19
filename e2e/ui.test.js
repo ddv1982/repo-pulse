@@ -1072,14 +1072,17 @@ test('a pull request detail loads its discussion and policy results only when as
   await expect(detail.getByRole('button', { name: 'Reload discussion and policies' })).toBeVisible();
 });
 
-test('the launch link stores the key and hides it, and a browser without the key is told where to find it', async t => {
+test('the launch link works once, hides its token, and a stale or forged link cannot replace a working key', async t => {
   const app = await setup(t);
   const { page, runtime } = app;
-  assert.equal(new URL(page.url()).searchParams.has('key'), false);
+  assert.equal(new URL(page.url()).hash.includes('launch='), false);
+  await page.goto(`${runtime.url}/#launch=forged-token`);
+  await expect(page.getByRole('link', { name: 'Repo Pulse', exact: true })).toBeVisible();
   await page.goto(runtime.url + '/#repositories');
   await expect(page.getByRole('heading', { name: 'Repositories', exact: true })).toBeVisible();
   const stranger = await page.context().browser().newPage();
   t.after(() => stranger.close());
-  await stranger.goto(runtime.url + '/#activity/new');
+  // The same launch link in a browser without the key is already spent.
+  await stranger.goto(runtime.launchUrl);
   await expect(stranger.getByText('Open Repo Pulse with the link printed in the terminal where it runs.').first()).toBeVisible();
 });
