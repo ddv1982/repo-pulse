@@ -314,6 +314,21 @@ test('a submodule whose Git config runs commands is refused too', async t => {
   assert.match(fresh.diagnostic?.message ?? '', /core\.sshcommand/);
 });
 
+test('a nested repository committed without .gitmodules is read like a submodule', async t => {
+  const { repo, local, remote, commit } = checkoutFixture(t);
+  const nested = join(local, 'nested');
+  git(local, 'init', '--initial-branch=main', nested);
+  commit(nested, 'n.txt', 'nested');
+  git(local, 'add', 'nested');
+  git(local, '-c', 'user.email=test@example.test', '-c', 'user.name=Test', 'commit', '-m', 'nested repository');
+  const fresh = () => createCheckoutGit({ matchesRemote: url => url === remote }).status(repo);
+  assert.notEqual((await fresh()).state, 'unavailable');
+  git(nested, 'config', 'filter.probe.clean', 'cat');
+  const refused = await fresh();
+  assert.equal(refused.state, 'unavailable');
+  assert.match(refused.diagnostic?.message ?? '', /filter\.probe\.clean/);
+});
+
 test('conditional includes, transport and signing keys in checkout config are refused', async t => {
   const { repo, local, remote } = checkoutFixture(t);
   for (const [key, value] of [

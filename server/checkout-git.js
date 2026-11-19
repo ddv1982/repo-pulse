@@ -24,7 +24,7 @@ import { checkoutDiagnostic, memoryObservations, observedRewrite } from './check
  * @typedef {ActiveCheckout & { followup?: import('./checkout-branches.js').FollowupSummary }} DecoratedCheckout
  *   A checkout with an open branch follow-up names it, so the page can offer to review or remove the old branch.
  * @typedef {DecoratedCheckout | { state: 'unavailable'|'not-linked', diagnostic?: import('./checkout-observations.js').CheckoutDiagnostic }} CheckoutStatus
- * @typedef {(path: string, args: string[], options?: { guard?: NodeJS.ProcessEnv, input?: string }) => Promise<string>} GitRunner
+ * @typedef {(path: string, args: string[], options?: { guard?: NodeJS.ProcessEnv, input?: string, maxBuffer?: number }) => Promise<string>} GitRunner
  */
 
 const exec = promisify(execFile);
@@ -81,12 +81,12 @@ function gitEnvironment() {
 }
 
 /** @type {GitRunner} */
-const runGit = async (path, args, { guard, input } = {}) => {
+const runGit = async (path, args, { guard, input, maxBuffer = 2 * 1024 * 1024 } = {}) => {
   const env = { ...gitEnvironment(), ...guard };
   const command = exec('git', ['-C', path, '-c', 'core.fsmonitor=false', ...args], {
     env,
     timeout: 45_000,
-    maxBuffer: 2 * 1024 * 1024,
+    maxBuffer,
     windowsHide: true,
   });
   if (input !== undefined) {
@@ -229,17 +229,26 @@ export function createCheckoutGit({
 
   /** Config keys the checkout or one of its submodules sets itself that would make Git run a command. @param {string} path */
   async function configuredCommands(path) {
-    // printf with NUL keeps every path exact; the command is fixed, so no checkout value reaches the shell.
-    const submodules = (await run(path, ['submodule', 'foreach', '--quiet', '--recursive', 'printf "%s\\0" "$displaypath"'])).split('\0');
     const keys = new Set();
-    for (const folder of ['.', ...submodules.filter(Boolean)]) {
+    /** @param {string} folder */
+    const visit = async folder => {
       // NUL-separated pairs of scope and key, so a subsection with a tab or newline stays one key.
-      const fields = (await run(resolve(path, folder), ['config', '--show-scope', '--includes', '--name-only', '--null', '--list'])).split(
-        '\0',
-      );
+      const fields = (await run(folder, ['config', '--show-scope', '--includes', '--name-only', '--null', '--list'])).split('\0');
       for (let i = 0; i + 1 < fields.length; i += 2)
         if ((fields[i] === 'local' || fields[i] === 'worktree') && commandKeys.test(fields[i + 1])) keys.add(fields[i + 1]);
-    }
+      // Gitlinks come from the index, like the ones status descends into; .gitmodules may not list them all.
+      const index = await run(folder, ['ls-files', '--stage', '-z'], { maxBuffer: 256 * 1024 * 1024 });
+      const gitlinks = new Set(index.split('\0').flatMap(entry => entry.match(/^160000 [0-9a-f]+ \d\t([^]+)$/)?.[1] ?? []));
+      for (const gitlink of gitlinks) {
+        const submodule = resolve(folder, gitlink);
+        const populated = await access(resolve(submodule, '.git')).then(
+          () => true,
+          () => false,
+        );
+        if (populated) await visit(submodule);
+      }
+    };
+    await visit(path);
     return [...keys];
   }
 
