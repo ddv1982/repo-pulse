@@ -78,7 +78,7 @@ const historyImport = createHistoryImport(required('#history-dialog', HTMLDialog
     if (document.activeElement === document.body || document.activeElement?.id === `import-${id}`) {
       document.getElementById(`history-${id}`)?.focus({ preventScroll: true });
     }
-    toast('History import requested.');
+    toast('Older activity sync requested.');
   },
 });
 

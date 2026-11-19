@@ -71,7 +71,7 @@ test('a disabled repository row offers only enabling or removing it', () => {
   assert.doesNotMatch(disabled, /checked/);
   assert.match(disabled, />Disabled</);
   assert.match(disabled, /data-action="remove-repo"/);
-  assert.doesNotMatch(disabled, /Details for|checkout-state|Check for updates|Import older/);
+  assert.doesNotMatch(disabled, /Details for|checkout-state|Check for updates|Sync older/);
 });
 
 const view = { repoIds: null, route: 'catchup', kind: '', search: '' };

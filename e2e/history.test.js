@@ -207,14 +207,14 @@ test('repository history import scopes the confirmed range and keeps progress vi
   });
   const base = `http://127.0.0.1:${app.address().port}`;
   await page.goto(base + '/#settings');
-  await expect(page.getByRole('button', { name: 'Import older activity…' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Sync older activity…' })).toHaveCount(0);
   await page.getByRole('link', { name: 'Repositories', exact: true }).click();
   const orders = page.locator('article').filter({ has: page.getByRole('heading', { name: /^Orders/ }) });
   const billing = page.locator('article').filter({ has: page.getByRole('heading', { name: /^Billing/ }) });
   await orders.locator('summary').click();
-  const trigger = orders.getByRole('button', { name: 'Import older activity…' });
+  const trigger = orders.getByRole('button', { name: 'Sync older activity…' });
   await trigger.click();
-  const dialog = page.getByRole('dialog', { name: 'Import older activity' });
+  const dialog = page.getByRole('dialog', { name: 'Sync older activity' });
   await expect(dialog.getByText('Orders', { exact: true })).toBeVisible();
   await expect(dialog.getByRole('radio', { name: '30 days', exact: true })).toBeChecked();
   assert.equal(await dialog.evaluate(element => element.scrollWidth > element.clientWidth), false);
@@ -226,32 +226,32 @@ test('repository history import scopes the confirmed range and keeps progress vi
   assert.deepEqual(calls, []);
   await trigger.click();
   await dialog.getByRole('radio', { name: '90 days', exact: true }).check();
-  await dialog.getByRole('button', { name: 'Start import' }).click();
+  await dialog.getByRole('button', { name: 'Start sync' }).click();
   await expect(dialog.getByRole('alert')).toHaveText('Try this date range again.');
   await expect(dialog.getByRole('radio', { name: '90 days', exact: true })).toBeChecked();
-  await dialog.getByRole('button', { name: 'Start import' }).click();
+  await dialog.getByRole('button', { name: 'Start sync' }).click();
   await expect(dialog).not.toBeVisible();
-  await expect(orders.getByText('Import queued', { exact: true })).toBeVisible();
+  await expect(orders.getByText('History sync queued', { exact: true })).toBeVisible();
   await expect(orders.locator('.history-progress')).toBeFocused();
   await expect(trigger).toBeDisabled();
   await billing.locator('summary').click();
-  await expect(billing.getByRole('button', { name: 'Import older activity…' })).toBeEnabled();
+  await expect(billing.getByRole('button', { name: 'Sync older activity…' })).toBeEnabled();
   assert.deepEqual(calls, [
     { repoId: 'orders', days: 90 },
     { repoId: 'orders', days: 90 },
   ]);
   const job = store.listJobs({ type: 'backfill' })[0];
   store.saveJob({ ...job, status: 'retrying', pages: 2, error: { message: 'Read denied' } });
-  await expect(orders.getByText('Import retrying', { exact: true })).toBeVisible({ timeout: 8000 });
+  await expect(orders.getByText('History sync retrying', { exact: true })).toBeVisible({ timeout: 8000 });
   await expect(orders.getByText('Read denied', { exact: true })).toBeVisible();
   store.saveJob({ ...job, status: 'completed', pages: 3 });
-  await expect(orders.getByText('Import finished', { exact: true })).toBeVisible({ timeout: 8000 });
+  await expect(orders.getByText('History sync finished', { exact: true })).toBeVisible({ timeout: 8000 });
   await expect(trigger).toBeEnabled();
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
-  await billing.getByRole('button', { name: 'Import older activity…' }).click();
+  await billing.getByRole('button', { name: 'Sync older activity…' }).click();
   await dialog.getByRole('radio', { name: 'All available since 2010' }).check();
-  await dialog.getByRole('button', { name: 'Start import' }).click();
-  await expect(billing.getByText('Import queued', { exact: true })).toBeVisible();
+  await dialog.getByRole('button', { name: 'Start sync' }).click();
+  await expect(billing.getByText('History sync queued', { exact: true })).toBeVisible();
   assert.deepEqual(calls.at(-1), { repoId: 'billing', days: 'all' });
 });
 
