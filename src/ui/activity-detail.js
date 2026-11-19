@@ -13,6 +13,7 @@ import {
   activityLabel,
   activityTone,
   activityTitle,
+  activityActor,
   activitySummary,
   triggerLabel,
   voteLabel,
@@ -72,11 +73,13 @@ function detailFields(record, repo, data, sha, pushId) {
   const pr = record.kind === 'pr',
     tag = record.kind === 'tag';
   const sameTime = new Date(record.time).valueOf() === new Date(record.observedAt ?? NaN).valueOf();
+  const label = activityActor(record);
+  const actor = label && label !== record.actor ? html`<abbr title="${record.actor}">${label}</abbr>` : label;
   /** @type {[string, HtmlValue][]} */
   const fields = [
     ['Repository', `${repo?.name || ''}${repo?.project ? ` · ${repo.project}` : ''}`],
     [pr ? 'Source branch' : tag ? 'Tag' : 'Branch', branchName(record.branch) || 'Not supplied'],
-    [pr ? 'Created by' : 'By', record.actor || 'Not supplied by Azure'],
+    [pr ? 'Created by' : record.kind === 'push' ? 'Pushed by' : 'By', actor || 'Not supplied by Azure'],
     [sameTime ? 'Time' : 'Source time', dateTime(record.time)],
   ];
   /** @param {unknown} condition @param {string} label @param {() => HtmlValue} value */

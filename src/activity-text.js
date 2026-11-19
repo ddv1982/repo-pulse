@@ -108,9 +108,27 @@ export function activityTone(event) {
   return 'neutral';
 }
 
+export const azureDevOpsService = 'Microsoft.VisualStudio.Services.TFS';
+
+/** @param {ActivityEvent} event */
+export function activityActor(event) {
+  return event.kind === 'push' && event.actor === azureDevOpsService ? 'Azure DevOps service' : event.actor;
+}
+
 /** @param {ActivityEvent} event */
 export function activityTitle(event) {
   if (event.kind === 'branch-deleted') return `${activityLabel(event)}${event.branch ? ` · ${branchName(event.branch)}` : ''}`;
+  if (event.kind === 'push') {
+    const prs = event.data?.mergeEvidence?.prs;
+    const pr = prs?.[0];
+    const id = pr?.pullRequestId ?? pr?.id;
+    if (prs?.length === 1 && pr?.relationship === 'result-introduced' && id && pr.targetRefName) {
+      return `Push to ${branchName(pr.targetRefName)} · Linked PR #${id}`;
+    }
+    if (event.actor === azureDevOpsService && event.title?.startsWith(`${azureDevOpsService} pushed`)) {
+      return event.title.replace(azureDevOpsService, 'Azure DevOps service');
+    }
+  }
   const run = event.data?.buildId || event.data?.id;
   if (event.kind === 'build' && run) return event.title || `${event.data?.definition?.name || 'CI run'} · #${run}`;
   return event.title || branchName(event.branch);

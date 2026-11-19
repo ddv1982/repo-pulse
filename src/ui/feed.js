@@ -6,6 +6,7 @@ import {
   branchName,
   dateTime,
   azureLink,
+  activityActor,
   activityLabel,
   activityTone,
   activityTitle,
@@ -42,10 +43,11 @@ function row(record, state) {
   const failed = record.kind === 'build' && buildState(record).tone === 'crit';
   const ids = JSON.stringify(record.eventIds);
   const title = activityTitle(record);
+  const actor = activityActor(record);
   return html`<li class="row ${failed ? 'crit' : record.unseen ? 'new' : ''} tone-${tone}" data-event-id="${record.id}" data-event-ids="${ids}" data-group-key="${record.groupKey}">
     <span class="kind ${tone}">${record.kind === 'branch-created' ? icons.branch : html`<span class="d"></span>`}${activityLabel(record)}</span>
     <div class="subject"><button class="feed-title" type="button" data-action="detail" data-id="${record.id}"><span class="title">${title}</span><span class="subref">${repo?.name || 'Unknown repository'}${record.branch ? ` / ${branchName(record.branch)}` : ''}</span></button></div>
-    <div class="event">${activitySummary(record)}${mergeEvidenceBadge(record)}<div class="help">${record.actor ? `${record.kind === 'pr' ? 'Created by ' : ''}${record.actor} · ` : ''}<time datetime="${record.time}">${dateTime(record.time)}</time></div>${renderTrail(record)}</div>
+    <div class="event">${activitySummary(record)}${mergeEvidenceBadge(record)}<div class="help">${actor ? `${record.kind === 'pr' ? 'Created by ' : record.kind === 'push' ? 'Pushed by ' : ''}${actor} · ` : ''}<time datetime="${record.time}">${dateTime(record.time)}</time></div>${renderTrail(record)}</div>
     <div class="counts">${record.unseen ? html`<b>${record.unseenIds.length > 1 ? `${record.unseenIds.length} new` : 'New'}</b>` : record.imported ? 'History' : 'Seen'}</div>
     <div class="rowact">${azureLink(record.url)}${record.imported ? emptyHtml : html`<button class="ghost sm" type="button" data-action="ack-item" data-id="${record.id}" data-event-ids="${ids}" aria-label="Mark ${title} ${record.unseen ? 'seen' : 'unseen'}">${record.unseen ? '✓ Seen' : '↶ Unseen'}</button>`}</div></li>`;
 }

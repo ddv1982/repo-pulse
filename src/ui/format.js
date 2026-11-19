@@ -1,6 +1,7 @@
 // @ts-check
 
 export {
+  activityActor,
   activityLabel,
   activitySummary,
   activityTitle,

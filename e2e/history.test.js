@@ -313,21 +313,53 @@ test('an open Activity view picks up a seen action in another tab and later merg
   const { runtime, page } = await demo(t);
   const id = 'revision-test';
   runtime.store.insertEvents([
-    { id, repoId: 'demo-orders', kind: 'push', title: 'Revision test push', time: new Date().toISOString(), data: { pushId: 18000 } },
+    {
+      id,
+      repoId: 'demo-orders',
+      kind: 'push',
+      title: 'Microsoft.VisualStudio.Services.TFS pushed to main',
+      actor: 'Microsoft.VisualStudio.Services.TFS',
+      time: new Date().toISOString(),
+      data: { pushId: 18000 },
+    },
   ]);
   await page.goto(runtime.url + '/#activity/all');
   const row = page.locator('li[data-event-id="revision-test"]');
   await expect(row).toHaveClass(/\bnew\b/);
+  await expect(row.getByRole('button', { name: /^Azure DevOps service pushed to main/ })).toBeVisible();
 
   const other = await page.context().newPage();
   await other.goto(runtime.url + '/#activity/new');
-  await other.locator('li[data-event-id="revision-test"]').getByRole('button', { name: 'Mark Revision test push seen' }).click();
+  await other
+    .locator('li[data-event-id="revision-test"]')
+    .getByRole('button', { name: 'Mark Azure DevOps service pushed to main seen' })
+    .click();
   await expect(other.locator('li[data-event-id="revision-test"]')).toHaveCount(0);
   await other.close();
   await expect(row).not.toHaveClass(/\bnew\b/, { timeout: 8000 });
 
-  runtime.store.enrichEvent(id, { mergeEvidence: { status: 'complete', prs: [{ pullRequestId: 12 }] } });
+  runtime.store.enrichEvent(id, {
+    mergeEvidence: {
+      status: 'complete',
+      prs: [
+        {
+          pullRequestId: 12,
+          relationship: 'result-introduced',
+          targetRefName: 'refs/heads/main',
+          closedBy: 'Alice Morgan',
+          url: 'https://dev.azure.com/example/project/_git/orders/pullrequest/12',
+        },
+      ],
+    },
+  });
+  const title = 'Push to main · Linked PR #12';
   await expect(row.getByText('Completed PR linked')).toBeVisible({ timeout: 8000 });
+  await expect(row.getByText('Pushed by Azure DevOps service')).toBeVisible();
+  await row.getByRole('button', { name: new RegExp(`^${title}`) }).click();
+  await expect(page.getByRole('heading', { name: title, exact: true })).toBeVisible();
+  await expect(page.getByText('Pushed by', { exact: true })).toBeVisible();
+  await expect(page.getByText(/PR closed by Alice Morgan/)).toBeVisible();
+  await expect(page.getByRole('link', { name: 'PR #12' })).toBeVisible();
 });
 
 test('seen feedback waits for its refresh when a background poll is in flight', async t => {

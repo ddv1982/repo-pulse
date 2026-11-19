@@ -52,7 +52,8 @@ export function mergeEvidenceBadge(event) {
     ? html`<span class="chip status-chip warn">History rewritten · ${rewritten.map(range => droppedText(range.update)).join(', ')}</span>`
     : emptyHtml;
   if (!label) return history;
-  return html`<span class="chip status-chip ok">${label}</span>${history}`;
+  const count = event.data?.mergeEvidence?.prs?.length ?? 0;
+  return html`<span class="chip status-chip ok">${count > 1 ? `${count} completed PRs linked` : label}</span>${history}`;
 }
 
 /** @param {EventData} [data] */
@@ -82,5 +83,5 @@ function renderPr(pr) {
   const closer = typeof pr.closedBy === 'string' ? pr.closedBy : pr.closedBy?.displayName;
   const strategy = prStrategies[String(pr.mergeStrategy)];
   const link = azureLink(pr.url, `PR #${id}`);
-  return html`<li>${link.toString() ? link : `PR #${id}`}${source ? ` · ${source}` : ''}${target ? ` → ${target}` : ''}${strategy ? ` · ${strategy}` : ''}${closer ? ` · PR closed by ${closer}` : ''}${pr.mergeCommit ? html` · result <code title="${pr.mergeCommit}">${pr.mergeCommit.slice(0, 8)}</code>` : emptyHtml}</li>`;
+  return html`<li>${link.toString() ? link : `PR #${id}`}${source ? ` · ${source}` : ''}${target ? ` → ${target}` : ''}${strategy ? ` · ${strategy}` : ''}${closer ? ` · PR closed by ${closer}` : ''}${pr.relationship === 'result-introduced' ? ' · Matches the pushed target and PR merge result' : ''}${pr.mergeCommit ? html` · result <code title="${pr.mergeCommit}">${pr.mergeCommit.slice(0, 8)}</code>` : emptyHtml}</li>`;
 }
