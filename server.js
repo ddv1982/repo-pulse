@@ -1,6 +1,6 @@
 // @ts-check
 import { createServer } from 'node:http';
-import { readFile, mkdir, writeFile } from 'node:fs/promises';
+import { readFile, mkdir, writeFile, chmod, rm } from 'node:fs/promises';
 import { resolve, dirname, extname, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { randomBytes, timingSafeEqual } from 'node:crypto';
@@ -510,10 +510,10 @@ export function createApp({
       const path = url.pathname;
       if (req.method === 'GET' && (await staticFile(path, res))) return;
       if (!path.startsWith('/api/')) return json(res, 404, /** @satisfies {ErrorResponse} */ ({ message: 'Not found.' }));
-      if (!['GET', 'POST', 'PATCH', 'DELETE'].includes(req.method ?? '')) throw problem('Method not allowed.', 405);
       // Every API request, reads included, carries the key from the launch link. A browser on another origin cannot add the header.
       if (!hasAccessKey(req))
         throw Object.assign(problem('Open Repo Pulse with the link printed in the terminal where it runs.', 401), { code: 'ACCESS_KEY' });
+      if (!['GET', 'POST', 'PATCH', 'DELETE'].includes(req.method ?? '')) throw problem('Method not allowed.', 405);
       for (const route of routes) {
         if (route.method !== req.method) continue;
         const match = typeof route.path === 'string' ? route.path === path && [path] : route.path.exec(path);
@@ -614,11 +614,26 @@ export async function startApp({ demo = false, port = 4317, dataDir = resolve(RO
 /** One key per data directory, so the browser keeps working across restarts. @param {string} dataDir */
 async function loadAccessKey(dataDir) {
   const file = resolve(dataDir, 'access-key');
-  const saved = await readFile(file, 'utf8').catch(() => '');
-  if (/^[A-Za-z0-9_-]{43}$/.test(saved.trim())) return saved.trim();
-  const key = randomBytes(32).toString('base64url');
-  await writeFile(file, key, { mode: 0o600 });
-  return key;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const saved = (await readFile(file, 'utf8').catch(() => '')).trim();
+    if (/^[A-Za-z0-9_-]{43}$/.test(saved)) {
+      // Owner-only even if the file was created or copied with wider permissions.
+      await chmod(file, 0o600);
+      return saved;
+    }
+    if (saved) await rm(file, { force: true });
+    const key = randomBytes(32).toString('base64url');
+    // Exclusive create: when two first starts race, the loser reads the winner's key on the next pass.
+    const created = await writeFile(file, key, { mode: 0o600, flag: 'wx' }).then(
+      () => true,
+      /** @param {NodeJS.ErrnoException} error */ error => {
+        if (error.code !== 'EEXIST') throw error;
+        return false;
+      },
+    );
+    if (created) return key;
+  }
+  throw new Error(`Could not create ${file}.`);
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
