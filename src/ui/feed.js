@@ -34,7 +34,7 @@ export function filterControls(ui, activity, presets = [], selectedId = '') {
   const active = Number(Boolean(ui.search)) + Number(Boolean(ui.kind));
   return html`<details class="filters-box" data-filter-panel ${desktop || ui.filtersOpen === true ? html`open` : emptyHtml}><summary class="btn sm">Filters${active ? ` · ${active}` : ''}</summary><div class="toolbar"><input id="feed-search" class="search" type="search" aria-label="Search activity" aria-describedby="feed-search-help" placeholder="Search branch, commit, person or repository…" value="${ui.search}">
     ${renderTypeFilter(ui.kind, activity?.filterOptions, activity?.loading)}
-    <span class="spacer"></span><button class="btn" type="button" data-action="clear-filters">Clear filters</button></div><p class="help" id="feed-search-help">Separate terms with commas to match any. Use <code>people:</code> to match recorded names only.</p>${renderSavedFilters(presets, selectedId)}</details>`;
+    <span class="spacer"></span><button class="btn" type="button" data-action="clear-filters">Clear filters</button></div><p class="help" id="feed-search-help">Enter a partial name or other search term. Separate terms with commas to match any. Use <code>people:Ali, Jo</code> to search recorded names only.</p>${renderSavedFilters(presets, selectedId)}</details>`;
 }
 
 /** @param {ActivityItem} record @param {PageState} state */

@@ -1,6 +1,6 @@
 // @ts-check
 
-import { matchesPeople, parsePeople } from './activity-people.js';
+import { foldSearchText, matchesPeople, parsePeople } from './activity-people.js';
 import { projectActivity } from '../src/activity.js';
 import { activityFilterLabel, labels, parseActivityFilter } from '../src/activity-text.js';
 
@@ -82,9 +82,18 @@ function memberScope(maxSequence, selected, needles, people) {
     params.push(...selected);
   }
   if (needles.length) {
-    const match = "instr(m.search_text,?)>0 OR instr(lower(json_extract(r.data,'$.name')),?)>0";
-    conditions.push(`(${needles.map(() => match).join(' OR ')})`);
-    params.push(...needles.flatMap(needle => [needle, needle]));
+    const repoName = "json_extract(r.data,'$.name')";
+    const match = `instr(m.search_text,?)>0 OR instr(lower(${repoName}),?)>0`;
+    const folded = [...new Set(needles.map(foldSearchText))];
+    const direct = [...new Set([...needles, ...folded])];
+    const placeholders = folded.map(() => '?').join(',');
+    // Run Unicode normalization only after the substring lookup misses and only on non-ASCII text.
+    conditions.push(`(CASE
+      WHEN ${direct.map(() => match).join(' OR ')} THEN 1
+      WHEN m.search_text GLOB '*[^ -~]*' AND matches_folded(m.search_text,${placeholders}) THEN 1
+      WHEN ${repoName} GLOB '*[^ -~]*' AND matches_folded(${repoName},${placeholders}) THEN 1
+      ELSE 0 END)`);
+    params.push(...direct.flatMap(needle => [needle, needle]), ...folded, ...folded);
   }
   if (people.length) {
     conditions.push(`matches_people(e.data,n.data,${people.map(() => '?').join(',')})`);
@@ -205,6 +214,11 @@ function encodeCursor(last, maxSequence, filterKey, revision) {
  * @param {() => string} activityRevision
  */
 export function createActivityQuery(db, hydrate, requireRepo, activityRevision) {
+  db.function('matches_folded', { deterministic: true, varargs: true }, (text, ...terms) => {
+    if (typeof text !== 'string') return 0;
+    const folded = foldSearchText(text);
+    return Number(terms.some(term => folded.includes(/** @type {string} */ (term))));
+  });
   db.function('matches_people', { deterministic: true, varargs: true }, (data, enrichment, ...terms) =>
     Number(matchesPeople(hydrate({ data, enrichment }), /** @type {string[]} */ (terms))),
   );
@@ -223,16 +237,16 @@ export function createActivityQuery(db, hydrate, requireRepo, activityRevision) 
     const needles = [
       ...new Set(
         search
-          .toLowerCase()
           .split(',')
-          .map(term => term.trim())
+          .map(term => term.trim().toLowerCase())
           .filter(Boolean),
       ),
     ].sort();
     const names = parsePeople(people);
     const filterKey = JSON.stringify({ selected, view, filter, search: needles, people: names });
     const position = decodeCursor(cursor, filterKey);
-    const revision = needles.length || names.length ? activityRevision() : undefined;
+    // Search cursors from before accent and name fragment matching must restart.
+    const revision = needles.length || names.length ? `2:${activityRevision()}` : undefined;
     if (position && revision !== undefined && position.revision !== revision) {
       throw Object.assign(new Error('Activity changed while loading search results. Try again.'), {
         status: 409,

@@ -777,6 +777,73 @@ test('People filters recorded identities before grouping and binds the cursor to
   }
 });
 
+test('Activity search finds short names across accents and People matches name fragments', () => {
+  const store = setup();
+  try {
+    store.saveRepo({ id: 'other', name: 'Équipe' });
+    store.insertEvents([
+      event('jose', { actor: 'José van Dijk' }),
+      event('alice', { actor: 'Alice Morgan' }),
+      event('branch', { branch: 'feature/Jose' }),
+      event('split', { actor: 'Jose Smith', kind: 'pr', data: { closedBy: 'Alice Dijk' } }),
+      event('other', { repoId: 'other', actor: 'JOSÉ SÁNCHEZ' }),
+    ]);
+    const ids = filters =>
+      store
+        .queryActivity({ repoIds: [repo.id], ...filters })
+        .items.map(item => item.id)
+        .sort();
+    assert.deepEqual(ids({ search: 'Jose' }), ['branch', 'jose', 'split']);
+    assert.deepEqual(ids({ search: 'José' }), ['branch', 'jose', 'split']);
+    assert.deepEqual(ids({ people: 'Jo, AL' }), ['alice', 'jose', 'split']);
+    assert.deepEqual(ids({ people: 'Jo Dij, Ali Mor' }), ['alice', 'jose']);
+    assert.deepEqual(ids({ people: 'Jose Dijk', search: 'Jose' }), ['jose']);
+    assert.deepEqual(ids({ repoIds: ['other'], search: 'equipe' }), ['other']);
+    const first = store.queryActivity({ people: 'José, ALI', limit: 1 });
+    const rest = store.queryActivity({ people: 'ali, JOSÉ', cursor: first.nextCursor });
+    assert.deepEqual([...first.items, ...rest.items].map(item => item.id).sort(), ['alice', 'jose', 'other', 'split']);
+  } finally {
+    store.close();
+  }
+});
+
+test('name search preserves decomposed non-Latin text and handles punctuation within name fragments', () => {
+  const store = setup();
+  try {
+    store.insertEvents([
+      event('mixed', { actor: 'André Κο\u0301στας' }),
+      event('lane', { actor: 'Andre\u0301 Lane' }),
+      event('francois', { actor: 'François' }),
+      event('abe', { actor: 'Abe' }),
+      event('virama', { actor: 'A\u094Dbe' }),
+      event('john', { actor: 'John O’Connor' }),
+      event('jean', { actor: 'Jean-Luc Picard' }),
+    ]);
+    assert.equal(store.queryActivity({ search: 'André Κο' }).items[0]?.id, 'mixed');
+    assert.equal(store.queryActivity({ people: 'Andre Κο' }).items[0]?.id, 'mixed');
+    for (const mode of ['search', 'people']) {
+      assert.deepEqual(
+        store.queryActivity({ [mode]: '\u0301 Lane' }).items.map(item => item.id),
+        ['lane'],
+      );
+      assert.deepEqual(
+        store.queryActivity({ [mode]: 'A\u094Dbe' }).items.map(item => item.id),
+        ['virama'],
+      );
+      assert.equal(store.queryActivity({ [mode]: 'Franc' }).items[0]?.id, 'francois');
+    }
+    assert.deepEqual(
+      store
+        .queryActivity({ people: 'Jo O’Con, Jean-L Pi' })
+        .items.map(item => item.id)
+        .sort(),
+      ['jean', 'john'],
+    );
+  } finally {
+    store.close();
+  }
+});
+
 test('comma-separated text search matches any term within the same repository scope', () => {
   const store = setup();
   try {
