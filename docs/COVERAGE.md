@@ -35,7 +35,7 @@ Evidence saved before deeper analysis stopped also enumerated ref ranges, becaus
 ## Merge and branch gaps
 
 - A direct `git merge`, squash, rebase or cherry-pick pushed without a PR is observed as a push.
-  A completed PR association is shown only when the push's new tip is the PR's merge commit; multi-parent objects are no longer inspected. Neither invents source branch names or human commands. Fast-forward and squash intent can remain unknowable.
+  A push gets a new PR link only when it moved a branch to the merge commit of a completed PR in the same repository whose target is that branch. The link is skipped when complete saved evidence shows the push did not introduce that commit. Multi-parent objects are no longer inspected. PR links saved by the removed merge analysis are still shown. Neither invents source branch names or human commands. Fast-forward and squash intent can remain unknowable.
   The "Merge commit" row badge and filter are gone. A merge commit listed in evidence saved earlier still shows under "How this was merged" in the push detail.
 - A commit inside a push that is not its new tip is searchable only through evidence saved earlier. Push tips, PR commits and build commits remain searchable.
 - Branch rename has no semantic event model. A new push that moves an existing branch is checked once
@@ -67,24 +67,28 @@ Evidence saved before deeper analysis stopped also enumerated ref ranges, becaus
   made with an Azure CLI token (one retry after a token renewal); other commands still start `az`, which can make several requests
   internally. Normal checks are around three minutes, quiet/background checks five minutes and refs
   ten minutes, subject to queueing and backoff.
-- When Azure DevOps sends a `Retry-After` header, on a 429 or on a response that succeeded, the shared queue
-  starts no new read for any repository until that wait has passed, up to ten minutes. A read that was
-  already waiting for a token fails as throttled and is retried after its normal backoff.
+- When any REST response carries a valid positive `Retry-After` header, the shared queue starts no new
+  read for any repository until that wait has passed, up to ten minutes. A read that was already waiting
+  for a token fails as throttled. A failed read is retried after its normal backoff only while automatic
+  checks are on. With them off, a manual refresh ends when its read fails.
 - Background work is the rewrite check for new pushes and an explicit history import, taking turns.
   Rewrite checks wait while automatic checks are off; a history import keeps running. Background work
   gets every turn when no live check is due and, under sustained live work, one turn after six live
   turns. These are scheduler turns, so queueing and provider response times still affect freshness.
-- The server derives one sync status per enabled repository, and the header shows the one that needs
-  the most attention: **Problem** after a read fails twice in a row, or at once when sign-in or access
-  is refused or the Azure CLI or its extension is missing; **Delayed** while Azure DevOps asked for a pause, or when a check is
-  more than three minutes late or its data is older than ten minutes (twenty for refs);
-  **Syncing** while a first read, page, refresh or import is still running; **Paused** when automatic
-  checks are off; otherwise **Synced**. Streams catching up right after a start or resume count as
+- The server derives one sync status per enabled repository. The header shows the one that needs the
+  most attention, in the order Problem, Delayed, Syncing, Paused, Synced. A repository takes the first
+  status that applies: **Paused** when automatic checks are off and no manual refresh or history import
+  is outstanding; **Problem** after a read fails twice in a row, or at once when sign-in or access is
+  refused or the Azure CLI or its extension is missing; **Delayed** while Azure DevOps asked for a pause,
+  when a stream's last read was throttled, or when a check is more than three minutes late or its data
+  is older than ten minutes (twenty for refs); **Syncing** while a first read, page, refresh or import
+  is still running; otherwise **Synced**. While Start from scratch deletes data every repository shows
+  Syncing, and after it fails, Problem. Demo mode always shows Synced. Streams catching up right after a start or resume count as
   syncing, not delayed. Until every shown repository is synced, an empty or short Activity list does
   not prove that nothing changed.
 - **Start from scratch** in Settings deletes stored activity, seen marks, imported history, sync
   checkpoints and pending jobs, keeps repositories, linked checkouts and settings, and then runs the
-  first import again. History imports are refused while it runs. Demo mode does not offer it.
+  first import again. History imports are refused only while the deletion runs, not during the import that follows. Demo mode does not offer it.
 - Effective Azure identity/cross-account cache isolation is not verified. Use one CLI context; an
   installation or cached account check is not proof of access to every repository/environment.
 

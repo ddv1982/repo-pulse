@@ -419,7 +419,7 @@ export function createAzureClient({ cli, now = Date.now } = {}) {
      */
     async droppedCommits(repo, oldSha, newSha) {
       if (![oldSha, newSha].every(sha => typeof sha === 'string' && /^[0-9a-f]{40}$/i.test(sha)))
-        throw cliError('INVALID_QUERY', 'A rewrite check needs two complete commit IDs.');
+        throw cliError('INVALID_QUERY', 'Commit queries require at most 100 complete commit IDs.');
       const old = oldSha.toLowerCase(),
         current = newSha.toLowerCase();
       if (/^0+$/.test(old) || /^0+$/.test(current) || old === current) return { items: [], nextCursor: null };

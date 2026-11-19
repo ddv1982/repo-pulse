@@ -14,7 +14,7 @@ Exa Agent completed a multi-source investigation; Exa search/fetch retrieved exa
 
 Important corrections to automated research:
 
-- Pull Request Query is documented at **7.1**, not only 5.1. The 7.1 reference was fetched directly. It is a **read-only POST**, despite the operation being named Get. The adapter allows this and commit batch queries as narrowly validated read-only POST requests. [S1](https://learn.microsoft.com/en-us/rest/api/azure/devops/git/pull-request-query/get?view=azure-devops-rest-7.1)
+- Pull Request Query is documented at **7.1**, not only 5.1. The 7.1 reference was fetched directly. It is a **read-only POST**, despite the operation being named Get. Historical: the adapter once allowed this and commit batch queries as narrowly validated read-only POST requests. Both POST paths were removed with the merge analysis, and the allowlist and REST executor now accept only GET reads. [S1](https://learn.microsoft.com/en-us/rest/api/azure/devops/git/pull-request-query/get?view=azure-devops-rest-7.1)
 - A completed PR is already authoritative evidence that Azure records it as completed/merged. Observing its target push strengthens correlation; absence of a separately fetched push must not hide the PR completion. An active successful preview is different. [S2](https://learn.microsoft.com/en-us/rest/api/azure/devops/git/pull-requests/get-pull-request?view=azure-devops-rest-7.1)
 - All four merge strategies are documented: `noFastForward`, `squash`, `rebase`, `rebaseMerge`. [S2](https://learn.microsoft.com/en-us/rest/api/azure/devops/git/pull-requests/get-pull-request?view=azure-devops-rest-7.1)
 - Git PR metadata includes `closedBy`. Capture it as the **PR-closing identity**; do not assume it is the commit author, pusher, or a human who manually clicked Merge. The app now retains this field on completed PR snapshots. [S2](https://learn.microsoft.com/en-us/rest/api/azure/devops/git/pull-requests/get-pull-request?view=azure-devops-rest-7.1)
@@ -81,7 +81,7 @@ Git stores graph structure, not a durable source-branch name for every operation
 
 Prove commit parents, paginated pushed commits, exact-ID/version-range queries and batched PR association against the intended existing CLI context. Record endpoint version, response shape, permission result, effective identity status and latency. Avoid remote test writes in a real working project; destructive/change-creating scenarios belong in a controlled disposable test repository.
 
-For read-only POSTs, allow only fixed `pullrequestquery` and `commitsbatch` read operations with validated bounded JSON. If invoke needs `--in-file`, use an app-created private temporary file containing query data only and remove it reliably. Never accept a browser-supplied path/body/command or enable arbitrary POSTs. If CLI cannot carry these operations reliably, document a minimal CLI-authenticated transport decision rather than silently changing credentials. (Done: activity reads, including these two POSTs, use REST with the CLI's token; see the maintainer guide.)
+For read-only POSTs, allow only fixed `pullrequestquery` and `commitsbatch` read operations with validated bounded JSON. If invoke needs `--in-file`, use an app-created private temporary file containing query data only and remove it reliably. Never accept a browser-supplied path/body/command or enable arbitrary POSTs. If CLI cannot carry these operations reliably, document a minimal CLI-authenticated transport decision rather than silently changing credentials. (Historical: activity reads, including these two POSTs, moved to REST with the CLI's token. The POST paths were later removed with the merge analysis, and the allowlist and REST executor now accept only GET reads.)
 
 Exit: no credential output, no extra sign-in, no Azure mutation, complete paging, correct scope, bounded error classification and measured request/process overhead. No new OAuth/app registration.
 
@@ -179,7 +179,7 @@ Tests below must exercise the provider contract, durable store/scheduler and vis
 ## Remaining proof questions
 
 1. Which of our organization's web/API branch/tag/lock operations produce readable push or hook records? Public docs do not establish universal coverage; validate in a controlled test repo.
-2. Answered: activity reads now use REST directly. The transport sees POST query results, continuation tokens and throttling headers; the adapter uses the continuation token and discards the throttling headers.
+2. Answered: activity reads now use REST directly. The transport sees continuation tokens and throttling headers. The adapter uses the continuation token, and a valid `Retry-After` pauses the shared queue.
 3. Answered for activity reads: they use the CLI's Entra token, so the effective identity is the principal that token represents, and a repository connection check verifies access with a REST read. PAT-only setups are not supported for activity reads.
 4. What historical push/commit/PR evidence remains available for long outages or removed objects? No universal durable Pushes retention guarantee was established.
 5. Which pipeline/environment/external-deployer mappings and permissions actually exist? Documentation alone cannot prove a specific organization's coverage.
