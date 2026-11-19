@@ -520,3 +520,28 @@ test('refreshing evidence after an unproven range reads that range again', async
   assert.equal(f.calls.ranges.length, 1, 'the range is read again');
   assert.equal(f.store.getEvent('push').data.mergeEvidence.refRanges[0].complete, true);
 });
+
+test('a local PR link written while the engine runs survives the evidence the engine saves afterwards', async t => {
+  const prEvent = {
+    id: 'pr-7',
+    kind: 'pr',
+    repoId: repo.id,
+    time: '2026-11-16T10:00:00Z',
+    data: { pullRequestId: 7, status: 'completed', targetRefName: 'refs/heads/main', mergeCommit: tip },
+  };
+  const f = fixture(t, {
+    async queryPullRequests() {
+      f.calls.prs++;
+      if (!f.store.getEvent(prEvent.id)) f.store.insertEvents([prEvent]);
+      return [];
+    },
+  });
+  await drain(f.store, f.worker());
+  assert.equal(f.calls.prs, 1);
+  const evidence = f.store.getEvent('push').data.mergeEvidence;
+  assert.equal(evidence.status, 'complete', 'the engine finished and saved its own result');
+  assert.deepEqual(
+    evidence.prs.map(pr => [pr.pullRequestId, pr.relationship]),
+    [[7, 'result-introduced']],
+  );
+});

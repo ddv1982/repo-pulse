@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import { createStore } from '../server/store.js';
 import { createHash } from 'node:crypto';
 import { createSync } from '../server/sync.js';
+import { createEnrichment } from '../server/enrichment.js';
+import { activityMergeBadge } from '../src/activity-text.js';
 const repo = {
   id: 'one',
   name: 'One',
@@ -1078,3 +1080,63 @@ test('a refs snapshot saved before tags restarts and still notices a branch dele
   assert.equal(store.getEntity('one', 'ref', 'refs/heads/old').active, false);
   store.close();
 });
+
+for (const [order, first, second] of [
+  ['push stored first', 'pushes', 'closedPrs'],
+  ['PR stored first', 'closedPrs', 'pushes'],
+]) {
+  test(`a completed PR links to the push that is its result with no merge call, ${order}`, async () => {
+    const result = 'c'.repeat(40);
+    const items = {
+      pushes: [{ ...push(30), refUpdates: [{ name: 'refs/heads/main', oldObjectId: 'a'.repeat(40), newObjectId: result }] }],
+      closedPrs: [
+        {
+          pullRequestId: 91,
+          repository: { id: 'a' },
+          title: 'Ship it',
+          status: 'completed',
+          sourceRefName: 'refs/heads/feature/ship',
+          targetRefName: 'refs/heads/main',
+          closedDate: '2026-11-17T10:00:01Z',
+          lastMergeCommit: { commitId: result.toUpperCase() },
+          completionOptions: { mergeStrategy: 'squash' },
+        },
+      ],
+    };
+    const offered = { pushes: [], closedPrs: [] };
+    const store = createStore();
+    store.saveRepo(repo);
+    let time = BASE;
+    const forbidden = new Proxy({}, { get: (_target, name) => () => assert.fail(`merge provider called: ${String(name)}`) });
+    const worker = createEnrichment({ store, provider: forbidden, now: () => time });
+    const sync = createSync({
+      store,
+      provider: { read: async (_repo, stream) => ({ items: offered[stream] || [], nextCursor: null }) },
+      now: () => time,
+      intervalMs: 1000,
+      onPrCompleted: (current, data) => worker.reconcilePr(current, data),
+    });
+    sync.refresh();
+    for (const state of store.getStreams())
+      if (!['pushes', 'closedPrs'].includes(state.stream)) store.saveStream({ ...state, nextAt: '2099-01-01T00:00:00Z' });
+    for (const stream of [first, second]) {
+      offered[stream] = items[stream];
+      for (let i = 0; i < 2; i++) {
+        time += 2000;
+        await sync.tick();
+      }
+    }
+    const pushed = store.getEvent('one:push:30');
+    assert.ok(pushed, 'push stored');
+    assert.ok(
+      store.listEvents().some(event => event.kind === 'pr'),
+      'PR stored',
+    );
+    assert.equal(activityMergeBadge(pushed), 'Completed PR linked');
+    assert.deepEqual(
+      pushed.data.mergeEvidence.prs.map(pr => [pr.pullRequestId, pr.targetRefName, pr.mergeCommit, pr.relationship]),
+      [[91, 'refs/heads/main', result.toUpperCase(), 'result-introduced']],
+    );
+    store.close();
+  });
+}

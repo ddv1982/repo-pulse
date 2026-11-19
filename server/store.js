@@ -5,6 +5,7 @@ import { dirname } from 'node:path';
 import { activityKey, lifecycleKey, supportingPushKey } from '../src/activity.js';
 import { activityStatusId, activityEvidenceId, activitySearchText } from '../src/activity-text.js';
 import { createActivityQuery } from './activity-query.js';
+import { localPrLink, mergeUpdates } from './merge-evidence.js';
 
 /** @typedef {import('node:sqlite').SQLOutputValue} SqlValue */
 /** @typedef {Record<string, SqlValue>} SqlRow */
@@ -152,6 +153,48 @@ export function createStore(path = ':memory:') {
       JSON.stringify(job),
     );
   }
+  const selectEvents = 'SELECT e.data,e.seen,e.imported,n.data AS enrichment FROM events e LEFT JOIN enrichment n ON n.event_id=e.id';
+  /**
+   * Adds each stored completed PR whose merge commit is the new tip of the PR's target ref in this push. An absent match
+   * writes nothing. It also runs after enrichment saves, so a link stored while a merge job was running is kept.
+   * @param {string} id
+   */
+  function linkPush(id) {
+    const push = hydrate(q(`${selectEvents} WHERE e.id=?`).get(id));
+    if (!push) return;
+    const evidence = /** @type {import('../src/activity.js').MergeEvidenceData} */ (push.data?.mergeEvidence || {});
+    const prs = evidence.prs || [];
+    /** @type {Map<string, ReturnType<typeof localPrLink>>} */
+    const added = new Map();
+    for (const ref of mergeUpdates(push)) {
+      const rows = q(`SELECT data FROM events WHERE repo_id=? AND json_extract(data,'$.kind')='pr'
+        AND json_extract(data,'$.data.status')='completed' AND json_extract(data,'$.data.targetRefName')=?
+        AND lower(json_extract(data,'$.data.mergeCommit'))=? ORDER BY time`).all(push.repoId, ref.name, ref.newObjectId.toLowerCase());
+      for (const pr of rows.map(readEventWithData)) {
+        const key = `${pr.data.pullRequestId}:${ref.name}`;
+        if (!added.has(key) && !prs.some(item => `${item.pullRequestId ?? item.id}:${item.targetRefName}` === key))
+          added.set(key, localPrLink(pr));
+      }
+    }
+    return added.size ? enrichEvent(id, { mergeEvidence: { ...evidence, prs: [...prs, ...added.values()] } }) : undefined;
+  }
+  /** @param {StoredEvent} push */
+  function indexPush(push) {
+    const insert = q('INSERT OR IGNORE INTO push_tips(event_id,ref,repo_id,tip) VALUES(?,?,?,?)');
+    for (const ref of mergeUpdates(push)) insert.run(push.id, ref.name, push.repoId, ref.newObjectId.toLowerCase());
+    linkPush(push.id);
+  }
+  /** @param {StoredEvent} pr */
+  function linkPr(pr) {
+    const { status, targetRefName, mergeCommit } = pr.data || {};
+    if (status !== 'completed' || !targetRefName || !mergeCommit) return;
+    for (const row of q('SELECT event_id FROM push_tips WHERE repo_id=? AND ref=? AND tip=?').all(
+      pr.repoId,
+      targetRefName,
+      mergeCommit.toLowerCase(),
+    ))
+      linkPush(String(row.event_id));
+  }
   // Each step upgrades a database below its version and is recorded in user_version once it has run.
   // A fresh database runs every step against empty tables and ends at the last version.
   /** @type {[number, () => void][]} */
@@ -233,6 +276,13 @@ export function createStore(path = ':memory:') {
         db.exec('DROP TABLE IF EXISTS pull_operations;');
       },
     ],
+    [
+      10,
+      () => {
+        // Pushes link to completed PRs from stored events; index the stored pushes and link the pairs already stored.
+        for (const row of q("SELECT data FROM events WHERE json_extract(data,'$.kind')='push'").all()) indexPush(readEvent(row));
+      },
+    ],
   ];
   const version = /** @type {{ user_version: number }} */ (q('PRAGMA user_version').get()).user_version;
   if (version > migrations[migrations.length - 1][0]) {
@@ -265,6 +315,11 @@ export function createStore(path = ':memory:') {
       CREATE TABLE IF NOT EXISTS jobs (id TEXT PRIMARY KEY,repo_id TEXT NOT NULL REFERENCES repositories(id) ON DELETE CASCADE,
         type TEXT NOT NULL,next_at TEXT NOT NULL,data TEXT NOT NULL);
       CREATE INDEX IF NOT EXISTS jobs_due ON jobs(type,next_at);
+      CREATE TABLE IF NOT EXISTS push_tips (event_id TEXT NOT NULL REFERENCES events(id) ON DELETE CASCADE,ref TEXT NOT NULL,
+        repo_id TEXT NOT NULL,tip TEXT NOT NULL,PRIMARY KEY(event_id,ref)) WITHOUT ROWID;
+      CREATE INDEX IF NOT EXISTS push_tips_lookup ON push_tips(repo_id,ref,tip);
+      CREATE INDEX IF NOT EXISTS events_pr_merge ON events(repo_id,json_extract(data,'$.data.targetRefName'),
+        lower(json_extract(data,'$.data.mergeCommit'))) WHERE json_extract(data,'$.kind')='pr' AND json_extract(data,'$.data.status')='completed';
     `);
     if (version < 7) {
       // Databases from before version 7 have no status columns, or the older label and evidence names.
@@ -286,7 +341,6 @@ export function createStore(path = ':memory:') {
       db.exec(`PRAGMA user_version = ${target}`);
     }
   });
-  const selectEvents = 'SELECT e.data,e.seen,e.imported,n.data AS enrichment FROM events e LEFT JOIN enrichment n ON n.event_id=e.id';
   /** @param {ActivityEvent[]} events */
   function insertEvents(events) {
     const statement = q('INSERT OR IGNORE INTO events(id,repo_id,time,observed_at,seen,imported,data) VALUES(?,?,?,?,?,?,?)');
@@ -309,6 +363,8 @@ export function createStore(path = ':memory:') {
       );
       if (result.changes) {
         saveMembership(value);
+        if (value.kind === 'push') indexPush(value);
+        else if (value.kind === 'pr') linkPr(value);
         inserted = true;
       }
     }
@@ -471,7 +527,7 @@ export function createStore(path = ':memory:') {
         saveEntities(enriched.repoId, entities);
         if (jobId) q('DELETE FROM jobs WHERE id=?').run(jobId);
         if (job) saveJob(job);
-        return enriched;
+        return linkPush(eventId) || enriched;
       });
     },
     /** @param {unknown} ids @param {boolean} [seen] */
