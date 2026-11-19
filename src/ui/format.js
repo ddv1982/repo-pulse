@@ -49,7 +49,11 @@ export class SafeHtml {
 function renderValue(value) {
   if (value === null || value === undefined) return '';
   if (SafeHtml.is(value)) return SafeHtml.unwrap(value);
-  if (Array.isArray(value)) return value.map(renderValue).join('');
+  if (Array.isArray(value)) {
+    let out = '';
+    for (let i = 0; i < value.length; i++) out += renderValue(value[i]);
+    return out;
+  }
   return escape(value);
 }
 
@@ -69,7 +73,10 @@ export const emptyHtml = html``;
 
 /** @param {HtmlValue[]} items @param {HtmlValue} [separator] @returns {SafeHtml} */
 export function joinHtml(items, separator = emptyHtml) {
-  return new SafeHtml(items.map(renderValue).join(renderValue(separator)), SAFE_HTML);
+  const sep = renderValue(separator);
+  let out = '';
+  for (let i = 0; i < items.length; i++) out += (i ? sep : '') + renderValue(items[i]);
+  return new SafeHtml(out, SAFE_HTML);
 }
 /** @type {Record<string, string | undefined>} */
 const streamLabels = {

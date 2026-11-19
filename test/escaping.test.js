@@ -650,6 +650,9 @@ test('html auto-escapes plain values, composes SafeHtml, and setHtml refuses pla
   assert.throws(() => new SafeHtml('<b>forged</b>', Symbol('fake')), TypeError);
   const lookalike = Object.create(SafeHtml.prototype, { toString: { value: () => '<b>spoof</b>' } });
   assert.equal(String(safeHtml`<div>${lookalike}</div>`), '<div>&lt;b&gt;spoof&lt;/b&gt;</div>');
+  const hijackedArray = Object.assign(['<b>raw</b>'], { map: () => ({ join: () => '<b>hijacked</b>' }) });
+  assert.equal(String(safeHtml`<div>${hijackedArray}</div>`), '<div>&lt;b&gt;raw&lt;/b&gt;</div>');
+  assert.equal(String(joinHtml(hijackedArray, safeHtml`<br>`)), '&lt;b&gt;raw&lt;/b&gt;');
   const fakeElement = /** @type {any} */ ({ innerHTML: '' });
   setHtml(fakeElement, rendered);
   assert.equal(fakeElement.innerHTML, String(rendered));
