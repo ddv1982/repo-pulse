@@ -343,7 +343,11 @@ test('a Pull that adds a gitlink over a nested checkout checks that checkout bef
   git(source, 'push', 'origin', 'main');
   const { checkout } = await checkoutGit.update(repo, 'check', await checkoutGit.status(repo));
   utimesSync(join(nested, 'n.txt'), new Date(), new Date(Date.now() + 5000));
-  await assert.rejects(checkoutGit.update(repo, 'pull', checkout), /filter\.probe\.clean/);
+  await assert.rejects(
+    checkoutGit.update(repo, 'pull', checkout),
+    /^Error: The branch was updated to the upstream commit\. .*filter\.probe\.clean/,
+  );
+  assert.equal(git(local, 'rev-parse', 'HEAD'), git(source, 'rev-parse', 'HEAD'));
   assert.equal(existsSync(marker), false);
 });
 

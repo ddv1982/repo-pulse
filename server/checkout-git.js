@@ -244,6 +244,8 @@ export function createCheckoutGit({
       const index = await run(folder, ['ls-files', '--stage', '-z'], { guard: offline, maxBuffer: 256 * 1024 * 1024 });
       const gitlinks = new Set(index.split('\0').flatMap(entry => entry.match(/^160000 [0-9a-f]+ \d\t([^]+)$/)?.[1] ?? []));
       for (const gitlink of gitlinks) {
+        // A path that is not valid UTF-8 cannot be followed exactly, so the checkout is not read at all.
+        if (gitlink.includes('\uFFFD')) throw problem('A submodule path is not valid UTF-8. Rename it to read this checkout.', 404);
         const submodule = resolve(folder, gitlink);
         const populated = await access(resolve(submodule, '.git')).then(
           () => true,
@@ -612,7 +614,14 @@ export function createCheckoutGit({
     await refuseIgnoredOverlap(path, after.head, tip);
     await run(path, ['merge-base', '--is-ancestor', after.head, tip]);
     await fastForward(path, after.branch, tip);
-    return { checkout: (await statusAt(path, repo)).snapshot, updated: true };
+    try {
+      return { checkout: (await statusAt(path, repo)).snapshot, updated: true };
+    } catch (caught) {
+      // The branch already moved, so the refusal must not read as if Pull did nothing.
+      const error = /** @type {Error & { diagnostic?: unknown }} */ (caught);
+      if (error.diagnostic) error.message = `The branch was updated to the upstream commit. ${error.message}`;
+      throw error;
+    }
   }
 
   /** @param {string} path @param {LinkedRepo} repo @param {'check'|'pull'|'update-target'} operation
