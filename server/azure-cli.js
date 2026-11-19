@@ -177,7 +177,7 @@ export function createAzureCli({
   let timer,
     closed = false,
     totalStarts = 0,
-    // Azure DevOps asks for this wait in a Retry-After header, on a 429 or on a response that still succeeded.
+    // Azure DevOps asks for this wait in a Retry-After header, which any response can carry.
     throttledUntil = 0,
     /** @type {LastError | null} */
     lastError = null;
