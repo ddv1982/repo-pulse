@@ -269,6 +269,20 @@ test('Pull still fast-forwards when local Git config picks a merge strategy', as
   }
 });
 
+test('Pull fast-forwards a branch whose name contains an equals sign', async t => {
+  const { repo, checkoutGit, local, source, commit } = checkoutFixture(t);
+  git(source, 'switch', '-c', 'feature/a=b');
+  git(source, 'push', 'origin', 'feature/a=b');
+  git(local, 'fetch', 'origin');
+  git(local, 'switch', '--track', 'origin/feature/a=b');
+  git(local, 'config', 'branch.feature/a=b.mergeOptions', '-s ours');
+  const tip = commit(source, 'feature.txt', 'on a=b');
+  git(source, 'push', 'origin', 'feature/a=b');
+  const { checkout } = await checkoutGit.update(repo, 'check', await checkoutGit.status(repo));
+  await checkoutGit.update(repo, 'pull', checkout);
+  assert.equal(git(local, 'rev-parse', 'HEAD'), tip);
+});
+
 test('a checkout whose own Git config runs commands is refused before Git reads it', async t => {
   const { repo, checkoutGit, local, root = join(local, '..') } = checkoutFixture(t);
   const marker = join(root, 'filter-ran');
@@ -308,6 +322,8 @@ test('conditional includes, transport and signing keys in checkout config are re
     ['gpg.ssh.program', 'sign'],
     ['fetch.bundleURI', 'https://example.test/bundle'],
     ['filter..clean', 'cat'],
+    ['include.path', 'shared.cfg'],
+    ['ssh.variant', 'plink'],
   ]) {
     git(local, 'config', key, value);
     const status = await createCheckoutGit({ matchesRemote: url => url === remote }).status(repo);

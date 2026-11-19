@@ -53,7 +53,10 @@ const commandKeys = new RegExp(
     'remote\\..*\\.(?:uploadpack|proxy|vcs)',
     'fetch\\.bundleuri',
     'gpg\\.(?:.*\\.)?program',
+    'include\\.path',
     'includeif\\..*\\.path',
+    'ssh\\.variant',
+    'protocol\\.version',
   ]
     .map(key => `^${key}$`)
     .join('|'),
@@ -408,25 +411,34 @@ export function createCheckoutGit({
     try {
       // A strategy from branch.<name>.mergeOptions or pull.twohead makes even --ff-only create a merge commit,
       // so both are cleared for this merge. --no-squash keeps the earlier guard against a configured --squash.
-      await run(path, [
-        '-c',
-        `branch.${branch}.mergeOptions=`,
-        '-c',
-        'pull.twohead=ort',
-        '-c',
-        `core.hooksPath=${hooks}`,
-        '-c',
-        'maintenance.auto=false',
-        '-c',
-        'submodule.recurse=false',
-        'merge',
-        '--ff-only',
-        '--no-squash',
-        '--no-autostash',
-        '--no-overwrite-ignore',
-        '--no-stat',
-        tip,
-      ]);
+      // The branch name goes through the config environment, because a name may contain '=', which -c splits on.
+      const count = Number(process.env.GIT_CONFIG_COUNT) || 0;
+      const clearMergeOptions = {
+        GIT_CONFIG_COUNT: String(count + 1),
+        [`GIT_CONFIG_KEY_${count}`]: `branch.${branch}.mergeOptions`,
+        [`GIT_CONFIG_VALUE_${count}`]: '',
+      };
+      await run(
+        path,
+        [
+          '-c',
+          'pull.twohead=ort',
+          '-c',
+          `core.hooksPath=${hooks}`,
+          '-c',
+          'maintenance.auto=false',
+          '-c',
+          'submodule.recurse=false',
+          'merge',
+          '--ff-only',
+          '--no-squash',
+          '--no-autostash',
+          '--no-overwrite-ignore',
+          '--no-stat',
+          tip,
+        ],
+        { guard: clearMergeOptions },
+      );
     } catch {
       throw problem(
         'Pull stopped before the branch was updated. Git could not preserve the local checkout. Review overlapping changes in Git and try again.',
