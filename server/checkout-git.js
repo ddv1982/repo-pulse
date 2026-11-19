@@ -230,14 +230,18 @@ export function createCheckoutGit({
   /** Config keys the checkout or one of its submodules sets itself that would make Git run a command. @param {string} path */
   async function configuredCommands(path) {
     const keys = new Set();
+    // Nothing in this scan needs the network; no transport may run while the config is still untrusted.
+    const offline = { GIT_ALLOW_PROTOCOL: '' };
     /** @param {string} folder */
     const visit = async folder => {
       // NUL-separated pairs of scope and key, so a subsection with a tab or newline stays one key.
-      const fields = (await run(folder, ['config', '--show-scope', '--includes', '--name-only', '--null', '--list'])).split('\0');
+      const listing = await run(folder, ['config', '--show-scope', '--includes', '--name-only', '--null', '--list'], { guard: offline });
+      const fields = listing.split('\0');
       for (let i = 0; i + 1 < fields.length; i += 2)
         if ((fields[i] === 'local' || fields[i] === 'worktree') && commandKeys.test(fields[i + 1])) keys.add(fields[i + 1]);
+      if (keys.size) return;
       // Gitlinks come from the index, like the ones status descends into; .gitmodules may not list them all.
-      const index = await run(folder, ['ls-files', '--stage', '-z'], { maxBuffer: 256 * 1024 * 1024 });
+      const index = await run(folder, ['ls-files', '--stage', '-z'], { guard: offline, maxBuffer: 256 * 1024 * 1024 });
       const gitlinks = new Set(index.split('\0').flatMap(entry => entry.match(/^160000 [0-9a-f]+ \d\t([^]+)$/)?.[1] ?? []));
       for (const gitlink of gitlinks) {
         const submodule = resolve(folder, gitlink);
@@ -245,7 +249,7 @@ export function createCheckoutGit({
           () => true,
           () => false,
         );
-        if (populated) await visit(submodule);
+        if (populated && !keys.size) await visit(submodule);
       }
     };
     await visit(path);
