@@ -12,7 +12,7 @@ Repo Pulse records tag changes, checks live branch moves for history rewrites, k
 
 1. **Trace deployments to revisions.** Start with whichever mechanism the target organization uses, YAML Environments or classic Releases. Follow a known revision through its run and artifact into a named environment. Verify failed attempts, retries, and rollbacks before presenting deployment evidence.
 2. **Add broader build and test context.** Verify how shared pipelines and secondary repositories appear in Azure. Link test results and artifacts when their relationship to the run is known.
-3. **Revisit outgoing PR coverage when there is a representative repository.** The project-scoped source filter returned no PRs in either sampled repository. Verify scope with a known fork or cross-project outgoing PR before adding a polling stream.
+3. **Revisit outgoing PR coverage when there is a representative repository.** The project-scoped source filter returned no PRs in either sampled repository. Verify scope with a known fork or cross-project outgoing PR before adding a polling stream. Record which repository and project scopes were tested, denied, or unsupported.
 
 ## Deferred follow-ups
 

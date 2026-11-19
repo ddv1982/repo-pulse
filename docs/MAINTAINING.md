@@ -44,8 +44,8 @@ Run `node scripts/measure-activity.js` for synthetic local HTTP and SQLite timin
 
 ## Check the Azure budget
 
-Run `node scripts/measure-budget.js` to simulate live polling against the shared call limit (`--limit`, default 12 for the old CLI-only budget; the app now uses 60). It runs the real sync and Azure client code with a fake clock and a fake CLI. It does not run the rewrite check, which adds one call, plus any retries, for each existing branch a live push moves. Options set the repository counts, pushes per hour, the assumed duration of one CLI call, and the simulated minutes. The call duration of 1.5 s is an assumption, not a measurement.
+Use `node scripts/measure-budget.js --limit 60` to compare simulated polling under the current request budget. The script runs the real sync and Azure client code with a fake clock and a fake CLI. It serializes calls, uses an assumed 1.5 seconds per call by default, and omits the rewrite check and its retries. Use the results for relative comparisons between simulated polling changes. Live queue capacity and detection latency need separate measurements.
 
-The [historical local-load and Azure budget measurements](https://github.com/ddv1982/repo-pulse/blob/b8fb8561854d472bcc17543326df5c4644c53cd8/docs/MAINTAINING.md#check-local-load) remain in Git history. The old Azure runs included background merge analysis, so use a fresh simulation for the current sync design.
+The [historical local-load and Azure budget measurements](https://github.com/ddv1982/repo-pulse/blob/b8fb8561854d472bcc17543326df5c4644c53cd8/docs/MAINTAINING.md#check-local-load) remain in Git history. The old Azure runs included background merge analysis, so compare current polling changes using the same simulator settings on both revisions.
 
 For verified Azure API details and future proof cases, see the [coverage research](FULL-COVERAGE-RESEARCH.md).
