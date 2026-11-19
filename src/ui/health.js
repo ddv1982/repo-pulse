@@ -75,7 +75,7 @@ export function syncSentence(status, repoName = '') {
 /** @param {AnySyncStatus} status @param {string} [repoName] */
 export function syncPill(status, repoName) {
   const sentence = e(syncSentence(status, repoName));
-  return `<span class="chip status-chip sync-pill ${tones[status.state]}" role="status" aria-label="Sync status: ${sentence}" title="${sentence}">${e(syncLabel(status))}</span>`;
+  return `<span class="chip status-chip sync-pill ${tones[status.state]}" aria-label="Sync status: ${sentence}" title="${sentence}">${e(syncLabel(status))}</span>`;
 }
 
 /** The repository an overall status concerns. @param {{ id: string, name: string }[]} repos @param {AnySyncStatus} status */

@@ -56,7 +56,7 @@ function group(title, records, state, { open = true, description = '' } = {}) {
 }
 
 /**
- * One banner when the shown repositories need the reader's attention. Plain text: the header pill already announces sync changes.
+ * One banner when the shown repositories need the reader's attention. Plain text: #sync-live already announces sync changes.
  * @param {PageState} state @param {import('./health.js').SyncStatus & { repoId: string } | undefined} status
  */
 function statusBanner(state, status) {

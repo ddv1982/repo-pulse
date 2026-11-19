@@ -13,7 +13,7 @@ import { worstStatus } from '../src/sync-worst.js';
  * @typedef {{
  *   repos: { id: string, disabled?: boolean }[],
  *   streams: StreamState[],
- *   jobs: (Pick<import('./backfill.js').HistoryJob, 'repoId'|'status'> & Partial<Pick<import('./backfill.js').HistoryJob, 'failures'|'error'>>)[],
+ *   jobs: (Pick<import('./backfill.js').HistoryJob, 'repoId'|'status'> & Partial<Pick<import('./backfill.js').HistoryJob, 'failures'|'error'|'stream'>>)[],
  *   inProgress: { repoId: string, stream: string }[],
  *   settings: { refreshEnabled: boolean, refreshResumedAt: number | null },
  *   startedAt: number,
@@ -24,6 +24,7 @@ import { worstStatus } from '../src/sync-worst.js';
  */
 
 const MINUTE = 60000;
+const HOUR = 60 * MINUTE;
 const LATE = 3 * MINUTE;
 // A retry cannot fix these, so they count from the first failure.
 const LASTING = new Set(['AUTH_REQUIRED', 'FORBIDDEN', 'CLI_MISSING', 'CLI_SETUP']);
@@ -50,16 +51,18 @@ function plainReason(error, stream) {
       return `Your Azure account has no access to this repository's ${READS[stream]}.`;
     case 'CLI_MISSING':
       return 'Install the Azure CLI.';
-    case 'CLI_SETUP':
-      return 'Install the Azure DevOps extension for the Azure CLI.';
     default:
       return error.message;
   }
 }
-/** @param {number} minutes */
-function behindText(minutes) {
-  const hours = Math.round(minutes / 60);
-  const [count, unit] = minutes < 120 ? [minutes, 'minute'] : hours < 48 ? [hours, 'hour'] : [Math.round(minutes / 1440), 'day'];
+/** @param {number} ms */
+function behindText(ms) {
+  const [count, unit] =
+    ms < 120 * MINUTE
+      ? [Math.max(1, Math.round(ms / MINUTE)), 'minute']
+      : ms < 48 * HOUR
+        ? [Math.round(ms / HOUR), 'hour']
+        : [Math.round(ms / (24 * HOUR)), 'day'];
   return `about ${count} ${unit}${count === 1 ? '' : 's'} behind`;
 }
 
@@ -110,13 +113,14 @@ export function syncStatus({ repos, streams, jobs, inProgress, settings, started
       ({ repoId: id, status, error, failures = 0 }) =>
         id === repoId && status !== 'completed' && error && error.code !== 'THROTTLED' && (failures >= 2 || LASTING.has(error.code)),
     );
-    if (failingImport?.error) return { state: 'problem', reason: plainReason(failingImport.error, 'history'), stream: 'history', ...since };
+    if (failingImport?.error)
+      return { state: 'problem', reason: plainReason(failingImport.error, failingImport.stream ?? 'history'), stream: 'history', ...since };
     // The shared queue starts no read for any repository until Azure DevOps's requested wait has passed.
     if (time(throttledUntil ?? undefined) > now) return { state: 'delayed', reason: 'Azure DevOps asked us to slow down', ...since };
     const behind = own.find(stream => behindBy(stream) !== null);
     if (behind) {
-      const minutes = Math.max(1, Math.round(Number(behindBy(behind)) / MINUTE));
-      const reason = Number.isFinite(minutes) ? behindText(minutes) : 'Checks are behind schedule';
+      const ms = Number(behindBy(behind));
+      const reason = Number.isFinite(ms) ? behindText(ms) : 'Checks are behind schedule';
       return { state: 'delayed', reason, stream: behind.stream, ...since };
     }
     // A stale read that got here is still inside the grace period above, so it is catching up.

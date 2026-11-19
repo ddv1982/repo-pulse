@@ -92,7 +92,7 @@ test('an access, sign-in or missing CLI error is a problem at once and says in p
     [
       { code: 'CLI_SETUP', message: 'Azure CLI or its azure-devops extension does not support this read. Check the installation.' },
       'builds',
-      'Install the Azure DevOps extension for the Azure CLI.',
+      'Azure CLI or its azure-devops extension does not support this read. Check the installation.',
     ],
   ]) {
     const result = status({ a: { [stream]: { error, failures: 1, pending: true } } });
@@ -101,8 +101,15 @@ test('an access, sign-in or missing CLI error is a problem at once and says in p
     assert.equal(result.overall.state, 'problem');
     assert.equal(result.overall.repoId, 'a');
   }
-  const history = status({ jobs: [{ repoId: 'a', status: 'running', error: forbidden, failures: 1 }] });
-  assert.equal(history.repos.a.reason, "Your Azure account has no access to this repository's history.");
+  const history = status({ jobs: [{ repoId: 'a', status: 'running', stream: 'builds', error: forbidden, failures: 1 }] });
+  assert.deepEqual(history.repos.a, {
+    state: 'problem',
+    reason: "Your Azure account has no access to this repository's builds.",
+    stream: 'history',
+    since: ago(1),
+  });
+  const unknown = status({ jobs: [{ repoId: 'a', status: 'running', error: forbidden, failures: 1 }] });
+  assert.equal(unknown.repos.a.reason, "Your Azure account has no access to this repository's history.");
 });
 
 test('overall Synced shows the newest check across repositories, not that of the one with the oldest data', () => {
@@ -118,6 +125,8 @@ test('long delays are stated in hours from 120 minutes and in days from 48 hours
   const startedAt = NOW - 10 * 24 * 60 * MINUTE;
   const behind = minutes => status({ settings, startedAt, a: { pushes: { lastSuccess: ago(minutes) } } }).repos.a.reason;
   assert.equal(behind(119), 'about 119 minutes behind');
+  assert.equal(behind(119.5), 'about 120 minutes behind');
+  assert.equal(behind(47.5 * 60), 'about 48 hours behind');
   assert.equal(behind(120), 'about 2 hours behind');
   assert.equal(behind(18 * 60), 'about 18 hours behind');
   assert.equal(behind(47 * 60), 'about 47 hours behind');

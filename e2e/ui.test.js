@@ -1044,6 +1044,37 @@ test('at 640px a long repository status pill wraps inside its column instead of 
   }
 });
 
+test('one persistent live region outside the header announces only changed sync sentences; pills are plain text', async t => {
+  const { page } = await setup(t);
+  let status = { state: 'problem', reason: 'Sign in to Azure again.', stream: 'refs' };
+  await page.route('**/api/state', async route => {
+    const state = await (await route.fetch()).json();
+    const repos = { ...state.syncStatus.repos, 'demo-orders': status };
+    await route.fulfill({ json: { ...state, demo: false, syncStatus: { overall: { ...status, repoId: 'demo-orders' }, repos } } });
+  });
+  await page.reload();
+  const live = page.locator('#sync-live');
+  await expect(live).toHaveText('Problem in orders-api: Sign in to Azure again.');
+  await expect(live).toHaveAttribute('role', 'status');
+  await expect(live).toHaveAttribute('aria-live', 'polite');
+  await expect(page.locator('#header #sync-live')).toHaveCount(0);
+  const refreshed = async () => {
+    await page.evaluate(() => (window.oldPill = document.querySelector('#header .sync-pill')));
+    await page.locator('#header-refresh-desktop').click();
+    await expect.poll(() => page.evaluate(() => !document.contains(window.oldPill))).toBe(true);
+  };
+  await page.evaluate(() => (window.syncText = document.getElementById('sync-live').firstChild));
+  await refreshed();
+  assert.equal(await page.evaluate(() => document.getElementById('sync-live').firstChild === window.syncText), true, 'same text node');
+  status = { state: 'delayed', reason: 'about 9 minutes behind', stream: 'pushes' };
+  await refreshed();
+  await expect(live).toHaveText('Delayed in orders-api: about 9 minutes behind');
+  await expect(page.locator('.sync-pill[role], .sync-pill[aria-live]')).toHaveCount(0);
+  await page.getByRole('link', { name: 'Repositories', exact: true }).click();
+  await expect(page.locator('.repo-entry .sync-pill')).toHaveCount(3);
+  await expect(page.locator('.sync-pill[role], .sync-pill[aria-live]')).toHaveCount(0);
+});
+
 test('Escape before the first state load does not throw', async t => {
   const directory = await mkdtemp(join(tmpdir(), 'repo-pulse-ui-'));
   const runtime = await startApp({ demo: true, port: 0, dataDir: directory });

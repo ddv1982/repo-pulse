@@ -87,6 +87,7 @@ const view = createBrowserView({
   page,
   header,
   demo: required('#demo'),
+  syncLive: required('#sync-live'),
   picker,
   typeFilter,
   onPageRendered: seen.updateShownCount,

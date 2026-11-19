@@ -116,7 +116,8 @@ test('paged query reset follows type and repository scope without acknowledging 
   await page.locator('[data-scope-repo="demo-shared"]').uncheck();
   await page.keyboard.press('Escape');
   await expect(page.locator('li.row')).toHaveCount(0);
-  await expect(page.getByText('No activity matches these filters', { exact: true })).toBeVisible();
+  await expect(page.locator('.feed .empty .big')).toHaveText('No activity matches these filters');
+  await expect(page.locator('.summary .headline b')).toHaveText('No activity matches these filters');
   assert.equal(runtime.store.getEvent('old-unseen').seen, false);
 });
 

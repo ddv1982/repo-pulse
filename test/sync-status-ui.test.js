@@ -164,12 +164,34 @@ test('with nothing loaded and a status other than Synced the summary does not cl
   );
 });
 
-test('only the header pill is a live region for sync changes; the Activity banner is plain text', () => {
+test('the Activity banner is plain text, not a second live region for sync changes', () => {
   for (const status of [states[2][0], states[3][0]]) {
     const state = page({ ...status, repoId: 'r' }, { r: status });
     const [banner] = banners(renderFeed(state, feedView));
     assert.ok(banner, status.state);
     assert.doesNotMatch(banner[0], /role=|aria-live/, status.state);
-    assert.match(pill(renderHeader(state, headerView))?.[2] ?? '', /role="status"/, status.state);
+  }
+});
+
+test('with filters active and nothing found, the summary uses the same filter wording as the feed', () => {
+  const status = states[2][0];
+  for (const filters of [{ search: 'hotfix' }, { kind: 'build' }, { repoIds: [] }]) {
+    const markup = renderFeed(page({ ...status, repoId: 'r' }, { r: status }), { ...feedView, ...filters });
+    assert.equal(markup.match(/<b class="zero">([^<]*)<\/b>/)?.[1], 'No activity matches these filters', JSON.stringify(filters));
+    assert.match(markup, /<p class="big">No activity matches these filters<\/p>/);
+  }
+});
+
+test('sync pills are plain text with their name and title; none is a live region', () => {
+  for (const [status] of states) {
+    const state = page({ ...status, repoId: 'r' }, { r: status });
+    const pills = [renderHeader(state, headerView), renderRepositories(state, {})].flatMap(markup => [
+      ...markup.matchAll(/<span class="chip status-chip sync-pill[^>]*>/g),
+    ]);
+    assert.ok(pills.length >= 3, status.state);
+    for (const [tag] of pills) {
+      assert.doesNotMatch(tag, /role=|aria-live/, status.state);
+      assert.match(tag, /aria-label="Sync status: [^"]+" title="[^"]+"/, status.state);
+    }
   }
 });
