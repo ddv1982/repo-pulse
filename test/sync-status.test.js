@@ -88,6 +88,8 @@ test('throttling is a delay, never a problem', () => {
   const result = status({ a: { pushes: { error, failures: 5, pending: true, lastSuccess: ago(4) } } });
   assert.deepEqual(result.repos.a, { state: 'delayed', reason: 'about 4 minutes behind', stream: 'pushes', since: ago(4) });
   assert.equal(result.repos.b.state, 'synced');
+  const now = status({ a: { pushes: { error, failures: 1, lastSuccess: ago(0) } } });
+  assert.deepEqual(now.repos.a, { state: 'delayed', reason: 'about 1 minute behind', stream: 'pushes', since: ago(1) });
   const first = status({ a: Object.fromEntries(STREAMS.map(stream => [stream, { initialized: false, lastSuccess: undefined, error }])) });
   assert.deepEqual(first.repos.a, { state: 'delayed', reason: 'Checks are behind schedule', stream: 'pushes' });
 });
@@ -340,5 +342,36 @@ test('a refresh the user asked for is syncing with automatic checks on until eve
   assert.equal(current(), 'syncing', 'refresh queued');
   await readAll();
   assert.equal(current(), 'synced');
+  store.close();
+});
+
+test('a repository removed and re-added inside the refresh cooldown does not stay syncing on its old refresh', async () => {
+  const { store, sync, current, readAll, advance } = blockedSync();
+  const repo = store.listRepos()[0];
+  sync.refresh();
+  await readAll();
+  advance(MINUTE);
+  sync.refresh();
+  store.removeRepo(repo.id);
+  store.saveRepo(repo);
+  assert.deepEqual(sync.refresh(), { scheduled: false, cooldown: true }, 'still inside the refresh cooldown');
+  await readAll();
+  assert.equal(current(), 'synced');
+  store.close();
+});
+
+test('a disabled repository or a stopped sync lists no queued refresh', async () => {
+  const { store, sync, readAll, advance } = blockedSync();
+  const repo = store.listRepos()[0];
+  sync.refresh();
+  await readAll();
+  advance(MINUTE);
+  sync.refresh();
+  store.saveRepo({ ...repo, disabled: true });
+  const disabled = sync.status().inProgress;
+  store.saveRepo(repo);
+  await sync.stop();
+  const stopped = sync.status().inProgress;
+  assert.deepEqual({ disabled, stopped }, { disabled: [], stopped: [] });
   store.close();
 });

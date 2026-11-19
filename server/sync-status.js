@@ -46,12 +46,12 @@ export function syncStatus({ repos, streams, jobs, inProgress, settings, started
   const graceOver = stream => now - ranSince > overdueAfter(stream);
   // Every stream is overdue right after a start or resume; the first minutes are catch-up, after which lateness counts from nextAt.
   const catchingUp = now - ranSince <= LATE;
-  /** How far behind a stream is, 0 when it is not, NaN when throttled before any success. @param {StreamState} stream */
+  /** How far behind a stream is, null when it is not, NaN when throttled before any success. @param {StreamState} stream @returns {number | null} */
   function behindBy(stream) {
     const age = now - time(stream.lastSuccess);
     if (stream.error?.code === 'THROTTLED' || (stale(stream) && graceOver(stream))) return age;
     const lateness = now - time(stream.nextAt);
-    return (automatic || stream.manual) && !catchingUp && lateness > LATE ? lateness : 0;
+    return (automatic || stream.manual) && !catchingUp && lateness > LATE ? lateness : null;
   }
 
   /** @param {string} repoId @returns {SyncStatus} */
@@ -66,9 +66,9 @@ export function syncStatus({ repos, streams, jobs, inProgress, settings, started
       ({ error, failures = 0 }) => error && error.code !== 'THROTTLED' && (failures >= 2 || LASTING.has(error.code)),
     );
     if (failing?.error) return { state: 'problem', reason: failing.error.message, stream: failing.stream, ...since };
-    const behind = own.find(stream => behindBy(stream) !== 0);
+    const behind = own.find(stream => behindBy(stream) !== null);
     if (behind) {
-      const minutes = Math.max(1, Math.round(behindBy(behind) / MINUTE));
+      const minutes = Math.max(1, Math.round(Number(behindBy(behind)) / MINUTE));
       const reason = Number.isFinite(minutes) ? `about ${minutes} minute${minutes === 1 ? '' : 's'} behind` : 'Checks are behind schedule';
       return { state: 'delayed', reason, stream: behind.stream, ...since };
     }

@@ -785,7 +785,21 @@ export function createSync({
     },
     status() {
       // The page in flight and unanswered user refreshes are not visible in the persisted streams.
-      const inProgress = [...requested.values()].map(({ repoId, stream }) => ({ repoId, stream }));
+      /** @type {{ repoId: string, stream: StreamName }[]} */
+      const inProgress = [];
+      const enabled = new Set(
+        store
+          .listRepos()
+          .filter(repo => !repo.disabled)
+          .map(repo => repo.id),
+      );
+      const streams = store.getStreams();
+      for (const [key, { repoId, stream, generation }] of requested) {
+        const state = streams.find(entry => entry.repoId === repoId && entry.stream === stream);
+        // A removed, re-added or disabled repository's streams never answer the generation this refresh asked for.
+        if (!enabled.has(repoId) || (state?.refreshGeneration || 0) < generation) requested.delete(key);
+        else inProgress.push({ repoId, stream });
+      }
       if (reading) inProgress.push({ ...reading });
       return {
         running: Boolean(active),
@@ -794,7 +808,7 @@ export function createSync({
         streams: store.getStreams().length,
         lastTurn: { ...lastTurn },
         lag: lag(),
-        inProgress,
+        inProgress: stopped ? [] : inProgress,
       };
     },
   };
