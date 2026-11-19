@@ -1119,7 +1119,7 @@ for (const [order, first, second] of [
       store.listEvents().some(event => event.kind === 'pr'),
       'PR stored',
     );
-    assert.equal(activityMergeBadge(pushed), 'Completed PR linked');
+    assert.equal(activityMergeBadge(pushed), 'PR evidence');
     assert.deepEqual(
       pushed.data.mergeEvidence.prs.map(pr => [pr.pullRequestId, pr.targetRefName, pr.mergeCommit, pr.relationship]),
       [[91, 'refs/heads/main', result.toUpperCase(), 'result-introduced']],

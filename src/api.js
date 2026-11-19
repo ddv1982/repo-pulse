@@ -18,6 +18,8 @@
  * @template {string} P
  * @typedef {P extends '/api/state' ? StateResponse
  *   : P extends '/api/activity' | `/api/activity?${string}` ? ActivityResponse
+ *   : P extends '/api/activity-filters' ? import('../server/saved-activity-filters.js').SavedActivityFilter
+ *   : P extends `/api/activity-filters/${string}` ? import('../server/saved-activity-filters.js').SavedActivityFilter | OkResponse
  *   : P extends `/api/events/${string}` ? EventResponse
  *   : P extends '/api/checkouts' ? CheckoutsResponse
  *   : P extends `/api/repos/${string}/checkout` ? CheckoutUpdateResponse
@@ -111,9 +113,13 @@ export async function request(path, { method = 'GET', body } = {}) {
   } catch {
     throw new Error(`The local app returned an unreadable response (${response.status}).`);
   }
-  if (!response.ok)
-    throw new Error(
-      value.message || value.error?.message || (typeof value.error === 'string' ? value.error : `Request failed (${response.status}).`),
+  if (!response.ok) {
+    throw Object.assign(
+      new Error(
+        value.message || value.error?.message || (typeof value.error === 'string' ? value.error : `Request failed (${response.status}).`),
+      ),
+      { code: value.code },
     );
+  }
   return value;
 }

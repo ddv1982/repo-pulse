@@ -37,7 +37,7 @@ Then start Repo Pulse and use **Settings → Check connection**. Your checkouts 
 
 ## Use Repo Pulse
 
-- **Activity.** Open **New updates** to catch up or **All activity** to browse cached history. Filter by repository, status, or search. Use **Mark shown seen** to clear the displayed updates, or **Undo** to bring them back. Opening an item never marks it seen.
+- **Activity.** Open **New updates** to catch up or **All activity** to browse cached history. Filter by repository, status, or search. Enter `Alice Morgan, Bob Smith` in **People** to match activity involving either recorded name. Choose **Save filter** to name the current filters, then select it in **Saved filters** and choose **Apply** to use it again. Use **Mark shown seen** to clear the displayed updates, or **Undo** to bring them back. Opening an item never marks it seen.
 - **Repositories.** See your checked-out branch, sync older activity, or use **Check for updates**. **Pull** asks for confirmation and fast-forwards when Git can preserve your local changes.
 - **Sync status.** The header shows whether activity is **Synced**, **Syncing**, **Delayed**, **Paused**, or has a **Problem**, and each enabled repository shows its own sync status in **Repositories**. A disabled repository shows **Disabled** and has no sync status.
 - **Settings.** Check Azure DevOps access, manage automatic checks, copy diagnostics from **Troubleshooting**, or **Start from scratch** to delete stored activity and import the last seven days again.

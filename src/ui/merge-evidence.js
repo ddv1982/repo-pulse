@@ -1,6 +1,6 @@
 // @ts-check
 
-import { activityMergeBadge } from '../activity-text.js';
+import { activityMergeBadge, matchesPushResult, matchingPushResults } from '../activity-text.js';
 import { emptyHtml, html, dateTime, branchName, azureLink } from './format.js';
 
 /** @typedef {import('../activity.js').EventData} EventData */
@@ -12,13 +12,14 @@ export function renderMergeEvidence(data = {}) {
   if (!evidence) return emptyHtml;
   const prs = evidence.prs || [];
   const commits = evidence.commits || [];
+  const prLabel = matchingPushResults(data).length ? 'Completed PR linked' : 'Related PR evidence';
   // A rewrite check alone says nothing about how the push was merged.
   const merge = prs.length || commits.length || evidence.status;
-  return html`<section class="activity-history stack-gap" aria-label="How this was merged"><h2>How this was merged</h2>
+  return html`<section class="activity-history stack-gap" aria-label="Push evidence"><h2>Push evidence</h2>
     ${
       merge
-        ? html`<p><span class="chip status-chip ${prs.length ? 'ok' : commits.length ? 'info' : evidence.status === 'not-applicable' ? 'neutral' : 'unk'}">${prs.length ? 'Completed PR linked' : commits.length ? 'Merge commit found' : evidence.status === 'not-applicable' ? 'Branch lifecycle only' : evidence.status === 'complete' ? 'No merge established' : 'Evidence incomplete'}</span>${evidence.checkedAt ? html` <span class="help">Checked ${dateTime(evidence.checkedAt)}</span>` : emptyHtml}</p>
-    ${prs.length ? html`<ul>${prs.map(renderPr)}</ul>` : evidence.status === 'not-applicable' ? emptyHtml : html`<p class="help">No completed PR association established. This does not prove a push was made outside a PR.</p>`}`
+        ? html`<p><span class="chip status-chip ${prs.length ? 'ok' : commits.length ? 'info' : evidence.status === 'not-applicable' ? 'neutral' : 'unk'}">${prs.length ? prLabel : commits.length ? 'Merge commit found' : evidence.status === 'not-applicable' ? 'Branch lifecycle only' : evidence.status === 'complete' ? 'No merge established' : 'Evidence incomplete'}</span>${evidence.checkedAt ? html` <span class="help">Checked ${dateTime(evidence.checkedAt)}</span>` : emptyHtml}</p>
+    ${prs.length ? html`<ul>${prs.map(pr => renderPr(pr, data))}</ul>` : evidence.status === 'not-applicable' ? emptyHtml : html`<p class="help">No completed PR association established. This does not prove a push was made outside a PR.</p>`}`
         : emptyHtml
     }
     ${commits.length ? html`<ul>${commits.map(item => html`<li><code>${(item.commitId || '').slice(0, 8)}</code> · ${item.parents?.length || 0} parents${item.branches?.length ? ` · ${item.branches.map(branchName).join(', ')}` : ''}</li>`)}</ul><p class="help">Multiple parents establish a graph merge; they do not identify the original branch name or Git command.</p>` : emptyHtml}
@@ -52,7 +53,8 @@ export function mergeEvidenceBadge(event) {
     ? html`<span class="chip status-chip warn">History rewritten · ${rewritten.map(range => droppedText(range.update)).join(', ')}</span>`
     : emptyHtml;
   if (!label) return history;
-  return html`<span class="chip status-chip ok">${label}</span>${history}`;
+  const count = matchingPushResults(event.data).length;
+  return html`<span class="chip status-chip ok">${count > 1 ? `${count} completed PRs linked` : count === 1 ? 'Completed PR linked' : 'Related PR evidence'}</span>${history}`;
 }
 
 /** @param {EventData} [data] */
@@ -74,13 +76,13 @@ const prStrategies = {
   rebaseMerge: 'Rebase with merge commit',
 };
 
-/** @param {EvidencePr} pr */
-function renderPr(pr) {
+/** @param {EvidencePr} pr @param {EventData} data */
+function renderPr(pr, data) {
   const id = pr.pullRequestId || pr.id;
   const source = branchName(pr.sourceRefName);
   const target = branchName(pr.targetRefName);
   const closer = typeof pr.closedBy === 'string' ? pr.closedBy : pr.closedBy?.displayName;
   const strategy = prStrategies[String(pr.mergeStrategy)];
   const link = azureLink(pr.url, `PR #${id}`);
-  return html`<li>${link.toString() ? link : `PR #${id}`}${source ? ` · ${source}` : ''}${target ? ` → ${target}` : ''}${strategy ? ` · ${strategy}` : ''}${closer ? ` · PR closed by ${closer}` : ''}${pr.mergeCommit ? html` · result <code title="${pr.mergeCommit}">${pr.mergeCommit.slice(0, 8)}</code>` : emptyHtml}</li>`;
+  return html`<li>${link.toString() ? link : `PR #${id}`}${source ? ` · ${source}` : ''}${target ? ` → ${target}` : ''}${strategy ? ` · ${strategy}` : ''}${closer ? ` · PR closed by ${closer}` : ''}${matchesPushResult(data, pr) ? ' · Matches the pushed target and PR merge result' : ' · Related PR evidence'}${pr.mergeCommit ? html` · result <code title="${pr.mergeCommit}">${pr.mergeCommit.slice(0, 8)}</code>` : emptyHtml}</li>`;
 }

@@ -31,9 +31,12 @@ const statusLabels = {
   activity: 'Activity',
 };
 /** @type {Record<string, string>} */
-const evidenceLabels = { 'pr-linked': 'Completed PR linked' };
+const evidenceLabels = { 'pr-linked': 'PR evidence' };
 const statusIds = new Map(Object.entries(statusLabels).map(([id, label]) => [label, id]));
 const evidenceIds = new Map(Object.entries(evidenceLabels).map(([id, label]) => [label, id]));
+// Keep old filter links and persisted search text compatible with the broader display label.
+const legacyPrEvidenceTerm = 'Completed PR linked';
+evidenceIds.set(legacyPrEvidenceTerm, 'pr-linked');
 
 export const labels = {
   'branch-created': statusLabels['new-branch'],
@@ -108,9 +111,44 @@ export function activityTone(event) {
   return 'neutral';
 }
 
+export const azureDevOpsService = 'Microsoft.VisualStudio.Services.TFS';
+
+/** @param {ActivityEvent} event */
+export function activityActor(event) {
+  return event.kind === 'push' && event.actor === azureDevOpsService ? 'Azure DevOps service' : event.actor;
+}
+
+/**
+ * @param {ActivityEvent['data']} data
+ * @param {import('./activity.js').EvidencePr} pr
+ */
+export function matchesPushResult(data, pr) {
+  const result = pr.mergeCommit?.toLowerCase();
+  return Boolean(
+    result &&
+      pr.targetRefName &&
+      pr.relationship === 'result-introduced' &&
+      data?.refUpdates?.some(ref => ref.name === pr.targetRefName && ref.newObjectId?.toLowerCase() === result),
+  );
+}
+
+/** @param {ActivityEvent['data']} data */
+export const matchingPushResults = data => (data?.mergeEvidence?.prs || []).filter(pr => matchesPushResult(data, pr));
+
 /** @param {ActivityEvent} event */
 export function activityTitle(event) {
   if (event.kind === 'branch-deleted') return `${activityLabel(event)}${event.branch ? ` · ${branchName(event.branch)}` : ''}`;
+  if (event.kind === 'push') {
+    const prs = matchingPushResults(event.data);
+    const pr = prs?.[0];
+    const id = pr?.pullRequestId ?? pr?.id;
+    if (prs.length === 1 && id) {
+      return `Push to ${branchName(pr.targetRefName)} · Linked PR #${id}`;
+    }
+    if (event.actor === azureDevOpsService && event.title?.startsWith(`${azureDevOpsService} pushed`)) {
+      return event.title.replace(azureDevOpsService, 'Azure DevOps service');
+    }
+  }
   const run = event.data?.buildId || event.data?.id;
   if (event.kind === 'build' && run) return event.title || `${event.data?.definition?.name || 'CI run'} · #${run}`;
   return event.title || branchName(event.branch);
@@ -155,6 +193,17 @@ function pushedTagSummary({ change, oldObjectId = '', newObjectId = '' }) {
 }
 
 /** @param {ActivityEvent} event */
+function refUpdateSummary(event) {
+  const refs = event.data?.refUpdates;
+  if (event.kind === 'push' && event.actor === azureDevOpsService && !refs?.length && !event.branch) {
+    return 'Branch details unavailable';
+  }
+  if (refs?.length === 1 && /^0+$/.test(refs[0].newObjectId || '')) return 'Remote branch deleted';
+  if (refs?.length === 1 && /^0+$/.test(refs[0].oldObjectId || '')) return `Branch starts at ${(refs[0].newObjectId || '').slice(0, 8)}`;
+  return event.summary || '';
+}
+
+/** @param {ActivityEvent} event */
 export function activitySummary(event) {
   if (event.kind === 'build') return triggerLabel(event.data?.reason);
   if (event.kind === 'pr' && event.data && (event.data.targetRefName || event.data.voteChanges?.length)) return prSummary(event.data);
@@ -162,10 +211,7 @@ export function activitySummary(event) {
   if (event.kind === 'branch-created') return listed ? 'First seen remotely; creation time not supplied' : 'New remote branch';
   if (event.kind === 'branch-deleted') return listed ? 'Not in the latest branch list; deletion not confirmed' : 'Remote branch deleted';
   if (event.kind === 'tag' && event.data?.evidence === 'push') return pushedTagSummary(event.data);
-  const refs = event.data?.refUpdates;
-  if (refs?.length === 1 && /^0+$/.test(refs[0].newObjectId || '')) return 'Remote branch deleted';
-  if (refs?.length === 1 && /^0+$/.test(refs[0].oldObjectId || '')) return `Branch starts at ${(refs[0].newObjectId || '').slice(0, 8)}`;
-  return event.summary || '';
+  return refUpdateSummary(event);
 }
 
 /** @typedef {{kind?: string, data?: { mergeEvidence?: { prs?: unknown[] } } }} EvidencedEvent */
@@ -275,7 +321,7 @@ export function activitySearchText(event) {
     event.summary,
     activityLabel(event),
     activitySummary(event),
-    activityMergeBadge(event),
+    activityEvidenceId(event) ? legacyPrEvidenceTerm : '',
   ])
     addSearchTerm(terms, value);
   addDataSearchTerms(terms, event.data);

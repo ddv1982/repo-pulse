@@ -119,6 +119,9 @@
 .filters-box .toolbar {
   margin-bottom: 0;
 }
+.saved-filters select {
+  max-width: 100%;
+}
 .type-panel {
   width: 220px;
   max-height: min(55dvh, 360px);

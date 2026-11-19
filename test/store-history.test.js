@@ -464,6 +464,7 @@ test('filter options come from the full scoped history and stay available when a
     assert.equal(canceled.items[0].id, 'older-canceled');
     assert.deepEqual(canceled.filterOptions, all.filterOptions);
     assert.equal(store.queryActivity({ ...scope, kind: 'evidence:Completed PR linked' }).items[0].id, 'push-evidence');
+    assert.equal(store.queryActivity({ ...scope, search: 'Completed PR linked' }).items[0].id, 'push-evidence');
     assert.equal(store.queryActivity({ ...scope, view: 'new' }).filterOptions.includes('status:canceled'), false);
     assert.deepEqual(store.queryActivity({ ...scope, search: 'merged' }).filterOptions, ['pr', 'status:merged']);
   } finally {
@@ -733,4 +734,45 @@ test('migration 13 rebuilds search_text from named fields and preserves enrichme
   assert.equal(store.getEvent('p-1').imported, true);
   store.close();
   rmSync(dir, { recursive: true });
+});
+
+test('People filters recorded identities before grouping and binds the cursor to the canonical name list', () => {
+  const store = setup();
+  try {
+    store.insertEvents([
+      build('alice-build', 'queued', { actor: 'Alice Morgan' }),
+      build('chris-build', 'completed', { actor: 'Chris' }),
+      event('bob', { actor: 'Bob Smith' }),
+      event('branch-only', { branch: 'feature/Alice' }),
+      event('assigned', { kind: 'pr', data: { reviewers: [{ name: 'Alice Morgan' }] } }),
+      event('closer', { kind: 'pr', actor: 'Chris', data: { closedBy: 'Bob Smith' } }),
+      event('vote', { kind: 'pr', actor: 'Chris', data: { voteChanges: [{ name: 'Alice Morgan', vote: 10 }] } }),
+      event('linked', { actor: 'Microsoft.VisualStudio.Services.TFS' }),
+      event('unknown', { actor: 'Unknown' }),
+      event('unnamed-vote', { kind: 'pr', data: { voteChanges: [{ name: 'Unknown reviewer', vote: 10 }] } }),
+    ]);
+    store.enrichEvent('linked', { mergeEvidence: { prs: [{ pullRequestId: 12, closedBy: { displayName: 'Bob Smith' } }] } });
+    const names = ' ALICE, Bob, alice, ';
+    const first = store.queryActivity({ people: names, limit: 1 });
+    const rest = store.queryActivity({ people: 'bob, alice', cursor: first.nextCursor });
+    assert.equal(first.total, 5);
+    assert.deepEqual([...first.items, ...rest.items].flatMap(item => item.eventIds).sort(), [
+      'alice-build',
+      'bob',
+      'closer',
+      'linked',
+      'vote',
+    ]);
+    assert.throws(() => store.queryActivity({ people: 'Chris', cursor: first.nextCursor }), /cursor does not match/);
+    assert.equal(store.queryActivity({ people: names, kind: 'build' }).items[0].unseenIds.join(), 'alice-build');
+    assert.equal(store.queryActivity({ people: 'Bob', search: 'branch-only' }).total, 0);
+    assert.equal(store.queryActivity({ people: 'unknown, Microsoft' }).total, 0);
+    assert.equal(store.queryActivity({ people: '%_' }).total, 0);
+    store.enrichEvent('branch-only', { mergeEvidence: { prs: [{ closedBy: 'Bob Smith' }] } });
+    assert.throws(() => store.queryActivity({ people: names, cursor: first.nextCursor }), { code: 'ACTIVITY_CHANGED' });
+    assert.equal(store.queryActivity({ people: names }).total, 6);
+    assert.throws(() => store.queryActivity({ people: 'a'.repeat(301) }), /300 characters/);
+  } finally {
+    store.close();
+  }
 });

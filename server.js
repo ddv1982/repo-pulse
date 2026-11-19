@@ -5,6 +5,7 @@ import { resolve, dirname, extname, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { homedir } from 'node:os';
+import { createSavedActivityFilters } from './server/saved-activity-filters.js';
 import { createStore } from './server/store.js';
 import { createSync } from './server/sync.js';
 import { createAzureCli, defaultExecutor } from './server/azure-cli.js';
@@ -71,6 +72,7 @@ import { canOpenBrowser, openBrowser } from './server/open-browser.js';
  *   diagnostics: Partial<ReturnType<ReturnType<typeof createAzureCli>['diagnostics']>> & { sync: ReturnType<AppSync['status']> },
  *   jobs: import('./server/backfill.js').HistoryJob[],
  *   activityRevision: string,
+ *   savedFilters: import('./server/saved-activity-filters.js').SavedActivityFilter[],
  *   settings: { refreshEnabled: boolean, refreshResumedAt: number | null },
  *   syncStatus: ReturnType<typeof syncStatus>,
  *   demo: boolean,
@@ -237,6 +239,7 @@ export function createApp({
       .listRepos()
       .filter(repo => !repo.disabled)
       .map(repo => repo.id);
+  const savedFilters = createSavedActivityFilters(store);
   // First match wins, in table order. Route params arrive undecoded so each handler keeps its own check order.
   /** @type {Route[]} */
   const routes = [
@@ -265,6 +268,7 @@ export function createApp({
             diagnostics,
             jobs,
             activityRevision: store.activityRevision(),
+            savedFilters: savedFilters.list(),
             settings,
             syncStatus: syncStatus({
               repos,
@@ -309,10 +313,29 @@ export function createApp({
           view,
           kind: query.get('kind') || '',
           search: (query.get('search') || '').slice(0, 300),
+          people: query.get('people') || '',
           limit,
           cursor,
         });
         return json(res, 200, /** @satisfies {ActivityResponse} */ (result));
+      },
+    },
+    {
+      method: 'POST',
+      path: '/api/activity-filters',
+      handler: async ({ req, res }) => json(res, 201, savedFilters.create(await body(req))),
+    },
+    {
+      method: 'PATCH',
+      path: /^\/api\/activity-filters\/([^/]+)$/,
+      handler: async ({ req, res, params: [id] }) => json(res, 200, savedFilters.update(id, await body(req))),
+    },
+    {
+      method: 'DELETE',
+      path: /^\/api\/activity-filters\/([^/]+)$/,
+      handler: ({ res, params: [id] }) => {
+        savedFilters.remove(id);
+        return json(res, 200, /** @satisfies {OkResponse} */ ({ ok: true }));
       },
     },
     {

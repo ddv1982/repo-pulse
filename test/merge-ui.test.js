@@ -20,7 +20,7 @@ test('saved graph evidence stays readable in the detail without a row badge, and
     limitations: ['Source branch unknown'],
   };
   const html = renderMergeEvidence({ mergeEvidence: evidence });
-  assert.match(html, /<h2>How this was merged<\/h2>/);
+  assert.match(html, /<h2>Push evidence<\/h2>/);
   assert.match(html, /Merge commit found/);
   assert.match(html, /2 parents/);
   assert.match(html, /does not prove a push was made outside a PR/);
@@ -30,8 +30,8 @@ test('saved graph evidence stays readable in the detail without a row badge, and
   const linked = renderMergeEvidence({
     mergeEvidence: { ...evidence, prs: [{ pullRequestId: 1, targetRefName: 'refs/heads/main', closedBy: { displayName: '<unsafe>' } }] },
   });
-  assert.match(linked, /Completed PR linked/);
-  assert.match(mergeEvidenceBadge({ kind: 'push', data: { mergeEvidence: { prs: [{ pullRequestId: 1 }] } } }), /Completed PR linked/);
+  assert.match(linked, /Related PR evidence/);
+  assert.match(mergeEvidenceBadge({ kind: 'push', data: { mergeEvidence: { prs: [{ pullRequestId: 1 }] } } }), /Related PR evidence/);
   assert.match(linked, /PR closed by &lt;unsafe&gt;/);
   assert.match(renderMergeEvidence({ mergeEvidence: { status: 'not-applicable', commits: [], prs: [] } }), /Branch lifecycle only/);
 });

@@ -1,5 +1,6 @@
 // @ts-check
 
+import { matchesPeople, parsePeople } from './activity-people.js';
 import { projectActivity } from '../src/activity.js';
 import { activityFilterLabel, labels, parseActivityFilter } from '../src/activity-text.js';
 
@@ -11,7 +12,7 @@ import { activityFilterLabel, labels, parseActivityFilter } from '../src/activit
 /** @typedef {{ key: string, time: number, observed: number, representative: string }} Group */
 /** @typedef {{ kind: string, status: string, evidence: string }} FilterRow */
 /** @typedef {{ kind: string, count: number, newItems: number, newUpdates: number }} CountRow */
-/** @typedef {{ maxSequence: number, filterKey: string, after: Pick<Group, 'key'|'time'|'observed'> }} Position */
+/** @typedef {{ maxSequence: number, filterKey: string, revision?: string, after: Pick<Group, 'key'|'time'|'observed'> }} Position */
 
 const invalidFilter = () => Object.assign(new Error('Activity cursor does not match these filters.'), { code: 'BAD_REQUEST' });
 
@@ -66,13 +67,13 @@ const grouped = (/** @type {string} */ selection) => `
   ) group_stats JOIN activity_members member ON member.event_id=group_stats.representative`;
 
 /** @typedef {ReturnType<typeof parseActivityFilter>} ActivityFilter */
-/** @typedef {{ scope: string, params: SqlValue[] }} MemberScope */
+/** @typedef {{ scope: string, params: SqlValue[], people: boolean }} MemberScope */
 
 /**
  * Member-level WHERE clause shared by the page query and the member lookup.
- * @param {number} maxSequence @param {string[] | undefined} selected @param {string} needle @returns {MemberScope}
+ * @param {number} maxSequence @param {string[] | undefined} selected @param {string} needle @param {string[]} people @returns {MemberScope}
  */
-function memberScope(maxSequence, selected, needle) {
+function memberScope(maxSequence, selected, needle, people) {
   const conditions = ['m.sequence<=?'];
   /** @type {SqlValue[]} */
   const params = [maxSequence];
@@ -84,14 +85,18 @@ function memberScope(maxSequence, selected, needle) {
     conditions.push("(instr(m.search_text,?)>0 OR instr(lower(json_extract(r.data,'$.name')),?)>0)");
     params.push(needle, needle);
   }
-  return { scope: conditions.join(' AND '), params };
+  if (people.length) {
+    conditions.push(`matches_people(e.data,n.data,${people.map(() => '?').join(',')})`);
+    params.push(...people);
+  }
+  return { scope: conditions.join(' AND '), params, people: people.length > 0 };
 }
 
 /**
  * One statement returns the page of groups (plus one to detect more), per-kind counts and, on the first page, filter choices.
  * @param {MemberScope} member @param {ActivityFilter} filter @param {string} view @param {Position | undefined} position @param {number} pageSize
  */
-function pageQuery({ scope, params }, filter, view, position, pageSize) {
+function pageQuery({ scope, params, people }, filter, view, position, pageSize) {
   const rawKind = filter.type === 'kind';
   const selection = rawKind ? 'kind_scope' : 'scoped';
   const kindScope = rawKind ? ', kind_scope AS (SELECT * FROM scoped WHERE kind=?)' : '';
@@ -118,6 +123,7 @@ function pageQuery({ scope, params }, filter, view, position, pageSize) {
         SELECT m.event_id,m.group_key,m.kind,m.status_id,m.evidence_id,m.observed,m.time,
           CASE WHEN e.seen=0 AND e.imported=0 THEN 1 ELSE 0 END AS unseen
         FROM activity_members m JOIN events e ON e.id=m.event_id JOIN repositories r ON r.id=e.repo_id
+        ${people ? 'LEFT JOIN enrichment n ON n.event_id=e.id' : ''}
         WHERE ${scope}
       )${kindScope}, visible AS MATERIALIZED (SELECT * FROM (${grouped(selection)}) ${visible}),
       matched AS (SELECT * FROM visible ${match}),
@@ -182,12 +188,12 @@ function summarizeCounts(countRows) {
   return { counts, newCounts, total, newItems, newUpdates };
 }
 
-/** @param {Group | undefined} last @param {number} maxSequence @param {string} filterKey */
-function encodeCursor(last, maxSequence, filterKey) {
+/** @param {Group | undefined} last @param {number} maxSequence @param {string} filterKey @param {string | undefined} revision */
+function encodeCursor(last, maxSequence, filterKey, revision) {
   return last
-    ? Buffer.from(JSON.stringify({ maxSequence, filterKey, after: { observed: last.observed, time: last.time, key: last.key } })).toString(
-        'base64url',
-      )
+    ? Buffer.from(
+        JSON.stringify({ maxSequence, filterKey, revision, after: { observed: last.observed, time: last.time, key: last.key } }),
+      ).toString('base64url')
     : null;
 }
 
@@ -195,11 +201,15 @@ function encodeCursor(last, maxSequence, filterKey) {
  * @param {import('node:sqlite').DatabaseSync} db
  * @param {(row: SqlRow) => ActivityEvent} hydrate
  * @param {(repoId: string) => unknown} requireRepo
+ * @param {() => string} activityRevision
  */
-export function createActivityQuery(db, hydrate, requireRepo) {
+export function createActivityQuery(db, hydrate, requireRepo, activityRevision) {
+  db.function('matches_people', { deterministic: true, varargs: true }, (data, enrichment, ...terms) =>
+    Number(matchesPeople(hydrate({ data, enrichment }), /** @type {string[]} */ (terms))),
+  );
   /** @param {ActivityRequest} [input] @returns {ActivityPage} */
-  function queryActivity({ repoIds, view = 'all', kind = '', search = '', limit = 50, cursor } = {}) {
-    if (!['all', 'new'].includes(view) || typeof search !== 'string' || typeof kind !== 'string') {
+  function queryActivity({ repoIds, view = 'all', kind = '', search = '', people = '', limit = 50, cursor } = {}) {
+    if (!['all', 'new'].includes(view) || typeof search !== 'string' || typeof people !== 'string' || typeof kind !== 'string') {
       throw Object.assign(new Error('Invalid activity filter.'), { code: 'BAD_REQUEST' });
     }
     const pageSize = Math.max(1, Math.min(Number(limit) || 50, 200));
@@ -207,11 +217,19 @@ export function createActivityQuery(db, hydrate, requireRepo) {
     selected?.forEach(requireRepo);
     const filter = parseActivityFilter(kind);
     const needle = search.toLowerCase();
-    const filterKey = JSON.stringify({ selected, view, filter, search: needle });
+    const names = parsePeople(people);
+    const filterKey = JSON.stringify({ selected, view, filter, search: needle, people: names });
     const position = decodeCursor(cursor, filterKey);
+    const revision = names.length ? activityRevision() : undefined;
+    if (position && revision !== undefined && position.revision !== revision) {
+      throw Object.assign(new Error('Activity changed while loading People results. Try again.'), {
+        status: 409,
+        code: 'ACTIVITY_CHANGED',
+      });
+    }
     const maxSequence =
       position?.maxSequence ?? Number(db.prepare('SELECT COALESCE(MAX(sequence),0) AS id FROM activity_members').get()?.id);
-    const member = memberScope(maxSequence, selected, needle);
+    const member = memberScope(maxSequence, selected, needle, names);
     const query = pageQuery(member, filter, view, position, pageSize);
     const page = db.prepare(query.sql).get(...query.params);
     const groups = /** @type {Group[]} */ (JSON.parse(String(page?.groups)));
@@ -221,7 +239,7 @@ export function createActivityQuery(db, hydrate, requireRepo) {
     const members = loadMembers(db, hydrate, member, filter, selectedGroups);
     const items = selectedGroups.flatMap(group => projectActivity(group.key, members.get(group.key) || [], group.representative) || []);
     const { counts, newCounts, total, newItems, newUpdates } = summarizeCounts(countRows);
-    const nextCursor = groups.length > pageSize ? encodeCursor(selectedGroups.at(-1), maxSequence, filterKey) : null;
+    const nextCursor = groups.length > pageSize ? encodeCursor(selectedGroups.at(-1), maxSequence, filterKey, revision) : null;
     return { items, nextCursor, total, newItems, newUpdates, counts, newCounts, filterOptions: options };
   }
   return queryActivity;
