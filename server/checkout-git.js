@@ -57,6 +57,8 @@ const commandKeys = new RegExp(
     'includeif\\..*\\.path',
     'ssh\\.variant',
     'protocol\\.version',
+    // Git 2.54+ can define hooks in config; core.hooksPath does not turn those off.
+    'hook\\..*',
   ]
     .map(key => `^${key}$`)
     .join('|'),

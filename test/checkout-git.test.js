@@ -324,6 +324,7 @@ test('conditional includes, transport and signing keys in checkout config are re
     ['filter..clean', 'cat'],
     ['include.path', 'shared.cfg'],
     ['ssh.variant', 'plink'],
+    ['hook.audit.command', 'touch ran'],
   ]) {
     git(local, 'config', key, value);
     const status = await createCheckoutGit({ matchesRemote: url => url === remote }).status(repo);
