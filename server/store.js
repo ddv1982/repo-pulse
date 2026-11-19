@@ -348,16 +348,18 @@ export function createStore(path = ':memory:') {
       db.exec(`PRAGMA user_version = ${target}`);
     }
   });
-  // Returns the space deleted caches held to the file system. VACUUM cannot run inside a transaction, and a failure
-  // (for example a full disk) must not stop startup, so the pending flag keeps it for the next start.
-  if (q("SELECT 1 FROM settings WHERE key='compactPending'").get()) {
+  // Returns the space deleted data held to the file system. VACUUM cannot run inside a transaction, and a failure
+  // (for example a full disk) must not stop the app, so the pending flag keeps it for the next start.
+  const compact = () => {
+    if (!q("SELECT 1 FROM settings WHERE key='compactPending'").get()) return;
     try {
       db.exec('VACUUM');
       q("DELETE FROM settings WHERE key='compactPending'").run();
     } catch {
       /* Retried on the next start. */
     }
-  }
+  };
+  compact();
   /** @param {ActivityEvent[]} events */
   function insertEvents(events) {
     const statement = q('INSERT OR IGNORE INTO events(id,repo_id,time,observed_at,seen,imported,data) VALUES(?,?,?,?,?,?,?)');
@@ -456,6 +458,19 @@ export function createStore(path = ':memory:') {
         bumpActivity();
         q('DELETE FROM settings WHERE key IN (?,?,?)').run(`baseline:${id}`, `checkout:${id}`, `checkout-followup:${id}`);
       });
+    },
+    /**
+     * Deletes everything sync and history import wrote, so the next sync is a first import from a new baseline.
+     * Repositories, linked checkouts and app settings stay.
+     */
+    resetActivity() {
+      transaction(() => {
+        db.exec(`DELETE FROM push_tips; DELETE FROM enrichment; DELETE FROM activity_members; DELETE FROM events;
+          DELETE FROM entities; DELETE FROM streams; DELETE FROM jobs; DELETE FROM settings WHERE key LIKE 'baseline:%';`);
+        bumpActivity();
+        q("INSERT OR REPLACE INTO settings(key,data) VALUES('compactPending','true')").run();
+      });
+      compact();
     },
     /** @param {{ repoIds?: string[], limit?: number, unseen?: boolean }} [options] */
     listEvents({ repoIds, limit = 1000, unseen = false } = {}) {
