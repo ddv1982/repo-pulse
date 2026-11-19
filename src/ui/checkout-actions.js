@@ -1,18 +1,22 @@
 // @ts-check
 
+import { repositoryHref } from './navigation.js';
+
 /** @typedef {import('./checkout.js').CheckoutSnapshot} CheckoutSnapshot */
 /** @typedef {import('./checkout.js').CheckoutOperation} CheckoutOperation */
 /** @typedef {(element: HTMLElement) => Promise<void> | void} Action */
+/** @typedef {{ repoId: string, localPath: string, eventId: string, branch: string, isCurrent: () => boolean }} ActivityCheckout */
 
 /**
  * @param {{
  *   checkoutPanel: ReturnType<typeof import('./checkout.js').createCheckoutPanel>,
+ *   getActivityCheckout: () => ActivityCheckout | null,
  *   confirm: (title: string, description: string, callback: () => Promise<void>, label?: string, options?: { subject?: string, destructive?: boolean }) => void,
  *   toast: (message: string) => void,
  * }} options
  * @returns {Record<string, Action>}
  */
-export function createCheckoutActions({ checkoutPanel, confirm, toast }) {
+export function createCheckoutActions({ checkoutPanel, getActivityCheckout, confirm, toast }) {
   /** @param {string} id @param {CheckoutOperation} operation @param {CheckoutSnapshot} checkout @param {Record<string, unknown>} [options] */
   async function updateCheckout(id, operation, checkout, options) {
     const { branch, head, upstream, identity } = checkout;
@@ -33,7 +37,7 @@ export function createCheckoutActions({ checkoutPanel, confirm, toast }) {
     }
   }
 
-  /** @param {HTMLElement} element @param {Exclude<CheckoutOperation, 'check' | 'pull'>} operation */
+  /** @param {HTMLElement} element @param {Exclude<CheckoutOperation, 'check' | 'pull' | 'switch-activity'>} operation */
   function branchAction(element, operation) {
     const id = element.dataset.id ?? '';
     const checkout = checkoutPanel.snapshots[id];
@@ -81,6 +85,44 @@ export function createCheckoutActions({ checkoutPanel, confirm, toast }) {
   }
 
   return {
+    'switch-activity-branch': async () => {
+      const context = getActivityCheckout();
+      if (!context) return;
+      const { repoId, localPath, eventId, branch, isCurrent } = context;
+      const checkout = await checkoutPanel.read(repoId);
+      if (!isCurrent()) return;
+      if (checkout.branch === branch) {
+        location.hash = repositoryHref(repoId);
+        return;
+      }
+      if (checkout.state === 'unavailable' || checkout.state === 'not-linked')
+        throw new Error(checkout.diagnostic?.title || 'The linked checkout is unavailable.');
+      if (checkout.dirty) throw new Error('Save or stash your local changes before switching branches.');
+      if (checkout.state === 'in-progress') throw new Error('Finish the Git operation before switching branches.');
+      const { branch: current, head, upstream, identity, switchIdentity } = checkout;
+      if (!current || !head || !identity) throw new Error('Switching requires an existing branch checked out in Git.');
+      if (!switchIdentity) throw new Error('Repo Pulse could not verify the local Git directory.');
+      confirm(
+        `Switch to ${branch}?`,
+        `Switch the local checkout from ${current} to ${branch}. You can check for updates or pull from Repositories afterward.`,
+        async () => {
+          if (!isCurrent()) return;
+          const result = await checkoutPanel.update(
+            repoId,
+            'switch-activity',
+            { branch: current, head, upstream, identity, switchIdentity },
+            { eventId },
+          );
+          if (result.message) throw new Error(result.message);
+          if (result.checkout.branch !== branch)
+            throw new Error('Git finished switching, but the new checkout status could not be verified. Review it in Repositories.');
+          toast(`Switched to ${branch}.`);
+          if (isCurrent()) location.hash = repositoryHref(repoId);
+        },
+        'Switch branch',
+        { subject: localPath },
+      );
+    },
     'check-checkout': element => {
       const id = element.dataset.id ?? '';
       const checkout = checkoutPanel.snapshots[id];

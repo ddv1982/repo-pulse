@@ -56,7 +56,7 @@ export function isBranchAction(input) {
 }
 
 /** @param {GitRunner} run @param {string} path @param {string} ref */
-async function readRef(run, path, ref) {
+export async function readRef(run, path, ref) {
   try {
     const tip = (await run(path, ['show-ref', '--hash', '--verify', '--', ref])).trim();
     if (isCommit(tip)) return tip;
@@ -76,6 +76,25 @@ async function readRef(run, path, ref) {
     }
   }
   throw branchProblem('Git could not verify the local branch or its recovery reference.');
+}
+
+/** @param {GitRunner} run @param {string} path @param {string} hooks @param {string} name @param {string} [start] */
+export async function switchLocalBranch(run, path, hooks, name, start) {
+  try {
+    await run(path, [
+      '-c',
+      `core.hooksPath=${hooks}`,
+      'switch',
+      '--no-guess',
+      '--no-overwrite-ignore',
+      '--no-recurse-submodules',
+      ...(start ? ['--no-track', '-c', name, '--', start] : ['--', name]),
+    ]);
+  } catch {
+    throw branchProblem(
+      `Git could not switch to ${name}. Check for an occupied worktree, conflicting files, or an unsupported tracking configuration.`,
+    );
+  }
 }
 
 /**
@@ -142,20 +161,7 @@ export function branchFollowups({ run, hooks, followups, statusAt, updateAt, rea
       result: receipt.result,
       recordedSource: receipt.sourceHead,
     };
-    try {
-      await run(path, [
-        '-c',
-        `core.hooksPath=${hooks}`,
-        'switch',
-        '--no-guess',
-        '--no-overwrite-ignore',
-        '--no-recurse-submodules',
-        '--',
-        name,
-      ]);
-    } catch {
-      throw branchProblem(`Git could not switch to ${name}. Check for an occupied worktree or files that would be overwritten.`);
-    }
+    await switchLocalBranch(run, path, hooks, name);
 
     const partial = `Switched to ${name}. The update was blocked.`;
     try {

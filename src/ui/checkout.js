@@ -14,7 +14,7 @@ import { setHtml } from './dom.js';
  *   review?: Review, nextStep?: string } & Partial<Omit<BlockedCheckout, 'state' | 'canPull'>>} CheckoutSnapshot
  */
 /** @typedef {{ checkout: CheckoutSnapshot, updated?: boolean, message?: string, review?: Review, nextStep?: string }} CheckoutUpdate */
-/** @typedef {'check' | 'pull' | 'switch-update' | 'review' | 'remove' | 'carry'} CheckoutOperation */
+/** @typedef {'check' | 'pull' | 'switch-activity' | 'switch-update' | 'review' | 'remove' | 'carry'} CheckoutOperation */
 
 /** @param {{ page: HTMLElement, request: typeof import('../api.js').request, isVisible: () => boolean }} options */
 export function createCheckoutPanel({ page, request, isVisible }) {
@@ -23,6 +23,24 @@ export function createCheckoutPanel({ page, request, isVisible }) {
   let reading = false,
     mutating = false,
     generation = 0;
+
+  /** @param {string} id @param {CheckoutSnapshot} checkout */
+  function retainLocalState(id, checkout) {
+    const previous = snapshots[id];
+    if (
+      previous?.review &&
+      previous.followup?.id === checkout.followup?.id &&
+      previous.head === checkout.head &&
+      previous.state === checkout.state &&
+      previous.dirty === checkout.dirty
+    ) {
+      checkout.review = previous.review;
+    }
+    if (previous?.nextStep && previous.branch === checkout.branch && previous.head === checkout.head) {
+      checkout.nextStep = previous.nextStep;
+    }
+    return checkout;
+  }
 
   /** @param {Record<string, CheckoutSnapshot>} next */
   function publish(next) {
@@ -59,6 +77,13 @@ export function createCheckoutPanel({ page, request, isVisible }) {
     get snapshots() {
       return snapshots;
     },
+    /** @param {string} id @returns {Promise<CheckoutSnapshot>} */
+    async read(id) {
+      const issued = generation;
+      const checkout = await request(`/api/repos/${encodeURIComponent(id)}/checkout/status`);
+      if (!mutating && issued === generation) publish({ ...snapshots, [id]: retainLocalState(id, checkout) });
+      return checkout;
+    },
     async refresh() {
       if (!isVisible() || reading || mutating) return;
       const issued = generation;
@@ -67,21 +92,7 @@ export function createCheckoutPanel({ page, request, isVisible }) {
         /** @type {Record<string, CheckoutSnapshot>} */
         const next = await request('/api/checkouts');
         if (!mutating && issued === generation) {
-          for (const [id, checkout] of Object.entries(next)) {
-            const previous = snapshots[id];
-            if (
-              previous?.review &&
-              previous.followup?.id === checkout.followup?.id &&
-              previous.head === checkout.head &&
-              previous.state === checkout.state &&
-              previous.dirty === checkout.dirty
-            ) {
-              checkout.review = previous.review;
-            }
-            if (previous?.nextStep && previous.branch === checkout.branch && previous.head === checkout.head) {
-              checkout.nextStep = previous.nextStep;
-            }
-          }
+          for (const [id, checkout] of Object.entries(next)) retainLocalState(id, checkout);
           publish(next);
         }
       } catch {
@@ -99,7 +110,7 @@ export function createCheckoutPanel({ page, request, isVisible }) {
     },
     /**
      * @param {string} id @param {CheckoutOperation} operation
-     * @param {Pick<CheckoutSnapshot, 'branch' | 'head' | 'upstream' | 'identity'>} expected @param {Record<string, unknown>} [options]
+     * @param {Pick<CheckoutSnapshot, 'branch' | 'head' | 'upstream' | 'identity' | 'switchIdentity'>} expected @param {Record<string, unknown>} [options]
      * @returns {Promise<CheckoutUpdate>}
      */
     async update(id, operation, expected, options = {}) {

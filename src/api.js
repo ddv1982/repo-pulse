@@ -22,6 +22,7 @@
  *   : P extends `/api/activity-filters/${string}` ? import('../server/saved-activity-filters.js').SavedActivityFilter | OkResponse
  *   : P extends `/api/events/${string}` ? EventResponse
  *   : P extends '/api/checkouts' ? CheckoutsResponse
+ *   : P extends `/api/repos/${string}/checkout/status` ? import('../server.js').CheckoutStatusResponse
  *   : P extends `/api/repos/${string}/checkout` ? CheckoutUpdateResponse
  *   : P extends '/api/repos' ? import('../server.js').Repository
  *   : P extends `/api/repos/${string}` ? OkResponse

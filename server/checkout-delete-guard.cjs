@@ -37,7 +37,7 @@ async function isSymbolicRef(run, path, ref) {
     await run(path, ['symbolic-ref', '--quiet', '--no-recurse', ref]);
     return true;
   } catch (error) {
-    if (error instanceof Error && 'code' in error && error.code === 1) return false;
+    if (error instanceof Error && (('code' in error && error.code === 1) || ('status' in error && error.status === 1))) return false;
     throw error;
   }
 }

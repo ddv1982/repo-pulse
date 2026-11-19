@@ -18,20 +18,21 @@ export function parseRoute(hash) {
     .split('/');
   if (name === 'rules') return { route: 'settings', eventId: null };
   if (name === 'activity') return { route: value === undefined || value === 'all' ? 'activity' : 'catchup', eventId: null };
-  if (name === 'event') {
-    let eventId = null;
+  if (name === 'event' || name === 'repositories') {
+    let id = null;
     try {
-      eventId = value ? decodeURIComponent(value) : null;
+      id = value ? decodeURIComponent(value) : null;
     } catch {
       /* Invalid bookmark gets the not-found view. */
     }
-    return { route: 'event', eventId };
+    return name === 'event' ? { route: 'event', eventId: id } : { route: 'repositories', eventId: null, checkoutRepoId: id };
   }
-  return { route: ['repositories', 'settings'].includes(name) ? name : 'catchup', eventId: null };
+  return { route: name === 'settings' ? 'settings' : 'catchup', eventId: null };
 }
 
 export const activityHref = (/** @type {string} */ route) => `#activity/${route === 'activity' ? 'all' : 'new'}`;
 export const isActivity = (/** @type {unknown} */ route) => route === 'catchup' || route === 'activity';
+export const repositoryHref = (/** @type {string} */ id) => `#repositories/${encodeURIComponent(id)}`;
 
 const RESULTS_KEY = 'repo-pulse-results-context';
 const RESULTS_VERSION = 2;
@@ -80,6 +81,8 @@ export function createNavigation({ ui, captureGroups, activityCapacity }) {
   let results = readResultsContext();
   /** @type {ResultsContext | null | undefined} */
   let pending;
+  /** @type {string|null|undefined} */
+  let checkoutRepoId;
   let generation = 0;
 
   /** @param {string|null} eventId @param {string[]} [matchingIds] */
@@ -121,7 +124,9 @@ export function createNavigation({ ui, captureGroups, activityCapacity }) {
 
   return {
     initialize() {
-      Object.assign(ui, canonicalRoute());
+      const { checkoutRepoId: id, ...parsed } = canonicalRoute();
+      Object.assign(ui, parsed);
+      checkoutRepoId = id;
       ui.activityRoute = isActivity(ui.route) ? ui.route : results?.route || 'catchup';
     },
     view() {
@@ -137,6 +142,13 @@ export function createNavigation({ ui, captureGroups, activityCapacity }) {
     invalidate,
     reconcileRepositories,
     remember,
+    /** @param {WatchedRepo[]} repos */
+    takeCheckoutFocus(repos) {
+      if (ui.route !== 'repositories' || !repos.some(repo => repo.id === checkoutRepoId && !repo.disabled)) return null;
+      const id = checkoutRepoId;
+      checkoutRepoId = null;
+      return id;
+    },
     /** @param {unknown} loading */
     takeRestoration(loading) {
       if (loading || pending?.route !== ui.route) return null;
@@ -147,7 +159,8 @@ export function createNavigation({ ui, captureGroups, activityCapacity }) {
     /** @param {WatchedRepo[]} repos */
     enter(repos) {
       const previous = ui.route;
-      const parsed = canonicalRoute();
+      const { checkoutRepoId: id, ...parsed } = canonicalRoute();
+      checkoutRepoId = id;
       const destination = parsed.route;
       invalidate();
       if (destination === 'event' && results?.eventId !== parsed.eventId) remember(parsed.eventId);
