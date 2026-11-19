@@ -252,7 +252,7 @@ const actions = {
   },
   'copy-diagnostics': async () => {
     try {
-      await navigator.clipboard.writeText(JSON.stringify({ ...refresh.state.diagnostics, mergeQueue: refresh.state.mergeQueue }, null, 2));
+      await navigator.clipboard.writeText(JSON.stringify(refresh.state.diagnostics, null, 2));
       toast('Diagnostics copied.');
     } catch {
       toast('Copy is unavailable in this browser.');

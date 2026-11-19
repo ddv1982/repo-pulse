@@ -14,17 +14,15 @@
  *   failures: number, error: JobError|null, note: string, lastAttempt?: string,
  *   lastProgressAt?: string, coverageStart?: string, completedAt?: string }} HistoryJob
  */
-/** @typedef {{ id: string, repoId: string, eventId: string, type: 'merge', status: 'pending'|'enriching'|'retrying',
- *   nextAt: string, stage?: 'commits'|'ranges'|'hydrate'|'prs' }} MergeJob */
 /** @typedef {{ type: string, id: string, data: unknown }} Entity */
-/** @typedef {{ events?: ActivityEvent[], entities?: Entity[], jobs?: MergeJob[] }} HistoryBatch */
+/** @typedef {{ events?: ActivityEvent[], entities?: Entity[] }} HistoryBatch */
 /**
  * @typedef {{
  *   listRepos: () => WatchedRepo[],
  *   listJobs: (filter: {type: 'backfill'}) => HistoryJob[],
  *   getSetting: (key: string, fallback: string) => unknown,
  *   saveJob: (job: HistoryJob) => void,
- *   commitPage: (page: {repoId: string, events: ActivityEvent[], entities: Entity[], jobs: (HistoryJob|MergeJob)[]}) => void
+ *   commitPage: (page: {repoId: string, events: ActivityEvent[], entities: Entity[], jobs: HistoryJob[]}) => void
  * }} HistoryStore
  */
 
@@ -158,12 +156,10 @@ export function createBackfill({ store, provider, normalize, now = Date.now }) {
           return Number.isFinite(time) && time >= since && time <= until;
         })
         .map(event => ({ ...event, imported: true, seen: true }));
-      const ids = new Set(events.map(event => event.id));
       const pushes = new Set(events.filter(event => event.kind === 'push').map(event => String(event.data?.pushId)));
       // Historical snapshots must not regress current PR/build/ref state. Push facts only dedupe IDs.
       const entities = (output.entities || []).filter(entity => entity.type === 'push' && pushes.has(String(entity.id)));
-      const enrichment = (output.jobs || []).filter(item => ids.has(item.eventId));
-      store.commitPage({ repoId: repo.id, events, entities, jobs: [...enrichment, nextPage(job, window, page)] });
+      store.commitPage({ repoId: repo.id, events, entities, jobs: [nextPage(job, window, page)] });
     } catch (error) {
       if (!current()) return true;
       const failures = (job.failures || 0) + 1;

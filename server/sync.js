@@ -34,8 +34,7 @@ import { actorName, branchName, safeAzureUrl } from '../src/events.js';
 /** @typedef {Partial<Omit<SyncEvent, 'id'|'repoId'|'kind'|'observedAt'|'imported'|'seen'>>} EventDetail */
 /** Entity data is stored JSON, so its shape depends on the entity type. */
 /** @typedef {{ type: string, id: string, data: any }} Entity */
-/** @typedef {{ id: string, type: 'merge', repoId: string, eventId: string, status: 'pending', nextAt: string }} MergeJob */
-/** @typedef {{ events: SyncEvent[], entities: Entity[], jobs?: MergeJob[] }} SyncBatch */
+/** @typedef {{ events: SyncEvent[], entities: Entity[] }} SyncBatch */
 /**
  * @typedef {{
  *   listRepos: () => WatchedRepo[],
@@ -53,7 +52,6 @@ import { actorName, branchName, safeAzureUrl } from '../src/events.js';
 /** @typedef {ReturnType<ReturnType<typeof createSync>['refresh']>} RefreshStatus */
 /** Sync needs `read`; the active-build and PR follow-ups run only when the provider offers them. */
 /** @typedef {Pick<AzureProvider, 'read'> & Partial<Pick<AzureProvider, 'buildsById'|'pullRequest'>>} SyncProvider */
-/** @typedef {'merge'|'history'} BackgroundKind */
 
 /** @type {StreamName[]} */
 const STREAMS = ['pushes', 'refs', 'prs', 'closedPrs', 'builds', 'activeBuilds'];
@@ -218,7 +216,7 @@ function requestRefresh(state, at, manual) {
  * Every tick does one bounded page, so busy streams cannot monopolize catch-up.
  * @param {{ store: SyncStore, provider: SyncProvider, now?: () => number, intervalMs?: number,
  *   isForeground?: () => boolean, refsIntervalMs?: number, pollMs?: number, overlapMs?: number,
- *   background?: Partial<Record<BackgroundKind, () => unknown>> }} options
+ *   background?: { history?: () => unknown } }} options
  */
 export function createSync({
   store,
@@ -241,9 +239,7 @@ export function createSync({
   /** @type {string|undefined} */
   let lastKey;
   let liveTurns = 0;
-  /** @type {BackgroundKind} */
-  let nextBackground = 'merge';
-  /** @type {Partial<Record<BackgroundKind|'live', string>>} */
+  /** @type {Partial<Record<'history'|'live', string>>} */
   const lastTurn = {};
   const counters = { pages: 0, errors: 0 };
 
@@ -308,12 +304,12 @@ export function createSync({
   }
   /**
    * @typedef {{ repo: WatchedRepo, add: (kind: ActivityKind, sourceId: string, detail: EventDetail) => void,
-   *   entities: Entity[], jobs: MergeJob[], refs: Map<string, any>|null, historical: boolean }} NormalizeContext
+   *   entities: Entity[], refs: Map<string, any>|null, historical: boolean }} NormalizeContext
    * @typedef {(item: AzureRecord, context: NormalizeContext) => void} Normalizer
    */
   /** @type {Record<'pushes'|'prs'|'builds', Normalizer> & Partial<Record<StreamName, Normalizer>>} */
   const normalizers = {
-    pushes(item, { repo, add, entities, jobs, refs, historical }) {
+    pushes(item, { repo, add, entities, refs, historical }) {
       const source = String(item.pushId);
       if (!item.pushId || store.getEntity(repo.id, 'push', source)) return;
       const updates = item.refUpdates || [];
@@ -362,7 +358,7 @@ export function createSync({
         });
         recordRef(ref);
       }
-      // A tag-only push has no branch work to show or inspect for merges; its tag rows carry it.
+      // A tag-only push has no branch work to show; its tag rows carry it.
       if (tags.length && !branches.length) return;
       add('push', source, {
         title: `${actor} pushed${branches.length ? ` to ${branches.map(r => branchName(r.name)).join(', ')}` : ''}`,
@@ -374,14 +370,6 @@ export function createSync({
           ? branches.map(ref => `${ref.oldObjectId?.slice(0, 7) || '?'} → ${ref.newObjectId?.slice(0, 7) || '?'}`).join(' · ')
           : 'Repository push',
         data,
-      });
-      jobs.push({
-        id: `merge:${repo.id}:push:${source}`,
-        type: 'merge',
-        repoId: repo.id,
-        eventId: `${repo.id}:push:${source}`,
-        status: 'pending',
-        nextAt: iso(now()),
       });
       for (const ref of branches) {
         const created = ref.oldObjectId && ZERO.test(ref.oldObjectId);
@@ -465,15 +453,13 @@ export function createSync({
   normalizers.activeBuilds = normalizers.builds;
   /**
    * @param {WatchedRepo} repo @param {StreamName} stream @param {AzureRecord[]} records @param {NormalizeState} state
-   * @returns {SyncBatch & { jobs: MergeJob[] }}
+   * @returns {SyncBatch}
    */
   function normalize(repo, stream, records, state) {
     /** @type {SyncEvent[]} */
     const events = [];
     /** @type {Entity[]} */
     const entities = [];
-    /** @type {MergeJob[]} */
-    const jobs = [];
     const historical = Boolean(state.historical);
     const refs = stream === 'pushes' ? new Map(store.listEntities(repo.id, 'ref').map(entry => [entry.id, entry.data])) : null;
     const baseline = /** @type {string} */ (store.getSetting(`baseline:${repo.id}`, iso(now())));
@@ -484,8 +470,8 @@ export function createSync({
       events.push(makeEvent(repo, kind, sourceId, { ...detail, time }, historical || imported));
     };
     const normalizeItem = normalizers[stream];
-    if (normalizeItem) for (const item of records) normalizeItem(item, { repo, add, entities, jobs, refs, historical });
-    return { events, entities, jobs };
+    if (normalizeItem) for (const item of records) normalizeItem(item, { repo, add, entities, refs, historical });
+    return { events, entities };
   }
   /**
    * @param {WatchedRepo} repo @param {AzureRecord[]} records @param {StartedStream} state
@@ -583,19 +569,12 @@ export function createSync({
     entities.push({ type: 'ref-baseline', id: 'tags', data: { at: iso(now()) } });
     return { events, entities };
   }
-  /** @param {boolean} automatic */
-  async function runBackground(automatic) {
-    /** @type {BackgroundKind} */
-    const other = nextBackground === 'merge' ? 'history' : 'merge';
-    for (const kind of [nextBackground, other]) {
-      if (kind === 'merge' && !automatic) continue;
-      if (!(await background[kind]?.())) continue;
-      lastTurn[kind] = iso(now());
-      nextBackground = kind === 'merge' ? 'history' : 'merge';
-      liveTurns = 0;
-      return true;
-    }
-    return false;
+  // History import is explicit, so it also runs while automatic checks are off.
+  async function runBackground() {
+    if (!(await background.history?.())) return false;
+    lastTurn.history = iso(now());
+    liveTurns = 0;
+    return true;
   }
   /** @param {WatchedRepo} repo */
   function watching(repo) {
@@ -699,10 +678,10 @@ export function createSync({
     const automatic = store.getSetting('refreshEnabled', true) !== false;
     const { due, repos } = dueStreams(automatic);
     if (!due.length) {
-      await runBackground(automatic);
+      await runBackground();
       return;
     }
-    if (liveTurns >= LIVE_TURNS && (await runBackground(automatic))) return;
+    if (liveTurns >= LIVE_TURNS && (await runBackground())) return;
     const { state, repo } = takeLiveTurn(due, repos);
     const working = startPage(state, now(), overlapMs);
     try {

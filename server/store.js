@@ -218,53 +218,8 @@ export function createStore(path = ':memory:') {
     [
       2,
       () => {
-        // Membership and metadata jobs are added without rewriting any existing event or read flag.
+        // Membership is added without rewriting any existing event or read flag.
         for (const row of q('SELECT data FROM events ORDER BY rowid').all()) saveMembership(readEvent(row));
-        for (const row of q("SELECT data FROM events WHERE json_extract(data,'$.kind')='push'").all()) {
-          const event = readEvent(row);
-          saveJob({
-            id: `merge:${event.id}`,
-            type: 'merge',
-            repoId: event.repoId,
-            eventId: event.id,
-            status: 'pending',
-            nextAt: '1970-01-01T00:00:00.000Z',
-          });
-        }
-      },
-    ],
-    [
-      4,
-      () => {
-        // Push associations can be empty when refs move to an already-created PR result.
-        // Retry those histories once with range enumeration; cached metadata and read flags stay intact.
-        for (const row of q("SELECT data FROM events WHERE json_extract(data,'$.kind')='push'").all()) {
-          const event = readEvent(row);
-          const eligible =
-            Array.isArray(event.data?.refUpdates) &&
-            event.data.refUpdates.some(
-              ref =>
-                ref.name?.startsWith('refs/heads/') &&
-                typeof ref.oldObjectId === 'string' &&
-                ref.oldObjectId.length &&
-                !/^0+$/.test(ref.oldObjectId) &&
-                typeof ref.newObjectId === 'string' &&
-                ref.newObjectId.length &&
-                !/^0+$/.test(ref.newObjectId) &&
-                ref.oldObjectId !== ref.newObjectId,
-            );
-          if (eligible)
-            saveJob({
-              id: `merge:${event.id}`,
-              type: 'merge',
-              repoId: event.repoId,
-              eventId: event.id,
-              status: 'pending',
-              stage: 'commits',
-              cursor: null,
-              nextAt: '1970-01-01T00:00:00.000Z',
-            });
-        }
       },
     ],
     [
@@ -297,6 +252,22 @@ export function createStore(path = ':memory:') {
       () => {
         // Pushes link to completed PRs from stored events; index the stored pushes and link the pairs already stored.
         for (const row of q("SELECT data FROM events WHERE json_extract(data,'$.kind')='push'").all()) indexPush(readEvent(row));
+      },
+    ],
+    [
+      11,
+      () => {
+        // Background merge analysis stopped: its queue goes and saved evidence stays. Evidence an interrupted job left
+        // half done is marked incomplete, since nothing will finish it.
+        q("DELETE FROM jobs WHERE type='merge'").run();
+        const rows = q("SELECT event_id,data FROM enrichment WHERE json_extract(data,'$.mergeEvidence.status')='enriching'").all();
+        for (const row of rows) {
+          const evidence = JSON.parse(String(row.data)).mergeEvidence;
+          const limitations = (evidence.limitations || []).filter(
+            (/** @type {string} */ item) => item !== 'Merge enrichment is still in progress.',
+          );
+          enrichEvent(String(row.event_id), { mergeEvidence: { ...evidence, status: 'incomplete', limitations } });
+        }
       },
     ],
   ];

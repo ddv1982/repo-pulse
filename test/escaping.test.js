@@ -191,7 +191,6 @@ function pageState(activity) {
       concurrency: 2,
       lastError: { code: 'FAILED', message: probe('diagnostics.lastError.message') },
     },
-    mergeQueue: { pending: 1, errors: 1 },
     jobs: [
       /** @type {import('../server/backfill.js').HistoryJob} */ ({
         id: 'job',

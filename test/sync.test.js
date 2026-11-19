@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import { createStore } from '../server/store.js';
 import { createHash } from 'node:crypto';
 import { createSync } from '../server/sync.js';
+import { createBackfill } from '../server/backfill.js';
+import { createEnrichment } from '../server/enrichment.js';
 import { activityMergeBadge } from '../src/activity-text.js';
 const repo = {
   id: 'one',
@@ -475,10 +477,10 @@ test('active preview and abandoned PRs never acquire actual merge-result fields'
   store.close();
 });
 
-test('ingestion stores merge work atomically and leaves historical imports out of live ref state', async () => {
+test('ingestion stores pushes and leaves historical imports out of live ref state', async () => {
   const { store, sync } = setup({ read: async () => ({ items: [push(333)], nextCursor: null }) });
   await sync.tick();
-  assert.equal(store.listJobs({ type: 'merge' })[0].eventId, 'one:push:333');
+  assert.ok(store.getEvent('one:push:333'));
   const before = store.getEntity('one', 'ref', 'refs/heads/hotfix/example');
   const historical = sync.normalize(repo, 'pushes', [push(1, '2020-01-01T00:00:00Z')], { historical: true, initialized: false });
   assert.ok(historical.events.every(event => event.imported && event.seen));
@@ -537,10 +539,6 @@ test('busy live queues leave turns for background work', async () => {
         },
       },
       background: {
-        merge: async () => {
-          turns.push('merge');
-          return true;
-        },
         history: async () => {
           turns.push('history');
           return true;
@@ -560,7 +558,7 @@ test('busy live queues leave turns for background work', async () => {
       'live',
       'live',
       'live',
-      'merge',
+      'history',
       'live',
       'live',
       'live',
@@ -569,10 +567,8 @@ test('busy live queues leave turns for background work', async () => {
       'live',
       'history',
     ]);
-    assert.ok(turns.filter(turn => turn === 'merge').length > 20);
-    assert.ok(turns.filter(turn => turn === 'history').length > 20);
+    assert.ok(turns.filter(turn => turn === 'history').length > 40);
     assert.ok(sync.status().lastTurn.history);
-    assert.ok(sync.status().lastTurn.merge);
   } finally {
     store.close();
   }
@@ -587,7 +583,7 @@ test('automatic checks can be disabled while an explicit history import still ge
       store,
       now: () => BASE,
       provider: { read: async () => assert.fail('live was not requested') },
-      background: { merge: async () => assert.fail('merge requires automatic checks'), history: async () => true },
+      background: { history: async () => true },
     });
     await sync.tick();
     assert.equal(sync.status().lastTurn.history, new Date(BASE).toISOString());
@@ -828,7 +824,7 @@ test('status reports streams that are overdue because the budget is behind', asy
   store.close();
 });
 
-test('tag pushes become tag rows with their own change, and a tag-only push queues no merge work', async () => {
+test('tag pushes become tag rows with their own change, and a tag-only push makes no push row', async () => {
   const zero = '0'.repeat(40);
   const tagPush = (pushId, refUpdates) => ({ pushId, date: '2026-11-17T10:00:01Z', pushedBy: { displayName: 'A' }, refUpdates });
   const records = [
@@ -862,10 +858,6 @@ test('tag pushes become tag rows with their own change, and a tag-only push queu
   assert.deepEqual(
     pushes[0].data.refUpdates.map(ref => ref.name),
     ['refs/heads/main'],
-  );
-  assert.deepEqual(
-    store.listJobs({ type: 'merge' }).map(job => job.eventId),
-    ['one:push:2'],
   );
   assert.equal(store.getEntity('one', 'ref', 'refs/tags/v1').objectId, 'd'.repeat(40));
   assert.equal(store.getEntity('one', 'ref', 'refs/tags/v2').active, false);
@@ -1115,17 +1107,13 @@ for (const [order, first, second] of [
     sync.refresh();
     for (const state of store.getStreams())
       if (!['pushes', 'closedPrs'].includes(state.stream)) store.saveStream({ ...state, nextAt: '2099-01-01T00:00:00Z' });
-    /** @type {number[]} */
-    const queued = [];
     for (const stream of [first, second]) {
       offered[stream] = items[stream];
       for (let i = 0; i < 2; i++) {
         time += 2000;
         await sync.tick();
       }
-      queued.push(store.listJobs({ type: 'merge' }).length);
     }
-    assert.deepEqual(queued, first === 'pushes' ? [1, 1] : [0, 1], 'only the push queues merge work');
     const pushed = store.getEvent('one:push:30');
     assert.ok(pushed, 'push stored');
     assert.ok(
@@ -1140,3 +1128,84 @@ for (const [order, first, second] of [
     store.close();
   });
 }
+
+/**
+ * Records every provider method a run calls. Pushes come in pages; every other call answers empty.
+ * @param {Record<string, object[][]>} pages pages per stream, chained by a `skip` cursor
+ */
+function recordingProvider(pages) {
+  const calls = [];
+  const provider = new Proxy(
+    {},
+    {
+      get(_target, name) {
+        if (typeof name !== 'string' || name === 'then') return undefined;
+        return async (_repo, stream, options) => {
+          calls.push(name === 'read' ? `read:${stream}` : name);
+          const list = (name === 'read' && pages[stream]) || [];
+          const index = options?.cursor?.skip || 0;
+          return { items: list[index] || [], nextCursor: index + 1 < list.length ? { skip: index + 1 } : null };
+        };
+      },
+    },
+  );
+  return { provider, calls };
+}
+
+// The merge worker is handed to the scheduler as the app used to wire it, so a regression in either
+// the producers (sync, backfill) or the scheduler shows up as a merge call here.
+test('a sync run over several push pages makes only stream reads and queues no merge work', async () => {
+  const store = createStore();
+  store.saveRepo(repo);
+  let time = BASE;
+  const { provider, calls } = recordingProvider({ pushes: [[push(1), push(2)], [push(3)], [push(4)]] });
+  const enrichment = createEnrichment({ store, provider, now: () => time });
+  const sync = createSync({ store, provider, now: () => time, intervalMs: 1000, background: { merge: () => enrichment.tick() } });
+  for (let i = 0; i < 40; i++) {
+    await sync.tick();
+    time += 500;
+  }
+  assert.equal(store.listEvents().filter(event => event.kind === 'push').length, 4);
+  assert.deepEqual(
+    calls.filter(call => !call.startsWith('read:')),
+    [],
+  );
+  assert.deepEqual(store.listJobs({ type: 'merge' }), []);
+  store.close();
+});
+
+test('a history import page makes only stream reads and queues no merge work', async () => {
+  const store = createStore();
+  store.saveRepo(repo);
+  let time = BASE;
+  const day = 86400000;
+  const { provider, calls } = recordingProvider({
+    pushes: [[push(5, new Date(BASE - day).toISOString()), push(6, new Date(BASE - 2 * day).toISOString())]],
+  });
+  const enrichment = createEnrichment({ store, provider, now: () => time });
+  /** @type {ReturnType<typeof createBackfill>} */
+  let backfill;
+  const sync = createSync({
+    store,
+    provider,
+    now: () => time,
+    background: { merge: () => enrichment.tick(), history: () => backfill.tick() },
+  });
+  backfill = createBackfill({ store, provider, normalize: sync.normalize, now: () => time });
+  store.setSetting(`baseline:${repo.id}`, new Date(BASE).toISOString());
+  backfill.start(repo.id, 30);
+  // Automatic checks stay on, which used to let the merge worker run, but no live stream is due.
+  sync.refresh();
+  for (const state of store.getStreams()) store.saveStream({ ...state, nextAt: '2099-01-01T00:00:00Z' });
+  for (let i = 0; i < 10; i++) {
+    await sync.tick();
+    time += 1000;
+  }
+  assert.equal(store.listEvents().filter(event => event.kind === 'push' && event.imported).length, 2);
+  assert.deepEqual(
+    calls.filter(call => !call.startsWith('read:')),
+    [],
+  );
+  assert.deepEqual(store.listJobs({ type: 'merge' }), []);
+  store.close();
+});

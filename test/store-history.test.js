@@ -5,6 +5,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createStore } from '../server/store.js';
+import { renderMergeEvidence, mergeEvidenceBadge } from '../src/ui/merge-evidence.js';
 
 const repo = { id: 'repo', name: 'Repo', azureId: 'a' };
 const event = (id, extra = {}) => ({
@@ -25,7 +26,7 @@ const setup = () => {
   return store;
 };
 
-test('v1 migration preserves raw events and acknowledgement and schedules existing pushes only once', () => {
+test('v1 migration preserves raw events and acknowledgement and queues no merge work', () => {
   const dir = mkdtempSync(join(tmpdir(), 'pulse-migration-')),
     path = join(dir, 'v1.sqlite');
   const db = new DatabaseSync(path);
@@ -41,11 +42,7 @@ test('v1 migration preserves raw events and acknowledgement and schedules existi
   assert.deepEqual(store.getEvent('old'), raw);
   assert.equal(store.queryActivity().total, 1);
   assert.equal(store.queryActivity({ view: 'new' }).newItems, 0);
-  assert.deepEqual(
-    store.listJobs().map(job => job.id),
-    ['merge:old'],
-  );
-  store.removeJob('merge:old');
+  assert.deepEqual(store.listJobs(), []);
   store.close();
   store = createStore(path);
   assert.deepEqual(store.getEvent('old'), raw);
@@ -294,7 +291,7 @@ test('activity pages follow source chronology across imported streams while buil
   store.close();
 });
 
-test('v3 migration requeues branch-move merge coverage once while preserving metadata and read flags', () => {
+test('v3 migration queues no merge work and drops what was queued while preserving metadata and read flags', () => {
   const dir = mkdtempSync(join(tmpdir(), 'pulse-range-migration-')),
     path = join(dir, 'v3.sqlite');
   let store = createStore(path);
@@ -329,16 +326,7 @@ test('v3 migration requeues branch-move merge coverage once while preserving met
   db.exec('PRAGMA user_version=3');
   db.close();
   store = createStore(path);
-  const jobs = store.listJobs({ type: 'merge' });
-  assert.deepEqual(jobs.map(job => job.eventId).sort(), ['eligible', 'in-progress']);
-  for (const job of jobs) {
-    assert.equal(job.stage, 'commits');
-    assert.equal(job.cursor, null);
-    assert.equal(job.status, 'pending');
-    assert.equal(job.nextAt, '1970-01-01T00:00:00.000Z');
-    assert.equal(job.commitIds, undefined);
-    store.removeJob(job.id);
-  }
+  assert.deepEqual(store.listJobs(), []);
   assert.deepEqual(store.listEvents({ limit: 100 }), before);
   assert.equal(store.getEvent('eligible').data.kept, 'metadata');
   assert.equal(store.getEvent('eligible').data.mergeEvidence.status, 'complete');
@@ -348,6 +336,48 @@ test('v3 migration requeues branch-move merge coverage once while preserving met
   store = createStore(path);
   assert.deepEqual(store.listJobs(), []);
   assert.deepEqual(store.listEvents({ limit: 100 }), before);
+  store.close();
+  rmSync(dir, { recursive: true });
+});
+
+test('opening a database with merge work left drops the jobs and keeps evidence without claiming it is in progress', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'pulse-stop-merge-')),
+    path = join(dir, 'v10.sqlite');
+  let store = createStore(path);
+  store.saveRepo(repo);
+  const refUpdates = [{ name: 'refs/heads/main', oldObjectId: 'a'.repeat(40), newObjectId: 'b'.repeat(40) }];
+  store.insertEvents([event('done', { data: { pushId: 1, refUpdates } }), event('partial', { data: { pushId: 2, refUpdates } })]);
+  const done = { status: 'complete', checkedAt: '2026-11-17T10:05:00Z', commits: [], prs: [], limitations: [] };
+  store.enrichEvent('done', { mergeEvidence: done });
+  store.enrichEvent('partial', {
+    mergeEvidence: {
+      status: 'enriching',
+      checkedAt: '2026-11-17T10:06:00Z',
+      commits: [],
+      prs: [],
+      candidateCommitIds: ['interior'],
+      limitations: ['Source branch unknown', 'Merge enrichment is still in progress.'],
+    },
+  });
+  for (const id of ['done', 'partial'])
+    store.saveJob({ id: `merge:${id}`, type: 'merge', repoId: repo.id, eventId: id, status: 'enriching', nextAt: '2026-11-17T10:00:00Z' });
+  store.saveJob({ id: 'backfill:repo', type: 'backfill', repoId: repo.id, status: 'pending', nextAt: '2026-11-17T10:00:00Z' });
+  store.close();
+  const db = new DatabaseSync(path);
+  db.exec('PRAGMA user_version=10');
+  db.close();
+  store = createStore(path);
+  assert.deepEqual(
+    store.listJobs().map(job => job.id),
+    ['backfill:repo'],
+  );
+  assert.deepEqual(store.getEvent('done').data.mergeEvidence, done);
+  const partial = store.getEvent('partial');
+  assert.deepEqual(partial.data.mergeEvidence.candidateCommitIds, ['interior']);
+  assert.deepEqual(partial.data.mergeEvidence.limitations, ['Source branch unknown']);
+  const html = renderMergeEvidence(partial.data) + mergeEvidenceBadge(partial);
+  assert.doesNotMatch(html, /in progress|Checking/i);
+  assert.match(html, /Evidence incomplete/);
   store.close();
   rmSync(dir, { recursive: true });
 });
@@ -598,7 +628,7 @@ test('v9 migration drops the old Pull journal and keeps repositories and events'
   }
   const check = new DatabaseSync(path);
   assert.equal(check.prepare("SELECT name FROM sqlite_master WHERE name='pull_operations'").get(), undefined);
-  assert.equal(check.prepare('PRAGMA user_version').get().user_version, 10);
+  assert.equal(check.prepare('PRAGMA user_version').get().user_version, 11);
   check.close();
   rmSync(dir, { recursive: true });
 });
@@ -618,13 +648,13 @@ test('a fresh database is created with its final activity columns', () => {
       { name: 'evidence_id', notnull: 1, dflt_value: "''" },
     ],
   );
-  assert.equal(check.prepare('PRAGMA user_version').get().user_version, 10);
+  assert.equal(check.prepare('PRAGMA user_version').get().user_version, 11);
   check.close();
   rmSync(dir, { recursive: true });
 });
 
 test('every older database version and a fresh database end at the latest version, and a newer one is refused', () => {
-  const latest = 10;
+  const latest = 11;
   const dir = mkdtempSync(join(tmpdir(), 'pulse-versions-'));
   const versionOf = path => {
     const db = new DatabaseSync(path);

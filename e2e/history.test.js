@@ -276,7 +276,7 @@ test('compact Settings keeps diagnostics closed until needed and copies the diag
   await page.getByRole('button', { name: 'Copy diagnostics' }).click();
   await expect(page.getByRole('status').last()).toHaveText('Diagnostics copied.');
   const copied = JSON.parse(await page.evaluate(() => navigator.clipboard.readText()));
-  assert.deepEqual(copied, { sync: { demo: true, running: false }, mergeQueue: { pending: 0, errors: 0 } });
+  assert.deepEqual(copied, { sync: { demo: true, running: false } });
   await page.getByText('What Repo Pulse tracks', { exact: true }).click();
   await expect(page.getByText('A successful build or merged pull request does not confirm deployment.')).toBeVisible();
 });
