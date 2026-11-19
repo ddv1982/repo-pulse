@@ -91,6 +91,21 @@ test('state reports no merge queue', async t => {
   assert.equal('mergeQueue' in state, false);
 });
 
+test('state carries a sync status per enabled repository and overall', async t => {
+  const demo = (await fixture(t)).state;
+  const enabled = demo.repos.filter(repo => !repo.disabled).map(repo => repo.id);
+  assert.deepEqual(Object.keys(demo.syncStatus.repos).sort(), enabled.sort());
+  assert.equal(demo.syncStatus.overall.state, 'synced');
+
+  // The demo seed refuses CI reads for one repository; outside demo mode that is a problem for it alone.
+  const live = (await fixture(t, { demo: false })).state.syncStatus;
+  assert.equal(live.repos['demo-billing'].state, 'problem');
+  assert.equal(live.repos['demo-billing'].stream, 'builds');
+  assert.equal(live.overall.state, 'problem');
+  assert.equal(live.overall.repoId, 'demo-billing');
+  assert.ok(Object.entries(live.repos).every(([id, status]) => id === 'demo-billing' || status.state !== 'problem'));
+});
+
 test('acknowledges exact shown IDs; a concurrently incoming demo branch stays unseen', async t => {
   const { mutate, url } = await fixture(t);
   const events = async () => (await (await fetch(url + '/api/activity')).json()).items.flatMap(item => item.events);

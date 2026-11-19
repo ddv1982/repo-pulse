@@ -12,6 +12,7 @@ import { createRestExecutor, useSystemNetworkSettings } from './server/azure-res
 import { createAzureClient } from './server/azure-client.js';
 import { discoverRepositories, parseRemote } from './server/repositories.js';
 import { seedDemo, addDemoEvent, demoProvider } from './server/demo.js';
+import { syncStatus } from './server/sync-status.js';
 import { createBackfill } from './server/backfill.js';
 import { createCheckoutLookup } from './server/checkout-advice.js';
 import { isBranchAction } from './server/checkout-branches.js';
@@ -69,6 +70,7 @@ import { canOpenBrowser, openBrowser } from './server/open-browser.js';
  *   jobs: import('./server/backfill.js').HistoryJob[],
  *   activityRevision: string,
  *   settings: { refreshEnabled: boolean, refreshResumedAt: number | null },
+ *   syncStatus: ReturnType<typeof syncStatus>,
  *   demo: boolean,
  * }} StateResponse
  */
@@ -196,6 +198,7 @@ export function createApp({
 }) {
   if (typeof accessKey !== 'string' || accessKey.length < 32) throw new Error('createApp needs an access key of at least 32 characters.');
   const expectedKey = Buffer.from(accessKey);
+  const startedAt = Date.now();
   /** @param {unknown} value @param {Buffer} expected */
   const matches = (value, expected) => {
     const given = Buffer.from(String(value ?? ''));
@@ -235,20 +238,25 @@ export function createApp({
       path: '/api/state',
       handler: ({ res }) => {
         onStateRead();
+        const repos = store.listRepos();
+        const streams = store.getStreams();
+        const jobs = store.listJobs({ type: 'backfill' });
+        // Both settings are only written by POST /api/settings: a boolean and a Date.now() stamp.
+        const settings = {
+          refreshEnabled: /** @type {boolean} */ (store.getSetting('refreshEnabled', true)),
+          refreshResumedAt: /** @type {number | null} */ (store.getSetting('refreshResumedAt', null)),
+        };
         return json(
           res,
           200,
           /** @satisfies {StateResponse} */ ({
-            repos: store.listRepos(),
-            streams: store.getStreams(),
+            repos,
+            streams,
             diagnostics: { ...(cli?.diagnostics() || {}), sync: sync.status() },
-            jobs: store.listJobs({ type: 'backfill' }),
+            jobs,
             activityRevision: store.activityRevision(),
-            // Both settings are only written by POST /api/settings: a boolean and a Date.now() stamp.
-            settings: {
-              refreshEnabled: /** @type {boolean} */ (store.getSetting('refreshEnabled', true)),
-              refreshResumedAt: /** @type {number | null} */ (store.getSetting('refreshResumedAt', null)),
-            },
+            settings,
+            syncStatus: syncStatus({ repos, streams, jobs, settings, startedAt, now: Date.now(), demo }),
             demo,
           }),
         );
