@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { DatabaseSync } from 'node:sqlite';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createStore } from '../server/store.js';
@@ -151,9 +151,9 @@ test('enrichment is durable search metadata without changing raw identity, timin
   store.close();
 });
 
-test('job, event and stream writes roll back together; enrichment completion is atomic', () => {
+test('job, event and stream writes roll back together', () => {
   const store = setup();
-  const job = { id: 'merge:a', repoId: repo.id, type: 'merge', eventId: 'a', status: 'pending', nextAt: '2026-01-01T00:00:00Z' };
+  const job = { id: 'backfill:repo', repoId: repo.id, type: 'backfill', status: 'pending', nextAt: '2026-01-01T00:00:00Z' };
   assert.throws(() =>
     store.commitPage({
       repoId: repo.id,
@@ -166,43 +166,9 @@ test('job, event and stream writes roll back together; enrichment completion is 
   assert.equal(store.getEvent('a'), undefined);
   assert.equal(store.getStreams().length, 0);
   store.commitPage({ repoId: repo.id, events: [event('a')], jobs: [job] });
-  assert.equal(store.listJobs({ type: 'merge', dueBefore: '2026-12-01T00:00:00Z' }).length, 1);
-  assert.throws(() => store.commitEnrichment({ jobId: job.id, eventId: 'a', data: { extra: true }, job: { ...job, repoId: 'missing' } }));
-  assert.equal(store.getEvent('a').data.extra, undefined);
-  assert.equal(store.listJobs().length, 1);
-  store.commitEnrichment({
-    jobId: job.id,
-    eventId: 'a',
-    data: { complete: true },
-    entities: [{ type: 'commit', id: 'sha', data: { title: 'Commit' } }],
-  });
-  assert.equal(store.listJobs().length, 0);
-  assert.equal(store.getEvent('a').data.complete, true);
-  assert.equal(store.getEntity(repo.id, 'commit', 'sha').title, 'Commit');
-  store.saveJob(job);
+  assert.equal(store.listJobs({ type: 'backfill', dueBefore: '2026-12-01T00:00:00Z' }).length, 1);
   store.removeRepo(repo.id);
   assert.deepEqual(store.listJobs(), []);
-  store.close();
-});
-
-test('targeted push lookup uses target ref and interior introduced commit IDs without global cap', () => {
-  const store = setup();
-  const ref = (name, sha) => ({ name, oldObjectId: 'old', newObjectId: sha });
-  store.insertEvents([
-    event('main', { data: { refUpdates: [ref('refs/heads/main', 'tip')] } }),
-    event('other', { data: { refUpdates: [ref('refs/heads/feature/a', 'merge')] } }),
-    event('multi', { data: { refUpdates: [ref('refs/heads/main', 'not-merge'), ref('refs/heads/feature/a', 'merge')] } }),
-  ]);
-  store.enrichEvent('main', { mergeEvidence: { introducedCommitIds: ['merge', 'interior'] } });
-  assert.deepEqual(
-    store.findPushEventsForCommits(repo.id, ['interior'], 'refs/heads/main').map(e => e.id),
-    ['main'],
-  );
-  assert.deepEqual(
-    store.findPushEventsForCommits(repo.id, ['merge'], 'refs/heads/main').map(e => e.id),
-    ['main'],
-  );
-  assert.equal(store.findPushEventsForCommits(repo.id, []).length, 0);
   store.close();
 });
 
@@ -395,35 +361,40 @@ test('opening a database with merge work left drops the jobs and keeps evidence 
   rmSync(dir, { recursive: true });
 });
 
-test('targeted PR completion lookup includes candidate-only interior commits during range pagination', () => {
-  const store = setup();
-  const refs = [{ name: 'refs/heads/main', oldObjectId: 'old', newObjectId: 'tip' }];
-  store.insertEvents([
-    event('progress', { data: { refUpdates: refs } }),
-    event('other-target', { data: { refUpdates: [{ ...refs[0], name: 'refs/heads/release' }] } }),
-  ]);
-  for (const id of ['progress', 'other-target'])
-    store.enrichEvent(id, {
-      mergeEvidence: {
-        status: 'enriching',
-        candidateCommitIds: ['interior-candidate'],
-        introducedCommitIds: [],
-        introducedCommitsComplete: false,
-      },
-    });
-  assert.deepEqual(
-    store.findPushEventsForCommits(repo.id, ['interior-candidate'], 'refs/heads/main').map(row => row.id),
-    ['progress'],
-  );
-  assert.deepEqual(
-    store
-      .findPushEventsForCommits(repo.id, ['interior-candidate'])
-      .map(row => row.id)
-      .sort(),
-    ['other-target', 'progress'],
-  );
-  assert.equal(store.getEvent('progress').data.mergeEvidence.introducedCommitsComplete, false);
+test('opening a v11 database deletes the cached commit and commit-pr entities, retires the Merge commit filter and shrinks the file', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'pulse-cache-')),
+    path = join(dir, 'v11.sqlite');
+  let store = createStore(path);
+  store.saveRepo(repo);
+  const padding = 'x'.repeat(2000);
+  const cached = Array.from({ length: 500 }, (_, index) => [
+    { type: 'commit', id: `c${index}`, data: { commitId: `c${index}`, parents: [], comment: padding } },
+    { type: 'commit-pr', id: `c${index}`, data: { associations: [], comment: padding } },
+  ]).flat();
+  store.commitPage({ repoId: repo.id, entities: [...cached, { type: 'ref', id: 'refs/heads/main', data: { objectId: 'a' } }] });
+  store.insertEvents([event('graph')]);
+  store.enrichEvent('graph', { mergeEvidence: { status: 'complete', commits: [{ commitId: 'm', parents: ['a', 'b'] }], prs: [] } });
   store.close();
+  const db = new DatabaseSync(path);
+  db.exec(`PRAGMA user_version=11; CREATE TABLE IF NOT EXISTS rules (id TEXT PRIMARY KEY,data TEXT NOT NULL);
+    UPDATE activity_members SET evidence_id='merge-commit' WHERE event_id='graph';`);
+  db.close();
+  const before = statSync(path).size;
+  store = createStore(path);
+  store.close();
+  const check = new DatabaseSync(path);
+  assert.deepEqual(
+    check
+      .prepare('SELECT type,COUNT(*) AS count FROM entities GROUP BY type')
+      .all()
+      .map(row => ({ ...row })),
+    [{ type: 'ref', count: 1 }],
+  );
+  assert.equal(check.prepare("SELECT 1 FROM sqlite_schema WHERE name='rules'").get(), undefined);
+  assert.equal(check.prepare("SELECT evidence_id FROM activity_members WHERE event_id='graph'").get().evidence_id, '');
+  check.close();
+  assert.ok(statSync(path).size < before / 2, `${statSync(path).size} bytes after, ${before} before`);
+  rmSync(dir, { recursive: true });
 });
 
 test('Activity revision advances only for committed changes to page data', () => {
@@ -641,7 +612,7 @@ test('v9 migration drops the old Pull journal and keeps repositories and events'
   }
   const check = new DatabaseSync(path);
   assert.equal(check.prepare("SELECT name FROM sqlite_master WHERE name='pull_operations'").get(), undefined);
-  assert.equal(check.prepare('PRAGMA user_version').get().user_version, 11);
+  assert.equal(check.prepare('PRAGMA user_version').get().user_version, 12);
   check.close();
   rmSync(dir, { recursive: true });
 });
@@ -661,13 +632,13 @@ test('a fresh database is created with its final activity columns', () => {
       { name: 'evidence_id', notnull: 1, dflt_value: "''" },
     ],
   );
-  assert.equal(check.prepare('PRAGMA user_version').get().user_version, 11);
+  assert.equal(check.prepare('PRAGMA user_version').get().user_version, 12);
   check.close();
   rmSync(dir, { recursive: true });
 });
 
 test('every older database version and a fresh database end at the latest version, and a newer one is refused', () => {
-  const latest = 11;
+  const latest = 12;
   const dir = mkdtempSync(join(tmpdir(), 'pulse-versions-'));
   const versionOf = path => {
     const db = new DatabaseSync(path);

@@ -31,7 +31,7 @@ const statusLabels = {
   activity: 'Activity',
 };
 /** @type {Record<string, string>} */
-const evidenceLabels = { 'pr-linked': 'Completed PR linked', 'merge-commit': 'Merge commit' };
+const evidenceLabels = { 'pr-linked': 'Completed PR linked' };
 const statusIds = new Map(Object.entries(statusLabels).map(([id, label]) => [label, id]));
 const evidenceIds = new Map(Object.entries(evidenceLabels).map(([id, label]) => [label, id]));
 
@@ -168,12 +168,11 @@ export function activitySummary(event) {
   return event.summary || '';
 }
 
-/** @typedef {{kind?: string, data?: { mergeEvidence?: { prs?: unknown[], commits?: unknown[] } } }} EvidencedEvent */
+/** @typedef {{kind?: string, data?: { mergeEvidence?: { prs?: unknown[] } } }} EvidencedEvent */
 /** @param {EvidencedEvent} event */
 export function activityEvidenceId(event) {
   if (event.kind !== 'push') return '';
-  const evidence = event.data?.mergeEvidence;
-  return evidence?.prs?.length ? 'pr-linked' : evidence?.commits?.length ? 'merge-commit' : '';
+  return event.data?.mergeEvidence?.prs?.length ? 'pr-linked' : '';
 }
 
 /** @param {EvidencedEvent} event */

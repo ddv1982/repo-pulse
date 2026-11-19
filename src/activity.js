@@ -3,18 +3,19 @@
 /** @typedef {'branch-created' | 'branch-deleted' | 'tag' | 'push' | 'pr' | 'build'} ActivityKind */
 /** @typedef {{name?: string, oldObjectId?: string, newObjectId?: string}} RefUpdate */
 /**
- * A completed PR in push merge evidence (server/merge-evidence.js). `id` and an object `closedBy` come from older rows.
+ * A completed PR in push merge evidence (server/merge-evidence.js localPrLink). `id` and an object `closedBy` come from older rows.
  * @typedef {{ pullRequestId?: number|string, id?: number|string, url?: string, sourceRefName?: string, targetRefName?: string,
  *   closedBy?: string | { displayName?: string }, mergeStrategy?: string, mergeCommit?: string, relationship?: string }} EvidencePr
  */
 /** @typedef {{ commitId?: string, parents?: string[], branches?: (string|undefined)[] }} EvidenceCommit */
 /**
- * A moved branch's range in merge evidence (server/merge-evidence.js RefRange).
+ * A moved branch's range, saved by the earlier merge analysis.
  * @typedef {{ name?: string, oldObjectId?: string, newObjectId?: string, commitIds?: string[], complete?: boolean,
  *   update?: { status?: string, dropped?: number, more?: boolean } }} EvidenceRange
  */
 /**
- * Merge evidence that enrichment saves on a push; it is partial while enrichment runs.
+ * Merge evidence on a push: PR links matched by tip, plus what the earlier merge analysis saved (status, commits,
+ * ranges, limitations). Nothing writes those older fields any more.
  * @typedef {{ status?: string, checkedAt?: string, limitations?: string[], error?: string | { message?: string },
  *   prs?: EvidencePr[], commits?: EvidenceCommit[], refRanges?: EvidenceRange[],
  *   introducedCommitIds?: string[] }} MergeEvidenceData

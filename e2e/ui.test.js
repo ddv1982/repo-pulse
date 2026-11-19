@@ -1037,7 +1037,7 @@ test('tag activity has its own type filter and a detail that names the tag and w
   await expect(facts).not.toContainText('Tagged commit');
 });
 
-test('a push that rewrote history says so on its row and in its merge evidence, and a fast-forward push does not', async t => {
+test('a push that rewrote history says so on its row and in how it was merged, and a fast-forward push does not', async t => {
   const { page } = await setup(t);
   await page.getByRole('link', { name: 'All activity' }).click();
   await page.locator('details[data-group="Imported history"] > summary').click();
@@ -1045,7 +1045,7 @@ test('a push that rewrote history says so on its row and in its merge evidence, 
   await expect(rewritten).toContainText('History rewritten · 2 commits dropped');
   await expect(page.locator('[data-event-id="demo-push-1"]')).not.toContainText('History rewritten');
   await rewritten.locator('.feed-title').click();
-  await expect(page.getByRole('region', { name: 'Merge evidence' })).toContainText(
+  await expect(page.getByRole('region', { name: 'How this was merged' })).toContainText(
     'main · history rewritten, 2 commits dropped from the old tip',
   );
 });

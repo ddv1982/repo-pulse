@@ -36,6 +36,8 @@ Evidence saved before deeper analysis stopped also enumerated ref ranges, becaus
 
 - A direct `git merge`, squash, rebase or cherry-pick pushed without a PR is observed as a push.
   A completed PR association is shown only when the push's new tip is the PR's merge commit; multi-parent objects are no longer inspected. Neither invents source branch names or human commands. Fast-forward and squash intent can remain unknowable.
+  The "Merge commit" row badge and filter are gone. A merge commit listed in evidence saved earlier still shows under "How this was merged" in the push detail.
+- A commit inside a push that is not its new tip is searchable only through evidence saved earlier. Push tips, PR commits and build commits remain searchable.
 - Branch rename has no semantic event model. History rewrites are no longer checked for new pushes.
   Evidence saved earlier read, for each moved branch, the commits the old tip reaches and the new
   tip does not: none is a fast-forward, any is a history rewrite, and an unreadable old tip leaves
@@ -57,8 +59,8 @@ Evidence saved before deeper analysis stopped also enumerated ref ranges, becaus
 - Polling can miss intermediate states, edits, votes or temporary entities. It cannot reconstruct
   every action that happened while the process was stopped or between successful checks.
 - Activity uses server-side grouped SQLite pages, including older unseen records. Stable cursors exclude concurrent inserts, and acknowledgement uses only the exact shown matching raw IDs. Deep links resolve outside the first page.
-- The browser polls local metadata and reloads the Activity window when its revision changes. Activity filters include types, statuses, and merge evidence from matching cached history, including items beyond the loaded page. Status filters match the displayed group after search and repository scope are applied. Seen actions still use the exact unseen updates in the shown groups. Manual refresh, navigation, and pagination can still request pages explicitly.
-- Existing raw events remain immutable. Supplemental merge metadata preserves event identity, time and seen/imported flags, and creates no metadata-only notification. A schema migration removed the merge-analysis queue and marks evidence it left unfinished as incomplete.
+- The browser polls local metadata and reloads the Activity window when its revision changes. Activity filters include types, statuses, and completed PR links from matching cached history, including items beyond the loaded page. Status filters match the displayed group after search and repository scope are applied. Seen actions still use the exact unseen updates in the shown groups. Manual refresh, navigation, and pagination can still request pages explicitly.
+- Existing raw events remain immutable. Supplemental merge metadata preserves event identity, time and seen/imported flags, and creates no metadata-only notification. A schema migration removed the merge-analysis queue and marks evidence it left unfinished as incomplete. A later one deletes the commits and commit-to-PR lookups that analysis cached, then compacts the database file.
 - Explicit 30/90-day or all-available-since-2010 import persists one bounded page at a time. Historical imports stop at the monitoring baseline and never rewind live checkpoints. Completed means requested pages succeeded, not universal source retention. Different ranges wait until the active import completes.
 - The shared budget is 60 calls/minute with four in flight. Activity reads normally use one REST request
   made with an Azure CLI token (one retry after a token renewal); other commands still start `az`, which can make several requests

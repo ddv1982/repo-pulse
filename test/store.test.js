@@ -124,31 +124,26 @@ test('upgrading a database links pairs it already stored and pushes whose PR arr
   rmSync(folder, { recursive: true });
 });
 
-test('the tip match upgrades a weaker link to the same PR and keeps its details', () => {
+test('the tip match upgrades a saved weaker link to the same PR and keeps its details', () => {
   const store = createStore();
   store.saveRepo(repo);
   store.insertEvents([moved('push')]);
   const weaker = { pullRequestId: 'pr', targetRefName: 'refs/heads/main', relationship: 'constituent-related', title: 'Kept' };
-  store.commitEnrichment({ eventId: 'push', data: { mergeEvidence: { status: 'complete', prs: [weaker] } } });
+  store.enrichEvent('push', { mergeEvidence: { status: 'complete', prs: [weaker] } });
   store.insertEvents([completedPr('pr')]);
   assert.deepEqual(
     store.getEvent('push').data.mergeEvidence.prs.map(pr => [pr.pullRequestId, pr.relationship, pr.title, pr.mergeCommit]),
     [['pr', 'result-introduced', 'Kept', tip]],
   );
-  store.commitEnrichment({ eventId: 'push', data: { mergeEvidence: { status: 'complete', prs: [weaker] } } });
-  assert.equal(store.getEvent('push').data.mergeEvidence.prs[0].relationship, 'result-introduced', 'an engine save cannot downgrade it');
   store.close();
 });
 
-test('a completed analysis proving the push did not introduce the merge commit keeps the weaker link', () => {
+test('a saved complete analysis proving the push did not introduce the merge commit keeps the weaker link', () => {
   const store = createStore();
   store.saveRepo(repo);
   store.insertEvents([moved('reset')]);
   const weaker = { pullRequestId: 'old', targetRefName: 'refs/heads/main', relationship: 'constituent-related' };
-  store.commitEnrichment({
-    eventId: 'reset',
-    data: { mergeEvidence: { status: 'complete', introducedCommitIds: [], prs: [weaker] } },
-  });
+  store.enrichEvent('reset', { mergeEvidence: { status: 'complete', introducedCommitIds: [], prs: [weaker] } });
   store.insertEvents([completedPr('old')]);
   assert.equal(store.getEvent('reset').data.mergeEvidence.prs[0].relationship, 'constituent-related');
   store.close();
