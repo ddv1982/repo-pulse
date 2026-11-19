@@ -1,0 +1,226 @@
+// @ts-check
+import { execFile } from 'node:child_process';
+import { resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
+import { promisify } from 'node:util';
+import { resolveAzCommand } from '../server/azure-cli.js';
+
+const execFileAsync = promisify(execFile);
+const MIN_NODE_MAJOR = 26;
+const COMMAND_TIMEOUT_MS = 15000;
+
+/**
+ * @typedef {{ id: string, label: string, status: 'ok' | 'fail' | 'skip', detail: string, fix?: string }} DoctorCheck
+ * @typedef {{ ok: boolean, checks: DoctorCheck[] }} DoctorReport
+ * @typedef {{ stdout: string, stderr: string }} CommandOutput
+ * @typedef {(file: string, args: string[], options?: { env?: NodeJS.ProcessEnv, cwd?: string, timeout?: number }) => Promise<CommandOutput>} CommandRunner
+ * @typedef {Awaited<ReturnType<typeof resolveAzCommand>>} AzCommand
+ */
+
+/** @param {string} file @param {string[]} args @param {{ env?: NodeJS.ProcessEnv, cwd?: string, timeout?: number }} [options] */
+async function defaultRunCommand(file, args, options = {}) {
+  const { stdout, stderr } = await execFileAsync(file, args, {
+    encoding: 'utf8',
+    timeout: COMMAND_TIMEOUT_MS,
+    maxBuffer: 1024 * 1024,
+    ...options,
+  });
+  return { stdout: String(stdout || ''), stderr: String(stderr || '') };
+}
+
+/** @param {string} text @returns {Record<string, any> | null} */
+function parseJsonObject(text) {
+  try {
+    const parsed = JSON.parse(text);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+/** @param {unknown} error */
+function isMissingBinary(error) {
+  return Boolean(error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT');
+}
+
+/** @param {unknown} error */
+function isTimeout(error) {
+  return Boolean(
+    error && typeof error === 'object' && (('killed' in error && error.killed) || ('code' in error && error.code === 'ETIMEDOUT')),
+  );
+}
+
+/** @param {AzCommand} az @param {CommandRunner} runCommand @param {string[]} args */
+function runAz(az, runCommand, args) {
+  return runCommand(az.file, [...az.prefix, ...args], {
+    env: Object.keys(az.env).length ? { ...process.env, ...az.env } : process.env,
+    ...(az.cwd ? { cwd: az.cwd } : {}),
+  });
+}
+
+/** @param {string} nodeVersion @returns {DoctorCheck} */
+function checkNode(nodeVersion) {
+  const cleaned = String(nodeVersion || '').replace(/^v/i, '');
+  const major = Number(cleaned.split('.')[0]);
+  if (Number.isInteger(major) && major >= MIN_NODE_MAJOR) {
+    return { id: 'node', label: 'Node.js', status: 'ok', detail: `v${cleaned}` };
+  }
+  return {
+    id: 'node',
+    label: 'Node.js',
+    status: 'fail',
+    detail: `v${cleaned || 'unknown'} found; requires Node.js ${MIN_NODE_MAJOR}+`,
+    fix: `Install Node.js ${MIN_NODE_MAJOR} or newer and rerun npm run doctor.`,
+  };
+}
+
+/** @param {CommandRunner} runCommand @returns {Promise<DoctorCheck>} */
+async function checkGit(runCommand) {
+  try {
+    const { stdout } = await runCommand('git', ['--version']);
+    const line = stdout.trim().split(/\r?\n/)[0] || 'available';
+    return { id: 'git', label: 'Git', status: 'ok', detail: line };
+  } catch (error) {
+    return {
+      id: 'git',
+      label: 'Git',
+      status: 'fail',
+      detail: isMissingBinary(error) ? 'not found on PATH' : isTimeout(error) ? 'timed out' : 'could not run git --version',
+      fix: 'Install Git and ensure `git` is on your PATH.',
+    };
+  }
+}
+
+/** @param {typeof resolveAzCommand} resolveAz @param {CommandRunner} runCommand @returns {Promise<{ az: AzCommand | null, check: DoctorCheck }>} */
+async function checkAzureCli(resolveAz, runCommand) {
+  try {
+    const az = await resolveAz();
+    const { stdout } = await runAz(az, runCommand, ['version', '--output', 'json']);
+    const parsed = parseJsonObject(stdout);
+    const version = typeof parsed?.['azure-cli'] === 'string' ? parsed['azure-cli'] : null;
+    if (version) return { az, check: { id: 'az', label: 'Azure CLI', status: 'ok', detail: version } };
+    return {
+      az: null,
+      check: {
+        id: 'az',
+        label: 'Azure CLI',
+        status: 'fail',
+        detail: 'returned unexpected output from `az version`',
+        fix: 'Reinstall or repair the Azure CLI: https://learn.microsoft.com/cli/azure/install-azure-cli',
+      },
+    };
+  } catch (error) {
+    return {
+      az: null,
+      check: {
+        id: 'az',
+        label: 'Azure CLI',
+        status: 'fail',
+        detail: isMissingBinary(error) ? 'not found on PATH' : isTimeout(error) ? 'timed out' : 'could not run `az version`',
+        fix: 'Install the Azure CLI: https://learn.microsoft.com/cli/azure/install-azure-cli',
+      },
+    };
+  }
+}
+
+/** @param {AzCommand} az @param {CommandRunner} runCommand @returns {Promise<DoctorCheck>} */
+async function checkDevopsExtension(az, runCommand) {
+  try {
+    const { stdout } = await runAz(az, runCommand, ['extension', 'show', '--name', 'azure-devops', '--output', 'json']);
+    const parsed = parseJsonObject(stdout);
+    const version = typeof parsed?.version === 'string' ? parsed.version : null;
+    if (version) return { id: 'az-devops', label: 'azure-devops extension', status: 'ok', detail: version };
+    return {
+      id: 'az-devops',
+      label: 'azure-devops extension',
+      status: 'fail',
+      detail: 'extension metadata could not be read',
+      fix: 'Run: az extension add --name azure-devops',
+    };
+  } catch (error) {
+    return {
+      id: 'az-devops',
+      label: 'azure-devops extension',
+      status: 'fail',
+      detail: isTimeout(error) ? 'timed out' : 'not installed',
+      fix: 'Run: az extension add --name azure-devops',
+    };
+  }
+}
+
+/** @param {AzCommand} az @param {CommandRunner} runCommand @returns {Promise<DoctorCheck>} */
+async function checkAzureLogin(az, runCommand) {
+  try {
+    const { stdout } = await runAz(az, runCommand, ['account', 'show', '--output', 'json']);
+    const parsed = parseJsonObject(stdout);
+    if (parsed && (parsed.id || parsed.name || parsed.user)) {
+      return { id: 'az-login', label: 'Azure CLI sign-in', status: 'ok', detail: 'signed in' };
+    }
+    return {
+      id: 'az-login',
+      label: 'Azure CLI sign-in',
+      status: 'fail',
+      detail: 'account details could not be read',
+      fix: 'Run: az login',
+    };
+  } catch (error) {
+    return {
+      id: 'az-login',
+      label: 'Azure CLI sign-in',
+      status: 'fail',
+      detail: isTimeout(error) ? 'timed out' : 'not signed in',
+      fix: 'Run: az login',
+    };
+  }
+}
+
+/**
+ * Checks local prerequisites for running Repo Pulse against Azure DevOps.
+ * @param {{ nodeVersion?: string, runCommand?: CommandRunner, resolveAz?: typeof resolveAzCommand }} [options]
+ * @returns {Promise<DoctorReport>}
+ */
+export async function runDoctor({
+  nodeVersion = process.versions.node,
+  runCommand = defaultRunCommand,
+  resolveAz = resolveAzCommand,
+} = {}) {
+  const nodeCheck = checkNode(nodeVersion);
+  const gitCheck = await checkGit(runCommand);
+  const { az, check: azCheck } = await checkAzureCli(resolveAz, runCommand);
+  /** @type {DoctorCheck[]} */
+  const checks = [nodeCheck, gitCheck, azCheck];
+
+  if (!az) {
+    checks.push(
+      { id: 'az-devops', label: 'azure-devops extension', status: 'skip', detail: 'skipped (Azure CLI unavailable)' },
+      { id: 'az-login', label: 'Azure CLI sign-in', status: 'skip', detail: 'skipped (Azure CLI unavailable)' },
+    );
+    return { ok: false, checks };
+  }
+
+  checks.push(await checkDevopsExtension(az, runCommand), await checkAzureLogin(az, runCommand));
+  return { ok: checks.every(check => check.status === 'ok'), checks };
+}
+
+/** @param {DoctorReport} report */
+export function formatDoctorReport(report) {
+  const tags = { ok: '[OK]  ', fail: '[FAIL]', skip: '[SKIP]' };
+  const lines = [];
+  for (const check of report.checks) {
+    lines.push(`${tags[check.status]} ${check.label}: ${check.detail}`);
+    if (check.fix) lines.push(`       Fix: ${check.fix}`);
+  }
+  lines.push('');
+  lines.push(
+    report.ok
+      ? 'All prerequisites look good. Run `npm start` to launch Repo Pulse (or `npm run demo` to try without Azure).'
+      : 'One or more prerequisites failed. Fix the items above, or run `npm run demo` to try Repo Pulse without Azure.',
+  );
+  return lines.join('\n');
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
+  const report = await runDoctor();
+  console.log(formatDoctorReport(report));
+  if (!report.ok) process.exitCode = 1;
+}

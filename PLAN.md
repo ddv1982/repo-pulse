@@ -6,19 +6,17 @@ Branch and push monitoring, PR merge evidence, grouped Activity, resumable histo
 
 ## Codebase improvement phases
 
-Done: Pull is plain Git, Activity filters match the displayed rows, all server and browser code is type-checked against one server-to-browser contract, browser casts are replaced by runtime checks, escaping of Azure and Git text is tested, and local Activity load is measured in the [maintainer guide](docs/MAINTAINING.md).
+Done: Pull is plain Git, Activity filters match the displayed rows, all server and browser code is type-checked against one server-to-browser contract, browser casts are replaced by runtime checks, escaping of Azure and Git text is enforced via unforgeable `SafeHtml` templates with one `.innerHTML` sink, `web/app.css` is split into modular native `@import` stylesheets under `web/styles/`, Azure payload normalization is split into `server/normalize.js`, searchable activity text stores named fields instead of raw payload JSON, `npm run doctor` checks local prerequisites, and local Activity load is measured in the [maintainer guide](docs/MAINTAINING.md).
 
 ## Product roadmap after hardening
 
-1. **Extend repository and PR coverage.** Preserve tags and distinguish confirmed history rewrites from ordinary ref changes. Investigate outgoing and fork PRs, review votes, discussions, and policy changes. Show gaps when events or permissions are missing.
+1. **Extend repository and PR coverage (complete — Phases 1–7 below).** Preserved tags, distinguished confirmed history rewrites from ordinary ref changes, tracked fork PR sources and reviewer votes, loaded PR discussion counts and policy evaluations on demand, and surfaced access gaps clearly.
 2. **Trace deployments to revisions.** Start with whichever mechanism the target organization uses, YAML Environments or classic Releases. Follow a known revision through its run and artifact into a named environment. Verify failed attempts, retries, and rollbacks before presenting deployment evidence.
 3. **Add broader build and test context.** Verify how shared pipelines and secondary repositories appear in Azure. Link test results and artifacts when their relationship to the run is known.
 
-### Next: repository and PR coverage (item 1)
+### Repository and PR coverage (item 1 — complete)
 
-Today the refs stream and the push normalizer read `refs/heads/` only, so tags never arrive. A moved branch shows `old → new` without saying whether history was rewritten. PR polling covers PRs that target the watched repository and reads no reviewers, threads or policy evaluations. A stream that fails shows "Check failed" whether the cause is a 403 or a timeout.
-
-Each phase is its own PR. A phase is done when `npm run check`, `check:types`, `lint`, `npm test` and `npm run test:ui` pass, plus the check named on its line. Every item that adds a polled Azure request also adds a fake handler to `scripts/measure-budget.js` and reports calls/min and p95 delay at 1, 5 and 20 repositories before and after. Each phase that changes what the app collects updates the matching row in [docs/COVERAGE.md](docs/COVERAGE.md). Fixtures do not prove Azure payload shapes, so Phase 1 records real responses first and later fixtures copy their shape.
+All seven phases below shipped on `main`. Each phase landed as its own PR verified with `npm run check`, `check:types`, `lint`, `npm test`, `npm run test:ui`, and the phase-specific checks noted below, with [docs/COVERAGE.md](docs/COVERAGE.md) updated alongside each collection change. Fixtures were shaped from the real read-only probe in Phase 1.
 
 Phase 1: prove the Azure responses (read-only)
 
@@ -40,8 +38,8 @@ Phase 3: tags
 
 Phase 4: history rewrites
 
-- [x] The background merge job classifies each moved branch update as `fast-forward`, `rewrite` or `unknown`. After a ref's forward range completes, one more read (`droppedCommits`, the range read reversed, one page) lists commits the old tip reaches and the new tip does not: none means fast-forward, some means rewrite with their count, and a 404 means unknown. Other failures retry the job. Check: enrichment tests for each result and the retry; the rewrite test fails when the classification always answers fast-forward. Against Azure, the reversed read agreed with local `git merge-base --is-ancestor` on all 20 pairs of real branch tips tried (15 not ancestors, 5 ancestors), and classified all 42 real branch moves from the last 30 days as fast-forwards.
-- [x] Push rows show "History rewritten · N commits dropped", and the merge evidence lists each checked branch as fast-forward, rewritten or unknown. A fast-forward adds nothing to the row. Check: e2e test on the demo's rewritten main push and its fast-forward push; it fails without the UI change. `scripts/measure-budget.js --limit 60` at 1, 5 and 20 repositories: calls/min 2.0, 10.2 and 24.5 after against 2.0, 9.9 and 24.6 before, and p95 delay 3.9, 4.7 and 5.2 minutes against 4.1, 4.8 and 5.3.
+- [x] Originally shipped as a `droppedCommits` check inside the background merge job (verified against local `git merge-base --is-ancestor` on all 20 pairs of real branch tips tried — 15 not ancestors, 5 ancestors — and classified all 42 real branch moves from the last 30 days as fast-forwards). The subsequent sync overhaul removed the background merge-analysis queue and commit cache altogether: completed PRs now link to pushes locally by matching merge commit + target ref (`server/merge-evidence.js`), and history rewrites run as a dedicated one-call background check (`server/rewrite-check.js`) on each live moved branch update (`fast-forward`, `rewrite`, or `unknown`).
+- [x] Push rows show "History rewritten · N commits dropped", and the merge evidence lists each checked branch as fast-forward, rewritten or unknown. A fast-forward adds nothing to the row. Check: e2e test on the demo's rewritten main push and its fast-forward push; it fails without the UI change. Historical `scripts/measure-budget.js --limit 60` measurement at the time of Phase 4 (when the merge job still existed) at 1, 5 and 20 repositories: calls/min 2.0, 10.2 and 24.5 after against 2.0, 9.9 and 24.6 before, and p95 delay 3.9, 4.7 and 5.2 minutes against 4.1, 4.8 and 5.3.
 
 Phase 5: fork and outgoing pull requests
 
@@ -59,12 +57,13 @@ Phase 7: discussions and policy evaluations (budget-gated)
 - [x] A PR detail has "Load discussion and policies", which makes two reads through the shared queue (`pullRequests/{id}/threads` and the preview `policy/evaluations`), both newly allowlisted as GET only. It shows open and resolved discussion threads, without Azure's own vote, reviewer and ref-update threads, and no comment text. Check: client test for the counts (it fails when system threads are counted), REST route test (it fails on the old allowlist), and an e2e test on the demo PR. Read through the app's client against Azure for 8 real PRs: threads such as `{"open":0,"resolved":7}` and policies such as "Minimum number of reviewers: queued, blocking".
 - [x] Each policy evaluation, including not-applicable ones (`includeNotApplicable=true`), shows as passed, failed, running, waiting, not applicable or broken, with "(required)" for blocking policies, in the same section. Disabled and deleted policies are left out. Check: the same client test and e2e test.
 
-Not in this item: policy configuration changes and other administration events (they need audit access, see Gate 5 in the research), linked work items, comment text, and a restructuring of the per-kind branching in `src/activity-text.js` and `src/ui`. Tags add three kinds that mirror the branch kinds, so the existing pattern holds. Revisit a per-kind table if Phase 7 adds more kinds.
+Not in this item: policy configuration changes and other administration events (they need audit access, see Gate 5 in the research), linked work items, comment text, and a restructuring of the per-kind branching in `src/activity-text.js` and `src/ui` (tags added a single `tag` kind and Phase 7 added no new kinds, so the existing pattern held).
 
 ## Constraints
 
 - Watch whole repositories by default. Filters affect the Activity view and opening an item never marks it seen.
-- Keep one budget for all Azure reads. Activity reads use REST with an Azure CLI token since 2026-11-18, decided after `scripts/measure-budget.js` showed merge evidence falling behind from about 10 repositories on the CLI-only budget. Measure with that script before changing the polling model.
+- Keep one budget for all Azure reads (60 calls/min with four in flight over REST using an Azure CLI token, decided after `scripts/measure-budget.js` showed CLI-only reads falling behind from about 10 repositories; background merge-analysis jobs were later replaced by local PR linking and a one-call rewrite check). Measure with `scripts/measure-budget.js` before changing the polling model.
+- Keep zero runtime npm dependencies and no build step: plain Node 26 ES modules, `node:sqlite`, strict JSDoc type checking, `SafeHtml` templates, and native `@import` CSS modules.
 - Keep status labels readable without color. Preserve keyboard focus, visibility, and scroll across refreshes.
 - A successful build or merged PR does not establish deployment. Partial evidence should stay visible as partial evidence.
 - Service hooks, audit ingestion, notifications, and packaging can wait for a demonstrated need.
