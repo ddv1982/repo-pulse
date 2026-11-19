@@ -9,6 +9,7 @@
   "scripts": {
     "start": "node server.js",
     "demo": "node server.js --demo",
+    "doctor": "node scripts/doctor.js",
     "test": "node --test test/*.test.js",
     "check": "node scripts/check.js",
     "test:ui": "node --test e2e/*.test.js",
