@@ -827,9 +827,15 @@ test('People and named filters restore a scoped Activity search after app restar
   await expect(page.locator('li[data-event-id="text-only"]')).toBeVisible();
   await page.getByRole('button', { name: 'Apply', exact: true }).click();
   await expect(people).toHaveValue('people:Alice Example, Bob Example');
+  const mixedSearch = 'result | people:Alice Example, Bob Example';
+  await people.fill(mixedSearch);
   await page.getByRole('button', { name: /^Alice result/ }).click();
+  await expect(page).toHaveURL(/#event\/alice-person$/);
+  await page.reload();
   await page.getByRole('link', { name: /Back to All activity/ }).click();
-  await expect(people).toHaveValue('people:Alice Example, Bob Example');
+  await expect(people).toHaveValue(mixedSearch);
+  await expect(page.locator('li[data-event-id="alice-person"]')).toBeVisible();
+  await expect(page.locator('li[data-event-id="bob-person"]')).toBeVisible();
 
   await stop();
   const restarted = await startApp({ demo: true, port: 0, dataDir: directory });

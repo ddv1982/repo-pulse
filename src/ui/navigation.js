@@ -34,18 +34,17 @@ export const activityHref = (/** @type {string} */ route) => `#activity/${route 
 export const isActivity = (/** @type {unknown} */ route) => route === 'catchup' || route === 'activity';
 
 const RESULTS_KEY = 'repo-pulse-results-context';
+const RESULTS_VERSION = 2;
 
 /** Session storage is untrusted JSON, so every field is checked. @returns {ResultsContext | null} */
 function readResultsContext() {
   try {
     const value = JSON.parse(sessionStorage.getItem(RESULTS_KEY) ?? 'null');
     if (!value || !isActivity(value.route)) return null;
+    const search = typeof value.search === 'string' ? value.search : '';
     return {
       route: value.route,
-      search: joinActivitySearch(
-        typeof value.search === 'string' ? value.search : '',
-        typeof value.people === 'string' ? value.people : '',
-      ),
+      search: value.version === RESULTS_VERSION ? search : joinActivitySearch(search, typeof value.people === 'string' ? value.people : ''),
       kind: typeof value.kind === 'string' ? value.kind : '',
       repoIds: Array.isArray(value.repoIds) ? value.repoIds.filter((/** @type {unknown} */ id) => typeof id === 'string') : null,
       groups: Array.isArray(value.groups)
@@ -99,7 +98,7 @@ export function createNavigation({ ui, captureGroups, activityCapacity }) {
       activityCapacity: activityCapacity(),
     };
     try {
-      sessionStorage.setItem(RESULTS_KEY, JSON.stringify(results));
+      sessionStorage.setItem(RESULTS_KEY, JSON.stringify({ ...results, version: RESULTS_VERSION }));
     } catch {
       /* Navigation still works without storage. */
     }
