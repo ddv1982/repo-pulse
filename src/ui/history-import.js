@@ -9,16 +9,16 @@ import { required } from './dom.js';
 
 /** @param {HistoryJob} job @returns {[string, string]} */
 function statusFor(job) {
-  if (job.status === 'completed') return ['Import finished', 'ok'];
-  if (job.error || job.status === 'retrying') return ['Import retrying', 'warn'];
-  if (job.status === 'running') return ['Import running', 'info'];
-  return ['Import queued', 'info'];
+  if (job.status === 'completed') return ['History sync finished', 'ok'];
+  if (job.error || job.status === 'retrying') return ['History sync retrying', 'warn'];
+  if (job.status === 'running') return ['History sync running', 'info'];
+  return ['History sync queued', 'info'];
 }
 
 /** @param {Pick<HistoryRepo, 'id'>} repo @param {HistoryJob | null | undefined} job */
 export function renderHistoryButton(repo, job) {
   const busy = job && job.status !== 'completed';
-  return `<button class="btn sm" type="button" id="import-${e(repo.id)}" data-action="open-history-import" data-id="${e(repo.id)}" ${busy ? 'disabled' : ''}>Import older activity…</button>`;
+  return `<button class="btn sm" type="button" id="import-${e(repo.id)}" data-action="open-history-import" data-id="${e(repo.id)}" ${busy ? 'disabled' : ''}>Sync older activity…</button>`;
 }
 
 /** @param {Pick<HistoryRepo, 'id'>} repo @param {HistoryJob | null | undefined} job */

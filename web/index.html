@@ -36,7 +36,7 @@
     <dialog id="history-dialog" aria-labelledby="history-title" aria-describedby="history-help">
       <form>
         <div class="dbody">
-          <h2 id="history-title">Import older activity</h2>
+          <h2 id="history-title">Sync older activity</h2>
           <p class="history-repository" id="history-repository"></p>
           <fieldset class="history-ranges">
             <legend>Look back</legend>
@@ -45,13 +45,13 @@
             <label><input type="radio" name="history-range" value="all" /> All available since 2010</label>
           </fieldset>
           <p class="help" id="history-help">
-            Imports what Azure still has from before monitoring began. Find the results under Imported history in All activity.
+            Syncs what Azure still has from before monitoring began. Find the results under Imported history in All activity.
           </p>
           <p class="status-text crit" role="alert" hidden></p>
         </div>
         <div class="dfoot">
           <button type="button" class="btn" data-history-cancel>Cancel</button>
-          <button type="submit" class="btn primary">Start import</button>
+          <button type="submit" class="btn primary">Start sync</button>
         </div>
       </form>
     </dialog>
