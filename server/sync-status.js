@@ -4,14 +4,14 @@
 /** @typedef {'paused'|'problem'|'delayed'|'syncing'|'synced'} SyncState */
 /**
  * `since` is the oldest last success across the repository's streams, absent until every stream has read once.
- * @typedef {{ state: SyncState, reason?: string, since?: string, stream?: StreamState['stream'] }} SyncStatus
+ * @typedef {{ state: SyncState, reason?: string, since?: string, stream?: StreamState['stream'] | 'history' }} SyncStatus
  */
 /** @typedef {(SyncStatus & { repoId: string }) | { state: 'empty' }} OverallSyncStatus */
 /**
  * @typedef {{
  *   repos: { id: string, disabled?: boolean }[],
  *   streams: StreamState[],
- *   jobs: Pick<import('./backfill.js').HistoryJob, 'repoId'|'status'>[],
+ *   jobs: (Pick<import('./backfill.js').HistoryJob, 'repoId'|'status'> & Partial<Pick<import('./backfill.js').HistoryJob, 'failures'|'error'>>)[],
  *   inProgress: { repoId: string, stream: string }[],
  *   settings: { refreshEnabled: boolean, refreshResumedAt: number | null },
  *   startedAt: number,
@@ -66,6 +66,11 @@ export function syncStatus({ repos, streams, jobs, inProgress, settings, started
       ({ error, failures = 0 }) => error && error.code !== 'THROTTLED' && (failures >= 2 || LASTING.has(error.code)),
     );
     if (failing?.error) return { state: 'problem', reason: failing.error.message, stream: failing.stream, ...since };
+    const failingImport = jobs.find(
+      ({ repoId: id, status, error, failures = 0 }) =>
+        id === repoId && status !== 'completed' && error && (failures >= 2 || LASTING.has(error.code)),
+    );
+    if (failingImport?.error) return { state: 'problem', reason: failingImport.error.message, stream: 'history', ...since };
     const behind = own.find(stream => behindBy(stream) !== null);
     if (behind) {
       const minutes = Math.max(1, Math.round(Number(behindBy(behind)) / MINUTE));

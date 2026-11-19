@@ -375,3 +375,16 @@ test('a disabled repository or a stopped sync lists no queued refresh', async ()
   assert.deepEqual({ disabled, stopped }, { disabled: [], stopped: [] });
   store.close();
 });
+
+test('a history import that keeps failing is a problem, not endless syncing', () => {
+  const error = { code: 'FAILED', message: 'Azure DevOps could not list pushes.' };
+  assert.equal(status({ jobs: [{ repoId: 'a', status: 'retrying', failures: 1, error }] }).repos.a.state, 'syncing');
+  assert.deepEqual(status({ jobs: [{ repoId: 'a', status: 'retrying', failures: 2, error }] }).repos.a, {
+    state: 'problem',
+    reason: error.message,
+    stream: 'history',
+    since: ago(1),
+  });
+  const denied = { code: 'FORBIDDEN', message: 'No access to this repository.' };
+  assert.equal(status({ jobs: [{ repoId: 'a', status: 'retrying', failures: 1, error: denied }] }).repos.a.state, 'problem');
+});
