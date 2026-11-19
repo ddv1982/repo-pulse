@@ -11,10 +11,11 @@ Object.assign(globalThis, { window: globalThis });
 const today = new Date();
 today.setHours(12, 8, 0, 0);
 const since = today.toISOString();
+const earlier = new Date(today.valueOf() - 45 * 60000).toISOString();
 const repo = { id: 'r', name: 'orders-api', project: 'Shop' };
 /** Each server state with the pill text and tone it shows. */
 const states = [
-  [{ state: 'synced', since }, /^Synced · 12:08\b/, 'ok'],
+  [{ state: 'synced', since: earlier, lastCheck: since }, /^Synced · 12:08\b/, 'ok'],
   [{ state: 'syncing' }, /^Syncing…$/, 'info'],
   [{ state: 'delayed', reason: 'about 7 minutes behind', stream: 'pushes' }, /^Delayed · about 7 minutes behind$/, 'warn'],
   [{ state: 'problem', reason: 'Sign in to Azure again.', stream: 'refs' }, /^Problem$/, 'crit'],
@@ -58,7 +59,7 @@ test('the header shows one sync status pill per state in place of the last Azure
 
 test('each repository shows its own sync status pill with the same wording', () => {
   for (const [status, text, tone] of states) {
-    const markup = renderRepositories(page({ state: 'synced', since, repoId: 'r' }, { r: status }), {});
+    const markup = renderRepositories(page({ state: 'synced', since, lastCheck: since, repoId: 'r' }, { r: status }), {});
     const overview = markup.match(/<div class="repo-overview">([\s\S]*?)<\/div>/)?.[1] ?? '';
     const [, shownTone, attributes, shown] = pill(overview) ?? [];
     assert.match(shown ?? '', text, status.state);
@@ -96,7 +97,7 @@ test('Settings states the sync status in one sentence without the Azure calls co
   assert.match(markup, /<p class="sync-sentence">Problem in orders-api: Sign in to Azure again\.<\/p>/);
   assert.match(markup, /id="copy-diagnostics"/);
   assert.match(
-    renderSettings(page({ state: 'synced', since, repoId: 'r' }), connection),
+    renderSettings(page({ state: 'synced', since, lastCheck: since, repoId: 'r' }), connection),
     /<p class="sync-sentence">Synced, last check 12:08\b/,
   );
 });

@@ -44,9 +44,9 @@ function status({ a = {}, b = {}, ...rest } = {}) {
 
 test('healthy repositories are synced since their oldest successful read', () => {
   const result = status({ a: { refs: { lastSuccess: ago(8) } } });
-  assert.deepEqual(result.repos.a, { state: 'synced', since: ago(8) });
-  assert.deepEqual(result.repos.b, { state: 'synced', since: ago(1) });
-  assert.deepEqual(result.overall, { state: 'synced', since: ago(8), repoId: 'a' });
+  assert.deepEqual(result.repos.a, { state: 'synced', since: ago(8), lastCheck: ago(1) });
+  assert.deepEqual(result.repos.b, { state: 'synced', since: ago(1), lastCheck: ago(1) });
+  assert.deepEqual(result.overall, { state: 'synced', since: ago(8), lastCheck: ago(1), repoId: 'a' });
 });
 
 test('automatic checks off pause every repository unless a manual refresh is outstanding', () => {
@@ -81,7 +81,7 @@ test('an access, sign-in or missing CLI error is a problem at once and names the
   ]) {
     const result = status({ a: { builds: { error, failures: 1, pending: true } } });
     assert.deepEqual(result.repos.a, { state: 'problem', reason: error.message, stream: 'builds', since: ago(1) });
-    assert.deepEqual(result.repos.b, { state: 'synced', since: ago(1) }, 'another repository is not marked');
+    assert.deepEqual(result.repos.b, { state: 'synced', since: ago(1), lastCheck: ago(1) }, 'another repository is not marked');
     assert.equal(result.overall.state, 'problem');
     assert.equal(result.overall.repoId, 'a');
   }

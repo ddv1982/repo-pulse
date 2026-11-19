@@ -4,7 +4,7 @@
 /** @typedef {'paused'|'problem'|'delayed'|'syncing'|'synced'} SyncState */
 /**
  * `since` is the oldest last success across the repository's streams, absent until every stream has read once.
- * @typedef {{ state: SyncState, reason?: string, since?: string, stream?: StreamState['stream'] | 'history' }} SyncStatus
+ * @typedef {{ state: SyncState, reason?: string, since?: string, lastCheck?: string, stream?: StreamState['stream'] | 'history' }} SyncStatus
  */
 /** @typedef {(SyncStatus & { repoId: string }) | { state: 'empty' }} OverallSyncStatus */
 /**
@@ -61,7 +61,9 @@ export function syncStatus({ repos, streams, jobs, inProgress, settings, started
     const successes = own.map(stream => time(stream.lastSuccess)).filter(Number.isFinite);
     const oldest = successes.length ? Math.min(...successes) : NaN;
     const since = own.length && successes.length === own.length ? { since: new Date(oldest).toISOString() } : {};
-    if (demo) return { state: 'synced', ...since };
+    // Synced means every stream is within its freshness limit, so the newest read is the honest "last check".
+    const fresh = successes.length ? { lastCheck: new Date(Math.max(...successes)).toISOString() } : {};
+    if (demo) return { state: 'synced', ...since, ...fresh };
     const importing = jobs.some(job => job.repoId === repoId && job.status !== 'completed');
     // A history import keeps reading with automatic checks off, so it is not paused.
     if (!automatic && !importing && !own.some(stream => stream.manual)) return { state: 'paused', ...since };
@@ -86,7 +88,7 @@ export function syncStatus({ repos, streams, jobs, inProgress, settings, started
     const working = own.some(stream => !stream.initialized || stream.pending || stream.cursor || stream.manual || stale(stream));
     const busy = inProgress.some(entry => entry.repoId === repoId);
     if (!own.length || importing || working || busy) return { state: 'syncing', ...since };
-    return { state: 'synced', ...since };
+    return { state: 'synced', ...since, ...fresh };
   }
 
   /** @type {Record<string, SyncStatus>} */

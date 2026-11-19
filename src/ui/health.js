@@ -26,7 +26,7 @@ const lowerFirst = text => text.replace(/^\w/, c => c.toLowerCase());
 export function syncLabel(status) {
   switch (status.state) {
     case 'synced':
-      return status.since ? `Synced · ${clock(status.since)}` : 'Synced';
+      return status.lastCheck ? `Synced · ${clock(status.lastCheck)}` : 'Synced';
     case 'syncing':
       return 'Syncing…';
     case 'delayed':
@@ -45,7 +45,7 @@ export function syncSentence(status, repoName = '') {
   const where = repoName ? ` in ${repoName}` : '';
   switch (status.state) {
     case 'synced':
-      return status.since ? `Synced, last check ${clock(status.since)}` : 'Synced';
+      return status.lastCheck ? `Synced, last check ${clock(status.lastCheck)}` : 'Synced';
     case 'syncing':
       return 'Syncing, checks are running';
     case 'delayed':
