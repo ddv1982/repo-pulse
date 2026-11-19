@@ -77,17 +77,6 @@ function allowed(args) {
   return RESOURCES[value('--area')]?.has(value('--resource')?.toLowerCase()) === true && args.includes('--api-version');
 }
 
-/**
- * @param {unknown} ids
- * @returns {string[]}
- */
-export function normalizeCommitIds(ids) {
-  if (!Array.isArray(ids) || ids.length > 100 || ids.some(id => typeof id !== 'string' || !/^[0-9a-f]{40}$/i.test(id))) {
-    throw cliError('INVALID_QUERY', 'Commit queries require at most 100 complete commit IDs.');
-  }
-  return [...new Set(ids.map(id => id.toLowerCase()))];
-}
-
 /** @param {string} path */
 const isFile = path =>
   stat(path).then(

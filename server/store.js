@@ -618,10 +618,6 @@ export function createStore(path = ':memory:') {
         q('DELETE FROM jobs WHERE id=?').run(jobId);
       });
     },
-    /** @param {string} id */
-    removeJob(id) {
-      q('DELETE FROM jobs WHERE id=?').run(id);
-    },
     getSetting,
     setSetting,
     close: () => db.close(),

@@ -1,7 +1,6 @@
 // @ts-check
 
 /** @typedef {import('./azure-client.js').AzureProvider} AzureProvider */
-/** @typedef {import('./store.js').Repository} Repository */
 /** One moved branch of a live push, checked once for commits the new tip no longer reaches. */
 /**
  * @typedef {{ id: string, type: 'rewrite', repoId: string, eventId: string, ref: string, oldObjectId: string,

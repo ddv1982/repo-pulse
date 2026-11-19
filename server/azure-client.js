@@ -1,7 +1,7 @@
 // @ts-check
 import { normalizeOrganization, parseRemote, repositoryKey } from './repositories.js';
 import { safeAzureUrl } from '../src/events.js';
-import { cliError, normalizeCommitIds } from './azure-cli.js';
+import { cliError } from './azure-cli.js';
 
 /** Raw Azure DevOps JSON. Its shape is checked by the code that reads it, not by the compiler. */
 /** @typedef {any} AzureRecord */
@@ -418,7 +418,8 @@ export function createAzureClient({ cli, now = Date.now } = {}) {
      * @param {AzureRepo} repo @param {string} oldSha @param {string} newSha @returns {Promise<AzurePage>}
      */
     async droppedCommits(repo, oldSha, newSha) {
-      normalizeCommitIds([oldSha, newSha]);
+      if (![oldSha, newSha].every(sha => typeof sha === 'string' && /^[0-9a-f]{40}$/i.test(sha)))
+        throw cliError('INVALID_QUERY', 'A rewrite check needs two complete commit IDs.');
       const old = oldSha.toLowerCase(),
         current = newSha.toLowerCase();
       if (/^0+$/.test(old) || /^0+$/.test(current) || old === current) return { items: [], nextCursor: null };
