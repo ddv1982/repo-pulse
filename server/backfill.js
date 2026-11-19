@@ -162,6 +162,8 @@ export function createBackfill({ store, provider, normalize, now = Date.now }) {
       store.commitPage({ repoId: repo.id, events, entities, jobs: [nextPage(job, window, page)] });
     } catch (error) {
       if (!current()) return true;
+      // Shutdown aborted the read, not Azure; the page resumes on the next start.
+      if (/** @type {{ code?: unknown }} */ (error)?.code === 'CLOSED') return true;
       const failures = (job.failures || 0) + 1;
       const detail =
         error instanceof Error && 'code' in error && typeof error.code === 'string'

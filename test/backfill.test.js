@@ -116,6 +116,30 @@ test('failed pages retain durable fixed windows and cursors across restart and r
   store.close();
 });
 
+test('a page cut off by closing the queue is not a failed attempt and resumes without back-off', async () => {
+  let closed = true;
+  const calls = [];
+  const provider = {
+    async read(_repo, stream, options) {
+      calls.push({ stream, ...options });
+      if (closed) throw Object.assign(new Error('Azure CLI queue is closed.'), { code: 'CLOSED' });
+      return { items: [], nextCursor: null };
+    },
+  };
+  const { store, backfill } = setup(provider);
+  backfill.start(repo.id, 90);
+  const before = backfill.status()[0];
+  await backfill.tick();
+  const after = backfill.status()[0];
+  assert.equal(after.failures ?? 0, 0);
+  assert.equal(after.error ?? null, null);
+  assert.equal(after.nextAt, before.nextAt);
+  closed = false;
+  assert.equal(await backfill.tick(), true, 'the page is due again at once');
+  assert.equal(calls.length, 2);
+  store.close();
+});
+
 test('all available history uses explicit 2010 boundary and keeps scanning older empty windows', async () => {
   const time = Date.parse('2010-02-05T00:00:00Z');
   const calls = [];

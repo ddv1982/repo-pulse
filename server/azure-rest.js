@@ -177,7 +177,9 @@ export function createRestExecutor({ cliExecutor, fetch = globalThis.fetch, now 
     } catch (error) {
       throw transportError(error);
     }
-    const wait = retryAfterMs(response.headers.get('retry-after'), now());
+    // Measuring an HTTP-date from Azure's own Date keeps a skewed local clock from shortening or erasing the wait.
+    const sent = Date.parse(response.headers.get('date') ?? '');
+    const wait = retryAfterMs(response.headers.get('retry-after'), Number.isFinite(sent) ? sent : now());
     if (wait) options.retryAfter?.(wait);
     return response;
   }

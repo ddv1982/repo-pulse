@@ -364,6 +364,25 @@ test('Retry-After as an HTTP date pauses until that moment', async () => {
   cli.close();
 });
 
+test('an HTTP-date Retry-After is measured from the response Date, so a fast local clock keeps the wait', async () => {
+  const start = Date.parse('2026-11-18T10:00:00Z');
+  const server = start - 120000;
+  const headers = { date: new Date(server).toUTCString(), 'retry-after': new Date(server + 45000).toUTCString() };
+  const { cli, timers } = pausing([{ status: 200, headers }]);
+  await cli.run(refs('a'));
+  cli.run(refs('b')).catch(() => {});
+  await flush();
+  assert.equal(timers.at(-1)?.ms, 45000);
+  cli.close();
+
+  const unreadable = pausing([{ status: 200, headers: { date: 'whenever', 'retry-after': new Date(start + 45000).toUTCString() } }]);
+  await unreadable.cli.run(refs('a'));
+  unreadable.cli.run(refs('b')).catch(() => {});
+  await flush();
+  assert.equal(unreadable.timers.at(-1)?.ms, 45000, 'an unreadable Date falls back to the local clock');
+  unreadable.cli.close();
+});
+
 test('an absurd Retry-After is capped at ten minutes and an unreadable one is ignored', async () => {
   const capped = pausing([{ status: 200, headers: { 'retry-after': '99999999' } }]);
   await capped.cli.run(refs('a'));
