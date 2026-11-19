@@ -98,9 +98,16 @@ test('resolution strips credentials and connection check never claims CLI accoun
       },
     },
   });
-  const resolved = await client.resolveRepository('https://user:secret@dev.azure.com/example/Project/_git/Repo');
+  const resolved = await client.resolveRepository('https://secret@dev.azure.com/example/Project/_git/Repo');
   assert.equal(resolved.webUrl, 'https://dev.azure.com/example/Project/_git/Repo');
   assert(!JSON.stringify(resolved).includes('secret'));
+  const before = calls.length;
+  for (const input of [
+    { organization: repo.organization, project: '@notes.txt', name: 'Repo' },
+    { organization: repo.organization, project: 'Project', name: '@notes.txt' },
+  ])
+    await assert.rejects(client.resolveRepository(input), /valid Azure repository/);
+  assert.equal(calls.length, before);
   const connection = await client.checkConnection(repo.organization);
   assert.equal(connection.available, true);
   assert.equal(connection.identityVerified, false);

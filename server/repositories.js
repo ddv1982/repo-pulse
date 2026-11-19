@@ -21,7 +21,7 @@ const component = value => {
   } catch {
     throw invalid();
   }
-  if (!decoded || /[\x00-\x1f/\\?#]/.test(decoded) || decoded === '.' || decoded === '..' || decoded.startsWith('-')) throw invalid();
+  if (!decoded || /[\x00-\x1f/\\?#]/.test(decoded) || decoded === '.' || decoded === '..' || /^[-@]/.test(decoded)) throw invalid();
   return decoded;
 };
 
@@ -76,6 +76,11 @@ export function parseRemote(value) {
       if (parts.length !== 3 || parts[1] !== '_git') throw invalid();
       [project, , name] = parts;
     }
+    // Git would receive the URL on its command line, where other local users can read it.
+    if (url.password)
+      throw Object.assign(new Error('Remove the password from this remote URL and let a Git credential helper sign in.'), {
+        code: 'REMOTE_PASSWORD',
+      });
   }
   organization = `https://dev.azure.com/${encodeURIComponent(component(organization).toLowerCase())}`;
   project = component(project);
@@ -136,8 +141,10 @@ export async function discoverRepositories(inputPath) {
         try {
           const remote = parseRemote(match[2]);
           remotes.push({ ...remote, name: match[1], repoName: remote.name });
-        } catch {
-          /* Other hosting providers are outside this watch list. */
+        } catch (error) {
+          // Other hosting providers are outside this watch list.
+          if (/** @type {{ code?: unknown }} */ (error).code === 'REMOTE_PASSWORD')
+            result.warnings.push(`${localPath} (${match[1]}): ${/** @type {Error} */ (error).message}`);
         }
       }
       if (remotes.length) result.repositories.push({ localPath, remotes });

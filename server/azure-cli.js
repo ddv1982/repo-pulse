@@ -12,7 +12,7 @@ import { normalizeOrganization } from './repositories.js';
  * @typedef {{ code?: string, name?: string, stderr?: unknown, killed?: boolean, message?: string }} ExecFailure
  * @typedef {{ signal: AbortSignal, timeoutMs: number }} ExecutorOptions
  * @typedef {(args: string[], options: ExecutorOptions) => Promise<unknown>} Executor
- * @typedef {{ file: string, prefix: string[], env: Record<string, string> }} AzCommand
+ * @typedef {{ file: string, prefix: string[], env: Record<string, string>, cwd?: string }} AzCommand
  * @typedef {'commitsbatch' | 'pullrequestquery'} ReadQueryResource
  * @typedef {{ organization: string, project: string, repositoryId: string, resource: ReadQueryResource }} ReadQueryTarget
  * @typedef {{ type: 'lastMergeCommit' | 'commit', items: string[] }} PullRequestQuery
@@ -207,12 +207,15 @@ export async function resolveAzCommand({ platform = process.platform, env = proc
       };
     }
     // pip (venv Scripts\az.bat): "%~dp0\python.exe" -m azure.cli %*
-    const venv = win32.join(dir, 'python.exe');
-    if ((await exists(win32.join(dir, 'az.bat'))) && (await exists(venv))) {
+    if ((await exists(win32.join(dir, 'az.bat'))) && (await exists(win32.join(dir, 'python.exe')))) {
+      // Absolute, because the child runs from this folder and a relative PATH entry would resolve twice.
+      const scripts = win32.resolve(dir);
       return {
-        file: venv,
+        file: win32.join(scripts, 'python.exe'),
         prefix: ['-m', 'azure.cli'],
-        env: { AZ_INSTALLER: 'PIP', PYTHONPATH: [win32.join(dir, 'src'), env.PYTHONPATH].filter(Boolean).join(';') },
+        env: { AZ_INSTALLER: 'PIP', PYTHONPATH: [win32.join(scripts, 'src'), env.PYTHONPATH].filter(Boolean).join(';') },
+        // python -m puts the working directory on sys.path; run from the venv instead of wherever the app started.
+        cwd: scripts,
       };
     }
   }
@@ -228,8 +231,9 @@ export async function defaultExecutor(args, { signal, timeoutMs }) {
     azCommand = undefined;
     throw error;
   });
-  const { file, prefix, env } = await azCommand;
+  const { file, prefix, env, cwd } = await azCommand;
   const { stdout } = await exec(file, [...prefix, ...args, '--output', 'json', '--only-show-errors'], {
+    cwd,
     signal,
     timeout: timeoutMs,
     maxBuffer: 16 * 1024 * 1024,

@@ -106,6 +106,15 @@ function matchesWatchedRemote(url, repo) {
   }
 }
 
+/** @param {string} url */
+function hasPassword(url) {
+  try {
+    return Boolean(new URL(url).password);
+  } catch {
+    return false;
+  }
+}
+
 /** @param {string} output */
 function readStatus(output) {
   /** @type {GitStatus} */
@@ -208,9 +217,12 @@ export function createCheckoutGit({
     throw problem('The linked checkout is unavailable.', 404);
   }
 
-  /** @param {string} path @param {LinkedRepo} repo @param {string|null} branch @param {string|null} upstream @returns {Promise<Upstream|null>} */
+  /**
+   * @param {string} path @param {LinkedRepo} repo @param {string|null} branch @param {string|null} upstream
+   * @returns {Promise<{ target: Upstream|null, passwordInUrl?: boolean }>}
+   */
   async function upstreamFor(path, repo, branch, upstream) {
-    if (!branch || !upstream) return null;
+    if (!branch || !upstream) return { target: null };
     const raw = await run(path, [
       'for-each-ref',
       '--format=%(upstream:remotename)%00%(upstream:remoteref)%00%(upstream)',
@@ -218,9 +230,11 @@ export function createCheckoutGit({
       `refs/heads/${branch}`,
     ]);
     const [remote, source, tracking] = raw.trimEnd().split('\0');
-    if (!remote || !source?.startsWith('refs/heads/') || tracking !== `refs/remotes/${remote}/${source.slice(11)}`) return null;
+    if (!remote || !source?.startsWith('refs/heads/') || tracking !== `refs/remotes/${remote}/${source.slice(11)}`) return { target: null };
     const urls = (await run(path, ['remote', 'get-url', '--all', '--', remote])).trimEnd().split('\n');
-    return urls.length === 1 && matchesRemote(urls[0], repo) ? { remote, source, tracking, url: urls[0] } : null;
+    // Git would receive the URL on its command line, where other local users can read it.
+    if (urls.some(hasPassword)) return { target: null, passwordInUrl: true };
+    return { target: urls.length === 1 && matchesRemote(urls[0], repo) ? { remote, source, tracking, url: urls[0] } : null };
   }
 
   /** Finds an in-progress Git operation and a stable identity for the Git directory. @param {string} path */
@@ -252,7 +266,7 @@ export function createCheckoutGit({
       await run(path, ['status', '--porcelain=v2', '--branch', '-z', '--untracked-files=normal', '--ignore-submodules=none']),
     );
     const { branch, head, upstream } = snapshot;
-    const target = await upstreamFor(path, repo, branch, upstream);
+    const { target, passwordInUrl } = await upstreamFor(path, repo, branch, upstream);
     const { operation, gitDirectory } = await gitMarkers(path);
     const identity = createHash('sha256')
       .update(JSON.stringify([path, target]))
@@ -274,7 +288,12 @@ export function createCheckoutGit({
         gitDirectory,
       };
     }
-    const diagnostic = checkoutDiagnostic(state, snapshot, observation, operation, rewrite);
+    const diagnostic = passwordInUrl
+      ? {
+          title: 'Remote URL contains a password',
+          suggestion: 'Remove the password from the remote URL and let a Git credential helper sign in.',
+        }
+      : checkoutDiagnostic(state, snapshot, observation, operation, rewrite);
     return {
       snapshot: {
         ...snapshot,
