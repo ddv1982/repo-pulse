@@ -195,3 +195,14 @@ test('sync pills are plain text with their name and title; none is a live region
     }
   }
 });
+
+test('a failed filtered load reads as a load failure in the summary, as in the feed', () => {
+  const status = states[2][0];
+  for (const filters of [{ search: 'hotfix' }, { kind: 'build' }, {}]) {
+    const state = page({ ...status, repoId: 'r' }, { r: status });
+    state.activity = { items: [], loading: false, error: 'Network down' };
+    const markup = renderFeed(state, { ...feedView, ...filters });
+    assert.equal(markup.match(/<b class="zero">([^<]*)<\/b>/)?.[1], 'Activity could not load', JSON.stringify(filters));
+    assert.match(markup, /<p class="big">Activity could not load<\/p>/);
+  }
+});

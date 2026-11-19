@@ -34,17 +34,19 @@ export function renderSummary(records, state, ui, partial) {
   ];
   const headline = state.activity?.loading
     ? 'Loading activity…'
-    : unseen.length
-      ? `${partial ? 'At least ' : ''}${unseen.length} new item${unseen.length === 1 ? '' : 's'} shown`
-      : state.activity.newItems
-        ? '0 new items shown'
-        : records.length
-          ? 'No new updates'
-          : ui.search || ui.kind || ui.repoIds?.length === 0
-            ? 'No activity matches these filters'
-            : partial
-              ? 'No activity loaded yet'
-              : 'No new updates';
+    : !records.length && state.activity.error
+      ? 'Activity could not load'
+      : unseen.length
+        ? `${partial ? 'At least ' : ''}${unseen.length} new item${unseen.length === 1 ? '' : 's'} shown`
+        : state.activity.newItems
+          ? '0 new items shown'
+          : records.length
+            ? 'No new updates'
+            : ui.search || ui.kind || ui.repoIds?.length === 0
+              ? 'No activity matches these filters'
+              : partial
+                ? 'No activity loaded yet'
+                : 'No new updates';
   const repos = state.repos.filter(repo => ui.repoIds === null || ui.repoIds.includes(repo.id)).length;
   return `<section class="card summary mb" aria-label="Activity summary"><div class="top"><div class="headline"><p><b class="${unseen.length ? '' : 'zero'}">${e(headline)}</b>${updates > unseen.length ? ` · ${updates} updates` : ''}</p><ul class="legend"><li>${repos} repositor${repos === 1 ? 'y' : 'ies'}</li>${!state.activity.loading && !state.activity.error ? `<li>Showing ${records.length} of ${state.activity.total} items</li><li>${state.activity.newItems} total new items · ${state.activity.newUpdates} new updates</li>` : ''}</ul></div><div class="summary-chips" aria-label="Activity counts">${counts
     .filter(cell => cell.count)
