@@ -15,15 +15,16 @@ import { isActivity } from './navigation.js';
  *   settings?: Partial<StateResponse['settings']>, diagnostics?: Partial<StateResponse['diagnostics']> }} Metadata
  * @typedef {Pick<ActivityPage, 'items'> & Partial<Omit<ActivityPage, 'items'>> & { loading?: boolean, error?: string }} DisplayActivity
  *   Before the first page arrives only `items` and `loading` are set.
- * @typedef {Metadata & {repos: Repo[], watched: Repo[], streams: StateResponse['streams'], settings: Partial<StateResponse['settings']>,
- *   diagnostics: Partial<StateResponse['diagnostics']>, syncStatus: StateResponse['syncStatus'], activity: DisplayActivity,
+ * @typedef {Omit<Metadata, 'syncStatus'> & {repos: Repo[], watched: Repo[], streams: StateResponse['streams'], settings: Partial<StateResponse['settings']>,
+ *   diagnostics: Partial<StateResponse['diagnostics']>, syncStatus: ShownSyncStatus, activity: DisplayActivity,
  *   events: ActivityEvent[], detailLoading?: boolean}} PageState
+ * @typedef {{ overall: import('./health.js').ShownSyncStatus, repos: StateResponse['syncStatus']['repos'] }} ShownSyncStatus
  * @typedef {{ view: View, force: boolean, more: boolean }} RefreshJob
  * @typedef {{ type: 'applied'|'superseded' } | { type: 'failed', error: Error }} RefreshOutcome
  */
 
-/** @type {StateResponse['syncStatus']} */
-const noSyncStatus = { overall: { state: 'empty' }, repos: {} };
+/** @type {ShownSyncStatus} */
+const noSyncStatus = { overall: { state: 'unavailable' }, repos: {} };
 
 /** @param {unknown} value */
 function readMetadata(value) {

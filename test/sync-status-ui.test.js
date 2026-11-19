@@ -74,7 +74,7 @@ test('Activity shows at most one status banner, and only for Problem, Delayed or
   const view = { route: 'catchup', repoIds: null, search: '', kind: '', filtersOpen: false };
   const expected = { problem: ['crit', 'Problem'], delayed: ['warn', 'Delayed'], paused: ['info', 'Paused'] };
   for (const [status] of states) {
-    const found = banners(renderFeed(page({ ...status, repoId: 'r' }), view));
+    const found = banners(renderFeed(page({ ...status, repoId: 'r' }, { r: status }), view));
     assert.ok(found.length <= 1, `${status.state}: ${found.length} banners`);
     assert.deepEqual(
       found.map(([, tone, title]) => [tone, title]),
@@ -82,12 +82,15 @@ test('Activity shows at most one status banner, and only for Problem, Delayed or
       status.state,
     );
   }
-  const [problem] = banners(renderFeed(page({ ...states[3][0], repoId: 'r' }), view));
+  const [problem] = banners(renderFeed(page({ ...states[3][0], repoId: 'r' }, { r: states[3][0] }), view));
   assert.match(problem[3], /orders-api: Sign in to Azure again\./);
   assert.match(problem[3], /href="#repositories"/);
-  const [delayed] = banners(renderFeed(page({ ...states[2][0], repoId: 'r' }), view));
+  const [delayed] = banners(renderFeed(page({ ...states[2][0], repoId: 'r' }, { r: states[2][0] }), view));
   assert.match(delayed[3], /orders-api: about 7 minutes behind/);
-  assert.doesNotMatch(renderFeed(page({ ...states[3][0], repoId: 'r' }), view), /checks need attention|class="cell sync"/);
+  assert.doesNotMatch(
+    renderFeed(page({ ...states[3][0], repoId: 'r' }, { r: states[3][0] }), view),
+    /checks need attention|class="cell sync"/,
+  );
 });
 
 test('Settings states the sync status in one sentence without the Azure calls counters', () => {
@@ -100,4 +103,73 @@ test('Settings states the sync status in one sentence without the Azure calls co
     renderSettings(page({ state: 'synced', since, lastCheck: since, repoId: 'r' }), connection),
     /<p class="sync-sentence">Synced, last check 12:08\b/,
   );
+});
+
+const feedView = { route: 'catchup', repoIds: null, search: '', kind: '', filtersOpen: false };
+const banners = markup => [...markup.matchAll(/<div class="banner (\w+)"([^>]*)><div><strong>([^<]*)<\/strong>([\s\S]*?)<\/div><\/div>/g)];
+
+test('the Activity banner and partial wording follow the repositories in the Activity scope, the header the overall status', () => {
+  const other = { id: 's', name: 'billing-web', project: 'Shop' };
+  const problem = { state: 'problem', reason: 'Sign in to Azure again.', stream: 'refs' };
+  const delayed = { state: 'delayed', reason: 'about 7 minutes behind', stream: 'pushes' };
+  const synced = { state: 'synced', since, lastCheck: since };
+  const twoRepos = repos => ({ ...page({ ...problem, repoId: 'r' }, repos), repos: [repo, other], watched: [repo, other] });
+
+  const syncedScope = renderFeed(twoRepos({ r: problem, s: synced }), { ...feedView, repoIds: ['s'] });
+  assert.deepEqual(banners(syncedScope), []);
+  assert.match(syncedScope, /<p class="big">No new updates<\/p>/);
+  assert.match(pill(renderHeader(twoRepos({ r: problem, s: synced }), { ...headerView, repoIds: ['s'] }))?.[3] ?? '', /^Problem$/);
+
+  const delayedScope = banners(renderFeed(twoRepos({ r: problem, s: delayed }), { ...feedView, repoIds: ['s'] }));
+  assert.deepEqual(
+    delayedScope.map(([, tone, , title, text]) => [tone, title, text.startsWith('billing-web: about 7 minutes behind')]),
+    [['warn', 'Delayed', true]],
+  );
+
+  const all = renderFeed(twoRepos({ r: problem, s: delayed }), feedView);
+  assert.deepEqual(
+    banners(all).map(([, , , title, text]) => [title, text.startsWith('orders-api: Sign in to Azure again.')]),
+    [['Problem', true]],
+  );
+  assert.match(all, /<p class="big">No activity loaded yet<\/p>/);
+});
+
+test('a state without a sync status reads as unavailable, not as no repositories', async () => {
+  const { createRefreshController } = await import('../src/ui/refresh.js');
+  const refresh = createRefreshController({
+    request: async () => ({ repos: [repo], settings: { refreshEnabled: true } }),
+    getView: () => ({ route: 'settings', repoIds: null, eventId: null, search: '', kind: '', generation: 0 }),
+    reconcileRepositories: () => {},
+    onUpdate: () => {},
+    onError: assert.fail,
+  });
+  await refresh.load();
+  const [, tone, , shown] = pill(renderHeader(refresh.state, headerView)) ?? [];
+  assert.equal(shown, 'Sync status unavailable');
+  assert.equal(tone, 'neutral');
+  const connection = { results: new Map(), local: null, pending: null, repoId: 'r' };
+  assert.match(renderSettings(refresh.state, connection), /<p class="sync-sentence">Sync status unavailable<\/p>/);
+  assert.match(pill(renderHeader(page({ state: 'empty' }), headerView))?.[3] ?? '', /^No repositories$/);
+});
+
+test('with nothing loaded and a status other than Synced the summary does not claim there are no new updates', () => {
+  for (const [status] of states.slice(1)) {
+    const summary = renderFeed(page({ ...status, repoId: 'r' }, { r: status }), feedView).match(/<b class="zero">([^<]*)<\/b>/)?.[1];
+    assert.equal(summary, 'No activity loaded yet', status.state);
+  }
+  const synced = { state: 'synced', since, lastCheck: since };
+  assert.equal(
+    renderFeed(page({ ...synced, repoId: 'r' }, { r: synced }), feedView).match(/<b class="zero">([^<]*)<\/b>/)?.[1],
+    'No new updates',
+  );
+});
+
+test('only the header pill is a live region for sync changes; the Activity banner is plain text', () => {
+  for (const status of [states[2][0], states[3][0]]) {
+    const state = page({ ...status, repoId: 'r' }, { r: status });
+    const [banner] = banners(renderFeed(state, feedView));
+    assert.ok(banner, status.state);
+    assert.doesNotMatch(banner[0], /role=|aria-live/, status.state);
+    assert.match(pill(renderHeader(state, headerView))?.[2] ?? '', /role="status"/, status.state);
+  }
 });

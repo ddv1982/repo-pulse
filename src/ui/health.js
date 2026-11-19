@@ -4,10 +4,19 @@ import { escape as e, dateTime } from './format.js';
 
 /** @typedef {import('../../server/sync-status.js').SyncStatus} SyncStatus */
 /** @typedef {import('../../server/sync-status.js').OverallSyncStatus} OverallSyncStatus */
-/** @typedef {SyncStatus | OverallSyncStatus} AnySyncStatus */
+/** `unavailable` is a state response without a sync status, as from an older server. @typedef {OverallSyncStatus | { state: 'unavailable' }} ShownSyncStatus */
+/** @typedef {SyncStatus | ShownSyncStatus} AnySyncStatus */
 
 /** @type {Record<AnySyncStatus['state'], string>} */
-const tones = { synced: 'ok', syncing: 'info', delayed: 'warn', problem: 'crit', paused: 'neutral', empty: 'neutral' };
+const tones = {
+  synced: 'ok',
+  syncing: 'info',
+  delayed: 'warn',
+  problem: 'crit',
+  paused: 'neutral',
+  empty: 'neutral',
+  unavailable: 'neutral',
+};
 
 /** The time alone today, the date with it otherwise. @param {string} value */
 function clock(value) {
@@ -35,8 +44,10 @@ export function syncLabel(status) {
       return 'Problem';
     case 'paused':
       return 'Paused';
-    default:
+    case 'empty':
       return 'No repositories';
+    default:
+      return 'Sync status unavailable';
   }
 }
 
@@ -54,8 +65,10 @@ export function syncSentence(status, repoName = '') {
       return `Problem${where}: ${reason(status)}`;
     case 'paused':
       return 'Paused, automatic checks are off';
-    default:
+    case 'empty':
       return 'No repositories watched';
+    default:
+      return 'Sync status unavailable';
   }
 }
 
@@ -65,7 +78,7 @@ export function syncPill(status, repoName) {
   return `<span class="chip status-chip sync-pill ${tones[status.state]}" role="status" aria-label="Sync status: ${sentence}" title="${sentence}">${e(syncLabel(status))}</span>`;
 }
 
-/** The repository an overall status concerns. @param {{ id: string, name: string }[]} repos @param {OverallSyncStatus} status */
+/** The repository an overall status concerns. @param {{ id: string, name: string }[]} repos @param {AnySyncStatus} status */
 export function syncRepoName(repos, status) {
   return 'repoId' in status ? (repos.find(repo => repo.id === status.repoId)?.name ?? '') : '';
 }

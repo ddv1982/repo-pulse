@@ -1,5 +1,7 @@
 // @ts-check
 
+import { worstStatus } from '../src/sync-worst.js';
+
 /** @typedef {import('./sync.js').StreamState} StreamState */
 /** @typedef {'paused'|'problem'|'delayed'|'syncing'|'synced'} SyncState */
 /**
@@ -25,8 +27,41 @@ const MINUTE = 60000;
 const LATE = 3 * MINUTE;
 // A retry cannot fix these, so they count from the first failure.
 const LASTING = new Set(['AUTH_REQUIRED', 'FORBIDDEN', 'CLI_MISSING', 'CLI_SETUP']);
-/** @type {Record<SyncState, number>} */
-const RANK = { synced: 0, paused: 1, syncing: 2, delayed: 3, problem: 4 };
+
+/** @type {Record<StreamState['stream'] | 'history', string>} */
+const READS = {
+  pushes: 'pushes',
+  refs: 'branches',
+  prs: 'pull requests',
+  closedPrs: 'pull requests',
+  builds: 'builds',
+  activeBuilds: 'builds',
+  history: 'history',
+};
+/**
+ * What the reader can do about a lasting error; streams keep the technical message for Copy diagnostics.
+ * @param {{ code: string, message: string }} error @param {StreamState['stream'] | 'history'} stream
+ */
+function plainReason(error, stream) {
+  switch (error.code) {
+    case 'AUTH_REQUIRED':
+      return 'Sign in to Azure again.';
+    case 'FORBIDDEN':
+      return `Your Azure account has no access to this repository's ${READS[stream]}.`;
+    case 'CLI_MISSING':
+      return 'Install the Azure CLI.';
+    case 'CLI_SETUP':
+      return 'Install the Azure DevOps extension for the Azure CLI.';
+    default:
+      return error.message;
+  }
+}
+/** @param {number} minutes */
+function behindText(minutes) {
+  const hours = Math.round(minutes / 60);
+  const [count, unit] = minutes < 120 ? [minutes, 'minute'] : hours < 48 ? [hours, 'hour'] : [Math.round(minutes / 1440), 'day'];
+  return `about ${count} ${unit}${count === 1 ? '' : 's'} behind`;
+}
 
 /** @param {StreamState} stream */
 const overdueAfter = stream => (stream.stream === 'refs' ? 20 : 10) * MINUTE;
@@ -70,18 +105,18 @@ export function syncStatus({ repos, streams, jobs, inProgress, settings, started
     const failing = own.find(
       ({ error, failures = 0 }) => error && error.code !== 'THROTTLED' && (failures >= 2 || LASTING.has(error.code)),
     );
-    if (failing?.error) return { state: 'problem', reason: failing.error.message, stream: failing.stream, ...since };
+    if (failing?.error) return { state: 'problem', reason: plainReason(failing.error, failing.stream), stream: failing.stream, ...since };
     const failingImport = jobs.find(
       ({ repoId: id, status, error, failures = 0 }) =>
         id === repoId && status !== 'completed' && error && error.code !== 'THROTTLED' && (failures >= 2 || LASTING.has(error.code)),
     );
-    if (failingImport?.error) return { state: 'problem', reason: failingImport.error.message, stream: 'history', ...since };
+    if (failingImport?.error) return { state: 'problem', reason: plainReason(failingImport.error, 'history'), stream: 'history', ...since };
     // The shared queue starts no read for any repository until Azure DevOps's requested wait has passed.
     if (time(throttledUntil ?? undefined) > now) return { state: 'delayed', reason: 'Azure DevOps asked us to slow down', ...since };
     const behind = own.find(stream => behindBy(stream) !== null);
     if (behind) {
       const minutes = Math.max(1, Math.round(Number(behindBy(behind)) / MINUTE));
-      const reason = Number.isFinite(minutes) ? `about ${minutes} minute${minutes === 1 ? '' : 's'} behind` : 'Checks are behind schedule';
+      const reason = Number.isFinite(minutes) ? behindText(minutes) : 'Checks are behind schedule';
       return { state: 'delayed', reason, stream: behind.stream, ...since };
     }
     // A stale read that got here is still inside the grace period above, so it is catching up.
@@ -95,16 +130,12 @@ export function syncStatus({ repos, streams, jobs, inProgress, settings, started
   const statuses = {};
   for (const repo of repos) if (!repo.disabled) statuses[repo.id] = repoStatus(repo.id);
   /** @type {OverallSyncStatus} */
-  let overall = { state: 'empty' };
-  for (const [repoId, status] of Object.entries(statuses)) {
-    // Among equal states the repository with the oldest data decides; one that never finished a read counts as oldest.
-    const age = (/** @type {SyncStatus} */ entry) => time(entry.since) || -Infinity;
-    if (
-      overall.state === 'empty' ||
-      RANK[status.state] > RANK[overall.state] ||
-      (status.state === overall.state && age(status) < age(overall))
-    )
-      overall = { ...status, repoId };
+  let overall = worstStatus(Object.entries(statuses).map(([repoId, status]) => ({ ...status, repoId }))) ?? { state: 'empty' };
+  if (overall.state === 'synced') {
+    const checks = Object.values(statuses)
+      .map(status => time(status.lastCheck))
+      .filter(Number.isFinite);
+    if (checks.length) overall = { ...overall, lastCheck: new Date(Math.max(...checks)).toISOString() };
   }
   return { overall, repos: statuses };
 }

@@ -1015,6 +1015,35 @@ test('the sync status pill reads Synced in the demo and follows a Problem or Del
   await expect(page.getByText('Azure calls')).toHaveCount(0);
 });
 
+test('at 640px a long repository status pill wraps inside its column instead of covering the checkout status', async t => {
+  const { page } = await setup(t);
+  const delayed = { state: 'delayed', reason: 'Checks are behind schedule', stream: 'pushes' };
+  await page.route('**/api/state', async route => {
+    const state = await (await route.fetch()).json();
+    const repos = Object.fromEntries(Object.keys(state.syncStatus.repos).map(id => [id, delayed]));
+    await route.fulfill({ json: { ...state, demo: false, syncStatus: { overall: { ...delayed, repoId: 'demo-orders' }, repos } } });
+  });
+  await page.setViewportSize({ width: 640, height: 900 });
+  await page.goto(`${page.url().split('#')[0]}#repositories`);
+  const entries = page.locator('.repo-entry:not(.repo-disabled)');
+  await expect(entries.first().locator('.sync-pill')).toHaveText('Delayed · checks are behind schedule');
+  for (const entry of await entries.all()) {
+    const [pill, column, checkout] = await Promise.all(
+      ['.repo-overview .sync-pill', '.repo-overview', '.repo-checkout-line'].map(selector => entry.locator(selector).boundingBox()),
+    );
+    assert.ok(
+      pill.x + pill.width <= column.x + column.width + 0.5,
+      `pill ends at ${pill.x + pill.width}, its column at ${column.x + column.width}`,
+    );
+    const overlaps =
+      pill.x < checkout.x + checkout.width &&
+      checkout.x < pill.x + pill.width &&
+      pill.y < checkout.y + checkout.height &&
+      checkout.y < pill.y + pill.height;
+    assert.equal(overlaps, false, 'pill and checkout status overlap');
+  }
+});
+
 test('Escape before the first state load does not throw', async t => {
   const directory = await mkdtemp(join(tmpdir(), 'repo-pulse-ui-'));
   const runtime = await startApp({ demo: true, port: 0, dataDir: directory });

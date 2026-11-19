@@ -2516,6 +2516,10 @@ select {
   overflow-wrap: anywhere;
   font-size: 14px;
 }
+.repo-overview .sync-pill {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
 .checkout-state .subref {
   overflow-wrap: anywhere;
 }

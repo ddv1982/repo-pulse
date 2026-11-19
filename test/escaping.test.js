@@ -225,7 +225,10 @@ const state = pageState(activity);
 /** Delayed shows its reason in the pill text rather than only in the title. @type {PageState} */
 const delayed = {
   ...state,
-  syncStatus: { overall: { state: 'delayed', reason: probe('syncStatus.delayed.reason'), repoId: repo.id }, repos: {} },
+  syncStatus: {
+    overall: { state: 'delayed', reason: probe('syncStatus.delayed.reason'), repoId: repo.id },
+    repos: { [repo.id]: { state: 'delayed', reason: probe('syncStatus.delayed.reason') } },
+  },
 };
 
 /** @param {string} field @param {string} branch @returns {import('../server/checkout-advice.js').PullAdvice} */
@@ -371,7 +374,7 @@ const views = {
       renderFeed(delayed, feedView),
     ],
     shows: [
-      'syncStatus.overall.reason',
+      'syncStatus.repos.reason',
       'syncStatus.delayed.reason',
       'activity.filterOption',
       'created.title',
