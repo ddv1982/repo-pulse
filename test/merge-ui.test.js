@@ -26,6 +26,11 @@ test('merge UI separates graph evidence from PR association and never invents a 
   assert.match(renderMergeEvidence({ mergeEvidence: { status: 'not-applicable', commits: [], prs: [] } }), /Branch lifecycle only/);
 });
 
+test('a push without merge evidence shows nothing about analysis', () => {
+  assert.equal(renderMergeEvidence({}), '');
+  assert.equal(renderMergeEvidence(), '');
+});
+
 test('the repository import row shows retry and pause without exposing a second start', () => {
   const repo = { id: 'r', name: 'Repo' };
   const job = { status: 'retrying', pages: 2, error: { message: '<Read denied>' } };

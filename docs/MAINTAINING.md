@@ -47,7 +47,7 @@ The hardening run used 20 sequential samples after three warm-ups per workload. 
 
 ## Check the Azure budget
 
-Run `node scripts/measure-budget.js` to simulate live polling and merge enrichment against the shared call limit (`--limit`, default 12 for the old CLI-only budget; the app now uses 60). It runs the real sync, enrichment and Azure client code with a fake clock and a fake CLI. Options set the repository counts, pushes per hour, commits per push, the assumed duration of one CLI call, and the simulated minutes. The call duration of 1.5 s is an assumption, not a measurement, and the fake CLI returns commits without parents as the real list APIs do.
+Run `node scripts/measure-budget.js` to simulate live polling against the shared call limit (`--limit`, default 12 for the old CLI-only budget; the app now uses 60). It runs the real sync and Azure client code with a fake clock and a fake CLI. Measurements taken before background merge analysis was removed included that analysis and are not comparable. Options set the repository counts, pushes per hour, commits per push, the assumed duration of one CLI call, and the simulated minutes. The call duration of 1.5 s is an assumption, not a measurement.
 
 On 2026-11-18, 120 simulated minutes with the tab in the foreground and 4 pushes per hour per repository gave:
 

@@ -29,11 +29,9 @@ function connectionDetails(state, connection, repoId, result) {
           <p class="help">The connection check reads repository details. CI permissions and local Git upstream access are separate.</p>`;
 }
 
-/** @param {PageState['diagnostics']} diagnostics @param {Partial<NonNullable<PageState['mergeQueue']>>} mergeQueue */
-function diagnosticSummary(diagnostics, mergeQueue) {
+/** @param {PageState['diagnostics']} diagnostics */
+function diagnosticSummary(diagnostics) {
   const { startsLastMinute, limitPerMinute, running, concurrency, lastError } = diagnostics;
-  // Waiting merge checks are normal (every push queues one) and need nothing from the user; only failing ones are shown.
-  const { errors = 0 } = mergeQueue;
   const lag = diagnostics.sync && 'lag' in diagnostics.sync ? diagnostics.sync.lag : undefined;
   const cli = limitPerMinute
     ? `${e(startsLastMinute)} of ${e(limitPerMinute)} Azure calls in the last minute · ${e(running)} of ${e(concurrency)} in progress`
@@ -41,14 +39,13 @@ function diagnosticSummary(diagnostics, mergeQueue) {
   return `<dl class="diagnostic-summary">
             <div><dt>Azure calls</dt><dd>${cli}</dd></div>
             ${lag?.overdueStreams ? `<div><dt>Checks behind</dt><dd>${e(lag.overdueStreams)} checks waiting · up to ${e(Math.round(lag.maxDelayMs / 60000))} min late</dd></div>` : ''}
-            ${errors ? `<div><dt>Merge checks</dt><dd>${e(errors)} ${errors === 1 ? 'push' : 'pushes'} couldn’t be classified yet, retrying</dd></div>` : ''}
             ${lastError?.message ? `<div><dt>Last CLI issue</dt><dd>${e(lastError.message)}</dd></div>` : ''}
           </dl>`;
 }
 
 /** @param {PageState} state @param {ConnectionState} connection */
 export function renderSettings(state, connection) {
-  const { settings, diagnostics = {}, mergeQueue = {} } = state;
+  const { settings, diagnostics = {} } = state;
   const repoId = state.repos.some(repo => repo.id === connection.repoId) ? connection.repoId : state.repos[0]?.id || '';
   const result = connection.results.get(repoId);
   return `<div class="section-heading"><h1>Settings</h1></div>
@@ -70,7 +67,7 @@ export function renderSettings(state, connection) {
       <details data-group="troubleshooting">
         <summary class="settings-row" id="troubleshooting-toggle">Troubleshooting <span class="settings-chevron" aria-hidden="true"></span></summary>
         <div class="settings-content">
-          ${diagnosticSummary(diagnostics, mergeQueue)}
+          ${diagnosticSummary(diagnostics)}
           <p class="help">Activity reads are single Azure DevOps requests. Connection checks start the Azure CLI, which can make several requests.</p>
           <button class="btn sm" type="button" id="copy-diagnostics" data-action="copy-diagnostics">Copy diagnostics</button>
         </div>

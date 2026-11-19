@@ -85,6 +85,11 @@ test('serves real UI and blocks other origins, DNS rebinding, and API requests w
   assert.equal((await fetch(url + '/server/store.js')).status, 404);
 });
 
+test('state reports no merge queue', async t => {
+  const { state } = await fixture(t);
+  assert.equal('mergeQueue' in state, false);
+});
+
 test('acknowledges exact shown IDs; a concurrently incoming demo branch stays unseen', async t => {
   const { mutate, url } = await fixture(t);
   const events = async () => (await (await fetch(url + '/api/activity')).json()).items.flatMap(item => item.events);

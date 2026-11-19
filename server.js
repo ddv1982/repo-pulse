@@ -12,7 +12,6 @@ import { createRestExecutor, useSystemNetworkSettings } from './server/azure-res
 import { createAzureClient } from './server/azure-client.js';
 import { discoverRepositories, parseRemote } from './server/repositories.js';
 import { seedDemo, addDemoEvent, demoProvider } from './server/demo.js';
-import { createEnrichment } from './server/enrichment.js';
 import { createBackfill } from './server/backfill.js';
 import { createCheckoutLookup } from './server/checkout-advice.js';
 import { isBranchAction } from './server/checkout-branches.js';
@@ -68,7 +67,6 @@ import { canOpenBrowser, openBrowser } from './server/open-browser.js';
  *   streams: import('./server/sync.js').StreamState[],
  *   diagnostics: Partial<ReturnType<ReturnType<typeof createAzureCli>['diagnostics']>> & { sync: ReturnType<AppSync['status']> },
  *   jobs: import('./server/backfill.js').HistoryJob[],
- *   mergeQueue: import('./server/store.js').MergeQueueSummary,
  *   activityRevision: string,
  *   settings: { refreshEnabled: boolean, refreshResumedAt: number | null },
  *   demo: boolean,
@@ -245,7 +243,6 @@ export function createApp({
             streams: store.getStreams(),
             diagnostics: { ...(cli?.diagnostics() || {}), sync: sync.status() },
             jobs: store.listJobs({ type: 'backfill' }),
-            mergeQueue: store.mergeQueueSummary(),
             activityRevision: store.activityRevision(),
             // Both settings are only written by POST /api/settings: a boolean and a Date.now() stamp.
             settings: {
@@ -586,8 +583,6 @@ export async function startApp({ demo = false, port = 0, dataDir = resolve(ROOT,
   const azure = cli && createAzureClient({ cli });
   const provider = azure || demoProvider;
   let lastClientAt = 0;
-  /** @type {ReturnType<typeof createEnrichment> | undefined} */
-  let enrichment;
   /** @type {ReturnType<typeof createBackfill> | undefined} */
   let backfill;
   const liveSync =
@@ -596,8 +591,8 @@ export async function startApp({ demo = false, port = 0, dataDir = resolve(ROOT,
       store,
       provider: azure,
       isForeground: () => Date.now() - lastClientAt < 45_000,
-      // Both are assigned below, before sync.start() can schedule any work.
-      background: { merge: () => enrichment?.tick(), history: () => backfill?.tick() },
+      // Assigned below, before sync.start() can schedule any work.
+      background: { history: () => backfill?.tick() },
     });
   const sync = liveSync || {
     start() {},
@@ -613,7 +608,6 @@ export async function startApp({ demo = false, port = 0, dataDir = resolve(ROOT,
   };
   if (!azure || !liveSync) seedDemo(store);
   else {
-    enrichment = createEnrichment({ store, provider: azure });
     backfill = createBackfill({ store, provider: azure, normalize: liveSync.normalize });
   }
   const accessKey = randomBytes(32).toString('base64url');

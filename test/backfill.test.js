@@ -28,14 +28,6 @@ function normalizer(repo, stream, items, state) {
       { type: stream === 'pushes' ? 'push' : 'build', id: item.id, data: { date: item.date, status: 'historical' } },
       { type: 'ref', id: 'refs/heads/main', data: { objectId: 'old' } },
     ]),
-    jobs: items.map(item => ({
-      id: `enrich:${repo.id}:${stream}:${item.id}`,
-      repoId: repo.id,
-      type: 'merge',
-      eventId: `${repo.id}:${stream}:${item.id}`,
-      status: 'pending',
-      nextAt: iso(BASE),
-    })),
   };
 }
 function setup(provider, { now = () => BASE, path, normalize = normalizer } = {}) {
@@ -46,7 +38,7 @@ function setup(provider, { now = () => BASE, path, normalize = normalizer } = {}
   return { store, backfill };
 }
 
-test('historical imports mark only new history read and commit enrichment without changing live state', async () => {
+test('historical imports mark only new history read without changing live state', async () => {
   const calls = [];
   const provider = {
     async read(_repo, stream, options) {
@@ -85,7 +77,6 @@ test('historical imports mark only new history read and commit enrichment withou
   assert.equal(store.getEntity(repo.id, 'build', 3).status, 'inProgress');
   assert.equal(store.getEntity(repo.id, 'ref', 'refs/heads/main').objectId, 'current');
   assert.equal(store.getEntity(repo.id, 'push', 1).date, iso(BASE - DAY));
-  assert.equal(store.listJobs({ type: 'merge' }).length, 3);
   store.close();
 });
 
@@ -207,7 +198,6 @@ test('provider windows widened for builds cannot mark post-monitoring live chang
     store.listEntities(repo.id, 'push').map(entity => entity.id),
     ['1'],
   );
-  assert.equal(store.listJobs({ type: 'merge' }).length, 1, 'skipped out-of-window records must not queue orphan enrichment');
   store.close();
 });
 
