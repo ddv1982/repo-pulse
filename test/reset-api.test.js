@@ -1,4 +1,5 @@
 import test from 'node:test';
+import { request } from 'node:http';
 import assert from 'node:assert/strict';
 import { createStore } from '../server/store.js';
 import { createSync } from '../server/sync.js';
@@ -84,9 +85,28 @@ async function live(t, { pollMs } = {}) {
     control.hold = false;
     control.release();
   }
+  /** Sends the headers of a history import now and its body only when `send` is called. */
+  function slowImportHistory() {
+    const payload = JSON.stringify({ repoId: 'one', days: 30 });
+    const req = request(url + '/api/backfill', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'content-length': Buffer.byteLength(payload), 'x-repo-pulse-key': TEST_KEY },
+    });
+    const response = new Promise((resolve, reject) => {
+      req.on('error', reject);
+      req.on('response', res => {
+        let text = '';
+        res.setEncoding('utf8');
+        res.on('data', chunk => (text += chunk));
+        res.on('end', () => resolve({ status: res.statusCode, body: JSON.parse(text) }));
+      });
+    });
+    req.flushHeaders();
+    return { send: () => req.end(payload), response };
+  }
   sync.refresh();
   await drain();
-  return { store, sync, reads, offered, control, reset, state, drain, settled, holdPage, release, importHistory };
+  return { store, sync, reads, offered, control, reset, state, drain, settled, holdPage, release, importHistory, slowImportHistory };
 }
 
 /** Resolves to 'waiting' when `promise` has not settled within `ms`. */
@@ -176,6 +196,48 @@ test('a history import asked for while a reset is pending is refused with a retr
   await settled();
   assert.deepEqual(store.listJobs({ type: 'backfill' }), []);
   assert.equal((await importHistory()).status, 202, 'the import is accepted once the reset is done');
+});
+
+test('a history import whose body arrives after a reset started is refused', async t => {
+  const { store, reset, settled, holdPage, release, slowImportHistory } = await live(t);
+  const slow = slowImportHistory();
+  await new Promise(resolve => setTimeout(resolve, 50));
+  const { page } = await holdPage();
+  const pending = reset();
+  await within(pending);
+  slow.send();
+  const refused = await slow.response;
+  assert.equal(refused.status, 409);
+  assert.deepEqual(refused.body, { message: 'Starting from scratch is in progress. Try again in a moment.' });
+  release();
+  await page;
+  await pending;
+  await settled();
+  assert.deepEqual(store.listJobs({ type: 'backfill' }), []);
+});
+
+test('a failed reset shows a problem on every repository until a later reset succeeds', async t => {
+  const { store, reset, state, settled } = await live(t);
+  const resetActivity = store.resetActivity.bind(store);
+  store.resetActivity = () => {
+    throw new Error('disk full');
+  };
+  assert.equal((await reset()).status, 202);
+  let status;
+  for (let i = 0; i < 100; i++) {
+    status = (await state()).syncStatus;
+    if (status.overall.state === 'problem') break;
+    await new Promise(resolve => setTimeout(resolve, 10));
+  }
+  const problem = { state: 'problem', reason: 'Starting from scratch failed. Try again.' };
+  assert.deepEqual(status.repos, { one: problem });
+  assert.deepEqual(status.overall, { ...problem, repoId: 'one' });
+  assert.equal(store.listEvents().length, 1, 'the failed reset kept the stored activity');
+
+  store.resetActivity = resetActivity;
+  assert.equal((await reset()).status, 202);
+  await settled();
+  assert.equal((await state()).syncStatus.overall.state, 'syncing', 'the successful reset clears the problem');
 });
 
 test('a stop during a reset wins and nothing restarts polling', async t => {

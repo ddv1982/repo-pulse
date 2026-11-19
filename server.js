@@ -204,6 +204,8 @@ export function createApp({
   const startedAt = Date.now();
   /** The reset in progress, shared by every request that arrives while it runs. @type {Promise<void> | null} */
   let resetting = null;
+  /** Set when the last reset failed, until another starts, so the page can say so instead of looking unchanged. */
+  let resetFailed = false;
   /** @param {unknown} value @param {Buffer} expected */
   const matches = (value, expected) => {
     const given = Buffer.from(String(value ?? ''));
@@ -275,6 +277,7 @@ export function createApp({
               demo,
               throttledUntil: diagnostics.throttledUntil,
               resetting: Boolean(resetting),
+              resetFailed,
             }),
             demo,
           }),
@@ -327,12 +330,12 @@ export function createApp({
       path: '/api/backfill',
       handler: async ({ req, res }) => {
         if (demo || !backfill) throw problem('Historical import is available in live mode.');
-        // The reset would delete the job this request creates.
-        if (resetting) throw problem('Starting from scratch is in progress. Try again in a moment.', 409);
         const input = await body(req);
         const repo = repoById(input.repoId);
         const days = input.days;
         if (days !== 30 && days !== 90 && days !== 'all') throw problem('Choose 30 days, 90 days or all available history.');
+        // Checked after the body arrives: the reset would delete the job this request creates.
+        if (resetting) throw problem('Starting from scratch is in progress. Try again in a moment.', 409);
         return json(res, 202, /** @satisfies {BackfillResponse} */ (backfill.start(repo.id, days)));
       },
     },
@@ -478,12 +481,16 @@ export function createApp({
         await body(req);
         if (demo || !sync.reset) throw problem('Demo data cannot be cleared. Start live mode to start from scratch.', 403);
         // The reset waits for the turn in flight, which can sit behind Azure's Retry-After for minutes, so it runs unawaited.
+        if (!resetting) resetFailed = false;
         resetting ??= sync
           .reset(() => store.resetActivity())
           .then(() => {
             sync.refresh();
           })
-          .catch(error => console.error('Start from scratch failed:', error.name))
+          .catch(error => {
+            resetFailed = true;
+            console.error('Start from scratch failed:', error.name);
+          })
           .finally(() => {
             resetting = null;
           });

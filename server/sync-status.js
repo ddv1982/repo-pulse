@@ -21,6 +21,7 @@ import { worstStatus } from '../src/sync-worst.js';
  *   demo?: boolean,
  *   throttledUntil?: string | null,
  *   resetting?: boolean,
+ *   resetFailed?: boolean,
  * }} SyncStatusInput
  */
 
@@ -88,6 +89,7 @@ export function syncStatus({
   demo = false,
   throttledUntil,
   resetting = false,
+  resetFailed = false,
 }) {
   const automatic = settings.refreshEnabled !== false;
   const ranSince = Math.max(startedAt, settings.refreshResumedAt ?? 0);
@@ -116,6 +118,7 @@ export function syncStatus({
     if (demo) return { state: 'synced', ...since, ...fresh };
     // Stored activity is being deleted and then imported again, whatever the streams still say.
     if (resetting) return { state: 'syncing' };
+    if (resetFailed) return { state: 'problem', reason: 'Starting from scratch failed. Try again.' };
     const importing = jobs.some(job => job.repoId === repoId && job.status !== 'completed');
     // A history import keeps reading with automatic checks off, so it is not paused.
     if (!automatic && !importing && !own.some(stream => stream.manual)) return { state: 'paused', ...since };
