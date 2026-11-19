@@ -6,7 +6,7 @@ Repo Pulse records observable repository activity for the watched repos. It can 
 
 | Source | Collected facts | Important boundary |
 | --- | --- | --- |
-| Repository pushes | Push identity/time/pusher, branch ref old/new revisions, source links | Repository-wide, before PRs exist. Durable background jobs page through push-associated commits and each moved branch revision range, then inspect parent/PR evidence; on-demand commit lists remain available. An empty cached list is not proof that no code changed. |
+| Repository pushes | Push identity/time/pusher, branch ref old/new revisions, source links | Repository-wide, before PRs exist. A push is linked to a completed PR when a ref it moved now points at that PR's merge commit on the PR's target ref; the match uses stored records and makes no Azure call. Deeper analysis of the commits in a push no longer runs; evidence saved earlier is kept. On-demand commit lists remain available. An empty cached list is not proof that no code changed. |
 | Remote branches and tags | Creation/deletion evidence from branch ref updates; tag creation, movement and deletion from pushes; periodic complete ref snapshots with peeled tag targets | Snapshot differences establish first observation or absence, not exact creation/deletion time or actor. A pushed tag may point at an annotated tag object; only the snapshot names the tagged commit. |
 | Pull requests | Active snapshots and recent closures: status, draft flag, title, source revision, source/target refs, reviewers and votes, fork repository and project for PRs from forks, PR link | Snapshot changes produce activity, including reviewer vote changes seen between checks. A vote changed and changed back between checks is missed. Discussion thread counts and policy evaluation results are read only when a PR detail asks for them, and show the current state, not its history. Descriptions, labels and auto-complete configuration are not tracked. |
 | Completed PR merge data | Source/target branch, source commit and, when supplied, resulting merge commit, pre-merge target commit, merge status and strategy | Completion metadata is retained on newly emitted completed-PR snapshots using the existing list/detail response. No extra Azure request is added. |
@@ -30,17 +30,17 @@ The PR creator comes from `createdBy`. When Azure supplies `closedBy`, the detai
 Sources: [Complete a PR](https://learn.microsoft.com/en-us/azure/devops/repos/git/complete-pull-requests?view=azure-devops),
 [PR API fields](https://learn.microsoft.com/en-us/rest/api/azure/devops/git/pull-requests/get-pull-request?view=azure-devops-rest-7.1).
 
-A push-associated commit list can be empty when a target branch moves to an already-created PR result. Ref-range enumeration therefore also reads revisions reachable from the new tip excluding the old-tip history. The installed API was verified with `compareVersion=new` (walk tip) and `itemVersion=old` (base), both explicit commit descriptors. New tips remain PR candidates even when a range is empty; candidates and proven introduced revisions remain separate. A one-time schema4 reinspection preserves existing raw events/read flags.
+Evidence saved before deeper analysis stopped also enumerated ref ranges, because a push-associated commit list can be empty when a target branch moves to an already-created PR result. It read revisions reachable from the new tip excluding the old-tip history. The installed API was verified with `compareVersion=new` (walk tip) and `itemVersion=old` (base), both explicit commit descriptors. Candidates and proven introduced revisions remain separate in that evidence.
 
 ## Merge and branch gaps
 
 - A direct `git merge`, squash, rebase or cherry-pick pushed without a PR is observed as a push.
-  Background inspection identifies multi-parent objects and completed PR associations without inventing source branch names or human commands. Fast-forward and squash intent can remain unknowable.
-- Branch rename has no semantic event model. For each moved branch, merge inspection reads the
-  commits the old tip reaches and the new tip does not: none is a fast-forward, any is a history
-  rewrite, and an unreadable old tip leaves it unknown. Unequal tips alone are never called a
-  rewrite, and a rewrite does not identify the command that caused it. Tag pushes become
-  tag rows; a tag-only push is not shown as a push and is not inspected for merges.
+  A completed PR association is shown only when the push's new tip is the PR's merge commit; multi-parent objects are no longer inspected. Neither invents source branch names or human commands. Fast-forward and squash intent can remain unknowable.
+- Branch rename has no semantic event model. History rewrites are no longer checked for new pushes.
+  Evidence saved earlier read, for each moved branch, the commits the old tip reaches and the new
+  tip does not: none is a fast-forward, any is a history rewrite, and an unreadable old tip leaves
+  it unknown. Unequal tips alone are never called a rewrite, and a rewrite does not identify the
+  command that caused it. Tag pushes become tag rows; a tag-only push is not shown as a push.
 - A snapshot discovery and a later push record can both describe the same branch. They remain
   separate observations when the app cannot prove a shared branch lifetime/source identity.
 - A branch created and deleted entirely between readable observations may be missed. Loss of ref
@@ -58,13 +58,13 @@ A push-associated commit list can be empty when a target branch moves to an alre
   every action that happened while the process was stopped or between successful checks.
 - Activity uses server-side grouped SQLite pages, including older unseen records. Stable cursors exclude concurrent inserts, and acknowledgement uses only the exact shown matching raw IDs. Deep links resolve outside the first page.
 - The browser polls local metadata and reloads the Activity window when its revision changes. Activity filters include types, statuses, and merge evidence from matching cached history, including items beyond the loaded page. Status filters match the displayed group after search and repository scope are applied. Seen actions still use the exact unseen updates in the shown groups. Manual refresh, navigation, and pagination can still request pages explicitly.
-- Existing raw events remain immutable. Supplemental merge metadata preserves event identity, time and seen/imported flags, and creates no metadata-only notification. Existing pushes are queued once during schema migration.
+- Existing raw events remain immutable. Supplemental merge metadata preserves event identity, time and seen/imported flags, and creates no metadata-only notification. A schema migration removed the merge-analysis queue and marks evidence it left unfinished as incomplete.
 - Explicit 30/90-day or all-available-since-2010 import persists one bounded page at a time. Historical imports stop at the monitoring baseline and never rewind live checkpoints. Completed means requested pages succeeded, not universal source retention. Different ranges wait until the active import completes.
 - The shared budget is 60 calls/minute with four in flight. Activity reads normally use one REST request
   made with an Azure CLI token (one retry after a token renewal); other commands still start `az`, which can make several requests
   internally. Normal checks are around three minutes, quiet/background checks five minutes and refs
   ten minutes, subject to queueing and backoff.
-- Under sustained live work, the scheduler offers a background turn after six live turns. Eligible history and merge jobs alternate. These are scheduler turns, so queueing and provider response times still affect freshness.
+- The only background work is an explicit history import. It gets every turn when no live check is due and, under sustained live work, one turn after six live turns. These are scheduler turns, so queueing and provider response times still affect freshness.
 - Effective Azure identity/cross-account cache isolation is not verified. Use one CLI context; an
   installation or cached account check is not proof of access to every repository/environment.
 
