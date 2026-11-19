@@ -6,7 +6,7 @@
 | --- | --- |
 | [server.js](../server.js) | Loopback HTTP, the access key, request validation, and runtime wiring |
 | [server/azure-cli.js](../server/azure-cli.js), [server/azure-rest.js](../server/azure-rest.js) and [server/azure-client.js](../server/azure-client.js) | Azure command allowlist, queue, token-based REST reads, endpoint queries, and paging |
-| [server/sync.js](../server/sync.js) and [server/backfill.js](../server/backfill.js) | Live polling and historical imports |
+| [server/sync.js](../server/sync.js), [server/backfill.js](../server/backfill.js) and [server/rewrite-check.js](../server/rewrite-check.js) | Live polling, historical imports, and the one-call rewrite check for new pushes |
 | [server/store.js](../server/store.js) | SQLite events, migrations, and atomic checkpoints |
 | [server/activity-query.js](../server/activity-query.js) | Scoped Activity rows, stable filter IDs, counts, and paging |
 | [server/repositories.js](../server/repositories.js) and [server/checkout-git.js](../server/checkout-git.js) | Checkout discovery, local Git status, explicit fetch, and guarded fast-forward |

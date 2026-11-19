@@ -1,0 +1,68 @@
+// @ts-check
+
+/** @typedef {import('./azure-client.js').AzureProvider} AzureProvider */
+/** @typedef {import('./store.js').Repository} Repository */
+/** One moved branch of a live push, checked once for commits the new tip no longer reaches. */
+/**
+ * @typedef {{ id: string, type: 'rewrite', repoId: string, eventId: string, ref: string, oldObjectId: string,
+ *   newObjectId: string, attempts: number, nextAt: string }} RewriteJob
+ */
+/** @typedef {import('../src/activity.js').RewriteResult} RewriteResult */
+/**
+ * @typedef {Pick<ReturnType<typeof import('./store.js').createStore>,
+ *   'listRepos'|'listJobs'|'saveJob'|'removeJob'|'getEvent'|'enrichEvent'>} RewriteStore
+ */
+
+const ATTEMPTS = 4;
+const RETRY_MS = 60000;
+/** @param {number} ms */
+const iso = ms => new Date(ms).toISOString();
+
+/**
+ * Each tick runs at most one due check, so it is one Azure call.
+ * @param {{ store: RewriteStore, provider: Pick<AzureProvider, 'droppedCommits'>, now?: () => number }} options
+ */
+export function createRewriteCheck({ store, provider, now = Date.now }) {
+  /** @param {RewriteJob} job @param {RewriteResult} result */
+  function save(job, result) {
+    const event = store.getEvent(job.eventId);
+    if (event) {
+      const evidence = event.data?.mergeEvidence || {};
+      const rewrite = [...(evidence.rewrite || []).filter(item => item.ref !== result.ref), result];
+      store.enrichEvent(job.eventId, { mergeEvidence: { ...evidence, rewrite } });
+    }
+    store.removeJob(job.id);
+  }
+  /** @returns {Promise<boolean>} whether a check ran */
+  async function tick() {
+    const repos = new Map(
+      store
+        .listRepos()
+        .filter(repo => !repo.disabled)
+        .map(repo => [repo.id, repo]),
+    );
+    // Rows of type 'rewrite' are only written by server/sync.js normalize, as a RewriteJob.
+    const jobs = /** @type {RewriteJob[]} */ (/** @type {unknown} */ (store.listJobs({ type: 'rewrite', dueBefore: iso(now()) })));
+    const job = jobs.find(item => repos.has(item.repoId));
+    const repo = job && repos.get(job.repoId);
+    if (!job || !repo) return false;
+    try {
+      const page = await provider.droppedCommits(repo, job.oldObjectId, job.newObjectId);
+      save(
+        job,
+        page.items.length
+          ? { ref: job.ref, status: 'rewrite', dropped: page.items.length, ...(page.nextCursor ? { more: true } : {}) }
+          : { ref: job.ref, status: 'fast-forward' },
+      );
+    } catch (error) {
+      const attempts = job.attempts + 1;
+      // A missing old tip cannot be read on a later attempt either.
+      const missing = /** @type {{ code?: unknown }} */ (error)?.code === 'NOT_FOUND';
+      if (missing || attempts >= ATTEMPTS) save(job, { ref: job.ref, status: 'unknown' });
+      // A repository removed during the call took its job and event with it.
+      else if (store.getEvent(job.eventId)) store.saveJob({ ...job, attempts, nextAt: iso(now() + RETRY_MS * 2 ** (attempts - 1)) });
+    }
+    return true;
+  }
+  return { tick };
+}

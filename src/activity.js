@@ -14,11 +14,16 @@
  *   update?: { status?: string, dropped?: number, more?: boolean } }} EvidenceRange
  */
 /**
- * Merge evidence on a push: PR links matched by tip, plus what the earlier merge analysis saved (status, commits,
- * ranges, limitations). Nothing writes those older fields any more.
+ * One moved branch of a live push, checked by server/rewrite-check.js. `dropped` counts the commits the old tip reaches
+ * and the new tip does not, up to one page; `more` says the page was full.
+ * @typedef {{ ref: string, status: 'fast-forward' | 'rewrite' | 'unknown', dropped?: number, more?: boolean }} RewriteResult
+ */
+/**
+ * Merge evidence on a push: PR links matched by tip, rewrite checks, plus what the earlier merge analysis saved
+ * (status, commits, ranges, limitations). Nothing writes those older fields any more.
  * @typedef {{ status?: string, checkedAt?: string, limitations?: string[], error?: string | { message?: string },
  *   prs?: EvidencePr[], commits?: EvidenceCommit[], refRanges?: EvidenceRange[],
- *   introducedCommitIds?: string[] }} MergeEvidenceData
+ *   introducedCommitIds?: string[], rewrite?: RewriteResult[] }} MergeEvidenceData
  */
 /**
  * Provider fields of an event, plus enrichment. Each kind fills its own subset (see server/sync.js normalizers).

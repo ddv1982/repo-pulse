@@ -1,6 +1,7 @@
 // @ts-check
 import { createHash } from 'node:crypto';
 import { actorName, branchName, safeAzureUrl } from '../src/events.js';
+import { mergeUpdates } from './merge-evidence.js';
 
 /** @typedef {import('../src/activity.js').ActivityKind} ActivityKind */
 /** @typedef {import('./azure-client.js').AzureStream} StreamName */
@@ -34,7 +35,8 @@ import { actorName, branchName, safeAzureUrl } from '../src/events.js';
 /** @typedef {Partial<Omit<SyncEvent, 'id'|'repoId'|'kind'|'observedAt'|'imported'|'seen'>>} EventDetail */
 /** Entity data is stored JSON, so its shape depends on the entity type. */
 /** @typedef {{ type: string, id: string, data: any }} Entity */
-/** @typedef {{ events: SyncEvent[], entities: Entity[] }} SyncBatch */
+/** @typedef {import('./rewrite-check.js').RewriteJob} RewriteJob */
+/** @typedef {{ events: SyncEvent[], entities: Entity[], jobs?: RewriteJob[] }} SyncBatch */
 /**
  * @typedef {{
  *   listRepos: () => WatchedRepo[],
@@ -52,6 +54,7 @@ import { actorName, branchName, safeAzureUrl } from '../src/events.js';
 /** @typedef {ReturnType<ReturnType<typeof createSync>['refresh']>} RefreshStatus */
 /** Sync needs `read`; the active-build and PR follow-ups run only when the provider offers them. */
 /** @typedef {Pick<AzureProvider, 'read'> & Partial<Pick<AzureProvider, 'buildsById'|'pullRequest'>>} SyncProvider */
+/** @typedef {'rewrite'|'history'} BackgroundKind */
 
 /** @type {StreamName[]} */
 const STREAMS = ['pushes', 'refs', 'prs', 'closedPrs', 'builds', 'activeBuilds'];
@@ -216,7 +219,7 @@ function requestRefresh(state, at, manual) {
  * Every tick does one bounded page, so busy streams cannot monopolize catch-up.
  * @param {{ store: SyncStore, provider: SyncProvider, now?: () => number, intervalMs?: number,
  *   isForeground?: () => boolean, refsIntervalMs?: number, pollMs?: number, overlapMs?: number,
- *   background?: { history?: () => unknown } }} options
+ *   background?: Partial<Record<BackgroundKind, () => unknown>> }} options
  */
 export function createSync({
   store,
@@ -247,7 +250,7 @@ export function createSync({
   /** @type {string|undefined} */
   let lastKey;
   let liveTurns = 0;
-  /** @type {Partial<Record<'history'|'live', string>>} */
+  /** @type {Partial<Record<BackgroundKind|'live', string>>} */
   const lastTurn = {};
   const counters = { pages: 0, errors: 0 };
 
@@ -479,7 +482,24 @@ export function createSync({
     };
     const normalizeItem = normalizers[stream];
     if (normalizeItem) for (const item of records) normalizeItem(item, { repo, add, entities, refs, historical });
-    return { events, entities };
+    // Only a live push that moved an existing branch is checked for a rewrite; history is not news.
+    /** @type {RewriteJob[]} */
+    const jobs = events
+      .filter(event => event.kind === 'push' && !event.imported)
+      .flatMap(event =>
+        mergeUpdates(/** @type {import('./merge-evidence.js').PushEvent} */ (event)).map(ref => ({
+          id: `rewrite:${event.id}:${ref.name}`,
+          type: /** @type {const} */ ('rewrite'),
+          repoId: repo.id,
+          eventId: event.id,
+          ref: ref.name,
+          oldObjectId: ref.oldObjectId,
+          newObjectId: ref.newObjectId,
+          attempts: 0,
+          nextAt: event.observedAt,
+        })),
+      );
+    return { events, entities, jobs };
   }
   /**
    * @param {WatchedRepo} repo @param {AzureRecord[]} records @param {StartedStream} state
@@ -577,12 +597,21 @@ export function createSync({
     entities.push({ type: 'ref-baseline', id: 'tags', data: { at: iso(now()) } });
     return { events, entities };
   }
-  // History import is explicit, so it also runs while automatic checks are off.
-  async function runBackground() {
-    if (!(await background.history?.())) return false;
-    lastTurn.history = iso(now());
-    liveTurns = 0;
-    return true;
+  /**
+   * Rewrite checks go first: each is one call and only live pushes make them, so they cannot starve a history import.
+   * History import is explicit, so it also runs while automatic checks are off; rewrite checks wait for them.
+   * @param {boolean} automatic
+   */
+  async function runBackground(automatic) {
+    /** @type {BackgroundKind[]} */
+    const kinds = automatic ? ['rewrite', 'history'] : ['history'];
+    for (const kind of kinds) {
+      if (!(await background[kind]?.())) continue;
+      lastTurn[kind] = iso(now());
+      liveTurns = 0;
+      return true;
+    }
+    return false;
   }
   /** @param {WatchedRepo} repo */
   function watching(repo) {
@@ -688,10 +717,10 @@ export function createSync({
     const automatic = store.getSetting('refreshEnabled', true) !== false;
     const { due, repos } = dueStreams(automatic);
     if (!due.length) {
-      await runBackground();
+      await runBackground(automatic);
       return;
     }
-    if (liveTurns >= LIVE_TURNS && (await runBackground())) return;
+    if (liveTurns >= LIVE_TURNS && (await runBackground(automatic))) return;
     const { state, repo } = takeLiveTurn(due, repos);
     const working = startPage(state, now(), overlapMs);
     reading = { repoId: state.repoId, stream: state.stream };
