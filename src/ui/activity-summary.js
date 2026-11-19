@@ -6,9 +6,9 @@ import { escape as e, buildState } from './format.js';
 
 /**
  * @param {import('../activity.js').ActivityItem[]} records @param {Pick<PageState, 'activity' | 'repos'>} state
- * @param {{ repoIds: string[] | null }} ui @param {{ partial: boolean, problemStreams: unknown[] }} health
+ * @param {{ repoIds: string[] | null }} ui @param {boolean} partial the counts may be incomplete
  */
-export function renderSummary(records, state, ui, health) {
+export function renderSummary(records, state, ui, partial) {
   const unseen = records.filter(record => record.unseen);
   const updates = unseen.reduce((sum, record) => sum + record.unseenIds.length, 0);
   const builds = unseen.filter(record => record.kind === 'build');
@@ -35,16 +35,15 @@ export function renderSummary(records, state, ui, health) {
   const headline = state.activity?.loading
     ? 'Loading activity…'
     : unseen.length
-      ? `${health.partial ? 'At least ' : ''}${unseen.length} new item${unseen.length === 1 ? '' : 's'} shown`
+      ? `${partial ? 'At least ' : ''}${unseen.length} new item${unseen.length === 1 ? '' : 's'} shown`
       : state.activity.newItems
         ? '0 new items shown'
         : 'No new updates';
   const repos = state.repos.filter(repo => ui.repoIds === null || ui.repoIds.includes(repo.id)).length;
-  const sync = health.problemStreams.length;
   return `<section class="card summary mb" aria-label="Activity summary"><div class="top"><div class="headline"><p><b class="${unseen.length ? '' : 'zero'}">${e(headline)}</b>${updates > unseen.length ? ` · ${updates} updates` : ''}</p><ul class="legend"><li>${repos} repositor${repos === 1 ? 'y' : 'ies'}</li>${!state.activity.loading && !state.activity.error ? `<li>Showing ${records.length} of ${state.activity.total} items</li><li>${state.activity.newItems} total new items · ${state.activity.newUpdates} new updates</li>` : ''}</ul></div><div class="summary-chips" aria-label="Activity counts">${counts
     .filter(cell => cell.count)
     .map(cell => `<span class="chip ${cell.tone || ''}">${e(cell.label)} ${cell.count}${cell.sub ? ` · ${e(cell.sub)}` : ''}</span>`)
     .join(
       '',
-    )}${sync ? `<a class="chip t-warn" href="#repositories">${sync} checks need attention</a>` : ''}</div></div><div class="cells ${sync ? '' : 'c4'}">${counts.map(cell => `<div class="cell" data-summary-kind="${e(cell.label)}"><div class="label">${e(cell.label)}</div><div class="val ${cell.count ? cell.tone || 't-info' : 'zero'}">${cell.count}</div>${cell.count && cell.sub ? `<div class="sub">${e(cell.sub)}</div>` : ''}</div>`).join('')}${sync ? `<div class="cell sync"><div class="label">Sync</div><div class="val t-warn">${sync}</div><div class="sub"><a href="#repositories">See repositories</a></div></div>` : ''}</div></section>`;
+    )}</div></div><div class="cells c4">${counts.map(cell => `<div class="cell" data-summary-kind="${e(cell.label)}"><div class="label">${e(cell.label)}</div><div class="val ${cell.count ? cell.tone || 't-info' : 'zero'}">${cell.count}</div>${cell.count && cell.sub ? `<div class="sub">${e(cell.sub)}</div>` : ''}</div>`).join('')}</div></section>`;
 }

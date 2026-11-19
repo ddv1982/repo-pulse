@@ -179,8 +179,7 @@ test('disabling a repository hides it everywhere except Repositories until it is
   await page.getByRole('link', { name: 'Repositories', exact: true }).click();
   const toggle = page.getByRole('switch', { name: 'Watch billing-web' });
   await expect(toggle).toBeChecked();
-  await expect(page.locator('.repo-entry', { has: toggle }).locator('.repo-overview .chip')).toHaveText('No access to recent CI runs');
-  await expect(page.locator('.repo-entry .chip', { hasText: 'No access' })).toHaveCount(1);
+  await expect(page.locator('.repo-entry', { has: toggle }).locator('.repo-overview .sync-pill')).toHaveText(/^Synced · /);
   await toggle.click();
   await expect(toggle).not.toBeChecked();
   await expect(page.getByText('3 watched · 1 disabled')).toBeVisible();
@@ -839,8 +838,8 @@ test('semantic status colors match rows, imported history, details and trails in
     await page.screenshot({ path: `test-results/status-colors-${theme.toLowerCase()}.png`, fullPage: true });
   }
   await page.locator('[data-event-id="color-completed"] .feed-title').click();
-  await expect(page.locator('.status-chip')).toHaveClass(/\bok\b/);
-  await expect(page.locator('.status-chip')).toHaveText('Merged');
+  await expect(page.locator('#page .status-chip')).toHaveClass(/\bok\b/);
+  await expect(page.locator('#page .status-chip')).toHaveText('Merged');
 });
 
 test('the app-owned type dropdown is themed, keyboard accessible and stable during local polling', async t => {
@@ -970,30 +969,50 @@ test('completed PRs clearly show a merge into the target and optional source/res
   await expect(page.locator('li.row')).toContainText('Merged into main');
   await expect(page.locator('li.row')).toHaveClass(/tone-ok/);
   await page.locator('li.row .feed-title').click();
-  await expect(page.locator('.status-chip')).toHaveText('Merged');
+  await expect(page.locator('#page .status-chip')).toHaveText('Merged');
   for (const label of ['Source branch', 'Target branch', 'Source commit', 'Merge commit', 'Created by'])
     await expect(page.getByText(label, { exact: true })).toBeVisible();
   await expect(page.getByText('Merged by', { exact: true })).toHaveCount(0);
   await expect(page.getByText('Squash', { exact: true })).toBeVisible();
 });
 
-test('a backed-up Azure budget is explained on Activity and quantified in Settings', async t => {
+test('the sync status pill reads Synced in the demo and follows a Problem or Delayed server status', async t => {
   const { page } = await setup(t);
+  const pill = page.locator('#header .header-tools > .sync-pill');
+  await expect(pill).toHaveText(/^Synced · \d{1,2}[:.]\d{2}/);
+  await expect(page.locator('#page .banner')).toHaveCount(0);
+  await page.getByRole('link', { name: 'Repositories', exact: true }).click();
+  await expect(page.locator('.repo-entry .sync-pill')).toHaveText([/^Synced · /, /^Synced · /, /^Synced · /]);
+  const cases = [
+    [{ state: 'problem', reason: 'Sign in to Azure again.', stream: 'refs' }, 'Problem', 'crit'],
+    [{ state: 'delayed', reason: 'about 9 minutes behind', stream: 'pushes' }, 'Delayed · about 9 minutes behind', 'warn'],
+  ];
+  // One handler for the whole test: replacing it while a poll is in flight would answer that request twice.
+  let status = cases[0][0];
   await page.route('**/api/state', async route => {
     const state = await (await route.fetch()).json();
-    await route.fulfill({
-      json: {
-        ...state,
-        diagnostics: { ...state.diagnostics, sync: { ...state.diagnostics.sync, lag: { overdueStreams: 4, maxDelayMs: 9 * 60000 } } },
-      },
-    });
+    const repos = { ...state.syncStatus.repos, 'demo-orders': status };
+    await route.fulfill({ json: { ...state, demo: false, syncStatus: { overall: { ...status, repoId: 'demo-orders' }, repos } } });
   });
+  for (const [current, text, tone] of cases) {
+    status = current;
+    await page.goto(`${page.url().split('#')[0]}#activity/new`);
+    await expect(pill).toHaveText(text);
+    await expect(pill).toHaveClass(new RegExp(`\\b${tone}\\b`));
+    await expect(page.locator('#page .banner')).toHaveCount(1);
+    await expect(page.locator('#page .banner strong')).toHaveText(text.split(' · ')[0]);
+    await page.getByRole('link', { name: 'Repositories', exact: true }).click();
+    await expect(page.locator('.repo-entry', { hasText: 'orders-api' }).locator('.sync-pill')).toHaveText(text);
+  }
+  await expect(pill).toHaveAccessibleName('Sync status: Delayed in orders-api: about 9 minutes behind');
+  status = cases[0][0];
   await page.reload();
-  await expect(page.getByRole('status').filter({ hasText: 'Updates are delayed' })).toContainText('about 9 minutes behind schedule');
-  await page.screenshot({ path: 'test-results/budget-lag.png', fullPage: true });
+  await expect(pill).toHaveAccessibleName('Sync status: Problem in orders-api: Sign in to Azure again.');
+  await expect(pill).toHaveAttribute('title', 'Problem in orders-api: Sign in to Azure again.');
   await page.getByRole('link', { name: 'Settings', exact: true }).click();
   await page.locator('#troubleshooting-toggle').click();
-  await expect(page.locator('.diagnostic-summary')).toContainText('4 checks waiting · up to 9 min late');
+  await expect(page.locator('.sync-sentence')).toHaveText('Problem in orders-api: Sign in to Azure again.');
+  await expect(page.getByText('Azure calls')).toHaveCount(0);
 });
 
 test('Escape before the first state load does not throw', async t => {

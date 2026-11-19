@@ -1,11 +1,12 @@
 // @ts-check
 
-import { escape as e, dateTime } from './format.js';
+import { escape as e } from './format.js';
+import { syncPill, syncRepoName } from './health.js';
 import { icons, themeSwitch } from './icons.js';
 import { activityHref, isActivity } from './navigation.js';
 
 /** @typedef {Pick<import('./refresh.js').PageState, 'repos'>} ScopeState */
-/** @typedef {ScopeState & Pick<import('./refresh.js').PageState, 'streams' | 'settings'>} HeaderState */
+/** @typedef {ScopeState & Pick<import('./refresh.js').PageState, 'settings' | 'syncStatus'>} HeaderState */
 /** @typedef {Pick<import('./navigation.js').NavigationState, 'repoIds'>} ScopeView */
 /** web.js sets `refreshing` while a refresh runs. @typedef {ScopeView & Pick<import('./navigation.js').NavigationState, 'route' | 'activityRoute'> & { refreshing?: boolean }} HeaderView */
 
@@ -28,18 +29,13 @@ export function scopeLabel(state, ui) {
 
 /** @param {HeaderState} state @param {HeaderView} ui */
 export function renderHeader(state, ui) {
-  const streamTimes = state.streams
-    .map(stream => stream.lastSuccess)
-    .filter(value => value !== undefined)
-    .map(value => new Date(value).valueOf())
-    .filter(Number.isFinite);
   const automatic = state.settings.refreshEnabled !== false;
-  const freshness = streamTimes.length ? `Last Azure check ${dateTime(Math.max(...streamTimes))}` : 'No Azure check yet';
+  const pill = syncPill(state.syncStatus.overall, syncRepoName(state.repos, state.syncStatus.overall));
   const switchInput = (
     /** @type {'desktop' | 'mobile'} */ suffix,
   ) => `<input class="setting-switch" type="checkbox" role="switch" id="header-auto-${suffix}" data-auto-toggle
     aria-label="Automatic checks" ${automatic ? 'checked' : ''}>`;
-  const refreshTitle = e(`Refresh activity across selected repositories. ${freshness}`);
+  const refreshTitle = 'Refresh activity across selected repositories.';
   const refresh = (
     /** @type {'desktop' | 'mobile'} */ suffix,
   ) => `<button type="button" class="${suffix === 'mobile' ? 'ghost mobile-refresh' : 'monitor-refresh'}"
@@ -54,7 +50,7 @@ export function renderHeader(state, ui) {
       <a href="#settings" ${ui.route === 'settings' ? 'aria-current="page"' : ''}>Settings</a>
     </nav>
     <div class="hg end header-tools">
-      <span class="fresh">${e(freshness)}</span>
+      ${pill}
       <div class="hg header-actions">
         <div class="seg monitor-group" role="group" aria-label="Monitoring">
           <label class="header-auto" for="header-auto-desktop">${switchInput('desktop')}<span>Auto checks</span></label>
@@ -68,7 +64,7 @@ export function renderHeader(state, ui) {
               ${switchInput('mobile')}
             </label>
             ${refresh('mobile')}
-            <p class="help monitor-footer">${e(freshness)}</p>
+            <p class="monitor-footer">${pill}</p>
           </div>
         </details>
         ${themeSwitch()}

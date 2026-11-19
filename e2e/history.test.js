@@ -272,7 +272,7 @@ test('compact Settings keeps diagnostics closed until needed and copies the diag
     await page.screenshot({ path: `test-results/settings-redesign-${colorScheme}.png`, animations: 'disabled' });
   }
   await page.getByText('Troubleshooting', { exact: true }).click();
-  await expect(page.getByText('No CLI activity to report')).toBeVisible();
+  await expect(page.locator('.sync-sentence')).toHaveText(/^Synced, last check /);
   await page.getByRole('button', { name: 'Copy diagnostics' }).click();
   await expect(page.getByRole('status').last()).toHaveText('Diagnostics copied.');
   const copied = JSON.parse(await page.evaluate(() => navigator.clipboard.readText()));
@@ -710,7 +710,7 @@ test('Settings shows scoped CLI access and header switches share the automatic c
   await settingsToggle.check();
   await expect(headerToggle).toBeChecked();
   await header.getByRole('link', { name: 'Repositories', exact: true }).click();
-  await expect(page.getByRole('article').filter({ hasText: 'orders' })).toContainText('Catching up');
+  await expect(page.getByRole('article').filter({ hasText: 'orders' }).locator('.sync-pill')).toHaveText('Syncing…');
   await expect(page.getByText('Check overdue')).toHaveCount(0);
   await header.getByRole('link', { name: 'Settings', exact: true }).click();
   assert.deepEqual(probes, []);

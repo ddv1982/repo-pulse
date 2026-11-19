@@ -1,38 +1,71 @@
 // @ts-check
 
-import { streamError, streamLabel } from './format.js';
+import { escape as e, dateTime } from './format.js';
 
-/** @typedef {Pick<import('../../server/sync.js').StreamState, 'stream' | 'lastSuccess' | 'pending' | 'initialized' | 'error'>} StreamReading */
-/** @typedef {{ now?: number, scheduled?: boolean, resumedAt?: number | null }} HealthOptions */
+/** @typedef {import('../../server/sync-status.js').SyncStatus} SyncStatus */
+/** @typedef {import('../../server/sync-status.js').OverallSyncStatus} OverallSyncStatus */
+/** @typedef {SyncStatus | OverallSyncStatus} AnySyncStatus */
 
-/** @param {StreamReading} stream @param {HealthOptions} [options] */
-export function streamHealth(stream, { now = Date.now(), scheduled = true, resumedAt = null } = {}) {
-  const overdueAfter = (stream.stream === 'refs' ? 20 : 10) * 60000;
-  const lastSuccess = Date.parse(stream.lastSuccess ?? '');
-  const stale = scheduled && now - lastSuccess > overdueAfter;
-  // Number() spells out the coercion the comparison already made: null counts as 0.
-  const resuming = stale && Number(resumedAt) > lastSuccess && now - Number(resumedAt) < overdueAfter;
-  return {
-    error: streamError(stream),
-    pending: Boolean(scheduled && (stream.pending || !stream.initialized)),
-    resuming,
-    stale: stale && !resuming,
-  };
+/** @type {Record<AnySyncStatus['state'], string>} */
+const tones = { synced: 'ok', syncing: 'info', delayed: 'warn', problem: 'crit', paused: 'neutral', empty: 'neutral' };
+
+/** The time alone today, the date with it otherwise. @param {string} value */
+function clock(value) {
+  const date = new Date(value);
+  return date.toDateString() === new Date().toDateString()
+    ? date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    : dateTime(value);
 }
 
-/** @param {unknown} repo @param {StreamReading[]} records @param {{ now?: number, automatic?: boolean, resumedAt?: number | null }} [options] */
-export function repositoryHealth(repo, records, { now = Date.now(), automatic = true, resumedAt = null } = {}) {
-  if (!automatic) return { label: 'Checks off', show: false };
-  const status = records.map(stream => streamHealth(stream, { now, resumedAt }));
-  // A refused read stays refused until permissions change, so it is named apart from a failure that a retry can fix.
-  const denied = records.filter(stream => typeof stream.error === 'object' && stream.error?.code === 'FORBIDDEN');
-  if (denied.length) {
-    const names = [...new Set(denied.map(stream => streamLabel(stream.stream).replace(/^\w/, c => c.toLowerCase())))];
-    return { label: `No access to ${names.join(', ')}`, className: 'part', show: true };
+/** @param {AnySyncStatus} status */
+const reason = status => ('reason' in status && status.reason ? status.reason : '');
+/** @param {string} text */
+const lowerFirst = text => text.replace(/^\w/, c => c.toLowerCase());
+
+/** The short pill text. @param {AnySyncStatus} status */
+export function syncLabel(status) {
+  switch (status.state) {
+    case 'synced':
+      return status.since ? `Synced · ${clock(status.since)}` : 'Synced';
+    case 'syncing':
+      return 'Syncing…';
+    case 'delayed':
+      return `Delayed · ${lowerFirst(reason(status) || 'behind schedule')}`;
+    case 'problem':
+      return 'Problem';
+    case 'paused':
+      return 'Paused';
+    default:
+      return 'No repositories';
   }
-  if (status.some(item => item.error)) return { label: 'Check failed', className: 'part', show: true };
-  if (status.some(item => item.stale && !item.pending)) return { label: 'Check overdue', className: 'part', show: true };
-  if (status.some(item => item.resuming)) return { label: 'Catching up', className: 'name', show: true };
-  if (!status.length || status.some(item => item.pending)) return { label: 'Catching up', show: false };
-  return { label: 'Up to date', show: false };
+}
+
+/** The state and why, in one sentence. @param {AnySyncStatus} status @param {string} [repoName] the repository it concerns */
+export function syncSentence(status, repoName = '') {
+  const where = repoName ? ` in ${repoName}` : '';
+  switch (status.state) {
+    case 'synced':
+      return status.since ? `Synced, last check ${clock(status.since)}` : 'Synced';
+    case 'syncing':
+      return 'Syncing, checks are running';
+    case 'delayed':
+      return `Delayed${where}: ${lowerFirst(reason(status) || 'behind schedule')}`;
+    case 'problem':
+      return `Problem${where}: ${reason(status)}`;
+    case 'paused':
+      return 'Paused, automatic checks are off';
+    default:
+      return 'No repositories watched';
+  }
+}
+
+/** @param {AnySyncStatus} status @param {string} [repoName] */
+export function syncPill(status, repoName) {
+  const sentence = e(syncSentence(status, repoName));
+  return `<span class="chip status-chip sync-pill ${tones[status.state]}" role="status" aria-label="Sync status: ${sentence}" title="${sentence}">${e(syncLabel(status))}</span>`;
+}
+
+/** The repository an overall status concerns. @param {{ id: string, name: string }[]} repos @param {OverallSyncStatus} status */
+export function syncRepoName(repos, status) {
+  return 'repoId' in status ? (repos.find(repo => repo.id === status.repoId)?.name ?? '') : '';
 }

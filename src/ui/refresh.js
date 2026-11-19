@@ -16,10 +16,14 @@ import { isActivity } from './navigation.js';
  * @typedef {Pick<ActivityPage, 'items'> & Partial<Omit<ActivityPage, 'items'>> & { loading?: boolean, error?: string }} DisplayActivity
  *   Before the first page arrives only `items` and `loading` are set.
  * @typedef {Metadata & {repos: Repo[], watched: Repo[], streams: StateResponse['streams'], settings: Partial<StateResponse['settings']>,
- *   diagnostics: Partial<StateResponse['diagnostics']>, activity: DisplayActivity, events: ActivityEvent[], detailLoading?: boolean}} PageState
+ *   diagnostics: Partial<StateResponse['diagnostics']>, syncStatus: StateResponse['syncStatus'], activity: DisplayActivity,
+ *   events: ActivityEvent[], detailLoading?: boolean}} PageState
  * @typedef {{ view: View, force: boolean, more: boolean }} RefreshJob
  * @typedef {{ type: 'applied'|'superseded' } | { type: 'failed', error: Error }} RefreshOutcome
  */
+
+/** @type {StateResponse['syncStatus']} */
+const noSyncStatus = { overall: { state: 'empty' }, repos: {} };
 
 /** @param {unknown} value */
 function readMetadata(value) {
@@ -36,7 +40,8 @@ function readMetadata(value) {
   const watched = data.repos || [];
   const repos = watched.filter(repo => !repo.disabled);
   const streams = (data.streams || []).filter(stream => repos.some(repo => repo.id === stream.repoId));
-  return { ...data, watched, repos, streams, settings: data.settings || {}, diagnostics: data.diagnostics || {} };
+  const syncStatus = data.syncStatus || noSyncStatus;
+  return { ...data, watched, repos, streams, settings: data.settings || {}, diagnostics: data.diagnostics || {}, syncStatus };
 }
 
 /** @param {View} view */
@@ -53,7 +58,16 @@ const viewKey = ({ route, eventId, repoIds, search, kind, generation }) =>
 export function createRefreshController({ request, getView, reconcileRepositories, onUpdate, onError }) {
   const activityData = createActivityData(request);
   /** @type {PageState} */
-  let state = { repos: [], watched: [], activity: { items: [], loading: true }, events: [], streams: [], settings: {}, diagnostics: {} };
+  let state = {
+    repos: [],
+    watched: [],
+    activity: { items: [], loading: true },
+    events: [],
+    streams: [],
+    settings: {},
+    diagnostics: {},
+    syncStatus: noSyncStatus,
+  };
   /** @type {EventDetail|null|undefined} */
   let detailResult;
   /** @type {string|undefined} */
