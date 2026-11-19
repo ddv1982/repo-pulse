@@ -147,7 +147,7 @@ async function checkDevopsExtension(az, runCommand) {
       fix: 'Run: az extension add --name azure-devops',
     };
   } catch (error) {
-    const missing = /not installed|extension.*not found|could not find.*extension/i.test(errorText(error));
+    const missing = /extension\s+['"`]?azure-devops['"`]?\s+(?:is\s+)?not\s+(?:installed|found)/i.test(errorText(error));
     return {
       id: 'az-devops',
       label: 'azure-devops extension',
@@ -176,7 +176,9 @@ async function checkAzureLogin(az, runCommand) {
       fix: 'Run: az login',
     };
   } catch (error) {
-    const signedOut = /please run ['"`]?az login|az login|not logged in|no subscription found|sign in/i.test(errorText(error));
+    const signedOut = /please\s+run\s+['"`]?az login['"`]?|not\s+logged\s+in\s+to\s+azure|no\s+subscriptions?\s+found/i.test(
+      errorText(error),
+    );
     return {
       id: 'az-login',
       label: 'Azure CLI account',

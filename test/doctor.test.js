@@ -163,6 +163,25 @@ test('runDoctor uses neutral failure messages for unclassified errors and redact
   const text = formatDoctorReport(report);
   assert.doesNotMatch(text, /alice@corp\.example|tenant-12345678|bearer-secret-token/);
   assert.doesNotMatch(JSON.stringify(report), /alice@corp\.example|tenant-12345678|bearer-secret-token/);
+
+  const ambiguous = await runDoctor({
+    nodeVersion: '26.1.0',
+    resolveAz: defaultAz,
+    async runCommand(file, args) {
+      if (file === 'git') return { stdout: 'git version 2.43.0\n', stderr: '' };
+      if (args[0] === 'version') return { stdout: JSON.stringify({ 'azure-cli': '2.93.0' }), stderr: '' };
+      if (args[0] === 'extension') {
+        throw Object.assign(new Error('Command failed'), { stderr: 'Python dependency is not installed' });
+      }
+      if (args[0] === 'account') {
+        throw Object.assign(new Error('Command failed'), { stderr: 'Cache read failed during sign in' });
+      }
+      throw new Error('Unexpected');
+    },
+  });
+  assert.equal(ambiguous.ok, false);
+  assert.equal(ambiguous.checks.find(c => c.id === 'az-devops')?.detail, 'could not inspect azure-devops extension');
+  assert.equal(ambiguous.checks.find(c => c.id === 'az-login')?.detail, 'could not inspect cached Azure CLI account');
 });
 
 test('runDoctor handles malformed JSON, resolveAz failures, and unexpected az version payloads without throwing', async () => {
@@ -207,25 +226,21 @@ test('runDoctor handles malformed JSON, resolveAz failures, and unexpected az ve
   assert.equal(malformedVersion.checks.find(c => c.id === 'az-login')?.status, 'skip');
 });
 
-test('doctor CLI runs on direct and symlink invocation and stays silent when imported', async () => {
+test('doctor CLI runs on direct invocation and stays silent when imported', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'rp-doctor-'));
-  const link = join(dir, 'doctor-link.js');
-  symlinkSync(DOCTOR_SCRIPT, link);
   const isolatedEnv = { ...process.env, PATH: dir };
   try {
-    for (const scriptPath of [DOCTOR_SCRIPT, link]) {
-      let failed;
-      try {
-        await execFileAsync(process.execPath, [scriptPath], { env: isolatedEnv, encoding: 'utf8' });
-      } catch (error) {
-        failed = error;
-      }
-      assert.ok(failed, `${scriptPath} should exit non-zero when git and az are missing`);
-      assert.equal(failed.code, 1);
-      assert.match(String(failed.stdout), /\[OK\]\s+Node\.js:/);
-      assert.match(String(failed.stdout), /\[FAIL\] Git: not found on PATH/);
-      assert.match(String(failed.stdout), /\[FAIL\] Azure CLI: not found on PATH/);
+    let failed;
+    try {
+      await execFileAsync(process.execPath, [DOCTOR_SCRIPT], { env: isolatedEnv, encoding: 'utf8' });
+    } catch (error) {
+      failed = error;
     }
+    assert.ok(failed, 'doctor CLI should exit non-zero when git and az are missing');
+    assert.equal(failed.code, 1);
+    assert.match(String(failed.stdout), /\[OK\]\s+Node\.js:/);
+    assert.match(String(failed.stdout), /\[FAIL\] Git: not found on PATH/);
+    assert.match(String(failed.stdout), /\[FAIL\] Azure CLI: not found on PATH/);
 
     const imported = await execFileAsync(
       process.execPath,
@@ -234,6 +249,37 @@ test('doctor CLI runs on direct and symlink invocation and stays silent when imp
     );
     assert.equal(imported.stdout, '');
     assert.equal(imported.stderr, '');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('doctor CLI runs when invoked through a symlink', async t => {
+  const dir = mkdtempSync(join(tmpdir(), 'rp-doctor-link-'));
+  const link = join(dir, 'doctor-link.js');
+  const isolatedEnv = { ...process.env, PATH: dir };
+  try {
+    try {
+      symlinkSync(DOCTOR_SCRIPT, link);
+    } catch (error) {
+      if (error && typeof error === 'object' && 'code' in error && (error.code === 'EPERM' || error.code === 'EACCES')) {
+        t.skip('Creating file symlinks requires elevated permissions on this host.');
+        return;
+      }
+      throw error;
+    }
+
+    let failed;
+    try {
+      await execFileAsync(process.execPath, [link], { env: isolatedEnv, encoding: 'utf8' });
+    } catch (error) {
+      failed = error;
+    }
+    assert.ok(failed, 'symlinked doctor CLI should exit non-zero when git and az are missing');
+    assert.equal(failed.code, 1);
+    assert.match(String(failed.stdout), /\[OK\]\s+Node\.js:/);
+    assert.match(String(failed.stdout), /\[FAIL\] Git: not found on PATH/);
+    assert.match(String(failed.stdout), /\[FAIL\] Azure CLI: not found on PATH/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

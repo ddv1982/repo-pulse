@@ -62,7 +62,7 @@ Not in this item: policy configuration changes and other administration events (
 ## Constraints
 
 - Watch whole repositories by default. Filters affect the Activity view and opening an item never marks it seen.
-- Keep one budget for all Azure reads (60 calls/min with four in flight over REST using an Azure CLI token, decided after `scripts/measure-budget.js` showed CLI-only reads falling behind from about 10 repositories; background merge-analysis jobs were later replaced by local PR linking and a one-call rewrite check). Measure with `scripts/measure-budget.js` before changing the polling model.
+- Keep one budget for all Azure reads (60 calls/min with four in flight over REST using an Azure CLI token, decided after `scripts/measure-budget.js` showed CLI-only reads falling behind from about 10 repositories; background merge-analysis jobs were later replaced by local PR linking and a rewrite check reading one reverse-range page per attempt). Measure with `scripts/measure-budget.js` before changing the polling model.
 - Keep zero runtime npm dependencies and no build step: plain Node 26 ES modules, `node:sqlite`, strict JSDoc type checking, `SafeHtml` templates, and native `@import` CSS modules.
 - Keep status labels readable without color. Preserve keyboard focus, visibility, and scroll across refreshes.
 - A successful build or merged PR does not establish deployment. Partial evidence should stay visible as partial evidence.
