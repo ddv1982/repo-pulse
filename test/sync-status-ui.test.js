@@ -4,6 +4,7 @@ import { renderHeader } from '../src/ui/header.js';
 import { renderRepositories } from '../src/ui/repositories.js';
 import { renderFeed } from '../src/ui/feed.js';
 import { renderSettings } from '../src/ui/settings.js';
+import { syncLabel } from '../src/ui/health.js';
 
 // themeSwitch() in the header reads the theme that web/theme.js puts on window.
 Object.assign(globalThis, { window: globalThis });
@@ -205,4 +206,12 @@ test('a failed filtered load reads as a load failure in the summary, as in the f
     assert.equal(markup.match(/<b class="zero">([^<]*)<\/b>/)?.[1], 'Activity could not load', JSON.stringify(filters));
     assert.match(markup, /<p class="big">Activity could not load<\/p>/);
   }
+});
+
+test('a throttling delay keeps the Azure DevOps name capitalised in the pill', () => {
+  assert.equal(
+    syncLabel({ state: 'delayed', reason: 'Azure DevOps asked us to slow down' }),
+    'Delayed · Azure DevOps asked us to slow down',
+  );
+  assert.equal(syncLabel({ state: 'delayed', reason: 'Checks are behind schedule' }), 'Delayed · checks are behind schedule');
 });

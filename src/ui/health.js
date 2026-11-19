@@ -29,7 +29,8 @@ function clock(value) {
 /** @param {AnySyncStatus} status */
 const reason = status => ('reason' in status && status.reason ? status.reason : '');
 /** @param {string} text */
-const lowerFirst = text => text.replace(/^\w/, c => c.toLowerCase());
+// A reason that starts with a product name, such as Azure DevOps, keeps its capital.
+const lowerFirst = text => (text.startsWith('Azure') ? text : text.replace(/^\w/, c => c.toLowerCase()));
 
 /** The short pill text. @param {AnySyncStatus} status */
 export function syncLabel(status) {
