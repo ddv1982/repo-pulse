@@ -139,3 +139,17 @@ test('the tip match upgrades a weaker link to the same PR and keeps its details'
   assert.equal(store.getEvent('push').data.mergeEvidence.prs[0].relationship, 'result-introduced', 'an engine save cannot downgrade it');
   store.close();
 });
+
+test('a completed analysis proving the push did not introduce the merge commit keeps the weaker link', () => {
+  const store = createStore();
+  store.saveRepo(repo);
+  store.insertEvents([moved('reset')]);
+  const weaker = { pullRequestId: 'old', targetRefName: 'refs/heads/main', relationship: 'constituent-related' };
+  store.commitEnrichment({
+    eventId: 'reset',
+    data: { mergeEvidence: { status: 'complete', introducedCommitIds: [], prs: [weaker] } },
+  });
+  store.insertEvents([completedPr('old')]);
+  assert.equal(store.getEvent('reset').data.mergeEvidence.prs[0].relationship, 'constituent-related');
+  store.close();
+});

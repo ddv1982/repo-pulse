@@ -16,7 +16,8 @@
 /**
  * Merge evidence that enrichment saves on a push; it is partial while enrichment runs.
  * @typedef {{ status?: string, checkedAt?: string, limitations?: string[], error?: string | { message?: string },
- *   prs?: EvidencePr[], commits?: EvidenceCommit[], refRanges?: EvidenceRange[] }} MergeEvidenceData
+ *   prs?: EvidencePr[], commits?: EvidenceCommit[], refRanges?: EvidenceRange[],
+ *   introducedCommitIds?: string[] }} MergeEvidenceData
  */
 /**
  * Provider fields of an event, plus enrichment. Each kind fills its own subset (see server/sync.js normalizers).

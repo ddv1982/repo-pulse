@@ -164,6 +164,10 @@ export function createStore(path = ':memory:') {
     if (!push) return;
     const evidence = /** @type {import('../src/activity.js').MergeEvidenceData} */ (push.data?.mergeEvidence || {});
     const prs = [...(evidence.prs || [])];
+    // Completed analysis that proves which commits the push introduced outranks tip identity: a branch reset back to
+    // an old merge commit matches the tip without introducing it.
+    const proven = evidence.status === 'complete' && Array.isArray(evidence.introducedCommitIds);
+    const introduced = new Set(((proven && evidence.introducedCommitIds) || []).map(commit => String(commit).toLowerCase()));
     let changed = false;
     for (const ref of mergeUpdates(push)) {
       const rows = q(`SELECT data FROM events WHERE repo_id=? AND json_extract(data,'$.kind')='pr'
@@ -172,6 +176,7 @@ export function createStore(path = ':memory:') {
       for (const pr of rows.map(readEventWithData)) {
         const key = `${pr.data.pullRequestId}:${ref.name}`;
         const index = prs.findIndex(item => `${item.pullRequestId ?? item.id}:${item.targetRefName}` === key);
+        if (proven && !introduced.has(ref.newObjectId.toLowerCase())) continue;
         const local = localPrLink(pr);
         if (index < 0) {
           prs.push(local);
