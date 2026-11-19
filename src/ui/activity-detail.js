@@ -2,6 +2,7 @@
 
 import { renderMergeEvidence } from './merge-evidence.js';
 import { groupActivity, isUnseen } from '../activity.js';
+import { activityBranch } from '../activity-branch.js';
 import {
   emptyHtml,
   html,
@@ -19,7 +20,7 @@ import {
   voteLabel,
 } from './format.js';
 import { renderTrail } from './activity-trail.js';
-import { activityHref } from './navigation.js';
+import { activityHref, repositoryHref } from './navigation.js';
 
 /** @typedef {import('../activity.js').ActivityEvent} ActivityEvent */
 /** @typedef {import('../activity.js').ActivityItem} ActivityItem */
@@ -31,7 +32,7 @@ import { activityHref } from './navigation.js';
 /** @typedef {import('../api.js').PushCommitsResponse | { error: string }} CommitsView */
 /** What a PR detail shows after "Load discussion and policies". @typedef {import('../api.js').PrReviewResponse | { error: string }} ReviewView */
 /** Data a detail page loaded on request: push commits for a push, review data for a PR. @typedef {CommitsView | ReviewView} LoadedView */
-/** @typedef {{ events: ActivityEvent[], repos: Repo[] }} DetailState */
+/** @typedef {{ events: ActivityEvent[], repos: Repo[], demo?: boolean }} DetailState */
 
 /** @param {string} value */
 function commit(value) {
@@ -102,15 +103,15 @@ function detailFields(record, repo, data, sha, pushId) {
 
 /**
  * @param {ActivityItem} record @param {Repo | undefined} repo @param {string} title
- * @param {ActivityEvent[]} matching
+ * @param {ActivityEvent[]} matching @param {HtmlValue} branchAction
  */
-function detailHead(record, repo, title, matching) {
+function detailHead(record, repo, title, matching, branchAction) {
   const ids = JSON.stringify(matching.map(event => event.id));
   const unseen = matching.some(isUnseen);
   const ack = matching.every(event => event.imported)
     ? emptyHtml
     : html`<button class="btn" data-action="ack-item" data-id="${record.id}" data-event-ids="${ids}">Mark ${unseen ? 'seen' : 'unseen'}</button>`;
-  return html`<div class="dhead"><div><h1>${title}</h1><div class="meta">${record.kind.startsWith('branch-') ? 'Branch' : labels[record.kind]} · ${repo?.name} · ${branchName(record.branch)}</div></div><div class="actions">${azureLink(record.url, 'Open in Azure DevOps', 'btn')}${ack}</div></div>`;
+  return html`<div class="dhead"><div><h1>${title}</h1><div class="meta">${record.kind.startsWith('branch-') ? 'Branch' : labels[record.kind]} · ${repo?.name} · ${branchName(record.branch)}</div></div><div class="actions">${branchAction}${azureLink(record.url, 'Open in Azure DevOps', 'btn')}${ack}</div></div>`;
 }
 
 /** @param {ActivityEvent[]} matching */
@@ -179,9 +180,14 @@ function detailData(record, repo, data, fields, pushId, loaded) {
 
 /**
  * @param {ActivityEvent | undefined} event @param {DetailState} state @param {LoadedView | undefined} commits
- * @param {{ returnRoute?: string, label?: string, matchingIds?: string[] }} [options]
+ * @param {{ returnRoute?: string, label?: string, matchingIds?: string[], checkouts?: Record<string, import('./checkout.js').CheckoutSnapshot> }} [options]
  */
-export function renderDetail(event, state, commits, { returnRoute = 'catchup', label = 'Back to New updates', matchingIds } = {}) {
+export function renderDetail(
+  event,
+  state,
+  commits,
+  { returnRoute = 'catchup', label = 'Back to New updates', matchingIds, checkouts } = {},
+) {
   const back = html`<a class="ghost sm back" data-action="back-to-results" href="${activityHref(returnRoute)}">← ${label}</a>`;
   if (!event) return html`${back}<div class="card empty"><h1>Activity not found</h1></div>`;
   const record = groupActivity(state.events).find(item => item.eventIds.includes(event.id)) || groupActivity([event])[0];
@@ -191,7 +197,13 @@ export function renderDetail(event, state, commits, { returnRoute = 'catchup', l
   const sha = data.sourceVersion || data.sourceCommit || data.commitId;
   const fields = detailFields(record, repo, data, sha, pushId);
   const matching = matchingIds ? record.events.filter(item => matchingIds.includes(item.id)) : record.events;
-  return html`<div class="crumb">${back}<span>${repo?.name}</span></div><section class="card">${detailHead(record, repo, activityTitle(record), matching)}
+  const branch = !state.demo && repo?.localPath ? activityBranch(event) : null;
+  const branchAction = !branch
+    ? emptyHtml
+    : checkouts?.[event.repoId]?.branch === branch
+      ? html`<a class="btn" id="activity-branch-action" href="${repositoryHref(event.repoId)}">View in Repositories</a>`
+      : html`<button class="btn" type="button" id="activity-branch-action" data-action="switch-activity-branch">Switch branch…</button>`;
+  return html`<div class="crumb">${back}<span>${repo?.name}</span></div><section class="card">${detailHead(record, repo, activityTitle(record), matching, branchAction)}
     ${detailFacts(record, activityTone(record), matching)}
     ${detailData(record, repo, data, fields, pushId, commits)}</section>`;
 }

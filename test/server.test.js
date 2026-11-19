@@ -188,6 +188,33 @@ test('a disabled repository disappears from activity and event details until ena
   assert.equal((await fetch(`${url}/api/events/${encodeURIComponent(eventId)}`)).status, 200);
 });
 
+test('Activity checkout mutations resolve the target from an event in the requested repository', async t => {
+  const calls = [];
+  const checkoutGit = {
+    status: async () => ({ state: 'not-linked' }),
+    switchToActivityBranch: async (repo, branch, expected) => {
+      calls.push({ repo: repo.id, branch, expected });
+      return { checkout: { branch } };
+    },
+  };
+  const { store, mutate } = await fixture(t, { demo: false, checkoutGit });
+  const event = {
+    id: 'switchable-branch',
+    repoId: 'demo-billing',
+    kind: 'branch-created',
+    data: { name: 'refs/heads/feature/topic' },
+  };
+  store.insertEvents([event, { ...event, id: 'deleted-branch', kind: 'branch-deleted' }]);
+  const expected = { branch: 'main', head: 'a'.repeat(40), upstream: null, identity: 'fixture', switchIdentity: 'git-directory' };
+  const input = { operation: 'switch-activity', eventId: event.id, branch: 'ignored', expected };
+  const endpoint = '/api/repos/demo-billing/checkout';
+  assert.equal((await mutate(endpoint, { ...input, expected: { ...expected, switchIdentity: undefined } })).status, 400);
+  assert.equal((await mutate(endpoint, { ...input, eventId: 'deleted-branch' })).status, 400);
+  assert.equal((await mutate(endpoint, { ...input, eventId: 'demo-branch-1' })).status, 404);
+  assert.equal((await mutate(endpoint, input)).status, 200);
+  assert.deepEqual(calls, [{ repo: 'demo-billing', branch: 'feature/topic', expected }]);
+});
+
 test('checkout status skips disabled repositories', async t => {
   const checked = [];
   const checkoutGit = {

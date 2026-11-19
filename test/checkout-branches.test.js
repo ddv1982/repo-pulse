@@ -1,13 +1,231 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { createCheckoutGit } from '../server/checkout-git.js';
-import { git, squashFixture } from './fixtures/checkout.js';
+import { checkoutFixture, git, squashFixture } from './fixtures/checkout.js';
 
 const exec = promisify(execFile);
+
+test('Activity switch keeps the commits and upstream of an existing local feature branch', async t => {
+  const { source, local, repo, checkoutGit, original, commit } = checkoutFixture(t);
+  const branch = 'feature/topic';
+  git(source, 'switch', '-c', branch);
+  git(source, 'push', 'origin', branch);
+  git(local, 'fetch', 'origin', branch);
+  git(local, 'switch', '--track', `origin/${branch}`);
+  const localTip = commit(local, 'draft.txt', 'local draft');
+  git(local, 'switch', 'main');
+  const { checkout } = await checkoutGit.switchToActivityBranch(repo, branch, await checkoutGit.status(repo));
+  assert.equal(checkout.branch, branch);
+  assert.equal(checkout.head, localTip);
+  assert.equal(checkout.upstream, `origin/${branch}`);
+  assert.equal(git(local, 'rev-parse', 'main'), original);
+});
+
+test('Activity switch refuses dirty, stale, occupied and missing destination checkouts', async t => {
+  const { source, local, remote, repo, checkoutGit } = checkoutFixture(t);
+  const branch = 'feature/topic';
+  git(source, 'switch', '-c', branch);
+  git(source, 'push', 'origin', branch);
+  git(local, 'fetch', 'origin', branch);
+  git(local, 'branch', '--track', branch, `origin/${branch}`);
+  const expected = await checkoutGit.status(repo);
+  const switchBranch = () => checkoutGit.switchToActivityBranch(repo, branch, expected);
+
+  writeFileSync(join(local, 'feature.txt'), 'unsaved');
+  await assert.rejects(switchBranch(), /save or stash/i);
+  assert.equal(readFileSync(join(local, 'feature.txt'), 'utf8'), 'unsaved');
+  git(local, 'restore', 'feature.txt');
+  await assert.rejects(checkoutGit.switchToActivityBranch(repo, branch, { ...expected, head: 'a'.repeat(40) }), /checkout changed/i);
+
+  const worktree = join(local, '..', 'occupied');
+  git(local, 'worktree', 'add', worktree, branch);
+  await assert.rejects(switchBranch(), /occupied worktree/);
+  git(local, 'worktree', 'remove', worktree);
+
+  git(local, 'branch', '--set-upstream-to=origin/main', branch);
+  await assert.rejects(switchBranch(), /different upstream/);
+  git(local, 'branch', `--set-upstream-to=origin/${branch}`, branch);
+  git(remote, 'update-ref', '-d', `refs/heads/${branch}`);
+  await assert.rejects(switchBranch(), /no longer exists/);
+  assert.equal(git(local, 'branch', '--show-current'), 'main');
+});
+
+test('Activity switch rejects misrouted fetch mappings and dangling symbolic tracking refs before fetching', async t => {
+  const { source, local, repo, checkoutGit } = checkoutFixture(t);
+  git(source, 'switch', '-c', 'topic');
+  git(source, 'push', 'origin', 'topic');
+  git(local, 'config', 'remote.origin.fetch', '+refs/heads/main:refs/remotes/origin/main');
+  git(local, 'config', '--add', 'remote.origin.fetch', '+refs/heads/other:refs/remotes/origin/topic');
+  const expected = await checkoutGit.status(repo);
+  const switchBranch = () => checkoutGit.switchToActivityBranch(repo, 'topic', expected);
+  await assert.rejects(switchBranch(), /does not map this branch/);
+  assert.throws(() => git(local, 'show-ref', '--verify', 'refs/remotes/origin/topic'));
+
+  git(local, 'config', '--unset-all', 'remote.origin.fetch');
+  git(local, 'config', 'remote.origin.fetch', '+refs/heads/*:refs/remotes/origin/*');
+  git(local, 'symbolic-ref', 'refs/remotes/origin/topic', 'refs/remotes/origin/absent');
+  await assert.rejects(switchBranch(), /tracking ref is symbolic/);
+  assert.throws(() => git(local, 'show-ref', '--verify', 'refs/remotes/origin/absent'));
+  assert.equal(git(local, 'branch', '--show-current'), 'main');
+});
+
+test('Activity switch preserves an existing tracking tip for later rewrite detection', async t => {
+  const { source, local, repo, checkoutGit, commit, original } = checkoutFixture(t);
+  git(source, 'switch', '-c', 'topic');
+  const oldTip = commit(source, 'topic.txt', 'old topic');
+  git(source, 'push', 'origin', 'topic');
+  git(local, 'fetch', 'origin', 'topic');
+  git(local, 'branch', 'alternate');
+  git(local, 'branch', '--set-upstream-to=origin/topic', 'alternate');
+  git(source, 'reset', '--hard', original);
+  const newTip = commit(source, 'topic.txt', 'rewritten topic');
+  git(source, 'push', '--force-with-lease', 'origin', 'topic');
+
+  const switched = await checkoutGit.switchToActivityBranch(repo, 'topic', await checkoutGit.status(repo));
+  assert.equal(switched.checkout.branch, 'topic');
+  assert.equal(switched.checkout.head, newTip);
+  assert.equal(git(local, 'rev-parse', 'origin/topic'), oldTip);
+  git(local, 'switch', 'alternate');
+  const pulled = await checkoutGit.update(repo, 'pull', await checkoutGit.status(repo));
+  assert.equal(pulled.checkout.state, 'upstream-rewritten');
+  assert.equal(git(local, 'rev-parse', 'HEAD'), original);
+});
+
+test('Activity creates a branch at its verified remote tip even when the tracking cache contains another branch', async t => {
+  const { source, local, repo, checkoutGit, commit } = checkoutFixture(t);
+  git(source, 'switch', '-c', 'topic');
+  const topic = commit(source, 'topic.txt', 'correct topic');
+  git(source, 'push', 'origin', 'topic');
+  git(source, 'switch', '-c', 'other', 'main');
+  const other = commit(source, 'other.txt', 'unrelated branch');
+  git(source, 'push', 'origin', 'other');
+  git(local, 'config', '--add', 'remote.origin.fetch', '+refs/heads/other:refs/remotes/origin/topic');
+  git(local, 'fetch', 'origin', 'other');
+  assert.equal(git(local, 'rev-parse', 'origin/topic'), other);
+
+  const result = await checkoutGit.switchToActivityBranch(repo, 'topic', await checkoutGit.status(repo));
+  assert.equal(result.message, undefined);
+  assert.equal(result.checkout.head, topic);
+  assert.equal(git(local, 'rev-parse', 'origin/topic'), other);
+});
+
+test('Activity verifies the remote tip again after fetching the new branch objects', async t => {
+  const { source, remote, local, repo, commit } = checkoutFixture(t);
+  git(source, 'switch', '-c', 'topic');
+  commit(source, 'topic.txt', 'advertised tip');
+  git(source, 'push', 'origin', 'topic');
+  let latest;
+  const checkoutGit = createCheckoutGit({
+    matchesRemote: url => url === remote,
+    run: async (path, args) => {
+      if (args[2] === 'fetch' && !latest) {
+        latest = commit(source, 'topic.txt', 'tip at fetch');
+        git(source, 'push', 'origin', 'topic');
+      }
+      return git(path, ...args);
+    },
+  });
+  const result = await checkoutGit.switchToActivityBranch(repo, 'topic', await checkoutGit.status(repo));
+  assert.ok(latest);
+  assert.equal(result.message, undefined);
+  assert.equal(git(local, 'rev-parse', 'HEAD'), latest);
+});
+
+test('Activity confirmation belongs to the Git directory that was shown', async t => {
+  const { source, remote, local, repo, checkoutGit } = checkoutFixture(t);
+  git(source, 'switch', '-c', 'topic');
+  git(source, 'push', 'origin', 'topic');
+  const expected = await checkoutGit.status(repo);
+  renameSync(local, `${local}-previous`);
+  git(source, 'clone', '--no-local', remote, local);
+
+  await assert.rejects(checkoutGit.switchToActivityBranch(repo, 'topic', expected), /checkout changed/i);
+  assert.equal(git(local, 'branch', '--show-current'), 'main');
+  assert.equal(git(`${local}-previous`, 'branch', '--show-current'), 'main');
+});
+
+test('Activity creates the explicit upstream even if another fetch mapping appears before Git switches', async t => {
+  const { source, remote, local, repo } = checkoutFixture(t);
+  const name = 'group/topic';
+  git(source, 'switch', '-c', name);
+  git(source, 'push', 'origin', name);
+  const checkoutGit = createCheckoutGit({
+    matchesRemote: url => url === remote,
+    run: async (path, args) => {
+      if (args[2] === 'switch') git(local, 'remote', 'add', 'origin/group', remote);
+      return git(path, ...args);
+    },
+  });
+  const result = await checkoutGit.switchToActivityBranch(repo, name, await checkoutGit.status(repo));
+  assert.equal(result.message, undefined);
+  assert.equal(result.checkout.branch, name);
+  assert.equal(git(local, 'config', 'branch.group/topic.remote'), 'origin');
+  assert.equal(git(local, 'config', 'branch.group/topic.merge'), 'refs/heads/group/topic');
+});
+
+test('Activity switch catches a symbolic tracking ref introduced during upstream setup', async t => {
+  const { source, remote, local, repo } = checkoutFixture(t);
+  git(source, 'switch', '-c', 'topic');
+  git(source, 'push', 'origin', 'topic');
+  const tracking = 'refs/remotes/origin/topic';
+  const absent = 'refs/remotes/origin/absent';
+  const checkoutGit = createCheckoutGit({
+    matchesRemote: url => url === remote,
+    run: async (path, args) => {
+      if (args[0] === 'config' && args[3] === 'branch.topic.merge') git(local, 'symbolic-ref', tracking, absent);
+      return git(path, ...args);
+    },
+  });
+  const result = await checkoutGit.switchToActivityBranch(repo, 'topic', await checkoutGit.status(repo));
+  assert.match(result.message, /could not be verified/);
+  assert.equal(git(local, 'symbolic-ref', tracking), absent);
+  assert.throws(() => git(local, 'show-ref', '--verify', absent));
+});
+
+test('Activity rechecks the Git directory after validating the destination', async t => {
+  const { source, remote, local, repo } = checkoutFixture(t);
+  git(source, 'switch', '-c', 'topic');
+  git(source, 'push', 'origin', 'topic');
+  let validations = 0;
+  const checkoutGit = createCheckoutGit({
+    matchesRemote: url => url === remote,
+    run: async (path, args) => {
+      if (args[0] === 'ls-remote' && args[1] === '--get-url' && ++validations === 2) {
+        renameSync(local, `${local}-previous`);
+        git(source, 'clone', '--no-local', remote, local);
+      }
+      return git(path, ...args);
+    },
+  });
+  await assert.rejects(checkoutGit.switchToActivityBranch(repo, 'topic', await checkoutGit.status(repo)), /checkout changed/i);
+  assert.equal(git(local, 'branch', '--show-current'), 'main');
+  assert.equal(git(`${local}-previous`, 'branch', '--show-current'), 'main');
+});
+
+test('Activity reports a partial switch if the checkout is replaced during final verification', async t => {
+  const { source, remote, local, repo } = checkoutFixture(t);
+  git(source, 'switch', '-c', 'topic');
+  git(source, 'push', 'origin', 'topic');
+  let validations = 0;
+  const checkoutGit = createCheckoutGit({
+    matchesRemote: url => url === remote,
+    run: async (path, args) => {
+      if (args[0] === 'ls-remote' && args[1] === '--get-url' && ++validations === 3) {
+        renameSync(local, `${local}-previous`);
+        git(source, 'clone', '--no-local', remote, local);
+      }
+      return git(path, ...args);
+    },
+  });
+  const result = await checkoutGit.switchToActivityBranch(repo, 'topic', await checkoutGit.status(repo));
+  assert.match(result.message, /could not be verified/);
+  assert.equal(result.checkout.branch, 'main');
+  assert.equal(git(`${local}-previous`, 'branch', '--show-current'), 'topic');
+});
 
 async function setup(t, { followup = false, conflict = false, run } = {}) {
   const fixture = squashFixture(t);

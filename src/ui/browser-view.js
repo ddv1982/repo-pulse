@@ -13,7 +13,7 @@ import { emptyHtml, html } from './format.js';
 /** @typedef {import('./navigation.js').NavigationState & { connection: import('./connection.js').ConnectionState, refreshing?: boolean, savedFilterId: string }} BrowserUi */
 /**
  * @typedef {{ restored: ResultsContext | null, returnRoute: string, matchingIds?: string[], commits: import('./activity-detail.js').LoadedView | undefined,
- *   checkouts: Record<string, import('./checkout.js').CheckoutSnapshot>, isCurrent: () => boolean }} RenderOptions
+ *   checkouts: Record<string, import('./checkout.js').CheckoutSnapshot>, checkoutFocus?: string|null, isCurrent: () => boolean }} RenderOptions
  */
 /** web/theme.js publishes this before the modules load. @typedef {Window & { repoPulseTheme?: { apply: () => void } }} ThemedWindow */
 
@@ -37,7 +37,7 @@ export function createBrowserView({ page, header, demo, syncLive, picker, typeFi
   }
 
   /** @param {PageState} state @param {BrowserUi} ui @param {RenderOptions} options */
-  function renderPage(state, ui, { restored, returnRoute, matchingIds, commits, checkouts, isCurrent }) {
+  function renderPage(state, ui, { restored, returnRoute, matchingIds, commits, checkouts, checkoutFocus, isCurrent }) {
     const groups = restored?.groups || captureGroups();
     const focused = document.activeElement;
     const focusId = focused && page.contains(focused) ? focused.id : '';
@@ -58,6 +58,7 @@ export function createBrowserView({ page, header, demo, syncLive, picker, typeFi
           {
             returnRoute,
             matchingIds,
+            checkouts,
             label: returnRoute === 'activity' ? 'Back to All activity' : 'Back to New updates',
           },
         ),
@@ -84,6 +85,14 @@ export function createBrowserView({ page, header, demo, syncLive, picker, typeFi
     onPageRendered();
     // web/theme.js defines repoPulseTheme on window before the modules load; the optional call covers its absence.
     /** @type {ThemedWindow} */ (window).repoPulseTheme?.apply();
+    if (checkoutFocus) {
+      requestAnimationFrame(() => {
+        if (!isCurrent()) return;
+        const checkout = document.getElementById(`checkout-state-${checkoutFocus}`);
+        checkout?.scrollIntoView({ block: 'center' });
+        checkout?.focus({ preventScroll: true });
+      });
+    }
     if (restored) {
       requestAnimationFrame(() => {
         if (!isCurrent()) return;

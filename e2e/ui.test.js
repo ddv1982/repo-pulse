@@ -7,6 +7,7 @@ import { join } from 'node:path';
 import { chromium, expect } from '@playwright/test';
 import { startApp, createApp } from '../server.js';
 import { TEST_KEY, fetchWithKey, rememberKey, rememberRuntime } from '../test/fixtures/access.js';
+import { checkoutFixture, git } from '../test/fixtures/checkout.js';
 
 const fetch = fetchWithKey;
 import { createStore } from '../server/store.js';
@@ -356,6 +357,83 @@ async function setupPicker(t, { existing = true } = {}) {
   if (existing) await page.locator('#add-repositories').click();
   return { page, store, calls };
 }
+
+test('a New branch detail switches the linked checkout, then opens its repository for an explicit pull', async t => {
+  const { source, local, repo, checkoutGit, commit, original } = checkoutFixture(t);
+  const branch = 'feature/checkout-from-activity';
+  git(source, 'switch', '-c', branch);
+  const firstTip = commit(source, 'topic.txt', 'first topic commit');
+  git(source, 'push', 'origin', branch);
+  const store = createStore();
+  store.saveRepo({ ...repo, id: 'other', name: 'Another watched repository', localPath: undefined });
+  store.saveRepo(repo);
+  store.insertEvents([
+    {
+      id: 'new-topic',
+      repoId: repo.id,
+      kind: 'branch-created',
+      title: `New branch · ${branch}`,
+      branch,
+      actor: 'Test',
+      time: new Date().toISOString(),
+      data: { name: `refs/heads/${branch}`, objectId: firstTip, evidence: 'snapshot' },
+    },
+  ]);
+  const provider = { checkConnection: async () => ({ available: true }) };
+  const sync = { status: () => ({ running: false, repos: {} }) };
+  const app = createApp({ store, provider, sync, checkoutGit, accessKey: TEST_KEY });
+  await new Promise(resolve => app.listen(0, '127.0.0.1', resolve));
+  const browser = await chromium.launch({ executablePath: await browserPath(), headless: true });
+  t.after(async () => {
+    await browser.close();
+    await new Promise(resolve => app.close(resolve));
+    store.close();
+  });
+  const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+  page.setDefaultTimeout(5000);
+  const errors = [];
+  page.on('pageerror', error => errors.push(error.message));
+  await rememberKey(page);
+  await page.goto(`http://127.0.0.1:${app.address().port}/#activity/all`);
+  await page.locator('.filters-box > summary').click();
+  const search = page.getByRole('searchbox', { name: 'Search activity' });
+  await search.fill('checkout-from-activity');
+  await page.getByRole('button', { name: new RegExp(`^New branch · ${branch}`) }).click();
+  await page.getByRole('button', { name: 'Switch branch…' }).click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog).toContainText(`Switch to ${branch}?`);
+  await expect(dialog).toContainText(local);
+  await expect(dialog).toContainText('from main');
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+  assert.equal(git(local, 'rev-parse', 'HEAD'), original);
+  await dialog.getByRole('button', { name: 'Switch branch', exact: true }).click();
+
+  await expect(page).toHaveURL(/#repositories\/repo$/);
+  const checkout = page.locator('#checkout-state-repo');
+  await expect(checkout).toContainText(branch);
+  await expect(checkout).toBeFocused();
+  assert.equal(git(local, 'rev-parse', 'HEAD'), firstTip);
+  assert.equal(git(local, 'config', `branch.${branch}.remote`), 'origin');
+  assert.equal(git(local, 'config', `branch.${branch}.merge`), `refs/heads/${branch}`);
+  assert.throws(() => git(local, 'show-ref', '--verify', `refs/remotes/origin/${branch}`));
+  const newerTip = commit(source, 'topic.txt', 'next topic commit');
+  git(source, 'push', 'origin', branch);
+  await checkout.getByRole('button', { name: 'Check for updates' }).click();
+  await expect(checkout).toContainText('1 commit behind');
+  assert.equal(git(local, 'rev-parse', 'HEAD'), firstTip);
+  await checkout.getByRole('button', { name: 'Pull', exact: true }).click();
+  await dialog.getByRole('button', { name: 'Pull', exact: true }).click();
+  await expect(checkout).toContainText('Up to date');
+  assert.equal(git(local, 'rev-parse', 'HEAD'), newerTip);
+
+  await page.goBack();
+  await expect(page.getByRole('link', { name: 'View in Repositories' })).toBeVisible();
+  git(local, 'switch', 'main');
+  await expect(page.getByRole('button', { name: 'Switch branch…' })).toBeVisible({ timeout: 12000 });
+  await page.getByRole('link', { name: /Back to All activity/ }).click();
+  await expect(page.locator('#feed-search')).toHaveValue('checkout-from-activity');
+  assert.deepEqual(errors, []);
+});
 
 test('first repository onboarding can reach Activity without a reload', async t => {
   const { page } = await setupPicker(t, { existing: false });

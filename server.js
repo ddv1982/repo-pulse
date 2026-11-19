@@ -18,7 +18,8 @@ import { createBackfill } from './server/backfill.js';
 import { createRewriteCheck } from './server/rewrite-check.js';
 import { createCheckoutLookup } from './server/checkout-advice.js';
 import { isBranchAction } from './server/checkout-branches.js';
-import { createCheckoutGit, isCheckoutIntent } from './server/checkout-git.js';
+import { createCheckoutGit, isCheckoutIntent, isSwitchIntent } from './server/checkout-git.js';
+import { activityBranch } from './src/activity-branch.js';
 import { browseFolders } from './server/folders.js';
 import { canOpenBrowser, openBrowser } from './server/open-browser.js';
 
@@ -82,9 +83,10 @@ import { canOpenBrowser, openBrowser } from './server/open-browser.js';
 /** GET /api/events/:id: the event and every event grouped with it. @typedef {{ event: HydratedEvent, events: HydratedEvent[] }} EventResponse */
 /** GET /api/checkouts: status per enabled repository id, empty in demo mode. */
 /** @typedef {Record<string, import('./server/checkout-git.js').CheckoutStatus>} CheckoutsResponse */
+/** GET /api/repos/:id/checkout/status. @typedef {import('./server/checkout-git.js').CheckoutStatus} CheckoutStatusResponse */
 /** @typedef {ReturnType<typeof createCheckoutGit>} CheckoutGit */
 /** POST /api/repos/:id/checkout. */
-/** @typedef {Awaited<ReturnType<CheckoutGit['update']>> | Awaited<ReturnType<CheckoutGit['branchAction']>>} CheckoutUpdateResponse */
+/** @typedef {Awaited<ReturnType<CheckoutGit['update']>> | Awaited<ReturnType<CheckoutGit['branchAction']>> | Awaited<ReturnType<CheckoutGit['switchToActivityBranch']>>} CheckoutUpdateResponse */
 /** GET /api/connection. @typedef {Awaited<ReturnType<AppProvider['checkConnection']>>} ConnectionResponse */
 /** @typedef {{ commitId: string, comment?: string }} PushCommit */
 /** GET /api/push/:repo/:id/commits. @typedef {{ items: PushCommit[], nextCursor: unknown, message?: string }} PushCommitsResponse */
@@ -447,6 +449,15 @@ export function createApp({
       },
     },
     {
+      method: 'GET',
+      path: /^\/api\/repos\/([^/]+)\/checkout\/status$/,
+      handler: async ({ res, params: [rawId] }) => {
+        if (demo) throw problem('Demo checkouts have no local status.', 403);
+        const repo = enabledRepoById(decodeURIComponent(rawId));
+        return json(res, 200, /** @satisfies {CheckoutStatusResponse} */ (await checkoutGit.status(repo)));
+      },
+    },
+    {
       method: 'POST',
       path: /^\/api\/repos\/([^/]+)\/checkout$/,
       handler: async ({ req, res, params: [rawId] }) => {
@@ -454,6 +465,17 @@ export function createApp({
         const repo = enabledRepoById(decodeURIComponent(rawId));
         const input = (await body(req)) || {};
         const { operation, expected } = input;
+        if (operation === 'switch-activity' && isSwitchIntent(expected) && typeof input.eventId === 'string') {
+          const event = store.getEvent(input.eventId);
+          if (event?.repoId !== repo.id) throw problem('Activity not found for this repository.', 404);
+          const branch = activityBranch(event);
+          if (!branch) throw problem('This activity does not identify one branch to switch to.');
+          return json(
+            res,
+            200,
+            /** @satisfies {CheckoutUpdateResponse} */ (await checkoutGit.switchToActivityBranch(repo, branch, expected)),
+          );
+        }
         if (isBranchAction(input) && isCheckoutIntent(expected)) {
           return json(res, 200, /** @satisfies {CheckoutUpdateResponse} */ (await checkoutGit.branchAction(repo, input, expected)));
         }

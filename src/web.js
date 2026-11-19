@@ -1,6 +1,7 @@
 import { request } from './api.js';
 import { joinActivitySearch, splitActivitySearch } from './ui/activity-search.js';
 import { createCheckoutActions } from './ui/checkout-actions.js';
+import { activityBranch } from './activity-branch.js';
 import { createCheckoutPanel } from './ui/checkout.js';
 import { connectionResult, createConnectionController } from './ui/connection.js';
 import { emptyHtml, html } from './ui/format.js';
@@ -112,7 +113,26 @@ function renderOptions() {
     matchingIds: navigation.matchingIds,
     commits: commitResults.get(ui.eventId),
     checkouts: checkoutPanel.snapshots,
+    checkoutFocus: navigation.takeCheckoutFocus(refresh.state.watched),
     isCurrent: () => navigation.view().generation === generation,
+  };
+}
+
+/** @returns {import('./ui/checkout-actions.js').ActivityCheckout|null} */
+function getActivityCheckout() {
+  if (ui.route !== 'event' || refresh.state.demo) return null;
+  const event = refresh.state.events.find(event => event.id === ui.eventId);
+  const repo = event && refresh.state.repos.find(repo => repo.id === event.repoId);
+  const branch = event && activityBranch(event);
+  if (!event || !repo?.localPath || !branch) return null;
+  const { generation } = navigation.view();
+  const hash = location.hash;
+  return {
+    repoId: repo.id,
+    localPath: repo.localPath,
+    eventId: event.id,
+    branch,
+    isCurrent: () => location.hash === hash && navigation.view().generation === generation,
   };
 }
 
@@ -162,6 +182,18 @@ const refresh = createRefreshController({
     }
     if (required('#notice').dataset.networkError) clearNotice();
     void checkoutPanel.refresh();
+    const activityCheckout = getActivityCheckout();
+    if (activityCheckout) {
+      void checkoutPanel
+        .read(activityCheckout.repoId)
+        .then(checkout => {
+          if (!activityCheckout.isCurrent() || busy || dialog.open) return;
+          const action = document.getElementById('activity-branch-action');
+          const viewing = checkout.branch === activityCheckout.branch;
+          if (action && viewing !== action instanceof HTMLAnchorElement) renderPage();
+        })
+        .catch(() => {});
+    }
   },
   onError(error, force) {
     showError(`Cannot refresh local state: ${error.message} Last loaded events remain visible.`, true);
@@ -275,7 +307,7 @@ function applySavedFilter({ filters }) {
 
 /** @type {Record<string, Action>} */
 const actions = {
-  ...createCheckoutActions({ checkoutPanel, confirm, toast }),
+  ...createCheckoutActions({ checkoutPanel, getActivityCheckout, confirm, toast }),
   'load-more-activity': async () => {
     await load({ force: true, more: true });
   },
