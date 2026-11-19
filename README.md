@@ -31,7 +31,7 @@ To try it without Azure, run `npm run demo` instead. Demo data is fictional and 
 1. Install the [Azure CLI](https://learn.microsoft.com/cli/azure/install-azure-cli).
 2. Add the Azure DevOps extension: `az extension add --name azure-devops`
 3. Sign in with the account that can read your repositories: `az login`
-4. Optional: run `npm run doctor` to verify Node.js, Git, Azure CLI, the `azure-devops` extension, and sign-in before starting.
+4. Optional: run `npm run doctor` to verify Node.js, Git, Azure CLI, the `azure-devops` extension, and a cached Azure CLI account before starting.
 
 Then start Repo Pulse and use **Settings → Check connection**. Your checkouts need an Azure DevOps remote (`dev.azure.com` over HTTPS or SSH). **Check for updates** and **Pull** use your normal Git credentials, such as your SSH key.
 

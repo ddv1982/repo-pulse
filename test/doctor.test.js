@@ -1,10 +1,18 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { execFile } from 'node:child_process';
+import { mkdtempSync, rmSync, symlinkSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { promisify } from 'node:util';
 import { formatDoctorReport, runDoctor } from '../scripts/doctor.js';
 
+const execFileAsync = promisify(execFile);
+const DOCTOR_SCRIPT = resolve(fileURLToPath(new URL('../scripts/doctor.js', import.meta.url)));
 const defaultAz = async () => ({ file: 'az', prefix: [], env: {} });
 
-test('runDoctor passes when Node 26+, Git, Azure CLI, azure-devops extension, and sign-in are ready', async () => {
+test('runDoctor passes when Node 26+, Git, Azure CLI, azure-devops extension, and cached account are ready', async () => {
   const calls = [];
   const report = await runDoctor({
     nodeVersion: '26.13.1',
@@ -41,7 +49,7 @@ test('runDoctor passes when Node 26+, Git, Azure CLI, azure-devops extension, an
   assert.match(text, /\[OK\]\s+Node\.js: v26\.13\.1/);
   assert.match(text, /\[OK\]\s+Azure CLI: 2\.93\.0/);
   assert.match(text, /\[OK\]\s+azure-devops extension: 1\.0\.2/);
-  assert.match(text, /\[OK\]\s+Azure CLI sign-in: signed in/);
+  assert.match(text, /\[OK\]\s+Azure CLI account: cached Azure CLI account found/);
   assert.doesNotMatch(text, /Private Corp Sub|sub-1/, 'doctor output must not echo subscription names or IDs');
 });
 
@@ -71,58 +79,108 @@ test('runDoctor reports old Node, missing Git, and missing Azure CLI while skipp
   const text = formatDoctorReport(report);
   assert.match(text, /requires Node\.js 26\+/);
   assert.match(text, /\[SKIP\] azure-devops extension/);
-  assert.match(text, /\[SKIP\] Azure CLI sign-in/);
+  assert.match(text, /\[SKIP\] Azure CLI account/);
 });
 
-test('runDoctor reports missing azure-devops extension and signed-out Azure CLI with exact fix commands', async () => {
+test('runDoctor forwards Windows pip-style launcher executable, prefix, env overrides, and cwd to all Azure calls', async () => {
+  const azCalls = [];
+  const inheritedSentinel = process.env.PATH;
   const report = await runDoctor({
     nodeVersion: '26.0.0',
-    resolveAz: async () => ({ file: 'C:\\az\\python.exe', prefix: ['-IBm', 'azure.cli'], env: { AZ_INSTALLER: 'MSI' } }),
-    async runCommand(file, args) {
+    resolveAz: async () => ({
+      file: 'C:\\venv\\Scripts\\python.exe',
+      prefix: ['-m', 'azure.cli'],
+      env: { AZ_INSTALLER: 'PIP', PYTHONPATH: 'C:\\venv\\Scripts\\src' },
+      cwd: 'C:\\venv\\Scripts',
+    }),
+    async runCommand(file, args, options) {
       if (file === 'git') return { stdout: 'git version 2.47.0\n', stderr: '' };
+      azCalls.push({ file, args, options });
       if (args.includes('version')) return { stdout: JSON.stringify({ 'azure-cli': '2.70.0' }), stderr: '' };
-      if (args.includes('extension')) throw new Error('The extension azure-devops is not installed.');
-      if (args.includes('account')) throw new Error('Please run az login');
+      if (args.includes('extension')) {
+        throw Object.assign(new Error('Command failed'), { stderr: 'The extension azure-devops is not installed.' });
+      }
+      if (args.includes('account')) {
+        throw Object.assign(new Error('Command failed'), { stderr: "Please run 'az login' to setup account." });
+      }
       throw new Error('Unexpected');
     },
   });
 
   assert.equal(report.ok, false);
+  assert.equal(azCalls.length, 3);
   assert.deepEqual(
-    report.checks.map(check => [check.id, check.status]),
+    azCalls.map(call => [call.file, call.args, call.options?.cwd]),
     [
-      ['node', 'ok'],
-      ['git', 'ok'],
-      ['az', 'ok'],
-      ['az-devops', 'fail'],
-      ['az-login', 'fail'],
+      ['C:\\venv\\Scripts\\python.exe', ['-m', 'azure.cli', 'version', '--output', 'json'], 'C:\\venv\\Scripts'],
+      [
+        'C:\\venv\\Scripts\\python.exe',
+        ['-m', 'azure.cli', 'extension', 'show', '--name', 'azure-devops', '--output', 'json'],
+        'C:\\venv\\Scripts',
+      ],
+      ['C:\\venv\\Scripts\\python.exe', ['-m', 'azure.cli', 'account', 'show', '--output', 'json'], 'C:\\venv\\Scripts'],
     ],
   );
+  for (const call of azCalls) {
+    assert.equal(call.options?.env?.AZ_INSTALLER, 'PIP');
+    assert.equal(call.options?.env?.PYTHONPATH, 'C:\\venv\\Scripts\\src');
+    assert.equal(call.options?.env?.PATH, inheritedSentinel);
+  }
   const text = formatDoctorReport(report);
+  assert.match(text, /\[FAIL\] azure-devops extension: not installed/);
   assert.match(text, /Fix: Run: az extension add --name azure-devops/);
+  assert.match(text, /\[FAIL\] Azure CLI account: not signed in/);
   assert.match(text, /Fix: Run: az login/);
 });
 
-test('runDoctor fails cleanly on malformed JSON and command timeouts', async () => {
+test('runDoctor uses neutral failure messages for unclassified errors and redacts private stderr details', async () => {
+  const secret = 'alice@corp.example tenant-12345678 bearer-secret-token';
   const report = await runDoctor({
     nodeVersion: '26.1.0',
     resolveAz: defaultAz,
     async runCommand(file, args) {
       if (file === 'git') throw Object.assign(new Error('timeout'), { killed: true });
       if (args[0] === 'version') return { stdout: JSON.stringify({ 'azure-cli': '2.93.0' }), stderr: '' };
-      if (args[0] === 'extension') return { stdout: 'not-json', stderr: '' };
-      if (args[0] === 'account') return { stdout: '{}', stderr: '' };
+      if (args[0] === 'extension') {
+        throw Object.assign(new Error(`stdout maxBuffer length exceeded ${secret}`), {
+          code: 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER',
+          stderr: `Traceback involving ${secret}`,
+        });
+      }
+      if (args[0] === 'account') {
+        throw Object.assign(new Error(`unexpected sqlite lock for ${secret}`), {
+          stderr: `Failed reading cache for ${secret}`,
+        });
+      }
       throw new Error('Unexpected');
     },
   });
 
   assert.equal(report.ok, false);
   assert.equal(report.checks.find(c => c.id === 'git')?.detail, 'timed out');
-  assert.equal(report.checks.find(c => c.id === 'az-devops')?.status, 'fail');
-  assert.equal(report.checks.find(c => c.id === 'az-login')?.status, 'fail');
+  assert.equal(report.checks.find(c => c.id === 'az-devops')?.detail, 'could not inspect azure-devops extension');
+  assert.equal(report.checks.find(c => c.id === 'az-login')?.detail, 'could not inspect cached Azure CLI account');
+  const text = formatDoctorReport(report);
+  assert.doesNotMatch(text, /alice@corp\.example|tenant-12345678|bearer-secret-token/);
+  assert.doesNotMatch(JSON.stringify(report), /alice@corp\.example|tenant-12345678|bearer-secret-token/);
 });
 
-test('runDoctor handles resolveAz failures and unexpected az version payloads without throwing', async () => {
+test('runDoctor handles malformed JSON, resolveAz failures, and unexpected az version payloads without throwing', async () => {
+  const malformed = await runDoctor({
+    nodeVersion: '26.1.0',
+    resolveAz: defaultAz,
+    async runCommand(file, args) {
+      if (file === 'git') return { stdout: 'git version 2.43.0\n', stderr: '' };
+      if (args[0] === 'version') return { stdout: JSON.stringify({ 'azure-cli': '2.93.0' }), stderr: '' };
+      if (args[0] === 'extension') return { stdout: 'not-json', stderr: '' };
+      if (args[0] === 'account') return { stdout: '{}', stderr: '' };
+      throw new Error('Unexpected');
+    },
+  });
+  assert.equal(malformed.ok, false);
+  assert.equal(malformed.checks.find(c => c.id === 'az-devops')?.detail, 'extension metadata could not be read');
+  assert.equal(malformed.checks.find(c => c.id === 'az-login')?.detail, 'account details could not be read');
+
   const resolverFailed = await runDoctor({
     nodeVersion: '26.1.0',
     resolveAz: async () => {
@@ -147,4 +205,36 @@ test('runDoctor handles resolveAz failures and unexpected az version payloads wi
   assert.equal(malformedVersion.ok, false);
   assert.equal(malformedVersion.checks.find(c => c.id === 'az')?.detail, 'returned unexpected output from `az version`');
   assert.equal(malformedVersion.checks.find(c => c.id === 'az-login')?.status, 'skip');
+});
+
+test('doctor CLI runs on direct and symlink invocation and stays silent when imported', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'rp-doctor-'));
+  const link = join(dir, 'doctor-link.js');
+  symlinkSync(DOCTOR_SCRIPT, link);
+  const isolatedEnv = { ...process.env, PATH: dir };
+  try {
+    for (const scriptPath of [DOCTOR_SCRIPT, link]) {
+      let failed;
+      try {
+        await execFileAsync(process.execPath, [scriptPath], { env: isolatedEnv, encoding: 'utf8' });
+      } catch (error) {
+        failed = error;
+      }
+      assert.ok(failed, `${scriptPath} should exit non-zero when git and az are missing`);
+      assert.equal(failed.code, 1);
+      assert.match(String(failed.stdout), /\[OK\]\s+Node\.js:/);
+      assert.match(String(failed.stdout), /\[FAIL\] Git: not found on PATH/);
+      assert.match(String(failed.stdout), /\[FAIL\] Azure CLI: not found on PATH/);
+    }
+
+    const imported = await execFileAsync(
+      process.execPath,
+      ['--input-type=module', '-e', `import ${JSON.stringify(new URL('../scripts/doctor.js', import.meta.url).href)};`],
+      { env: isolatedEnv, encoding: 'utf8' },
+    );
+    assert.equal(imported.stdout, '');
+    assert.equal(imported.stderr, '');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

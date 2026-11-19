@@ -1,7 +1,8 @@
 // @ts-check
 import { execFile } from 'node:child_process';
+import { realpathSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { promisify } from 'node:util';
 import { resolveAzCommand } from '../server/azure-cli.js';
 
@@ -48,6 +49,14 @@ function isTimeout(error) {
   return Boolean(
     error && typeof error === 'object' && (('killed' in error && error.killed) || ('code' in error && error.code === 'ETIMEDOUT')),
   );
+}
+
+/** @param {unknown} error */
+function errorText(error) {
+  if (!error || typeof error !== 'object') return '';
+  const stderr = 'stderr' in error ? String(error.stderr || '') : '';
+  const message = 'message' in error ? String(error.message || '') : '';
+  return `${stderr}\n${message}`;
 }
 
 /** @param {AzCommand} az @param {CommandRunner} runCommand @param {string[]} args */
@@ -138,12 +147,15 @@ async function checkDevopsExtension(az, runCommand) {
       fix: 'Run: az extension add --name azure-devops',
     };
   } catch (error) {
+    const missing = /not installed|extension.*not found|could not find.*extension/i.test(errorText(error));
     return {
       id: 'az-devops',
       label: 'azure-devops extension',
       status: 'fail',
-      detail: isTimeout(error) ? 'timed out' : 'not installed',
-      fix: 'Run: az extension add --name azure-devops',
+      detail: isTimeout(error) ? 'timed out' : missing ? 'not installed' : 'could not inspect azure-devops extension',
+      fix: missing
+        ? 'Run: az extension add --name azure-devops'
+        : 'Check your Azure CLI installation or run: az extension add --name azure-devops',
     };
   }
 }
@@ -154,22 +166,23 @@ async function checkAzureLogin(az, runCommand) {
     const { stdout } = await runAz(az, runCommand, ['account', 'show', '--output', 'json']);
     const parsed = parseJsonObject(stdout);
     if (parsed && (parsed.id || parsed.name || parsed.user)) {
-      return { id: 'az-login', label: 'Azure CLI sign-in', status: 'ok', detail: 'signed in' };
+      return { id: 'az-login', label: 'Azure CLI account', status: 'ok', detail: 'cached Azure CLI account found' };
     }
     return {
       id: 'az-login',
-      label: 'Azure CLI sign-in',
+      label: 'Azure CLI account',
       status: 'fail',
       detail: 'account details could not be read',
       fix: 'Run: az login',
     };
   } catch (error) {
+    const signedOut = /please run ['"`]?az login|az login|not logged in|no subscription found|sign in/i.test(errorText(error));
     return {
       id: 'az-login',
-      label: 'Azure CLI sign-in',
+      label: 'Azure CLI account',
       status: 'fail',
-      detail: isTimeout(error) ? 'timed out' : 'not signed in',
-      fix: 'Run: az login',
+      detail: isTimeout(error) ? 'timed out' : signedOut ? 'not signed in' : 'could not inspect cached Azure CLI account',
+      fix: signedOut ? 'Run: az login' : 'Check your Azure CLI installation or run: az login',
     };
   }
 }
@@ -193,7 +206,7 @@ export async function runDoctor({
   if (!az) {
     checks.push(
       { id: 'az-devops', label: 'azure-devops extension', status: 'skip', detail: 'skipped (Azure CLI unavailable)' },
-      { id: 'az-login', label: 'Azure CLI sign-in', status: 'skip', detail: 'skipped (Azure CLI unavailable)' },
+      { id: 'az-login', label: 'Azure CLI account', status: 'skip', detail: 'skipped (Azure CLI unavailable)' },
     );
     return { ok: false, checks };
   }
@@ -219,7 +232,18 @@ export function formatDoctorReport(report) {
   return lines.join('\n');
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
+/** @param {string | undefined} entryPath */
+function isMainEntry(entryPath) {
+  if ('main' in import.meta && typeof import.meta.main === 'boolean') return import.meta.main;
+  if (!entryPath) return false;
+  try {
+    return realpathSync(resolve(entryPath)) === realpathSync(fileURLToPath(import.meta.url));
+  } catch {
+    return pathToFileURL(resolve(entryPath)).href === import.meta.url;
+  }
+}
+
+if (isMainEntry(process.argv[1])) {
   const report = await runDoctor();
   console.log(formatDoctorReport(report));
   if (!report.ok) process.exitCode = 1;
