@@ -1,7 +1,6 @@
 // @ts-check
 
 /** @typedef {import('./azure-client.js').AzureProvider} AzureProvider */
-/** @typedef {import('./store.js').Repository} Repository */
 /** One moved branch of a live push, checked once for commits the new tip no longer reaches. */
 /**
  * @typedef {{ id: string, type: 'rewrite', repoId: string, eventId: string, ref: string, oldObjectId: string,
@@ -23,8 +22,6 @@ const iso = ms => new Date(ms).toISOString();
  * @param {{ store: RewriteStore, provider: Pick<AzureProvider, 'droppedCommits'>, now?: () => number }} options
  */
 export function createRewriteCheck({ store, provider, now = Date.now }) {
-  /** @param {RewriteJob} job @param {RewriteResult} rewrite */
-  const save = (job, rewrite) => store.saveRewriteResult({ eventId: job.eventId, jobId: job.id, rewrite });
   // A check whose result could not be stored waits here, since a database that refuses writes cannot reschedule it.
   /** @type {Map<string, { at: number, result?: RewriteResult }>} */
   const deferred = new Map();
@@ -67,7 +64,7 @@ export function createRewriteCheck({ store, provider, now = Date.now }) {
         result = { ref: job.ref, status: 'unknown' };
       }
     try {
-      save(job, result);
+      store.saveRewriteResult({ eventId: job.eventId, jobId: job.id, rewrite: result });
       deferred.delete(job.id);
     } catch {
       // Only Azure errors count as attempts, so a failed write never turns a proven result into unknown.

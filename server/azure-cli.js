@@ -77,17 +77,6 @@ function allowed(args) {
   return RESOURCES[value('--area')]?.has(value('--resource')?.toLowerCase()) === true && args.includes('--api-version');
 }
 
-/**
- * @param {unknown} ids
- * @returns {string[]}
- */
-export function normalizeCommitIds(ids) {
-  if (!Array.isArray(ids) || ids.length > 100 || ids.some(id => typeof id !== 'string' || !/^[0-9a-f]{40}$/i.test(id))) {
-    throw cliError('INVALID_QUERY', 'Commit queries require at most 100 complete commit IDs.');
-  }
-  return [...new Set(ids.map(id => id.toLowerCase()))];
-}
-
 /** @param {string} path */
 const isFile = path =>
   stat(path).then(
@@ -188,7 +177,7 @@ export function createAzureCli({
   let timer,
     closed = false,
     totalStarts = 0,
-    // Azure DevOps asks for this wait in a Retry-After header, on a 429 or on a response that still succeeded.
+    // Azure DevOps asks for this wait in a Retry-After header, which any response can carry.
     throttledUntil = 0,
     /** @type {LastError | null} */
     lastError = null;

@@ -574,9 +574,6 @@ header.app {
 .t-crit {
   color: var(--critical);
 }
-.t-warn {
-  color: var(--warning);
-}
 .t-ok {
   color: var(--ok);
 }
@@ -931,11 +928,6 @@ ol.rows {
   font-weight: 700;
   letter-spacing: 0.04em;
   text-transform: uppercase;
-}
-.chip.part {
-  background: none;
-  border: 1px dotted var(--warning-solid);
-  color: var(--warning);
 }
 .chip.fail,
 .chip.okc,
