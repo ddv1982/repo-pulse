@@ -32,7 +32,7 @@ export { renderDetail } from './activity-detail.js';
 export function filterControls(ui, activity, presets = [], selectedId = '') {
   const desktop = globalThis.matchMedia?.('(min-width: 640px)').matches ?? true;
   const active = Number(Boolean(ui.search)) + Number(Boolean(ui.kind));
-  return html`<details class="filters-box" data-filter-panel ${desktop || ui.filtersOpen === true ? html`open` : emptyHtml}><summary class="btn sm">Filters${active ? ` · ${active}` : ''}</summary><div class="toolbar"><input id="feed-search" class="search" type="search" aria-label="Search activity" maxlength="300" aria-describedby="feed-search-help" placeholder="Search branch, commit, person or repository…" value="${ui.search}">
+  return html`<details class="filters-box" data-filter-panel ${desktop || ui.filtersOpen === true ? html`open` : emptyHtml}><summary class="btn sm">Filters${active ? ` · ${active}` : ''}</summary><div class="toolbar"><input id="feed-search" class="search" type="search" aria-label="Search activity" aria-describedby="feed-search-help" placeholder="Search branch, commit, person or repository…" value="${ui.search}">
     ${renderTypeFilter(ui.kind, activity?.filterOptions, activity?.loading)}
     <span class="spacer"></span><button class="btn sm" type="button" data-action="clear-filters">Clear filters</button></div><p class="help" id="feed-search-help">Separate terms with commas to match any. Use <code>people:</code> to match recorded names only.</p>${renderSavedFilters(presets, selectedId)}</details>`;
 }

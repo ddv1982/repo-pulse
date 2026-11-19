@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { joinActivitySearch } from '../src/ui/activity-search.js';
+import { joinActivitySearch, splitActivitySearch } from '../src/ui/activity-search.js';
 import { createActivityData, activityEvents } from '../src/ui/activity-data.js';
 
 const ui = { route: 'activity', repoIds: null, kind: '', search: '' };
@@ -148,4 +148,14 @@ test('the single search input preserves both parts of an existing saved filter',
     return { items: [], nextCursor: null, total: 0, newItems: 0, newUpdates: 0 };
   });
   await client.read({ ...ui, search: joinActivitySearch('release notes, main', 'Alice Morgan, Bob Smith') });
+});
+
+test('legacy search text containing reserved search syntax stays literal', () => {
+  for (const search of ['people:platform', 'main | PEOPLE:platform', '"quoted"', '\name "with quotes"']) {
+    for (const people of ['', 'Alice Morgan, Bob Smith']) {
+      assert.deepEqual(splitActivitySearch(joinActivitySearch(search, people)), { search, people });
+    }
+  }
+  const long = { search: 'a'.repeat(300), people: 'b'.repeat(300) };
+  assert.deepEqual(splitActivitySearch(joinActivitySearch(long.search, long.people)), long);
 });

@@ -213,6 +213,9 @@ export function createActivityQuery(db, hydrate, requireRepo, activityRevision) 
     if (!['all', 'new'].includes(view) || typeof search !== 'string' || typeof people !== 'string' || typeof kind !== 'string') {
       throw Object.assign(new Error('Invalid activity filter.'), { code: 'BAD_REQUEST' });
     }
+    if (search.length > 300) {
+      throw Object.assign(new Error('Enter up to 300 characters in Activity search.'), { code: 'BAD_REQUEST' });
+    }
     const pageSize = Math.max(1, Math.min(Number(limit) || 50, 200));
     const selected = repoIds ? [...new Set(repoIds)].sort() : undefined;
     selected?.forEach(requireRepo);

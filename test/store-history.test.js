@@ -798,6 +798,7 @@ test('comma-separated text search matches any term within the same repository sc
       ['alice'],
     );
     assert.equal(store.queryActivity({ ...scope, search: ', ,' }).total, 4);
+    assert.throws(() => store.queryActivity({ search: 'a,'.repeat(600) }), /300 characters/);
   } finally {
     store.close();
   }
