@@ -32,7 +32,8 @@ function connectionDetails(state, connection, repoId, result) {
 /** @param {PageState['diagnostics']} diagnostics @param {Partial<NonNullable<PageState['mergeQueue']>>} mergeQueue */
 function diagnosticSummary(diagnostics, mergeQueue) {
   const { startsLastMinute, limitPerMinute, running, concurrency, lastError } = diagnostics;
-  const { pending = 0, errors = 0 } = mergeQueue;
+  // Waiting merge checks are normal (every push queues one) and need nothing from the user; only failing ones are shown.
+  const { errors = 0 } = mergeQueue;
   const lag = diagnostics.sync && 'lag' in diagnostics.sync ? diagnostics.sync.lag : undefined;
   const cli = limitPerMinute
     ? `${e(startsLastMinute)} of ${e(limitPerMinute)} Azure calls in the last minute · ${e(running)} of ${e(concurrency)} in progress`
@@ -40,7 +41,7 @@ function diagnosticSummary(diagnostics, mergeQueue) {
   return `<dl class="diagnostic-summary">
             <div><dt>Azure calls</dt><dd>${cli}</dd></div>
             ${lag?.overdueStreams ? `<div><dt>Checks behind</dt><dd>${e(lag.overdueStreams)} checks waiting · up to ${e(Math.round(lag.maxDelayMs / 60000))} min late</dd></div>` : ''}
-            <div><dt>Merge checks</dt><dd>${e(pending)} pending${errors ? ` · ${e(errors)} retrying` : ''}</dd></div>
+            ${errors ? `<div><dt>Merge checks</dt><dd>${e(errors)} ${errors === 1 ? 'push' : 'pushes'} couldn’t be classified yet, retrying</dd></div>` : ''}
             ${lastError?.message ? `<div><dt>Last CLI issue</dt><dd>${e(lastError.message)}</dd></div>` : ''}
           </dl>`;
 }
