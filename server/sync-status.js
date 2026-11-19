@@ -68,7 +68,7 @@ export function syncStatus({ repos, streams, jobs, inProgress, settings, started
     if (failing?.error) return { state: 'problem', reason: failing.error.message, stream: failing.stream, ...since };
     const failingImport = jobs.find(
       ({ repoId: id, status, error, failures = 0 }) =>
-        id === repoId && status !== 'completed' && error && (failures >= 2 || LASTING.has(error.code)),
+        id === repoId && status !== 'completed' && error && error.code !== 'THROTTLED' && (failures >= 2 || LASTING.has(error.code)),
     );
     if (failingImport?.error) return { state: 'problem', reason: failingImport.error.message, stream: 'history', ...since };
     const behind = own.find(stream => behindBy(stream) !== null);

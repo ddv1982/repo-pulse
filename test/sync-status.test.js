@@ -385,6 +385,8 @@ test('a history import that keeps failing is a problem, not endless syncing', ()
     stream: 'history',
     since: ago(1),
   });
+  const throttled = { code: 'THROTTLED', message: 'Azure DevOps asked us to slow down. Retrying later.' };
+  assert.equal(status({ jobs: [{ repoId: 'a', status: 'retrying', failures: 5, error: throttled }] }).repos.a.state, 'syncing');
   const denied = { code: 'FORBIDDEN', message: 'No access to this repository.' };
   assert.equal(status({ jobs: [{ repoId: 'a', status: 'retrying', failures: 1, error: denied }] }).repos.a.state, 'problem');
 });
