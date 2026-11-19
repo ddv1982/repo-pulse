@@ -13,6 +13,7 @@ import { chromium, expect } from '@playwright/test';
 import { startApp, createApp } from '../server.js';
 import { createStore } from '../server/store.js';
 import { createSync } from '../server/sync.js';
+import { TEST_KEY } from '../test/fixtures/access.js';
 
 /** @typedef {import('../server.js').FoldersResponse} FoldersResponse */
 /** @typedef {import('../server.js').DiscoverResponse} DiscoverResponse */
@@ -129,6 +130,7 @@ test('the repository picker shows folder, checkout and remote names as text', as
     },
   };
   const server = createApp({
+    accessKey: TEST_KEY,
     store,
     provider,
     sync: createSync({ store, provider }),
@@ -140,7 +142,7 @@ test('the repository picker shows folder, checkout and remote names as text', as
     await new Promise(resolve => server.close(resolve));
     store.close();
   });
-  const page = await openPage(t, `http://127.0.0.1:${server.address().port}/#repositories`);
+  const page = await openPage(t, `http://127.0.0.1:${server.address().port}/?key=${TEST_KEY}#repositories`);
 
   const search = page.getByRole('combobox', { name: 'Search local repositories' });
   await search.focus();
@@ -201,7 +203,7 @@ test('toasts and the error banner show repository names and API messages as text
   });
   const name = probe('repo.name');
   runtime.store.saveRepo({ ...runtime.store.getRepo('demo-billing'), name });
-  const page = await openPage(t, `${runtime.url}/#repositories`);
+  const page = await openPage(t, `${runtime.launchUrl}#repositories`);
 
   const toggle = page.locator('[data-repo-toggle][data-id="demo-billing"]');
   await toggle.click();

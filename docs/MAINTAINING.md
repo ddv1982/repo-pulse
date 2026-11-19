@@ -4,7 +4,7 @@
 
 | Code | Responsibility |
 | --- | --- |
-| [server.js](../server.js) | Loopback HTTP, request validation, CSRF, and runtime wiring |
+| [server.js](../server.js) | Loopback HTTP, the access key, request validation, and runtime wiring |
 | [server/azure-cli.js](../server/azure-cli.js), [server/azure-rest.js](../server/azure-rest.js) and [server/azure-client.js](../server/azure-client.js) | Azure command allowlist, queue, token-based REST reads, endpoint queries, and paging |
 | [server/sync.js](../server/sync.js), [server/backfill.js](../server/backfill.js), and [server/enrichment.js](../server/enrichment.js) | Live polling, historical imports, and evidence collection |
 | [server/store.js](../server/store.js) | SQLite events, migrations, and atomic checkpoints |

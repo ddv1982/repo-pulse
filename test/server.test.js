@@ -1,12 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { request as httpRequest } from 'node:http';
 import { createStore } from '../server/store.js';
-import { createApp } from '../server.js';
+import { createApp, startApp } from '../server.js';
 import { seedDemo } from '../server/demo.js';
+import { TEST_KEY, keyedFetch } from './fixtures/access.js';
+
+const fetch = keyedFetch();
 
 async function fixture(t, { demo = true, ...options } = {}) {
   const directory = await mkdtemp(join(tmpdir(), 'repo-pulse-server-'));
@@ -27,6 +30,7 @@ async function fixture(t, { demo = true, ...options } = {}) {
     provider: { checkConnection: async () => ({ available: true, identity: 'test' }) },
     sync,
     demo,
+    accessKey: TEST_KEY,
     ...options,
   });
   await new Promise(resolve => app.listen(0, '127.0.0.1', resolve));
@@ -40,14 +44,14 @@ async function fixture(t, { demo = true, ...options } = {}) {
   const mutate = (path, data, options = {}) =>
     fetch(url + path, {
       method: 'POST',
-      headers: { 'content-type': 'application/json', 'x-repo-pulse-token': state.csrfToken },
+      headers: { 'content-type': 'application/json' },
       body: JSON.stringify(data),
       ...options,
     });
   return { store, app, url, state, mutate, calls };
 }
 
-test('serves real UI and blocks other origins, DNS rebinding, and mutation without token', async t => {
+test('serves real UI and blocks other origins, DNS rebinding, and API requests without the access key', async t => {
   const { url } = await fixture(t);
   const page = await fetch(url);
   assert.equal(page.status, 200);
@@ -63,10 +67,19 @@ test('serves real UI and blocks other origins, DNS rebinding, and mutation witho
     request.end();
   });
   assert.equal(hostileHostStatus, 403);
-  assert.equal(
-    (await fetch(url + '/api/ack', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{"ids":[]}' })).status,
-    403,
-  );
+  const ack = { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{"ids":[]}' };
+  for (const headers of [{}, { 'x-repo-pulse-key': 'wrong' }, { 'x-repo-pulse-key': TEST_KEY.slice(0, -1) + 'X' }]) {
+    const read = await globalThis.fetch(url + '/api/state', { headers });
+    assert.equal(read.status, 401);
+    assert.deepEqual(await read.json(), {
+      message: 'Open Repo Pulse with the link printed in the terminal where it runs.',
+      code: 'ACCESS_KEY',
+    });
+    assert.equal((await globalThis.fetch(url + '/api/ack', { ...ack, headers: { ...ack.headers, ...headers } })).status, 401);
+  }
+  assert.equal((await fetch(url + '/api/ack', ack)).status, 200);
+  assert.equal((await globalThis.fetch(url + '/api/state', { method: 'PUT' })).status, 401);
+  assert.equal((await globalThis.fetch(url + '/app.css')).status, 200);
   assert.equal((await fetch(url + '/package.json')).status, 404);
   assert.equal((await fetch(url + '/server/store.js')).status, 404);
 });
@@ -180,4 +193,26 @@ test('live mode cannot generate demo activity or expose arbitrary files', async 
   assert.equal((await mutate('/api/demo/event', {})).status, 404);
   assert.equal((await fetch(url + '/web/../server.js')).status, 404);
   assert.equal((await fetch(url + '/api/connection?organization=https://attacker.example')).status, 400);
+});
+
+test('the access key file is reused, kept owner-only and replaced when malformed', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'repo-pulse-key-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const file = join(directory, 'access-key');
+  const key = 'k'.repeat(43);
+  await writeFile(file, key, { mode: 0o644 });
+  const first = await startApp({ demo: true, port: 0, dataDir: directory });
+  await first.close();
+  assert.equal(new URL(first.launchUrl).searchParams.get('key'), key);
+  if (process.platform !== 'win32') assert.equal((await stat(file)).mode & 0o777, 0o600);
+  await writeFile(file, 'not a key');
+  const second = await startApp({ demo: true, port: 0, dataDir: directory });
+  await second.close();
+  const replaced = new URL(second.launchUrl).searchParams.get('key');
+  assert.match(replaced, /^[A-Za-z0-9_-]{43}$/);
+  assert.notEqual(replaced, key);
+  await writeFile(file, '');
+  const third = await startApp({ demo: true, port: 0, dataDir: directory });
+  await third.close();
+  assert.match(new URL(third.launchUrl).searchParams.get('key'), /^[A-Za-z0-9_-]{43}$/);
 });

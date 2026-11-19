@@ -1,9 +1,9 @@
 // @ts-check
 import { createServer } from 'node:http';
-import { readFile, mkdir } from 'node:fs/promises';
+import { readFile, mkdir, writeFile, chmod, rm, link } from 'node:fs/promises';
 import { resolve, dirname, extname, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { randomBytes } from 'node:crypto';
+import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { homedir } from 'node:os';
 import { createStore } from './server/store.js';
 import { createSync } from './server/sync.js';
@@ -48,6 +48,7 @@ import { browseFolders } from './server/folders.js';
  *   browse?: (input: unknown) => Promise<FoldersResponse>,
  *   checkoutGit?: ReturnType<typeof createCheckoutGit>,
  *   onStateRead?: () => void,
+ *   accessKey: string,
  * }} AppOptions
  */
 
@@ -68,7 +69,6 @@ import { browseFolders } from './server/folders.js';
  *   activityRevision: string,
  *   settings: { refreshEnabled: boolean, refreshResumedAt: number | null },
  *   demo: boolean,
- *   csrfToken: string,
  * }} StateResponse
  */
 /** GET /api/activity, built by server/activity-query.js. @typedef {import('./src/activity.js').ActivityPage} ActivityResponse */
@@ -186,8 +186,15 @@ export function createApp({
     },
   }),
   onStateRead = () => {},
+  accessKey,
 }) {
-  const csrfToken = randomBytes(32).toString('hex');
+  if (typeof accessKey !== 'string' || accessKey.length < 32) throw new Error('createApp needs an access key of at least 32 characters.');
+  const expectedKey = Buffer.from(accessKey);
+  /** @param {Request} req */
+  const hasAccessKey = req => {
+    const given = Buffer.from(String(req.headers['x-repo-pulse-key'] ?? ''));
+    return given.length === expectedKey.length && timingSafeEqual(given, expectedKey);
+  };
   /** @param {Response} res @param {number} status @param {unknown} data */
   const json = (res, status, data) =>
     res.writeHead(status, { 'content-type': 'application/json; charset=utf-8' }).end(JSON.stringify(data));
@@ -234,7 +241,6 @@ export function createApp({
               refreshResumedAt: /** @type {number | null} */ (store.getSetting('refreshResumedAt', null)),
             },
             demo,
-            csrfToken,
           }),
         );
       },
@@ -504,9 +510,10 @@ export function createApp({
       const path = url.pathname;
       if (req.method === 'GET' && (await staticFile(path, res))) return;
       if (!path.startsWith('/api/')) return json(res, 404, /** @satisfies {ErrorResponse} */ ({ message: 'Not found.' }));
+      // Every API request, reads included, carries the key from the launch link. A browser on another origin cannot add the header.
+      if (!hasAccessKey(req))
+        throw Object.assign(problem('Open Repo Pulse with the link printed in the terminal where it runs.', 401), { code: 'ACCESS_KEY' });
       if (!['GET', 'POST', 'PATCH', 'DELETE'].includes(req.method ?? '')) throw problem('Method not allowed.', 405);
-      if (req.method !== 'GET' && req.headers['x-repo-pulse-token'] !== csrfToken)
-        throw problem('Reload the page before making changes.', 403);
       for (const route of routes) {
         if (route.method !== req.method) continue;
         const match = typeof route.path === 'string' ? route.path === path && [path] : route.path.exec(path);
@@ -574,6 +581,7 @@ export async function startApp({ demo = false, port = 4317, dataDir = resolve(RO
     enrichment = createEnrichment({ store, provider: azure });
     backfill = createBackfill({ store, provider: azure, normalize: liveSync.normalize });
   }
+  const accessKey = await loadAccessKey(dataDir);
   const app = createApp({
     store,
     provider,
@@ -581,6 +589,7 @@ export async function startApp({ demo = false, port = 4317, dataDir = resolve(RO
     cli,
     backfill,
     demo,
+    accessKey,
     onStateRead: () => {
       lastClientAt = Date.now();
     },
@@ -598,22 +607,50 @@ export async function startApp({ demo = false, port = 4317, dataDir = resolve(RO
     await new Promise(resolveClose => app.close(resolveClose));
     store.close();
   };
-  return {
-    app,
-    store,
-    sync,
-    provider,
-    close,
-    url: `http://127.0.0.1:${/** @type {import('node:net').AddressInfo} */ (app.address()).port}`,
-  };
+  const url = `http://127.0.0.1:${/** @type {import('node:net').AddressInfo} */ (app.address()).port}`;
+  return { app, store, sync, provider, close, url, launchUrl: `${url}/?key=${accessKey}` };
+}
+
+/** One key per data directory, so the browser keeps working across restarts. @param {string} dataDir */
+async function loadAccessKey(dataDir) {
+  const file = resolve(dataDir, 'access-key');
+  for (let attempt = 0; attempt < 3; attempt++) {
+    /** @type {string | null} */
+    let saved = null;
+    try {
+      saved = (await readFile(file, 'utf8')).trim();
+    } catch (error) {
+      if (/** @type {NodeJS.ErrnoException} */ (error).code !== 'ENOENT') throw error;
+    }
+    if (saved !== null && /^[A-Za-z0-9_-]{43}$/.test(saved)) {
+      // Owner-only even if the file was created or copied with wider permissions.
+      await chmod(file, 0o600);
+      return saved;
+    }
+    // An empty or malformed file, for example from an interrupted first start, is replaced.
+    if (saved !== null) await rm(file, { force: true });
+    const key = randomBytes(32).toString('base64url');
+    const draft = `${file}.${randomBytes(6).toString('hex')}`;
+    await writeFile(draft, key, { mode: 0o600, flag: 'wx' });
+    try {
+      // Linking publishes the complete key only if no key file exists yet; a concurrent start reads the winner's key.
+      await link(draft, file);
+      return key;
+    } catch (error) {
+      if (/** @type {NodeJS.ErrnoException} */ (error).code !== 'EEXIST') throw error;
+    } finally {
+      await rm(draft, { force: true });
+    }
+  }
+  throw new Error(`Could not create ${file}.`);
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
   const port = Number(process.env.PORT || 4317);
   if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error('PORT must be an integer from 0 to 65535.');
   const runtime = await startApp({ demo: process.argv.includes('--demo'), port, dataDir: process.env.REPO_PULSE_DATA_DIR || undefined });
-  console.log(`Repo Pulse${process.argv.includes('--demo') ? ' · demo data, no Azure calls' : ''}: ${runtime.url}`);
-  console.log('Local only. Stop with Ctrl+C.');
+  console.log(`Repo Pulse${process.argv.includes('--demo') ? ' · demo data, no Azure calls' : ''}: ${runtime.launchUrl}`);
+  console.log('Open this link once; the browser remembers it. Local only. Stop with Ctrl+C.');
   let closing = false;
   const stop = async () => {
     if (!closing) {

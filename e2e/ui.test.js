@@ -6,6 +6,9 @@ import { tmpdir, homedir } from 'node:os';
 import { join } from 'node:path';
 import { chromium, expect } from '@playwright/test';
 import { startApp, createApp } from '../server.js';
+import { TEST_KEY, fetchWithKey, rememberKey, rememberRuntime } from '../test/fixtures/access.js';
+
+const fetch = fetchWithKey;
 import { createStore } from '../server/store.js';
 import { createSync } from '../server/sync.js';
 import { createAzureCli } from '../server/azure-cli.js';
@@ -34,7 +37,7 @@ async function selectActivityType(page, label) {
 
 async function setup(t, demo = true) {
   const directory = await mkdtemp(join(tmpdir(), 'repo-pulse-ui-'));
-  let runtime = await startApp({ demo, port: 0, dataDir: directory });
+  let runtime = rememberRuntime(await startApp({ demo, port: 0, dataDir: directory }));
   const browser = await chromium.launch({ executablePath: await browserPath(), headless: true });
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 }, colorScheme: 'light' });
   const errors = [];
@@ -48,7 +51,7 @@ async function setup(t, demo = true) {
     await rm(directory, { recursive: true, force: true });
     assert.deepEqual(errors, []);
   });
-  await page.goto(runtime.url);
+  await page.goto(runtime.launchUrl);
   await expect(page.getByRole('link', { name: 'Repo Pulse', exact: true })).toBeVisible();
   await mkdir('test-results', { recursive: true });
   return {
@@ -58,8 +61,9 @@ async function setup(t, demo = true) {
     },
     async restart() {
       await runtime.close();
-      runtime = await startApp({ demo, port: 0, dataDir: directory });
-      await page.goto(runtime.url);
+      runtime = rememberRuntime(await startApp({ demo, port: 0, dataDir: directory }));
+      // A new port is a new origin, so the browser needs the launch link again.
+      await page.goto(runtime.launchUrl);
     },
   };
 }
@@ -108,14 +112,13 @@ test('repo subset acknowledgement preserves hidden/incoming events and survives 
   await page.locator('[data-scope-repo="demo-shared"]').uncheck();
   await page.keyboard.press('Escape');
   await expect(page.locator('[data-event-id]')).toHaveCount(2);
-  const before = await (await fetch(app.runtime.url + '/api/state')).json();
   let incoming;
   await page.route(
     '**/api/ack',
     async route => {
       const response = await fetch(app.runtime.url + '/api/demo/event', {
         method: 'POST',
-        headers: { 'content-type': 'application/json', 'x-repo-pulse-token': before.csrfToken },
+        headers: { 'content-type': 'application/json' },
         body: '{}',
       });
       incoming = await response.json();
@@ -223,7 +226,7 @@ test('empty live startup detects existing CLI locally and prompts only local rep
   });
   const provider = createAzureClient({ cli });
   const sync = createSync({ store, provider });
-  const server = createApp({ store, provider, sync, cli });
+  const server = createApp({ store, provider, sync, cli, accessKey: TEST_KEY });
   let browser;
   const errors = [];
   t.after(async () => {
@@ -242,6 +245,7 @@ test('empty live startup detects existing CLI locally and prompts only local rep
   browser = await chromium.launch({ executablePath: await browserPath(), headless: true });
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
   page.on('pageerror', error => errors.push(error.message));
+  await rememberKey(page);
   const url = `http://127.0.0.1:${server.address().port}`;
   await page.goto(url);
   await expect(page.getByRole('heading', { name: 'Repositories', exact: true })).toBeVisible();
@@ -266,11 +270,10 @@ test('focused search keeps its value and selection while incoming matching activ
   await search.fill('hotfix/');
   await search.evaluate(input => input.setSelectionRange(2, 5));
   await expect(search).toBeFocused();
-  const state = await (await fetch(runtime.url + '/api/state')).json();
   const incoming = await (
     await fetch(runtime.url + '/api/demo/event', {
       method: 'POST',
-      headers: { 'content-type': 'application/json', 'x-repo-pulse-token': state.csrfToken },
+      headers: { 'content-type': 'application/json' },
       body: '{}',
     })
   ).json();
@@ -332,10 +335,11 @@ async function setupPicker(t, { existing = true } = {}) {
     },
   };
   const sync = createSync({ store, provider });
-  const server = createApp({ store, provider, sync, browse, discover: async () => ({ repositories, warnings: [] }) });
+  const server = createApp({ store, provider, sync, browse, discover: async () => ({ repositories, warnings: [] }), accessKey: TEST_KEY });
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   const browser = await chromium.launch({ executablePath: await browserPath(), headless: true });
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  await rememberKey(page);
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
   t.after(async () => {
@@ -1010,7 +1014,7 @@ test('Escape before the first state load does not throw', async t => {
     await stateHeld;
     await route.continue();
   });
-  await page.goto(runtime.url, { waitUntil: 'domcontentloaded' });
+  await page.goto(runtime.launchUrl, { waitUntil: 'domcontentloaded' });
   await page.keyboard.press('Escape');
   releaseState();
   await expect(page.locator('#repo-toggle')).toBeVisible();
@@ -1066,4 +1070,16 @@ test('a pull request detail loads its discussion and policy results only when as
   await expect(detail).toContainText('Build (required): failed');
   await expect(detail).toContainText('Comment requirements: passed');
   await expect(detail.getByRole('button', { name: 'Reload discussion and policies' })).toBeVisible();
+});
+
+test('the launch link stores the key and hides it, and a browser without the key is told where to find it', async t => {
+  const app = await setup(t);
+  const { page, runtime } = app;
+  assert.equal(new URL(page.url()).searchParams.has('key'), false);
+  await page.goto(runtime.url + '/#repositories');
+  await expect(page.getByRole('heading', { name: 'Repositories', exact: true })).toBeVisible();
+  const stranger = await page.context().browser().newPage();
+  t.after(() => stranger.close());
+  await stranger.goto(runtime.url + '/#activity/new');
+  await expect(stranger.getByText('Open Repo Pulse with the link printed in the terminal where it runs.').first()).toBeVisible();
 });

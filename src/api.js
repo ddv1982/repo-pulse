@@ -36,8 +36,30 @@
  */
 /** @typedef {{ method?: 'GET'|'POST'|'PATCH'|'DELETE', body?: Record<string, unknown> }} RequestOptions */
 
-/** @type {string|undefined} */
-let csrfToken;
+const KEY_STORAGE = 'repo-pulse-access-key';
+
+/** Takes the key from the launch link once, keeps it for later visits and removes it from the address bar. */
+function readAccessKey() {
+  const url = new URL(location.href);
+  const fromLink = url.searchParams.get('key');
+  if (fromLink) {
+    url.searchParams.delete('key');
+    history.replaceState(history.state, '', url.pathname + url.search + url.hash);
+    try {
+      localStorage.setItem(KEY_STORAGE, fromLink);
+    } catch {
+      /* Without storage the key still works until the page is closed. */
+    }
+    return fromLink;
+  }
+  try {
+    return localStorage.getItem(KEY_STORAGE) ?? '';
+  } catch {
+    return '';
+  }
+}
+
+const accessKey = readAccessKey();
 
 /**
  * @template {string} P
@@ -50,7 +72,7 @@ export async function request(path, { method = 'GET', body } = {}) {
     method,
     headers: {
       ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
-      ...(method === 'GET' ? {} : { 'X-Repo-Pulse-Token': csrfToken || '' }),
+      'X-Repo-Pulse-Key': accessKey,
     },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     signal: AbortSignal.timeout(45000),
@@ -67,6 +89,5 @@ export async function request(path, { method = 'GET', body } = {}) {
     throw new Error(
       value.message || value.error?.message || (typeof value.error === 'string' ? value.error : `Request failed (${response.status}).`),
     );
-  if (value.csrfToken) csrfToken = value.csrfToken;
   return value;
 }
