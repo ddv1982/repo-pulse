@@ -26,16 +26,15 @@ export { renderDetail } from './activity-detail.js';
 
 /** @typedef {import('./refresh.js').PageState} PageState */
 /** @typedef {import('../activity.js').ActivityItem} ActivityItem */
-/** @typedef {Pick<import('./navigation.js').NavigationState, 'route' | 'repoIds' | 'search' | 'people' | 'kind' | 'filtersOpen'>} FeedView */
+/** @typedef {Pick<import('./navigation.js').NavigationState, 'route' | 'repoIds' | 'search' | 'kind' | 'filtersOpen'>} FeedView */
 
-/** @param {Pick<FeedView, 'search' | 'people' | 'kind' | 'filtersOpen'>} ui @param {PageState['activity'] | undefined} activity @param {import('./saved-filters.js').SavedActivityFilter[]} [presets] @param {string} [selectedId] */
+/** @param {Pick<FeedView, 'search' | 'kind' | 'filtersOpen'>} ui @param {PageState['activity'] | undefined} activity @param {import('./saved-filters.js').SavedActivityFilter[]} [presets] @param {string} [selectedId] */
 export function filterControls(ui, activity, presets = [], selectedId = '') {
   const desktop = globalThis.matchMedia?.('(min-width: 640px)').matches ?? true;
-  const active = Number(Boolean(ui.search)) + Number(Boolean(ui.people)) + Number(Boolean(ui.kind));
-  return html`<details class="filters-box" data-filter-panel ${desktop || ui.filtersOpen === true ? html`open` : emptyHtml}><summary class="btn sm">Filters${active ? ` · ${active}` : ''}</summary><div class="toolbar"><input id="feed-search" class="search" type="search" aria-label="Search activity" maxlength="300" placeholder="Search branch, commit, person or repository…" value="${ui.search}">
-    <input id="feed-people" class="search" type="search" aria-label="People" placeholder="People, separated by commas" aria-describedby="feed-people-help" maxlength="300" value="${ui.people}">
+  const active = Number(Boolean(ui.search)) + Number(Boolean(ui.kind));
+  return html`<details class="filters-box" data-filter-panel ${desktop || ui.filtersOpen === true ? html`open` : emptyHtml}><summary class="btn sm">Filters${active ? ` · ${active}` : ''}</summary><div class="toolbar"><input id="feed-search" class="search" type="search" aria-label="Search activity" maxlength="300" aria-describedby="feed-search-help" placeholder="Search branch, commit, person or repository…" value="${ui.search}">
     ${renderTypeFilter(ui.kind, activity?.filterOptions, activity?.loading)}
-    <span class="spacer"></span><button class="btn sm" type="button" data-action="clear-filters">Clear filters</button></div><p class="help" id="feed-people-help">People matches any recorded name. Separate names with commas.</p>${renderSavedFilters(presets, selectedId)}</details>`;
+    <span class="spacer"></span><button class="btn sm" type="button" data-action="clear-filters">Clear filters</button></div><p class="help" id="feed-search-help">Separate terms with commas to match any. Use <code>people:</code> to match recorded names only.</p>${renderSavedFilters(presets, selectedId)}</details>`;
 }
 
 /** @param {ActivityItem} record @param {PageState} state */
@@ -80,7 +79,7 @@ function statusBanner(state, status) {
 /** @param {PageState} state @param {FeedView & {savedFilterId: string}} ui */
 export function renderFeed(state, ui) {
   const records = state.activity.items;
-  const hasQuery = Boolean(ui.search || ui.people || ui.kind);
+  const hasQuery = Boolean(ui.search || ui.kind);
   const shown = state.repos.filter(repo => ui.repoIds === null || ui.repoIds.includes(repo.id));
   // Until every shown repository is synced, an empty or short list does not prove that nothing changed.
   const partial = shown.some(repo => state.syncStatus.repos[repo.id]?.state !== 'synced');

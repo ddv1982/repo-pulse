@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { joinActivitySearch } from '../src/ui/activity-search.js';
 import { createActivityData, activityEvents } from '../src/ui/activity-data.js';
 
 const ui = { route: 'activity', repoIds: null, kind: '', search: '' };
@@ -128,7 +129,7 @@ test('People paging restarts from the top if the underlying evidence changes aft
     const offset = calls.length === 1 ? 1 : 0;
     return { items: Array.from({ length }, (_, index) => record(index + offset)), nextCursor: String(length), total: 150 };
   });
-  const view = { ...ui, people: 'Alice, Bob' };
+  const view = { ...ui, search: 'people:Alice, Bob' };
   assert.equal((await client.read(view, { activityRevision: '4' })).items[0].id, 'event-1');
   const more = await client.read(view, { activityRevision: '4', more: true });
   assert.equal(more.items.length, 100);
@@ -137,4 +138,14 @@ test('People paging restarts from the top if the underlying evidence changes aft
     calls.map(query => query.get('cursor')),
     [null, '50', null],
   );
+});
+
+test('the single search input preserves both parts of an existing saved filter', async () => {
+  const client = createActivityData(async path => {
+    const query = new URL(path, 'http://local').searchParams;
+    assert.equal(query.get('search'), 'release notes, main');
+    assert.equal(query.get('people'), 'Alice Morgan, Bob Smith');
+    return { items: [], nextCursor: null, total: 0, newItems: 0, newUpdates: 0 };
+  });
+  await client.read({ ...ui, search: joinActivitySearch('release notes, main', 'Alice Morgan, Bob Smith') });
 });

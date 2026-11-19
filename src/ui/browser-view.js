@@ -104,7 +104,6 @@ export function createBrowserView({ page, header, demo, syncLive, picker, typeFi
     const focused = document.activeElement;
     const refreshable =
       focused?.id === 'feed-search' ||
-      focused?.id === 'feed-people' ||
       focused?.id === 'kind-toggle' ||
       (focused?.id && focused.matches('.settings-card *, .repo-entry *, .repo-add > summary'));
     const preserve =

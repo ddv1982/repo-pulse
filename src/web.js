@@ -1,4 +1,5 @@
 import { request } from './api.js';
+import { joinActivitySearch, splitActivitySearch } from './ui/activity-search.js';
 import { createCheckoutActions } from './ui/checkout-actions.js';
 import { createCheckoutPanel } from './ui/checkout.js';
 import { connectionResult, createConnectionController } from './ui/connection.js';
@@ -50,7 +51,6 @@ const ui = {
   eventId: null,
   repoIds: null,
   search: '',
-  people: '',
   savedFilterId: '',
   kind: '',
   filtersOpen: undefined,
@@ -251,8 +251,8 @@ function setRefreshPending(pending) {
 
 /** @returns {import('../server/saved-activity-filters.js').ActivityFilters} */
 function currentFilters() {
-  const { search, people, kind, repoIds, route } = ui;
-  return { search, people, kind, repoIds, view: route === 'activity' ? 'all' : 'new' };
+  const { search, kind, repoIds, route } = ui;
+  return { ...splitActivitySearch(search), kind, repoIds, view: route === 'activity' ? 'all' : 'new' };
 }
 
 function selectedFilter() {
@@ -265,7 +265,7 @@ function applySavedFilter({ filters }) {
   const watched = refresh.state.watched;
   const available = new Map(watched.map(repo => [repo.id, repo]));
   const unavailable = (repoIds || []).filter(id => !available.has(id) || available.get(id)?.disabled);
-  Object.assign(ui, { search, people, kind, repoIds: repoIds?.filter(id => available.has(id)) ?? null });
+  Object.assign(ui, { search: joinActivitySearch(search, people), kind, repoIds: repoIds?.filter(id => available.has(id)) ?? null });
   const destination = view === 'all' ? 'activity' : 'catchup';
   if (destination === ui.route) activityChanged({ header: true });
   else location.hash = activityHref(destination);
@@ -315,7 +315,7 @@ const actions = {
   detail: element => {
     // Detail buttons always carry data-id, so the fallbacks never apply.
     const row = element.closest('li[data-event-id]');
-    const matchingIds = ui.people && row instanceof HTMLElement ? eventIds(row) : undefined;
+    const matchingIds = ui.search && row instanceof HTMLElement ? eventIds(row) : undefined;
     navigation.remember(element.dataset.id ?? null, matchingIds);
     location.hash = `event/${encodeURIComponent(element.dataset.id ?? '')}`;
   },
@@ -384,7 +384,6 @@ const actions = {
   },
   'clear-filters': () => {
     ui.search = '';
-    ui.people = '';
     ui.kind = '';
     activityChanged();
   },
@@ -487,8 +486,8 @@ document.addEventListener('click', event => {
 document.addEventListener('input', event => {
   const target = event.target;
   if (!(target instanceof HTMLInputElement)) return;
-  if (target.id === 'feed-search' || target.id === 'feed-people') {
-    ui[target.id === 'feed-people' ? 'people' : 'search'] = target.value;
+  if (target.id === 'feed-search') {
+    ui.search = target.value;
     activityChanged({ debounce: true });
   }
 });
