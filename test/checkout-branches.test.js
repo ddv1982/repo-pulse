@@ -9,7 +9,7 @@ import { checkoutFixture, git, squashFixture } from './fixtures/checkout.js';
 
 const exec = promisify(execFile);
 
-test('Activity switch keeps the commits and upstream of an existing local feature branch', async t => {
+test('Activity switch keeps the commits, upstream and compatible local edits of an existing feature branch', async t => {
   const { source, local, repo, checkoutGit, original, commit } = checkoutFixture(t);
   const branch = 'feature/topic';
   git(source, 'switch', '-c', branch);
@@ -18,17 +18,26 @@ test('Activity switch keeps the commits and upstream of an existing local featur
   git(local, 'switch', '--track', `origin/${branch}`);
   const localTip = commit(local, 'draft.txt', 'local draft');
   git(local, 'switch', 'main');
+  writeFileSync(join(local, 'feature.txt'), 'staged edit');
+  git(local, 'add', 'feature.txt');
+  writeFileSync(join(local, 'feature.txt'), 'unstaged edit');
+  writeFileSync(join(local, 'notes.txt'), 'untracked notes');
   const { checkout } = await checkoutGit.switchToActivityBranch(repo, branch, await checkoutGit.status(repo));
   assert.equal(checkout.branch, branch);
   assert.equal(checkout.head, localTip);
   assert.equal(checkout.upstream, `origin/${branch}`);
   assert.equal(git(local, 'rev-parse', 'main'), original);
+  assert.equal(git(local, 'show', ':feature.txt'), 'staged edit');
+  assert.equal(readFileSync(join(local, 'feature.txt'), 'utf8'), 'unstaged edit');
+  assert.equal(git(local, 'ls-files', '--others', '--exclude-standard'), 'notes.txt');
+  assert.equal(readFileSync(join(local, 'notes.txt'), 'utf8'), 'untracked notes');
 });
 
-test('Activity switch refuses dirty, stale, occupied and missing destination checkouts', async t => {
-  const { source, local, remote, repo, checkoutGit } = checkoutFixture(t);
+test('Activity switch refuses conflicting edits, stale intent, occupied worktrees and missing destinations', async t => {
+  const { source, local, remote, repo, checkoutGit, commit } = checkoutFixture(t);
   const branch = 'feature/topic';
   git(source, 'switch', '-c', branch);
+  commit(source, 'feature.txt', 'changed on the feature branch');
   git(source, 'push', 'origin', branch);
   git(local, 'fetch', 'origin', branch);
   git(local, 'branch', '--track', branch, `origin/${branch}`);
@@ -36,7 +45,8 @@ test('Activity switch refuses dirty, stale, occupied and missing destination che
   const switchBranch = () => checkoutGit.switchToActivityBranch(repo, branch, expected);
 
   writeFileSync(join(local, 'feature.txt'), 'unsaved');
-  await assert.rejects(switchBranch(), /save or stash/i);
+  await assert.rejects(switchBranch(), /conflicting files/i);
+  assert.equal(git(local, 'branch', '--show-current'), 'main');
   assert.equal(readFileSync(join(local, 'feature.txt'), 'utf8'), 'unsaved');
   git(local, 'restore', 'feature.txt');
   await assert.rejects(checkoutGit.switchToActivityBranch(repo, branch, { ...expected, head: 'a'.repeat(40) }), /checkout changed/i);

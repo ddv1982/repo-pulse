@@ -97,14 +97,13 @@ export function createCheckoutActions({ checkoutPanel, getActivityCheckout, conf
       }
       if (checkout.state === 'unavailable' || checkout.state === 'not-linked')
         throw new Error(checkout.diagnostic?.title || 'The linked checkout is unavailable.');
-      if (checkout.dirty) throw new Error('Save or stash your local changes before switching branches.');
       if (checkout.state === 'in-progress') throw new Error('Finish the Git operation before switching branches.');
       const { branch: current, head, upstream, identity, switchIdentity } = checkout;
       if (!current || !head || !identity) throw new Error('Switching requires an existing branch checked out in Git.');
       if (!switchIdentity) throw new Error('Repo Pulse could not verify the local Git directory.');
       confirm(
         `Switch to ${branch}?`,
-        `Switch the local checkout from ${current} to ${branch}. You can check for updates or pull from Repositories afterward.`,
+        `Switch the local checkout from ${current} to ${branch}. Git will stop if switching would overwrite local changes. You can check for updates or pull from Repositories afterward.`,
         async () => {
           if (!isCurrent()) return;
           const result = await checkoutPanel.update(

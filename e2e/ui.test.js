@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, rm, readdir } from 'node:fs/promises';
+import { mkdtemp, mkdir, rm, readdir, readFile, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { tmpdir, homedir } from 'node:os';
 import { join } from 'node:path';
@@ -364,6 +364,8 @@ test('a New branch detail switches the linked checkout, then opens its repositor
   git(source, 'switch', '-c', branch);
   const firstTip = commit(source, 'topic.txt', 'first topic commit');
   git(source, 'push', 'origin', branch);
+  const localFile = join(local, 'feature.txt');
+  await writeFile(localFile, 'uncommitted local edit');
   const store = createStore();
   store.saveRepo({ ...repo, id: 'other', name: 'Another watched repository', localPath: undefined });
   store.saveRepo(repo);
@@ -404,6 +406,7 @@ test('a New branch detail switches the linked checkout, then opens its repositor
   await expect(dialog).toContainText(`Switch to ${branch}?`);
   await expect(dialog).toContainText(local);
   await expect(dialog).toContainText('from main');
+  await expect(dialog).toContainText('Git will stop if switching would overwrite local changes.');
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
   assert.equal(git(local, 'rev-parse', 'HEAD'), original);
   await dialog.getByRole('button', { name: 'Switch branch', exact: true }).click();
@@ -411,6 +414,7 @@ test('a New branch detail switches the linked checkout, then opens its repositor
   await expect(page).toHaveURL(/#repositories\/repo$/);
   const checkout = page.locator('#checkout-state-repo');
   await expect(checkout).toContainText(branch);
+  await expect(checkout).toContainText('Local changes');
   await expect(checkout).toBeFocused();
   assert.equal(git(local, 'rev-parse', 'HEAD'), firstTip);
   assert.equal(git(local, 'config', `branch.${branch}.remote`), 'origin');
@@ -425,6 +429,7 @@ test('a New branch detail switches the linked checkout, then opens its repositor
   await dialog.getByRole('button', { name: 'Pull', exact: true }).click();
   await expect(checkout).toContainText('Up to date');
   assert.equal(git(local, 'rev-parse', 'HEAD'), newerTip);
+  assert.equal(await readFile(localFile, 'utf8'), 'uncommitted local edit');
 
   await page.goBack();
   await expect(page.getByRole('link', { name: 'View in Repositories' })).toBeVisible();
