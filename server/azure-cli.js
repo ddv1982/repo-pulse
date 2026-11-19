@@ -207,14 +207,15 @@ export async function resolveAzCommand({ platform = process.platform, env = proc
       };
     }
     // pip (venv Scripts\az.bat): "%~dp0\python.exe" -m azure.cli %*
-    const venv = win32.join(dir, 'python.exe');
-    if ((await exists(win32.join(dir, 'az.bat'))) && (await exists(venv))) {
+    if ((await exists(win32.join(dir, 'az.bat'))) && (await exists(win32.join(dir, 'python.exe')))) {
+      // Absolute, because the child runs from this folder and a relative PATH entry would resolve twice.
+      const scripts = win32.resolve(dir);
       return {
-        file: venv,
+        file: win32.join(scripts, 'python.exe'),
         prefix: ['-m', 'azure.cli'],
-        env: { AZ_INSTALLER: 'PIP', PYTHONPATH: [win32.join(dir, 'src'), env.PYTHONPATH].filter(Boolean).join(';') },
+        env: { AZ_INSTALLER: 'PIP', PYTHONPATH: [win32.join(scripts, 'src'), env.PYTHONPATH].filter(Boolean).join(';') },
         // python -m puts the working directory on sys.path; run from the venv instead of wherever the app started.
-        cwd: dir,
+        cwd: scripts,
       };
     }
   }

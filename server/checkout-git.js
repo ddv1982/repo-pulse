@@ -288,13 +288,12 @@ export function createCheckoutGit({
         gitDirectory,
       };
     }
-    const diagnostic =
-      state === 'different-remote' && passwordInUrl
-        ? {
-            title: 'Remote URL contains a password',
-            suggestion: 'Remove the password from the remote URL and let a Git credential helper sign in.',
-          }
-        : checkoutDiagnostic(state, snapshot, observation, operation, rewrite);
+    const diagnostic = passwordInUrl
+      ? {
+          title: 'Remote URL contains a password',
+          suggestion: 'Remove the password from the remote URL and let a Git credential helper sign in.',
+        }
+      : checkoutDiagnostic(state, snapshot, observation, operation, rewrite);
     return {
       snapshot: {
         ...snapshot,

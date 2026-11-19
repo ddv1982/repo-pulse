@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
+import { win32 } from 'node:path';
 import { createAzureCli } from '../server/azure-cli.js';
 
 const flush = () => new Promise(resolve => setImmediate(resolve));
@@ -317,6 +318,13 @@ test('Windows runs the interpreter each official az launcher calls, never throug
       cwd: 'C:\\venv\\Scripts',
     },
   );
+  const relative = await resolveAzCommand({
+    platform: 'win32',
+    env: { PATH: '.venv\\Scripts' },
+    exists: on('.venv\\Scripts\\az.bat', '.venv\\Scripts\\python.exe'),
+  });
+  assert(win32.isAbsolute(relative.cwd ?? ''));
+  assert.equal(relative.file, win32.join(relative.cwd ?? '', 'python.exe'));
   assert.deepEqual(await resolveAzCommand({ platform: 'win32', env: { PATH: 'C:\\tools' }, exists: on('C:\\tools\\az.exe') }), {
     file: 'C:\\tools\\az.exe',
     prefix: [],

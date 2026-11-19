@@ -56,6 +56,12 @@ test('Pull rechecks working files, checkout identity, branch and upstream instea
   assert.equal(passwordRemote.canCheck, false);
   assert.equal(passwordRemote.diagnostic?.title, 'Remote URL contains a password');
   assert(!JSON.stringify(passwordRemote).includes('hunter2'));
+  await assert.rejects(checkoutGit.update(repo, 'check', passwordRemote), /no longer eligible/);
+  writeFileSync(join(local, 'feature.txt'), 'uncommitted');
+  const dirtyPasswordRemote = await checkoutGit.status(repo);
+  assert.equal(dirtyPasswordRemote.state, 'dirty');
+  assert.equal(dirtyPasswordRemote.diagnostic?.title, 'Remote URL contains a password');
+  writeFileSync(join(local, 'feature.txt'), 'initial');
   assert.equal(git(local, 'rev-parse', 'HEAD'), localCommit);
 });
 
