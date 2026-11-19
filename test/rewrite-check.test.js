@@ -267,7 +267,12 @@ test('a failed save waits instead of taking every turn, and a proven rewrite is 
   raw.close();
   let time = BASE;
   let calls = 0;
-  const check = createRewriteCheck({ store, provider: { droppedCommits: async () => (calls++, commits(2)) }, now: () => time });
+  const throttled = Object.assign(new Error('slow down'), { code: 'THROTTLED' });
+  const check = createRewriteCheck({
+    store,
+    provider: { droppedCommits: async () => (calls++ ? Promise.reject(throttled) : commits(2)) },
+    now: () => time,
+  });
   assert.equal(await check.tick(), true);
   assert.equal(await check.tick(), false, 'the failed check waits, so other background work gets the turn');
   assert.equal(calls, 1);
@@ -277,6 +282,7 @@ test('a failed save waits instead of taking every turn, and a proven rewrite is 
   time += 2 * 60000;
   assert.equal(await check.tick(), true);
   assert.equal(store.getEvent('one:push:21').data.mergeEvidence.rewrite[0].status, 'rewrite');
+  assert.equal(calls, 1, 'the saved Azure answer is written, not asked for again');
   assert.equal(store.listJobs({ type: 'rewrite' }).length, 0);
   store.close();
   rmSync(folder, { recursive: true });
