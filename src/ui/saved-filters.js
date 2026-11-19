@@ -12,7 +12,7 @@ export function renderSavedFilters(filters, selectedId) {
     <button id="save-filter" class="btn sm" type="button" data-action="save-filter">Save filter</button>
     ${
       filters.length
-        ? html`<select id="saved-filter" class="control" aria-label="Saved filters"><option value="">Saved filters</option>
+        ? html`<select id="saved-filter" class="control sm" aria-label="Saved filters"><option value="">Saved filters</option>
       ${filters.map(filter => html`<option value="${filter.id}" ${filter.id === selectedId ? html`selected` : emptyHtml}>${filter.name}</option>`)}
     </select>
     <button id="apply-filter" class="btn sm" type="button" data-action="apply-filter" ${disabled}>Apply</button>

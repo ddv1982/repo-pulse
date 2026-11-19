@@ -11,7 +11,7 @@ import { syncRepoName, syncSentence } from './health.js';
 /** @param {PageState['repos']} repos @param {string} repoId */
 function repositorySelect(repos, repoId) {
   if (!repos.length) return emptyHtml;
-  return html`<label>Repository <select class="control" id="connection-repo">
+  return html`<label>Repository <select class="control sm" id="connection-repo">
               ${repos.map(repo => html`<option value="${repo.id}" ${repo.id === repoId ? html`selected` : emptyHtml}>${repo.name} · ${repo.project}</option>`)}
             </select></label>`;
 }

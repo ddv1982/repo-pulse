@@ -85,13 +85,9 @@
   align-items: center;
   margin: 0 0 16px;
 }
-.toolbar .control {
-  font-size: 12px;
-}
 .search {
   width: 100%;
   max-width: 384px;
-  height: 36px;
   border: 1px solid var(--input);
   background: var(--card);
   border-radius: var(--radius);
@@ -118,9 +114,6 @@
 }
 .filters-box .toolbar {
   margin-bottom: 0;
-}
-.saved-filters select {
-  max-width: 100%;
 }
 .type-panel {
   width: 220px;
@@ -350,8 +343,7 @@ ol.rows {
   justify-self: end;
 }
 .rowact .ghost {
-  height: 40px;
-  padding: 0 5px;
+  padding-inline: 5px;
 }
 .foot {
   padding: 10px 16px;
@@ -490,6 +482,7 @@ ol.rows {
     position: relative;
   }
   .type-panel {
+    top: 100%;
     left: 0;
     right: auto;
     width: 200px;
@@ -593,8 +586,5 @@ ol.rows {
   .rowact {
     grid-column: 5;
     grid-row: 1;
-  }
-  .rowact .ghost {
-    height: 28px;
   }
 }

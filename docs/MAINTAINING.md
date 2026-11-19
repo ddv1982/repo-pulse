@@ -18,6 +18,10 @@ The app uses Node 26, built-in SQLite, plain JavaScript, and CSS. It has no runt
 
 Keep Azure reads in the shared queue. `devops invoke` reads go over HTTPS with an Azure DevOps token from `az account get-access-token`, which is renewed five minutes before it expires and after a 401. The token stays inside `azure-rest.js`: it is never returned, logged or put in an error, and `run()` still refuses token commands. Other commands, such as `repos show` and the local CLI checks, still start `az`. A repository connection check also makes one REST read, so it fails the way activity reads would; an organization-only check uses `az` only. A `Retry-After` header pauses the whole queue (see `retryAfter` in `azure-cli.js`). Explicit Git operations must act on the linked checkout and its verified upstream. Store raw events and checkpoints together. Enrichment can add evidence to a record without changing its ID or seen state.
 
+## Size frontend controls
+
+Use the shared `.btn`, `.control`, `.ghost`, and `.search` classes. Choose one size for controls that share a row. The default is 36 CSS px on desktop and 44 CSS px below 768 px. Add `sm` to each control in a compact row for 28 CSS px on desktop and 36 CSS px below 768 px. Both sizes come from `web/styles/tokens.css`. Set layout, spacing, and wrapping in the feature stylesheet. Keep the shared height when mixing buttons with native selects or inputs.
+
 ## Pull
 
 Pull runs `git merge --ff-only --no-squash` after verifying the checkout identity, upstream and eligibility, then confirms HEAD reached the fetched commit. Git owns the update, so there is no app journal or lock handling. One accepted trade-off: Git does not re-confirm the branch at the moment it moves HEAD, so switching to another branch at the same commit in the instant between the last check and the merge would fast-forward that branch instead. Nothing is lost, and the reflog undoes it.
