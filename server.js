@@ -18,7 +18,7 @@ import { createCheckoutLookup } from './server/checkout-advice.js';
 import { isBranchAction } from './server/checkout-branches.js';
 import { createCheckoutGit, isCheckoutIntent } from './server/checkout-git.js';
 import { browseFolders } from './server/folders.js';
-import { openBrowser } from './server/open-browser.js';
+import { canOpenBrowser, openBrowser } from './server/open-browser.js';
 
 /** @typedef {import('node:http').IncomingMessage} Request */
 /** @typedef {import('node:http').ServerResponse} Response */
@@ -138,7 +138,10 @@ function checkLocalRequest(req) {
   const host = req.headers.host;
   if (!host || !hosts.has(host)) throw problem('Open Repo Pulse through its localhost address.', 403);
   if (req.headers.origin && req.headers.origin !== `http://${host}`) throw problem('Origin is not allowed.', 403);
-  if (req.headers['sec-fetch-site'] === 'cross-site') throw problem('Cross-site requests are not allowed.', 403);
+  // A top-level page load from elsewhere, such as the launch page the browser opens from a file, may load the app's own
+  // page; nothing can frame it or read it, and every API request still has to be same-site and carry the key.
+  const pageLoad = req.method === 'GET' && req.headers['sec-fetch-mode'] === 'navigate' && !String(req.url).startsWith('/api/');
+  if (req.headers['sec-fetch-site'] === 'cross-site' && !pageLoad) throw problem('Cross-site requests are not allowed.', 403);
 }
 
 /** @param {string} pathname @param {Response} res */
@@ -642,7 +645,7 @@ export async function startApp({ demo = false, port = 0, dataDir = resolve(ROOT,
     store.close();
   };
   const url = `http://127.0.0.1:${/** @type {import('node:net').AddressInfo} */ (app.address()).port}`;
-  return { app, store, sync, provider, close, url, accessKey, launchUrl: `${url}/#launch=${launchToken}` };
+  return { app, store, sync, provider, close, url, dataDir, accessKey, launchUrl: `${url}/#launch=${launchToken}` };
 }
 
 /**
@@ -664,15 +667,16 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
   if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error('PORT must be an integer from 0 to 65535.');
   const runtime = await startApp({ demo: process.argv.includes('--demo'), port, dataDir: process.env.REPO_PULSE_DATA_DIR || undefined });
   console.log(`Repo Pulse${process.argv.includes('--demo') ? ' · demo data, no Azure calls' : ''}: ${runtime.launchUrl}`);
-  const open = process.env.REPO_PULSE_NO_BROWSER !== '1';
+  const open = process.env.REPO_PULSE_NO_BROWSER !== '1' && canOpenBrowser(process.platform, process.env);
   console.log(
-    `${open ? 'Opening it in your browser. ' : ''}The link works once and a new one is printed at every start. Local only. Stop with Ctrl+C.`,
+    `${open ? 'Opening it in your browser; if nothing opens, use the link above.' : 'Open the link above in your browser.'} It works once and a new one is printed at every start. Local only. Stop with Ctrl+C.`,
   );
-  if (open) openBrowser(runtime.launchUrl);
+  const removeLaunchPage = open ? await openBrowser(runtime.launchUrl, { dataDir: runtime.dataDir }) : async () => {};
   let closing = false;
   const stop = async () => {
     if (!closing) {
       closing = true;
+      await removeLaunchPage();
       await runtime.close();
     }
   };

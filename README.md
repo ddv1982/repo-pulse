@@ -22,7 +22,7 @@ npm ci
 npm start
 ```
 
-`npm start` opens Repo Pulse in your default browser. The link it opens, also printed in the terminal, works once and gives the browser this run's access key, which the API requires; every start makes a new one. Set `REPO_PULSE_NO_BROWSER=1` to only print the link. In **Repositories**, choose **Add repositories** and select your local checkouts. Watching a repository includes all its remote branches.
+`npm start` opens Repo Pulse in your default browser when there is a desktop session. The link it opens, also printed in the terminal, works once and gives the browser this run's access key, which the API requires; every start makes a new one. Set `REPO_PULSE_NO_BROWSER=1` to only print the link. In **Repositories**, choose **Add repositories** and select your local checkouts. Watching a repository includes all its remote branches.
 
 To try it without Azure, run `npm run demo` instead. Demo data is fictional and stored separately.
 

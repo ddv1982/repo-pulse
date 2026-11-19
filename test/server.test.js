@@ -233,3 +233,22 @@ test('an invalid repository URL is a bad request', async t => {
   assert.equal(response.status, 400);
   assert.equal((await response.json()).code, 'INVALID_REPOSITORY');
 });
+
+test('a cross-site page load reaches the app page, but cross-site API calls stay refused', async t => {
+  const { url } = await fixture(t);
+  // node:http, because fetch replaces sec-fetch-mode with its own value.
+  const status = (path, mode) =>
+    new Promise((resolve, reject) => {
+      const headers = { 'sec-fetch-site': 'cross-site', 'sec-fetch-mode': mode, 'x-repo-pulse-key': TEST_KEY };
+      const request = httpRequest(url + path, { headers }, response => {
+        response.resume();
+        resolve(response.statusCode);
+      });
+      request.on('error', reject);
+      request.end();
+    });
+  assert.equal(await status('/', 'navigate'), 200);
+  assert.equal(await status('/api/state', 'navigate'), 403);
+  assert.equal(await status('/', 'no-cors'), 403);
+  assert.equal(await status('/api/state', 'cors'), 403);
+});
