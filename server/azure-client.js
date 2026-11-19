@@ -3,7 +3,6 @@ import { normalizeOrganization, parseRemote, repositoryKey } from './repositorie
 import { safeAzureUrl } from '../src/events.js';
 import { cliError, normalizeCommitIds } from './azure-cli.js';
 
-/** @typedef {import('./azure-cli.js').ReadQueryTarget} ReadQueryTarget */
 /** Raw Azure DevOps JSON. Its shape is checked by the code that reads it, not by the compiler. */
 /** @typedef {any} AzureRecord */
 /** The repository fields the client reads. Watched repositories carry more. */
@@ -20,7 +19,6 @@ import { cliError, normalizeCommitIds } from './azure-cli.js';
  * @typedef {{ id: number, source: string, target: string, sourceId: string, targetId: string,
  *   head?: string, result?: string, strategy?: string, url: string }} CheckoutPull
  */
-/** @typedef {{ commitId: string, queryType: 'lastMergeCommit'|'commit', pullRequest: AzureRecord }} PullRequestAssociation */
 /** @typedef {{ status: 'ok'|'failed', checkedAt: string, code?: string, message?: string }} AccessCheck */
 /**
  * @typedef {{ available: boolean, identity: null, identityVerified: boolean, message: string, code?: string,
@@ -32,13 +30,8 @@ import { cliError, normalizeCommitIds } from './azure-cli.js';
  *   name: string, webUrl: string, disabled: false }} ResolvedRepository
  */
 /** @typedef {{ organization: string, project: string, repoName?: string, name?: string }} RepositoryInput */
-/**
- * The Azure CLI queue the client reads through (see createAzureCli).
- * @typedef {{
- *   run: (args: string[]) => Promise<AzureRecord>,
- *   runReadQuery: (target: ReadQueryTarget, body: unknown) => Promise<AzureRecord>
- * }} AzureClientCli
- */
+/** The Azure CLI queue the client reads through (see createAzureCli). */
+/** @typedef {{ run: (args: string[]) => Promise<AzureRecord> }} AzureClientCli */
 /** The provider contract. Sync and backfill type their provider as the subset of it they call. */
 /** @typedef {ReturnType<typeof createAzureClient>} AzureProvider */
 /**
@@ -419,114 +412,29 @@ export function createAzureClient({ cli, now = Date.now } = {}) {
         throw cliError('INVALID_RESPONSE', 'Azure CLI did not return the requested repository pull request.');
       return raw;
     },
-    /** @param {AzureRepo} repo @param {string[]} inputIds @returns {Promise<AzureRecord[]>} */
-    async commitsByIds(repo, inputIds) {
-      const ids = normalizeCommitIds(inputIds);
-      if (!ids.length) return [];
-      const raw = await cli.runReadQuery(
-        {
-          organization: normalizeOrganization(repo.organization),
-          project: repo.projectId || repo.project,
-          repositoryId: repo.azureId,
-          resource: 'commitsbatch',
-        },
-        { ids },
-      );
-      const page = pageOf(raw, { skip: 0, mode: 'token' });
-      if (page.nextCursor) throw cliError('INCOMPLETE_RESPONSE', 'Azure did not complete this bounded commit query.');
-      const requested = new Set(ids);
-      const commits = new Map();
-      for (const item of page.items) {
-        if (!requested.has(item.commitId?.toLowerCase()))
-          throw cliError('INVALID_RESPONSE', 'Azure returned an unexpected commit for this query.');
-        // The real batch API can return shallow GitCommitRef objects without
-        // parents. Exact GET supplies graph evidence; missing is never a root.
-        const full = Array.isArray(item.parents)
-          ? item
-          : await invoke(repo, 'git', 'commits', { changeCount: 0 }, { commitId: item.commitId });
-        if (full?.commitId?.toLowerCase() !== item.commitId.toLowerCase())
-          throw cliError('INVALID_RESPONSE', 'Azure returned an unexpected exact commit.');
-        if (
-          !Array.isArray(full.parents) ||
-          full.parents.some((/** @type {unknown} */ parent) => typeof parent !== 'string' || !/^[0-9a-f]{40}$/i.test(parent))
-        )
-          throw cliError('INCOMPLETE_RESPONSE', 'Commit parent evidence is unavailable.');
-        commits.set(item.commitId.toLowerCase(), { ...item, ...full });
-      }
-      return [...commits.values()];
-    },
-    /** @param {AzureRepo} repo @param {string[]} inputIds @returns {Promise<PullRequestAssociation[]>} */
-    async queryPullRequests(repo, inputIds) {
-      const ids = normalizeCommitIds(inputIds);
-      if (!ids.length) return [];
-      /** @type {PullRequestAssociation['queryType'][]} */
-      const types = ['lastMergeCommit', 'commit'];
-      const queries = types.map(type => ({ type, items: ids }));
-      const raw = await cli.runReadQuery(
-        {
-          organization: normalizeOrganization(repo.organization),
-          project: repo.projectId || repo.project,
-          repositoryId: repo.azureId,
-          resource: 'pullrequestquery',
-        },
-        { queries },
-      );
-      if (!Array.isArray(raw?.results) || raw.results.length !== queries.length)
-        throw cliError('INVALID_RESPONSE', 'Azure did not return both commit-to-PR query results.');
-      /** @type {PullRequestAssociation[]} */
-      const associations = [];
-      raw.results.forEach((/** @type {AzureRecord} */ result, /** @type {number} */ index) => {
-        if (!result || typeof result !== 'object' || Array.isArray(result))
-          throw cliError('INVALID_RESPONSE', 'Azure returned invalid commit-to-PR query results.');
-        for (const commitId of ids) {
-          const matches = result[commitId] || [];
-          if (!Array.isArray(matches)) throw cliError('INVALID_RESPONSE', 'Azure returned invalid PR associations.');
-          for (const pullRequest of matches) {
-            if (
-              pullRequest?.status !== 'completed' ||
-              pullRequest.repository?.id?.toLowerCase() !== repo.azureId.toLowerCase() ||
-              !pullRequest.targetRefName?.startsWith('refs/heads/')
-            )
-              continue;
-            if (queries[index].type === 'lastMergeCommit' && pullRequest.lastMergeCommit?.commitId?.toLowerCase() !== commitId) continue;
-            associations.push({ commitId, queryType: queries[index].type, pullRequest });
-          }
-        }
-      });
-      return associations;
-    },
-    /** @param {AzureRepo} repo @param {string} oldSha @param {string} newSha @param {PageCursor} [cursor] @returns {Promise<AzurePage>} */
-    async refCommits(repo, oldSha, newSha, cursor = {}) {
-      normalizeCommitIds([oldSha, newSha]);
-      const old = oldSha.toLowerCase(),
-        current = newSha.toLowerCase();
-      // Ref creation/deletion has no bounded old..new introduction range. In
-      // particular, a new branch must not replay all historical merges.
-      if (/^0+$/.test(old) || /^0+$/.test(current) || old === current) return { items: [], nextCursor: null };
-      const skip = Number(cursor?.skip || 0);
-      if (!Number.isSafeInteger(skip) || skip < 0 || skip > 3_000_000) throw cliError('INVALID_QUERY', 'Invalid ref-range page cursor.');
-      // Azure walks from compareVersion (the new tip) until itemVersion (the
-      // old base). The intuitive reverse produced an empty live range.
-      const raw = await invoke(repo, 'git', 'commits', {
-        'searchCriteria.$top': PAGE,
-        'searchCriteria.$skip': skip,
-        'searchCriteria.compareVersion.version': current,
-        'searchCriteria.compareVersion.versionType': 'commit',
-        'searchCriteria.itemVersion.version': old,
-        'searchCriteria.itemVersion.versionType': 'commit',
-      });
-      const page = pageOf(raw, { skip, mode: 'skip' });
-      if (page.items.some(item => typeof item?.commitId !== 'string' || !/^[0-9a-f]{40}$/i.test(item.commitId)))
-        throw cliError('INVALID_RESPONSE', 'Azure returned invalid ref-range commit evidence.');
-      return page;
-    },
     /**
      * One page of commits reachable from the old tip but not from the new one. Empty means the old tip
      * is an ancestor of the new one (a fast-forward); anything else means the update dropped history.
      * @param {AzureRepo} repo @param {string} oldSha @param {string} newSha @returns {Promise<AzurePage>}
      */
-    droppedCommits(repo, oldSha, newSha) {
-      return this.refCommits(repo, newSha, oldSha);
+    async droppedCommits(repo, oldSha, newSha) {
+      normalizeCommitIds([oldSha, newSha]);
+      const old = oldSha.toLowerCase(),
+        current = newSha.toLowerCase();
+      if (/^0+$/.test(old) || /^0+$/.test(current) || old === current) return { items: [], nextCursor: null };
+      // Azure walks from compareVersion until itemVersion, so the old tip is compared against the new one.
+      const raw = await invoke(repo, 'git', 'commits', {
+        'searchCriteria.$top': PAGE,
+        'searchCriteria.$skip': 0,
+        'searchCriteria.compareVersion.version': old,
+        'searchCriteria.compareVersion.versionType': 'commit',
+        'searchCriteria.itemVersion.version': current,
+        'searchCriteria.itemVersion.versionType': 'commit',
+      });
+      const page = pageOf(raw, { mode: 'skip' });
+      if (page.items.some(item => typeof item?.commitId !== 'string' || !/^[0-9a-f]{40}$/i.test(item.commitId)))
+        throw cliError('INVALID_RESPONSE', 'Azure returned invalid ref-range commit evidence.');
+      return page;
     },
     /**
      * Read when a PR detail asks for it, never by polling: one read for discussion threads, one for policy evaluations.

@@ -2,10 +2,8 @@
 
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { mkdtemp, writeFile, rm, stat } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join, win32 } from 'node:path';
-import { normalizeOrganization } from './repositories.js';
+import { stat } from 'node:fs/promises';
+import { win32 } from 'node:path';
 
 /**
  * @typedef {Error & { code: string }} CliError
@@ -13,11 +11,7 @@ import { normalizeOrganization } from './repositories.js';
  * @typedef {{ signal: AbortSignal, timeoutMs: number }} ExecutorOptions
  * @typedef {(args: string[], options: ExecutorOptions) => Promise<unknown>} Executor
  * @typedef {{ file: string, prefix: string[], env: Record<string, string>, cwd?: string }} AzCommand
- * @typedef {'commitsbatch' | 'pullrequestquery'} ReadQueryResource
- * @typedef {{ organization: string, project: string, repositoryId: string, resource: ReadQueryResource }} ReadQueryTarget
- * @typedef {{ type: 'lastMergeCommit' | 'commit', items: string[] }} PullRequestQuery
- * @typedef {{ ids: string[] } | { queries: PullRequestQuery[] }} ReadQueryBody
- * @typedef {{ args: string[], body?: ReadQueryBody, key: string, resolve: (value: unknown) => void, reject: (reason: unknown) => void }} QueueJob
+ * @typedef {{ args: string[], key: string, resolve: (value: unknown) => void, reject: (reason: unknown) => void }} QueueJob
  * @typedef {{ code: string | undefined, message: string | undefined }} LastError
  */
 
@@ -91,86 +85,6 @@ export function normalizeCommitIds(ids) {
     throw cliError('INVALID_QUERY', 'Commit queries require at most 100 complete commit IDs.');
   }
   return [...new Set(ids.map(id => id.toLowerCase()))];
-}
-
-/**
- * @param {string | undefined} resource
- * @param {unknown} body
- * @returns {ReadQueryBody}
- */
-function readQueryBody(resource, body) {
-  /**
-   * Values stay untyped: callers check each one before use.
-   * @template {string} K
-   * @param {unknown} object
-   * @param {K[]} keys
-   * @returns {object is Record<K, any>}
-   */
-  const exactKeys = (object, keys) =>
-    !!object &&
-    typeof object === 'object' &&
-    !Array.isArray(object) &&
-    Object.keys(object).length === keys.length &&
-    keys.every(key => Object.hasOwn(object, key));
-  if (resource === 'commitsbatch' && exactKeys(body, ['ids'])) {
-    const ids = normalizeCommitIds(body.ids);
-    if (ids.length) return { ids };
-  }
-  if (
-    resource === 'pullrequestquery' &&
-    exactKeys(body, ['queries']) &&
-    Array.isArray(body.queries) &&
-    body.queries.length > 0 &&
-    body.queries.length <= 2
-  ) {
-    const types = new Set();
-    const queries = body.queries.map(query => {
-      if (!exactKeys(query, ['type', 'items']) || !['lastMergeCommit', 'commit'].includes(query.type) || types.has(query.type))
-        throw cliError('INVALID_QUERY', 'Only bounded commit-to-PR read queries are allowed.');
-      types.add(query.type);
-      const items = normalizeCommitIds(query.items);
-      if (!items.length) throw cliError('INVALID_QUERY', 'Commit queries need at least one commit ID.');
-      return { type: query.type, items };
-    });
-    return { queries };
-  }
-  throw cliError('INVALID_QUERY', 'Only bounded commit and commit-to-PR read queries are allowed.');
-}
-
-/** @param {Partial<ReadQueryTarget>} [target] */
-function readQueryArgs({ organization, project, repositoryId, resource } = {}) {
-  if (
-    typeof resource !== 'string' ||
-    !['commitsbatch', 'pullrequestquery'].includes(resource) ||
-    typeof project !== 'string' ||
-    !project ||
-    project.length > 256 ||
-    /[\x00-\x1f]/.test(project) ||
-    project.startsWith('-') ||
-    typeof repositoryId !== 'string' ||
-    !/^[a-z0-9][a-z0-9._-]{0,199}$/i.test(repositoryId)
-  ) {
-    throw cliError('INVALID_QUERY', 'Choose a valid repository for this read query.');
-  }
-  return [
-    'devops',
-    'invoke',
-    '--organization',
-    normalizeOrganization(organization),
-    '--detect',
-    'false',
-    '--area',
-    'git',
-    '--resource',
-    resource,
-    '--api-version',
-    '7.1',
-    '--http-method',
-    'POST',
-    '--route-parameters',
-    `project=${project}`,
-    `repositoryId=${repositoryId}`,
-  ];
 }
 
 /** @param {string} path */
@@ -247,7 +161,7 @@ export async function defaultExecutor(args, { signal, timeoutMs }) {
  * One process-wide queue: callers cannot bypass rate or concurrency limits.
  * @param {{
  *   limitPerMinute?: number, concurrency?: number, timeoutMs?: number, executor?: Executor, now?: () => number,
- *   setTimer?: (callback: () => void, ms: number) => NodeJS.Timeout, clearTimer?: (timer: NodeJS.Timeout) => void, tempRoot?: string,
+ *   setTimer?: (callback: () => void, ms: number) => NodeJS.Timeout, clearTimer?: (timer: NodeJS.Timeout) => void,
  * }} [options]
  */
 export function createAzureCli({
@@ -258,7 +172,6 @@ export function createAzureCli({
   now = Date.now,
   setTimer = setTimeout,
   clearTimer = clearTimeout,
-  tempRoot = tmpdir(),
 } = {}) {
   if (!Number.isInteger(limitPerMinute) || limitPerMinute < 1 || !Number.isInteger(concurrency) || concurrency < 1)
     throw new Error('Invalid CLI limits');
@@ -277,34 +190,14 @@ export function createAzureCli({
     /** @type {LastError | null} */
     lastError = null;
   /**
-   * @param {QueueJob} job
-   * @param {AbortSignal} signal
-   */
-  async function executeJob(job, signal) {
-    if (!job.body) return executor(job.args, { signal, timeoutMs });
-    // Invoke accepts JSON through a file only. The app owns this private file;
-    // no caller can supply a path, extra flags, a general POST or arbitrary JSON.
-    const directory = await mkdtemp(join(tempRoot, 'repo-pulse-query-'));
-    try {
-      const path = join(directory, 'query.json');
-      await writeFile(path, JSON.stringify(job.body), { mode: 0o600, flag: 'wx' });
-      if (signal.aborted) throw cliError('CLOSED', 'Azure CLI queue is closed.');
-      return await executor([...job.args, '--in-file', path], { signal, timeoutMs });
-    } finally {
-      await rm(directory, { recursive: true, force: true });
-    }
-  }
-  /**
    * @param {string[]} args
-   * @param {ReadQueryBody} [body]
    * @returns {Promise<unknown>}
    */
-  function enqueue(args, body) {
-    if (closed) return Promise.reject(cliError('CLOSED', 'Azure CLI queue is closed.'));
-    const key = JSON.stringify([args, body]);
+  function enqueue(args) {
+    const key = JSON.stringify(args);
     const existing = inFlight.get(key);
     if (existing) return existing;
-    const promise = new Promise((resolve, reject) => pending.push({ args: [...args], body, key, resolve, reject }));
+    const promise = new Promise((resolve, reject) => pending.push({ args: [...args], key, resolve, reject }));
     inFlight.set(key, promise);
     pump();
     return promise;
@@ -325,7 +218,7 @@ export function createAzureCli({
       starts.push(now());
       totalStarts++;
       Promise.resolve()
-        .then(() => executeJob(job, controller.signal))
+        .then(() => executor(job.args, { signal: controller.signal, timeoutMs }))
         .then(result => {
           if (closed) throw cliError('CLOSED', 'Azure CLI queue is closed.');
           try {
@@ -355,18 +248,6 @@ export function createAzureCli({
       if (closed) return Promise.reject(cliError('CLOSED', 'Azure CLI queue is closed.'));
       if (!allowed(args)) return Promise.reject(cliError('READ_ONLY', 'This Azure CLI operation is not allowed.'));
       return enqueue(args);
-    },
-    /**
-     * @param {Partial<ReadQueryTarget>} repository
-     * @param {unknown} body
-     */
-    runReadQuery(repository, body) {
-      try {
-        const args = readQueryArgs(repository);
-        return enqueue(args, readQueryBody(repository.resource, body));
-      } catch (error) {
-        return Promise.reject(error);
-      }
     },
     diagnostics() {
       const recent = starts.filter(time => time > now() - 60_000);

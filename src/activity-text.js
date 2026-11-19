@@ -31,7 +31,7 @@ const statusLabels = {
   activity: 'Activity',
 };
 /** @type {Record<string, string>} */
-const evidenceLabels = { 'pr-linked': 'Completed PR linked', 'merge-commit': 'Merge commit' };
+const evidenceLabels = { 'pr-linked': 'Completed PR linked' };
 const statusIds = new Map(Object.entries(statusLabels).map(([id, label]) => [label, id]));
 const evidenceIds = new Map(Object.entries(evidenceLabels).map(([id, label]) => [label, id]));
 
@@ -168,12 +168,11 @@ export function activitySummary(event) {
   return event.summary || '';
 }
 
-/** @typedef {{kind?: string, data?: { mergeEvidence?: { prs?: unknown[], commits?: unknown[] } } }} EvidencedEvent */
+/** @typedef {{kind?: string, data?: { mergeEvidence?: { prs?: unknown[] } } }} EvidencedEvent */
 /** @param {EvidencedEvent} event */
 export function activityEvidenceId(event) {
   if (event.kind !== 'push') return '';
-  const evidence = event.data?.mergeEvidence;
-  return evidence?.prs?.length ? 'pr-linked' : evidence?.commits?.length ? 'merge-commit' : '';
+  return event.data?.mergeEvidence?.prs?.length ? 'pr-linked' : '';
 }
 
 /** @param {EvidencedEvent} event */
@@ -205,8 +204,9 @@ export function parseActivityFilter(value) {
     return { type: 'status', id: statusIds.get(id) || id };
   }
   if (value.startsWith('evidence:')) {
-    const id = value.slice(9);
-    return { type: 'evidence', id: evidenceIds.get(id) || id };
+    const id = evidenceIds.get(value.slice(9)) || value.slice(9);
+    // A retired filter, such as one restored from an older session, shows everything instead of nothing.
+    return Object.hasOwn(evidenceLabels, id) ? { type: 'evidence', id } : { type: 'all' };
   }
   return { type: 'kind', id: value };
 }

@@ -7,6 +7,7 @@ import { request as httpRequest } from 'node:http';
 import { createStore } from '../server/store.js';
 import { createApp, startApp } from '../server.js';
 import { seedDemo } from '../server/demo.js';
+import { createAzureClient } from '../server/azure-client.js';
 import { TEST_KEY, keyedFetch } from './fixtures/access.js';
 
 const fetch = keyedFetch();
@@ -187,10 +188,7 @@ test('a disabled repository makes no direct Azure reads', async t => {
   const expected = { branch: 'main', head: 'a', upstream: 'origin/main', identity: 'i' };
   assert.equal((await mutate('/api/repos/demo-billing/checkout', { operation: 'check', expected })).status, 409);
   assert.deepEqual(reads, []);
-  store.saveJob({ id: 'merge:x', type: 'merge', repoId: 'demo-billing' });
-  assert.deepEqual({ ...store.mergeQueueSummary() }, { pending: 0, errors: 0 });
   store.saveRepo({ ...store.getRepo('demo-billing'), disabled: false });
-  assert.deepEqual({ ...store.mergeQueueSummary() }, { pending: 1, errors: 0 });
   assert.equal((await fetch(`${url}/api/push/demo-billing/1/commits`)).status, 200);
 });
 
@@ -257,4 +255,34 @@ test('a cross-site page load reaches the app page, but cross-site API calls stay
   assert.equal(await status('/', 'no-cors'), 403);
   assert.equal(await status('/app.css', 'navigate'), 403);
   assert.equal(await status('/api/state', 'cors'), 403);
+});
+
+test('Load push commits pages through the Azure client by push ID', async t => {
+  const reads = [];
+  const cli = {
+    run: async args => {
+      const query = Object.fromEntries(args.slice(args.indexOf('--query-parameters') + 1).map(pair => pair.split('=')));
+      reads.push(query);
+      const length = Number(query.skip) === 0 ? 100 : 3;
+      return { value: Array.from({ length }, (_, index) => ({ commitId: `${query.skip}-${index}`, comment: 'Change', author: {} })) };
+    },
+  };
+  const { url } = await fixture(t, { demo: false, provider: createAzureClient({ cli }) });
+  const first = await (await fetch(`${url}/api/push/demo-billing/7/commits`)).json();
+  assert.equal(first.items.length, 100);
+  assert.deepEqual(first.items[0], { commitId: '0-0', comment: 'Change' });
+  assert.deepEqual(first.nextCursor, { skip: 100 });
+  const second = await (await fetch(`${url}/api/push/demo-billing/7/commits?skip=${first.nextCursor.skip}`)).json();
+  assert.deepEqual(
+    second.items.map(item => item.commitId),
+    ['100-0', '100-1', '100-2'],
+  );
+  assert.equal(second.nextCursor, null);
+  assert.deepEqual(
+    reads.map(query => [query.pushId, query.top, query.skip]),
+    [
+      ['7', '100', '0'],
+      ['7', '100', '100'],
+    ],
+  );
 });

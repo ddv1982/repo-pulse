@@ -43,6 +43,7 @@ test('CLI rejects writes and credential operations before execution', async () =
     ['account', 'get-access-token'],
     ['repos', 'delete', '--id', '1'],
     ['devops', 'invoke', '--area', 'git', '--resource', 'pushes', '--api-version', '7.1', '--http-method', 'POST'],
+    ['devops', 'invoke', '--area', 'git', '--resource', 'commits', '--api-version', '7.1', '--http-method', 'GET', '--in-file', '/tmp/x'],
   ])
     await assert.rejects(cli.run(args), { code: 'READ_ONLY' });
   assert.equal(calls, 0);
@@ -116,129 +117,6 @@ test('CLI redacts upstream stderr, rejects invalid JSON and closes queued work',
   blocked.close();
   await assert.rejects(queued, { code: 'CLOSED' });
   await assert.rejects(active);
-});
-
-test('read-only POST query files are private, cleaned after errors, and use the shared budget', async () => {
-  const { mkdtemp, readFile, stat, readdir, rm } = await import('node:fs/promises');
-  const { tmpdir } = await import('node:os');
-  const { join } = await import('node:path');
-  const tempRoot = await mkdtemp(join(tmpdir(), 'repo-pulse-query-test-'));
-  const ids = ['a'.repeat(40)];
-  const request = { organization: 'https://dev.azure.com/example', project: 'P', repositoryId: 'repo1', resource: 'commitsbatch' };
-  let calls = 0,
-    checkedPath;
-  const cli = createAzureCli({
-    tempRoot,
-    executor: async args => {
-      calls++;
-      const path = args[args.indexOf('--in-file') + 1];
-      checkedPath = path;
-      assert.equal((await stat(path)).mode & 0o777, 0o600);
-      assert.deepEqual(JSON.parse(await readFile(path, 'utf8')), { ids });
-      assert(args.includes('POST'));
-      assert(args.includes('resource=anything') === false);
-      throw Object.assign(new Error('must-not-leak'), { stderr: '403 forbidden token secret' });
-    },
-  });
-  try {
-    const a = cli.runReadQuery(request, { ids });
-    const duplicate = cli.runReadQuery(request, { ids });
-    assert.equal(a, duplicate);
-    await assert.rejects(a, { code: 'FORBIDDEN' });
-    assert.equal(calls, 1);
-    assert.equal(cli.diagnostics().totalStarts, 1);
-    assert(checkedPath.startsWith(tempRoot));
-    assert.deepEqual(await readdir(tempRoot), []);
-  } finally {
-    cli.close();
-    await rm(tempRoot, { recursive: true, force: true });
-  }
-});
-
-test('only exact bounded read-query bodies can enter POST path', async () => {
-  let calls = 0;
-  const cli = createAzureCli({
-    executor: async () => {
-      calls++;
-      return '{}';
-    },
-  });
-  const repo = { organization: 'https://dev.azure.com/example', project: 'P', repositoryId: 'repo1', resource: 'commitsbatch' };
-  for (const body of [
-    { ids: ['bad'] },
-    { ids: Array(101).fill('a'.repeat(40)) },
-    { ids: ['a'.repeat(40)], itemVersion: {} },
-    { ids: [] },
-    { refs: [] },
-  ])
-    await assert.rejects(cli.runReadQuery(repo, body), { code: 'INVALID_QUERY' });
-  await assert.rejects(cli.runReadQuery({ ...repo, resource: 'pushes' }, { ids: ['a'.repeat(40)] }), { code: 'INVALID_QUERY' });
-  await assert.rejects(
-    cli.runReadQuery({ ...repo, resource: 'pullrequestquery' }, { queries: [{ type: 'notSet', items: ['a'.repeat(40)] }] }),
-    { code: 'INVALID_QUERY' },
-  );
-  await assert.rejects(
-    cli.run([
-      'devops',
-      'invoke',
-      '--area',
-      'git',
-      '--resource',
-      'commitsbatch',
-      '--api-version',
-      '7.1',
-      '--http-method',
-      'POST',
-      '--in-file',
-      '/tmp/arbitrary',
-    ]),
-    { code: 'READ_ONLY' },
-  );
-  assert.equal(calls, 0);
-  cli.close();
-});
-
-test('read queries cannot bypass a GET exhausted minute budget and remove successful query files', async () => {
-  const { mkdtemp, readdir, rm } = await import('node:fs/promises');
-  const { tmpdir } = await import('node:os');
-  const { join } = await import('node:path');
-  const tempRoot = await mkdtemp(join(tmpdir(), 'repo-pulse-budget-query-test-'));
-  let time = 0,
-    scheduled,
-    executions = 0;
-  const cli = createAzureCli({
-    tempRoot,
-    limitPerMinute: 1,
-    now: () => time,
-    setTimer: fn => {
-      scheduled = fn;
-      return 1;
-    },
-    clearTimer: () => {},
-    executor: async () => {
-      executions++;
-      return '{}';
-    },
-  });
-  try {
-    await cli.run(['version']);
-    await flush();
-    const query = cli.runReadQuery(
-      { organization: 'https://dev.azure.com/example', project: 'P', repositoryId: 'repo1', resource: 'pullrequestquery' },
-      { queries: [{ type: 'lastMergeCommit', items: ['a'.repeat(40)] }] },
-    );
-    await flush();
-    assert.equal(executions, 1);
-    assert.deepEqual(await readdir(tempRoot), []);
-    time = 60_000;
-    scheduled();
-    await query;
-    assert.equal(executions, 2);
-    assert.deepEqual(await readdir(tempRoot), []);
-  } finally {
-    cli.close();
-    await rm(tempRoot, { recursive: true, force: true });
-  }
 });
 
 test('CLI errors are classified from Azure output, not from the command arguments', async () => {

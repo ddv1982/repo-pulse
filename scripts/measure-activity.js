@@ -4,10 +4,10 @@ import { createStore } from '../server/store.js';
 
 const samples = 20;
 const scenarios = [
-  { repositories: 2, events: 1100, pendingMergeJobs: 30 },
-  { repositories: 12, events: 25000, pendingMergeJobs: 2500 },
+  { repositories: 2, events: 1100 },
+  { repositories: 12, events: 25000 },
 ];
-if (process.argv.includes('--large')) scenarios.push({ repositories: 12, events: 75000, pendingMergeJobs: 2500, mixedRuns: true });
+if (process.argv.includes('--large')) scenarios.push({ repositories: 12, events: 75000, mixedRuns: true });
 
 async function measure(scenario) {
   const store = createStore();
@@ -30,9 +30,6 @@ async function measure(scenario) {
     };
   });
   store.insertEvents(events);
-  for (const event of events.filter(event => event.kind === 'push').slice(0, scenario.pendingMergeJobs)) {
-    store.saveJob({ id: `merge:${event.id}`, eventId: event.id, repoId: event.repoId, type: 'merge', status: 'pending' });
-  }
   const accessKey = randomBytes(32).toString('base64url');
   const app = createApp({ store, provider: {}, sync: { status: () => ({}) }, accessKey });
   await new Promise(resolve => app.listen(0, '127.0.0.1', resolve));

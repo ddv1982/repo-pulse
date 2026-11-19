@@ -19,9 +19,8 @@ import { localPrLink, mergeUpdates } from './merge-evidence.js';
 /** @typedef {StoredEvent & { seen: boolean, imported: boolean }} HydratedEvent */
 /** Every watched repository was resolved through Azure (or is a demo fixture), so its Azure identity is always present. */
 /** @typedef {import('./azure-client.js').AzureRepo & { id: string, name: string, disabled?: boolean, localPath?: string }} Repository */
-/** Merge and backfill jobs share the indexed columns; every other field belongs to the job type. */
+/** Jobs share the indexed columns; every other field belongs to the job type. */
 /** @typedef {{ id: string, type: string, repoId: string, nextAt?: string, status?: string, eventId?: string, [field: string]: unknown }} Job */
-/** @typedef {{ pending: number, errors: number }} MergeQueueSummary */
 /** Settings hold any JSON value, written with JSON.stringify. */
 /** @typedef {null | boolean | number | string | SettingValue[] | { [key: string]: SettingValue }} SettingValue */
 /** @typedef {{ type: string, id: string | number, data: unknown }} EntityInput */
@@ -156,7 +155,7 @@ export function createStore(path = ':memory:') {
   const selectEvents = 'SELECT e.data,e.seen,e.imported,n.data AS enrichment FROM events e LEFT JOIN enrichment n ON n.event_id=e.id';
   /**
    * Adds each stored completed PR whose merge commit is the new tip of the PR's target ref in this push. An absent match
-   * writes nothing. It also runs after enrichment saves, so a link stored while a merge job was running is kept.
+   * writes nothing.
    * @param {string} id
    */
   function linkPush(id) {
@@ -164,8 +163,8 @@ export function createStore(path = ':memory:') {
     if (!push) return;
     const evidence = /** @type {import('../src/activity.js').MergeEvidenceData} */ (push.data?.mergeEvidence || {});
     const prs = [...(evidence.prs || [])];
-    // Completed analysis that proves which commits the push introduced outranks tip identity: a branch reset back to
-    // an old merge commit matches the tip without introducing it.
+    // Saved complete analysis that proves which commits the push introduced outranks tip identity: a branch reset back
+    // to an old merge commit matches the tip without introducing it.
     const proven = evidence.status === 'complete' && Array.isArray(evidence.introducedCommitIds);
     const introduced = new Set(((proven && evidence.introducedCommitIds) || []).map(commit => String(commit).toLowerCase()));
     let changed = false;
@@ -183,7 +182,7 @@ export function createStore(path = ':memory:') {
           changed = true;
           continue;
         }
-        // The tip identity is the strongest relationship; an engine entry for the same PR keeps its metadata and gains
+        // The tip identity is the strongest relationship; a saved entry for the same PR keeps its metadata and gains
         // the fields only the stored PR has.
         const existing = /** @type {Record<string, unknown>} */ (prs[index]);
         const filled = Object.fromEntries(Object.entries(local).filter(([field, value]) => value != null && existing[field] == null));
@@ -192,7 +191,7 @@ export function createStore(path = ':memory:') {
         changed = true;
       }
     }
-    return changed ? enrichEvent(id, { mergeEvidence: { ...evidence, prs } }) : undefined;
+    if (changed) enrichEvent(id, { mergeEvidence: { ...evidence, prs } });
   }
   /** @param {StoredEvent} push */
   function indexPush(push) {
@@ -280,6 +279,18 @@ export function createStore(path = ':memory:') {
         }
       },
     ],
+    [
+      12,
+      () => {
+        // The merge analysis cached Azure commits and their PR lookups, which nothing reads any more, and no code ever
+        // wrote a rule. Pushes indexed under the retired "Merge commit" badge get their labels again.
+        q("DELETE FROM entities WHERE type IN ('commit','commit-pr')").run();
+        db.exec('DROP TABLE IF EXISTS rules;');
+        for (const row of q(`${selectEvents} JOIN activity_members m ON m.event_id=e.id WHERE m.evidence_id='merge-commit'`).all())
+          indexLabels(hydrate(row));
+        q("INSERT OR REPLACE INTO settings(key,data) VALUES('compactPending','true')").run();
+      },
+    ],
   ];
   const version = /** @type {{ user_version: number }} */ (q('PRAGMA user_version').get()).user_version;
   if (version > migrations[migrations.length - 1][0]) {
@@ -300,7 +311,6 @@ export function createStore(path = ':memory:') {
       CREATE TABLE IF NOT EXISTS entities (repo_id TEXT NOT NULL REFERENCES repositories(id) ON DELETE CASCADE,
         type TEXT NOT NULL,id TEXT NOT NULL,data TEXT NOT NULL,PRIMARY KEY(repo_id,type,id));
       CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY,data TEXT NOT NULL);
-      CREATE TABLE IF NOT EXISTS rules (id TEXT PRIMARY KEY,data TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS activity_members (
         sequence INTEGER PRIMARY KEY AUTOINCREMENT,event_id TEXT UNIQUE NOT NULL REFERENCES events(id) ON DELETE CASCADE,
         group_key TEXT NOT NULL,kind TEXT NOT NULL,status_id TEXT NOT NULL DEFAULT '',evidence_id TEXT NOT NULL DEFAULT '',
@@ -338,6 +348,16 @@ export function createStore(path = ':memory:') {
       db.exec(`PRAGMA user_version = ${target}`);
     }
   });
+  // Returns the space deleted caches held to the file system. VACUUM cannot run inside a transaction, and a failure
+  // (for example a full disk) must not stop startup, so the pending flag keeps it for the next start.
+  if (q("SELECT 1 FROM settings WHERE key='compactPending'").get()) {
+    try {
+      db.exec('VACUUM');
+      q("DELETE FROM settings WHERE key='compactPending'").run();
+    } catch {
+      /* Retried on the next start. */
+    }
+  }
   /** @param {ActivityEvent[]} events */
   function insertEvents(events) {
     const statement = q('INSERT OR IGNORE INTO events(id,repo_id,time,observed_at,seen,imported,data) VALUES(?,?,?,?,?,?,?)');
@@ -435,7 +455,6 @@ export function createStore(path = ':memory:') {
         q('DELETE FROM repositories WHERE id=?').run(id);
         bumpActivity();
         q('DELETE FROM settings WHERE key IN (?,?,?)').run(`baseline:${id}`, `checkout:${id}`, `checkout-followup:${id}`);
-        q("DELETE FROM rules WHERE json_extract(data,'$.repoId')=?").run(id);
       });
     },
     /** @param {{ repoIds?: string[], limit?: number, unseen?: boolean }} [options] */
@@ -494,38 +513,9 @@ export function createStore(path = ':memory:') {
       }
       return [...candidates.values()];
     },
-    /** @param {string} repoId @param {string[] | undefined} commitIds @param {string} [targetRef] */
-    findPushEventsForCommits(repoId, commitIds, targetRef) {
-      requireRepo(repoId);
-      const ids = [...new Set(commitIds || [])];
-      if (!ids.length) return [];
-      const marks = ids.map(() => '?').join(',');
-      const target = targetRef ? "AND json_extract(ref.value,'$.name')=?" : '';
-      const params = targetRef ? [repoId, targetRef, ...ids, targetRef, ...ids, ...ids] : [repoId, ...ids, ...ids, ...ids];
-      return q(`${selectEvents} WHERE e.repo_id=? AND json_extract(e.data,'$.kind')='push'
-        AND EXISTS (SELECT 1 FROM json_each(e.data,'$.data.refUpdates') ref WHERE 1=1 ${target})
-        AND (EXISTS (SELECT 1 FROM json_each(e.data,'$.data.refUpdates') ref
-          WHERE json_extract(ref.value,'$.newObjectId') IN (${marks}) ${target})
-          OR EXISTS (SELECT 1 FROM json_each(n.data,'$.mergeEvidence.introducedCommitIds') commit_id
-            WHERE commit_id.value IN (${marks}))
-          OR EXISTS (SELECT 1 FROM json_each(n.data,'$.mergeEvidence.candidateCommitIds') candidate_id
-            WHERE candidate_id.value IN (${marks}))) ORDER BY e.observed_at DESC,e.id DESC`)
-        .all(...params)
-        .map(hydrate);
-    },
     /** @param {string} id @param {unknown} data */
     enrichEvent(id, data) {
       return transaction(() => enrichEvent(id, data));
-    },
-    /** @param {{ jobId?: string, eventId: string, data: unknown, entities?: EntityInput[], job?: Job | null }} input */
-    commitEnrichment({ jobId, eventId, data, entities = [], job = null }) {
-      return transaction(() => {
-        const enriched = enrichEvent(eventId, data);
-        saveEntities(enriched.repoId, entities);
-        if (jobId) q('DELETE FROM jobs WHERE id=?').run(jobId);
-        if (job) saveJob(job);
-        return linkPush(eventId) || enriched;
-      });
     },
     /** @param {unknown} ids @param {boolean} [seen] */
     acknowledge(ids, seen = true) {
@@ -553,7 +543,7 @@ export function createStore(path = ':memory:') {
         .all(repoId, type)
         .map(r => ({ id: /** @type {string} */ (r.id), data: readEntity(r) })),
     /**
-     * Sync pages carry their stream state; backfill and enrichment pages carry none.
+     * Sync pages carry their stream state; backfill pages carry none.
      * @param {{ repoId: string, events?: ActivityEvent[], entities?: EntityInput[], jobs?: Job[] }
      *   & ({ stream: StreamName, state: StreamState } | { stream?: StreamName, state?: undefined })} page
      */
@@ -598,16 +588,6 @@ export function createStore(path = ':memory:') {
         .map(readJob);
       // Persisted JSON: rows of type 'backfill' are only ever written by server/backfill.js, as a HistoryJob.
       return /** @type {T extends 'backfill' ? import('./backfill.js').HistoryJob[] : Job[]} */ (jobs);
-    },
-    /** @returns {MergeQueueSummary} */
-    mergeQueueSummary() {
-      // An aggregate without GROUP BY always yields one row of two counts.
-      return /** @type {MergeQueueSummary} */ (
-        q(`SELECT COUNT(*) AS pending,
-        COUNT(CASE WHEN json_extract(j.data,'$.error') IS NOT NULL THEN 1 END) AS errors
-        FROM jobs j JOIN repositories r ON r.id=j.repo_id
-        WHERE j.type='merge' AND NOT COALESCE(json_extract(r.data,'$.disabled'),0)`).get()
-      );
     },
     saveJob,
     /** @param {string} id */

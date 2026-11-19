@@ -12,7 +12,7 @@ export function renderMergeEvidence(data = {}) {
   if (!evidence) return '';
   const prs = evidence.prs || [];
   const commits = evidence.commits || [];
-  return `<section class="activity-history stack-gap" aria-label="Merge evidence"><h2>Merge evidence</h2>
+  return `<section class="activity-history stack-gap" aria-label="How this was merged"><h2>How this was merged</h2>
     <p><span class="chip status-chip ${prs.length ? 'ok' : commits.length ? 'info' : evidence.status === 'not-applicable' ? 'neutral' : 'unk'}">${prs.length ? 'Completed PR linked' : commits.length ? 'Merge commit found' : evidence.status === 'not-applicable' ? 'Branch lifecycle only' : evidence.status === 'complete' ? 'No merge established' : 'Evidence incomplete'}</span>${evidence.checkedAt ? ` <span class="help">Checked ${e(dateTime(evidence.checkedAt))}</span>` : ''}</p>
     ${prs.length ? `<ul>${prs.map(renderPr).join('')}</ul>` : evidence.status === 'not-applicable' ? '' : '<p class="help">No completed PR association established. This does not prove a push was made outside a PR.</p>'}
     ${commits.length ? `<ul>${commits.map(item => `<li><code>${e((item.commitId || '').slice(0, 8))}</code> · ${e(item.parents?.length || 0)} parents${item.branches?.length ? ` · ${e(item.branches.map(branchName).join(', '))}` : ''}</li>`).join('')}</ul><p class="help">Multiple parents establish a graph merge; they do not identify the original branch name or Git command.</p>` : ''}
@@ -36,7 +36,7 @@ export function mergeEvidenceBadge(event) {
     ? `<span class="chip status-chip warn">History rewritten · ${e(rewritten.map(range => droppedText(range.update || {})).join(', '))}</span>`
     : '';
   if (!label) return history;
-  return `<span class="chip status-chip ${label === 'Completed PR linked' ? 'ok' : 'info'}">${e(label)}</span>${history}`;
+  return `<span class="chip status-chip ok">${e(label)}</span>${history}`;
 }
 
 /** @param {EventData} [data] */

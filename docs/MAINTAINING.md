@@ -6,7 +6,7 @@
 | --- | --- |
 | [server.js](../server.js) | Loopback HTTP, the access key, request validation, and runtime wiring |
 | [server/azure-cli.js](../server/azure-cli.js), [server/azure-rest.js](../server/azure-rest.js) and [server/azure-client.js](../server/azure-client.js) | Azure command allowlist, queue, token-based REST reads, endpoint queries, and paging |
-| [server/sync.js](../server/sync.js), [server/backfill.js](../server/backfill.js), and [server/enrichment.js](../server/enrichment.js) | Live polling, historical imports, and evidence collection |
+| [server/sync.js](../server/sync.js) and [server/backfill.js](../server/backfill.js) | Live polling and historical imports |
 | [server/store.js](../server/store.js) | SQLite events, migrations, and atomic checkpoints |
 | [server/activity-query.js](../server/activity-query.js) | Scoped Activity rows, stable filter IDs, counts, and paging |
 | [server/repositories.js](../server/repositories.js) and [server/checkout-git.js](../server/checkout-git.js) | Checkout discovery, local Git status, explicit fetch, and guarded fast-forward |
@@ -23,7 +23,7 @@ Pull runs `git merge --ff-only --no-squash` after verifying the checkout identit
 
 ## Keep functions small
 
-`npm run lint` fails when a function's cyclomatic complexity exceeds 30. When a change pushes a function over, split it into named steps or a small table of handlers, as `server/enrichment.js` and `server/sync.js` do, rather than raising the limit.
+`npm run lint` fails when a function's cyclomatic complexity exceeds 30. When a change pushes a function over, split it into named steps or a small table of handlers, as `server/sync.js` does, rather than raising the limit.
 
 ## Run checks
 
@@ -47,7 +47,7 @@ The hardening run used 20 sequential samples after three warm-ups per workload. 
 
 ## Check the Azure budget
 
-Run `node scripts/measure-budget.js` to simulate live polling against the shared call limit (`--limit`, default 12 for the old CLI-only budget; the app now uses 60). It runs the real sync and Azure client code with a fake clock and a fake CLI. Measurements taken before background merge analysis was removed included that analysis and are not comparable. Options set the repository counts, pushes per hour, commits per push, the assumed duration of one CLI call, and the simulated minutes. The call duration of 1.5 s is an assumption, not a measurement.
+Run `node scripts/measure-budget.js` to simulate live polling against the shared call limit (`--limit`, default 12 for the old CLI-only budget; the app now uses 60). It runs the real sync and Azure client code with a fake clock and a fake CLI. Measurements taken before background merge analysis was removed included that analysis and are not comparable. Options set the repository counts, pushes per hour, the assumed duration of one CLI call, and the simulated minutes. The call duration of 1.5 s is an assumption, not a measurement.
 
 On 2026-11-18, 120 simulated minutes with the tab in the foreground and 4 pushes per hour per repository gave:
 

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { renderMergeEvidence, mergeEvidenceBadge } from '../src/ui/merge-evidence.js';
 import { renderHistoryButton, renderHistoryProgress } from '../src/ui/history-import.js';
 
-test('merge UI separates graph evidence from PR association and never invents a direct merge', () => {
+test('saved graph evidence stays readable in the detail without a row badge, and no direct merge is invented', () => {
   const evidence = {
     status: 'complete',
     checkedAt: '2026-11-17T10:00:00Z',
@@ -12,16 +12,18 @@ test('merge UI separates graph evidence from PR association and never invents a 
     limitations: ['Source branch unknown'],
   };
   const html = renderMergeEvidence({ mergeEvidence: evidence });
+  assert.match(html, /<h2>How this was merged<\/h2>/);
   assert.match(html, /Merge commit found/);
   assert.match(html, /2 parents/);
   assert.match(html, /does not prove a push was made outside a PR/);
   assert.doesNotMatch(html, /Merged by|Direct merge/);
-  assert.match(mergeEvidenceBadge({ kind: 'push', data: { mergeEvidence: evidence } }), /Merge commit/);
+  assert.equal(mergeEvidenceBadge({ kind: 'push', data: { mergeEvidence: evidence } }), '', 'the Merge commit badge is retired');
   assert.equal(mergeEvidenceBadge({ kind: 'pr', data: { mergeEvidence: evidence } }), '');
   const linked = renderMergeEvidence({
     mergeEvidence: { ...evidence, prs: [{ pullRequestId: 1, targetRefName: 'refs/heads/main', closedBy: { displayName: '<unsafe>' } }] },
   });
   assert.match(linked, /Completed PR linked/);
+  assert.match(mergeEvidenceBadge({ kind: 'push', data: { mergeEvidence: { prs: [{ pullRequestId: 1 }] } } }), /Completed PR linked/);
   assert.match(linked, /PR closed by &lt;unsafe&gt;/);
   assert.match(renderMergeEvidence({ mergeEvidence: { status: 'not-applicable', commits: [], prs: [] } }), /Branch lifecycle only/);
 });

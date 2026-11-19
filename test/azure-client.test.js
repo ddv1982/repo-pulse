@@ -178,135 +178,29 @@ test('a missing account-show context does not reject existing DevOps CLI credent
   assert.match(status.message, /Existing Azure CLI access works/);
 });
 
-test('exact commit hydration preserves parent evidence and rejects missing or unrelated graph data', async () => {
-  const sha = 'a'.repeat(40),
-    parent = 'b'.repeat(40),
-    calls = [];
-  let response = { value: [{ commitId: sha, parents: [parent], comment: 'graph' }] };
-  const client = createAzureClient({
-    cli: {
-      runReadQuery: async (request, body) => {
-        calls.push({ request, body });
-        return response;
-      },
-      run: async () => ({ commitId: sha }),
-    },
-  });
-  assert.deepEqual(await client.commitsByIds(repo, [sha, sha.toUpperCase()]), response.value);
-  assert.deepEqual(calls[0].body, { ids: [sha] });
-  assert.equal(calls[0].request.resource, 'commitsbatch');
-  response = { value: [{ commitId: sha }] };
-  await assert.rejects(client.commitsByIds(repo, [sha]), { code: 'INCOMPLETE_RESPONSE' });
-  response = { value: [{ commitId: parent, parents: [] }] };
-  await assert.rejects(client.commitsByIds(repo, [sha]), { code: 'INVALID_RESPONSE' });
-  response = { value: [], continuation_token: 'incomplete' };
-  await assert.rejects(client.commitsByIds(repo, [sha]), { code: 'INCOMPLETE_RESPONSE' });
-  const count = calls.length;
-  assert.deepEqual(await client.commitsByIds(repo, []), []);
-  assert.equal(calls.length, count);
-});
-
-test('commit-to-PR query batches both types and accepts only completed same-repo target evidence', async () => {
-  const sha = 'a'.repeat(40),
-    other = 'b'.repeat(40),
-    calls = [];
-  const pr = {
-    pullRequestId: 9,
-    status: 'completed',
-    repository: { id: 'repo1' },
-    targetRefName: 'refs/heads/main',
-    sourceRefName: 'refs/heads/feature/x',
-    lastMergeCommit: { commitId: sha },
-    closedBy: { displayName: 'closer' },
-  };
-  let response = {
-    results: [
-      {
-        [sha]: [pr, { ...pr, status: 'active' }, { ...pr, repository: { id: 'foreign' } }, { ...pr, lastMergeCommit: { commitId: other } }],
-      },
-      { [sha]: [pr] },
-    ],
-  };
-  const client = createAzureClient({
-    cli: {
-      runReadQuery: async (request, body) => {
-        calls.push({ request, body });
-        return response;
-      },
-      run: async () => ({}),
-    },
-  });
-  const associations = await client.queryPullRequests(repo, [sha]);
-  assert.equal(associations.length, 2);
-  assert.deepEqual(
-    associations.map(a => a.queryType),
-    ['lastMergeCommit', 'commit'],
-  );
-  assert(associations.every(a => a.commitId === sha && a.pullRequest.closedBy.displayName === 'closer'));
-  assert.deepEqual(calls[0].body, {
-    queries: [
-      { type: 'lastMergeCommit', items: [sha] },
-      { type: 'commit', items: [sha] },
-    ],
-  });
-  response = { results: [{}, {}] };
-  assert.deepEqual(await client.queryPullRequests(repo, [sha]), []);
-  assert.equal(calls.length, 2, 'negative associations are not permanently cached');
-  response = { results: [{}] };
-  await assert.rejects(client.queryPullRequests(repo, [sha]), { code: 'INVALID_RESPONSE' });
-});
-
-test('shallow batch objects hydrate exact commits before presenting parent evidence', async () => {
-  const sha = 'a'.repeat(40),
-    parent = 'b'.repeat(40),
-    calls = [];
-  const client = createAzureClient({
-    cli: {
-      runReadQuery: async () => ({ value: [{ commitId: sha, comment: 'shallow' }] }),
-      run: async args => {
-        calls.push(args);
-        return { commitId: sha, parents: [parent], treeId: 'tree' };
-      },
-    },
-  });
-  const commits = await client.commitsByIds(repo, [sha]);
-  assert.equal(commits.length, 1);
-  assert.deepEqual(commits[0].parents, [parent]);
-  assert.equal(commits[0].comment, 'shallow');
-  assert(calls[0].includes(`commitId=${sha}`));
-  assert(calls[0].includes('changeCount=0'));
-});
-
-test('ref ranges use fixed version descriptors and page interior commits independently of push ownership', async () => {
+test('dropped commits read one page from the old tip that the new tip does not reach', async () => {
   const old = 'a'.repeat(40),
     tip = 'b'.repeat(40),
-    interior = 'c'.repeat(40),
     calls = [];
   const client = createAzureClient({
     cli: {
       run: async args => {
         calls.push(args);
-        return {
-          value:
-            calls.length === 1 ? Array.from({ length: 100 }, (_, i) => ({ commitId: i === 0 ? tip : interior })) : [{ commitId: interior }],
-        };
+        return { value: Array.from({ length: 100 }, () => ({ commitId: old })) };
       },
     },
   });
-  const first = await client.refCommits(repo, old, tip);
-  assert.equal(first.items[0].commitId, tip);
-  assert.equal(first.items[1].commitId, interior);
-  assert.deepEqual(first.nextCursor, { skip: 100 });
-  const next = await client.refCommits(repo, old, tip, first.nextCursor);
-  assert.equal(next.nextCursor, null);
-  assert(calls[1].includes('searchCriteria.$skip=100'));
-  for (const args of calls) {
-    assert(args.includes(`searchCriteria.compareVersion.version=${tip}`));
-    assert(args.includes(`searchCriteria.itemVersion.version=${old}`));
-    assert(args.includes('searchCriteria.compareVersion.versionType=commit'));
-    assert(args.includes('searchCriteria.itemVersion.versionType=commit'));
-    assert(!args.some(arg => /fromCommitId|toCommitId|fromDate|toDate|showOldestCommitsFirst/.test(arg)));
-  }
+  const page = await client.droppedCommits(repo, old, tip);
+  assert.equal(page.items.length, 100);
+  assert.deepEqual(page.nextCursor, { skip: 100 }, 'a full page says more were dropped');
+  assert.equal(calls.length, 1);
+  const args = calls[0];
+  assert(args.includes(`searchCriteria.compareVersion.version=${old}`));
+  assert(args.includes(`searchCriteria.itemVersion.version=${tip}`));
+  assert(args.includes('searchCriteria.compareVersion.versionType=commit'));
+  assert(args.includes('searchCriteria.itemVersion.versionType=commit'));
+  assert(args.includes('searchCriteria.$skip=0'));
+  assert(!args.some(arg => /fromCommitId|toCommitId|fromDate|toDate|showOldestCommitsFirst/.test(arg)));
 });
 
 test('ref creation/deletion/equal tips cannot scan historical ancestry and malformed ranges fail closed', async () => {
@@ -327,11 +221,10 @@ test('ref creation/deletion/equal tips cannot scan historical ancestry and malfo
     [old, zero],
     [old, old],
   ])
-    assert.deepEqual(await client.refCommits(repo, from, to), { items: [], nextCursor: null });
+    assert.deepEqual(await client.droppedCommits(repo, from, to), { items: [], nextCursor: null });
   assert.equal(calls, 0);
-  await assert.rejects(client.refCommits(repo, 'refs/heads/main', tip), { code: 'INVALID_QUERY' });
-  await assert.rejects(client.refCommits(repo, old, tip, { skip: -1 }), { code: 'INVALID_QUERY' });
-  await assert.rejects(client.refCommits(repo, old, tip), { code: 'INVALID_RESPONSE' });
+  await assert.rejects(client.droppedCommits(repo, 'refs/heads/main', tip), { code: 'INVALID_QUERY' });
+  await assert.rejects(client.droppedCommits(repo, old, tip), { code: 'INVALID_RESPONSE' });
 });
 
 test('checkout PR lookup is bounded and accepts completed PRs in the same source and target repository only', async () => {

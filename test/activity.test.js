@@ -147,3 +147,10 @@ test('unrelated PRs and pushes remain individual records without source assumpti
   assert.equal(groupActivity(input).length, 3);
   assert.deepEqual(groupActivity([]), []);
 });
+
+test('a retired evidence filter restored from an older session shows all activity', async () => {
+  const { parseActivityFilter, activityFilterLabel } = await import('../src/activity-text.js');
+  assert.deepEqual(parseActivityFilter('evidence:merge-commit'), { type: 'all' });
+  assert.equal(activityFilterLabel('evidence:merge-commit'), 'All types');
+  assert.deepEqual(parseActivityFilter('evidence:pr-linked'), { type: 'evidence', id: 'pr-linked' });
+});
