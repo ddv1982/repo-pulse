@@ -41,9 +41,24 @@ const operations = [
   ['sequencer', 'Git operation'],
 ];
 const hooks = process.platform === 'win32' ? 'NUL' : '/dev/null';
-// Keys in a checkout's own config that make Git run a command or change where and how it connects.
-const commandKeys =
-  /^(?:filter\..+\.(?:clean|smudge|process)|merge\..+\.driver|core\.(?:sshcommand|askpass|gitproxy|alternaterefscommand)|credential\.(?:.+\.)?helper|http\.(?:.+\.)?(?:proxy|sslverify|sslcainfo|sslcapath|sslcert|sslkey|extraheader|cookiefile)|remote\..+\.(?:uploadpack|receivepack|proxy))$/i;
+// Keys in a checkout's own config that make Git run a command, change where or how it connects, or load more config
+// later (conditional includes can switch on after a branch switch).
+const commandKeys = new RegExp(
+  [
+    'filter\\..*\\.(?:clean|smudge|process)',
+    'merge\\..*\\.driver',
+    'core\\.(?:sshcommand|askpass|gitproxy|alternaterefscommand)',
+    'credential\\.(?:.*\\.)?helper',
+    'http\\..*',
+    'remote\\..*\\.(?:uploadpack|proxy|vcs)',
+    'fetch\\.bundleuri',
+    'gpg\\.(?:.*\\.)?program',
+    'includeif\\..*\\.path',
+  ]
+    .map(key => `^${key}$`)
+    .join('|'),
+  'is',
+);
 
 function gitEnvironment() {
   /** @type {NodeJS.ProcessEnv} */
@@ -209,14 +224,16 @@ export function createCheckoutGit({
 
   /** Config keys the checkout or one of its submodules sets itself that would make Git run a command. @param {string} path */
   async function configuredCommands(path) {
-    const submodules = (await run(path, ['submodule', 'foreach', '--quiet', '--recursive', 'echo "$displaypath"'])).split('\n');
+    // printf with NUL keeps every path exact; the command is fixed, so no checkout value reaches the shell.
+    const submodules = (await run(path, ['submodule', 'foreach', '--quiet', '--recursive', 'printf "%s\\0" "$displaypath"'])).split('\0');
     const keys = new Set();
     for (const folder of ['.', ...submodules.filter(Boolean)]) {
-      const listing = await run(resolve(path, folder), ['config', '--show-scope', '--includes', '--name-only', '--list']);
-      for (const line of listing.split('\n')) {
-        const [scope, key = ''] = line.split('\t');
-        if ((scope === 'local' || scope === 'worktree') && commandKeys.test(key)) keys.add(key);
-      }
+      // NUL-separated pairs of scope and key, so a subsection with a tab or newline stays one key.
+      const fields = (await run(resolve(path, folder), ['config', '--show-scope', '--includes', '--name-only', '--null', '--list'])).split(
+        '\0',
+      );
+      for (let i = 0; i + 1 < fields.length; i += 2)
+        if ((fields[i] === 'local' || fields[i] === 'worktree') && commandKeys.test(fields[i + 1])) keys.add(fields[i + 1]);
     }
     return [...keys];
   }
@@ -386,11 +403,16 @@ export function createCheckoutGit({
       throw problem('Incoming files overlap ignored local files. Move them before pulling.');
   }
 
-  /** @param {string} path @param {string} tip */
-  async function fastForward(path, tip) {
+  /** @param {string} path @param {string} branch @param {string} tip */
+  async function fastForward(path, branch, tip) {
     try {
-      // --no-squash overrides a branch.<name>.mergeOptions that would stage the changes without moving HEAD.
+      // A strategy from branch.<name>.mergeOptions or pull.twohead makes even --ff-only create a merge commit,
+      // so both are cleared for this merge. --no-squash keeps the earlier guard against a configured --squash.
       await run(path, [
+        '-c',
+        `branch.${branch}.mergeOptions=`,
+        '-c',
+        'pull.twohead=ort',
         '-c',
         `core.hooksPath=${hooks}`,
         '-c',
@@ -556,7 +578,7 @@ export function createCheckoutGit({
     // Checked after identity and eligibility so a rewritten upstream or changed checkout is reported first.
     await refuseIgnoredOverlap(path, after.head, tip);
     await run(path, ['merge-base', '--is-ancestor', after.head, tip]);
-    await fastForward(path, tip);
+    await fastForward(path, after.branch, tip);
     return { checkout: (await statusAt(path, repo)).snapshot, updated: true };
   }
 

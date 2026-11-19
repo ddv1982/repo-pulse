@@ -253,6 +253,22 @@ test('Pull advances the branch even when local Git config asks merges to squash'
   assert.equal(git(local, 'status', '--porcelain'), '', 'nothing was left staged');
 });
 
+test('Pull still fast-forwards when local Git config picks a merge strategy', async t => {
+  for (const [key, value] of [
+    ['branch.main.mergeOptions', '-s ours'],
+    ['pull.twohead', 'ours'],
+  ]) {
+    const fixture = checkoutFixture(t);
+    const { repo, checkoutGit, local, original } = fixture;
+    git(local, 'config', key, value);
+    const tip = fixture.advance();
+    const { checkout } = await checkoutGit.update(repo, 'check', await checkoutGit.status(repo));
+    await checkoutGit.update(repo, 'pull', checkout);
+    assert.equal(git(local, 'rev-parse', 'HEAD'), tip, key);
+    assert.equal(git(local, 'rev-parse', 'HEAD^'), original, key);
+  }
+});
+
 test('a checkout whose own Git config runs commands is refused before Git reads it', async t => {
   const { repo, checkoutGit, local, root = join(local, '..') } = checkoutFixture(t);
   const marker = join(root, 'filter-ran');
@@ -270,7 +286,7 @@ test('a checkout whose own Git config runs commands is refused before Git reads 
 });
 
 test('a submodule whose Git config runs commands is refused too', async t => {
-  const { repo, checkoutGit, local, commit } = checkoutFixture(t);
+  const { repo, checkoutGit, local, commit, remote } = checkoutFixture(t);
   const root = join(local, '..');
   const library = join(root, 'library');
   git(root, 'init', '--initial-branch=main', library);
@@ -279,4 +295,25 @@ test('a submodule whose Git config runs commands is refused too', async t => {
   assert.equal((await checkoutGit.status(repo)).state !== 'unavailable', true);
   git(join(local, 'lib'), 'config', 'core.sshCommand', 'ssh -o ProxyCommand=true');
   await assert.rejects(checkoutGit.update(repo, 'check', await checkoutGit.status(repo)), /core\.sshcommand/i);
+  const fresh = await createCheckoutGit({ matchesRemote: url => url === remote }).status(repo);
+  assert.equal(fresh.state, 'unavailable');
+  assert.match(fresh.diagnostic?.message ?? '', /core\.sshcommand/);
+});
+
+test('conditional includes, transport and signing keys in checkout config are refused', async t => {
+  const { repo, local, remote } = checkoutFixture(t);
+  for (const [key, value] of [
+    ['includeIf.onbranch:release.path', 'other.cfg'],
+    ['http.curloptResolve', 'dev.azure.com:443:127.0.0.1'],
+    ['gpg.ssh.program', 'sign'],
+    ['fetch.bundleURI', 'https://example.test/bundle'],
+    ['filter..clean', 'cat'],
+  ]) {
+    git(local, 'config', key, value);
+    const status = await createCheckoutGit({ matchesRemote: url => url === remote }).status(repo);
+    assert.equal(status.state, 'unavailable', key);
+    assert.match(status.diagnostic?.message ?? '', new RegExp(key.toLowerCase().replace(/[.]/g, '\\.')), key);
+    git(local, 'config', '--unset', key);
+  }
+  assert.notEqual((await createCheckoutGit({ matchesRemote: url => url === remote }).status(repo)).state, 'unavailable');
 });
