@@ -44,9 +44,9 @@ function status({ a = {}, b = {}, ...rest } = {}) {
 
 test('healthy repositories are synced since their oldest successful read', () => {
   const result = status({ a: { refs: { lastSuccess: ago(8) } } });
-  assert.deepEqual(result.repos.a, { state: 'synced', since: ago(8) });
-  assert.deepEqual(result.repos.b, { state: 'synced', since: ago(1) });
-  assert.deepEqual(result.overall, { state: 'synced', since: ago(8), repoId: 'a' });
+  assert.deepEqual(result.repos.a, { state: 'synced', since: ago(8), lastCheck: ago(1) });
+  assert.deepEqual(result.repos.b, { state: 'synced', since: ago(1), lastCheck: ago(1) });
+  assert.deepEqual(result.overall, { state: 'synced', since: ago(8), lastCheck: ago(1), repoId: 'a' });
 });
 
 test('automatic checks off pause every repository unless a manual refresh is outstanding', () => {
@@ -73,18 +73,65 @@ test('with automatic checks off a running history import is not paused: it syncs
   assert.equal(status({ settings, jobs: [{ repoId: 'a', status: 'completed' }] }).repos.a.state, 'paused');
 });
 
-test('an access, sign-in or missing CLI error is a problem at once and names the stream and what to do', () => {
-  for (const error of [
-    forbidden,
-    { code: 'AUTH_REQUIRED', message: 'Azure CLI sign-in is unavailable or expired. Reconnect in your terminal, then retry.' },
-    { code: 'CLI_MISSING', message: 'Azure CLI was not found. Install Azure CLI and its azure-devops extension.' },
+test('an access, sign-in or missing CLI error is a problem at once and says in plain words what to do', () => {
+  for (const [error, stream, reason] of [
+    [forbidden, 'builds', "Your Azure account has no access to this repository's builds."],
+    [forbidden, 'closedPrs', "Your Azure account has no access to this repository's pull requests."],
+    [forbidden, 'refs', "Your Azure account has no access to this repository's branches."],
+    [forbidden, 'pushes', "Your Azure account has no access to this repository's pushes."],
+    [
+      { code: 'AUTH_REQUIRED', message: 'Azure CLI sign-in is unavailable or expired. Reconnect in your terminal, then retry.' },
+      'builds',
+      'Sign in to Azure again.',
+    ],
+    [
+      { code: 'CLI_MISSING', message: 'Azure CLI was not found. Install Azure CLI and its azure-devops extension.' },
+      'builds',
+      'Install the Azure CLI.',
+    ],
+    [
+      { code: 'CLI_SETUP', message: 'Azure CLI or its azure-devops extension does not support this read. Check the installation.' },
+      'builds',
+      'Azure CLI or its azure-devops extension does not support this read. Check the installation.',
+    ],
   ]) {
-    const result = status({ a: { builds: { error, failures: 1, pending: true } } });
-    assert.deepEqual(result.repos.a, { state: 'problem', reason: error.message, stream: 'builds', since: ago(1) });
-    assert.deepEqual(result.repos.b, { state: 'synced', since: ago(1) }, 'another repository is not marked');
+    const result = status({ a: { [stream]: { error, failures: 1, pending: true } } });
+    assert.deepEqual(result.repos.a, { state: 'problem', reason, stream, since: ago(1) });
+    assert.deepEqual(result.repos.b, { state: 'synced', since: ago(1), lastCheck: ago(1) }, 'another repository is not marked');
     assert.equal(result.overall.state, 'problem');
     assert.equal(result.overall.repoId, 'a');
   }
+  const history = status({ jobs: [{ repoId: 'a', status: 'running', stream: 'builds', error: forbidden, failures: 1 }] });
+  assert.deepEqual(history.repos.a, {
+    state: 'problem',
+    reason: "Your Azure account has no access to this repository's builds.",
+    stream: 'history',
+    since: ago(1),
+  });
+  const unknown = status({ jobs: [{ repoId: 'a', status: 'running', error: forbidden, failures: 1 }] });
+  assert.equal(unknown.repos.a.reason, "Your Azure account has no access to this repository's history.");
+});
+
+test('overall Synced shows the newest check across repositories, not that of the one with the oldest data', () => {
+  const result = status({
+    a: { ...Object.fromEntries(STREAMS.map(stream => [stream, { lastSuccess: ago(5) }])), refs: { lastSuccess: ago(8) } },
+  });
+  assert.equal(result.repos.a.lastCheck, ago(5));
+  assert.deepEqual(result.overall, { state: 'synced', since: ago(8), lastCheck: ago(1), repoId: 'a' });
+});
+
+test('long delays are stated in hours from 120 minutes and in days from 48 hours', () => {
+  const settings = { refreshEnabled: true, refreshResumedAt: null };
+  const startedAt = NOW - 10 * 24 * 60 * MINUTE;
+  const behind = minutes => status({ settings, startedAt, a: { pushes: { lastSuccess: ago(minutes) } } }).repos.a.reason;
+  assert.equal(behind(119), 'about 119 minutes behind');
+  assert.equal(behind(119.5), 'about 120 minutes behind');
+  assert.equal(behind(47.5 * 60), 'about 48 hours behind');
+  assert.equal(behind(120), 'about 2 hours behind');
+  assert.equal(behind(18 * 60), 'about 18 hours behind');
+  assert.equal(behind(47 * 60), 'about 47 hours behind');
+  assert.equal(behind(48 * 60), 'about 2 days behind');
+  assert.equal(behind(3 * 24 * 60 + 100), 'about 3 days behind');
 });
 
 test('a single failed read is not a problem; a second one is', () => {
@@ -251,10 +298,15 @@ test('through createSync: first import syncs, a refused stream is a problem, and
   await drain();
   assert.deepEqual(current(), {
     state: 'problem',
-    reason: forbidden.message,
+    reason: "Your Azure account has no access to this repository's builds.",
     stream: 'builds',
     since: store.getStreams().find(s => s.stream === 'builds').lastSuccess,
   });
+  assert.equal(
+    store.getStreams().find(s => s.stream === 'builds').error.message,
+    forbidden.message,
+    'the stream keeps the technical message',
+  );
 
   // The first good read finishes the window that failed, so the data is still as old as the first failure.
   refuse = false;

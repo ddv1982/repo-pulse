@@ -1,6 +1,6 @@
 import { escape as e, dateTime, streamError, azureLink, streamLabel } from './format.js';
 import { connectionResult } from './connection.js';
-import { repositoryHealth } from './health.js';
+import { syncPill } from './health.js';
 import { renderCheckout } from './checkout-render.js';
 import { renderHistoryButton, renderHistoryProgress } from './history-import.js';
 import { displayLocalPath } from './repository-picker.js';
@@ -35,6 +35,7 @@ export function renderRepositories(state, ui, checkouts = {}) {
                   ? renderDisabledRepo(repo)
                   : renderRepo(
                       repo,
+                      state.syncStatus.repos[repo.id],
                       state.streams,
                       state.demo ? null : jobs.get(repo.id),
                       state.demo ? { state: 'not-linked' } : checkouts[repo.id],
@@ -70,14 +71,13 @@ function renderDisabledRepo(repo) {
 }
 
 /**
- * @param {Repo} repo @param {PageState['streams']} streams @param {HistoryJob | null | undefined} job
+ * @param {Repo} repo @param {import('./health.js').SyncStatus | undefined} status @param {PageState['streams']} streams @param {HistoryJob | null | undefined} job
  * @param {CheckoutSnapshot | undefined} checkout @param {boolean | undefined} demo @param {PageState['settings']} settings
  */
-function renderRepo(repo, streams, job, checkout, demo, settings) {
+function renderRepo(repo, status, streams, job, checkout, demo, settings) {
   const automatic = settings.refreshEnabled !== false;
   const id = e(repo.id);
   const records = streams.filter(stream => stream.repoId === repo.id);
-  const health = repositoryHealth(repo, records, { automatic, resumedAt: settings.refreshResumedAt });
   const checked = records.map(stream => Date.parse(stream.lastSuccess ?? '')).filter(Number.isFinite);
   const failed = records.map(stream => ({ label: streamLabel(stream.stream), message: streamError(stream) })).filter(item => item.message);
   const gitStatus = checkout ?? (repo.localPath ? undefined : { state: 'not-linked' });
@@ -85,7 +85,7 @@ function renderRepo(repo, streams, job, checkout, demo, settings) {
     <div class="repo-overview">
       ${repoSwitch(repo)}
       <h3>${e(repo.name)}</h3>
-      ${health.show ? `<span class="chip ${health.className}">${health.label}</span>` : ''}
+      ${status ? syncPill(status) : ''}
     </div>
     <div class="repo-checkout-line" id="checkout-state-${id}" data-checkout-part="status" data-checkout-id="${id}" tabindex="-1" aria-live="polite">
       ${renderCheckout(repo.id, gitStatus, 'status')}

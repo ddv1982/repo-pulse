@@ -1,4 +1,5 @@
 import { renderHeader, scopeLabel, scopeName } from './header.js';
+import { syncAnnouncement, syncRepoName } from './health.js';
 import { renderFeed, renderDetail } from './feed.js';
 import { renderRepositories } from './repositories.js';
 import { renderSettings } from './settings.js';
@@ -16,10 +17,11 @@ import { required } from './dom.js';
 /** web/theme.js publishes this before the modules load. @typedef {Window & { repoPulseTheme?: { apply: () => void } }} ThemedWindow */
 
 /**
- * @param {{ page: HTMLElement, header: HTMLElement, demo: HTMLElement, picker: { mount: (element: HTMLElement | null) => void },
+ * `syncLive` sits outside the header so re-rendering the header never replaces it.
+ * @param {{ page: HTMLElement, header: HTMLElement, demo: HTMLElement, syncLive: HTMLElement, picker: { mount: (element: HTMLElement | null) => void },
  *   typeFilter: { mount: (element: HTMLElement | null) => void }, onPageRendered: () => void }} options
  */
-export function createBrowserView({ page, header, demo, picker, typeFilter, onPageRendered }) {
+export function createBrowserView({ page, header, demo, syncLive, picker, typeFilter, onPageRendered }) {
   const groupElements = () => [...page.querySelectorAll('details[data-group]')].filter(element => element instanceof HTMLDetailsElement);
   /** @param {string} selector */
   const shown = selector => {
@@ -118,6 +120,9 @@ export function createBrowserView({ page, header, demo, picker, typeFilter, onPa
       const menu = header.querySelector('.header-overflow');
       const menuOpen = menu instanceof HTMLDetailsElement && menu.open;
       header.innerHTML = renderHeader(state, ui);
+      const sentence = syncAnnouncement(state.syncStatus.overall, syncRepoName(state.repos, state.syncStatus.overall));
+      // Writing the same text again would replace the text node and could repeat the announcement.
+      if (syncLive.textContent !== sentence) syncLive.textContent = sentence;
       if (menuOpen) required('.header-overflow', HTMLDetailsElement, header).open = true;
       if (focusedId) document.getElementById(focusedId)?.focus({ preventScroll: true });
       // As in renderPage: theme.js runs first, and the optional call covers its absence.

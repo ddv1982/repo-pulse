@@ -189,7 +189,8 @@ function pageState(activity) {
       limitPerMinute: 10,
       running: 0,
       concurrency: 2,
-      lastError: { code: 'FAILED', message: probe('diagnostics.lastError.message') },
+      // Copy diagnostics carries it; no view shows it.
+      lastError: { code: 'FAILED', message: hidden('diagnostics.lastError.message') },
     },
     jobs: [
       /** @type {import('../server/backfill.js').HistoryJob} */ ({
@@ -202,6 +203,10 @@ function pageState(activity) {
         error: { code: 'FAILED', message: probe('job.error.message') },
       }),
     ],
+    syncStatus: {
+      overall: { state: 'problem', reason: probe('syncStatus.overall.reason'), stream: 'pushes', repoId: repo.id },
+      repos: { [repo.id]: { state: 'problem', reason: probe('syncStatus.repos.reason'), stream: 'pushes' } },
+    },
     activity,
     events,
   };
@@ -217,6 +222,14 @@ const activity = {
   filterOptions: [probe('activity.filterOption')],
 };
 const state = pageState(activity);
+/** Delayed shows its reason in the pill text rather than only in the title. @type {PageState} */
+const delayed = {
+  ...state,
+  syncStatus: {
+    overall: { state: 'delayed', reason: probe('syncStatus.delayed.reason'), repoId: repo.id },
+    repos: { [repo.id]: { state: 'delayed', reason: probe('syncStatus.delayed.reason') } },
+  },
+};
 
 /** @param {string} field @param {string} branch @returns {import('../server/checkout-advice.js').PullAdvice} */
 const advice = (field, branch) => ({
@@ -358,9 +371,11 @@ const views = {
       renderFeed(state, { ...feedView, route: 'catchup' }),
       renderFeed(state, feedView),
       renderFeed(pageState({ items: [], error: probe('activity.error') }), feedView),
+      renderFeed(delayed, feedView),
     ],
     shows: [
-      'stream.pushes.error',
+      'syncStatus.repos.reason',
+      'syncStatus.delayed.reason',
       'activity.filterOption',
       'created.title',
       'repo.name',
@@ -483,6 +498,7 @@ const views = {
       'repo.localPath',
       'stream.pushes.error',
       'stream.prs.error',
+      'syncStatus.repos.reason',
       'disabledRepo.id',
       'disabledRepo.name',
     ],
@@ -498,7 +514,7 @@ const views = {
       'connection.extension',
       'connection.account.name',
       'connection.access.message',
-      'diagnostics.lastError.message',
+      'syncStatus.overall.reason',
       'failedConnection.version',
       'failedConnection.extension',
       'failedConnection.account.name',
@@ -510,8 +526,8 @@ const views = {
     sinks: [],
   },
   header: {
-    render: () => [renderHeader(state, { repoIds: null, route: 'activity', activityRoute: 'activity' })],
-    shows: ['repo.id', 'repo.name', 'repo.project'],
+    render: () => [state, delayed].map(page => renderHeader(page, { repoIds: null, route: 'activity', activityRoute: 'activity' })),
+    shows: ['repo.id', 'repo.name', 'repo.project', 'syncStatus.overall.reason', 'syncStatus.delayed.reason'],
     sinks: [],
   },
   checkout: {
@@ -575,7 +591,7 @@ const views = {
 
 /** Every probe field in the fixtures, so a field that no view expects is noticed. */
 const fixtureFields = () => {
-  const fixtures = { repo, disabledRepo, events, streams, state, checkouts, settingsConnections, pickerConnection, commitViews };
+  const fixtures = { repo, disabledRepo, events, streams, state, delayed, checkouts, settingsConnections, pickerConnection, commitViews };
   const text = JSON.stringify(fixtures, (_, value) => (value instanceof Map ? [...value] : value));
   return new Set([...text.matchAll(/<x-probe a=\\"([^"\\]*)\\">/g)].map(([, field]) => field));
 };

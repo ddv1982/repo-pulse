@@ -354,10 +354,9 @@ header.app {
   height: 16px;
   display: block;
 }
-.fresh {
-  font-size: 12px;
-  color: var(--muted-foreground);
+.sync-pill {
   white-space: nowrap;
+  font-variant-numeric: tabular-nums;
 }
 
 /* Repository scope menu. */
@@ -1709,7 +1708,6 @@ dialog .dfoot {
   .tabs > a {
     flex: 1;
   }
-  .fresh .long,
   .mock .long {
     display: none;
   }
@@ -2346,9 +2344,6 @@ select {
     min-height: 36px;
     padding: 0 8px;
   }
-  .fresh {
-    white-space: normal;
-  }
   .hg.end {
     width: 100%;
   }
@@ -2425,21 +2420,7 @@ select {
 .setting-switch:checked::after {
   margin-left: 18px;
 }
-.diagnostic-summary {
-  display: grid;
-  gap: 6px;
-  margin: 0;
-  width: 100%;
-}
-.diagnostic-summary > div {
-  display: grid;
-  grid-template-columns: minmax(84px, auto) 1fr;
-  gap: 10px;
-}
-.diagnostic-summary dt {
-  color: var(--muted-foreground);
-}
-.diagnostic-summary dd {
+.sync-sentence {
   margin: 0;
   overflow-wrap: anywhere;
 }
@@ -2534,6 +2515,10 @@ select {
 .repo-overview h3 {
   overflow-wrap: anywhere;
   font-size: 14px;
+}
+.repo-overview .sync-pill {
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 .checkout-state .subref {
   overflow-wrap: anywhere;
@@ -2668,9 +2653,6 @@ select {
   justify-content: flex-end;
   gap: 8px;
 }
-.header-tools .fresh {
-  font-variant-numeric: tabular-nums;
-}
 .header-auto {
   display: flex;
   align-items: center;
@@ -2758,7 +2740,8 @@ select {
   border-top: 1px solid var(--border);
 }
 .monitor-footer {
-  padding: 6px 10px;
+  margin: 0;
+  padding: 8px 10px;
 }
 .header-tools [aria-busy='true'] svg {
   animation: monitor-spin 1s linear infinite;
@@ -2772,11 +2755,6 @@ select {
   .header-tools [aria-busy='true'] svg {
     animation: none;
     opacity: 0.5;
-  }
-}
-@media (max-width: 1023px) {
-  .header-tools .fresh {
-    display: none;
   }
 }
 .settings-card > details:first-child {
@@ -2838,7 +2816,8 @@ select {
   flex: 1 1 12rem;
 }
 @media (max-width: 639px) {
-  .header-tools .monitor-group {
+  .header-tools .monitor-group,
+  .header-tools > .sync-pill {
     display: none;
   }
   .header-overflow {

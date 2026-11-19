@@ -10,9 +10,9 @@ import {
   activityTitle,
   activitySummary,
   buildState,
-  streamLabel,
 } from './format.js';
-import { streamHealth } from './health.js';
+import { syncRepoName } from './health.js';
+import { worstStatus } from '../sync-worst.js';
 import { renderSummary } from './activity-summary.js';
 import { icons } from './icons.js';
 import { renderTrail } from './activity-trail.js';
@@ -24,7 +24,6 @@ export { renderDetail } from './activity-detail.js';
 /** @typedef {import('./refresh.js').PageState} PageState */
 /** @typedef {import('../activity.js').ActivityItem} ActivityItem */
 /** @typedef {Pick<import('./navigation.js').NavigationState, 'route' | 'repoIds' | 'search' | 'kind' | 'filtersOpen'>} FeedView */
-/** @typedef {ReturnType<typeof healthFor>} FeedHealth */
 
 /** @param {Pick<FeedView, 'search' | 'kind' | 'filtersOpen'>} ui @param {PageState['activity'] | undefined} activity */
 export function filterControls(ui, activity) {
@@ -56,49 +55,32 @@ function group(title, records, state, { open = true, description = '' } = {}) {
   return `<section class="group"><details data-group="${e(title)}" ${open ? 'open' : ''}><summary class="ghead">${e(title)} <span class="pill u">${records.length}</span><span class="note">${e(description)}</span></summary><ul class="rows">${records.map(record => row(record, state)).join('')}</ul></details></section>`;
 }
 
-/** @param {PageState} state @param {Pick<FeedView, 'repoIds'>} ui */
-function healthFor(state, ui) {
-  const streams = state.streams.filter(stream => ui.repoIds === null || ui.repoIds.includes(stream.repoId));
-  const status = streams.map(stream => ({
-    stream,
-    ...streamHealth(stream, { scheduled: state.settings.refreshEnabled !== false, resumedAt: state.settings.refreshResumedAt }),
-  }));
-  const errors = status.filter(item => item.error);
-  const pending = status.filter(item => item.pending);
-  const resuming = status.some(item => item.resuming);
-  const stale = status.filter(item => item.stale && !item.pending);
-
-  return {
-    errors,
-    pending,
-    resuming,
-    stale,
-    problemStreams: [...new Set([...errors, ...stale])],
-    partial: Boolean(errors.length || pending.length || resuming || stale.length || state.settings.refreshEnabled === false),
-  };
-}
-
-/** @param {PageState} state @param {FeedHealth} health */
-function monitoringNotice(state, health) {
-  const message =
-    state.settings.refreshEnabled === false
-      ? '<strong>Automatic Azure checks are off</strong>Showing cached activity. <a href="#settings">Enable checks</a> or refresh manually.'
-      : '';
-  const error = health.errors[0];
-  const sync = state.diagnostics?.sync;
-  // Demo mode reports no lag.
-  const lag = sync && 'lag' in sync ? sync.lag : undefined;
-  const behind =
-    lag && lag.maxDelayMs >= 3 * 60000
-      ? `<div class="banner warn" role="status"><div><strong>Updates are delayed</strong>Azure checks are about ${e(Math.round(lag.maxDelayMs / 60000))} minutes behind schedule.</div></div>`
-      : '';
-  return `${message ? `<div class="banner info"><div>${message}</div></div>` : ''}${behind}${error ? `<div class="banner warn" role="status"><div><strong>Some activity could not refresh</strong>${e(streamLabel(error.stream.stream))}: ${e(error.error)} <a href="#repositories">Check repository details</a>.</div></div>` : health.stale.length ? '<div class="banner warn"><div><strong>Some cached activity is stale</strong><a href="#repositories">Check repository details</a> for the last successful checks.</div></div>' : health.resuming && !message ? '<div class="banner info" role="status"><div><strong>Catching up after enabling Auto checks</strong>Showing cached activity as checks run.</div></div>' : health.pending.length && !message ? '<div class="banner info"><div><strong>Initial import in progress</strong>Existing history is imported separately from new updates.</div></div>' : ''}`;
+/**
+ * One banner when the shown repositories need the reader's attention. Plain text: #sync-live already announces sync changes.
+ * @param {PageState} state @param {import('./health.js').SyncStatus & { repoId: string } | undefined} status
+ */
+function statusBanner(state, status) {
+  if (!status) return '';
+  const name = syncRepoName(state.repos, status);
+  const where = name ? `${e(name)}: ` : '';
+  if (status.state === 'problem')
+    return `<div class="banner crit"><div><strong>Problem</strong>${where}${e(status.reason)} <a href="#repositories">See Repositories</a></div></div>`;
+  if (status.state === 'delayed')
+    return `<div class="banner warn"><div><strong>Delayed</strong>${where}${e(status.reason)}. Showing the activity stored so far.</div></div>`;
+  if (status.state === 'paused')
+    return '<div class="banner info"><div><strong>Paused</strong>Automatic checks are off. <a href="#settings">Turn them on</a> or refresh manually.</div></div>';
+  return '';
 }
 
 /** @param {PageState} state @param {FeedView} ui */
 export function renderFeed(state, ui) {
   const records = state.activity.items;
-  const health = healthFor(state, ui);
+  const shown = state.repos.filter(repo => ui.repoIds === null || ui.repoIds.includes(repo.id));
+  // Until every shown repository is synced, an empty or short list does not prove that nothing changed.
+  const partial = shown.some(repo => state.syncStatus.repos[repo.id]?.state !== 'synced');
+  const attention = worstStatus(
+    shown.flatMap(repo => (state.syncStatus.repos[repo.id] ? [{ ...state.syncStatus.repos[repo.id], repoId: repo.id }] : [])),
+  );
   const unseen = records
     .filter(record => record.unseen)
     .sort((a, b) => Number(b.kind === 'branch-created') - Number(a.kind === 'branch-created'));
@@ -112,6 +94,6 @@ export function renderFeed(state, ui) {
         )}${group('Imported history', imported, state, { open: Boolean(ui.search || ui.kind), description: 'Captured before monitoring started' })}`
       : group('New updates', unseen, state);
   const viewControl = `<h1 class="sr">Activity</h1><div class="activity-view"><nav class="seg" aria-label="Activity view" aria-describedby="activity-view-help"><a href="${activityHref('catchup')}" ${ui.route !== 'activity' ? 'aria-current="page"' : ''}>New updates</a><a href="${activityHref('activity')}" ${ui.route === 'activity' ? 'aria-current="page"' : ''}>All activity</a></nav><p class="help activity-view-help" id="activity-view-help">${ui.route === 'activity' ? 'Browse recorded updates, including seen and imported history.' : 'Updates you haven’t marked seen yet. Opening a page marks nothing.'}</p></div>`;
-  return `${viewControl}${renderSummary(records, state, ui, health)}${monitoringNotice(state, health)}${filterControls(ui, state.activity)}
-    <section class="card feed" aria-label="Repository activity">${records.length ? content : `<div class="empty"><p class="big">${state.activity?.loading ? 'Loading activity…' : state.activity?.error ? 'Activity could not load' : ui.search || ui.kind || ui.repoIds?.length === 0 ? 'No activity matches these filters' : health.partial ? 'No activity loaded yet' : ui.route === 'activity' ? 'No activity recorded yet' : 'No new updates'}</p><p class="dim">${state.activity?.error ? e(state.activity.error) : state.activity?.loading ? 'Reading your locally stored history.' : health.partial ? 'This does not confirm that nothing changed. Check repository status.' : 'Use All activity to browse history, or adjust your filters.'}</p>${state.activity?.error ? '<button class="btn sm" type="button" data-action="retry-activity">Try again</button>' : ''}</div>`}${state.activity?.nextCursor ? `<div class="foot"><button class="btn" type="button" data-action="load-more-activity">Load more</button><span>Showing ${records.length} of ${state.activity.total} recorded items.</span></div>` : ''}<div class="foot"><button class="btn sm" type="button" data-action="ack-shown" ${unseen.length ? '' : 'disabled'}>Mark shown seen (${unseen.reduce((sum, record) => sum + record.unseenIds.length, 0)})</button><span>Only the shown updates. Opening this page marks nothing.</span></div></section>`;
+  return `${viewControl}${renderSummary(records, state, ui, partial)}${statusBanner(state, attention)}${filterControls(ui, state.activity)}
+    <section class="card feed" aria-label="Repository activity">${records.length ? content : `<div class="empty"><p class="big">${state.activity?.loading ? 'Loading activity…' : state.activity?.error ? 'Activity could not load' : ui.search || ui.kind || ui.repoIds?.length === 0 ? 'No activity matches these filters' : partial ? 'No activity loaded yet' : ui.route === 'activity' ? 'No activity recorded yet' : 'No new updates'}</p><p class="dim">${state.activity?.error ? e(state.activity.error) : state.activity?.loading ? 'Reading your locally stored history.' : partial ? 'This does not confirm that nothing changed. Check repository status.' : 'Use All activity to browse history, or adjust your filters.'}</p>${state.activity?.error ? '<button class="btn sm" type="button" data-action="retry-activity">Try again</button>' : ''}</div>`}${state.activity?.nextCursor ? `<div class="foot"><button class="btn" type="button" data-action="load-more-activity">Load more</button><span>Showing ${records.length} of ${state.activity.total} recorded items.</span></div>` : ''}<div class="foot"><button class="btn sm" type="button" data-action="ack-shown" ${unseen.length ? '' : 'disabled'}>Mark shown seen (${unseen.reduce((sum, record) => sum + record.unseenIds.length, 0)})</button><span>Only the shown updates. Opening this page marks nothing.</span></div></section>`;
 }

@@ -2,6 +2,7 @@
 
 import { connectionStatus } from './connection.js';
 import { escape as e } from './format.js';
+import { syncRepoName, syncSentence } from './health.js';
 
 /** @typedef {import('./refresh.js').PageState} PageState */
 /** @typedef {import('./connection.js').ConnectionState} ConnectionState */
@@ -29,23 +30,9 @@ function connectionDetails(state, connection, repoId, result) {
           <p class="help">The connection check reads repository details. CI permissions and local Git upstream access are separate.</p>`;
 }
 
-/** @param {PageState['diagnostics']} diagnostics */
-function diagnosticSummary(diagnostics) {
-  const { startsLastMinute, limitPerMinute, running, concurrency, lastError } = diagnostics;
-  const lag = diagnostics.sync && 'lag' in diagnostics.sync ? diagnostics.sync.lag : undefined;
-  const cli = limitPerMinute
-    ? `${e(startsLastMinute)} of ${e(limitPerMinute)} Azure calls in the last minute · ${e(running)} of ${e(concurrency)} in progress`
-    : 'No CLI activity to report';
-  return `<dl class="diagnostic-summary">
-            <div><dt>Azure calls</dt><dd>${cli}</dd></div>
-            ${lag?.overdueStreams ? `<div><dt>Checks behind</dt><dd>${e(lag.overdueStreams)} checks waiting · up to ${e(Math.round(lag.maxDelayMs / 60000))} min late</dd></div>` : ''}
-            ${lastError?.message ? `<div><dt>Last CLI issue</dt><dd>${e(lastError.message)}</dd></div>` : ''}
-          </dl>`;
-}
-
 /** @param {PageState} state @param {ConnectionState} connection */
 export function renderSettings(state, connection) {
-  const { settings, diagnostics = {} } = state;
+  const { settings, syncStatus } = state;
   const repoId = state.repos.some(repo => repo.id === connection.repoId) ? connection.repoId : state.repos[0]?.id || '';
   const result = connection.results.get(repoId);
   return `<div class="section-heading"><h1>Settings</h1></div>
@@ -67,8 +54,7 @@ export function renderSettings(state, connection) {
       <details data-group="troubleshooting">
         <summary class="settings-row" id="troubleshooting-toggle">Troubleshooting <span class="settings-chevron" aria-hidden="true"></span></summary>
         <div class="settings-content">
-          ${diagnosticSummary(diagnostics)}
-          <p class="help">Activity reads are single Azure DevOps requests. Connection checks start the Azure CLI, which can make several requests.</p>
+          <p class="sync-sentence">${e(syncSentence(syncStatus.overall, syncRepoName(state.repos, syncStatus.overall)))}</p>
           <button class="btn sm" type="button" id="copy-diagnostics" data-action="copy-diagnostics">Copy diagnostics</button>
         </div>
       </details>

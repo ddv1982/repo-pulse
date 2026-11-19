@@ -10,7 +10,6 @@ import {
   activitySummary,
   labels,
 } from '../src/ui/format.js';
-import { repositoryHealth } from '../src/ui/health.js';
 import { renderRepositories } from '../src/ui/repositories.js';
 import { renderFeed as renderPagedFeed, renderDetail } from '../src/ui/feed.js';
 import { createStore } from '../server/store.js';
@@ -36,48 +35,11 @@ test('missing branch observations are never presented as confirmed deletions', (
   assert.equal(labels['branch-deleted'], 'Branch deleted');
 });
 
-test('repository health treats intentionally disabled checks as neither overdue nor failed', () => {
-  const now = Date.now(),
-    repo = { id: 'r' };
-  const stream = { repoId: 'r', stream: 'pushes', initialized: true, lastSuccess: new Date(now).toISOString() };
-  assert.equal(repositoryHealth(repo, [stream], { now }).label, 'Up to date');
-  assert.equal(repositoryHealth(repo, [], { now }).show, false);
-  assert.equal(repositoryHealth(repo, [{ ...stream, error: 'Read refused' }], { now }).label, 'Check failed');
-  const refused = { code: 'FORBIDDEN', message: 'Azure DevOps refused this read.' };
-  const failed = { code: 'UNAVAILABLE', message: 'Azure DevOps could not be reached.' };
-  assert.equal(repositoryHealth(repo, [{ ...stream, stream: 'builds', error: refused }], { now }).label, 'No access to recent CI runs');
-  assert.equal(
-    repositoryHealth(
-      repo,
-      [
-        { ...stream, error: failed },
-        { ...stream, stream: 'refs', error: refused },
-      ],
-      { now },
-    ).label,
-    'No access to branches',
-  );
-  assert.equal(repositoryHealth(repo, [{ ...stream, error: failed }], { now }).label, 'Check failed');
-  assert.equal(repositoryHealth(repo, [stream], { now: now + 11 * 60000 }).label, 'Check overdue');
-  assert.equal(repositoryHealth(repo, [stream], { now: now + 11 * 60000, automatic: false }).show, false);
-  assert.equal(repositoryHealth(repo, [{ ...stream, error: 'Read refused' }], { now, automatic: false }).show, false);
-});
-
-test('resuming automatic checks distinguishes cached history from an overdue check', () => {
-  const resumedAt = Date.parse('2026-11-17T10:00:00Z');
-  const repo = { id: 'r' };
-  const stream = { repoId: 'r', stream: 'pushes', initialized: true, lastSuccess: new Date(resumedAt - 3600000).toISOString() };
-  const health = (record, minutes) => repositoryHealth(repo, [record], { resumedAt, now: resumedAt + minutes * 60000 });
-  assert.equal(health(stream, 1).label, 'Catching up');
-  assert.equal(health({ ...stream, error: 'Read refused' }, 1).label, 'Check failed');
-  assert.equal(health({ ...stream, lastSuccess: new Date(resumedAt + 1000).toISOString() }, 1).label, 'Up to date');
-  assert.equal(health(stream, 11).label, 'Check overdue');
-});
-
 test('repository details keep failure text and one timestamp without routine source labels', () => {
   const state = {
     watched: [{ id: 'r', name: 'Orders' }],
     settings: { refreshEnabled: false },
+    syncStatus: { overall: { state: 'paused', repoId: 'r' }, repos: { r: { state: 'paused' } } },
     streams: [
       { repoId: 'r', stream: 'refs', initialized: true, lastSuccess: '2026-11-01T10:00:00Z' },
       { repoId: 'r', stream: 'prs', initialized: true, nextAt: '2026-11-01T10:00:00Z', error: 'Read refused' },
@@ -97,6 +59,7 @@ test('a disabled repository row offers only enabling or removing it', () => {
       { id: 'off', name: 'Billing', project: 'Shop', localPath: '/src/billing', disabled: true },
     ],
     settings: {},
+    syncStatus: { overall: { state: 'syncing', repoId: 'on' }, repos: { on: { state: 'syncing' } } },
     streams: [{ repoId: 'on', stream: 'refs', initialized: true, error: 'Read refused' }],
   };
   const markup = renderRepositories(state, {});
@@ -126,6 +89,7 @@ function fixture() {
   return {
     repos: [{ id: 'r', name: 'Orders' }],
     settings: {},
+    syncStatus: { overall: { state: 'synced', repoId: 'r' }, repos: { r: { state: 'synced' } } },
     streams: [],
     events: [
       {
