@@ -313,7 +313,8 @@ test('Windows runs the interpreter each official az launcher calls, never throug
     {
       file: 'C:\\venv\\Scripts\\python.exe',
       prefix: ['-m', 'azure.cli'],
-      env: { AZ_INSTALLER: 'PIP', PYTHONSAFEPATH: '1', PYTHONPATH: 'C:\\venv\\Scripts\\src' },
+      env: { AZ_INSTALLER: 'PIP', PYTHONPATH: 'C:\\venv\\Scripts\\src' },
+      cwd: 'C:\\venv\\Scripts',
     },
   );
   assert.deepEqual(await resolveAzCommand({ platform: 'win32', env: { PATH: 'C:\\tools' }, exists: on('C:\\tools\\az.exe') }), {

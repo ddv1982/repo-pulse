@@ -50,6 +50,12 @@ test('Pull rechecks working files, checkout identity, branch and upstream instea
   assert.equal(wrongRemote.state, 'different-remote');
   assert.equal(wrongRemote.canCheck, false);
   await assert.rejects(checkoutGit.update(repo, 'check', wrongRemote), /no longer eligible/);
+  git(local, 'remote', 'set-url', 'origin', 'https://user:hunter2@dev.azure.com/other/Testing/_git/Orders');
+  const passwordRemote = await checkoutGit.status(repo);
+  assert.equal(passwordRemote.state, 'different-remote');
+  assert.equal(passwordRemote.canCheck, false);
+  assert.equal(passwordRemote.diagnostic?.title, 'Remote URL contains a password');
+  assert(!JSON.stringify(passwordRemote).includes('hunter2'));
   assert.equal(git(local, 'rev-parse', 'HEAD'), localCommit);
 });
 

@@ -38,6 +38,10 @@ test('unapproved hosts, path injection and organization credentials are rejected
   ])
     assert.throws(() => parseRemote(input));
   assert.throws(() => parseRemote('https://user:secret@dev.azure.com/Org/Project/_git/Repo'), { code: 'REMOTE_PASSWORD' });
+  assert.throws(
+    () => parseRemote('https://user:secret@github.com/org/repo'),
+    error => error.code !== 'REMOTE_PASSWORD',
+  );
   assert.throws(() => normalizeOrganization('https://secret@dev.azure.com/org'));
 });
 

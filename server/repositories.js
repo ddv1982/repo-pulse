@@ -57,11 +57,6 @@ export function parseRemote(value) {
       throw invalid();
     }
     if (!['https:', 'ssh:'].includes(url.protocol) || url.port || url.search || url.hash) throw invalid();
-    // Git would receive the URL on its command line, where other local users can read it.
-    if (url.password)
-      throw Object.assign(new Error('Remove the password from this remote URL and let a Git credential helper sign in.'), {
-        code: 'REMOTE_PASSWORD',
-      });
     const parts = url.pathname.split('/').filter(Boolean);
     const host = url.hostname.toLowerCase();
     if (
@@ -81,6 +76,11 @@ export function parseRemote(value) {
       if (parts.length !== 3 || parts[1] !== '_git') throw invalid();
       [project, , name] = parts;
     }
+    // Git would receive the URL on its command line, where other local users can read it.
+    if (url.password)
+      throw Object.assign(new Error('Remove the password from this remote URL and let a Git credential helper sign in.'), {
+        code: 'REMOTE_PASSWORD',
+      });
   }
   organization = `https://dev.azure.com/${encodeURIComponent(component(organization).toLowerCase())}`;
   project = component(project);
