@@ -7,7 +7,11 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readdirSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { groupActivity } from '../src/activity.js';
+import { SafeHtml, html as safeHtml, joinHtml } from '../src/ui/format.js';
+import { setHtml } from '../src/ui/dom.js';
 import { renderFeed, renderDetail } from '../src/ui/feed.js';
 import { renderRepositories } from '../src/ui/repositories.js';
 import { renderSettings } from '../src/ui/settings.js';
@@ -631,4 +635,42 @@ test('every probed field is expected by a view, so the escaping test covers it',
     [...fixtureFields()].filter(field => !expected.has(field)),
     [],
   );
+});
+
+test('html auto-escapes plain values, composes SafeHtml, and setHtml refuses plain strings', () => {
+  const untrusted = '<img src=x onerror=alert(1)>';
+  const nested = safeHtml`<b>${untrusted}</b>`;
+  const rendered = safeHtml`<div data-flag="${false}" data-on="${true}">${[nested, null, undefined, ' & "quotes"']}</div>`;
+  assert.ok(rendered instanceof SafeHtml);
+  assert.equal(
+    String(rendered),
+    '<div data-flag="false" data-on="true"><b>&lt;img src=x onerror=alert(1)&gt;</b> &amp; &quot;quotes&quot;</div>',
+  );
+  assert.equal(String(joinHtml(['<a>', safeHtml`<b>ok</b>`], safeHtml`<br>`)), '&lt;a&gt;<br><b>ok</b>');
+  assert.throws(() => new SafeHtml('<b>forged</b>', Symbol('fake')), TypeError);
+  const lookalike = Object.create(SafeHtml.prototype, { toString: { value: () => '<b>spoof</b>' } });
+  assert.equal(String(safeHtml`<div>${lookalike}</div>`), '<div>&lt;b&gt;spoof&lt;/b&gt;</div>');
+  const hijackedArray = Object.assign(['<b>raw</b>'], { map: () => ({ join: () => '<b>hijacked</b>' }) });
+  assert.equal(String(safeHtml`<div>${hijackedArray}</div>`), '<div>&lt;b&gt;raw&lt;/b&gt;</div>');
+  assert.equal(String(joinHtml(hijackedArray, safeHtml`<br>`)), '&lt;b&gt;raw&lt;/b&gt;');
+  const fakeElement = /** @type {any} */ ({ innerHTML: '' });
+  setHtml(fakeElement, rendered);
+  assert.equal(fakeElement.innerHTML, String(rendered));
+  assert.throws(() => setHtml(fakeElement, /** @type {any} */ ('<b>plain</b>')), TypeError);
+  assert.throws(() => setHtml(fakeElement, /** @type {any} */ ({ toString: () => '<b>spoof</b>' })), TypeError);
+  assert.throws(() => setHtml(fakeElement, /** @type {any} */ (lookalike)), TypeError);
+});
+
+test('setHtml in src/ui/dom.js is the only innerHTML sink across browser source files', () => {
+  const dirs = ['src', join('src', 'ui'), 'web'];
+  const offenders = [];
+  for (const dir of dirs) {
+    for (const file of readdirSync(dir)) {
+      if (!file.endsWith('.js')) continue;
+      const rel = join(dir, file);
+      if (rel === join('src', 'ui', 'dom.js')) continue;
+      if (/\.innerHTML\b/.test(readFileSync(rel, 'utf8'))) offenders.push(rel);
+    }
+  }
+  assert.deepEqual(offenders, []);
 });

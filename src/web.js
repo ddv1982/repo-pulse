@@ -2,7 +2,7 @@ import { request } from './api.js';
 import { createCheckoutActions } from './ui/checkout-actions.js';
 import { createCheckoutPanel } from './ui/checkout.js';
 import { connectionResult, createConnectionController } from './ui/connection.js';
-import { escape as e } from './ui/format.js';
+import { emptyHtml, html } from './ui/format.js';
 import { createRepositoryPicker } from './ui/repository-picker.js';
 import { createNavigation, activityHref, isActivity } from './ui/navigation.js';
 import { createTypeFilter } from './ui/type-filter.js';
@@ -10,7 +10,7 @@ import { createRefreshController } from './ui/refresh.js';
 import { createBrowserView } from './ui/browser-view.js';
 import { createSeenActions } from './ui/seen-actions.js';
 import { createHistoryImport } from './ui/history-import.js';
-import { required } from './ui/dom.js';
+import { required, setHtml } from './ui/dom.js';
 
 /** @typedef {import('./ui/refresh.js').PageState} PageState */
 /** @typedef {import('./ui/checkout-actions.js').Action} Action */
@@ -38,7 +38,7 @@ const connection = createConnectionController({
     const status = document.querySelector('#connection-status');
     if (status) {
       const focused = status.contains(document.activeElement);
-      status.innerHTML = connectionResult(connection.state.results.get(''));
+      setHtml(status, connectionResult(connection.state.results.get('')));
       if (focused) status.querySelector('button')?.focus({ preventScroll: true });
     }
   },
@@ -166,14 +166,17 @@ const load = refresh.load;
 /** @param {string} message */
 function showError(message, network = false) {
   const notice = required('#notice');
-  notice.innerHTML = `<div class="banner crit" role="alert"><span class="ic">!</span><div><strong>Something needs attention</strong><span class="error-message">${e(message)}</span> <button class="ghost sm" type="button" data-action="dismiss-error">Dismiss</button></div></div>`;
+  setHtml(
+    notice,
+    html`<div class="banner crit" role="alert"><span class="ic">!</span><div><strong>Something needs attention</strong><span class="error-message">${message}</span> <button class="ghost sm" type="button" data-action="dismiss-error">Dismiss</button></div></div>`,
+  );
   if (network) notice.dataset.networkError = 'true';
   else delete notice.dataset.networkError;
 }
 
 function clearNotice() {
   const notice = required('#notice');
-  notice.innerHTML = '';
+  setHtml(notice, emptyHtml);
   delete notice.dataset.networkError;
 }
 
@@ -181,7 +184,7 @@ function clearNotice() {
 function toast(message, { undo = false } = {}) {
   const element = required('#toast');
   clearTimeout(toastTimer);
-  element.innerHTML = `${e(message)}${undo ? '<button type="button" data-action="undo-ack">Undo</button>' : ''}`;
+  setHtml(element, html`${message}${undo ? html`<button type="button" data-action="undo-ack">Undo</button>` : emptyHtml}`);
   element.hidden = false;
   toastTimer = setTimeout(
     () => {

@@ -1,6 +1,6 @@
 // @ts-check
 
-import { escape as e } from './format.js';
+import { html } from './format.js';
 import { activityFilterLabel, canonicalActivityFilter } from '../activity-text.js';
 import { required } from './dom.js';
 
@@ -8,7 +8,7 @@ import { required } from './dom.js';
 export function renderTypeFilter(value = '', options = [], loading = false) {
   value = canonicalActivityFilter(value);
   const choices = [...new Set(['', ...options, value])];
-  return `<div class="menu type-menu"><button class="control" id="kind-toggle" type="button" aria-label="Activity type: ${e(activityFilterLabel(value))}" aria-haspopup="listbox" aria-disabled="${Boolean(loading)}" aria-expanded="false" aria-controls="kind-panel">${e(activityFilterLabel(value))} ▾</button><div class="menu-panel type-panel" id="kind-panel" role="listbox" aria-label="Activity type" hidden>${choices.map(key => `<button class="type-option" type="button" role="option" aria-selected="${value === key}" data-kind="${e(key)}" tabindex="-1"><span class="type-check" aria-hidden="true">${value === key ? '✓' : ''}</span>${e(activityFilterLabel(key))}</button>`).join('')}</div></div>`;
+  return html`<div class="menu type-menu"><button class="control" id="kind-toggle" type="button" aria-label="Activity type: ${activityFilterLabel(value)}" aria-haspopup="listbox" aria-disabled="${Boolean(loading)}" aria-expanded="false" aria-controls="kind-panel">${activityFilterLabel(value)} ▾</button><div class="menu-panel type-panel" id="kind-panel" role="listbox" aria-label="Activity type" hidden>${choices.map(key => html`<button class="type-option" type="button" role="option" aria-selected="${value === key}" data-kind="${key}" tabindex="-1"><span class="type-check" aria-hidden="true">${value === key ? '✓' : ''}</span>${activityFilterLabel(key)}</button>`)}</div></div>`;
 }
 
 /** One controller per app; remounting never accumulates document listeners. @param {{ onChange: (kind: string | undefined) => void }} options */

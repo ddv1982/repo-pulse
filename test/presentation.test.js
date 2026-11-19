@@ -10,9 +10,13 @@ import {
   activitySummary,
   labels,
 } from '../src/ui/format.js';
-import { renderRepositories } from '../src/ui/repositories.js';
-import { renderFeed as renderPagedFeed, renderDetail } from '../src/ui/feed.js';
+import { renderRepositories as renderRepositoriesHtml } from '../src/ui/repositories.js';
+import { renderFeed as renderPagedFeedHtml, renderDetail as renderDetailHtml } from '../src/ui/feed.js';
 import { createStore } from '../server/store.js';
+
+const renderRepositories = (...args) => String(renderRepositoriesHtml(...args));
+const renderPagedFeed = (...args) => String(renderPagedFeedHtml(...args));
+const renderDetail = (...args) => String(renderDetailHtml(...args));
 
 test('CI presentation maps real statuses and results without calling a running retry failed', () => {
   assert.deepEqual(buildState({ data: { status: 'notStarted' } }), { label: 'Queued', tone: 'info' });

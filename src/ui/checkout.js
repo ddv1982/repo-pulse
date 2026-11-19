@@ -1,6 +1,7 @@
 // @ts-check
 
 import { checkAge, renderCheckout } from './checkout-render.js';
+import { setHtml } from './dom.js';
 
 /** @typedef {import('../../server/checkout-git.js').CheckoutStatus} CheckoutStatus */
 /** @typedef {import('../../server/checkout-git.js').BlockedCheckout} BlockedCheckout */
@@ -43,7 +44,7 @@ export function createCheckoutPanel({ page, request, isVisible }) {
       const focusedId = focused && target.contains(focused) ? focused.id : '';
       const options = target.querySelector('.checkout-update-options');
       const updateOptionsOpen = options instanceof HTMLDetailsElement && options.open;
-      target.innerHTML = renderCheckout(checkoutId, next[checkoutId], checkoutPart);
+      setHtml(target, renderCheckout(checkoutId, next[checkoutId], checkoutPart));
       if (updateOptionsOpen) target.querySelector('.checkout-update-options')?.setAttribute('open', '');
       if (focusedId) {
         const replacement =

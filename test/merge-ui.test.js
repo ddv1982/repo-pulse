@@ -1,7 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { renderMergeEvidence, mergeEvidenceBadge } from '../src/ui/merge-evidence.js';
-import { renderHistoryButton, renderHistoryProgress } from '../src/ui/history-import.js';
+import { renderMergeEvidence as renderMergeEvidenceHtml, mergeEvidenceBadge as mergeEvidenceBadgeHtml } from '../src/ui/merge-evidence.js';
+import {
+  renderHistoryButton as renderHistoryButtonHtml,
+  renderHistoryProgress as renderHistoryProgressHtml,
+} from '../src/ui/history-import.js';
+
+const renderMergeEvidence = (...args) => String(renderMergeEvidenceHtml(...args));
+const mergeEvidenceBadge = (...args) => String(mergeEvidenceBadgeHtml(...args));
+const renderHistoryButton = (...args) => String(renderHistoryButtonHtml(...args));
+const renderHistoryProgress = (...args) => String(renderHistoryProgressHtml(...args));
 
 test('saved graph evidence stays readable in the detail without a row badge, and no direct merge is invented', () => {
   const evidence = {

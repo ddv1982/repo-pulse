@@ -17,7 +17,67 @@ import { safeAzureUrl } from '../events.js';
 /** @type {Record<string, string>} */
 const entities = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
 /** @param {unknown} value */
-export const escape = value => String(value ?? '').replace(/[&<>"']/g, c => entities[c]);
+const escape = value => String(value ?? '').replace(/[&<>"']/g, c => entities[c]);
+
+const SAFE_HTML = Symbol('SafeHtml');
+
+/** Trusted HTML produced only by the `html` tagged template; verified via private-field brand check. */
+export class SafeHtml {
+  #html;
+  /** @param {string} value @param {symbol} token */
+  constructor(value, token) {
+    if (token !== SAFE_HTML) throw new TypeError('Use html`...` to build SafeHtml.');
+    this.#html = value;
+  }
+  /** @param {unknown} value @returns {value is SafeHtml} */
+  static is(value) {
+    return typeof value === 'object' && value !== null && #html in value;
+  }
+  /** @param {unknown} value @returns {string} */
+  static unwrap(value) {
+    if (!SafeHtml.is(value)) throw new TypeError('Repo Pulse: expected SafeHtml.');
+    return value.#html;
+  }
+  toString() {
+    return this.#html;
+  }
+}
+
+/** @typedef {SafeHtml | string | number | boolean | null | undefined | HtmlValue[]} HtmlValue */
+
+/** @param {HtmlValue} value @returns {string} */
+function renderValue(value) {
+  if (value === null || value === undefined) return '';
+  if (SafeHtml.is(value)) return SafeHtml.unwrap(value);
+  if (Array.isArray(value)) {
+    let out = '';
+    for (let i = 0; i < value.length; i++) out += renderValue(value[i]);
+    return out;
+  }
+  return escape(value);
+}
+
+/**
+ * Tagged template that auto-escapes interpolated values unless they are already SafeHtml.
+ * @param {TemplateStringsArray} strings
+ * @param {...HtmlValue} values
+ * @returns {SafeHtml}
+ */
+export function html(strings, ...values) {
+  let out = strings[0];
+  for (let i = 0; i < values.length; i++) out += renderValue(values[i]) + strings[i + 1];
+  return new SafeHtml(out, SAFE_HTML);
+}
+
+export const emptyHtml = html``;
+
+/** @param {HtmlValue[]} items @param {HtmlValue} [separator] @returns {SafeHtml} */
+export function joinHtml(items, separator = emptyHtml) {
+  const sep = renderValue(separator);
+  let out = '';
+  for (let i = 0; i < items.length; i++) out += (i ? sep : '') + renderValue(items[i]);
+  return new SafeHtml(out, SAFE_HTML);
+}
 /** @type {Record<string, string | undefined>} */
 const streamLabels = {
   refs: 'Branches',
@@ -42,15 +102,15 @@ export function dateTime(value) {
     : date.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 
-/** @param {unknown} value */
+/** @param {unknown} value @returns {SafeHtml} */
 export function azureLink(value, label = 'Azure ↗', className = 'ghost sm') {
   try {
     const safe = safeAzureUrl(value);
-    if (!safe) return '';
+    if (!safe) return emptyHtml;
     const url = new URL(safe);
-    return `<a class="${className}" href="${escape(url.href)}" target="_blank" rel="noopener noreferrer">${escape(label)}</a>`;
+    return html`<a class="${className}" href="${url.href}" target="_blank" rel="noopener noreferrer">${label}</a>`;
   } catch {
-    return '';
+    return emptyHtml;
   }
 }
 

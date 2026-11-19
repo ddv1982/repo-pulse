@@ -1,6 +1,6 @@
 // @ts-check
 
-import { dateTime, escape as e } from './format.js';
+import { dateTime, emptyHtml, html } from './format.js';
 
 /** A connection check's answer; a failed request is recorded as an unavailable status. @typedef {import('../api.js').ConnectionResponse} ConnectionStatus */
 /** @typedef {{ results: Map<string, ConnectionStatus>, local: ConnectionStatus | null, pending: string | null, repoId: string }} ConnectionState */
@@ -8,12 +8,12 @@ import { dateTime, escape as e } from './format.js';
 
 /** @param {ConnectionStatus | undefined} connection */
 export function connectionResult(connection) {
-  if (!connection) return '<p class="help" role="status">Detecting your existing Azure CLI configuration…</p>';
-  return `<div class="connection-summary"><span class="${connection.available ? 'status-good' : 'status-bad'}" role="status">
+  if (!connection) return html`<p class="help" role="status">Detecting your existing Azure CLI configuration…</p>`;
+  return html`<div class="connection-summary"><span class="${connection.available ? 'status-good' : 'status-bad'}" role="status">
     ${connection.available ? 'Using existing Azure CLI' : 'Azure CLI needs attention'}</span>
-    ${connection.account?.name ? `<span class="help" title="Azure CLI account context">${e(connection.account.name)}</span>` : ''}
+    ${connection.account?.name ? html`<span class="help" title="Azure CLI account context">${connection.account.name}</span>` : emptyHtml}
     <button class="ghost sm" type="button" id="check-picker-connection" data-action="check-connection">Check again</button></div>
-    ${connection.available ? '' : `<p class="help">${e(connection.message)}</p>`}`;
+    ${connection.available ? emptyHtml : html`<p class="help">${connection.message}</p>`}`;
 }
 
 /** @param {ConnectionPage} state @param {ConnectionState} connection @param {string} repoId */

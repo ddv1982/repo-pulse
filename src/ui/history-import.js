@@ -1,6 +1,6 @@
 // @ts-check
 
-import { escape as e, dateTime } from './format.js';
+import { emptyHtml, html, dateTime } from './format.js';
 import { required } from './dom.js';
 
 /** /api/state lists backfill jobs; these are the fields the Repositories page shows. */
@@ -18,17 +18,17 @@ function statusFor(job) {
 /** @param {Pick<HistoryRepo, 'id'>} repo @param {HistoryJob | null | undefined} job */
 export function renderHistoryButton(repo, job) {
   const busy = job && job.status !== 'completed';
-  return `<button class="btn sm" type="button" id="import-${e(repo.id)}" data-action="open-history-import" data-id="${e(repo.id)}" ${busy ? 'disabled' : ''}>Sync older activity…</button>`;
+  return html`<button class="btn sm" type="button" id="import-${repo.id}" data-action="open-history-import" data-id="${repo.id}" ${busy ? html`disabled` : emptyHtml}>Sync older activity…</button>`;
 }
 
 /** @param {Pick<HistoryRepo, 'id'>} repo @param {HistoryJob | null | undefined} job */
 export function renderHistoryProgress(repo, job) {
-  if (!job) return '';
+  if (!job) return emptyHtml;
   const [label, tone] = statusFor(job);
-  return `<div class="history-progress" id="history-${e(repo.id)}" role="status" tabindex="-1">
+  return html`<div class="history-progress" id="history-${repo.id}" role="status" tabindex="-1">
     <span class="chip status-chip ${tone}">${label}</span>
-    ${job.pages ? `<span class="help history-extra">${e(job.pages)} ${job.pages === 1 ? 'page' : 'pages'} read${job.lastProgressAt ? ` · Last page ${e(dateTime(job.lastProgressAt))}` : ''}</span>` : ''}
-    ${job.error?.message ? `<span class="help history-extra">${e(job.error.message)}</span>` : ''}
+    ${job.pages ? html`<span class="help history-extra">${job.pages} ${job.pages === 1 ? 'page' : 'pages'} read${job.lastProgressAt ? ` · Last page ${dateTime(job.lastProgressAt)}` : ''}</span>` : emptyHtml}
+    ${job.error?.message ? html`<span class="help history-extra">${job.error.message}</span>` : emptyHtml}
   </div>`;
 }
 
