@@ -62,7 +62,7 @@ export function renderSettings(state, connection) {
         state.demo
           ? ''
           : `<div class="settings-row settings-action">
-        <span><strong id="reset-label">Start from scratch</strong><span class="help" id="reset-help">Deletes stored activity and imports it again. Your repositories and settings stay.</span></span>
+        <span><strong id="reset-label">Start from scratch</strong><span class="help" id="reset-help">Deletes stored activity and imports the last seven days again. Your repositories and settings stay.</span></span>
         <button class="btn sm" type="button" data-action="reset-activity" aria-describedby="reset-help">Start from scratch</button>
       </div>`
       }

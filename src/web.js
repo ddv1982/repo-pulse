@@ -317,11 +317,11 @@ const actions = {
   'reset-activity': () => {
     confirm(
       'Start from scratch?',
-      'This deletes all stored activity, seen marks and imported history on this computer, then imports activity from Azure DevOps again. Your repositories, linked checkouts and settings stay.',
+      'This deletes all stored activity, seen marks and imported history on this computer, then imports the last seven days from Azure DevOps again. Older history can be imported from Repositories. Your repositories, linked checkouts and settings stay.',
       async () => {
         await request('/api/reset', { method: 'POST', body: {} });
         await load({ force: true });
-        toast('Stored activity deleted. Importing it again.');
+        toast('Stored activity deleted. Importing the last seven days.');
       },
       'Delete and import again',
       { destructive: true },

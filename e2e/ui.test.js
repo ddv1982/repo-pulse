@@ -1254,7 +1254,7 @@ test('Start from scratch in Settings confirms, empties the feed and shows Syncin
 
   await page.getByRole('link', { name: 'Settings', exact: true }).click();
   const row = page.locator('.settings-row', { hasText: 'Start from scratch' });
-  await expect(row).toContainText('Deletes stored activity and imports it again. Your repositories and settings stay.');
+  await expect(row).toContainText('Deletes stored activity and imports the last seven days again. Your repositories and settings stay.');
   await row.screenshot({ path: 'test-results/settings-start-from-scratch.png' });
   gate.closed = true;
   await row.getByRole('button', { name: 'Start from scratch' }).click();
@@ -1265,7 +1265,7 @@ test('Start from scratch in Settings confirms, empties the feed and shows Syncin
   await expect(confirmButton).toHaveClass(/danger/);
   await page.screenshot({ path: 'test-results/settings-start-from-scratch-dialog.png' });
   await confirmButton.click();
-  await expect(page.locator('#toast')).toHaveText('Stored activity deleted. Importing it again.');
+  await expect(page.locator('#toast')).toHaveText('Stored activity deleted. Importing the last seven days.');
   await expect(page.locator('#header .header-tools > .sync-pill')).toHaveText('Syncing…');
 
   await page.getByRole('link', { name: 'Activity', exact: true }).click();
