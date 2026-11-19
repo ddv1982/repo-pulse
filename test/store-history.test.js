@@ -710,7 +710,10 @@ test('migration 13 rebuilds search_text from named fields and preserves enrichme
       data: { pushId: 9, refUpdates: [{ name: 'refs/heads/main', oldObjectId: '1111aaaa', newObjectId: '2222bbbb' }] },
     }),
   ]);
-  store.enrichEvent('p-1', { commits: [{ commitId: '3333cccc', comment: 'Enriched note' }] });
+  store.enrichEvent('p-1', {
+    commits: [{ commitId: '3333cccc', comment: 'Enriched note' }],
+    mergeEvidence: { commits: [{ commitId: '4444dddd', parents: ['5555eeee'] }] },
+  });
   store.close();
   const db = new DatabaseSync(path);
   db.prepare("UPDATE activity_members SET search_text=? WHERE event_id='b-1'").run('{"definition":{"url":"_apis/build/definitions/42"}}');
@@ -718,8 +721,10 @@ test('migration 13 rebuilds search_text from named fields and preserves enrichme
   db.close();
   store = createStore(path);
   assert.equal(store.queryActivity({ search: 'Nightly CI' }).total, 1);
+  assert.equal(store.queryActivity({ search: 'inProgress' }).total, 1);
   assert.equal(store.queryActivity({ search: '_apis/build/definitions/42' }).total, 0);
   assert.equal(store.queryActivity({ search: 'Enriched note' }).total, 1);
+  assert.equal(store.queryActivity({ search: '5555eeee' }).total, 1);
   assert.equal(store.getEvent('b-1').seen, true);
   assert.equal(store.getEvent('p-1').imported, true);
   store.close();

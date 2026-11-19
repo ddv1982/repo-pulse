@@ -169,6 +169,7 @@ test('activitySearchText indexes named searchable fields and drops raw JSON payl
       buildId: 99,
       status: 'completed',
       result: 'succeeded',
+      reason: 'individualCI',
       sourceVersion: 'deadbeef1234',
       definition: { name: 'Release Pipeline', url: 'https://dev.azure.com/org/_apis/build/Definitions/7', revision: 42 },
       repositoryId: 'internal-guid-noise',
@@ -178,6 +179,7 @@ test('activitySearchText indexes named searchable fields and drops raw JSON payl
   assert.match(buildText, /deadbeef1234/);
   assert.match(buildText, /\b99\b/);
   assert.match(buildText, /succeeded/);
+  assert.match(buildText, /individualci/);
   assert.doesNotMatch(buildText, /internal-guid-noise/);
   assert.doesNotMatch(buildText, /_apis\/build\/definitions/);
   assert.doesNotMatch(buildText, /"definition"/);
@@ -200,10 +202,11 @@ test('activitySearchText indexes named searchable fields and drops raw JSON payl
             sourceRefName: 'refs/heads/feat',
             targetRefName: 'refs/heads/main',
             mergeCommit: 'bbbb2222',
+            mergeStrategy: 'squash',
             closedBy: 'Cara',
           },
         ],
-        commits: [{ commitId: 'dddd4444' }],
+        commits: [{ commitId: 'dddd4444', parents: ['7777aaaa'], branches: ['refs/heads/topic-a'] }],
         introducedCommitIds: ['eeee5555'],
         refRanges: [{ name: 'refs/heads/main', commitIds: ['ffff6666'] }],
         rewrite: [{ ref: 'refs/heads/main', status: 'rewrite', dropped: 2 }],
@@ -216,8 +219,11 @@ test('activitySearchText indexes named searchable fields and drops raw JSON payl
     'cccc3333',
     'fix billing retry',
     '77',
+    'squash',
     'cara',
     'dddd4444',
+    '7777aaaa',
+    'refs/heads/topic-a',
     'eeee5555',
     'ffff6666',
     'history rewritten',

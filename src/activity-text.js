@@ -193,9 +193,14 @@ function addEvidenceSearchTerms(terms, evidence) {
     addSearchTerm(terms, pr.sourceRefName);
     addSearchTerm(terms, pr.targetRefName);
     addSearchTerm(terms, pr.mergeCommit);
+    addSearchTerm(terms, pr.mergeStrategy);
     addSearchTerm(terms, typeof pr.closedBy === 'string' ? pr.closedBy : pr.closedBy?.displayName);
   }
-  for (const commit of evidence.commits || []) addSearchTerm(terms, commit.commitId);
+  for (const commit of evidence.commits || []) {
+    addSearchTerm(terms, commit.commitId);
+    for (const parent of commit.parents || []) addSearchTerm(terms, parent);
+    for (const branch of commit.branches || []) addSearchTerm(terms, branch);
+  }
   for (const id of evidence.introducedCommitIds || []) addSearchTerm(terms, id);
   for (const range of evidence.refRanges || []) {
     addSearchTerm(terms, range.name);
@@ -229,6 +234,9 @@ function addDataSearchTerms(terms, data) {
     data.mergeCommit,
     data.sourceVersion,
     data.definition?.name,
+    data.status,
+    data.result,
+    data.reason,
     data.closedBy,
     data.mergeStrategy,
     data.fork?.repository,
