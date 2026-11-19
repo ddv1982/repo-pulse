@@ -12,6 +12,7 @@
  *   repos: { id: string, disabled?: boolean }[],
  *   streams: StreamState[],
  *   jobs: Pick<import('./backfill.js').HistoryJob, 'repoId'|'status'>[],
+ *   inProgress: { repoId: string, stream: string }[],
  *   settings: { refreshEnabled: boolean, refreshResumedAt: number | null },
  *   startedAt: number,
  *   now: number,
@@ -36,16 +37,22 @@ const time = value => Date.parse(value ?? '');
  * @param {SyncStatusInput} input
  * @returns {{ overall: OverallSyncStatus, repos: Record<string, SyncStatus> }}
  */
-export function syncStatus({ repos, streams, jobs, settings, startedAt, now, demo = false }) {
+export function syncStatus({ repos, streams, jobs, inProgress, settings, startedAt, now, demo = false }) {
   const automatic = settings.refreshEnabled !== false;
-  // Nothing can be overdue or late for the time before the app ran or checks were turned back on.
   const ranSince = Math.max(startedAt, settings.refreshResumedAt ?? 0);
   /** @param {StreamState} stream */
   const stale = stream => automatic && now - time(stream.lastSuccess) > overdueAfter(stream);
   /** @param {StreamState} stream */
   const graceOver = stream => now - ranSince > overdueAfter(stream);
-  /** @param {StreamState} stream */
-  const late = stream => (automatic || Boolean(stream.manual)) && now - Math.max(time(stream.nextAt), ranSince) > LATE;
+  // Every stream is overdue right after a start or resume; the first minutes are catch-up, after which lateness counts from nextAt.
+  const catchingUp = now - ranSince <= LATE;
+  /** How far behind a stream is, 0 when it is not, NaN when throttled before any success. @param {StreamState} stream */
+  function behindBy(stream) {
+    const age = now - time(stream.lastSuccess);
+    if (stream.error?.code === 'THROTTLED' || (stale(stream) && graceOver(stream))) return age;
+    const lateness = now - time(stream.nextAt);
+    return (automatic || stream.manual) && !catchingUp && lateness > LATE ? lateness : 0;
+  }
 
   /** @param {string} repoId @returns {SyncStatus} */
   function repoStatus(repoId) {
@@ -59,16 +66,17 @@ export function syncStatus({ repos, streams, jobs, settings, startedAt, now, dem
       ({ error, failures = 0 }) => error && error.code !== 'THROTTLED' && (failures >= 2 || LASTING.has(error.code)),
     );
     if (failing?.error) return { state: 'problem', reason: failing.error.message, stream: failing.stream, ...since };
-    const behind = own.find(stream => stream.error?.code === 'THROTTLED' || (stale(stream) && graceOver(stream)) || late(stream));
+    const behind = own.find(stream => behindBy(stream) !== 0);
     if (behind) {
-      const minutes = Math.max(1, Math.round((now - oldest) / MINUTE));
+      const minutes = Math.max(1, Math.round(behindBy(behind) / MINUTE));
       const reason = Number.isFinite(minutes) ? `about ${minutes} minute${minutes === 1 ? '' : 's'} behind` : 'Checks are behind schedule';
       return { state: 'delayed', reason, stream: behind.stream, ...since };
     }
     const importing = jobs.some(job => job.repoId === repoId && job.status !== 'completed');
     // A stale read that got here is still inside the grace period above, so it is catching up.
     const working = own.some(stream => !stream.initialized || stream.pending || stream.cursor || stream.manual || stale(stream));
-    if (!own.length || importing || working) return { state: 'syncing', ...since };
+    const busy = inProgress.some(entry => entry.repoId === repoId);
+    if (!own.length || importing || working || busy) return { state: 'syncing', ...since };
     return { state: 'synced', ...since };
   }
 

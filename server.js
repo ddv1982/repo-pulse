@@ -238,6 +238,8 @@ export function createApp({
       path: '/api/state',
       handler: ({ res }) => {
         onStateRead();
+        const status = sync.status();
+        const inProgress = 'inProgress' in status ? status.inProgress : [];
         const repos = store.listRepos();
         const streams = store.getStreams();
         const jobs = store.listJobs({ type: 'backfill' });
@@ -252,11 +254,11 @@ export function createApp({
           /** @satisfies {StateResponse} */ ({
             repos,
             streams,
-            diagnostics: { ...(cli?.diagnostics() || {}), sync: sync.status() },
+            diagnostics: { ...(cli?.diagnostics() || {}), sync: status },
             jobs,
             activityRevision: store.activityRevision(),
             settings,
-            syncStatus: syncStatus({ repos, streams, jobs, settings, startedAt, now: Date.now(), demo }),
+            syncStatus: syncStatus({ repos, streams, jobs, inProgress, settings, startedAt, now: Date.now(), demo }),
             demo,
           }),
         );

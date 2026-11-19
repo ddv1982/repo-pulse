@@ -34,6 +34,7 @@ function status({ a = {}, b = {}, ...rest } = {}) {
     repos: [{ id: 'a' }, { id: 'b' }],
     streams: [...streams('a', a), ...streams('b', b)],
     jobs: [],
+    inProgress: [],
     settings: { refreshEnabled: true, refreshResumedAt: null },
     startedAt: NOW - 60 * MINUTE,
     now: NOW,
@@ -108,15 +109,21 @@ test('old reads are catching up, not delayed, until the app or resumed checks ha
   assert.equal(status({ ...old, startedAt: NOW - 5 * MINUTE }).repos.a.state, 'syncing');
   assert.equal(status({ ...old, settings: { refreshEnabled: true, refreshResumedAt: NOW - 5 * MINUTE } }).repos.a.state, 'syncing');
   assert.equal(status({ ...old, startedAt: NOW - 11 * MINUTE }).repos.a.state, 'delayed');
-  // A check due long before the app started is late only from the start.
-  const due = { a: { pushes: { lastSuccess: ago(120), nextAt: ago(120) } } };
-  assert.equal(status({ ...due, startedAt: NOW - 2 * MINUTE }).repos.a.state, 'syncing');
-  assert.equal(status({ ...due, startedAt: NOW - 4 * MINUTE }).repos.a.state, 'delayed');
+});
+
+test('a restart catches up for three minutes, then a check still not started is delayed by its own lateness', () => {
+  const closed = Object.fromEntries(STREAMS.map(stream => [stream, { lastSuccess: ago(243), nextAt: ago(240) }]));
+  const catchingUp = status({ a: closed, b: closed, startedAt: NOW - MINUTE });
+  assert.deepEqual([catchingUp.repos.a.state, catchingUp.repos.b.state], ['syncing', 'syncing']);
+
+  const unread = status({ a: { pushes: { lastSuccess: ago(200), nextAt: ago(15) } }, startedAt: NOW - 5 * MINUTE });
+  assert.deepEqual(unread.repos.a, { state: 'delayed', reason: 'about 15 minutes behind', stream: 'pushes', since: ago(200) });
+  assert.equal(unread.repos.b.state, 'synced');
 });
 
 test('checks starting over 3 minutes late delay only the repository they belong to', () => {
-  const late = status({ a: { builds: { nextAt: ago(4), lastSuccess: ago(6) } } });
-  assert.deepEqual(late.repos.a, { state: 'delayed', reason: 'about 6 minutes behind', stream: 'builds', since: ago(6) });
+  const late = status({ a: { builds: { nextAt: ago(4), lastSuccess: ago(6) }, refs: { lastSuccess: ago(15) } } });
+  assert.deepEqual(late.repos.a, { state: 'delayed', reason: 'about 4 minutes behind', stream: 'builds', since: ago(15) });
   assert.equal(late.repos.b.state, 'synced');
   assert.equal(status({ a: { builds: { nextAt: ago(2) } } }).repos.a.state, 'synced');
 });
@@ -152,6 +159,7 @@ test('a disabled repository is ignored, and no enabled repository gives an empty
     repos: [{ id: 'a' }, { id: 'b', disabled: true }],
     streams: [...streams('a'), ...streams('b', { builds: { error: forbidden, failures: 9 } })],
     jobs: [{ repoId: 'b', status: 'running' }],
+    inProgress: [],
     settings: { refreshEnabled: true, refreshResumedAt: null },
     startedAt: NOW - 60 * MINUTE,
     now: NOW,
@@ -163,6 +171,7 @@ test('a disabled repository is ignored, and no enabled repository gives an empty
     repos: [{ id: 'b', disabled: true }],
     streams: streams('b'),
     jobs: [],
+    inProgress: [],
     settings: { refreshEnabled: true, refreshResumedAt: null },
     startedAt: NOW - 60 * MINUTE,
     now: NOW,
@@ -205,6 +214,7 @@ test('through createSync: first import syncs, a refused stream is a problem, and
       repos: store.listRepos(),
       streams: store.getStreams(),
       jobs: store.listJobs({ type: 'backfill' }),
+      inProgress: sync.status().inProgress,
       settings: { refreshEnabled: true, refreshResumedAt: null },
       startedAt: BASE,
       now: time,
@@ -248,5 +258,87 @@ test('through createSync: first import syncs, a refused stream is a problem, and
 
   time += 9 * MINUTE;
   assert.deepEqual(current().state, 'delayed', 'checks due five minutes ago have not started');
+  store.close();
+});
+
+/** A one-repository sync whose reads wait until `release` is called, with its status as /api/state computes it. */
+function blockedSync() {
+  const store = createStore();
+  store.saveRepo({
+    id: 'one',
+    name: 'One',
+    azureId: 'x',
+    organization: 'https://dev.azure.com/o',
+    project: 'P',
+    webUrl: 'https://dev.azure.com/o/P/_git/One',
+  });
+  let time = NOW;
+  /** @type {(() => void)[]} */
+  const waiting = [];
+  const sync = createSync({
+    store,
+    now: () => time,
+    intervalMs: 1000,
+    provider: {
+      async read() {
+        await new Promise(resolve => waiting.push(() => resolve(undefined)));
+        return { items: [], nextCursor: null };
+      },
+    },
+  });
+  const current = () =>
+    syncStatus({
+      repos: store.listRepos(),
+      streams: store.getStreams(),
+      jobs: [],
+      inProgress: sync.status().inProgress,
+      settings: { refreshEnabled: true, refreshResumedAt: null },
+      startedAt: NOW - 60 * MINUTE,
+      now: time,
+    }).repos.one.state;
+  async function readAll() {
+    for (let i = 0; i < STREAMS.length; i++) {
+      const page = sync.tick();
+      await new Promise(resolve => setImmediate(resolve));
+      waiting.shift()?.();
+      await page;
+      time += 100;
+    }
+  }
+  const advance = (/** @type {number} */ ms) => {
+    time += ms;
+  };
+  return { store, sync, current, readAll, waiting, advance };
+}
+
+test('a page in flight is syncing even when the stream looked healthy before it started', async () => {
+  const { store, sync, current, readAll, waiting, advance } = blockedSync();
+  sync.refresh();
+  await readAll();
+  assert.equal(current(), 'synced');
+
+  advance(MINUTE);
+  const page = sync.tick();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(waiting.length, 1, 'a read is blocked');
+  assert.equal(current(), 'syncing', 'page in flight');
+  waiting.shift()?.();
+  await page;
+  advance(100);
+  assert.equal(current(), 'synced');
+  store.close();
+});
+
+test('a refresh the user asked for is syncing with automatic checks on until every stream has answered it', async () => {
+  const { store, sync, current, readAll, advance } = blockedSync();
+  sync.refresh();
+  await readAll();
+  assert.equal(current(), 'synced');
+
+  advance(MINUTE);
+  assert.deepEqual(sync.refresh(), { scheduled: true });
+  assert.equal(current(), 'syncing', 'refresh queued');
+  await readAll();
+  assert.equal(current(), 'synced');
   store.close();
 });
