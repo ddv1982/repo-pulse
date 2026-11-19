@@ -25,6 +25,9 @@ const iso = ms => new Date(ms).toISOString();
 export function createRewriteCheck({ store, provider, now = Date.now }) {
   /** @param {RewriteJob} job @param {RewriteResult} rewrite */
   const save = (job, rewrite) => store.saveRewriteResult({ eventId: job.eventId, jobId: job.id, rewrite });
+  // A check whose result could not be stored waits here, since a database that refuses writes cannot reschedule it.
+  /** @type {Map<string, number>} */
+  const deferred = new Map();
   /** @returns {Promise<boolean>} whether a check ran */
   async function tick() {
     const repos = new Map(
@@ -35,27 +38,39 @@ export function createRewriteCheck({ store, provider, now = Date.now }) {
     );
     // Rows of type 'rewrite' are only written by server/sync.js normalize, as a RewriteJob.
     const jobs = /** @type {RewriteJob[]} */ (/** @type {unknown} */ (store.listJobs({ type: 'rewrite', dueBefore: iso(now()) })));
-    const job = jobs.find(item => repos.has(item.repoId));
+    const job = jobs.find(item => repos.has(item.repoId) && !((deferred.get(item.id) ?? 0) > now()));
     const repo = job && repos.get(job.repoId);
     if (!job || !repo) return false;
+    /** @type {RewriteResult} */
+    let result;
     try {
       const page = await provider.droppedCommits(repo, job.oldObjectId, job.newObjectId);
-      save(
-        job,
-        page.items.length
-          ? { ref: job.ref, status: 'rewrite', dropped: page.items.length, ...(page.nextCursor ? { more: true } : {}) }
-          : { ref: job.ref, status: 'fast-forward' },
-      );
+      result = page.items.length
+        ? { ref: job.ref, status: 'rewrite', dropped: page.items.length, ...(page.nextCursor ? { more: true } : {}) }
+        : { ref: job.ref, status: 'fast-forward' };
     } catch (error) {
       const code = /** @type {{ code?: unknown }} */ (error)?.code;
       // Shutdown aborted the call, not Azure; the unchanged job resumes on the next start.
       if (code === 'CLOSED') return true;
       const attempts = job.attempts + 1;
       // A missing old tip cannot be read on a later attempt either.
-      const missing = code === 'NOT_FOUND';
-      if (missing || attempts >= ATTEMPTS) save(job, { ref: job.ref, status: 'unknown' });
-      // A repository removed during the call took its job and event with it.
-      else if (store.getEvent(job.eventId)) store.saveJob({ ...job, attempts, nextAt: iso(now() + RETRY_MS * 2 ** (attempts - 1)) });
+      if (code !== 'NOT_FOUND' && attempts < ATTEMPTS) {
+        try {
+          // A repository removed during the call took its job and event with it.
+          if (store.getEvent(job.eventId)) store.saveJob({ ...job, attempts, nextAt: iso(now() + RETRY_MS * 2 ** (attempts - 1)) });
+        } catch {
+          deferred.set(job.id, now() + RETRY_MS);
+        }
+        return true;
+      }
+      result = { ref: job.ref, status: 'unknown' };
+    }
+    try {
+      save(job, result);
+      deferred.delete(job.id);
+    } catch {
+      // Only Azure errors count as attempts, so a failed write never turns a proven result into unknown.
+      deferred.set(job.id, now() + RETRY_MS);
     }
     return true;
   }

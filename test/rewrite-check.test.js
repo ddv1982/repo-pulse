@@ -253,3 +253,31 @@ test('closing the app during the last attempt leaves the check to resume on rest
   assert.equal(store.getEvent('one:push:21').data.mergeEvidence, undefined);
   store.close();
 });
+
+test('a failed save waits instead of taking every turn, and a proven rewrite is never stored as unknown', async () => {
+  const folder = mkdtempSync(join(tmpdir(), 'pulse-rewrite-'));
+  const path = join(folder, 'state.sqlite');
+  const store = createStore(path);
+  store.saveRepo(repo);
+  store.insertEvents([{ id: 'one:push:21', repoId: repo.id, kind: 'push', title: 'push', time: LIVE }]);
+  const job = { id: 'rewrite:one:push:21:refs/heads/main', type: 'rewrite', repoId: repo.id, eventId: 'one:push:21' };
+  store.saveJob({ ...job, ref: 'refs/heads/main', oldObjectId: A, newObjectId: B, attempts: 3, nextAt: new Date(BASE).toISOString() });
+  let raw = new DatabaseSync(path);
+  raw.exec("CREATE TRIGGER fail BEFORE DELETE ON jobs BEGIN SELECT RAISE(ABORT, 'disk full'); END");
+  raw.close();
+  let time = BASE;
+  let calls = 0;
+  const check = createRewriteCheck({ store, provider: { droppedCommits: async () => (calls++, commits(2)) }, now: () => time });
+  assert.equal(await check.tick(), true);
+  assert.equal(await check.tick(), false, 'the failed check waits, so other background work gets the turn');
+  assert.equal(calls, 1);
+  raw = new DatabaseSync(path);
+  raw.exec('DROP TRIGGER fail');
+  raw.close();
+  time += 2 * 60000;
+  assert.equal(await check.tick(), true);
+  assert.equal(store.getEvent('one:push:21').data.mergeEvidence.rewrite[0].status, 'rewrite');
+  assert.equal(store.listJobs({ type: 'rewrite' }).length, 0);
+  store.close();
+  rmSync(folder, { recursive: true });
+});
