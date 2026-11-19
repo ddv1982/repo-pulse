@@ -226,10 +226,12 @@ export function formatDoctorReport(report) {
     if (check.fix) lines.push(`       Fix: ${check.fix}`);
   }
   lines.push('');
+  const canRunDemo = report.checks.some(check => check.id === 'node' && check.status === 'ok');
   lines.push(
     report.ok
       ? 'All prerequisites look good. Run `npm start` to launch Repo Pulse (or `npm run demo` to try without Azure).'
-      : 'One or more prerequisites failed. Fix the items above, or run `npm run demo` to try Repo Pulse without Azure.',
+      : 'One or more prerequisites failed. Fix the items above.' +
+          (canRunDemo ? ' Run `npm run demo` to try Repo Pulse without Azure.' : ''),
   );
   return lines.join('\n');
 }

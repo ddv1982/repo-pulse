@@ -78,6 +78,7 @@ test('runDoctor reports old Node, missing Git, and missing Azure CLI while skipp
   assert.equal(calls.length, 2, 'must not invoke extension/account checks after az fails');
   const text = formatDoctorReport(report);
   assert.match(text, /requires Node\.js 26\+/);
+  assert.doesNotMatch(text, /npm run demo/);
   assert.match(text, /\[SKIP\] azure-devops extension/);
   assert.match(text, /\[SKIP\] Azure CLI account/);
 });
