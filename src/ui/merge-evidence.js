@@ -12,12 +12,13 @@ export function renderMergeEvidence(data = {}) {
   if (!evidence) return emptyHtml;
   const prs = evidence.prs || [];
   const commits = evidence.commits || [];
+  const prLabel = matchingPushResults(data).length ? 'Completed PR linked' : 'Related PR evidence';
   // A rewrite check alone says nothing about how the push was merged.
   const merge = prs.length || commits.length || evidence.status;
   return html`<section class="activity-history stack-gap" aria-label="Push evidence"><h2>Push evidence</h2>
     ${
       merge
-        ? html`<p><span class="chip status-chip ${prs.length ? 'ok' : commits.length ? 'info' : evidence.status === 'not-applicable' ? 'neutral' : 'unk'}">${prs.length ? 'Completed PR linked' : commits.length ? 'Merge commit found' : evidence.status === 'not-applicable' ? 'Branch lifecycle only' : evidence.status === 'complete' ? 'No merge established' : 'Evidence incomplete'}</span>${evidence.checkedAt ? html` <span class="help">Checked ${dateTime(evidence.checkedAt)}</span>` : emptyHtml}</p>
+        ? html`<p><span class="chip status-chip ${prs.length ? 'ok' : commits.length ? 'info' : evidence.status === 'not-applicable' ? 'neutral' : 'unk'}">${prs.length ? prLabel : commits.length ? 'Merge commit found' : evidence.status === 'not-applicable' ? 'Branch lifecycle only' : evidence.status === 'complete' ? 'No merge established' : 'Evidence incomplete'}</span>${evidence.checkedAt ? html` <span class="help">Checked ${dateTime(evidence.checkedAt)}</span>` : emptyHtml}</p>
     ${prs.length ? html`<ul>${prs.map(pr => renderPr(pr, data))}</ul>` : evidence.status === 'not-applicable' ? emptyHtml : html`<p class="help">No completed PR association established. This does not prove a push was made outside a PR.</p>`}`
         : emptyHtml
     }
@@ -53,7 +54,7 @@ export function mergeEvidenceBadge(event) {
     : emptyHtml;
   if (!label) return history;
   const count = matchingPushResults(event.data).length;
-  return html`<span class="chip status-chip ok">${count > 1 ? `${count} completed PRs linked` : count === 1 ? label : 'Related PR evidence'}</span>${history}`;
+  return html`<span class="chip status-chip ok">${count > 1 ? `${count} completed PRs linked` : count === 1 ? 'Completed PR linked' : 'Related PR evidence'}</span>${history}`;
 }
 
 /** @param {EventData} [data] */

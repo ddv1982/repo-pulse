@@ -2,7 +2,7 @@
  * @typedef {{ route: string, eventId: string|null, repoIds: string[]|null, search: string, people: string, kind: string,
  *   filtersOpen: boolean|undefined, activityRoute: string }} NavigationState
  * @typedef {{ route: string, search: string, people: string, kind: string, repoIds: string[]|null, groups: [string, boolean][],
- *   filtersOpen: boolean|undefined, scrollY: number, eventId: string|null, activityCapacity: number }} ResultsContext
+ *   filtersOpen: boolean|undefined, scrollY: number, eventId: string|null, matchingIds?: string[], activityCapacity: number }} ResultsContext
  * @typedef {{ id: string, disabled?: boolean }} WatchedRepo
  */
 
@@ -52,6 +52,9 @@ function readResultsContext() {
       filtersOpen: typeof value.filtersOpen === 'boolean' ? value.filtersOpen : undefined,
       scrollY: Number.isFinite(value.scrollY) ? Math.max(0, value.scrollY) : 0,
       eventId: typeof value.eventId === 'string' ? value.eventId : null,
+      matchingIds: Array.isArray(value.matchingIds)
+        ? value.matchingIds.filter((/** @type {unknown} */ id) => typeof id === 'string')
+        : undefined,
       activityCapacity: Number.isSafeInteger(value.activityCapacity) && value.activityCapacity >= 50 ? value.activityCapacity : 50,
     };
   } catch {
@@ -76,8 +79,8 @@ export function createNavigation({ ui, captureGroups, activityCapacity }) {
   let pending;
   let generation = 0;
 
-  /** @param {string|null} eventId */
-  function remember(eventId) {
+  /** @param {string|null} eventId @param {string[]} [matchingIds] */
+  function remember(eventId, matchingIds) {
     if (!isActivity(ui.route)) return;
     results = {
       route: ui.route,
@@ -89,6 +92,7 @@ export function createNavigation({ ui, captureGroups, activityCapacity }) {
       filtersOpen: ui.filtersOpen,
       scrollY: window.scrollY,
       eventId,
+      matchingIds,
       activityCapacity: activityCapacity(),
     };
     try {
@@ -125,6 +129,9 @@ export function createNavigation({ ui, captureGroups, activityCapacity }) {
     get returnRoute() {
       return results?.route || 'catchup';
     },
+    get matchingIds() {
+      return results && results.eventId === ui.eventId ? results.matchingIds : undefined;
+    },
     invalidate,
     reconcileRepositories,
     remember,
@@ -141,7 +148,7 @@ export function createNavigation({ ui, captureGroups, activityCapacity }) {
       const parsed = canonicalRoute();
       const destination = parsed.route;
       invalidate();
-      if (destination === 'event') remember(parsed.eventId);
+      if (destination === 'event' && results?.eventId !== parsed.eventId) remember(parsed.eventId);
       Object.assign(ui, parsed);
 
       let capacity;

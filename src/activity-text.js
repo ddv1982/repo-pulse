@@ -31,9 +31,10 @@ const statusLabels = {
   activity: 'Activity',
 };
 /** @type {Record<string, string>} */
-const evidenceLabels = { 'pr-linked': 'Completed PR linked' };
+const evidenceLabels = { 'pr-linked': 'PR evidence' };
 const statusIds = new Map(Object.entries(statusLabels).map(([id, label]) => [label, id]));
 const evidenceIds = new Map(Object.entries(evidenceLabels).map(([id, label]) => [label, id]));
+evidenceIds.set('Completed PR linked', 'pr-linked');
 
 export const labels = {
   'branch-created': statusLabels['new-branch'],
@@ -190,13 +191,7 @@ function pushedTagSummary({ change, oldObjectId = '', newObjectId = '' }) {
 }
 
 /** @param {ActivityEvent} event */
-export function activitySummary(event) {
-  if (event.kind === 'build') return triggerLabel(event.data?.reason);
-  if (event.kind === 'pr' && event.data && (event.data.targetRefName || event.data.voteChanges?.length)) return prSummary(event.data);
-  const listed = ['snapshot', 'refs'].includes(event.data?.evidence ?? '');
-  if (event.kind === 'branch-created') return listed ? 'First seen remotely; creation time not supplied' : 'New remote branch';
-  if (event.kind === 'branch-deleted') return listed ? 'Not in the latest branch list; deletion not confirmed' : 'Remote branch deleted';
-  if (event.kind === 'tag' && event.data?.evidence === 'push') return pushedTagSummary(event.data);
+function refUpdateSummary(event) {
   const refs = event.data?.refUpdates;
   if (event.kind === 'push' && event.actor === azureDevOpsService && !refs?.length && !event.branch) {
     return 'Branch details unavailable';
@@ -204,6 +199,17 @@ export function activitySummary(event) {
   if (refs?.length === 1 && /^0+$/.test(refs[0].newObjectId || '')) return 'Remote branch deleted';
   if (refs?.length === 1 && /^0+$/.test(refs[0].oldObjectId || '')) return `Branch starts at ${(refs[0].newObjectId || '').slice(0, 8)}`;
   return event.summary || '';
+}
+
+/** @param {ActivityEvent} event */
+export function activitySummary(event) {
+  if (event.kind === 'build') return triggerLabel(event.data?.reason);
+  if (event.kind === 'pr' && event.data && (event.data.targetRefName || event.data.voteChanges?.length)) return prSummary(event.data);
+  const listed = ['snapshot', 'refs'].includes(event.data?.evidence ?? '');
+  if (event.kind === 'branch-created') return listed ? 'First seen remotely; creation time not supplied' : 'New remote branch';
+  if (event.kind === 'branch-deleted') return listed ? 'Not in the latest branch list; deletion not confirmed' : 'Remote branch deleted';
+  if (event.kind === 'tag' && event.data?.evidence === 'push') return pushedTagSummary(event.data);
+  return refUpdateSummary(event);
 }
 
 /** @typedef {{kind?: string, data?: { mergeEvidence?: { prs?: unknown[] } } }} EvidencedEvent */

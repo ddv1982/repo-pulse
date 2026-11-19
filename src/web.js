@@ -8,7 +8,7 @@ import { createNavigation, activityHref, isActivity } from './ui/navigation.js';
 import { createTypeFilter } from './ui/type-filter.js';
 import { createRefreshController } from './ui/refresh.js';
 import { createBrowserView } from './ui/browser-view.js';
-import { createSeenActions } from './ui/seen-actions.js';
+import { createSeenActions, eventIds } from './ui/seen-actions.js';
 import { createFilterNameDialog } from './ui/saved-filters.js';
 import { createHistoryImport } from './ui/history-import.js';
 import { required, setHtml } from './ui/dom.js';
@@ -109,6 +109,7 @@ function renderOptions() {
   return {
     restored,
     returnRoute: navigation.returnRoute,
+    matchingIds: navigation.matchingIds,
     commits: commitResults.get(ui.eventId),
     checkouts: checkoutPanel.snapshots,
     isCurrent: () => navigation.view().generation === generation,
@@ -313,7 +314,9 @@ const actions = {
   },
   detail: element => {
     // Detail buttons always carry data-id, so the fallbacks never apply.
-    navigation.remember(element.dataset.id ?? null);
+    const row = element.closest('li[data-event-id]');
+    const matchingIds = ui.people && row instanceof HTMLElement ? eventIds(row) : undefined;
+    navigation.remember(element.dataset.id ?? null, matchingIds);
     location.hash = `event/${encodeURIComponent(element.dataset.id ?? '')}`;
   },
   'back-to-results': () => {

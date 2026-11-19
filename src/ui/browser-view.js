@@ -12,7 +12,7 @@ import { emptyHtml, html } from './format.js';
 /** web.js owns this object: navigation state plus the connection panel state and the refresh flag the header reads. */
 /** @typedef {import('./navigation.js').NavigationState & { connection: import('./connection.js').ConnectionState, refreshing?: boolean, savedFilterId: string }} BrowserUi */
 /**
- * @typedef {{ restored: ResultsContext | null, returnRoute: string, commits: import('./activity-detail.js').LoadedView | undefined,
+ * @typedef {{ restored: ResultsContext | null, returnRoute: string, matchingIds?: string[], commits: import('./activity-detail.js').LoadedView | undefined,
  *   checkouts: Record<string, import('./checkout.js').CheckoutSnapshot>, isCurrent: () => boolean }} RenderOptions
  */
 /** web/theme.js publishes this before the modules load. @typedef {Window & { repoPulseTheme?: { apply: () => void } }} ThemedWindow */
@@ -37,7 +37,7 @@ export function createBrowserView({ page, header, demo, syncLive, picker, typeFi
   }
 
   /** @param {PageState} state @param {BrowserUi} ui @param {RenderOptions} options */
-  function renderPage(state, ui, { restored, returnRoute, commits, checkouts, isCurrent }) {
+  function renderPage(state, ui, { restored, returnRoute, matchingIds, commits, checkouts, isCurrent }) {
     const groups = restored?.groups || captureGroups();
     const focused = document.activeElement;
     const focusId = focused && page.contains(focused) ? focused.id : '';
@@ -57,7 +57,7 @@ export function createBrowserView({ page, header, demo, syncLive, picker, typeFi
           commits,
           {
             returnRoute,
-            matchingIds: ui.people ? state.activity.items.find(item => item.id === ui.eventId)?.eventIds : undefined,
+            matchingIds,
             label: returnRoute === 'activity' ? 'Back to All activity' : 'Back to New updates',
           },
         ),

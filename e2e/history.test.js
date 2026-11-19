@@ -563,13 +563,13 @@ test('Activity offers statuses and evidence from matching history beyond the fir
   const panel = page.getByRole('listbox', { name: 'Activity type' });
   await toggle.click();
   await expect(panel.getByRole('option', { name: 'Merged', exact: true })).toBeVisible();
-  await expect(panel.getByRole('option', { name: 'Completed PR linked', exact: true })).toBeVisible();
+  await expect(panel.getByRole('option', { name: 'PR evidence', exact: true })).toBeVisible();
   await panel.getByRole('option', { name: 'Canceled', exact: true }).click();
   await expect(page.locator('[data-event-id="archived-canceled"] .kind')).toHaveText('Canceled');
   await expect(page.locator('li.row')).toHaveCount(1);
   await toggle.click();
   await expect(panel.getByRole('option', { name: 'Merged', exact: true })).toBeVisible();
-  await panel.getByRole('option', { name: 'Completed PR linked', exact: true }).click();
+  await panel.getByRole('option', { name: 'PR evidence', exact: true }).click();
   await expect(page.locator('[data-event-id="archive-1049"]')).toBeVisible();
 });
 
@@ -878,8 +878,11 @@ test('People detail only acknowledges the updates that matched the originating r
   await page.goto(runtime.url + '/#activity/all');
   await page.getByRole('searchbox', { name: 'People' }).fill('Alice Example');
   await page.locator('[data-event-id="alice-build"] button.feed-title').click();
-  await expect(page.getByText('Chris run', { exact: true })).toHaveCount(0);
-  await page.getByRole('button', { name: 'Mark seen', exact: true }).click();
+  await expect(page).toHaveURL(/#event\/alice-build$/);
+  await page.reload();
+  const mark = page.getByRole('button', { name: 'Mark seen', exact: true });
+  await expect(mark).toHaveAttribute('data-event-ids', JSON.stringify(['alice-build']));
+  await mark.click();
   await expect(page.getByRole('button', { name: 'Mark unseen', exact: true })).toBeVisible();
   assert.equal(runtime.store.getEvent('alice-build').seen, true);
   assert.equal(runtime.store.getEvent('other-build').seen, false);
