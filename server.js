@@ -28,11 +28,12 @@ import { canOpenBrowser, openBrowser } from './server/open-browser.js';
 /** Live mode passes the Azure client; demo mode passes demoProvider, which answers only the routes demo serves. */
 /** @typedef {AzureProvider | typeof demoProvider} AppProvider */
 /** @typedef {{ demo: true, running: false }} DemoSyncStatus */
-/** Demo mode passes a stub, so the app relies only on the two calls both share with createSync. */
+/** Demo mode passes a stub, so the app relies only on the two calls both share with createSync, and reset in live mode. */
 /**
  * @typedef {{
  *   status: () => import('./server/sync.js').SyncStatus | DemoSyncStatus,
  *   refresh: (repoIds?: string[]) => import('./server/sync.js').RefreshStatus | { demo: true },
+ *   reset?: (clear: () => void) => Promise<void>,
  * }} AppSync
  */
 /** @typedef {{ req: Request, res: Response, url: URL, params: string[] }} RouteContext */
@@ -87,7 +88,7 @@ import { canOpenBrowser, openBrowser } from './server/open-browser.js';
 /** GET /api/push/:repo/:id/commits. @typedef {{ items: PushCommit[], nextCursor: unknown, message?: string }} PushCommitsResponse */
 /** GET /api/pr/:repo/:id/review. @typedef {import('./server/azure-client.js').PullRequestReview & { message?: string }} PrReviewResponse */
 /** POST /api/backfill. @typedef {ReturnType<ReturnType<typeof createBackfill>['start']>} BackfillResponse */
-/** POST /api/refresh. @typedef {{ ok: true, status: ReturnType<AppSync['refresh']> }} RefreshResponse */
+/** POST /api/refresh and POST /api/reset. @typedef {{ ok: true, status: ReturnType<AppSync['refresh']> }} RefreshResponse */
 /** POST /api/discover. @typedef {import('./server/repositories.js').Discovery} DiscoverResponse */
 /** POST /api/folders. @typedef {Awaited<ReturnType<typeof browseFolders>>} FoldersResponse */
 /** POST /api/demo/event. @typedef {ReturnType<typeof addDemoEvent>} DemoEventResponse */
@@ -466,6 +467,16 @@ export function createApp({
     },
     {
       method: 'POST',
+      path: '/api/reset',
+      handler: async ({ req, res }) => {
+        await body(req);
+        if (demo || !sync.reset) throw problem('Demo data cannot be cleared. Start live mode to start from scratch.', 403);
+        await sync.reset(() => store.resetActivity());
+        return json(res, 200, /** @satisfies {RefreshResponse} */ ({ ok: true, status: sync.refresh() }));
+      },
+    },
+    {
+      method: 'POST',
       path: '/api/ack',
       handler: async ({ req, res }) => {
         const input = await body(req);
@@ -617,7 +628,15 @@ export async function startApp({ demo = false, port = 0, dataDir = resolve(ROOT,
       // Assigned below, before sync.start() can schedule any work.
       background: { rewrite: () => rewriteCheck?.tick(), history: () => backfill?.tick() },
     });
-  const sync = liveSync || {
+  const sync = (liveSync && {
+    ...liveSync,
+    /** @param {() => void} clear */
+    reset: clear =>
+      liveSync.reset(() => {
+        clear();
+        rewriteCheck?.reset();
+      }),
+  }) || {
     start() {},
     stop() {},
     /** @returns {{ demo: true }} */

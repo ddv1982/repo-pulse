@@ -791,6 +791,28 @@ export function createSync({
     },
     tick,
     normalize,
+    /**
+     * Runs `clear` with no turn in flight, then forgets the refreshes and rotation the cleared data asked for.
+     * @param {() => void} clear
+     */
+    async reset(clear) {
+      const scheduled = Boolean(timer);
+      stopped = true;
+      clearTimeout(timer);
+      timer = undefined;
+      // A page in flight sees `stopped` and drops its result instead of writing it after `clear`.
+      await active?.catch(() => {});
+      try {
+        clear();
+      } finally {
+        requested.clear();
+        refreshedAt.clear();
+        lastKey = undefined;
+        liveTurns = 0;
+        stopped = false;
+        if (scheduled) schedule();
+      }
+    },
     /** @param {string[]} [repoIds] */
     refresh(repoIds) {
       const repos = store.listRepos();
