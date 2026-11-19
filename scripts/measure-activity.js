@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import { createApp } from '../server.js';
 import { createStore } from '../server/store.js';
 
@@ -32,11 +33,12 @@ async function measure(scenario) {
   for (const event of events.filter(event => event.kind === 'push').slice(0, scenario.pendingMergeJobs)) {
     store.saveJob({ id: `merge:${event.id}`, eventId: event.id, repoId: event.repoId, type: 'merge', status: 'pending' });
   }
-  const app = createApp({ store, provider: {}, sync: { status: () => ({}) } });
+  const accessKey = randomBytes(32).toString('base64url');
+  const app = createApp({ store, provider: {}, sync: { status: () => ({}) }, accessKey });
   await new Promise(resolve => app.listen(0, '127.0.0.1', resolve));
   const base = `http://127.0.0.1:${app.address().port}`;
   const read = async path => {
-    const response = await fetch(base + path);
+    const response = await fetch(base + path, { headers: { 'x-repo-pulse-key': accessKey } });
     if (!response.ok) throw new Error(`Unexpected HTTP status ${response.status}`);
     const body = await response.text();
     return { data: JSON.parse(body), bytes: Buffer.byteLength(body) };

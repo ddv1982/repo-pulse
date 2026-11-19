@@ -7,6 +7,7 @@ import { join } from 'node:path';
 import { chromium, expect } from '@playwright/test';
 import { startApp, createApp } from '../server.js';
 import { createStore } from '../server/store.js';
+import { TEST_KEY, rememberKey } from '../test/fixtures/access.js';
 
 async function executable() {
   if (process.env.CHROME) return process.env.CHROME;
@@ -36,6 +37,9 @@ async function demo(t) {
     await rm(directory, { recursive: true, force: true });
     assert.deepEqual(errors, []);
   });
+  // Open the launch link once on a page that shows no activity; later visits to this origin reuse the stored key.
+  await page.goto(`${runtime.launchUrl}#settings`);
+  await expect(page.getByRole('heading', { name: 'Settings', exact: true })).toBeVisible();
   return { runtime, page };
 }
 
@@ -173,6 +177,7 @@ test('repository history import scopes the confirmed range and keeps progress vi
   const calls = [];
   let failOnce = true;
   const app = createApp({
+    accessKey: TEST_KEY,
     store,
     provider: { checkConnection: async () => ({ available: true }) },
     sync: { status: () => ({}) },
@@ -192,6 +197,7 @@ test('repository history import scopes the confirmed range and keeps progress vi
   await new Promise(resolve => app.listen(0, '127.0.0.1', resolve));
   const browser = await chromium.launch({ executablePath: await executable(), headless: true });
   const page = await browser.newPage({ viewport: { width: 375, height: 812 }, colorScheme: 'dark' });
+  await rememberKey(page);
   t.after(async () => {
     await browser.close();
     await new Promise(resolve => app.close(resolve));
@@ -361,6 +367,7 @@ test('Repositories shows the checkout, checks on demand, and pulls only after co
   store.setSetting('refreshEnabled', false);
   store.saveStream({ repoId: 'repo', stream: 'pushes', initialized: true, lastSuccess: new Date(Date.now() - 60 * 60_000).toISOString() });
   const app = createApp({
+    accessKey: TEST_KEY,
     store,
     checkoutGit: fixture.checkoutGit,
     provider: { checkConnection: async () => ({ available: true }) },
@@ -369,6 +376,7 @@ test('Repositories shows the checkout, checks on demand, and pulls only after co
   await new Promise(resolve => app.listen(0, '127.0.0.1', resolve));
   const browser = await chromium.launch({ executablePath: await executable(), headless: true });
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  await rememberKey(page);
   const pageErrors = [];
   page.on('pageerror', error => pageErrors.push(error.message));
   t.after(async () => {
@@ -382,7 +390,7 @@ test('Repositories shows the checkout, checks on demand, and pulls only after co
   const payload = { operation: 'pull', expected: { branch: 'main', upstream: 'origin/main', head: fixture.original } };
   assert.equal(
     (await fetch(updatePath, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload) })).status,
-    403,
+    401,
   );
   await page.goto(base + '/#repositories');
   const row = page.getByRole('article');
@@ -576,6 +584,7 @@ test('verified PR follow-up switches, reviews and removes the old branch from Re
   let clock = Date.now();
   const checkoutGit = createCheckoutGit({ matchesRemote: url => url === remote, findPulls: async () => [pr], now: () => clock });
   const app = createApp({
+    accessKey: TEST_KEY,
     store,
     checkoutGit,
     provider: { checkConnection: async () => ({ available: true }) },
@@ -584,6 +593,7 @@ test('verified PR follow-up switches, reviews and removes the old branch from Re
   await new Promise(resolve => app.listen(0, '127.0.0.1', resolve));
   const browser = await chromium.launch({ executablePath: await executable(), headless: true });
   const page = await browser.newPage({ viewport: { width: 375, height: 812 }, colorScheme: 'dark' });
+  await rememberKey(page);
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
   t.after(async () => {
@@ -650,6 +660,7 @@ test('Settings shows scoped CLI access and header switches share the automatic c
   const probes = [];
   let manual = 0;
   const app = createApp({
+    accessKey: TEST_KEY,
     store,
     provider: {
       async checkConnection(_org, repo) {
@@ -677,6 +688,7 @@ test('Settings shows scoped CLI access and header switches share the automatic c
   await new Promise(resolve => app.listen(0, '127.0.0.1', resolve));
   const browser = await chromium.launch({ executablePath: await executable(), headless: true });
   const page = await browser.newPage({ viewport: { width: 1280, height: 850 } });
+  await rememberKey(page);
   t.after(async () => {
     await browser.close();
     await new Promise(resolve => app.close(resolve));

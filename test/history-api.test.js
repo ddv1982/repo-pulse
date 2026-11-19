@@ -2,6 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createStore } from '../server/store.js';
 import { createApp } from '../server.js';
+import { TEST_KEY, keyedFetch } from './fixtures/access.js';
+
+const fetch = keyedFetch();
 
 test('paged history and deep links reach old unseen activity beyond latest 1000', async t => {
   const store = createStore();
@@ -18,7 +21,7 @@ test('paged history and deep links reach old unseen activity beyond latest 1000'
       data: {},
     })),
   );
-  const app = createApp({ store, provider: {}, sync: { status: () => ({}) } });
+  const app = createApp({ store, provider: {}, sync: { status: () => ({}) }, accessKey: TEST_KEY });
   await new Promise(resolve => app.listen(0, '127.0.0.1', resolve));
   t.after(async () => {
     await new Promise(resolve => app.close(resolve));
@@ -47,7 +50,7 @@ test('paged history and deep links reach old unseen activity beyond latest 1000'
   assert.equal((await fetch(base + '/api/activity?limit=10000')).status, 400);
 });
 
-test('historical import endpoint validates repository, range and local request token', async t => {
+test('historical import endpoint validates repository, range and access key', async t => {
   const store = createStore();
   store.saveRepo({ id: 'r', name: 'Repo' });
   const starts = [];
@@ -61,6 +64,7 @@ test('historical import endpoint validates repository, range and local request t
         return { status: 'pending' };
       },
     },
+    accessKey: TEST_KEY,
   });
   await new Promise(resolve => app.listen(0, '127.0.0.1', resolve));
   t.after(async () => {
@@ -68,14 +72,13 @@ test('historical import endpoint validates repository, range and local request t
     store.close();
   });
   const base = `http://127.0.0.1:${app.address().port}`;
-  const state = await (await fetch(base + '/api/state')).json();
-  const post = (body, token = state.csrfToken) =>
-    fetch(base + '/api/backfill', {
+  const post = (body, key = TEST_KEY) =>
+    globalThis.fetch(base + '/api/backfill', {
       method: 'POST',
-      headers: { 'content-type': 'application/json', 'x-repo-pulse-token': token },
+      headers: { 'content-type': 'application/json', 'x-repo-pulse-key': key },
       body: JSON.stringify(body),
     });
-  assert.equal((await post({ repoId: 'r', days: 30 }, 'bad-token')).status, 403);
+  assert.equal((await post({ repoId: 'r', days: 30 }, 'bad-key')).status, 401);
   assert.equal((await post({ repoId: 'r', days: 365 })).status, 400);
   assert.equal((await post({ repoId: 'missing', days: 30 })).status, 404);
   assert.equal((await post({ repoId: 'r', days: 'all' })).status, 202);
