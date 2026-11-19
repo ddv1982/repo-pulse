@@ -79,8 +79,9 @@ Evidence saved before deeper analysis stopped also enumerated ref ranges, becaus
 - The server derives one sync status per enabled repository. The header shows the one that needs the
   most attention, in the order Problem, Delayed, Syncing, Paused, Synced. A repository takes the first
   status that applies: **Paused** when automatic checks are off and no manual refresh or history import
-  is outstanding; **Problem** after a read fails twice in a row for a reason other than throttling, or at
-  once when sign-in or access is refused or the Azure CLI or its extension is missing; **Delayed** while Azure DevOps asked for a pause,
+  is outstanding; **Problem** when the latest read failed for a reason other than throttling and the
+  stream has failed at least twice since its last completed check, or at once when sign-in or access is
+  refused or the Azure CLI or its extension is missing; **Delayed** while Azure DevOps asked for a pause,
   when a stream's last read was throttled, or when a check is more than three minutes late or its data
   is older than ten minutes (twenty for refs); **Syncing** while a first read, page, refresh or import
   is still running; otherwise **Synced**. While Start from scratch deletes data every repository shows
