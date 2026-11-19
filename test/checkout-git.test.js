@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { existsSync, readFileSync, utimesSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { checkoutFixture, git } from './fixtures/checkout.js';
 import { createCheckoutGit } from '../server/checkout-git.js';
@@ -54,13 +54,13 @@ test('Pull rechecks working files, checkout identity, branch and upstream instea
   const passwordRemote = await checkoutGit.status(repo);
   assert.equal(passwordRemote.state, 'different-remote');
   assert.equal(passwordRemote.canCheck, false);
-  assert.equal(passwordRemote.diagnostic?.title, 'Remote URL contains a password');
+  assert.equal(passwordRemote.diagnostic?.title, 'Remote URL contains credentials');
   assert(!JSON.stringify(passwordRemote).includes('hunter2'));
   await assert.rejects(checkoutGit.update(repo, 'check', passwordRemote), /no longer eligible/);
   writeFileSync(join(local, 'feature.txt'), 'uncommitted');
   const dirtyPasswordRemote = await checkoutGit.status(repo);
   assert.equal(dirtyPasswordRemote.state, 'dirty');
-  assert.equal(dirtyPasswordRemote.diagnostic?.title, 'Remote URL contains a password');
+  assert.equal(dirtyPasswordRemote.diagnostic?.title, 'Remote URL contains credentials');
   writeFileSync(join(local, 'feature.txt'), 'initial');
   assert.equal(git(local, 'rev-parse', 'HEAD'), localCommit);
 });
@@ -351,6 +351,19 @@ test('a Pull that adds a gitlink over a nested checkout checks that checkout bef
   assert.equal(existsSync(marker), false);
 });
 
+test('a gitlink that is a symlink to another repository has that repository checked', async t => {
+  const { repo, local, remote, commit } = checkoutFixture(t);
+  const outside = join(local, '..', 'outside');
+  git(local, 'init', '--initial-branch=main', outside);
+  commit(outside, 'o.txt', 'outside');
+  git(outside, 'config', 'filter.probe.clean', 'cat');
+  git(local, 'update-index', '--add', '--cacheinfo', `160000,${git(outside, 'rev-parse', 'HEAD')},linked`);
+  symlinkSync(outside, join(local, 'linked'));
+  const status = await createCheckoutGit({ matchesRemote: url => url === remote }).status(repo);
+  assert.equal(status.state, 'unavailable');
+  assert.match(status.diagnostic?.message ?? '', /filter\.probe\.clean/);
+});
+
 test('conditional includes, transport and signing keys in checkout config are refused', async t => {
   const { repo, local, remote } = checkoutFixture(t);
   for (const [key, value] of [
@@ -363,6 +376,11 @@ test('conditional includes, transport and signing keys in checkout config are re
     ['ssh.variant', 'plink'],
     ['hook.audit.command', 'touch ran'],
     ['lfs.customtransfer.agent.path', 'agent'],
+    ['lfs.https://example.test.standalonetransferagent', 'agent'],
+    ['lfs.storage', '/elsewhere'],
+    ['core.unsetenvvars', 'GIT_CONFIG_PARAMETERS'],
+    ['credential.trace', '/tmp/trace'],
+    ['url.https://example.test/.insteadOf', 'https://dev.azure.com/'],
     ['remote.origin.lfsurl', 'https://example.test/lfs'],
   ]) {
     git(local, 'config', key, value);

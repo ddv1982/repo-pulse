@@ -5,7 +5,7 @@ import { createHash } from 'node:crypto';
 import { access, realpath, stat } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { promisify } from 'node:util';
-import { parseRemote } from './repositories.js';
+import { hasRemoteCredentials, parseRemote } from './repositories.js';
 import { adviseMissingUpstream, ancestry, isCommit } from './checkout-advice.js';
 import { branchFollowups, branchProblem, memoryFollowups } from './checkout-branches.js';
 import { checkoutDiagnostic, memoryObservations, observedRewrite } from './checkout-observations.js';
@@ -47,8 +47,9 @@ const commandKeys = new RegExp(
   [
     'filter\\..*\\.(?:clean|smudge|process)',
     'merge\\..*\\.driver',
-    'core\\.(?:sshcommand|askpass|gitproxy|alternaterefscommand)',
-    'credential\\.(?:.*\\.)?helper',
+    'core\\.(?:sshcommand|askpass|gitproxy|alternaterefscommand|unsetenvvars)',
+    'credential\\..*',
+    'url\\..*\\.(?:push)?insteadof',
     'http\\..*',
     'remote\\..*\\.(?:uploadpack|proxy|vcs)',
     'fetch\\.bundleuri',
@@ -59,7 +60,7 @@ const commandKeys = new RegExp(
     'protocol\\.version',
     // A globally installed Git LFS reads these: transfer agents and extensions run programs, the URLs move the endpoint.
     // Keys LFS writes itself, such as lfs.repositoryformatversion and lfs.<url>.access, stay allowed.
-    'lfs\\.(?:customtransfer\\..*|standalonetransferagent|extension\\..*|url)',
+    'lfs\\.(?:customtransfer\\..*|(?:.*\\.)?standalonetransferagent|extension\\..*|url|storage)',
     'remote\\..*\\.lfsurl',
     // Git 2.54+ can define hooks in config; core.hooksPath does not turn those off.
     'hook\\..*',
@@ -128,15 +129,6 @@ function matchesWatchedRemote(url, repo) {
   try {
     const target = parseRemote(url);
     return /** @type {const} */ (['organization', 'project', 'name']).every(key => target[key].toLowerCase() === repo[key]?.toLowerCase());
-  } catch {
-    return false;
-  }
-}
-
-/** @param {string} url */
-function hasPassword(url) {
-  try {
-    return Boolean(new URL(url).password);
   } catch {
     return false;
   }
@@ -236,8 +228,10 @@ export function createCheckoutGit({
     const keys = new Set();
     // Nothing in this scan needs the network; no transport may run while the config is still untrusted.
     const offline = { GIT_ALLOW_PROTOCOL: '' };
+    const visited = new Set();
     /** @param {string} folder */
     const visit = async folder => {
+      visited.add(await realpath(folder));
       // NUL-separated pairs of scope and key, so a subsection with a tab or newline stays one key.
       const listing = await run(folder, ['config', '--show-scope', '--includes', '--name-only', '--null', '--list'], { guard: offline });
       const fields = listing.split('\0');
@@ -251,6 +245,9 @@ export function createCheckoutGit({
         // A path that is not valid UTF-8 cannot be followed exactly, so the checkout is not read at all.
         if (gitlink.includes('\uFFFD')) throw problem('A submodule path is not valid UTF-8. Rename it to read this checkout.', 404);
         const submodule = resolve(folder, gitlink);
+        // Git follows a gitlink that is a symlink, so the scan does too; each folder is read once, so links cannot loop.
+        const real = await realpath(submodule).catch(() => null);
+        if (!real || visited.has(real)) continue;
         const populated = await access(resolve(submodule, '.git')).then(
           () => true,
           () => false,
@@ -305,7 +302,7 @@ export function createCheckoutGit({
     if (!remote || !source?.startsWith('refs/heads/') || tracking !== `refs/remotes/${remote}/${source.slice(11)}`) return { target: null };
     const urls = (await run(path, ['remote', 'get-url', '--all', '--', remote])).trimEnd().split('\n');
     // Git would receive the URL on its command line, where other local users can read it.
-    if (urls.some(hasPassword)) return { target: null, passwordInUrl: true };
+    if (urls.some(hasRemoteCredentials)) return { target: null, passwordInUrl: true };
     return { target: urls.length === 1 && matchesRemote(urls[0], repo) ? { remote, source, tracking, url: urls[0] } : null };
   }
 
@@ -364,7 +361,7 @@ export function createCheckoutGit({
     }
     const diagnostic = passwordInUrl
       ? {
-          title: 'Remote URL contains a password',
+          title: 'Remote URL contains credentials',
           suggestion: 'Remove the password from the remote URL and let a Git credential helper sign in.',
         }
       : checkoutDiagnostic(state, snapshot, observation, operation, rewrite);

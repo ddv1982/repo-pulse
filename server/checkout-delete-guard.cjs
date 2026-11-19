@@ -51,7 +51,8 @@ if (require.main === module && process.argv[2] === 'prepared') {
   const git = async (directory, args) => {
     const env = { ...process.env };
     for (const key of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_COMMON_DIR', 'GIT_INDEX_FILE']) delete env[key];
-    return (await exec('git', ['-C', directory, ...args], { env })).stdout;
+    // Run from this hook's own folder: Windows looks for a bare `git` in the working directory before PATH.
+    return (await exec('git', ['-C', directory, ...args], { env, cwd: __dirname })).stdout;
   };
   (async () => {
     readFileSync(0, 'utf8');
