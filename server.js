@@ -195,8 +195,13 @@ export function createApp({
       save: (id, value) => store.setSetting(`checkout-followup:${id}`, value),
     },
     observations: {
-      get: id => /** @type {import('./server/checkout-observations.js').Observation | undefined} */ (store.getSetting(`checkout:${id}`)),
-      save: (id, value) => store.setSetting(`checkout:${id}`, value),
+      get: (id, identity) => {
+        const saved = /** @type {import('./server/checkout-observations.js').Observation | undefined} */ (
+          store.getSetting(`checkout:${id}:${identity}`) ?? store.getSetting(`checkout:${id}`)
+        );
+        return saved?.identity === identity ? saved : undefined;
+      },
+      save: (id, value) => store.setSetting(`checkout:${id}:${value.identity}`, value),
     },
   }),
   onStateRead = () => {},
@@ -473,7 +478,12 @@ export function createApp({
           return json(
             res,
             200,
-            /** @satisfies {CheckoutUpdateResponse} */ (await checkoutGit.switchToActivityBranch(repo, branch, expected)),
+            /** @satisfies {CheckoutUpdateResponse} */ (
+              await checkoutGit.switchToActivityBranch(repo, branch, expected, {
+                eventId: input.eventId,
+                confirmation: typeof input.confirmation === 'string' ? input.confirmation : undefined,
+              })
+            ),
           );
         }
         if (isBranchAction(input) && isCheckoutIntent(expected)) {

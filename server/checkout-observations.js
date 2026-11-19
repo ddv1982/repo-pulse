@@ -6,7 +6,7 @@ import { ancestry } from './checkout-advice.js';
 /** @typedef {import('./checkout-git.js').GitRunner} GitRunner */
 /** @typedef {{ previous: string, tip: string, verified: boolean, commits: {side: 'old'|'new', id: string, subject: string}[] }} Rewrite */
 /** @typedef {{ identity: string, tracking?: string, lastCheck?: { branch: string, at: string, tip: string, gitDirectory: string }, pending?: string[], missing?: { head: string, advice?: PullAdvice }, rewrite?: Rewrite, failure?: { title: string, suggestion: string } }} Observation */
-/** @typedef {{ get: (id: string) => Observation|undefined, save: (id: string, value: Observation) => void }} Observations */
+/** @typedef {{ get: (id: string, identity: string) => Observation|undefined, save: (id: string, value: Observation) => void }} Observations */
 /** @typedef {{ title?: string, message?: string, suggestion: string, advice?: PullAdvice, comparison?: Rewrite }} CheckoutDiagnostic */
 
 /** @returns {Observations} */
@@ -14,9 +14,9 @@ export function memoryObservations() {
   /** @type {Map<string, Observation>} */
   const values = new Map();
   return {
-    get: id => values.get(id),
+    get: (id, identity) => values.get(JSON.stringify([id, identity])),
     save: (id, value) => {
-      values.set(id, value);
+      values.set(JSON.stringify([id, value.identity]), value);
     },
   };
 }

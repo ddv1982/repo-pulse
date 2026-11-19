@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { existsSync, readFileSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, renameSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { checkoutFixture, git } from './fixtures/checkout.js';
 import { createCheckoutGit } from '../server/checkout-git.js';
@@ -75,6 +75,111 @@ test('a snapshot for one clone cannot update another linked clone with the same 
   assert.equal(git(another, 'rev-parse', 'HEAD'), original);
 });
 
+test('Pull refuses a replacement clone after fetching a rewritten upstream', async t => {
+  const { repo, local, source, remote, original, advance, commit } = checkoutFixture(t);
+  advance();
+  let replace = false;
+  const checkoutGit = createCheckoutGit({
+    matchesRemote: url => url === remote,
+    run: async (path, args) => {
+      const result = git(path, ...args);
+      if (replace && args[2] === 'fetch') {
+        replace = false;
+        renameSync(local, `${local}-previous`);
+        git(source, 'clone', '--no-local', remote, local);
+        git(local, 'reset', '--hard', original);
+      }
+      return result;
+    },
+  });
+  const checked = (await checkoutGit.update(repo, 'check', await checkoutGit.status(repo))).checkout;
+  git(source, 'reset', '--hard', original);
+  commit(source, 'feature.txt', 'rewritten main');
+  git(source, 'push', '--force-with-lease', 'origin', 'main');
+  replace = true;
+  await assert.rejects(checkoutGit.update(repo, 'pull', checked), /checkout changed/i);
+  assert.equal(git(local, 'rev-parse', 'HEAD'), original);
+  assert.equal(git(`${local}-previous`, 'rev-parse', 'HEAD'), original);
+});
+
+for (const restoreDuringSample of [false, true]) {
+  test(`Pull rejects ref samples from a replacement clone ${restoreDuringSample ? 'even after restoring the original' : 'before saving the comparison'}`, async t => {
+    const { repo, local, source, remote, original, advance, commit } = checkoutFixture(t);
+    const baseline = advance();
+    git(source, 'switch', '-c', 'other', restoreDuringSample ? baseline : original);
+    commit(source, 'other.txt', 'unrelated branch');
+    git(source, 'push', 'origin', 'other');
+    git(source, 'switch', 'main');
+    let replace = false;
+    let fetched = false;
+    const checkoutGit = createCheckoutGit({
+      matchesRemote: url => url === remote,
+      run: async (path, args) => {
+        const swap =
+          replace && fetched && args[0] === 'for-each-ref' && args.at(-1) === 'refs/remotes/origin/main' && args[1].includes('%(symref)');
+        if (swap) {
+          replace = false;
+          renameSync(local, `${local}-previous`);
+          git(source, 'clone', '--no-local', remote, local);
+          git(local, 'reset', '--hard', original);
+          git(local, 'update-ref', 'refs/remotes/origin/main', 'origin/other');
+        }
+        const output = git(path, ...args);
+        if (swap && restoreDuringSample) {
+          renameSync(local, `${local}-replacement`);
+          renameSync(`${local}-previous`, local);
+        }
+        if (args[2] === 'fetch') fetched = true;
+        return output;
+      },
+    });
+    const checked = (await checkoutGit.update(repo, 'check', await checkoutGit.status(repo))).checkout;
+    const tip = commit(source, 'feature.txt', 'second upstream update');
+    git(source, 'push', 'origin', 'main');
+    replace = true;
+    fetched = false;
+    await assert.rejects(checkoutGit.update(repo, 'pull', checked), /checkout.*changed/i);
+    if (!restoreDuringSample) {
+      renameSync(local, `${local}-replacement`);
+      renameSync(`${local}-previous`, local);
+    }
+    const status = await checkoutGit.status(repo);
+    assert.equal(status.state, 'behind');
+    const { checkout } = await checkoutGit.update(repo, 'check', status);
+    assert.equal(checkout.canPull, true);
+    assert.equal(git(local, 'rev-parse', 'origin/main'), tip);
+    assert.equal(git(local, 'rev-parse', 'HEAD'), original);
+  });
+}
+
+for (const verified of [false, true]) {
+  test(`An interrupted pre-upgrade Check still protects its ${verified ? 'verified rewrite' : 'pending baseline'}`, async t => {
+    const { repo, checkoutGit, local, source, remote, original, advance, commit } = checkoutFixture(t);
+    const previous = advance();
+    git(local, 'fetch', 'origin', 'main');
+    const { identity } = await checkoutGit.status(repo);
+    git(source, 'reset', '--hard', original);
+    const tip = commit(source, 'feature.txt', 'rewritten main');
+    git(source, 'push', '--force-with-lease', 'origin', 'main');
+    git(local, 'fetch', 'origin', 'main');
+    const legacy = verified
+      ? { identity, tracking: tip, pending: [], rewrite: { previous, tip, verified: true, commits: [] } }
+      : { identity, pending: [previous] };
+    const values = new Map([[identity, legacy]]);
+    const restarted = createCheckoutGit({
+      matchesRemote: url => url === remote,
+      observations: { get: (id, key) => values.get(key), save: (id, observation) => values.set(observation.identity, observation) },
+    });
+    const status = await restarted.status(repo);
+    assert.equal(status.state, 'upstream-rewritten');
+    assert.equal(status.canPull, false);
+    await assert.rejects(restarted.update(repo, 'pull', status), /no longer eligible/);
+    const { checkout } = await restarted.update(repo, 'check', status);
+    assert.equal(checkout.diagnostic.comparison.previous, previous);
+    assert.equal(git(local, 'rev-parse', 'HEAD'), original);
+  });
+}
+
 test('Pull cannot overwrite an ignored local file', async t => {
   const { repo, checkoutGit, original, local, source, commit } = checkoutFixture(t);
   writeFileSync(join(local, '.git', 'info', 'exclude'), 'local.env\n');
@@ -115,18 +220,28 @@ test('a branch switch after fetch validation cannot advance either branch', asyn
   advance();
   git(local, 'branch', 'other');
   let switchAtTipRead = false;
+  let fetched = false;
   const checkoutGit = createCheckoutGit({
     matchesRemote: url => url === remote,
     run: async (path, args) => {
-      if (switchAtTipRead && args[0] === 'rev-parse' && args[1] === '--verify') {
+      if (
+        switchAtTipRead &&
+        fetched &&
+        args[0] === 'for-each-ref' &&
+        args.at(-1) === 'refs/remotes/origin/main' &&
+        args[1].includes('%(symref)')
+      ) {
         switchAtTipRead = false;
         git(local, 'switch', 'other');
       }
-      return git(path, ...args);
+      const output = git(path, ...args);
+      if (args[2] === 'fetch') fetched = true;
+      return output;
     },
   });
   const { checkout } = await checkoutGit.update(repo, 'check', await checkoutGit.status(repo));
   switchAtTipRead = true;
+  fetched = false;
   await assert.rejects(checkoutGit.update(repo, 'pull', checkout), /(?:checkout|upstream) changed/);
   assert.equal(git(local, 'branch', '--show-current'), 'other');
   assert.equal(git(local, 'rev-parse', 'main'), original);
@@ -208,7 +323,6 @@ test('a new clone at the same path needs its own successful check', async t => {
   const adapter = createCheckoutGit(options);
   const result = await adapter.update(repo, 'check', await adapter.status(repo));
   assert.ok(result.checkout.lastBranchCheck);
-  const { renameSync } = await import('node:fs');
   renameSync(local, join(local, '..', 'previous-clone'));
   git(join(local, '..'), 'clone', '--no-local', remote, local);
   const replaced = await createCheckoutGit(options).status(repo);
