@@ -69,8 +69,9 @@ Evidence saved before deeper analysis stopped also enumerated ref ranges, becaus
   ten minutes, subject to queueing and backoff.
 - When any REST response carries a valid positive `Retry-After` header, the shared queue starts no new
   read for any repository until that wait has passed, up to ten minutes. A read that was already waiting
-  for a token fails as throttled. A failed read is retried after its normal backoff only while automatic
-  checks are on. With them off, a manual refresh ends when its read fails.
+  for a token fails as throttled. A failed live sync read is retried after its normal backoff only while
+  automatic checks are on; with them off, a manual refresh ends when its read fails. An explicit history
+  import retries either way.
 - Background work is the rewrite check for new pushes and an explicit history import, taking turns.
   Rewrite checks wait while automatic checks are off; a history import keeps running. Background work
   gets every turn when no live check is due and, under sustained live work, one turn after six live
@@ -78,8 +79,8 @@ Evidence saved before deeper analysis stopped also enumerated ref ranges, becaus
 - The server derives one sync status per enabled repository. The header shows the one that needs the
   most attention, in the order Problem, Delayed, Syncing, Paused, Synced. A repository takes the first
   status that applies: **Paused** when automatic checks are off and no manual refresh or history import
-  is outstanding; **Problem** after a read fails twice in a row, or at once when sign-in or access is
-  refused or the Azure CLI or its extension is missing; **Delayed** while Azure DevOps asked for a pause,
+  is outstanding; **Problem** after a read fails twice in a row for a reason other than throttling, or at
+  once when sign-in or access is refused or the Azure CLI or its extension is missing; **Delayed** while Azure DevOps asked for a pause,
   when a stream's last read was throttled, or when a check is more than three minutes late or its data
   is older than ten minutes (twenty for refs); **Syncing** while a first read, page, refresh or import
   is still running; otherwise **Synced**. While Start from scratch deletes data every repository shows
@@ -88,7 +89,8 @@ Evidence saved before deeper analysis stopped also enumerated ref ranges, becaus
   not prove that nothing changed.
 - **Start from scratch** in Settings deletes stored activity, seen marks, imported history, sync
   checkpoints and pending jobs, keeps repositories, linked checkouts and settings, and then runs the
-  first import again. History imports are refused only while the deletion runs, not during the import that follows. Demo mode does not offer it.
+  first import again. History imports are refused while the reset is pending or clearing data, and
+  accepted again during the first import that follows. Demo mode does not offer it.
 - Effective Azure identity/cross-account cache isolation is not verified. Use one CLI context; an
   installation or cached account check is not proof of access to every repository/environment.
 
