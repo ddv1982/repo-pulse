@@ -18,6 +18,7 @@ import { createCheckoutLookup } from './server/checkout-advice.js';
 import { isBranchAction } from './server/checkout-branches.js';
 import { createCheckoutGit, isCheckoutIntent } from './server/checkout-git.js';
 import { browseFolders } from './server/folders.js';
+import { openBrowser } from './server/open-browser.js';
 
 /** @typedef {import('node:http').IncomingMessage} Request */
 /** @typedef {import('node:http').ServerResponse} Response */
@@ -663,7 +664,11 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
   if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error('PORT must be an integer from 0 to 65535.');
   const runtime = await startApp({ demo: process.argv.includes('--demo'), port, dataDir: process.env.REPO_PULSE_DATA_DIR || undefined });
   console.log(`Repo Pulse${process.argv.includes('--demo') ? ' · demo data, no Azure calls' : ''}: ${runtime.launchUrl}`);
-  console.log('Open this link to use Repo Pulse; it works once and a new one is printed at every start. Local only. Stop with Ctrl+C.');
+  const open = process.env.REPO_PULSE_NO_BROWSER !== '1';
+  console.log(
+    `${open ? 'Opening it in your browser. ' : ''}The link works once and a new one is printed at every start. Local only. Stop with Ctrl+C.`,
+  );
+  if (open) openBrowser(runtime.launchUrl);
   let closing = false;
   const stop = async () => {
     if (!closing) {
