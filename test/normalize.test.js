@@ -125,21 +125,22 @@ test('normalize fingerprints PRs and builds, filters foreign repos, and tracks r
     assert.equal(voted.events.length, 1);
     assert.deepEqual(voted.events[0].data?.voteChanges, [{ name: 'Sam', vote: 10 }]);
 
+    const baseBuild = {
+      id: 500,
+      buildNumber: '20261118.1',
+      repository: { id: 'azure-repo-1' },
+      definition: { name: 'CI' },
+      status: 'inProgress',
+      result: undefined,
+      sourceBranch: 'refs/heads/main',
+      sourceVersion: NEW,
+      startTime: '2026-11-18T11:40:00Z',
+    };
     const build = normalize(
       repo,
       'builds',
       [
-        {
-          id: 500,
-          buildNumber: '20261118.1',
-          repository: { id: 'azure-repo-1' },
-          definition: { name: 'CI' },
-          status: 'completed',
-          result: 'succeeded',
-          sourceBranch: 'refs/heads/main',
-          sourceVersion: NEW,
-          finishTime: '2026-11-18T11:45:00Z',
-        },
+        baseBuild,
         {
           id: 501,
           repository: { id: 'other-repo' },
@@ -152,6 +153,24 @@ test('normalize fingerprints PRs and builds, filters foreign repos, and tracks r
     assert.equal(build.events.length, 1);
     assert.equal(build.events[0].kind, 'build');
     assert.equal(build.events[0].title, 'CI · 20261118.1');
+    store.commitPage({
+      repoId: repo.id,
+      stream: 'builds',
+      state: { repoId: repo.id, stream: 'builds', initialized: true, nextAt: '2026-11-18T12:03:00Z' },
+      ...build,
+    });
+
+    const unchangedBuild = normalize(repo, 'builds', [baseBuild], { initialized: true });
+    assert.equal(unchangedBuild.events.length, 0);
+
+    const finishedBuild = normalize(
+      repo,
+      'builds',
+      [{ ...baseBuild, status: 'completed', result: 'succeeded', finishTime: '2026-11-18T11:45:00Z' }],
+      { initialized: true },
+    );
+    assert.equal(finishedBuild.events.length, 1);
+    assert.equal(finishedBuild.events[0].data?.result, 'succeeded');
   } finally {
     store.close();
   }

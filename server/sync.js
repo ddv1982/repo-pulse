@@ -1,6 +1,7 @@
 // @ts-check
 import { createNormalizer } from './normalize.js';
 
+/** @typedef {import('./normalize.js').ActivityKind} ActivityKind */
 /** @typedef {import('./azure-client.js').AzureStream} StreamName */
 /** @typedef {import('./azure-client.js').AzureProvider} AzureProvider */
 /** @typedef {import('./azure-client.js').PageCursor} PageCursor */
@@ -8,7 +9,9 @@ import { createNormalizer } from './normalize.js';
 /** @typedef {import('./normalize.js').WatchedRepo} WatchedRepo */
 /** @typedef {import('./normalize.js').NormalizeState} NormalizeState */
 /** @typedef {import('./normalize.js').SyncEvent} SyncEvent */
+/** @typedef {import('./normalize.js').EventDetail} EventDetail */
 /** @typedef {import('./normalize.js').Entity} Entity */
+/** @typedef {import('./normalize.js').RewriteJob} RewriteJob */
 /** @typedef {import('./normalize.js').SyncBatch} SyncBatch */
 /** The time range one read covers. It stays fixed across the pages of that read. */
 /** @typedef {{ since: string, until: string }} StreamWindow */
