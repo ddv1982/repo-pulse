@@ -15,7 +15,7 @@ const runtimeKeys = new Map();
 
 /** Records the key a started app printed in its launch link, so fetchWithKey can send it to that app. */
 export function rememberRuntime(runtime) {
-  runtimeKeys.set(runtime.url, new URL(runtime.launchUrl).searchParams.get('key'));
+  runtimeKeys.set(runtime.url, runtime.accessKey);
   const close = runtime.close;
   // Forget the key when the app stops, so a later app on the same port gets TEST_KEY again.
   runtime.close = () => {

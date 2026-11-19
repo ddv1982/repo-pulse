@@ -38,7 +38,8 @@ async function demo(t) {
     assert.deepEqual(errors, []);
   });
   // Open the launch link once on a page that shows no activity; later visits to this origin reuse the stored key.
-  await page.goto(`${runtime.launchUrl}#settings`);
+  await page.goto(runtime.launchUrl);
+  await page.goto(`${runtime.url}/#settings`);
   await expect(page.getByRole('heading', { name: 'Settings', exact: true })).toBeVisible();
   return { runtime, page };
 }

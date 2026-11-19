@@ -1,6 +1,6 @@
 // @ts-check
 import { createServer } from 'node:http';
-import { readFile, mkdir, writeFile, chmod, rm, link } from 'node:fs/promises';
+import { readFile, mkdir, chmod, rm, stat } from 'node:fs/promises';
 import { resolve, dirname, extname, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { randomBytes, timingSafeEqual } from 'node:crypto';
@@ -49,6 +49,7 @@ import { browseFolders } from './server/folders.js';
  *   checkoutGit?: ReturnType<typeof createCheckoutGit>,
  *   onStateRead?: () => void,
  *   accessKey: string,
+ *   launchToken?: string,
  * }} AppOptions
  */
 
@@ -58,6 +59,7 @@ import { browseFolders } from './server/folders.js';
 /** @typedef {import('./server/store.js').HydratedEvent} HydratedEvent */
 /** @typedef {{ message: string, code?: string }} ErrorResponse */
 /** @typedef {{ ok: true }} OkResponse */
+/** POST /api/session: the key, given once for the launch token. @typedef {{ key: string }} SessionResponse */
 /**
  * GET /api/state. The settings are only ever written by POST /api/settings.
  * @typedef {{
@@ -187,14 +189,19 @@ export function createApp({
   }),
   onStateRead = () => {},
   accessKey,
+  launchToken,
 }) {
   if (typeof accessKey !== 'string' || accessKey.length < 32) throw new Error('createApp needs an access key of at least 32 characters.');
   const expectedKey = Buffer.from(accessKey);
-  /** @param {Request} req */
-  const hasAccessKey = req => {
-    const given = Buffer.from(String(req.headers['x-repo-pulse-key'] ?? ''));
-    return given.length === expectedKey.length && timingSafeEqual(given, expectedKey);
+  /** @param {unknown} value @param {Buffer} expected */
+  const matches = (value, expected) => {
+    const given = Buffer.from(String(value ?? ''));
+    return given.length === expected.length && timingSafeEqual(given, expected);
   };
+  /** @param {Request} req */
+  const hasAccessKey = req => matches(req.headers['x-repo-pulse-key'], expectedKey);
+  // The launch link carries this token instead of the key. It works once, so a copied or recorded link is spent.
+  let launch = launchToken ? Buffer.from(launchToken) : null;
   /** @param {Response} res @param {number} status @param {unknown} data */
   const json = (res, status, data) =>
     res.writeHead(status, { 'content-type': 'application/json; charset=utf-8' }).end(JSON.stringify(data));
@@ -510,9 +517,23 @@ export function createApp({
       const path = url.pathname;
       if (req.method === 'GET' && (await staticFile(path, res))) return;
       if (!path.startsWith('/api/')) return json(res, 404, /** @satisfies {ErrorResponse} */ ({ message: 'Not found.' }));
-      // Every API request, reads included, carries the key from the launch link. A browser on another origin cannot add the header.
+      if (path === '/api/session' && req.method === 'POST') {
+        if (!launch || !matches(req.headers['x-repo-pulse-launch'], launch))
+          throw Object.assign(problem('This launch link was already used. Open the newest link printed in the terminal.', 401), {
+            code: 'LAUNCH_USED',
+          });
+        launch = null;
+        return json(res, 200, /** @satisfies {SessionResponse} */ ({ key: accessKey }));
+      }
+      // Every API request, reads included, carries the key. A browser on another origin cannot add the header.
       if (!hasAccessKey(req))
-        throw Object.assign(problem('Open Repo Pulse with the link printed in the terminal where it runs.', 401), { code: 'ACCESS_KEY' });
+        throw Object.assign(
+          problem(
+            'Open the newest link printed in the terminal where Repo Pulse runs. Each link works once; restart Repo Pulse for a new one.',
+            401,
+          ),
+          { code: 'ACCESS_KEY' },
+        );
       if (!['GET', 'POST', 'PATCH', 'DELETE'].includes(req.method ?? '')) throw problem('Method not allowed.', 405);
       for (const route of routes) {
         if (route.method !== req.method) continue;
@@ -546,8 +567,10 @@ export function createApp({
 }
 
 /** @param {{ demo?: boolean, port?: number, dataDir?: string }} [options] */
-export async function startApp({ demo = false, port = 4317, dataDir = resolve(ROOT, '.repo-pulse') } = {}) {
-  await mkdir(dataDir, { recursive: true, mode: 0o700 });
+export async function startApp({ demo = false, port = 0, dataDir = resolve(ROOT, '.repo-pulse') } = {}) {
+  await secureDataDir(dataDir);
+  // Earlier versions kept one key for good; every start now makes its own, so a key from a past run is useless.
+  await rm(resolve(dataDir, 'access-key'), { force: true });
   const store = createStore(resolve(dataDir, demo ? 'demo.sqlite' : 'live.sqlite'));
   // Reads go over HTTPS with one CLI token, so the shared budget can be far above the 12 az starts per minute.
   if (!demo) useSystemNetworkSettings();
@@ -589,7 +612,8 @@ export async function startApp({ demo = false, port = 4317, dataDir = resolve(RO
     enrichment = createEnrichment({ store, provider: azure });
     backfill = createBackfill({ store, provider: azure, normalize: liveSync.normalize });
   }
-  const accessKey = await loadAccessKey(dataDir);
+  const accessKey = randomBytes(32).toString('base64url');
+  const launchToken = randomBytes(32).toString('base64url');
   const app = createApp({
     store,
     provider,
@@ -598,6 +622,7 @@ export async function startApp({ demo = false, port = 4317, dataDir = resolve(RO
     backfill,
     demo,
     accessKey,
+    launchToken,
     onStateRead: () => {
       lastClientAt = Date.now();
     },
@@ -616,49 +641,29 @@ export async function startApp({ demo = false, port = 4317, dataDir = resolve(RO
     store.close();
   };
   const url = `http://127.0.0.1:${/** @type {import('node:net').AddressInfo} */ (app.address()).port}`;
-  return { app, store, sync, provider, close, url, launchUrl: `${url}/?key=${accessKey}` };
+  return { app, store, sync, provider, close, url, accessKey, launchUrl: `${url}/#launch=${launchToken}` };
 }
 
-/** One key per data directory, so the browser keeps working across restarts. @param {string} dataDir */
-async function loadAccessKey(dataDir) {
-  const file = resolve(dataDir, 'access-key');
-  for (let attempt = 0; attempt < 3; attempt++) {
-    /** @type {string | null} */
-    let saved = null;
-    try {
-      saved = (await readFile(file, 'utf8')).trim();
-    } catch (error) {
-      if (/** @type {NodeJS.ErrnoException} */ (error).code !== 'ENOENT') throw error;
-    }
-    if (saved !== null && /^[A-Za-z0-9_-]{43}$/.test(saved)) {
-      // Owner-only even if the file was created or copied with wider permissions.
-      await chmod(file, 0o600);
-      return saved;
-    }
-    // An empty or malformed file, for example from an interrupted first start, is replaced.
-    if (saved !== null) await rm(file, { force: true });
-    const key = randomBytes(32).toString('base64url');
-    const draft = `${file}.${randomBytes(6).toString('hex')}`;
-    await writeFile(draft, key, { mode: 0o600, flag: 'wx' });
-    try {
-      // Linking publishes the complete key only if no key file exists yet; a concurrent start reads the winner's key.
-      await link(draft, file);
-      return key;
-    } catch (error) {
-      if (/** @type {NodeJS.ErrnoException} */ (error).code !== 'EEXIST') throw error;
-    } finally {
-      await rm(draft, { force: true });
-    }
-  }
-  throw new Error(`Could not create ${file}.`);
+/**
+ * The data directory holds the database: it must belong to this account and be closed to others.
+ * @param {string} dataDir
+ */
+async function secureDataDir(dataDir) {
+  await mkdir(dataDir, { recursive: true, mode: 0o700 });
+  if (typeof process.getuid !== 'function') return;
+  const info = await stat(dataDir);
+  if (info.uid !== process.getuid()) throw new Error(`${dataDir} belongs to another account. Choose a data directory you own.`);
+  if (info.mode & 0o077) await chmod(dataDir, 0o700);
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
-  const port = Number(process.env.PORT || 4317);
+  // No fixed port by default: a new origin every run means nothing another account served earlier on that port, such as a
+  // service worker, applies to this run.
+  const port = Number(process.env.PORT || 0);
   if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error('PORT must be an integer from 0 to 65535.');
   const runtime = await startApp({ demo: process.argv.includes('--demo'), port, dataDir: process.env.REPO_PULSE_DATA_DIR || undefined });
   console.log(`Repo Pulse${process.argv.includes('--demo') ? ' · demo data, no Azure calls' : ''}: ${runtime.launchUrl}`);
-  console.log('Open this link once; the browser remembers it. Local only. Stop with Ctrl+C.');
+  console.log('Open this link to use Repo Pulse; it works once and a new one is printed at every start. Local only. Stop with Ctrl+C.');
   let closing = false;
   const stop = async () => {
     if (!closing) {

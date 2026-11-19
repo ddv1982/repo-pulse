@@ -38,20 +38,8 @@
 
 const KEY_STORAGE = 'repo-pulse-access-key';
 
-/** Takes the key from the launch link once, keeps it for later visits and removes it from the address bar. */
-function readAccessKey() {
-  const url = new URL(location.href);
-  const fromLink = url.searchParams.get('key');
-  if (fromLink) {
-    url.searchParams.delete('key');
-    history.replaceState(history.state, '', url.pathname + url.search + url.hash);
-    try {
-      localStorage.setItem(KEY_STORAGE, fromLink);
-    } catch {
-      /* Without storage the key still works until the page is closed. */
-    }
-    return fromLink;
-  }
+/** @returns {string} */
+function storedKey() {
   try {
     return localStorage.getItem(KEY_STORAGE) ?? '';
   } catch {
@@ -59,7 +47,44 @@ function readAccessKey() {
   }
 }
 
-const accessKey = readAccessKey();
+/**
+ * Exchanges the single-use token from the launch link for this run's key, and clears it from the address bar.
+ * The key is stored only when the exchange works, so a stale or forged link cannot replace a working key.
+ * @returns {Promise<string>}
+ */
+async function readAccessKey() {
+  const token = /^#launch=([A-Za-z0-9_-]+)$/.exec(location.hash)?.[1];
+  if (!token) return storedKey();
+  history.replaceState(history.state, '', location.pathname + location.search);
+  try {
+    const response = await fetch('/api/session', {
+      method: 'POST',
+      headers: { 'X-Repo-Pulse-Launch': token },
+      signal: AbortSignal.timeout(10000),
+    });
+    /** @type {{ key?: unknown }} */
+    const body = response.ok ? await response.json() : {};
+    if (typeof body.key !== 'string' || !body.key) return storedKey();
+    try {
+      localStorage.setItem(KEY_STORAGE, body.key);
+    } catch {
+      /* Without storage the key still works until the page is closed. */
+    }
+    return body.key;
+  } catch {
+    return storedKey();
+  }
+}
+
+const accessKey = await readAccessKey();
+
+// A new launch link opened in a tab that already shows Repo Pulse changes only the fragment, so this module would not run
+// again. Reload instead, before the hash router sees it.
+window.addEventListener('hashchange', event => {
+  if (!location.hash.startsWith('#launch=')) return;
+  event.stopImmediatePropagation();
+  location.reload();
+});
 
 /**
  * @template {string} P

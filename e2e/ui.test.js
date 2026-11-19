@@ -1072,14 +1072,38 @@ test('a pull request detail loads its discussion and policy results only when as
   await expect(detail.getByRole('button', { name: 'Reload discussion and policies' })).toBeVisible();
 });
 
-test('the launch link stores the key and hides it, and a browser without the key is told where to find it', async t => {
+test('the launch link works once, hides its token, and a stale or forged link cannot replace a working key', async t => {
   const app = await setup(t);
   const { page, runtime } = app;
-  assert.equal(new URL(page.url()).searchParams.has('key'), false);
-  await page.goto(runtime.url + '/#repositories');
-  await expect(page.getByRole('heading', { name: 'Repositories', exact: true })).toBeVisible();
+  assert.equal(new URL(page.url()).hash.includes('launch='), false);
+  // A forged link in a fresh document tries the exchange, fails, and keeps the working key. A separate tab with this run's
+  // key stored keeps its expected 401 responses out of the setup's console check.
+  const context = await page.context().browser().newContext();
+  t.after(() => context.close());
+  const tab = await context.newPage();
+  await rememberKey(tab, runtime.accessKey);
+  const forged = tab.waitForResponse(response => new URL(response.url()).pathname === '/api/session');
+  await tab.goto(`${runtime.url}/#launch=forged-token`);
+  assert.equal((await forged).status(), 401);
+  await tab.goto(runtime.url + '/#repositories');
+  // The watched demo repositories load only if the state request was authorized.
+  await expect(tab.getByRole('article').first()).toBeVisible();
+  // A launch link opened in the tab that already shows the app reloads it, so the exchange runs again.
+  const again = tab.waitForResponse(response => new URL(response.url()).pathname === '/api/session');
+  await tab.evaluate(() => {
+    location.hash = '#launch=another-forged-token';
+  });
+  assert.equal((await again).status(), 401);
+  await expect(tab.getByRole('link', { name: 'Repo Pulse', exact: true })).toBeVisible();
   const stranger = await page.context().browser().newPage();
   t.after(() => stranger.close());
-  await stranger.goto(runtime.url + '/#activity/new');
-  await expect(stranger.getByText('Open Repo Pulse with the link printed in the terminal where it runs.').first()).toBeVisible();
+  // The same launch link in a browser without the key is already spent.
+  await stranger.goto(runtime.launchUrl);
+  await expect(
+    stranger
+      .getByText(
+        'Open the newest link printed in the terminal where Repo Pulse runs. Each link works once; restart Repo Pulse for a new one.',
+      )
+      .first(),
+  ).toBeVisible();
 });

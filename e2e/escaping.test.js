@@ -13,7 +13,7 @@ import { chromium, expect } from '@playwright/test';
 import { startApp, createApp } from '../server.js';
 import { createStore } from '../server/store.js';
 import { createSync } from '../server/sync.js';
-import { TEST_KEY } from '../test/fixtures/access.js';
+import { TEST_KEY, rememberKey } from '../test/fixtures/access.js';
 
 /** @typedef {import('../server.js').FoldersResponse} FoldersResponse */
 /** @typedef {import('../server.js').DiscoverResponse} DiscoverResponse */
@@ -42,8 +42,8 @@ async function browserPath() {
  */
 const probe = field => `<x-probe a="${field}"><x-probe a="${field}">`;
 
-/** @param {import('node:test').TestContext} t @param {string} url */
-async function openPage(t, url) {
+/** @param {import('node:test').TestContext} t @param {string} url @param {string} [key] stored before the page loads */
+async function openPage(t, url, key) {
   const browser = await chromium.launch({ executablePath: await browserPath(), headless: true });
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
   /** @type {string[]} */
@@ -53,6 +53,7 @@ async function openPage(t, url) {
     await browser.close();
     assert.deepEqual(errors, []);
   });
+  if (key) await rememberKey(page, key);
   await page.goto(url);
   return page;
 }
@@ -142,7 +143,7 @@ test('the repository picker shows folder, checkout and remote names as text', as
     await new Promise(resolve => server.close(resolve));
     store.close();
   });
-  const page = await openPage(t, `http://127.0.0.1:${server.address().port}/?key=${TEST_KEY}#repositories`);
+  const page = await openPage(t, `http://127.0.0.1:${server.address().port}/#repositories`, TEST_KEY);
 
   const search = page.getByRole('combobox', { name: 'Search local repositories' });
   await search.focus();
@@ -203,7 +204,8 @@ test('toasts and the error banner show repository names and API messages as text
   });
   const name = probe('repo.name');
   runtime.store.saveRepo({ ...runtime.store.getRepo('demo-billing'), name });
-  const page = await openPage(t, `${runtime.launchUrl}#repositories`);
+  const page = await openPage(t, runtime.launchUrl);
+  await page.goto(`${runtime.url}/#repositories`);
 
   const toggle = page.locator('[data-repo-toggle][data-id="demo-billing"]');
   await toggle.click();

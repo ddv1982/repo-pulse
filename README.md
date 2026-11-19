@@ -22,7 +22,7 @@ npm ci
 npm start
 ```
 
-Open the link that `npm start` prints. It carries an access key that the API requires, and the browser remembers it, so afterwards [127.0.0.1:4317](http://127.0.0.1:4317) is enough. The key is kept in `.repo-pulse/access-key`. In **Repositories**, choose **Add repositories** and select your local checkouts. Watching a repository includes all its remote branches.
+Open the link that `npm start` prints. It works once and gives the browser this run's access key, which the API requires; every start prints a new link. In **Repositories**, choose **Add repositories** and select your local checkouts. Watching a repository includes all its remote branches.
 
 To try it without Azure, run `npm run demo` instead. Demo data is fictional and stored separately.
 
