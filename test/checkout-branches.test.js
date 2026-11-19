@@ -156,7 +156,11 @@ test('Activity creates the explicit upstream even if another fetch mapping appea
   const checkoutGit = createCheckoutGit({
     matchesRemote: url => url === remote,
     run: async (path, args) => {
-      if (args[2] === 'switch') git(local, 'remote', 'add', 'origin/group', remote);
+      if (args[2] === 'switch') {
+        // Older Git versions allowed these overlapping remote names through `remote add`.
+        git(local, 'config', 'remote.origin/group.url', remote);
+        git(local, 'config', 'remote.origin/group.fetch', '+refs/heads/*:refs/remotes/origin/group/*');
+      }
       return git(path, ...args);
     },
   });
