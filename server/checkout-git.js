@@ -23,8 +23,8 @@ import { checkoutDiagnostic, memoryObservations, observedRewrite } from './check
  * @typedef {PullableCheckout | BlockedCheckout} ActiveCheckout
  * @typedef {ActiveCheckout & { followup?: import('./checkout-branches.js').FollowupSummary }} DecoratedCheckout
  *   A checkout with an open branch follow-up names it, so the page can offer to review or remove the old branch.
- * @typedef {DecoratedCheckout | { state: 'unavailable'|'not-linked' }} CheckoutStatus
- * @typedef {(path: string, args: string[], options?: { guard?: NodeJS.ProcessEnv, input?: string }) => Promise<string>} GitRunner
+ * @typedef {DecoratedCheckout | { state: 'unavailable'|'not-linked', diagnostic?: import('./checkout-observations.js').CheckoutDiagnostic }} CheckoutStatus
+ * @typedef {(path: string, args: string[], options?: { guard?: NodeJS.ProcessEnv, input?: string, maxBuffer?: number }) => Promise<string>} GitRunner
  */
 
 const exec = promisify(execFile);
@@ -41,6 +41,33 @@ const operations = [
   ['sequencer', 'Git operation'],
 ];
 const hooks = process.platform === 'win32' ? 'NUL' : '/dev/null';
+// Keys in a checkout's own config that make Git run a command, change where or how it connects, or load more config
+// later (conditional includes can switch on after a branch switch).
+const commandKeys = new RegExp(
+  [
+    'filter\\..*\\.(?:clean|smudge|process)',
+    'merge\\..*\\.driver',
+    'core\\.(?:sshcommand|askpass|gitproxy|alternaterefscommand)',
+    'credential\\.(?:.*\\.)?helper',
+    'http\\..*',
+    'remote\\..*\\.(?:uploadpack|proxy|vcs)',
+    'fetch\\.bundleuri',
+    'gpg\\.(?:.*\\.)?program',
+    'include\\.path',
+    'includeif\\..*\\.path',
+    'ssh\\.variant',
+    'protocol\\.version',
+    // A globally installed Git LFS reads these: transfer agents and extensions run programs, the URLs move the endpoint.
+    // Keys LFS writes itself, such as lfs.repositoryformatversion and lfs.<url>.access, stay allowed.
+    'lfs\\.(?:customtransfer\\..*|standalonetransferagent|extension\\..*|url)',
+    'remote\\..*\\.lfsurl',
+    // Git 2.54+ can define hooks in config; core.hooksPath does not turn those off.
+    'hook\\..*',
+  ]
+    .map(key => `^${key}$`)
+    .join('|'),
+  'is',
+);
 
 function gitEnvironment() {
   /** @type {NodeJS.ProcessEnv} */
@@ -58,12 +85,12 @@ function gitEnvironment() {
 }
 
 /** @type {GitRunner} */
-const runGit = async (path, args, { guard, input } = {}) => {
+const runGit = async (path, args, { guard, input, maxBuffer = 2 * 1024 * 1024 } = {}) => {
   const env = { ...gitEnvironment(), ...guard };
   const command = exec('git', ['-C', path, '-c', 'core.fsmonitor=false', ...args], {
     env,
     timeout: 45_000,
-    maxBuffer: 2 * 1024 * 1024,
+    maxBuffer,
     windowsHide: true,
   });
   if (input !== undefined) {
@@ -204,17 +231,62 @@ export function createCheckoutGit({
   let updating = false;
   const branches = branchFollowups({ run, hooks, followups, statusAt, updateAt, readMissing, matchesIntent });
 
+  /** Config keys the checkout or one of its submodules sets itself that would make Git run a command. @param {string} path */
+  async function configuredCommands(path) {
+    const keys = new Set();
+    // Nothing in this scan needs the network; no transport may run while the config is still untrusted.
+    const offline = { GIT_ALLOW_PROTOCOL: '' };
+    /** @param {string} folder */
+    const visit = async folder => {
+      // NUL-separated pairs of scope and key, so a subsection with a tab or newline stays one key.
+      const listing = await run(folder, ['config', '--show-scope', '--includes', '--name-only', '--null', '--list'], { guard: offline });
+      const fields = listing.split('\0');
+      for (let i = 0; i + 1 < fields.length; i += 2)
+        if ((fields[i] === 'local' || fields[i] === 'worktree') && commandKeys.test(fields[i + 1])) keys.add(fields[i + 1]);
+      if (keys.size) return;
+      // Gitlinks come from the index, like the ones status descends into; .gitmodules may not list them all.
+      const index = await run(folder, ['ls-files', '--stage', '-z'], { guard: offline, maxBuffer: 256 * 1024 * 1024 });
+      const gitlinks = new Set(index.split('\0').flatMap(entry => entry.match(/^160000 [0-9a-f]+ \d\t([^]+)$/)?.[1] ?? []));
+      for (const gitlink of gitlinks) {
+        // A path that is not valid UTF-8 cannot be followed exactly, so the checkout is not read at all.
+        if (gitlink.includes('\uFFFD')) throw problem('A submodule path is not valid UTF-8. Rename it to read this checkout.', 404);
+        const submodule = resolve(folder, gitlink);
+        const populated = await access(resolve(submodule, '.git')).then(
+          () => true,
+          () => false,
+        );
+        if (populated && !keys.size) await visit(submodule);
+      }
+    };
+    await visit(path);
+    return [...keys];
+  }
+
   /** @param {LinkedRepo} repo */
   async function checkoutPath(repo) {
     if (!repo.localPath) throw problem('No local checkout linked.', 404);
+    let path, keys;
     try {
-      const path = await realpath(repo.localPath);
+      path = await realpath(repo.localPath);
       const root = (await run(path, ['rev-parse', '--show-toplevel'])).trimEnd();
-      if ((await realpath(root)) === path) return path;
-    } catch {
-      /* The linked folder may have moved or Git may not be available. */
+      if ((await realpath(root)) === path) keys = await configuredCommands(path);
+    } catch (error) {
+      // The linked folder may have moved or Git may not be available; keep a reason this module gave itself.
+      if (/** @type {{ status?: number }} */ (error).status) throw error;
     }
-    throw problem('The linked checkout is unavailable.', 404);
+    if (!path || !keys) throw problem('The linked checkout is unavailable.', 404);
+    refuseConfiguredCommands(keys);
+    return path;
+  }
+
+  /** @param {string[]} keys */
+  function refuseConfiguredCommands(keys) {
+    if (!keys.length) return;
+    const message = `This checkout's own Git config sets ${keys.join(', ')}.`;
+    const suggestion = 'Repo Pulse does not run commands from a checkout. Move these settings to your global Git config or remove them.';
+    throw Object.assign(problem(`${message} ${suggestion}`), {
+      diagnostic: { title: 'Checkout Git config runs commands', message, suggestion },
+    });
   }
 
   /**
@@ -262,6 +334,8 @@ export function createCheckoutGit({
 
   /** @param {string} path @param {LinkedRepo} repo @returns {Promise<{ snapshot: ActiveCheckout, target: Upstream|null, gitDirectory: string|null }>} */
   async function statusAt(path, repo) {
+    // Checked again here because a Pull or branch switch can bring in a gitlink over a nested checkout.
+    refuseConfiguredCommands(await configuredCommands(path));
     const snapshot = readStatus(
       await run(path, ['status', '--porcelain=v2', '--branch', '-z', '--untracked-files=normal', '--ignore-submodules=none']),
     );
@@ -333,7 +407,8 @@ export function createCheckoutGit({
     if (previous?.path === repo.localPath && previous.until > now()) return previous.value;
     const value = checkoutPath(repo).then(
       path => inspect(path, repo),
-      () => /** @type {const} */ ({ state: 'unavailable' }),
+      /** @param {{ diagnostic?: import('./checkout-observations.js').CheckoutDiagnostic }} error @returns {CheckoutStatus} */
+      error => (error.diagnostic ? { state: 'unavailable', diagnostic: error.diagnostic } : { state: 'unavailable' }),
     );
     readings.set(repo.id, { path: repo.localPath, until: now() + 5000, value });
     return value;
@@ -359,25 +434,39 @@ export function createCheckoutGit({
       throw problem('Incoming files overlap ignored local files. Move them before pulling.');
   }
 
-  /** @param {string} path @param {string} tip */
-  async function fastForward(path, tip) {
+  /** @param {string} path @param {string} branch @param {string} tip */
+  async function fastForward(path, branch, tip) {
     try {
-      // --no-squash overrides a branch.<name>.mergeOptions that would stage the changes without moving HEAD.
-      await run(path, [
-        '-c',
-        `core.hooksPath=${hooks}`,
-        '-c',
-        'maintenance.auto=false',
-        '-c',
-        'submodule.recurse=false',
-        'merge',
-        '--ff-only',
-        '--no-squash',
-        '--no-autostash',
-        '--no-overwrite-ignore',
-        '--no-stat',
-        tip,
-      ]);
+      // A strategy from branch.<name>.mergeOptions or pull.twohead makes even --ff-only create a merge commit,
+      // so both are cleared for this merge. --no-squash keeps the earlier guard against a configured --squash.
+      // The branch name goes through the config environment, because a name may contain '=', which -c splits on.
+      const count = Number(process.env.GIT_CONFIG_COUNT) || 0;
+      const clearMergeOptions = {
+        GIT_CONFIG_COUNT: String(count + 1),
+        [`GIT_CONFIG_KEY_${count}`]: `branch.${branch}.mergeOptions`,
+        [`GIT_CONFIG_VALUE_${count}`]: '',
+      };
+      await run(
+        path,
+        [
+          '-c',
+          'pull.twohead=ort',
+          '-c',
+          `core.hooksPath=${hooks}`,
+          '-c',
+          'maintenance.auto=false',
+          '-c',
+          'submodule.recurse=false',
+          'merge',
+          '--ff-only',
+          '--no-squash',
+          '--no-autostash',
+          '--no-overwrite-ignore',
+          '--no-stat',
+          tip,
+        ],
+        { guard: clearMergeOptions },
+      );
     } catch {
       throw problem(
         'Pull stopped before the branch was updated. Git could not preserve the local checkout. Review overlapping changes in Git and try again.',
@@ -529,8 +618,17 @@ export function createCheckoutGit({
     // Checked after identity and eligibility so a rewritten upstream or changed checkout is reported first.
     await refuseIgnoredOverlap(path, after.head, tip);
     await run(path, ['merge-base', '--is-ancestor', after.head, tip]);
-    await fastForward(path, tip);
-    return { checkout: (await statusAt(path, repo)).snapshot, updated: true };
+    await fastForward(path, after.branch, tip);
+    try {
+      return { checkout: (await statusAt(path, repo)).snapshot, updated: true };
+    } catch (caught) {
+      // The branch already moved, so no failure here may read as if Pull did nothing. Unexpected errors keep their text local.
+      const error = /** @type {Error & { status?: number, diagnostic?: unknown }} */ (caught);
+      const reason = error.status ? error.message : 'Review the checkout in Git.';
+      throw Object.assign(problem(`The branch was updated to the upstream commit. ${reason}`, error.status === 404 ? 404 : 409), {
+        diagnostic: error.diagnostic,
+      });
+    }
   }
 
   /** @param {string} path @param {LinkedRepo} repo @param {'check'|'pull'|'update-target'} operation

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, utimesSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { checkoutFixture, git } from './fixtures/checkout.js';
 import { createCheckoutGit } from '../server/checkout-git.js';
@@ -251,4 +251,128 @@ test('Pull advances the branch even when local Git config asks merges to squash'
   assert.equal(git(local, 'rev-parse', 'HEAD'), tip, 'the branch moved to the upstream tip');
   assert.equal(pulled.updated, true);
   assert.equal(git(local, 'status', '--porcelain'), '', 'nothing was left staged');
+});
+
+test('Pull still fast-forwards when local Git config picks a merge strategy', async t => {
+  for (const [key, value] of [
+    ['branch.main.mergeOptions', '-s ours'],
+    ['pull.twohead', 'ours'],
+  ]) {
+    const fixture = checkoutFixture(t);
+    const { repo, checkoutGit, local, original } = fixture;
+    git(local, 'config', key, value);
+    const tip = fixture.advance();
+    const { checkout } = await checkoutGit.update(repo, 'check', await checkoutGit.status(repo));
+    await checkoutGit.update(repo, 'pull', checkout);
+    assert.equal(git(local, 'rev-parse', 'HEAD'), tip, key);
+    assert.equal(git(local, 'rev-parse', 'HEAD^'), original, key);
+  }
+});
+
+test('Pull fast-forwards a branch whose name contains an equals sign', async t => {
+  const { repo, checkoutGit, local, source, commit } = checkoutFixture(t);
+  git(source, 'switch', '-c', 'feature/a=b');
+  git(source, 'push', 'origin', 'feature/a=b');
+  git(local, 'fetch', 'origin');
+  git(local, 'switch', '--track', 'origin/feature/a=b');
+  git(local, 'config', 'branch.feature/a=b.mergeOptions', '-s ours');
+  const tip = commit(source, 'feature.txt', 'on a=b');
+  git(source, 'push', 'origin', 'feature/a=b');
+  const { checkout } = await checkoutGit.update(repo, 'check', await checkoutGit.status(repo));
+  await checkoutGit.update(repo, 'pull', checkout);
+  assert.equal(git(local, 'rev-parse', 'HEAD'), tip);
+});
+
+test('a checkout whose own Git config runs commands is refused before Git reads it', async t => {
+  const { repo, checkoutGit, local, root = join(local, '..') } = checkoutFixture(t);
+  const marker = join(root, 'filter-ran');
+  // A clean filter runs when status refreshes a tracked file whose timestamp changed.
+  git(local, 'config', 'filter.probe.clean', `sh -c 'touch "${marker}"; cat'`);
+  writeFileSync(join(local, '.git', 'info', 'attributes'), '* filter=probe\n');
+  utimesSync(join(local, 'feature.txt'), new Date(), new Date(Date.now() + 5000));
+  const status = await checkoutGit.status(repo);
+  assert.equal(existsSync(marker), false);
+  assert.equal(status.state, 'unavailable');
+  assert.equal(status.diagnostic?.title, 'Checkout Git config runs commands');
+  assert.match(status.diagnostic?.message ?? '', /filter\.probe\.clean/);
+  await assert.rejects(checkoutGit.update(repo, 'check', status), /filter\.probe\.clean/);
+  assert.equal(existsSync(marker), false);
+});
+
+test('a submodule whose Git config runs commands is refused too', async t => {
+  const { repo, checkoutGit, local, commit, remote } = checkoutFixture(t);
+  const root = join(local, '..');
+  const library = join(root, 'library');
+  git(root, 'init', '--initial-branch=main', library);
+  commit(library, 'lib.txt', 'library');
+  git(local, '-c', 'protocol.file.allow=always', 'submodule', 'add', '--quiet', library, 'lib');
+  assert.equal((await checkoutGit.status(repo)).state !== 'unavailable', true);
+  git(join(local, 'lib'), 'config', 'core.sshCommand', 'ssh -o ProxyCommand=true');
+  await assert.rejects(checkoutGit.update(repo, 'check', await checkoutGit.status(repo)), /core\.sshcommand/i);
+  const fresh = await createCheckoutGit({ matchesRemote: url => url === remote }).status(repo);
+  assert.equal(fresh.state, 'unavailable');
+  assert.match(fresh.diagnostic?.message ?? '', /core\.sshcommand/);
+});
+
+test('a nested repository committed without .gitmodules is read like a submodule', async t => {
+  const { repo, local, remote, commit } = checkoutFixture(t);
+  const nested = join(local, 'nested');
+  git(local, 'init', '--initial-branch=main', nested);
+  commit(nested, 'n.txt', 'nested');
+  git(local, 'add', 'nested');
+  git(local, '-c', 'user.email=test@example.test', '-c', 'user.name=Test', 'commit', '-m', 'nested repository');
+  const fresh = () => createCheckoutGit({ matchesRemote: url => url === remote }).status(repo);
+  assert.notEqual((await fresh()).state, 'unavailable');
+  git(nested, 'config', 'filter.probe.clean', 'cat');
+  const refused = await fresh();
+  assert.equal(refused.state, 'unavailable');
+  assert.match(refused.diagnostic?.message ?? '', /filter\.probe\.clean/);
+});
+
+test('a Pull that adds a gitlink over a nested checkout checks that checkout before reading status', async t => {
+  const fixture = checkoutFixture(t);
+  const { repo, checkoutGit, local, source, commit, root = join(local, '..') } = fixture;
+  const marker = join(root, 'filter-ran');
+  const nested = join(local, 'nested');
+  git(local, 'init', '--initial-branch=main', nested);
+  commit(nested, 'n.txt', 'nested');
+  git(nested, 'config', 'filter.probe.clean', `sh -c 'touch "${marker}"; cat'`);
+  writeFileSync(join(nested, '.git', 'info', 'attributes'), '* filter=probe\n');
+  git(source, 'update-index', '--add', '--cacheinfo', `160000,${git(nested, 'rev-parse', 'HEAD')},nested`);
+  git(source, '-c', 'user.email=test@example.test', '-c', 'user.name=Test', 'commit', '-m', 'add gitlink');
+  git(source, 'push', 'origin', 'main');
+  const { checkout } = await checkoutGit.update(repo, 'check', await checkoutGit.status(repo));
+  utimesSync(join(nested, 'n.txt'), new Date(), new Date(Date.now() + 5000));
+  await assert.rejects(
+    checkoutGit.update(repo, 'pull', checkout),
+    /^Error: The branch was updated to the upstream commit\. .*filter\.probe\.clean/,
+  );
+  assert.equal(git(local, 'rev-parse', 'HEAD'), git(source, 'rev-parse', 'HEAD'));
+  assert.equal(existsSync(marker), false);
+});
+
+test('conditional includes, transport and signing keys in checkout config are refused', async t => {
+  const { repo, local, remote } = checkoutFixture(t);
+  for (const [key, value] of [
+    ['includeIf.onbranch:release.path', 'other.cfg'],
+    ['http.curloptResolve', 'dev.azure.com:443:127.0.0.1'],
+    ['gpg.ssh.program', 'sign'],
+    ['fetch.bundleURI', 'https://example.test/bundle'],
+    ['filter..clean', 'cat'],
+    ['include.path', 'shared.cfg'],
+    ['ssh.variant', 'plink'],
+    ['hook.audit.command', 'touch ran'],
+    ['lfs.customtransfer.agent.path', 'agent'],
+    ['remote.origin.lfsurl', 'https://example.test/lfs'],
+  ]) {
+    git(local, 'config', key, value);
+    const status = await createCheckoutGit({ matchesRemote: url => url === remote }).status(repo);
+    assert.equal(status.state, 'unavailable', key);
+    assert.match(status.diagnostic?.message ?? '', new RegExp(key.toLowerCase().replace(/[.]/g, '\\.')), key);
+    git(local, 'config', '--unset', key);
+  }
+  // Keys Git LFS writes itself during normal use stay allowed.
+  git(local, 'config', 'lfs.repositoryformatversion', '0');
+  git(local, 'config', 'lfs.https://dev.azure.com/example/Testing/_git/Orders/info/lfs.access', 'basic');
+  assert.notEqual((await createCheckoutGit({ matchesRemote: url => url === remote }).status(repo)).state, 'unavailable');
 });
