@@ -1,7 +1,7 @@
 /** @typedef {import('../src/activity.js').RefUpdate} RefUpdate */
 /** @typedef {{ data?: { refUpdates?: RefUpdate[] } }} PushEvent */
 /** A branch update that moved an existing branch to another existing object. */
-/** @typedef {RefUpdate & { oldObjectId: string, newObjectId: string }} MergeUpdate */
+/** @typedef {RefUpdate & { name: string, oldObjectId: string, newObjectId: string }} MergeUpdate */
 /** Azure commit objects; `parents` is present only once a commit has been hydrated. */
 /**
  * @typedef {{ commitId: string, parents?: string[], comment?: string, author?: unknown, committer?: unknown,
@@ -244,5 +244,29 @@ export function classifyMergeEvidence(
     commits,
     prs: [...prs.values()],
     limitations: [...new Set(notes)],
+  };
+}
+
+/**
+ * A completed PR whose merge commit is the new tip of a ref the push moved, written into `prs` in the shape
+ * `completedPr` writes. Tip identity proves the push set the target to the PR's result, so no query is involved.
+ * @param {{ url?: string, data?: { pullRequestId?: number | string, sourceRefName?: string, targetRefName?: string,
+ *   sourceCommit?: string, targetCommit?: string, mergeCommit?: string, mergeStrategy?: string, closedBy?: string } }} event
+ */
+export function localPrLink({ url, data = {} }) {
+  return {
+    pullRequestId: data.pullRequestId,
+    status: 'completed',
+    sourceRefName: data.sourceRefName,
+    targetRefName: data.targetRefName,
+    sourceCommit: data.sourceCommit,
+    targetCommit: data.targetCommit,
+    mergeCommit: data.mergeCommit,
+    mergeStrategy: data.mergeStrategy,
+    closedBy: data.closedBy,
+    url,
+    relationship: 'result-introduced',
+    associatedCommits: [data.mergeCommit],
+    queryTypes: [],
   };
 }

@@ -4,6 +4,7 @@ import { mkdtempSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createStore } from '../server/store.js';
+import { DatabaseSync } from 'node:sqlite';
 const repo = {
   id: 'one',
   name: 'One',
@@ -68,5 +69,87 @@ test('repository removal cascades only its local data', () => {
     ['two'],
   );
   assert.throws(() => store.listEvents({ repoIds: ['unknown'] }));
+  store.close();
+});
+
+const tip = 'd'.repeat(40);
+const moved = (id, repoId = 'one', name = 'refs/heads/main', newObjectId = tip) =>
+  event(id, { repoId, data: { pushId: id, refUpdates: [{ name, oldObjectId: 'e'.repeat(40), newObjectId }] } });
+const completedPr = (id, extra = {}) => ({
+  id,
+  repoId: 'one',
+  kind: 'pr',
+  title: `PR ${id}`,
+  time: '2026-11-17T11:00:00Z',
+  ...extra,
+  data: { pullRequestId: id, status: 'completed', targetRefName: 'refs/heads/main', mergeCommit: tip, ...extra.data },
+});
+const linked = (store, id) => (store.getEvent(id).data.mergeEvidence?.prs || []).map(pr => pr.pullRequestId);
+
+test('a completed PR links only a push in its repository that moved its target ref to its merge commit', () => {
+  const store = createStore();
+  store.saveRepo(repo);
+  store.saveRepo({ ...repo, id: 'two' });
+  store.insertEvents([moved('push'), moved('elsewhere', 'two'), moved('created', 'one', 'refs/heads/new')]);
+  store.insertEvents([
+    completedPr('other-ref', { data: { targetRefName: 'refs/heads/release' } }),
+    completedPr('no-result', { data: { mergeCommit: undefined } }),
+    completedPr('active', { data: { status: 'active' } }),
+  ]);
+  assert.deepEqual(linked(store, 'push'), []);
+  assert.deepEqual(linked(store, 'elsewhere'), []);
+  assert.equal(store.getEvent('push').data.mergeEvidence, undefined, 'no evidence is claimed from an absent match');
+  store.insertEvents([completedPr('match')]);
+  assert.deepEqual(linked(store, 'push'), ['match']);
+  assert.deepEqual(linked(store, 'elsewhere'), [], 'the same merge commit in another repository is not linked');
+  assert.deepEqual(linked(store, 'created'), []);
+  store.close();
+});
+
+test('upgrading a database links pairs it already stored and pushes whose PR arrives later', () => {
+  const folder = mkdtempSync(join(tmpdir(), 'pulse-store-'));
+  const path = join(folder, 'state.sqlite');
+  let store = createStore(path);
+  store.saveRepo(repo);
+  store.insertEvents([moved('stored-pair'), completedPr('stored-pr'), moved('later', 'one', 'refs/heads/main', 'a'.repeat(40))]);
+  store.close();
+  const raw = new DatabaseSync(path);
+  raw.exec('DELETE FROM enrichment; DROP TABLE IF EXISTS push_tips; PRAGMA user_version = 9;');
+  raw.close();
+  store = createStore(path);
+  assert.deepEqual(linked(store, 'stored-pair'), ['stored-pr']);
+  store.insertEvents([completedPr('later-pr', { data: { mergeCommit: 'A'.repeat(40) } })]);
+  assert.deepEqual(linked(store, 'later'), ['later-pr']);
+  store.close();
+  rmSync(folder, { recursive: true });
+});
+
+test('the tip match upgrades a weaker link to the same PR and keeps its details', () => {
+  const store = createStore();
+  store.saveRepo(repo);
+  store.insertEvents([moved('push')]);
+  const weaker = { pullRequestId: 'pr', targetRefName: 'refs/heads/main', relationship: 'constituent-related', title: 'Kept' };
+  store.commitEnrichment({ eventId: 'push', data: { mergeEvidence: { status: 'complete', prs: [weaker] } } });
+  store.insertEvents([completedPr('pr')]);
+  assert.deepEqual(
+    store.getEvent('push').data.mergeEvidence.prs.map(pr => [pr.pullRequestId, pr.relationship, pr.title, pr.mergeCommit]),
+    [['pr', 'result-introduced', 'Kept', tip]],
+  );
+  store.commitEnrichment({ eventId: 'push', data: { mergeEvidence: { status: 'complete', prs: [weaker] } } });
+  assert.equal(store.getEvent('push').data.mergeEvidence.prs[0].relationship, 'result-introduced', 'an engine save cannot downgrade it');
+  store.close();
+});
+
+test('a completed analysis proving the push did not introduce the merge commit keeps the weaker link', () => {
+  const store = createStore();
+  store.saveRepo(repo);
+  store.insertEvents([moved('reset')]);
+  const weaker = { pullRequestId: 'old', targetRefName: 'refs/heads/main', relationship: 'constituent-related' };
+  store.commitEnrichment({
+    eventId: 'reset',
+    data: { mergeEvidence: { status: 'complete', introducedCommitIds: [], prs: [weaker] } },
+  });
+  store.insertEvents([completedPr('old')]);
+  assert.equal(store.getEvent('reset').data.mergeEvidence.prs[0].relationship, 'constituent-related');
   store.close();
 });

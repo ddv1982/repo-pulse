@@ -597,7 +597,6 @@ export async function startApp({ demo = false, port = 0, dataDir = resolve(ROOT,
       provider: azure,
       isForeground: () => Date.now() - lastClientAt < 45_000,
       // Both are assigned below, before sync.start() can schedule any work.
-      onPrCompleted: (repo, data) => enrichment?.reconcilePr(repo, data),
       background: { merge: () => enrichment?.tick(), history: () => backfill?.tick() },
     });
   const sync = liveSync || {

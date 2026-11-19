@@ -5,7 +5,7 @@
 /**
  * A completed PR in push merge evidence (server/merge-evidence.js). `id` and an object `closedBy` come from older rows.
  * @typedef {{ pullRequestId?: number|string, id?: number|string, url?: string, sourceRefName?: string, targetRefName?: string,
- *   closedBy?: string | { displayName?: string }, mergeStrategy?: string, mergeCommit?: string }} EvidencePr
+ *   closedBy?: string | { displayName?: string }, mergeStrategy?: string, mergeCommit?: string, relationship?: string }} EvidencePr
  */
 /** @typedef {{ commitId?: string, parents?: string[], branches?: (string|undefined)[] }} EvidenceCommit */
 /**
@@ -16,7 +16,8 @@
 /**
  * Merge evidence that enrichment saves on a push; it is partial while enrichment runs.
  * @typedef {{ status?: string, checkedAt?: string, limitations?: string[], error?: string | { message?: string },
- *   prs?: EvidencePr[], commits?: EvidenceCommit[], refRanges?: EvidenceRange[] }} MergeEvidenceData
+ *   prs?: EvidencePr[], commits?: EvidenceCommit[], refRanges?: EvidenceRange[],
+ *   introducedCommitIds?: string[] }} MergeEvidenceData
  */
 /**
  * Provider fields of an event, plus enrichment. Each kind fills its own subset (see server/sync.js normalizers).
