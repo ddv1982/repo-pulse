@@ -29,11 +29,13 @@ async function demo(t) {
   const browser = await chromium.launch({ executablePath: await executable(), headless: true });
   const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
   const page = await context.newPage();
+  let stopping;
+  const stop = () => (stopping ??= runtime.close());
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
   t.after(async () => {
     await browser.close();
-    await runtime.close();
+    await stop();
     await rm(directory, { recursive: true, force: true });
     assert.deepEqual(errors, []);
   });
@@ -41,7 +43,7 @@ async function demo(t) {
   await page.goto(runtime.launchUrl);
   await page.goto(`${runtime.url}/#settings`);
   await expect(page.getByRole('heading', { name: 'Settings', exact: true })).toBeVisible();
-  return { runtime, page };
+  return { runtime, page, directory, stop };
 }
 
 function seedHistory(store) {
@@ -312,6 +314,7 @@ test('idle Activity polling skips history queries at one page and after loading 
 test('an open Activity view picks up a seen action in another tab and later merge evidence', async t => {
   const { runtime, page } = await demo(t);
   const id = 'revision-test';
+  const result = 'a'.repeat(40);
   runtime.store.insertEvents([
     {
       id,
@@ -320,7 +323,7 @@ test('an open Activity view picks up a seen action in another tab and later merg
       title: 'Microsoft.VisualStudio.Services.TFS pushed to main',
       actor: 'Microsoft.VisualStudio.Services.TFS',
       time: new Date().toISOString(),
-      data: { pushId: 18000 },
+      data: { pushId: 18000, refUpdates: [{ name: 'refs/heads/main', oldObjectId: 'b'.repeat(40), newObjectId: result }] },
     },
   ]);
   await page.goto(runtime.url + '/#activity/all');
@@ -346,6 +349,7 @@ test('an open Activity view picks up a seen action in another tab and later merg
           pullRequestId: 12,
           relationship: 'result-introduced',
           targetRefName: 'refs/heads/main',
+          mergeCommit: result,
           closedBy: 'Alice Morgan',
           url: 'https://dev.azure.com/example/project/_git/orders/pullrequest/12',
         },
@@ -775,4 +779,89 @@ test('Settings shows scoped CLI access and header switches share the automatic c
   assert.ok(panel.x >= 0 && panel.x + panel.width <= 320);
   await page.keyboard.press('Escape');
   await expect(header.getByRole('switch', { name: 'Automatic checks' })).toHaveCount(0);
+});
+
+test('People and named filters restore a scoped Activity search after app restart', async t => {
+  const { runtime, page, directory, stop } = await demo(t);
+  runtime.store.insertEvents([
+    {
+      id: 'alice-person',
+      repoId: 'demo-orders',
+      kind: 'push',
+      title: 'Alice result',
+      actor: 'Alice Example',
+      time: new Date().toISOString(),
+    },
+    { id: 'bob-person', repoId: 'demo-orders', kind: 'push', title: 'Bob result', actor: 'Bob Example', time: new Date().toISOString() },
+    { id: 'text-only', repoId: 'demo-orders', kind: 'push', title: 'Alice Example branch', actor: 'Chris', time: new Date().toISOString() },
+  ]);
+  await page.goto(runtime.url + '/#activity/all');
+  const people = page.getByRole('searchbox', { name: 'People' });
+  await people.fill('Alice Example, Bob Example');
+  await expect(page.locator('li[data-event-id="alice-person"]')).toBeVisible();
+  await expect(page.locator('li[data-event-id="bob-person"]')).toBeVisible();
+  await expect(page.locator('li[data-event-id="text-only"]')).toHaveCount(0);
+  await page.locator('#repo-toggle').click();
+  await page.locator('[data-scope-repo="demo-billing"]').uncheck();
+  await page.locator('[data-scope-repo="demo-shared"]').uncheck();
+  await page.locator('#repo-toggle').click();
+  await page.getByRole('button', { name: 'Save filter' }).click();
+  await page.getByRole('textbox', { name: 'Filter name' }).fill('My team');
+  await page.getByRole('dialog').getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(page.getByRole('combobox', { name: 'Saved filters' }).locator('option:checked')).toHaveText('My team');
+  await page.getByRole('button', { name: 'Clear filters' }).click();
+  await expect(page.locator('li[data-event-id="text-only"]')).toBeVisible();
+  await page.getByRole('button', { name: 'Apply', exact: true }).click();
+  await expect(people).toHaveValue('Alice Example, Bob Example');
+  await page.getByRole('button', { name: /^Alice result/ }).click();
+  await page.getByRole('link', { name: /Back to All activity/ }).click();
+  await expect(people).toHaveValue('Alice Example, Bob Example');
+
+  await stop();
+  const restarted = await startApp({ demo: true, port: 0, dataDir: directory });
+  try {
+    assert.notEqual(restarted.url, runtime.url);
+    await page.goto(restarted.launchUrl);
+    await page.goto(restarted.url + '/#activity/new');
+    const presets = page.getByRole('combobox', { name: 'Saved filters' });
+    await presets.selectOption({ label: 'My team' });
+    await page.getByRole('button', { name: 'Apply', exact: true }).click();
+    await expect(page).toHaveURL(/#activity\/all$/);
+    await expect(people).toHaveValue('Alice Example, Bob Example');
+    await expect(page.locator('li[data-event-id="bob-person"]')).toBeVisible();
+    await expect(page.locator('li[data-event-id="text-only"]')).toHaveCount(0);
+    await page.getByRole('button', { name: 'Rename', exact: true }).click();
+    await page.getByRole('textbox', { name: 'Filter name' }).fill('Testing team');
+    await page.getByRole('dialog').getByRole('button', { name: 'Save', exact: true }).click();
+    await expect(presets.locator('option:checked')).toHaveText('Testing team');
+    await people.fill('Alice Example');
+    await page.getByRole('button', { name: 'Update from current' }).click();
+    await expect(page.getByRole('status').filter({ hasText: 'Saved filter updated.' })).toBeVisible();
+    await page.getByRole('button', { name: 'Apply', exact: true }).click();
+    await expect(page.locator('li[data-event-id="bob-person"]')).toHaveCount(0);
+    const repo = restarted.store.listRepos().find(item => item.id === 'demo-orders');
+    restarted.store.saveRepo({ ...repo, disabled: true });
+    const billing = restarted.store.listRepos().find(item => item.id === 'demo-billing');
+    restarted.store.insertEvents([
+      {
+        id: 'other-repo-alice',
+        repoId: billing.id,
+        kind: 'push',
+        title: 'Other Alice push',
+        actor: 'Alice Example',
+        time: new Date().toISOString(),
+      },
+    ]);
+    await page.reload();
+    await presets.selectOption({ label: 'Testing team' });
+    await page.getByRole('button', { name: 'Apply', exact: true }).click();
+    await expect(page.getByText(/saved repositories unavailable/)).toBeVisible();
+    await expect(page.getByText('No activity matches these filters')).toBeVisible();
+    await expect(page.locator('li[data-event-id="other-repo-alice"]')).toHaveCount(0);
+    await page.getByRole('button', { name: 'Delete', exact: true }).click();
+    await page.getByRole('button', { name: 'Delete filter', exact: true }).click();
+    await expect(presets).toHaveCount(0);
+  } finally {
+    await restarted.close();
+  }
 });

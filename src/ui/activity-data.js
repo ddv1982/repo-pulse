@@ -5,7 +5,7 @@
 /** @typedef {import('../activity.js').ActivityPage} ActivityPage */
 /** @typedef {import('../api.js').EventResponse} EventDetail */
 /** @typedef {typeof import('../api.js').request} Request */
-/** @typedef {{ route: string, repoIds: string[]|null, kind?: string, search?: string }} ActivityView */
+/** @typedef {{ route: string, repoIds: string[]|null, kind?: string, search?: string, people?: string }} ActivityView */
 
 const PAGE_SIZE = 50;
 /** @param {ActivityView} ui */
@@ -15,6 +15,7 @@ const keyFor = ui =>
     repoIds: ui.repoIds === null ? null : [...ui.repoIds].sort(),
     kind: ui.kind || '',
     search: ui.search || '',
+    people: ui.people || '',
   });
 /** @param {ActivityItem} item */
 const itemKey = item => item.groupKey;
@@ -25,6 +26,7 @@ function activityUrl(ui, limit, cursor) {
   if (ui.repoIds !== null) query.set('repoIds', ui.repoIds.join(','));
   if (ui.kind) query.set('kind', ui.kind);
   if (ui.search) query.set('search', ui.search);
+  if (ui.people) query.set('people', ui.people);
   if (cursor) query.set('cursor', cursor);
   return `/api/activity?${query}`;
 }

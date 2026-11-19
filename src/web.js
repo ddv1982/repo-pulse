@@ -9,6 +9,7 @@ import { createTypeFilter } from './ui/type-filter.js';
 import { createRefreshController } from './ui/refresh.js';
 import { createBrowserView } from './ui/browser-view.js';
 import { createSeenActions } from './ui/seen-actions.js';
+import { createFilterNameDialog } from './ui/saved-filters.js';
 import { createHistoryImport } from './ui/history-import.js';
 import { required, setHtml } from './ui/dom.js';
 
@@ -49,6 +50,8 @@ const ui = {
   eventId: null,
   repoIds: null,
   search: '',
+  people: '',
+  savedFilterId: '',
   kind: '',
   filtersOpen: undefined,
   activityRoute: 'catchup',
@@ -71,6 +74,7 @@ const typeFilter = createTypeFilter({
     activityChanged();
   },
 });
+const filterName = createFilterNameDialog(required('#filter-name-dialog', HTMLDialogElement));
 const historyImport = createHistoryImport(required('#history-dialog', HTMLDialogElement), {
   start: (repoId, days) => request('/api/backfill', { method: 'POST', body: { repoId, days } }),
   onStarted: async id => {
@@ -122,7 +126,10 @@ function render() {
 
 /** @param {boolean} force */
 function refreshTarget(force) {
-  return view.refreshTarget(force, busy || dialog.open || historyImport.open || (ui.route === 'repositories' && picker.active()));
+  return view.refreshTarget(
+    force,
+    busy || dialog.open || historyImport.open || filterName.open || (ui.route === 'repositories' && picker.active()),
+  );
 }
 
 function activityChanged({ debounce = false, header = false } = {}) {
@@ -241,6 +248,30 @@ function setRefreshPending(pending) {
   }
 }
 
+/** @returns {import('../server/saved-activity-filters.js').ActivityFilters} */
+function currentFilters() {
+  const { search, people, kind, repoIds, route } = ui;
+  return { search, people, kind, repoIds, view: route === 'activity' ? 'all' : 'new' };
+}
+
+function selectedFilter() {
+  return refresh.state.savedFilters?.find(filter => filter.id === ui.savedFilterId);
+}
+
+/** @param {import('./ui/saved-filters.js').SavedActivityFilter} preset */
+function applySavedFilter({ filters }) {
+  const { search, people, kind, repoIds, view } = filters;
+  const watched = refresh.state.watched;
+  const available = new Map(watched.map(repo => [repo.id, repo]));
+  const unavailable = (repoIds || []).filter(id => !available.has(id) || available.get(id)?.disabled);
+  Object.assign(ui, { search, people, kind, repoIds: repoIds?.filter(id => available.has(id)) ?? null });
+  const destination = view === 'all' ? 'activity' : 'catchup';
+  if (destination === ui.route) activityChanged({ header: true });
+  else location.hash = activityHref(destination);
+  if (unavailable.length)
+    toast(`${unavailable.length} saved repositories unavailable. Showing only available repositories in this filter.`);
+}
+
 /** @type {Record<string, Action>} */
 const actions = {
   ...createCheckoutActions({ checkoutPanel, confirm, toast }),
@@ -303,8 +334,54 @@ const actions = {
     closeDialog();
     if (callback) await callback();
   },
+  'save-filter': () => {
+    const filters = currentFilters();
+    filterName.show('Save Activity filter', '', async name => {
+      const preset = await request('/api/activity-filters', { method: 'POST', body: { name, filters } });
+      ui.savedFilterId = preset.id;
+      await load({ force: true });
+      toast('Filter saved.');
+    });
+  },
+  'apply-filter': () => {
+    const preset = selectedFilter();
+    if (preset) applySavedFilter(preset);
+  },
+  'rename-filter': () => {
+    const preset = selectedFilter();
+    if (!preset) return;
+    filterName.show('Rename Activity filter', preset.name, async name => {
+      await request(`/api/activity-filters/${preset.id}`, { method: 'PATCH', body: { name } });
+      await load({ force: true });
+      toast('Filter renamed.');
+    });
+  },
+  'update-filter': async () => {
+    const preset = selectedFilter();
+    if (!preset) return;
+    await request(`/api/activity-filters/${preset.id}`, { method: 'PATCH', body: { filters: currentFilters() } });
+    await load({ force: true });
+    toast('Saved filter updated.');
+  },
+  'delete-filter': () => {
+    const preset = selectedFilter();
+    if (!preset) return;
+    confirm(
+      'Delete saved filter?',
+      'You can save this search again from Activity.',
+      async () => {
+        await request(`/api/activity-filters/${preset.id}`, { method: 'DELETE' });
+        ui.savedFilterId = '';
+        await load({ force: true });
+        toast('Saved filter deleted.');
+      },
+      'Delete filter',
+      { subject: preset.name, destructive: true },
+    );
+  },
   'clear-filters': () => {
     ui.search = '';
+    ui.people = '';
     ui.kind = '';
     activityChanged();
   },
@@ -405,8 +482,10 @@ document.addEventListener('click', event => {
 });
 
 document.addEventListener('input', event => {
-  if (event.target instanceof HTMLInputElement && event.target.id === 'feed-search') {
-    ui.search = event.target.value;
+  const target = event.target;
+  if (!(target instanceof HTMLInputElement)) return;
+  if (target.id === 'feed-search' || target.id === 'feed-people') {
+    ui[target.id === 'feed-people' ? 'people' : 'search'] = target.value;
     activityChanged({ debounce: true });
   }
 });
@@ -414,6 +493,10 @@ document.addEventListener('input', event => {
 document.addEventListener('change', event => {
   const target = event.target;
   if (!(target instanceof HTMLInputElement || target instanceof HTMLSelectElement)) return;
+  if (target.id === 'saved-filter') {
+    ui.savedFilterId = target.value;
+    renderPage();
+  }
   if (target.matches('[data-scope-repo]')) {
     // Disabled repositories have no checkbox; keep their place in the scope for when they are enabled.
     const disabled = refresh.state.watched.filter(repo => repo.disabled && (ui.repoIds === null || ui.repoIds.includes(repo.id)));
@@ -500,6 +583,7 @@ document.addEventListener('keydown', event => {
     event.key === '/' &&
     !dialog.open &&
     !historyImport.open &&
+    !filterName.open &&
     !['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement?.tagName ?? '')
   ) {
     event.preventDefault();

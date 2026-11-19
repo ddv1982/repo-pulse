@@ -1133,7 +1133,7 @@ test('a push that rewrote history says so on its row and in how it was merged, a
   await expect(rewritten).toContainText('History rewritten · 2 commits dropped');
   await expect(page.locator('[data-event-id="demo-push-1"]')).not.toContainText('History rewritten');
   await rewritten.locator('.feed-title').click();
-  await expect(page.getByRole('region', { name: 'How this was merged' })).toContainText(
+  await expect(page.getByRole('region', { name: 'Push evidence' })).toContainText(
     'main · history rewritten, 2 commits dropped from the old tip',
   );
 });

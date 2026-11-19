@@ -18,6 +18,8 @@
  * @template {string} P
  * @typedef {P extends '/api/state' ? StateResponse
  *   : P extends '/api/activity' | `/api/activity?${string}` ? ActivityResponse
+ *   : P extends '/api/activity-filters' ? import('../server/saved-activity-filters.js').SavedActivityFilter
+ *   : P extends `/api/activity-filters/${string}` ? import('../server/saved-activity-filters.js').SavedActivityFilter | OkResponse
  *   : P extends `/api/events/${string}` ? EventResponse
  *   : P extends '/api/checkouts' ? CheckoutsResponse
  *   : P extends `/api/repos/${string}/checkout` ? CheckoutUpdateResponse

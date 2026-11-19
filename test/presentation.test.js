@@ -310,3 +310,21 @@ test('a vote change on a fork PR still names the fork', () => {
   };
   assert.equal(activitySummary({ ...pr, data }), 'From fork One-fork · Ana: approved');
 });
+
+test('push headlines name a single matching PR result without inferring the cause of the push', () => {
+  const title = 'Microsoft.VisualStudio.Services.TFS pushed to main';
+  const result = 'a'.repeat(40);
+  const push = {
+    kind: 'push',
+    actor: 'Microsoft.VisualStudio.Services.TFS',
+    title,
+    data: { refUpdates: [{ name: 'refs/heads/main', newObjectId: result }] },
+  };
+  const pr = { pullRequestId: 12, relationship: 'result-introduced', targetRefName: 'refs/heads/main', mergeCommit: result.toUpperCase() };
+  const linked = (...prs) => ({ ...push, data: { ...push.data, mergeEvidence: { prs } } });
+  assert.equal(activityTitle(linked(pr)), 'Push to main · Linked PR #12');
+  assert.equal(activityTitle(linked({ ...pr, targetRefName: 'refs/heads/other' })), 'Azure DevOps service pushed to main');
+  assert.equal(activityTitle(linked({ ...pr, relationship: 'constituent-related' })), 'Azure DevOps service pushed to main');
+  assert.equal(activityTitle(linked(pr, { ...pr, pullRequestId: 13 })), 'Azure DevOps service pushed to main');
+  assert.equal(activityTitle({ ...push, actor: 'Alice', title: 'Alice pushed to main' }), 'Alice pushed to main');
+});

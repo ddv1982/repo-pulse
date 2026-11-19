@@ -327,3 +327,25 @@ test('Load push commits pages through the Azure client by push ID', async t => {
     ],
   );
 });
+
+test('saved Activity filters validate inputs and preserve an explicit empty scope across Activity reset', async t => {
+  const { url, mutate, store } = await fixture(t);
+  const path = '/api/activity-filters';
+  const filters = { search: 'main', people: 'Alice, Bob', kind: 'push', repoIds: [], view: 'all' };
+  assert.equal((await globalThis.fetch(url + path, { method: 'POST' })).status, 401);
+  assert.equal((await mutate(path, { name: 'Invalid', filters: { ...filters, people: 'a'.repeat(301) } })).status, 400);
+  assert.equal((await mutate(path, { name: 'Invalid', filters: { ...filters, repoIds: 'all' } })).status, 400);
+  const created = await mutate(path, { name: '  Team  ', filters });
+  assert.equal(created.status, 201);
+  const preset = await created.json();
+  assert.equal(preset.name, 'Team');
+  assert.deepEqual(preset.filters, filters);
+  store.resetActivity();
+  const state = await (await fetch(url + '/api/state')).json();
+  assert.deepEqual(state.savedFilters, [preset]);
+  assert.equal((await mutate(path + '/' + preset.id, { filters: { ...filters, repoIds: null } }, { method: 'PATCH' })).status, 200);
+  const after = await (await fetch(url + '/api/state')).json();
+  assert.equal(after.savedFilters[0].filters.repoIds, null);
+  assert.equal((await fetch(url + path + '/' + preset.id, { method: 'DELETE' })).status, 200);
+  assert.deepEqual((await (await fetch(url + '/api/state')).json()).savedFilters, []);
+});

@@ -33,6 +33,20 @@
         ><button type="button" class="btn primary" id="confirm-button" data-action="confirm-dialog">Confirm</button>
       </div>
     </dialog>
+    <dialog id="filter-name-dialog" aria-labelledby="filter-name-title">
+      <form>
+        <div class="dbody">
+          <h2 id="filter-name-title"></h2>
+          <label for="filter-name">Filter name</label>
+          <input id="filter-name" class="search" maxlength="80" required autofocus />
+          <p class="status-text crit" role="alert" hidden></p>
+        </div>
+        <div class="dfoot">
+          <button type="button" class="btn" data-cancel>Cancel</button>
+          <button type="submit" class="btn primary">Save</button>
+        </div>
+      </form>
+    </dialog>
     <dialog id="history-dialog" aria-labelledby="history-title" aria-describedby="history-help">
       <form>
         <div class="dbody">

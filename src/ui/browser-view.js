@@ -10,7 +10,7 @@ import { emptyHtml, html } from './format.js';
 /** @typedef {import('./refresh.js').PageState} PageState */
 /** @typedef {import('./navigation.js').ResultsContext} ResultsContext */
 /** web.js owns this object: navigation state plus the connection panel state and the refresh flag the header reads. */
-/** @typedef {import('./navigation.js').NavigationState & { connection: import('./connection.js').ConnectionState, refreshing?: boolean }} BrowserUi */
+/** @typedef {import('./navigation.js').NavigationState & { connection: import('./connection.js').ConnectionState, refreshing?: boolean, savedFilterId: string }} BrowserUi */
 /**
  * @typedef {{ restored: ResultsContext | null, returnRoute: string, commits: import('./activity-detail.js').LoadedView | undefined,
  *   checkouts: Record<string, import('./checkout.js').CheckoutSnapshot>, isCurrent: () => boolean }} RenderOptions
@@ -103,6 +103,7 @@ export function createBrowserView({ page, header, demo, syncLive, picker, typeFi
     const focused = document.activeElement;
     const refreshable =
       focused?.id === 'feed-search' ||
+      focused?.id === 'feed-people' ||
       focused?.id === 'kind-toggle' ||
       (focused?.id && focused.matches('.settings-card *, .repo-entry *, .repo-add > summary'));
     const preserve =

@@ -20,7 +20,7 @@ test('saved graph evidence stays readable in the detail without a row badge, and
     limitations: ['Source branch unknown'],
   };
   const html = renderMergeEvidence({ mergeEvidence: evidence });
-  assert.match(html, /<h2>How this was merged<\/h2>/);
+  assert.match(html, /<h2>Push evidence<\/h2>/);
   assert.match(html, /Merge commit found/);
   assert.match(html, /2 parents/);
   assert.match(html, /does not prove a push was made outside a PR/);

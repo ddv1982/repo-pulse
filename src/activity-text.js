@@ -115,6 +115,20 @@ export function activityActor(event) {
   return event.kind === 'push' && event.actor === azureDevOpsService ? 'Azure DevOps service' : event.actor;
 }
 
+/**
+ * @param {ActivityEvent['data']} data
+ * @param {import('./activity.js').EvidencePr} pr
+ */
+export function matchesPushResult(data, pr) {
+  const result = pr.mergeCommit?.toLowerCase();
+  return Boolean(
+    result &&
+      pr.targetRefName &&
+      pr.relationship === 'result-introduced' &&
+      data?.refUpdates?.some(ref => ref.name === pr.targetRefName && ref.newObjectId?.toLowerCase() === result),
+  );
+}
+
 /** @param {ActivityEvent} event */
 export function activityTitle(event) {
   if (event.kind === 'branch-deleted') return `${activityLabel(event)}${event.branch ? ` · ${branchName(event.branch)}` : ''}`;
@@ -122,7 +136,7 @@ export function activityTitle(event) {
     const prs = event.data?.mergeEvidence?.prs;
     const pr = prs?.[0];
     const id = pr?.pullRequestId ?? pr?.id;
-    if (prs?.length === 1 && pr?.relationship === 'result-introduced' && id && pr.targetRefName) {
+    if (prs?.length === 1 && id && pr && matchesPushResult(event.data, pr)) {
       return `Push to ${branchName(pr.targetRefName)} · Linked PR #${id}`;
     }
     if (event.actor === azureDevOpsService && event.title?.startsWith(`${azureDevOpsService} pushed`)) {
