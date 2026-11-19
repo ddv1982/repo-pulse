@@ -67,7 +67,24 @@ Evidence saved before deeper analysis stopped also enumerated ref ranges, becaus
   made with an Azure CLI token (one retry after a token renewal); other commands still start `az`, which can make several requests
   internally. Normal checks are around three minutes, quiet/background checks five minutes and refs
   ten minutes, subject to queueing and backoff.
-- The only background work is an explicit history import. It gets every turn when no live check is due and, under sustained live work, one turn after six live turns. These are scheduler turns, so queueing and provider response times still affect freshness.
+- When Azure DevOps sends a `Retry-After` header, on a 429 or on a response that succeeded, the shared queue
+  starts no new read for any repository until that wait has passed, up to ten minutes. A read that was
+  already waiting for a token fails as throttled and is retried after its normal backoff.
+- Background work is the rewrite check for new pushes and an explicit history import, taking turns.
+  Rewrite checks wait while automatic checks are off; a history import keeps running. Background work
+  gets every turn when no live check is due and, under sustained live work, one turn after six live
+  turns. These are scheduler turns, so queueing and provider response times still affect freshness.
+- The server derives one sync status per enabled repository, and the header shows the one that needs
+  the most attention: **Problem** after a read fails twice in a row, or at once when sign-in or access
+  is refused or the Azure CLI or its extension is missing; **Delayed** while Azure DevOps asked for a pause, or when a check is
+  more than three minutes late or its data is older than ten minutes (twenty for refs);
+  **Syncing** while a first read, page, refresh or import is still running; **Paused** when automatic
+  checks are off; otherwise **Synced**. Streams catching up right after a start or resume count as
+  syncing, not delayed. Until every shown repository is synced, an empty or short Activity list does
+  not prove that nothing changed.
+- **Start from scratch** in Settings deletes stored activity, seen marks, imported history, sync
+  checkpoints and pending jobs, keeps repositories, linked checkouts and settings, and then runs the
+  first import again. History imports are refused while it runs. Demo mode does not offer it.
 - Effective Azure identity/cross-account cache isolation is not verified. Use one CLI context; an
   installation or cached account check is not proof of access to every repository/environment.
 
