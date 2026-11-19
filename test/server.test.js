@@ -250,5 +250,6 @@ test('a cross-site page load reaches the app page, but cross-site API calls stay
   assert.equal(await status('/', 'navigate'), 200);
   assert.equal(await status('/api/state', 'navigate'), 403);
   assert.equal(await status('/', 'no-cors'), 403);
+  assert.equal(await status('/app.css', 'navigate'), 403);
   assert.equal(await status('/api/state', 'cors'), 403);
 });

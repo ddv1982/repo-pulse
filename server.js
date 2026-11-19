@@ -138,9 +138,10 @@ function checkLocalRequest(req) {
   const host = req.headers.host;
   if (!host || !hosts.has(host)) throw problem('Open Repo Pulse through its localhost address.', 403);
   if (req.headers.origin && req.headers.origin !== `http://${host}`) throw problem('Origin is not allowed.', 403);
-  // A top-level page load from elsewhere, such as the launch page the browser opens from a file, may load the app's own
-  // page; nothing can frame it or read it, and every API request still has to be same-site and carry the key.
-  const pageLoad = req.method === 'GET' && req.headers['sec-fetch-mode'] === 'navigate' && !String(req.url).startsWith('/api/');
+  // A top-level load of the app page from elsewhere, such as the launch page the browser opens from a file, is allowed;
+  // nothing can frame or read it, and every API request still has to be same-site and carry the key.
+  const pageLoad =
+    req.method === 'GET' && req.headers['sec-fetch-mode'] === 'navigate' && new URL(String(req.url), 'http://local').pathname === '/';
   if (req.headers['sec-fetch-site'] === 'cross-site' && !pageLoad) throw problem('Cross-site requests are not allowed.', 403);
 }
 
@@ -669,14 +670,14 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
   console.log(`Repo Pulse${process.argv.includes('--demo') ? ' · demo data, no Azure calls' : ''}: ${runtime.launchUrl}`);
   const open = process.env.REPO_PULSE_NO_BROWSER !== '1' && canOpenBrowser(process.platform, process.env);
   console.log(
-    `${open ? 'Opening it in your browser; if nothing opens, use the link above.' : 'Open the link above in your browser.'} It works once and a new one is printed at every start. Local only. Stop with Ctrl+C.`,
+    `${open ? 'Opening it in your browser; if the browser does not show Repo Pulse, use the link above.' : 'Open the link above in your browser.'} It works once and a new one is printed at every start. Local only. Stop with Ctrl+C.`,
   );
   const removeLaunchPage = open ? await openBrowser(runtime.launchUrl, { dataDir: runtime.dataDir }) : async () => {};
   let closing = false;
   const stop = async () => {
     if (!closing) {
       closing = true;
-      await removeLaunchPage();
+      await removeLaunchPage().catch(() => {});
       await runtime.close();
     }
   };

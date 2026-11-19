@@ -1,6 +1,7 @@
 // @ts-check
 
 import { spawn as nodeSpawn } from 'node:child_process';
+import { randomBytes } from 'node:crypto';
 import { rm, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -26,32 +27,41 @@ export function canOpenBrowser(platform, env) {
 }
 
 /**
- * Opens the launch link in the default browser without putting it on a command line, where other local accounts could
- * read the single-use token before the browser uses it. The link goes into an owner-only page in the private data
- * directory, the opener gets only that page's file URL, and the page forwards the browser to the link. The page is
- * removed after `keepMs`. A missing opener is not an error: the link is printed too.
+ * Opens the launch link in the default browser and returns a function that removes anything it left behind.
+ * macOS and Windows do not show one account's process arguments to another, so the link goes to the opener directly.
+ * Elsewhere, such as Linux with a readable /proc, the single-use token must not appear on a command line: the link goes
+ * into an owner-only page in the private data directory, the opener gets only that page's file URL, and the page
+ * forwards the browser to the link. The page is removed after `keepMs` or by the returned function. Nothing here stops
+ * startup: if it fails, the printed link still works.
  * @param {string} url
  * @param {{ dataDir: string, platform?: NodeJS.Platform, spawn?: typeof nodeSpawn, keepMs?: number }} options
- * @returns {Promise<() => Promise<void>>} removes the page
+ * @returns {Promise<() => Promise<void>>}
  */
 export async function openBrowser(url, { dataDir, platform = process.platform, spawn = nodeSpawn, keepMs = 60_000 }) {
-  const page = resolve(dataDir, 'launch.html');
-  const target = new URL(url).href.replace(/"/g, '%22');
-  // Exclusive create after removal, so a leftover page from an earlier run cannot keep wider permissions.
-  await rm(page, { force: true });
-  await writeFile(
-    page,
-    `<!doctype html><meta charset="utf-8"><meta http-equiv="refresh" content="0;url=${target}"><title>Repo Pulse</title>\n`,
-    {
-      mode: 0o600,
-      flag: 'wx',
-    },
-  );
-  const remove = () => rm(page, { force: true });
-  setTimeout(remove, keepMs).unref();
+  let target = url;
+  let remove = async () => {};
+  if (platform !== 'darwin' && platform !== 'win32') {
+    const page = resolve(dataDir, `launch-${randomBytes(8).toString('hex')}.html`);
+    const link = new URL(url).href.replace(/"/g, '%22');
+    try {
+      await writeFile(
+        page,
+        `<!doctype html><meta charset="utf-8"><meta http-equiv="refresh" content="0;url=${link}"><title>Repo Pulse</title>\n`,
+        {
+          mode: 0o600,
+          flag: 'wx',
+        },
+      );
+    } catch {
+      return remove;
+    }
+    remove = () => rm(page, { force: true }).catch(() => {});
+    setTimeout(remove, keepMs).unref();
+    target = pathToFileURL(page).href;
+  }
   try {
     const [file, args] = browserOpener(platform);
-    const child = spawn(file, [...args, pathToFileURL(page).href], { detached: true, stdio: 'ignore', windowsHide: true });
+    const child = spawn(file, [...args, target], { detached: true, stdio: 'ignore', windowsHide: true });
     child.on('error', () => {});
     child.unref();
   } catch {

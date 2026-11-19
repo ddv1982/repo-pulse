@@ -26,16 +26,18 @@ test('a Linux session without a display does not try to open a browser', () => {
   assert.equal(canOpenBrowser('win32', {}), true);
 });
 
-test('the opener gets an owner-only page, not the launch link, and the page forwards to the link', async t => {
+test('on Linux the opener gets a unique owner-only page, not the launch link, and the page forwards to the link', async t => {
   const dataDir = await mkdtemp(join(tmpdir(), 'repo-pulse-open-'));
   t.after(() => rm(dataDir, { recursive: true, force: true }));
   const url = 'http://127.0.0.1:1234/#launch=secret-token';
   const calls = [];
   const remove = await openBrowser(url, { dataDir, platform: 'linux', spawn: fakeSpawn(calls) });
-  assert.equal(calls.length, 1);
+  const second = await openBrowser(url, { dataDir, platform: 'linux', spawn: fakeSpawn(calls) });
+  assert.equal(calls.length, 2);
   assert.equal(calls[0].file, 'xdg-open');
   assert.equal(calls[0].args.length, 1);
   assert.equal(calls[0].args[0].includes('secret-token'), false);
+  assert.notEqual(calls[0].args[0], calls[1].args[0], 'each launch has its own page');
   assert.deepEqual(calls[0].options, { detached: true, stdio: 'ignore', windowsHide: true });
   const page = fileURLToPath(calls[0].args[0]);
   assert.match(
@@ -45,9 +47,32 @@ test('the opener gets an owner-only page, not the launch link, and the page forw
   if (process.platform !== 'win32') assert.equal((await stat(page)).mode & 0o777, 0o600);
   await remove();
   await assert.rejects(stat(page), { code: 'ENOENT' });
+  await stat(fileURLToPath(calls[1].args[0]));
+  await second();
 });
 
-test('a missing or failing opener does not throw', async t => {
+test('macOS and Windows hand the launch link to the opener directly', async () => {
+  const calls = [];
+  for (const platform of ['darwin', 'win32'])
+    await openBrowser('http://127.0.0.1:1234/#launch=abc', { dataDir: '/nonexistent', platform, spawn: fakeSpawn(calls) });
+  assert.deepEqual(
+    calls.map(({ file, args }) => [file, args]),
+    [
+      ['open', ['http://127.0.0.1:1234/#launch=abc']],
+      ['rundll32.exe', ['url.dll,FileProtocolHandler', 'http://127.0.0.1:1234/#launch=abc']],
+    ],
+  );
+});
+
+test('a page that cannot be written, or a missing opener, never throws', async t => {
+  const calls = [];
+  const remove = await openBrowser('http://127.0.0.1:1/', {
+    dataDir: '/nonexistent/repo-pulse',
+    platform: 'linux',
+    spawn: fakeSpawn(calls),
+  });
+  assert.equal(calls.length, 0, 'without the private page the link is not put on a command line');
+  await remove();
   const dataDir = await mkdtemp(join(tmpdir(), 'repo-pulse-open-'));
   t.after(() => rm(dataDir, { recursive: true, force: true }));
   const failing = () => {
