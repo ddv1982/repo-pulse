@@ -42,36 +42,10 @@ Browser tests use Chromium. Run `npx playwright install chromium` if needed, or 
 
 Run `node scripts/measure-activity.js` for synthetic local HTTP and SQLite timings. Add `--large` to include 75,000 events with both pushes and grouped builds. The script includes serialization and JSON parsing. It does not measure Azure or browser rendering.
 
-In the earlier engineering run, the 12-repository fixture had 25,000 events and 2,500 pending merge jobs. Compact metadata reduced the polling response from 246,494 to 820 bytes in that fixture. An idle tab queried metadata without rereading its 250 loaded Activity items. A separate fake-clock test confirmed that history and merge work both get turns under a sustained live workload. Rerun the checks for current results. These measurements do not establish live Azure latency or an upstream request count.
-
-The hardening run used 20 sequential samples after three warm-ups per workload. The 25,000-event fixture measured 55 ms for the first page, 25 ms for search, and 108 ms to refresh 250 items, all at p95. The 75,000-event mixed fixture measured 200 ms, 103 ms, and 421 ms respectively. The query plan showed repeated grouping, so the query now builds the visible groups once for the page, counts, and filter choices. The measured workload does not justify a database change or a worker.
-
 ## Check the Azure budget
 
-Run `node scripts/measure-budget.js` to simulate live polling against the shared call limit (`--limit`, default 12 for the old CLI-only budget; the app now uses 60). It runs the real sync and Azure client code with a fake clock and a fake CLI. It does not run the rewrite check, which adds one call, plus any retries, for each existing branch a live push moves. The measurements below were taken before background merge analysis was removed, include that analysis, and are not comparable with current runs. Options set the repository counts, pushes per hour, the assumed duration of one CLI call, and the simulated minutes. The call duration of 1.5 s is an assumption, not a measurement.
+Run `node scripts/measure-budget.js` to simulate live polling against the shared call limit (`--limit`, default 12 for the old CLI-only budget; the app now uses 60). It runs the real sync and Azure client code with a fake clock and a fake CLI. It does not run the rewrite check, which adds one call, plus any retries, for each existing branch a live push moves. Options set the repository counts, pushes per hour, the assumed duration of one CLI call, and the simulated minutes. The call duration of 1.5 s is an assumption, not a measurement.
 
-On 2026-11-18, 120 simulated minutes with the tab in the foreground and 4 pushes per hour per repository gave:
-
-| Repositories | Commits per push | Calls per minute | Push delay p95 | Merge jobs left of pushes |
-| --- | --- | --- | --- | --- |
-| 1 | 5 | 1.9 | 4.1 min | 0 of 8 |
-| 5 | 5 | 9.3 | 4.7 min | 1 of 40 |
-| 10 | 5 | 12.0 | 6.6 min | 74 of 80 |
-| 20 | 5 | 12.0 | 10.7 min | 154 of 160 |
-| 5 | 20 | 12.0 | 5.0 min | 29 of 40 |
-| 20 | 20 | 12.0 | 10.8 min | 159 of 160 |
-
-Live polling kept priority, so a saturated budget mainly delayed merge evidence, which stopped keeping up from about 10 repositories, or 5 with larger pushes. Push detection slowed more gradually.
-
-With REST reads the app allows 60 calls per minute with four in flight. One live REST read measured 113 ms against 1,012 ms for the same `az devops invoke`. With `--limit 60 --call-ms 150` the same scenarios gave:
-
-| Repositories | Commits per push | Calls per minute | Push delay p95 | Merge jobs left of pushes |
-| --- | --- | --- | --- | --- |
-| 10 | 5 | 19.1 | 4.8 min | 0 of 80 |
-| 20 | 5 | 37.7 | 4.7 min | 7 of 160 |
-| 10 | 20 | 33.4 | 4.8 min | 0 of 80 |
-| 20 | 20 | 57.4 | 4.7 min | 107 of 160 |
-
-A live run against a real organization imported 98 activity items for one new repository in about 3 seconds and finished its 41 merge jobs in 86 calls within two minutes, without errors.
+The [historical local-load and Azure budget measurements](https://github.com/ddv1982/repo-pulse/blob/b8fb8561854d472bcc17543326df5c4644c53cd8/docs/MAINTAINING.md#check-local-load) remain in Git history. The old Azure runs included background merge analysis, so use a fresh simulation for the current sync design.
 
 For verified Azure API details and future proof cases, see the [coverage research](FULL-COVERAGE-RESEARCH.md).

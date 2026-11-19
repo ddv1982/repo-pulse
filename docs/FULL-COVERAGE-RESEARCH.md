@@ -6,7 +6,7 @@ Investigated 17 November 2026 against the local implementation at `5f53aa7` and 
 
 Build **evidence-complete coverage of supported, accessible remote activity over an explicit time range**. Do not promise reconstruction of every human Git action. Treat unavailable evidence as a visible gap rather than an ordinary empty result.
 
-Merge-aware enrichment and paged history are implemented. See [coverage and limits](COVERAGE.md) for current behavior and the [roadmap](../PLAN.md) for upcoming work. The later gates below cover broader repository, PR, and delivery evidence. Hooks and audit have separate operational requirements and do not replace reconciliation.
+This is a dated record of Azure API findings and evidence requirements. See [coverage and limits](COVERAGE.md) for current behavior and the [roadmap](../PLAN.md) for planned work. Repo Pulse replaced its original background merge analysis with local PR-to-push linking and a separate rewrite check.
 
 ## Research method and corrections
 
@@ -19,7 +19,7 @@ Important corrections to automated research:
 - All four merge strategies are documented: `noFastForward`, `squash`, `rebase`, `rebaseMerge`. [S2](https://learn.microsoft.com/en-us/rest/api/azure/devops/git/pull-requests/get-pull-request?view=azure-devops-rest-7.1)
 - Git PR metadata includes `closedBy`. Capture it as the **PR-closing identity**; do not assume it is the commit author, pusher, or a human who manually clicked Merge. The app now retains this field on completed PR snapshots. [S2](https://learn.microsoft.com/en-us/rest/api/azure/devops/git/pull-requests/get-pull-request?view=azure-devops-rest-7.1)
 - The old 1,000-update boundary was in the UI query. The current feed pages through the local cache.
-- An empty commit-to-PR match is not permanent proof of a direct merge: permissions, timing and later PR activity can affect the association. Cache negative results with expiry/reconciliation, not forever.
+- An empty commit-to-PR match leaves the association unknown. Permissions, timing and later PR activity can affect it.
 - Old/new commit ID filters called `fromCommitId`/`toCommitId` are lexical filters, not Git ancestry ranges. Use version descriptors or parent traversal for graph reasoning. [S3](https://learn.microsoft.com/en-us/rest/api/azure/devops/git/commits/get-commits?view=azure-devops-rest-7.1)
 
 ## Installed CLI and history observations
@@ -75,59 +75,17 @@ API `vso.*` labels describe documented scope requirements; they are not intercha
 
 Git stores graph structure, not a durable source-branch name for every operation. Fast-forward creates no merge commit; squash omits the merge structure. Commit timestamps/messages are not sufficient substitutes. Distinguish **when a commit was authored**, **when a ref received it**, and **when Repo Pulse observed/enriched it**. [S12](https://git-scm.com/docs/user-manual#fast-forwards), [S13](https://git-scm.com/docs/git-merge#Documentation/git-merge.txt---squash)
 
-## Implementation sequence
+## Future coverage research
 
-### Gate 0: targeted capability and load proof
+The [original implementation gates and design](https://github.com/ddv1982/repo-pulse/blob/b8fb8561854d472bcc17543326df5c4644c53cd8/docs/FULL-COVERAGE-RESEARCH.md#implementation-sequence) are available in Git history. The API table and evidence cases here include capabilities beyond the current app, such as commit-graph analysis and outgoing PR discovery.
 
-Prove commit parents, paginated pushed commits, exact-ID/version-range queries and batched PR association against the intended existing CLI context. Record endpoint version, response shape, permission result, effective identity status and latency. Avoid remote test writes in a real working project; destructive/change-creating scenarios belong in a controlled disposable test repository.
-
-For read-only POSTs, allow only fixed `pullrequestquery` and `commitsbatch` read operations with validated bounded JSON. If invoke needs `--in-file`, use an app-created private temporary file containing query data only and remove it reliably. Never accept a browser-supplied path/body/command or enable arbitrary POSTs. If CLI cannot carry these operations reliably, document a minimal CLI-authenticated transport decision rather than silently changing credentials. (Historical: activity reads, including these two POSTs, moved to REST with the CLI's token. The POST paths were later removed with the merge analysis, and the allowlist and REST executor now accept only GET reads.)
-
-Exit: no credential output, no extra sign-in, no Azure mutation, complete paging, correct scope, bounded error classification and measured request/process overhead. No new OAuth/app registration.
-
-### Gate 1: merge-aware enrichment (implemented)
-
-- Preserve raw push/ref ingestion and existing transactional checkpoints.
-- Atomically queue enrichment with each newly ingested push/ref fact; commit parents cached by repository + SHA.
-- Separate durable enrichment jobs/cursors from ingestion checkpoints, so a slow graph/PR lookup neither loses a job on restart nor blocks the feed from showing the push.
-- Inspect each relevant branch's introduced range, including interior merge commits; handle creation/deletion and non-fast-forward paths explicitly.
-- A missing parent field in a shallow/list response is unknown, not an empty-parent root commit. Hydrate it before classification. Do not use author-date filters to exclude old commits newly pushed today.
-- Correlate commit batches to PRs using both supported query types. Require completed status for PR merge labels; never infer completion from preview success.
-- Retain source/target/result/strategy, PR-closing identity and provenance links. Leave unavailable fields unknown.
-- Keep PR creator/closer, pusher, commit author and committer as distinct identities. Prefer an explicit strategy; do not guess one from a single parent or missing metadata. Historical legacy strategy flags require documented interpretation.
-- Enrich existing completed PR entities in bounded low-priority work. Preserve raw event IDs, timestamps, imported state and acknowledgement; do not generate new alerts solely for extra metadata.
-- Show linked merge evidence inside the existing operation before trying aggressive cross-source row deduplication. Do not guess that same-name/same-SHA branch observations share a lifetime.
-
-Exit: the merge cases below pass; no duplicate acknowledgement, no invented branch/actor, no extra repository mutations and no permanent negative PR-match cache.
-
-Suggested code boundaries: extend `azure-client.js` with bounded commit/PR-query reads and
-`azure-cli.js` with only those validated read-query operations. Reuse `entities` for immutable
-commit metadata where practical; introduce a small versioned durable enrichment-job store rather
-than replacing SQLite/sync. Keep ancestry and classification pure in a focused module and reuse
-the existing queue/budget. Add local-history queries at the store/API boundary, not another cloud
-service or a generic connector framework. Preserve the current simple Activity/Repositories/Settings UI.
-
-### Gate 2: complete local-history browsing and backfill (implemented)
-
-Replace client filtering over the latest 1000 raw rows with server-side local SQLite queries and cursor paging. New updates must query unseen data directly so an older-source-time update cannot disappear behind newer seen history. Keep UI grouping coherent across pages: use stable group/source indexes or fetch represented membership explicitly, with exact acknowledgement IDs and partial-history disclosure.
-
-Offer resumable date-range backfill (for example 30/90 days or all available) as a background job, not one long HTTP request. Imported data stays imported; existing seen state is untouched. Record requested and verified source coverage separately for pushes, closures, refs baselines and active snapshots. Do not mistake an empty/denied response for a verified interval.
-
-Exit: >1000 records, older unseen updates, group boundary cases, filtered paging, restart and overlapping backfill all preserve visibility and acknowledgement semantics.
-
-### Gate 3: extended repository and PR coverage
-
-Preserve tag updates/peeled targets and ref lock metadata. Add ancestry-based rewrite evidence, review votes, policy evaluations, conversations, linked work items, fork/source repository identity and outgoing/incoming PR scope. Capture only supported observed transitions; snapshot polling cannot recreate every intermediate/deleted comment.
-
-Exit: a capability matrix per repo/project reports what was tested, denied or unsupported. No automatic resurrection of the removed Rules UI; this is collection coverage, not extra user setup.
-
-### Gate 4: delivery coverage
+### Delivery coverage
 
 Add explicit pipeline/project mappings plus consumed-repository resources so secondary repos and cross-project pipelines are included. Add stage/job/test/artifact evidence, then YAML environment and classic-release adapters. Trace each component `repo/revision → run → artifact → deployment attempt → environment` where the data supports it.
 
 A recorded deployment does not prove current running bits or application health. Rollbacks, retries, skipped stages, manual/outside deployers and unresolved components must remain explicit.
 
-### Gate 5: optional continuous event collection and administration
+### Optional continuous event collection and administration
 
 If short-lived/intermediate events are required while the local machine is off, use an always-on collector and supported service hooks. That requires a reachable receiver and subscription-management permission, plus durable acknowledgement, idempotent event IDs, health monitoring and reconciliation. It is a separate infrastructure choice from the lightweight local viewer.
 
@@ -140,15 +98,13 @@ Optional audit ingestion adds repository/policy/security/administrative evidence
 ## Low-load contract
 
 - Keep one shared queue, duplicate coalescing and per-repo fairness. The budget is 60 calls/minute with four in flight since activity reads moved to REST (it was 12 CLI starts/minute and two processes before); change it only after measuring with `scripts/measure-budget.js`.
-- Enrich only uncached commit objects; batch across pending pushes and PR queries. No commit-parent request per branch per poll.
-- Cache positive immutable objects indefinitely as appropriate; refresh mutable PR/entity metadata. Negative PR associations need expiry/invalidation on new closures or other relevant evidence.
 - Avoid optional PR labels/statuses/work items until a feature actually needs them; Microsoft explicitly warns that label enrichment adds resource use. [S6](https://learn.microsoft.com/en-us/azure/devops/release-notes/2025/repos/sprint-254-update)
 - Prioritize recent changes over backfill, bound per-job pages/time, and expose enrichment lag. Never silently drop a page because a work budget was exhausted.
 - Validate 1/5/20 watched repos, many refs, many commits and burst pushes, including SDK discovery overhead. Eventual coverage and detection latency are separate acceptance criteria.
 
-## Acceptance matrix
+## Evidence and validation cases
 
-Tests below must exercise the provider contract, durable store/scheduler and visible Activity behavior; fixtures alone do not establish organization permissions or actual service payload shapes.
+These cases describe the evidence a feature would need to make each claim. Use tests for the provider contract, store, scheduler, and Activity behavior. Use read-only probes to verify organization permissions and service payload shapes.
 
 | Scenario | Required result |
 | --- | --- |
