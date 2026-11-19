@@ -25,7 +25,14 @@ const invoke = (area, resource, route, query = []) => [
   ...(query.length ? ['--query-parameters', ...query] : []),
 ];
 
-function harness({ responses = [], expiresIn = 3600, start = Date.parse('2026-11-18T10:00:00Z'), tokenOutput, tokenDelay = false } = {}) {
+function harness({
+  responses = [],
+  expiresIn = 3600,
+  start = Date.parse('2026-11-18T10:00:00Z'),
+  tokenOutput,
+  tokenDelay = false,
+  setTimer,
+} = {}) {
   let time = start;
   const requests = [],
     cliCalls = [];
@@ -51,7 +58,7 @@ function harness({ responses = [], expiresIn = 3600, start = Date.parse('2026-11
     return new Response(JSON.stringify(next.body ?? {}), { status: next.status, headers: next.headers });
   };
   const executor = createRestExecutor({ cliExecutor, fetch, now: () => time });
-  const cli = createAzureCli({ executor, limitPerMinute: 1000, now: () => time });
+  const cli = createAzureCli({ executor, limitPerMinute: 1000, now: () => time, ...(setTimer && { setTimer, clearTimer: () => {} }) });
   return {
     cli,
     requests,
@@ -305,4 +312,72 @@ test('PR thread and policy evaluation reads use their own routes and the policy 
   assert.equal(new URL(requests[1].url).searchParams.get('api-version'), '7.1-preview.1');
   await assert.rejects(cli.run(invoke('git', 'pullRequestThreads', ['project=P', 'repositoryId=r', 'pullRequestId=..'])));
   cli.close();
+});
+
+/** A harness whose queue timers are recorded instead of run, so a pause can be stepped through on the fake clock. */
+function pausing(responses) {
+  const timers = [];
+  const h = harness({ responses, setTimer: (callback, ms) => timers.push({ callback, ms }) });
+  return { ...h, timers };
+}
+const flush = () => new Promise(resolve => setImmediate(resolve));
+const refs = repo => invoke('git', 'refs', ['project=P', `repositoryId=${repo}`]);
+
+test('a 200 with Retry-After returns its data and starts no other call until the wait has passed', async () => {
+  const { cli, requests, timers, advance } = pausing([{ status: 200, body: { value: [1] }, headers: { 'retry-after': '30' } }]);
+  const start = Date.parse('2026-11-18T10:00:00Z');
+  assert.deepEqual(await cli.run(refs('a')), { value: [1] });
+  assert.equal(cli.diagnostics().throttledUntil, new Date(start + 30000).toISOString());
+  const next = cli.run(refs('b'));
+  await flush();
+  assert.equal(requests.length, 1);
+  assert.equal(timers.at(-1).ms, 30000);
+  advance(29999);
+  timers.at(-1).callback();
+  await flush();
+  assert.equal(requests.length, 1, 'still paused one millisecond before the end');
+  advance(1);
+  timers.at(-1).callback();
+  await next;
+  assert.equal(requests.length, 2);
+  assert.equal(cli.diagnostics().throttledUntil, null);
+  cli.close();
+});
+
+test('a 429 with Retry-After is a throttled read and pauses the queue the same way', async () => {
+  const { cli, requests, timers } = pausing([{ status: 429, headers: { 'retry-after': '30' } }]);
+  await assert.rejects(cli.run(refs('a')), { code: 'THROTTLED' });
+  cli.run(refs('b')).catch(() => {});
+  await flush();
+  assert.equal(requests.length, 1);
+  assert.equal(timers.at(-1).ms, 30000);
+  cli.close();
+});
+
+test('Retry-After as an HTTP date pauses until that moment', async () => {
+  const start = Date.parse('2026-11-18T10:00:00Z');
+  const { cli, timers } = pausing([{ status: 200, headers: { 'retry-after': new Date(start + 45000).toUTCString() } }]);
+  await cli.run(refs('a'));
+  cli.run(refs('b')).catch(() => {});
+  await flush();
+  assert.equal(timers.at(-1).ms, 45000);
+  cli.close();
+});
+
+test('an absurd Retry-After is capped at ten minutes and an unreadable one is ignored', async () => {
+  const capped = pausing([{ status: 200, headers: { 'retry-after': '99999999' } }]);
+  await capped.cli.run(refs('a'));
+  capped.cli.run(refs('b')).catch(() => {});
+  await flush();
+  assert.equal(capped.timers.at(-1).ms, 10 * 60000);
+  capped.cli.close();
+
+  for (const value of ['soon', '-5', '1.5', '']) {
+    const ignored = pausing([{ status: 200, headers: { 'retry-after': value } }]);
+    await ignored.cli.run(refs('a'));
+    await ignored.cli.run(refs('b'));
+    assert.equal(ignored.requests.length, 2, `Retry-After ${JSON.stringify(value)} is ignored`);
+    assert.equal(ignored.cli.diagnostics().throttledUntil, null);
+    ignored.cli.close();
+  }
 });

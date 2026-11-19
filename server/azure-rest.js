@@ -92,6 +92,17 @@ function requestFor(args) {
 }
 
 /**
+ * Retry-After in milliseconds from delta-seconds or an HTTP date; undefined when absent, unreadable or already past.
+ * @param {string | null} value
+ * @param {number} time
+ */
+function retryAfterMs(value, time) {
+  const text = value?.trim() ?? '';
+  const ms = /^\d+$/.test(text) ? Number(text) * 1000 : /[a-z]/i.test(text) ? Date.parse(text) - time : NaN;
+  return ms > 0 ? ms : undefined;
+}
+
+/**
  * Maps a failed request or body read onto the errors classifyCliError understands.
  * @param {unknown} error
  */
@@ -150,8 +161,9 @@ export function createRestExecutor({ cliExecutor, fetch = globalThis.fetch, now 
    */
   async function send(request, options, bearer) {
     const signal = AbortSignal.any([options.signal, AbortSignal.timeout(options.timeoutMs)].filter(Boolean));
+    let response;
     try {
-      return await fetch(request.url, {
+      response = await fetch(request.url, {
         method: 'GET',
         signal,
         redirect: 'error',
@@ -165,6 +177,9 @@ export function createRestExecutor({ cliExecutor, fetch = globalThis.fetch, now 
     } catch (error) {
       throw transportError(error);
     }
+    const wait = retryAfterMs(response.headers.get('retry-after'), now());
+    if (wait) options.retryAfter?.(wait);
+    return response;
   }
   /**
    * @param {string[]} args

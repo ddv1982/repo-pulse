@@ -390,3 +390,13 @@ test('a history import that keeps failing is a problem, not endless syncing', ()
   const denied = { code: 'FORBIDDEN', message: 'No access to this repository.' };
   assert.equal(status({ jobs: [{ repoId: 'a', status: 'retrying', failures: 1, error: denied }] }).repos.a.state, 'problem');
 });
+
+test('a queue paused by Azure throttling makes every running repository delayed with that reason', () => {
+  const paused = status({ throttledUntil: iso(NOW + 30000) });
+  assert.deepEqual(paused.repos.a, { state: 'delayed', reason: 'Azure DevOps asked us to slow down', since: ago(1) });
+  assert.equal(paused.overall.state, 'delayed');
+  assert.equal(status({ throttledUntil: iso(NOW - 1) }).overall.state, 'synced');
+  assert.equal(status({ throttledUntil: null }).overall.state, 'synced');
+  const problem = status({ throttledUntil: iso(NOW + 30000), a: { builds: { error: forbidden, failures: 1 } } });
+  assert.equal(problem.repos.a.state, 'problem');
+});
