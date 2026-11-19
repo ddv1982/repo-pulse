@@ -13,7 +13,8 @@ import { setHtml } from './dom.js';
  * @typedef {{ state: CheckoutStatus['state'], canPull?: boolean, followup?: FollowupSummary,
  *   review?: Review, nextStep?: string } & Partial<Omit<BlockedCheckout, 'state' | 'canPull'>>} CheckoutSnapshot
  */
-/** @typedef {{ checkout: CheckoutSnapshot, updated?: boolean, message?: string, review?: Review, nextStep?: string }} CheckoutUpdate */
+/** @typedef {{ checkout: CheckoutSnapshot, updated?: boolean, message?: string, notice?: string,
+ *   switchReview?: import('../../server/checkout-git.js').ActivitySwitchReview, review?: Review, nextStep?: string }} CheckoutUpdate */
 /** @typedef {'check' | 'pull' | 'switch-activity' | 'switch-update' | 'review' | 'remove' | 'carry'} CheckoutOperation */
 
 /** @param {{ page: HTMLElement, request: typeof import('../api.js').request, isVisible: () => boolean }} options */

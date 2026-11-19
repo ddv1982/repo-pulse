@@ -462,6 +462,7 @@ export function createStore(path = ':memory:') {
         q('DELETE FROM repositories WHERE id=?').run(id);
         bumpActivity();
         q('DELETE FROM settings WHERE key IN (?,?,?)').run(`baseline:${id}`, `checkout:${id}`, `checkout-followup:${id}`);
+        q('DELETE FROM settings WHERE substr(key,1,length(?))=?').run(`checkout:${id}:`, `checkout:${id}:`);
       });
     },
     /**

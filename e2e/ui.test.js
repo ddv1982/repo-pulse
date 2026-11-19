@@ -358,12 +358,16 @@ async function setupPicker(t, { existing = true } = {}) {
   return { page, store, calls };
 }
 
-test('a New branch detail switches the linked checkout, then opens its repository for an explicit pull', async t => {
+test('a New branch detail reviews a rewritten tracking ref before switching, then opens the checkout for pull', async t => {
   const { source, local, repo, checkoutGit, commit, original } = checkoutFixture(t);
   const branch = 'feature/checkout-from-activity';
   git(source, 'switch', '-c', branch);
-  const firstTip = commit(source, 'topic.txt', 'first topic commit');
+  const previousTip = commit(source, 'topic.txt', 'previous topic commit');
   git(source, 'push', 'origin', branch);
+  git(local, 'fetch', 'origin', branch);
+  git(source, 'reset', '--hard', original);
+  const firstTip = commit(source, 'topic.txt', 'first topic commit');
+  git(source, 'push', '--force-with-lease', 'origin', branch);
   const localFile = join(local, 'feature.txt');
   await writeFile(localFile, 'uncommitted local edit');
   const store = createStore();
@@ -410,6 +414,13 @@ test('a New branch detail switches the linked checkout, then opens its repositor
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
   assert.equal(git(local, 'rev-parse', 'HEAD'), original);
   await dialog.getByRole('button', { name: 'Switch branch', exact: true }).click();
+  await expect(dialog).toContainText(`changed from ${previousTip.slice(0, 12)} to ${firstTip.slice(0, 12)}`);
+  await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+  assert.equal(git(local, 'rev-parse', 'HEAD'), original);
+  assert.equal(git(local, 'rev-parse', `origin/${branch}`), previousTip);
+  await page.getByRole('button', { name: 'Switch branch…' }).click();
+  await dialog.getByRole('button', { name: 'Switch branch', exact: true }).click();
+  await dialog.getByRole('button', { name: 'Confirm switch', exact: true }).click();
 
   await expect(page).toHaveURL(/#repositories\/repo$/);
   const checkout = page.locator('#checkout-state-repo');
@@ -419,7 +430,7 @@ test('a New branch detail switches the linked checkout, then opens its repositor
   assert.equal(git(local, 'rev-parse', 'HEAD'), firstTip);
   assert.equal(git(local, 'config', `branch.${branch}.remote`), 'origin');
   assert.equal(git(local, 'config', `branch.${branch}.merge`), `refs/heads/${branch}`);
-  assert.throws(() => git(local, 'show-ref', '--verify', `refs/remotes/origin/${branch}`));
+  assert.equal(git(local, 'rev-list', '--left-right', '--count', 'HEAD...@{upstream}'), '0\t0');
   const newerTip = commit(source, 'topic.txt', 'next topic commit');
   git(source, 'push', 'origin', branch);
   await checkout.getByRole('button', { name: 'Check for updates' }).click();
