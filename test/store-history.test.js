@@ -612,7 +612,7 @@ test('v9 migration drops the old Pull journal and keeps repositories and events'
   }
   const check = new DatabaseSync(path);
   assert.equal(check.prepare("SELECT name FROM sqlite_master WHERE name='pull_operations'").get(), undefined);
-  assert.equal(check.prepare('PRAGMA user_version').get().user_version, 12);
+  assert.equal(check.prepare('PRAGMA user_version').get().user_version, 13);
   check.close();
   rmSync(dir, { recursive: true });
 });
@@ -632,13 +632,13 @@ test('a fresh database is created with its final activity columns', () => {
       { name: 'evidence_id', notnull: 1, dflt_value: "''" },
     ],
   );
-  assert.equal(check.prepare('PRAGMA user_version').get().user_version, 12);
+  assert.equal(check.prepare('PRAGMA user_version').get().user_version, 13);
   check.close();
   rmSync(dir, { recursive: true });
 });
 
 test('every older database version and a fresh database end at the latest version, and a newer one is refused', () => {
-  const latest = 12;
+  const latest = 13;
   const dir = mkdtempSync(join(tmpdir(), 'pulse-versions-'));
   const versionOf = path => {
     const db = new DatabaseSync(path);
@@ -687,5 +687,50 @@ test('a compaction left pending by an earlier start runs on the next start', () 
   assert.equal(after.prepare("SELECT 1 FROM settings WHERE key='compactPending'").get(), undefined);
   after.close();
   assert.ok(statSync(path).size < before / 2, 'the start compacts the file');
+  rmSync(dir, { recursive: true });
+});
+
+test('migration 13 rebuilds search_text from named fields and preserves enrichment search without changing read state', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'pulse-search-v13-'));
+  const path = join(dir, 'state.sqlite');
+  let store = createStore(path);
+  store.saveRepo(repo);
+  store.insertEvents([
+    build('b-1', 'Build #42', {
+      seen: true,
+      data: {
+        buildId: 42,
+        status: 'inProgress',
+        definition: { name: 'Nightly CI', url: 'https://dev.azure.com/org/_apis/build/Definitions/42' },
+      },
+    }),
+    event('p-1', {
+      imported: true,
+      seen: true,
+      data: { pushId: 9, refUpdates: [{ name: 'refs/heads/main', oldObjectId: '1111aaaa', newObjectId: '2222bbbb' }] },
+    }),
+  ]);
+  store.enrichEvent('p-1', {
+    commits: [{ commitId: '3333cccc', comment: 'Enriched note' }],
+    mergeEvidence: {
+      commits: [{ commitId: '4444dddd', parents: ['5555eeee'] }],
+      rewrite: [{ ref: 'refs/heads/main', status: 'fast-forward' }],
+    },
+  });
+  store.close();
+  const db = new DatabaseSync(path);
+  db.prepare('UPDATE activity_members SET search_text=?').run('{"definition":{"url":"_apis/build/definitions/42"}}');
+  db.exec('PRAGMA user_version=12');
+  db.close();
+  store = createStore(path);
+  assert.equal(store.queryActivity({ search: 'Nightly CI' }).total, 1);
+  assert.equal(store.queryActivity({ search: 'inProgress' }).total, 1);
+  assert.equal(store.queryActivity({ search: '_apis/build/definitions/42' }).total, 0);
+  assert.equal(store.queryActivity({ search: 'Enriched note' }).total, 1);
+  assert.equal(store.queryActivity({ search: '5555eeee' }).total, 1);
+  assert.equal(store.queryActivity({ search: 'fast-forward' }).total, 1);
+  assert.equal(store.getEvent('b-1').seen, true);
+  assert.equal(store.getEvent('p-1').imported, true);
+  store.close();
   rmSync(dir, { recursive: true });
 });

@@ -178,9 +178,97 @@ export function activityEvidenceId(event) {
 /** @param {EvidencedEvent} event */
 export const activityMergeBadge = event => evidenceLabels[activityEvidenceId(event)] || '';
 
+/** @param {Set<string>} terms @param {unknown} value */
+function addSearchTerm(terms, value) {
+  if (typeof value !== 'string' && typeof value !== 'number') return;
+  const text = String(value).trim().toLowerCase();
+  if (text && !/^0+$/.test(text)) terms.add(text);
+}
+
+/** @param {Set<string>} terms @param {import('./activity.js').MergeEvidenceData | undefined} evidence */
+function addEvidenceSearchTerms(terms, evidence) {
+  if (!evidence) return;
+  for (const pr of evidence.prs || []) {
+    addSearchTerm(terms, pr.pullRequestId ?? pr.id);
+    addSearchTerm(terms, pr.sourceRefName);
+    addSearchTerm(terms, pr.targetRefName);
+    addSearchTerm(terms, pr.mergeCommit);
+    addSearchTerm(terms, pr.mergeStrategy);
+    addSearchTerm(terms, typeof pr.closedBy === 'string' ? pr.closedBy : pr.closedBy?.displayName);
+  }
+  for (const commit of evidence.commits || []) {
+    addSearchTerm(terms, commit.commitId);
+    for (const parent of commit.parents || []) addSearchTerm(terms, parent);
+    for (const branch of commit.branches || []) addSearchTerm(terms, branch);
+  }
+  for (const id of evidence.introducedCommitIds || []) addSearchTerm(terms, id);
+  for (const range of evidence.refRanges || []) {
+    addSearchTerm(terms, range.name);
+    addSearchTerm(terms, range.oldObjectId);
+    addSearchTerm(terms, range.newObjectId);
+    addSearchTerm(terms, range.update?.status);
+    for (const id of range.commitIds || []) addSearchTerm(terms, id);
+  }
+  for (const item of evidence.rewrite || []) {
+    addSearchTerm(terms, item.ref);
+    addSearchTerm(terms, item.status);
+    if (item.status === 'rewrite') terms.add('history rewritten');
+  }
+}
+
+/** @param {Set<string>} terms @param {import('./activity.js').EventData | undefined} data */
+function addDataSearchTerms(terms, data) {
+  if (!data) return;
+  for (const value of [
+    data.pushId,
+    data.push?.pushId,
+    data.pullRequestId,
+    data.buildId,
+    data.id,
+    data.name,
+    data.sourceRefName,
+    data.targetRefName,
+    data.sourceBranch,
+    data.oldObjectId,
+    data.newObjectId,
+    data.commitId,
+    data.objectId,
+    data.peeledObjectId,
+    data.sourceCommit,
+    data.targetCommit,
+    data.mergeCommit,
+    data.sourceVersion,
+    data.definition?.name,
+    data.status,
+    data.result,
+    data.reason,
+    data.closedBy,
+    data.mergeStrategy,
+    data.fork?.repository,
+    data.fork?.project,
+  ])
+    addSearchTerm(terms, value);
+  for (const reviewer of data.reviewers || []) addSearchTerm(terms, reviewer.name);
+  for (const change of data.voteChanges || []) addSearchTerm(terms, change.name);
+  for (const ref of data.refUpdates || []) {
+    addSearchTerm(terms, ref.name);
+    addSearchTerm(terms, ref.oldObjectId);
+    addSearchTerm(terms, ref.newObjectId);
+  }
+  for (const commit of data.commits || []) {
+    if (!commit || typeof commit !== 'object') continue;
+    const entry = /** @type {{ commitId?: unknown, comment?: unknown }} */ (commit);
+    addSearchTerm(terms, entry.commitId);
+    addSearchTerm(terms, entry.comment);
+  }
+  addEvidenceSearchTerms(terms, data.mergeEvidence);
+}
+
 /** @param {ActivityEvent} event */
 export function activitySearchText(event) {
-  return [
+  /** @type {Set<string>} */
+  const terms = new Set();
+  for (const value of [
     event.title,
     event.branch,
     event.actor,
@@ -188,10 +276,10 @@ export function activitySearchText(event) {
     activityLabel(event),
     activitySummary(event),
     activityMergeBadge(event),
-    JSON.stringify(event.data || {}),
-  ]
-    .join(' ')
-    .toLowerCase();
+  ])
+    addSearchTerm(terms, value);
+  addDataSearchTerms(terms, event.data);
+  return [...terms].join(' ');
 }
 
 /** @typedef {{ type: 'all' } | { type: 'kind' | 'status' | 'evidence', id: string }} ActivityFilter */
