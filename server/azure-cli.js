@@ -212,7 +212,8 @@ export async function resolveAzCommand({ platform = process.platform, env = proc
       return {
         file: venv,
         prefix: ['-m', 'azure.cli'],
-        env: { AZ_INSTALLER: 'PIP', PYTHONPATH: [win32.join(dir, 'src'), env.PYTHONPATH].filter(Boolean).join(';') },
+        // PYTHONSAFEPATH keeps the working directory off sys.path, like -I does for the bundled Python.
+        env: { AZ_INSTALLER: 'PIP', PYTHONSAFEPATH: '1', PYTHONPATH: [win32.join(dir, 'src'), env.PYTHONPATH].filter(Boolean).join(';') },
       };
     }
   }

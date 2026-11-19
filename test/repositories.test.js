@@ -7,7 +7,7 @@ import { parseRemote, normalizeOrganization, repositoryKey, discoverRepositories
 
 test('Azure remote formats normalize to a credential-free canonical identity', () => {
   const forms = [
-    'https://user:secret@dev.azure.com/Org/Project/_git/Repo',
+    'https://user@dev.azure.com/Org/Project/_git/Repo',
     'git@ssh.dev.azure.com:v3/Org/Project/Repo',
     'ssh://git@ssh.dev.azure.com/v3/Org/Project/Repo',
     'Org@vs-ssh.visualstudio.com:v3/Org/Project/Repo',
@@ -33,8 +33,11 @@ test('unapproved hosts, path injection and organization credentials are rejected
     'https://dev.azure.com/org/P/_git/%2Fetc',
     'git@ssh.dev.azure.com:v3/org/P/-option',
     'https://dev.azure.com/org/P/_git/R?token=secret',
+    'https://dev.azure.com/org/P/_git/@notes.txt',
+    'git@ssh.dev.azure.com:v3/org/@P/R',
   ])
     assert.throws(() => parseRemote(input));
+  assert.throws(() => parseRemote('https://user:secret@dev.azure.com/Org/Project/_git/Repo'), { code: 'REMOTE_PASSWORD' });
   assert.throws(() => normalizeOrganization('https://secret@dev.azure.com/org'));
 });
 
@@ -59,6 +62,27 @@ test('explicit discovery reads local Azure remotes without modifying config and 
     assert(!JSON.stringify(found).includes('secret'));
     assert.equal(await readFile(join(root, 'azure', '.git', 'config'), 'utf8'), before);
     assert.equal((await discoverRepositories(join(root, 'azure'))).repositories.length, 1);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('discovery skips a remote with a password in its URL and says why', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'repo-pulse-password-'));
+  try {
+    const git = join(root, '.git');
+    await mkdir(join(git, 'objects'), { recursive: true });
+    await mkdir(join(git, 'refs'), { recursive: true });
+    await writeFile(join(git, 'HEAD'), 'ref: refs/heads/main\n');
+    await writeFile(
+      join(git, 'config'),
+      '[core]\n repositoryformatversion = 0\n bare = false\n[remote "origin"]\n url = https://user:hunter2@dev.azure.com/org/Project/_git/Repo\n',
+    );
+    const found = await discoverRepositories(root);
+    assert.equal(found.repositories.length, 0);
+    assert.equal(found.warnings.length, 1);
+    assert.match(found.warnings[0], /\(origin\): Remove the password/);
+    assert(!JSON.stringify(found).includes('hunter2'));
   } finally {
     await rm(root, { recursive: true, force: true });
   }

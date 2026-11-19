@@ -226,7 +226,7 @@ export function createAzureClient({ cli, now = Date.now } = {}) {
       const organization = normalizeOrganization(parsed.organization);
       const project = parsed.project,
         name = parsed.repoName || parsed.name;
-      if (typeof project !== 'string' || typeof name !== 'string' || !project || !name || project.startsWith('-') || name.startsWith('-'))
+      if (typeof project !== 'string' || typeof name !== 'string' || !project || !name || /^[-@]/.test(project) || /^[-@]/.test(name))
         throw new Error('Choose a valid Azure repository.');
       const raw = await cli.run([
         'repos',
