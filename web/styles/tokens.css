@@ -1,7 +1,9 @@
-/* Color, typography, sky, and light-mode glass surface tokens. */
+/* Control sizes, color, typography, sky, and light-mode glass surface tokens. */
 :root {
   color-scheme: light;
   --radius: 0.5rem;
+  --control-height: 36px;
+  --control-height-sm: 28px;
   --font-sans: -apple-system, BlinkMacSystemFont, 'Inter Variable', 'Segoe UI', system-ui, sans-serif;
   --font-mono: ui-monospace, 'SF Mono', 'SFMono-Regular', Menlo, Consolas, 'Liberation Mono', monospace;
   --background: oklch(0.955 0.02 236);
@@ -58,6 +60,12 @@
   );
   --info: var(--primary);
   --neutral-solid: color-mix(in oklab, var(--muted-foreground) 60%, transparent);
+}
+@media (max-width: 767px) {
+  :root {
+    --control-height: 44px;
+    --control-height-sm: 36px;
+  }
 }
 :root.dark {
   color-scheme: dark;

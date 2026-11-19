@@ -128,13 +128,15 @@ p {
 }
 
 /* Controls, buttons, and segmented navigation. */
+:where(.control, .btn, .ghost, .search) {
+  height: var(--control-height);
+}
 .control,
 .btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 6px;
-  height: 36px;
   max-width: 100%;
   border: 1px solid var(--input);
   background: var(--card);
@@ -160,16 +162,10 @@ p {
   border-color: var(--primary);
   color: var(--primary-foreground);
 }
-.btn.sm {
-  height: 28px;
-  padding: 0 8px;
-  font-size: 12px;
-}
 .ghost {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  height: 36px;
   padding: 0 10px;
   border: 0;
   background: none;
@@ -188,15 +184,15 @@ p {
   background: color-mix(in oklab, var(--foreground) 6%, transparent);
   color: var(--foreground);
 }
-.ghost.sm {
-  height: 28px;
+:is(.control, .btn, .ghost, .search).sm {
+  height: var(--control-height-sm);
   padding: 0 8px;
   font-size: 12px;
 }
 .seg {
   display: inline-flex;
   gap: 2px;
-  height: 36px;
+  height: var(--control-height);
   padding: 2px;
   border: 1px solid var(--input);
   border-radius: var(--radius);
@@ -450,7 +446,7 @@ dialog .dfoot {
   flex-wrap: wrap;
 }
 #confirm-dialog .dfoot .btn {
-  min-height: 36px;
+  min-height: var(--control-height);
   height: auto;
   padding-block: 6px;
   white-space: normal;
@@ -494,12 +490,6 @@ dialog .dfoot {
 @media (max-width: 767px) {
   .actions {
     margin-left: 0;
-  }
-  .btn {
-    min-height: 44px;
-  }
-  .btn.sm {
-    min-height: 36px;
   }
 }
 @media (prefers-reduced-motion: reduce) {

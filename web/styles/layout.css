@@ -107,7 +107,6 @@ header.app {
   .tabs {
     order: 5;
     width: 100%;
-    height: 44px;
   }
   .tabs > a {
     flex: 1;
@@ -118,7 +117,7 @@ header.app {
     position: static;
   }
   .menu-panel {
-    top: 44px;
+    top: var(--control-height);
     left: 0;
     right: 0;
     width: auto;
@@ -170,7 +169,7 @@ header.app {
     flex-wrap: wrap;
   }
   .seg.tabs a {
-    min-height: 36px;
+    min-height: var(--control-height-sm);
     padding: 0 8px;
     font-size: 11px;
   }
@@ -243,7 +242,7 @@ header.app {
   inset: 6px 6px auto auto;
 }
 .header-monitoring-menu {
-  top: 36px;
+  top: var(--control-height);
   left: auto;
   right: 0;
   width: 256px;

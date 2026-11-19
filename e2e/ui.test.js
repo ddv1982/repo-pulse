@@ -556,6 +556,44 @@ test('filtered group marks only shown matching updates while the hidden transiti
   assert.equal(runtime.store.listEvents().find(item => item.id === 'build-queued').seen, false);
 });
 
+test('mixed control rows use one height per size on desktop and phone', async t => {
+  const { page, runtime } = await groupedFixture(t);
+  runtime.store.setSetting('savedActivityFilters', [
+    { id: 'team', name: 'Orders team', filters: { search: '', people: '', kind: '', repoIds: null, view: 'new' } },
+  ]);
+  await page.reload();
+  const height = (selector, expected) => expect(page.locator(selector)).toHaveCSS('height', `${expected}px`);
+
+  for (const [width, standard, compact] of [
+    [1280, 36, 28],
+    [390, 44, 36],
+  ]) {
+    await page.setViewportSize({ width, height: 900 });
+    if (width < 640) await page.locator('details[data-filter-panel] > summary').click();
+    await page.getByRole('combobox', { name: 'Saved filters' }).selectOption({ label: 'Orders team' });
+    for (const theme of ['Light', 'Dark']) {
+      await page.getByRole('button', { name: theme, exact: true }).click();
+      for (const selector of ['#feed-search', '#kind-toggle', '[data-action="clear-filters"]']) await height(selector, standard);
+      for (const selector of ['#saved-filter', '#save-filter', '#apply-filter', '#update-filter', '#rename-filter', '#delete-filter']) {
+        await height(selector, compact);
+      }
+      await height('.rowact [data-action="ack-item"]', compact);
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+    }
+  }
+
+  await page.getByRole('link', { name: 'Settings', exact: true }).click();
+  await page.locator('#azure-connection-toggle').click();
+  for (const [width, compact] of [
+    [390, 36],
+    [1280, 28],
+  ]) {
+    await page.setViewportSize({ width, height: 900 });
+    await height('#connection-repo', compact);
+    await height('#check-settings-connection', compact);
+  }
+});
+
 test('healthy phone catch-up shows first activity and theme icons before the fold', async t => {
   const { page } = await groupedFixture(t);
   for (const theme of ['Light', 'Dark']) {
