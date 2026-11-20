@@ -28,11 +28,11 @@ its surroundings. Polish only, no new features.
 
 ## Batch 2: summary and list structure
 
-- [ ] B2.1 Summary headline stops repeating the count: drop `Showing X of X` when equal, drop the totals line when it
+- [x] B2.1 Summary headline stops repeating the count: drop `Showing X of X` when equal, drop the totals line when it
   equals the headline, drop the repository count already shown in the header.
-- [ ] B2.2 Bulk seen actions sit above the rows instead of only below them.
-- [ ] B2.3 Collapsible group headers show a chevron that turns when open.
-- [ ] B2.4 Checks pass; screenshots reviewed.
+- [x] B2.2 Bulk seen actions sit above the rows instead of only below them.
+- [x] B2.3 Collapsible group headers show a chevron that turns when open.
+- [x] B2.4 Checks pass; screenshots reviewed.
 
 ## Batch 3: small items
 

@@ -52,8 +52,17 @@ export function renderSummary(records, state, ui, partial) {
           : records.length
             ? noUnread
             : emptyActivityMessage(ui, partial);
-  const repos = state.repos.filter(repo => ui.repoIds === null || ui.repoIds.includes(repo.id)).length;
-  return html`<section class="card summary mb" aria-label="Activity summary"><div class="top"><div class="headline"><p><b class="${unseen.length ? '' : 'zero'}">${headline}</b>${updates > unseen.length ? ` · ${updates} updates` : ''}</p><ul class="legend"><li>${repos} repositor${repos === 1 ? 'y' : 'ies'}</li>${!state.activity.loading && !state.activity.error ? html`<li>Showing ${records.length} of ${state.activity.total} items</li><li>${state.activity.newItems} total new items · ${state.activity.newUpdates} new updates</li>` : emptyHtml}</ul></div><div class="summary-chips" aria-label="Activity counts">${counts
+  // The header names the repository scope. These lines appear only when the list leaves something out.
+  const loaded = !state.activity.loading && !state.activity.error;
+  const legend = loaded
+    ? [
+        records.length < (state.activity.total ?? 0) ? `Showing ${records.length} of ${state.activity.total} items` : '',
+        (state.activity.newItems ?? 0) > unseen.length
+          ? `${state.activity.newItems} total new items · ${state.activity.newUpdates} new updates`
+          : '',
+      ].filter(Boolean)
+    : [];
+  return html`<section class="card summary mb" aria-label="Activity summary"><div class="top"><div class="headline"><p><b class="${unseen.length ? '' : 'zero'}">${headline}</b>${updates > unseen.length ? ` · ${updates} updates` : ''}</p>${legend.length ? html`<ul class="legend">${legend.map(line => html`<li>${line}</li>`)}</ul>` : emptyHtml}</div><div class="summary-chips" aria-label="Activity counts">${counts
     .filter(cell => cell.count)
     .map(
       cell => html`<span class="chip ${cell.tone || ''}">${cell.label} ${cell.count}${cell.sub ? ` · ${cell.sub}` : ''}</span>`,

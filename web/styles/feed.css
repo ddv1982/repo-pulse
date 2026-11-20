@@ -227,6 +227,19 @@ details > summary::-webkit-details-marker {
 summary.ghead {
   color: var(--muted-foreground);
 }
+summary.ghead::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  margin: 0 2px 0 1px;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: rotate(-45deg);
+  transition: transform 0.15s;
+}
+details[open] > summary.ghead::before {
+  transform: rotate(45deg);
+}
 summary.ghead:hover {
   color: var(--foreground);
 }
@@ -414,6 +427,10 @@ ol.rows {
   flex-wrap: wrap;
   gap: 6px;
   align-items: center;
+}
+.feed .feed-actions {
+  border-top: 0;
+  border-bottom: 1px solid var(--border);
 }
 .trail {
   margin-top: 6px;

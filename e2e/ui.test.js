@@ -978,7 +978,8 @@ test('one Activity group offers clearly distinct New updates and All activity wi
   if ((await importedHistory.getAttribute('open')) === null) await importedHistory.locator('summary').click();
   await expect(page.locator('[data-event-id="imported-push"]')).toBeVisible();
   await expect(page.getByRole('region', { name: 'Activity summary' })).toContainText('1 new item');
-  await expect(page.getByRole('region', { name: 'Activity summary' })).toContainText('Showing 3 of 3 items');
+  // Every matching item is loaded, so the summary does not repeat the count.
+  await expect(page.getByRole('region', { name: 'Activity summary' })).not.toContainText('Showing');
   await page.getByRole('link', { name: 'New updates', exact: true }).click();
   await expect(page).toHaveURL(/#activity\/new$/);
   await expect(page.locator('li.row')).toHaveCount(1);
