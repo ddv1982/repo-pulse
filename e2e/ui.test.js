@@ -513,6 +513,14 @@ test('Repositories switches between watched branches, and a merged pull request 
   await picker.getByRole('button', { name: 'Cancel', exact: true }).click();
   await expect(picker).toBeHidden();
   await expect(open).toBeFocused();
+  // Leaving Repositories closes the picker, so it cannot switch the checkout from another page.
+  await open.click();
+  await page.evaluate(() => {
+    location.hash = '#settings';
+  });
+  await expect(picker).toBeHidden();
+  await page.goBack();
+  await expect(open).toBeVisible();
 
   await open.click();
   await page.getByRole('searchbox', { name: 'Filter branches' }).fill('top');

@@ -745,6 +745,8 @@ document.addEventListener('keydown', event => {
 
 function route() {
   clearTimeout(searchTimer);
+  // The branch picker belongs to the Repositories visit that opened it.
+  branchPicker.close();
   const { destination, capacity, scrollToTop } = navigation.enter(refresh.state.watched);
   if (isActivity(destination)) refresh.resetActivity(capacity);
   else if (destination === 'event') refresh.prepareDetail(ui.eventId);
