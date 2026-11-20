@@ -35,7 +35,8 @@ test('durable exact acknowledgement does not consume hidden or incoming events',
   assert.equal(store.listEvents().find(e => e.id === 'history').seen, true);
   store.acknowledge(['shown'], false);
   assert.equal(store.listEvents({ unseen: true }).length, 3);
-  assert.equal(statSync(path).mode & 0o777, 0o600);
+  // Windows reports no POSIX permission bits.
+  if (process.platform !== 'win32') assert.equal(statSync(path).mode & 0o777, 0o600);
   store.close();
   rmSync(folder, { recursive: true });
 });
