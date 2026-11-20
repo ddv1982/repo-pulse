@@ -7,7 +7,7 @@ const headName = ref => (typeof ref === 'string' && ref.startsWith('refs/heads/'
 
 /**
  * The one branch an activity leaves to switch to, or null when it names none or several. A completed pull request
- * leaves its target, an active one from this repository its source. A push that also deletes branches still names the
+ * leaves its target, an active one whose row shows it comes from this repository its source. A push that also deletes branches still names the
  * one branch it moved.
  * @param {import('./activity.js').ActivityEvent} event
  */
@@ -17,7 +17,10 @@ export function activityBranch(event) {
   if (kind === 'build') return headName(data?.sourceBranch);
   if (kind === 'pr') {
     if (data?.status === 'completed') return headName(data.targetRefName);
-    return data?.status === 'active' && !data.fork ? headName(data.sourceRefName) : null;
+    // Only a row that recorded both repositories can show the source branch is not a fork's branch of the same name.
+    const { sourceRepositoryId: source, targetRepositoryId: target } = data ?? {};
+    const local = typeof source === 'string' && typeof target === 'string' && source.toLowerCase() === target.toLowerCase();
+    return data?.status === 'active' && local ? headName(data.sourceRefName) : null;
   }
   if (kind !== 'push') return null;
   const updates = data?.refUpdates ?? [];

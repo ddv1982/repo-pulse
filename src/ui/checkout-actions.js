@@ -159,7 +159,8 @@ export function createCheckoutActions({ checkoutPanel, getActivityCheckout, conf
       closeBranchPicker();
       if (!repoId || !branch) return;
       const focus = () => document.getElementById(`checkout-state-${repoId}`)?.focus();
-      await switchCheckout({ repoId, localPath, branch, isCurrent: () => true }, 'switch-branch', { branch }, focus);
+      const isCurrent = () => location.hash.startsWith('#repositories');
+      await switchCheckout({ repoId, localPath, branch, isCurrent }, 'switch-branch', { branch }, focus);
     },
     'check-checkout': element => {
       const id = element.dataset.id ?? '';

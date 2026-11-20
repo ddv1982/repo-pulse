@@ -57,6 +57,11 @@ export function createBranchPicker(dialog, { load }) {
     list.querySelector('button:not([disabled])')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
   });
   required('[data-branch-cancel]', HTMLElement, dialog).addEventListener('click', () => dialog.close());
+  // Checkout polling may have replaced the button that opened the dialog; focus its replacement or the checkout.
+  dialog.addEventListener('close', () => {
+    if (document.activeElement && document.activeElement !== document.body) return;
+    (document.getElementById(`checkout-switch-${repo?.id}`) ?? document.getElementById(`checkout-state-${repo?.id}`))?.focus();
+  });
 
   return {
     get open() {

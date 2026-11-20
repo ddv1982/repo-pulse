@@ -34,7 +34,9 @@ clearly named: Activity details and the Repositories page. Council: Claude Opus 
 
   Abandoned PRs, tags, deletions and pushes that update several branches still give none.
 - D2 (approved 2026-11-20): an active PR from the same repository gives its source branch, so a reviewer can
-  switch to it. Opus and Neon include it; Sol defers it. Fork PRs give none.
+  switch to it. Opus and Neon include it; Sol defers it. Fork PRs give none. Review found that `data.fork` is only recorded since
+  2026-11-18, so PR rows now record both repository IDs, and only a row whose IDs match names its source. Older active
+  PR rows offer no switch until the PR changes; the Repositories picker covers them.
 - D3 The button names its target: "Switch to main…". A completed PR otherwise gives no hint whether it means source or
   target.
 - D4 Repositories gets a "Switch branch…" button beside the current branch. It opens a dialog with:

@@ -46,7 +46,7 @@
  *   mergeCommit?: string, mergeStrategy?: string, closedBy?: string, sourceVersion?: string, sourceBranch?: string,
  *   commitId?: string, push?: { pushId?: number|string },
  *   change?: 'created' | 'moved' | 'deleted', objectId?: string, peeledObjectId?: string,
- *   fork?: { repository?: string, project?: string },
+ *   fork?: { repository?: string, project?: string }, sourceRepositoryId?: string, targetRepositoryId?: string,
  *   pullRequest?: { id: number|string, sourceRefName?: string, targetRefName?: string, fork?: { repository?: string, project?: string } },
  *   reviewers?: { name: string, vote: number, required?: boolean }[], voteChanges?: { name: string, vote: number }[] }} EventData
  */
