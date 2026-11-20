@@ -59,8 +59,11 @@ function rowSummary(record) {
   return record.kind === 'build' && summary === 'Not supplied' ? '' : summary;
 }
 
-/** @param {ActivityItem} record @param {PageState} state @param {import('../activity-tree.js').TreeRow} [tree] */
-function row(record, state, tree) {
+/**
+ * @param {ActivityItem} record @param {PageState} state @param {import('../activity-tree.js').TreeRow} [tree]
+ * @param {boolean} [showRepo] whether more than one repository is in view, so the row has to say which one it belongs to
+ */
+function row(record, state, tree, showRepo = true) {
   const repo = state.repos.find(item => item.id === record.repoId);
   const tone = activityTone(record);
   const failed = record.kind === 'build' && buildState(record).tone === 'crit';
@@ -72,27 +75,27 @@ function row(record, state, tree) {
   const origin = forkText(tree?.fork ?? null);
   return html`<li class="${['row', failed ? 'crit' : '', record.unseen ? 'new' : '', `tone-${tone}`].filter(Boolean).join(' ')}" data-event-id="${record.id}" data-event-ids="${ids}" data-group-key="${record.groupKey}" data-unseen-ids="${unreadIds}">${tree ? renderTreeCell(tree, tone) : emptyHtml}
     <span class="kind ${tone}">${record.kind === 'branch-created' ? icons.branch : html`<span class="d"></span>`}${activityLabel(record)}</span>
-    <div class="subject"><button class="feed-title" type="button" data-action="detail" data-id="${record.id}"><span class="title">${title}${record.unseenIds.length > 1 ? html` <span class="pill u new-count">${record.unseenIds.length} new</span>` : emptyHtml}</span><span class="subref">${repo?.name || 'Unknown repository'}${record.branch ? ` / ${activityRef(record)}` : ''}</span></button></div>
+    <div class="subject"><button class="feed-title" type="button" data-action="detail" data-id="${record.id}"><span class="title">${title}${record.unseenIds.length > 1 ? html` <span class="pill u new-count">${record.unseenIds.length} new</span>` : emptyHtml}</span><span class="subref">${[showRepo ? repo?.name || 'Unknown repository' : '', record.branch ? activityRef(record) : ''].filter(Boolean).join(' / ')}</span></button></div>
     <div class="event">${rowSummary(record)}${mergeEvidenceBadge(record)}<div class="help">${actor ? `${record.kind === 'pr' ? 'Created by ' : record.kind === 'push' ? 'Pushed by ' : ''}${actor} · ` : ''}<time datetime="${record.time}">${dateTime(record.time)}</time>${origin ? ` · ${origin}` : ''}</div>${renderTrail(record)}</div>
     <div class="rowact">${azureLink(record.url)}${record.imported ? emptyHtml : html`<button class="ghost sm seen-toggle" type="button" id="seen-${record.id}" data-action="ack-item" data-id="${record.id}" data-mark-seen="${record.unseen}" data-event-ids="${ackIds}" aria-pressed="${!record.unseen}" aria-label="Seen: ${title}">${icons.seenBox}Seen</button>`}</div></li>`;
 }
 
-/** @param {string} title @param {ActivityItem[]} records @param {PageState} state @param {{ open?: boolean, description?: string, tree?: import('../activity-tree.js').ActivityTree }} [options] */
-function group(title, records, state, { open = true, description = '', tree } = {}) {
+/** @param {string} title @param {ActivityItem[]} records @param {PageState} state @param {{ open?: boolean, description?: string, tree?: import('../activity-tree.js').ActivityTree, showRepo?: boolean }} [options] */
+function group(title, records, state, { open = true, description = '', tree, showRepo = true } = {}) {
   if (!records.length) return emptyHtml;
-  return html`<section class="group"><details data-group="${title}" ${open ? html`open` : emptyHtml}><summary class="ghead">${title} <span class="pill u">${records.length}</span><span class="note">${description}</span></summary><ul class="rows${tree ? ' with-tree' : ''}" ${tree ? html`data-tree-lanes="${tree.width}"` : emptyHtml}>${records.map((record, index) => row(record, state, tree?.rows[index]))}</ul></details></section>`;
+  return html`<section class="group"><details data-group="${title}" ${open ? html`open` : emptyHtml}><summary class="ghead">${title} <span class="pill u">${records.length}</span><span class="note">${description}</span></summary><ul class="rows${tree ? ' with-tree' : ''}" ${tree ? html`data-tree-lanes="${tree.width}"` : emptyHtml}>${records.map((record, index) => row(record, state, tree?.rows[index], showRepo))}</ul></details></section>`;
 }
 
 /**
  * All activity: both groups carry a branch tree. They share one width so their columns line up.
- * @param {ActivityItem[]} records @param {PageState} state @param {boolean} hasQuery
+ * @param {ActivityItem[]} records @param {PageState} state @param {boolean} hasQuery @param {boolean} showRepo
  */
-function historyGroups(records, state, hasQuery) {
+function historyGroups(records, state, hasQuery, showRepo) {
   const lists = [records.filter(record => !record.imported), records.filter(record => record.imported)];
   const trees = lists.map(list => buildActivityTree(list));
   const width = Math.max(...trees.map(tree => tree.width));
   const [recorded, imported] = trees.map(tree => ({ ...tree, width }));
-  return html`${group('Activity', lists[0], state, { tree: recorded })}${group('Imported history', lists[1], state, { open: hasQuery, description: 'Captured before monitoring started', tree: imported })}`;
+  return html`${group('Activity', lists[0], state, { tree: recorded, showRepo })}${group('Imported history', lists[1], state, { open: hasQuery, description: 'Captured before monitoring started', tree: imported, showRepo })}`;
 }
 
 /**
@@ -142,8 +145,11 @@ export function renderFeed(state, ui) {
   const unseen = records
     .filter(record => record.unseen)
     .sort((a, b) => Number(b.kind === 'branch-created') - Number(a.kind === 'branch-created'));
+  // With one repository in view every row would repeat its name, so rows name it only when several are shown.
+  const showRepo = shown.length > 1;
   // New updates lists new branches first, so its rows are not in time order and it gets no tree.
-  const content = ui.route === 'activity' ? historyGroups(records, state, hasQuery) : group('New updates', unseen, state);
+  const content =
+    ui.route === 'activity' ? historyGroups(records, state, hasQuery, showRepo) : group('New updates', unseen, state, { showRepo });
   const current = html`aria-current="page"`;
   const emptyMessage = emptyActivityMessage(ui, partial);
   const bulk = matchingAction(

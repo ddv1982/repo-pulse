@@ -401,8 +401,18 @@ test('a CI run on a pull request ref names the source branch and the pull reques
     { ...run, id: 'unknown', branch: 'refs/pull/8/merge', data: { buildId: 2 } },
   ];
   const out = renderFeed(state, view);
-  assert.match(out, /<span class="subref">[^<]* \/ feature\/a · PR 7<\/span>/);
-  assert.match(out, /<span class="subref">[^<]* \/ refs\/pull\/8\/merge<\/span>/);
+  assert.match(out, /<span class="subref">feature\/a · PR 7<\/span>/);
+  assert.match(out, /<span class="subref">refs\/pull\/8\/merge<\/span>/);
+});
+
+test('a row names its repository only when more than one repository is shown', () => {
+  const state = fixture();
+  const subref = (/** @type {unknown} */ out) => String(out).match(/<span class="subref">.*?<\/span><\/button>/)?.[0] ?? '';
+  assert.doesNotMatch(subref(renderFeed(state, view)), /Orders/);
+  state.repos.push({ id: 'other', name: 'Billing' });
+  assert.match(subref(renderFeed(state, view)), /Orders/);
+  // The selected scope decides, not which repositories happen to have rows on the page.
+  assert.doesNotMatch(subref(renderFeed(state, { ...view, repoIds: ['r'] })), /Orders/);
 });
 
 test('each fork origin has its own row text, and only an unchecked PR target is dotted', () => {
