@@ -35,8 +35,8 @@ while 235 older events stayed unread, and New updates listed them 50 at a time.
 
 - [x] B2.1 Server returns `asOf`; `/api/activity/unseen` accepts `through` and excludes later events. Unit tests
   watched failing first, including a late event with an older `time`.
-- [ ] B2.2 Bulk bar per D4 and D5; the dialog per D7.
-- [ ] B2.3 e2e reproducing the reported case: All activity shows `Mark all seen (288)` before marking the top rows and
-  `Mark all seen (235)` after; Load more keeps 235; confirm gives `No new updates`; Undo restores 235; an event
-  recorded after the page loaded stays unread.
-- [ ] B2.4 Existing e2e and README updated; full checks pass; screenshots reviewed.
+- [x] B2.2 Bulk bar per D4 and D5; the dialog per D7.
+- [x] B2.3 e2e reproducing the reported case (53 newer seen, 235 older unread): All activity shows `Mark all seen (235)`
+  and no Mark shown seen; Load more keeps 235; an event recorded after the page loaded (older `time`) stays unread, so
+  the headline reads `1 new item` after confirming; Undo restores the 235.
+- [x] B2.4 Existing e2e and README updated; full checks pass; screenshots reviewed.

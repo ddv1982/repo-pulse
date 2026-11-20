@@ -114,11 +114,15 @@ function statusBanner(state, status) {
 
 /** @param {PageState} state @param {FeedView} ui @param {string[]} repoIds */
 function matchingAction(state, ui, repoIds) {
-  if (!state.activity.newUpdates) return emptyHtml;
+  const total = state.activity.newUpdates;
+  if (!total) return emptyHtml;
   const query = activityScopeQuery({ ...ui, repoIds });
+  // Stop at the snapshot this page was read at, so updates recorded later stay unread.
+  if (state.activity.asOf !== undefined) query.set('through', String(state.activity.asOf));
   const search = ui.search.trim();
   const scope = `${scopeName(state, ui)} · ${activityFilterLabel(ui.kind)}${search ? ` · Search “${search}”` : ''}`;
-  return html`<button class="btn sm" type="button" data-action="ack-matching" data-query="${query.toString()}" data-scope="${scope}">Mark all matching as seen</button>`;
+  const label = ui.search || ui.kind || ui.repoIds !== null ? 'Mark all matching seen' : 'Mark all seen';
+  return html`<button class="btn sm" type="button" data-action="ack-matching" data-query="${query.toString()}" data-scope="${scope}">${label} (${total})</button>`;
 }
 
 /** @param {PageState} state @param {FeedView & {savedFilterId: string}} ui */
@@ -145,10 +149,10 @@ export function renderFeed(state, ui) {
   const unreadTotal = state.activity.newUpdates ?? 0;
   const viewControl = html`<h1 class="sr">Activity</h1><div class="activity-view"><nav class="seg" aria-label="Activity view" aria-describedby="activity-view-help"><a href="${activityHref('catchup')}" ${ui.route !== 'activity' ? current : emptyHtml}>New updates</a><a href="${activityHref('activity')}" ${ui.route === 'activity' ? current : emptyHtml}>All activity</a></nav><p class="help activity-view-help" id="activity-view-help">${ui.route === 'activity' ? 'Browse recorded updates, including seen and imported history.' : 'Updates you haven’t marked seen yet. Opening a page marks nothing.'}</p></div>`;
   return html`${viewControl}${renderSummary(records, state, ui, partial)}${statusBanner(state, attention)}${filterControls(ui, state)}
-    <section class="card feed" aria-label="Repository activity"><div class="foot feed-actions"><button class="btn sm" type="button" data-action="ack-shown" ${unseen.length ? emptyHtml : html`disabled`}>Mark shown seen (${unseen.reduce((sum, record) => sum + record.unseenIds.length, 0)})</button>${matchingAction(
+    <section class="card feed" aria-label="Repository activity"><div class="foot feed-actions">${matchingAction(
       state,
       ui,
       shown.map(repo => repo.id),
-    )}
+    )}${ui.route === 'activity' ? emptyHtml : html`<button class="btn sm" type="button" data-action="ack-shown" ${unseen.length ? emptyHtml : html`disabled`}>Mark shown seen (${unseen.reduce((sum, record) => sum + record.unseenIds.length, 0)})</button>`}
     <span data-unseen-total="${unreadTotal}"></span></div>${ui.route === 'activity' && records.length ? treeLegend : emptyHtml}${records.length ? content : html`<div class="empty"><p class="big">${state.activity?.loading ? 'Loading activity…' : state.activity?.error ? 'Activity could not load' : emptyMessage}</p><p class="dim">${state.activity?.error ? state.activity.error : state.activity?.loading ? 'Reading your locally stored history.' : partial ? 'This does not confirm that nothing changed. Check repository status.' : 'Use All activity to browse history, or adjust your filters.'}</p>${state.activity?.error ? html`<button class="btn sm" type="button" data-action="retry-activity">Try again</button>` : emptyHtml}</div>`}${state.activity?.nextCursor ? html`<div class="foot"><button class="btn" type="button" data-action="load-more-activity">Load more</button><span>Showing ${records.length} of ${state.activity.total} recorded items.</span></div>` : emptyHtml}</section>`;
 }

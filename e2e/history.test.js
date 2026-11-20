@@ -120,9 +120,9 @@ test('mark all matching clears the confirmed unread snapshot across pages and un
   await page.locator('[data-scope-repo="demo-shared"]').uncheck();
   await page.keyboard.press('Escape');
   await page.getByRole('searchbox', { name: 'Search activity' }).fill('Snapshot test');
-  await expect(page.getByText('10 matching unread updates are outside the shown rows.')).toBeVisible();
-  await page.getByRole('button', { name: 'Mark all matching as seen' }).click();
-  const confirm = page.getByRole('dialog', { name: 'Mark 60 matching updates as seen?' });
+  await page.getByRole('button', { name: 'Mark all matching seen (60)', exact: true }).click();
+  const confirm = page.getByRole('dialog', { name: 'Mark 60 updates as seen?' });
+  await expect(confirm).toContainText('10 are below the rows shown.');
   await expect(confirm).toContainText('1 repository shown');
   await expect(confirm).toContainText('Search “Snapshot test”');
   runtime.store.insertEvents([make('later-matching')]);
@@ -150,8 +150,8 @@ test('mark all matching uses the rendered repository scope when another reposito
   runtime.store.saveRepo({ ...shared, disabled: false });
   const sharedIds = runtime.store.queryActivity.unseenIds({ repoIds: ['demo-shared'] });
   assert.ok(sharedIds.length > 0);
-  await page.getByRole('button', { name: 'Mark all matching as seen' }).click();
-  const confirm = page.getByRole('dialog', { name: `Mark ${ids.length} matching updates as seen?` });
+  await page.getByRole('button', { name: `Mark all seen (${ids.length})`, exact: true }).click();
+  const confirm = page.getByRole('dialog', { name: `Mark ${ids.length} updates as seen?` });
   await expect(confirm).toContainText('All 2 repositories');
   await confirm.getByRole('button', { name: 'Mark as seen', exact: true }).click();
   await expect(page.getByText(`${ids.length} updates marked seen.`)).toBeVisible();
@@ -1358,4 +1358,49 @@ test('marking the shown rows in New updates lowers the totals even when the next
   await expect(summary.locator('.headline b')).toHaveText('100 new items');
   await expect(page.locator('[data-summary-kind="Pushes"] .val')).toHaveText('100');
   await expect(page.locator('li[data-event-id^="backlog-"]')).toHaveCount(50);
+});
+
+test('after the newest rows are marked seen, one catch-up action clears the older backlog and stops at what the page showed', async t => {
+  const { runtime, page } = await demo(t);
+  runtime.store.acknowledge(runtime.store.listEvents().map(event => event.id));
+  const now = Date.now();
+  const push = (id, minutesAgo) => ({
+    id,
+    repoId: 'demo-orders',
+    kind: 'push',
+    title: id,
+    branch: `feature/${id}`,
+    time: new Date(now - minutesAgo * 60000).toISOString(),
+  });
+  const newer = Array.from({ length: 53 }, (_, i) => push(`newer-${i}`, i));
+  const older = Array.from({ length: 235 }, (_, i) => push(`older-${i}`, 60 + i));
+  runtime.store.insertEvents([...newer, ...older]);
+  runtime.store.acknowledge(newer.map(event => event.id));
+  // Freeze the 5 second poll so the page keeps the snapshot it was read at.
+  await page.clock.install();
+  await page.goto(runtime.url + '/#activity/all');
+  const headline = page.getByRole('region', { name: 'Activity summary' }).locator('.headline b');
+  const catchUp = page.getByRole('button', { name: 'Mark all seen (235)', exact: true });
+  await expect(headline).toHaveText('235 new items');
+  await expect(catchUp).toBeVisible();
+  await expect(page.getByRole('button', { name: /^Mark shown seen/ })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Load more', exact: true }).click();
+  await expect(page.locator('li[data-event-id]')).toHaveCount(100);
+  await expect(headline).toHaveText('235 new items');
+  await expect(catchUp).toBeVisible();
+  // Recorded after the page loaded, with a source time older than every row.
+  runtime.store.insertEvents([push('late', 600)]);
+  await catchUp.click();
+  const confirm = page.getByRole('dialog', { name: 'Mark 235 updates as seen?' });
+  const below = 235 - (await page.locator('li[data-event-id^="older-"]').count());
+  assert.ok(below > 0 && below < 235);
+  await expect(confirm).toContainText(`${below} are below the rows shown. Updates recorded after this page loaded stay unread.`);
+  await confirm.getByRole('button', { name: 'Mark as seen', exact: true }).click();
+  await expect(page.getByText('235 updates marked seen.')).toBeVisible();
+  await expect(headline).toHaveText('1 new item');
+  assert.ok(older.every(event => runtime.store.getEvent(event.id).seen));
+  assert.equal(runtime.store.getEvent('late').seen, false);
+  await page.getByRole('button', { name: 'Undo', exact: true }).click();
+  await expect(page.getByText('235 updates marked unseen.')).toBeVisible();
+  await expect(headline).toHaveText('236 new items');
 });

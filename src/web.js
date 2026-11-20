@@ -457,9 +457,10 @@ const actions = {
       await load({ force: true });
       return toast('No unread updates match the current filters.');
     }
+    const below = Math.max(0, ids.length - seen.shownUnseenCount());
     confirm(
-      `Mark ${ids.length} matching update${ids.length === 1 ? '' : 's'} as seen?`,
-      'This includes matching updates on older pages. Updates that arrive after this preview will remain unread.',
+      `Mark ${ids.length} update${ids.length === 1 ? '' : 's'} as seen?`,
+      `${below ? `${below} ${below === 1 ? 'is' : 'are'} below the rows shown. ` : ''}Updates recorded after this page loaded stay unread.`,
       () => seen.acknowledge(ids, true),
       'Mark as seen',
       { subject: scope },
