@@ -31,6 +31,10 @@
 .settings-card summary {
   cursor: pointer;
 }
+/* Disclosure rows carry their title as plain summary text; match the bold titles of the other rows. */
+summary.settings-row:not(:has(strong)) {
+  font-weight: 600;
+}
 .settings-content {
   display: grid;
   justify-items: start;

@@ -27,6 +27,9 @@ test('CI presentation maps real statuses and results without calling a running r
   assert.equal(buildState({ data: { status: 'completed', result: 'canceled' } }).label, 'Canceled');
   assert.equal(buildState({ data: { status: 'completed' } }).label, 'Unknown');
   assert.equal(triggerLabel('manual'), 'Triggered manually');
+  // A run without a recorded trigger shows no summary line in the feed instead of a bare "Not supplied".
+  assert.equal(activitySummary({ kind: 'build', data: { status: 'completed' } }), '');
+  assert.equal(activitySummary({ kind: 'build', data: { reason: 'manual' } }), 'Triggered manually');
   assert.equal(streamLabel('closedPrs'), 'Closed pull requests');
 });
 
@@ -383,7 +386,7 @@ test('All activity draws a branch tree with the fork evidence in the row text; N
   assert.match(all, /<circle class="lane-\d hole" cx="15" cy="0" r="3.75"\/>/);
   assert.match(all, /PR 7 targets main, origin not checked/);
   assert.match(all, /class="help tree-legend"/);
-  assert.match(all, /A line can pass rows of other branches\./);
+  assert.match(all, /Lines can pass rows of other branches\./);
   const updates = renderFeed(state, view);
   assert.equal((updates.match(/<li class="row /g) || []).length, 2);
   assert.doesNotMatch(updates, /with-tree|class="tree"|tree-legend|origin not checked/);
@@ -433,7 +436,7 @@ test('each fork origin has its own row text, and only an unchecked PR target is 
   );
   assert.equal(forkText(null), '');
   assert.doesNotMatch(String(treeLegend), /assumed from the pull request target</);
-  assert.match(String(treeLegend), /Pull request target, origin not checked/);
+  assert.match(String(treeLegend), /PR target, origin not checked/);
 });
 
 test('a grouped row counts its unread updates beside the title only when there is more than one', () => {

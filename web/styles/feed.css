@@ -701,21 +701,20 @@ ol.rows {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: 4px 6px;
+    gap: 4px 16px;
     margin: 0;
     padding: 8px 12px;
     border-bottom: 1px solid var(--border);
   }
+  .tree-key-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    white-space: nowrap;
+  }
   .tree-key {
     width: 22px;
     height: 12px;
-    margin-left: 10px;
-  }
-  .tree-key:first-child {
-    margin-left: 0;
-  }
-  .tree-note {
-    margin-left: 10px;
   }
   .tree-key.ring {
     width: 14px;

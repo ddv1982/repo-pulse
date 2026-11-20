@@ -36,8 +36,10 @@ its surroundings. Polish only, no new features.
 
 ## Batch 3: small items
 
-- [ ] B3.1 Tree legend shortened.
-- [ ] B3.2 Dark-mode banners are opaque enough that stars do not show through.
-- [ ] B3.3 The feed hides a build summary of `Not supplied`.
-- [ ] B3.4 One name for automatic checks; Settings row titles share one weight; search comes before Save filter.
-- [ ] B3.5 Checks pass; screenshots reviewed.
+- [x] B3.1 Tree legend shortened.
+- [x] B3.2 Dark-mode banners are opaque enough that stars do not show through.
+- [x] B3.3 The feed hides a build summary of `Not supplied`.
+- [x] B3.4 One name for automatic checks; Settings row titles share one weight.
+  Deviation: search stays after Save filter. The saved-filter control is a preset picker that fills search and type,
+  so leading with it is deliberate, and moving it would also move Save filter below the search box on mobile.
+- [x] B3.5 Checks pass; screenshots reviewed.
