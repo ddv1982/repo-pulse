@@ -56,12 +56,34 @@ export function renderTreeCell(row, tone) {
   }${mergeFrom ? join(mergeFrom, node, lane(mergeFrom.color)) : emptyHtml}${marker(node, tone === 'crit' ? 'lane-crit' : lane(node.color))}</g></svg>`;
 }
 
-/** @param {TreeFork | null} fork */
+/**
+ * The row text for a fork origin. Git records no branch parentage, so no text says a branch was branched from another:
+ * it names the commit the branch started at and which branch held it.
+ * @param {TreeFork | null} fork
+ */
 export function forkText(fork) {
   if (!fork) return '';
-  return fork.evidence === 'tip'
-    ? `Started at a revision seen on ${fork.parent}`
-    : `Branched from ${fork.parent}, assumed from PR ${fork.pullRequestId}`;
+  const base = (fork.base ?? '').slice(0, 7);
+  switch (fork.evidence) {
+    case 'tip':
+      return `Started at a revision seen on ${fork.parent}`;
+    case 'recorded':
+      return `Started at ${base}, the tip of ${fork.parent}`;
+    case 'contained':
+      return `Started at ${base}, already on ${fork.parent}`;
+    case 'pr':
+      return `PR ${fork.pullRequestId} targets ${fork.parent}, origin not checked`;
+    case 'ambiguous':
+      return `Started at ${base}, on ${(fork.branches ?? []).join(' and ')}`;
+    case 'refuted':
+      return `PR ${fork.pullRequestId} targets ${fork.target}, which did not hold ${base}`;
+    case 'unplaced':
+      return `Started at ${base}, no branch match found`;
+    case 'orphan':
+      return 'Started with no earlier commit';
+    case 'merge':
+      return 'Started with a merge commit';
+  }
 }
 
-export const treeLegend = html`<p class="help tree-legend"><svg class="tree-key" aria-hidden="true" focusable="false"><path class="lane-none" d="M1 6H21"/></svg>Fork at a known revision<svg class="tree-key" aria-hidden="true" focusable="false"><path class="lane-none assumed" d="M1 6H21"/></svg>Fork assumed from the pull request target<svg class="tree-key ring" aria-hidden="true" focusable="false"><circle class="lane-none hole" cx="7" cy="6" r="4.1"/><circle class="lane-none" cx="7" cy="6" r="1.9"/></svg>Merge<span class="tree-note">A line can pass rows of other branches.</span></p>`;
+export const treeLegend = html`<p class="help tree-legend"><svg class="tree-key" aria-hidden="true" focusable="false"><path class="lane-none" d="M1 6H21"/></svg>Fork at a known revision<svg class="tree-key" aria-hidden="true" focusable="false"><path class="lane-none assumed" d="M1 6H21"/></svg>Pull request target, origin not checked<svg class="tree-key ring" aria-hidden="true" focusable="false"><circle class="lane-none hole" cx="7" cy="6" r="4.1"/><circle class="lane-none" cx="7" cy="6" r="1.9"/></svg>Merge<span class="tree-note">A line can pass rows of other branches.</span></p>`;

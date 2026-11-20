@@ -13,9 +13,15 @@ import { normalizeOrganization } from '../server/repositories.js';
 const run = promisify(execFile);
 
 /**
- * The six reads, in order. `pr` is the first active PR the list returned, or undefined.
+ * @typedef {{ prId?: number, sourceCommit?: string, targetCommit?: string, creations?: { pushId: number, tip: string }[] }} Found
+ */
+const SHA = /^[0-9a-f]{40}$/i;
+
+/**
+ * The reads, in order. The per-PR reads use the first active PR the list returned; the fork evidence reads use the
+ * branch creation pushes in the push list.
  * @param {{ organization: string, project: string, projectId: string, azureId: string }} repo
- * @param {{ prId?: number }} [found]
+ * @param {Found} [found]
  */
 export function probeRequests(repo, found = {}) {
   // The token goes only to an Azure DevOps organization URL the app itself would accept.
@@ -37,9 +43,41 @@ export function probeRequests(repo, found = {}) {
         name: 'PR policy evaluations',
         url: `${base}/policy/evaluations?artifactId=${encodeURIComponent(`vstfs:///CodeReview/CodeReviewId/${repo.projectId}/${found.prId}`)}&api-version=7.1-preview.1`,
       },
+      { name: 'PR iterations', url: `${git}/pullrequests/${found.prId}/iterations?api-version=7.1` },
+    );
+    if (SHA.test(found.sourceCommit ?? '') && SHA.test(found.targetCommit ?? ''))
+      requests.push({
+        name: 'PR merge bases',
+        url: `${git}/commits/${found.sourceCommit}/mergebases?otherCommitId=${found.targetCommit}&api-version=7.1`,
+      });
+  }
+  for (const { pushId, tip } of found.creations ?? []) {
+    if (!Number.isSafeInteger(pushId) || !SHA.test(tip)) continue;
+    requests.push(
+      { name: 'creation push commits', url: `${git}/commits?pushId=${pushId}&top=100&api-version=7.1`, tip },
+      { name: 'created commit', url: `${git}/commits/${tip}?changeCount=0&api-version=7.1`, tip },
     );
   }
   return requests.map(request => ({ ...request, method: 'GET' }));
+}
+
+/**
+ * Pushes that created a branch, newest first, at most three: the push and the revision the branch was created at.
+ * @param {any} body @returns {{ pushId: number, tip: string }[]}
+ */
+export function creationPushes(body) {
+  const pushes = Array.isArray(body?.value) ? body.value : [];
+  return pushes
+    .flatMap(push =>
+      (push.refUpdates || [])
+        .filter(
+          update =>
+            String(update.name).startsWith('refs/heads/') && /^0+$/.test(update.oldObjectId ?? '') && SHA.test(update.newObjectId ?? ''),
+        )
+        .slice(0, 1)
+        .map(update => ({ pushId: push.pushId, tip: update.newObjectId })),
+    )
+    .slice(0, 3);
 }
 
 // Only Azure's own names for built-in policy and thread types are reported; anything else, such as a
@@ -72,6 +110,7 @@ const THREAD_TYPES = new Set([
   'PolicyStatusUpdate',
 ]);
 const THREAD_STATUSES = new Set(['active', 'pending', 'fixed', 'wontFix', 'closed', 'byDesign', 'unknown']);
+const ITERATION_REASONS = new Set(['create', 'push', 'forcePush', 'rebase', 'retarget', 'resolveConflicts', 'unknown']);
 const POLICY_STATUSES = new Set(['queued', 'running', 'approved', 'rejected', 'notApplicable', 'broken']);
 /** @param {unknown[]} values @param {Set<string>} known */
 const named = (values, known) =>
@@ -83,8 +122,11 @@ const keys = value => (value && typeof value === 'object' ? Object.keys(value).s
 /**
  * Field names and counts that answer the plan's questions. Nothing here is a name, ID or identity.
  * @param {string} name @param {any} body @param {{ azureId: string, projectId: string }} repo
+ * @param {{ tip?: string }} [context] the revision a creation push created the branch at
  */
-export function summarize(name, body, repo) {
+export function summarize(name, body, repo, context = {}) {
+  if (name === 'created commit')
+    return { fields: keys(body), parents: Array.isArray(body?.parents) ? body.parents.length : null, pushFields: keys(body?.push) };
   const items = Array.isArray(body?.value) ? body.value : [];
   const facts = { items: items.length, fields: keys(items[0]) };
   if (name === 'tag refs') {
@@ -114,6 +156,19 @@ export function summarize(name, body, repo) {
       items.map(thread => thread.properties?.CodeReviewThreadType?.$value),
       THREAD_TYPES,
     );
+  } else if (name === 'creation push commits') {
+    const ids = new Set(items.map(commit => commit.commitId));
+    facts.withParents = items.filter(commit => Array.isArray(commit.parents)).length;
+    facts.outsideParents = new Set(items.flatMap(commit => commit.parents || []).filter(parent => !ids.has(parent))).size;
+    facts.tipFirst = items.length ? items[0].commitId === context.tip : null;
+    facts.newestFirst = items.length > 1 ? items.slice(1).every((commit, i) => items[i].parents?.includes(commit.commitId)) : null;
+  } else if (name === 'PR iterations') {
+    facts.reasons = named(
+      items.map(iteration => iteration.reason),
+      ITERATION_REASONS,
+    );
+    facts.withCommonRefCommit = items.filter(iteration => iteration.commonRefCommit?.commitId).length;
+    facts.retargetFields = keys(items.find(iteration => iteration.reason === 'retarget'));
   } else if (name === 'PR policy evaluations') {
     facts.statuses = named(
       items.map(evaluation => evaluation.status),
@@ -177,17 +232,28 @@ async function main() {
     '| --- | --- | --- | --- | --- |',
   ];
   for (const [index, repo] of repos.entries()) {
+    /** @type {Found} */
     const found = {};
     let requests = probeRequests(repo);
     for (let i = 0; i < requests.length; i++) {
       const request = requests[i];
       const { status, ms, body } = await send(request, bearer);
-      if (request.name === 'active PRs')
-        requests = probeRequests(repo, (found.prId = body?.value?.[0]?.pullRequestId) === undefined ? {} : found);
-      const facts = body ? JSON.stringify(summarize(request.name, body, repo)) : '';
+      if (request.name === 'pushes with ref updates') found.creations = creationPushes(body);
+      if (request.name === 'active PRs') {
+        const pr = body?.value?.[0];
+        Object.assign(found, {
+          prId: pr?.pullRequestId,
+          sourceCommit: pr?.lastMergeSourceCommit?.commitId,
+          targetCommit: pr?.lastMergeTargetCommit?.commitId,
+        });
+      }
+      if (request.name === 'pushes with ref updates' || request.name === 'active PRs') requests = probeRequests(repo, found);
+      const facts = body ? JSON.stringify(summarize(request.name, body, repo, request)) : '';
       lines.push(`| ${index + 1} | ${request.name} | ${status} | ${ms} | \`${facts.replaceAll('|', '/')}\` |`);
     }
-    if (found.prId === undefined) lines.push(`| ${index + 1} | PR threads, PR policy evaluations | not read | | no active PR |`);
+    if (found.prId === undefined)
+      lines.push(`| ${index + 1} | PR threads, PR policy evaluations, PR iterations | not read | | no active PR |`);
+    if (!found.creations?.length) lines.push(`| ${index + 1} | creation push commits | not read | | no branch creation in the push list |`);
   }
   await writeFile(option('out', 'docs/probe-results.md'), `${lines.join('\n')}\n`);
   console.log(lines.slice(4).join('\n'));

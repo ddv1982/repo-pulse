@@ -285,3 +285,65 @@ test('a merge reaches only source rows that are nearby', () => {
 test('an empty list gives an empty tree', () => {
   assert.deepEqual(buildActivityTree([]), { width: 0, rows: [] });
 });
+
+const checked = (branch, forkOrigin) => created(branch, sha('c'), { forkOrigin });
+
+test('a checked origin draws a solid fork to the one branch that held the base, and the PR target is not used', () => {
+  const tree = buildActivityTree([
+    pr(7, 'feature/b'),
+    checked('feature/b', { status: 'found', base: sha('d'), on: ['refs/heads/feature/a'], via: 'tip' }),
+  ]);
+  assert.deepEqual(tree.rows[1].fork, { evidence: 'recorded', parent: 'feature/a', base: sha('d') });
+  assert.equal(tree.rows[1].forkFrom.evidence, 'recorded');
+  const contained = buildActivityTree([
+    checked('feature/c', { status: 'found', base: sha('d'), on: ['refs/heads/main'], via: 'contained', notOn: ['refs/heads/release/x'] }),
+  ]);
+  assert.deepEqual(contained.rows[0].fork, { evidence: 'contained', parent: 'main', base: sha('d') });
+});
+
+test('a checked origin with several branches, none, an orphan or a merge draws no fork', () => {
+  const rows = [
+    checked('tie', { status: 'found', base: sha('d'), on: ['refs/heads/main', 'refs/heads/release'], via: 'tip' }),
+    pr(7, 'refuted'),
+    checked('refuted', { status: 'none', base: sha('d'), notOn: ['refs/heads/main'] }),
+    checked('unplaced', { status: 'none', base: sha('d'), notOn: [] }),
+    checked('orphan', { status: 'orphan' }),
+    checked('merge', { status: 'merge' }),
+  ];
+  const tree = buildActivityTree(rows);
+  assert.deepEqual(
+    tree.rows.map(row => row.forkFrom),
+    rows.map(() => null),
+  );
+  assert.deepEqual(
+    tree.rows.map(row => row.fork),
+    [
+      { evidence: 'ambiguous', parent: null, base: sha('d'), branches: ['main', 'release'] },
+      null,
+      { evidence: 'refuted', parent: null, base: sha('d'), pullRequestId: 7, target: 'main' },
+      { evidence: 'unplaced', parent: null, base: sha('d') },
+      { evidence: 'orphan', parent: null },
+      { evidence: 'merge', parent: null },
+    ],
+  );
+});
+
+test('a match while another candidate went unanswered names the branch without drawing a fork', () => {
+  const tree = buildActivityTree([
+    checked('feature/c', {
+      status: 'found',
+      base: sha('d'),
+      on: ['refs/heads/main'],
+      via: 'contained',
+      notOn: [],
+      unanswered: ['refs/heads/x'],
+    }),
+  ]);
+  assert.deepEqual(tree.rows[0].fork, { evidence: 'ambiguous', parent: null, base: sha('d'), branches: ['main'] });
+  assert.equal(tree.rows[0].forkFrom, null);
+});
+
+test('a check that failed leaves the unchecked evidence in place', () => {
+  const tree = buildActivityTree([pr(7, 'feature/a'), checked('feature/a', { status: 'unknown' })]);
+  assert.deepEqual(tree.rows[1].fork, { evidence: 'pr', parent: 'main', pullRequestId: 7 });
+});

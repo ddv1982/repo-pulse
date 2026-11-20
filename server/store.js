@@ -638,6 +638,61 @@ export function createStore(path = ':memory:') {
         q('DELETE FROM jobs WHERE id=?').run(jobId);
       });
     },
+    /**
+     * Replaces the fork origin of a branch creation and removes its job in one write. A missing event (its repository
+     * was removed) only removes the job.
+     * @param {{ eventId: string, jobId: string, forkOrigin: import('../src/activity.js').ForkOrigin }} result
+     */
+    saveForkResult({ eventId, jobId, forkOrigin }) {
+      transaction(() => {
+        if (q('SELECT 1 FROM events WHERE id=?').get(eventId)) enrichEvent(eventId, { forkOrigin });
+        q('DELETE FROM jobs WHERE id=?').run(jobId);
+      });
+    },
+    /**
+     * The latest tip each branch had in the stored pushes before push `pushId`, by full ref name. A branch whose latest
+     * update deleted it is left out. Pushes missing from the store leave older tips in place.
+     * @param {string} repoId @param {number} pushId @returns {Map<string, string>}
+     */
+    branchTipsBefore(repoId, pushId) {
+      /** @type {Map<string, string>} */
+      const tips = new Map();
+      const rows = q(`SELECT json_extract(u.value,'$.name') AS ref,lower(json_extract(u.value,'$.newObjectId')) AS tip
+        FROM events e, json_each(e.data,'$.data.refUpdates') u
+        WHERE e.repo_id=? AND json_extract(e.data,'$.kind')='push' AND json_extract(e.data,'$.data.pushId')<?
+        ORDER BY json_extract(e.data,'$.data.pushId')`).all(repoId, pushId);
+      for (const row of rows) {
+        const ref = String(row.ref ?? ''),
+          tip = String(row.tip ?? '');
+        if (!ref.startsWith('refs/heads/')) continue;
+        if (/^[0-9a-f]{40}$/.test(tip) && !/^0+$/.test(tip)) tips.set(ref, tip);
+        else tips.delete(ref);
+      }
+      return tips;
+    },
+    /**
+     * Branches worth checking as the origin of `ref`: the targets of its stored pull requests, oldest first, then the
+     * repository's most common pull request target. Pull requests from forks are left out.
+     * @param {string} repoId @param {string} ref @returns {string[]}
+     */
+    forkCandidates(repoId, ref) {
+      const rows = q(`SELECT json_extract(data,'$.data.sourceRefName') AS source,json_extract(data,'$.data.targetRefName') AS target,
+        json_extract(data,'$.data.pullRequestId') AS id FROM events WHERE repo_id=? AND json_extract(data,'$.kind')='pr' AND json_extract(data,'$.data.fork') IS NULL
+        ORDER BY time,observed_at,json_extract(data,'$.data.pullRequestId')`).all(repoId);
+      /** Pull request IDs by target. A PR has a row per change, so it is counted once. @type {Map<string, Set<string>>} */
+      const targets = new Map();
+      /** @type {string[]} */
+      const own = [];
+      for (const row of rows) {
+        const target = String(row.target ?? '');
+        if (!target.startsWith('refs/heads/')) continue;
+        const ids = targets.get(target) ?? new Set();
+        targets.set(target, ids.add(String(row.id)));
+        if (row.source === ref && !own.includes(target)) own.push(target);
+      }
+      const common = [...targets].sort((a, b) => b[1].size - a[1].size || a[0].localeCompare(b[0]))[0]?.[0];
+      return [...new Set([...own, ...(common ? [common] : [])])].filter(target => target !== ref);
+    },
     getSetting,
     setSetting,
     close: () => db.close(),

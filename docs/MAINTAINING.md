@@ -6,7 +6,7 @@
 | --- | --- |
 | [server.js](../server.js) | Loopback HTTP, the access key, request validation, and runtime wiring |
 | [server/azure-cli.js](../server/azure-cli.js), [server/azure-rest.js](../server/azure-rest.js) and [server/azure-client.js](../server/azure-client.js) | Azure command allowlist, queue, token-based REST reads, endpoint queries, and paging |
-| [server/sync.js](../server/sync.js), [server/normalize.js](../server/normalize.js), [server/backfill.js](../server/backfill.js) and [server/rewrite-check.js](../server/rewrite-check.js) | Live polling, payload normalization, historical imports, and the one-call rewrite check for new pushes |
+| [server/sync.js](../server/sync.js), [server/normalize.js](../server/normalize.js), [server/backfill.js](../server/backfill.js), [server/rewrite-check.js](../server/rewrite-check.js) and [server/fork-origin.js](../server/fork-origin.js) | Live polling, payload normalization, historical imports, the one-call rewrite check for new pushes, and the fork origin check for new branches |
 | [server/sync-status.js](../server/sync-status.js) | The per-repository and overall sync status sent with `/api/state` |
 | [server/store.js](../server/store.js) and [server/merge-evidence.js](../server/merge-evidence.js) | SQLite events, migrations, atomic checkpoints, reset, and linking pushes to completed PRs by tip |
 | [server/activity-query.js](../server/activity-query.js) | Scoped Activity rows, stable filter IDs, counts, and paging |

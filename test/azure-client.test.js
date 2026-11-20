@@ -373,3 +373,29 @@ test('refs restart a snapshot saved by the branch-only query and ask policies fo
   await client.prReview(repo, 4);
   assert(calls.at(-1).includes('includeNotApplicable=true'));
 });
+
+test('a single commit read returns its parents and the push that brought it, and fails closed on bad input', async () => {
+  const id = 'a'.repeat(40),
+    parent = 'b'.repeat(40);
+  const calls = [];
+  let body = { commitId: id, parents: [parent.toUpperCase()], push: { pushId: 41 }, comment: 'not kept' };
+  const client = createAzureClient({
+    cli: {
+      run: async args => {
+        calls.push(args);
+        return body;
+      },
+    },
+  });
+  assert.deepEqual(await client.commit(repo, id.toUpperCase()), { parents: [parent], pushId: 41 });
+  assert(calls[0].includes(`commitId=${id}`));
+  assert(calls[0].includes('changeCount=0'));
+  body = { commitId: id, parents: [] };
+  assert.deepEqual(await client.commit(repo, id), { parents: [], pushId: null });
+  await assert.rejects(client.commit(repo, 'main'), { code: 'INVALID_QUERY' });
+  body = { commitId: id, parents: ['not-a-sha'] };
+  await assert.rejects(client.commit(repo, id), { code: 'INVALID_RESPONSE' });
+  body = { commitId: id };
+  await assert.rejects(client.commit(repo, id), { code: 'INVALID_RESPONSE' });
+  assert.equal(calls.length, 4);
+});

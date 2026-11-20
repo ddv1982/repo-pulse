@@ -4,15 +4,22 @@ import { branchName } from './events.js';
 
 /** @typedef {import('./activity.js').ActivityEvent} ActivityEvent */
 /**
- * How a fork origin is known. `tip`: the new branch started at a revision an older row shows on another branch.
- * `pr`: a pull request from the branch names a target, which is an assumption about where it started.
- * Neither says at which commit the branch left its parent.
- * @typedef {'tip' | 'pr'} ForkEvidence
+ * How a fork origin is known. Unchecked, from the rows on the page: `tip`, the new branch started at a revision an
+ * older row shows on another branch; `pr`, a pull request from the branch names a target, which is an assumption.
+ * Checked by server/fork-origin.js, from the commit the branch started at (`base`): `recorded`, the base was the
+ * latest recorded tip of one other branch; `contained`, one checked candidate already held the base. The checked
+ * outcomes with no parent draw nothing: `ambiguous` (several branches held the base), `refuted` (the PR target did
+ * not hold it), `unplaced` (no recorded or checked branch held it), `orphan` and `merge`.
+ * @typedef {'tip' | 'pr' | 'recorded' | 'contained' | 'ambiguous' | 'refuted' | 'unplaced' | 'orphan' | 'merge'} ForkEvidence
  */
 /** @typedef {{ slot: number, color: number }} TreeLane A drawn lane. `color` indexes the lane palette; -1 is neutral. */
 /** @typedef {TreeLane & { up: boolean, down: boolean }} TreeLine A lane in one row, and whether it runs on above and below. */
 /** @typedef {TreeLine & { shape: 'dot' | 'ring' | 'merge', overflow: boolean }} TreeNode */
-/** @typedef {{ evidence: ForkEvidence, parent: string, pullRequestId?: number | string }} TreeFork */
+/**
+ * The origin of a new branch. Only a fork with a `parent` is drawn. `branches` names the branches of an ambiguous base.
+ * @typedef {{ evidence: ForkEvidence, parent: string | null, base?: string, branches?: string[],
+ *   pullRequestId?: number | string, target?: string }} TreeFork
+ */
 /**
  * One feed row. `through` lists the lanes that only pass by. `fork` describes the origin on the row that reports a
  * new branch. `forkFrom` and `mergeFrom` are the other lane of a drawn fork or merge, and are null when either lane
@@ -112,6 +119,28 @@ function tipSightings(items) {
     if (item.kind === 'branch-created') add(item, row, createdAt(item) || item.data?.objectId, item.data?.name);
   });
   return sightings;
+}
+
+/**
+ * The origin server/fork-origin.js stored, or undefined when there is none or the check failed, so the unchecked
+ * evidence applies. A checked origin never falls back to the pull request target.
+ * @param {import('./activity.js').ForkOrigin | undefined} origin @param {PullRequest | undefined} pr
+ * @returns {TreeFork | null | undefined}
+ */
+function checkedFork(origin, pr) {
+  if (!origin || origin.status === 'unknown') return undefined;
+  if (origin.status === 'orphan' || origin.status === 'merge') return { evidence: origin.status, parent: null };
+  const base = origin.base ?? '';
+  if (origin.status === 'found') {
+    const branches = (origin.on ?? []).map(ref => branchName(ref));
+    // A candidate that went unanswered could also hold the base, so one match beside it draws no fork either.
+    if (branches.length === 1 && !origin.unanswered?.length)
+      return { evidence: origin.via === 'contained' ? 'contained' : 'recorded', parent: branches[0], base };
+    if (branches.length) return { evidence: 'ambiguous', parent: null, base, branches };
+  }
+  if (pr && (origin.notOn ?? []).some(ref => branchName(ref) === pr.target))
+    return { evidence: 'refuted', parent: null, base, pullRequestId: pr.id, target: pr.target };
+  return { evidence: 'unplaced', parent: null, base };
 }
 
 /** The branch a row sits on, or '' for a row that belongs to no branch. @param {ActivityEvent} item @param {Map<string, PullRequest>} prs */
@@ -226,12 +255,14 @@ export function buildActivityTree(items, { maxLanes = MAX_LANES, maxGap = MAX_GA
    */
   const forkOrigin = (item, branch, row, start, after) => {
     const tip = createdAt(item).toLowerCase();
-    const seen = sightings.get(laneKey(item.repoId, tip))?.find(sighting => sighting.row > start && sighting.branch !== branch);
-    if (seen) return { evidence: 'tip', parent: seen.branch };
     const requests = prs.bySource.get(laneKey(item.repoId, branch)) ?? [];
     // A push dates the branch, so its pull request has every row above. A snapshot only dates the discovery.
     const earlier = new Set(tip ? requests.filter(entry => entry.row > row).map(entry => entry.pr.id) : []);
     const pr = requests.findLast(entry => entry.row > after && (!tip || (entry.row < row && !earlier.has(entry.pr.id))))?.pr;
+    const checked = checkedFork(item.data?.forkOrigin, pr);
+    if (checked !== undefined) return checked;
+    const seen = sightings.get(laneKey(item.repoId, tip))?.find(sighting => sighting.row > start && sighting.branch !== branch);
+    if (seen) return { evidence: 'tip', parent: seen.branch };
     return pr && pr.target !== branch ? { evidence: 'pr', parent: pr.target, pullRequestId: pr.id } : null;
   };
   /** @type {(TreeFork | null)[]} */
@@ -249,7 +280,7 @@ export function buildActivityTree(items, { maxLanes = MAX_LANES, maxGap = MAX_GA
     const fork = forkOrigin(item, entry.branch, row, start, createdAbove.get(rowKeys[row]) ?? -1);
     createdAbove.set(rowKeys[row], row);
     forks[row] = fork;
-    if (fork) forkJoins.set(start, { fork, key: mark(item.repoId, fork.parent, start) });
+    if (fork?.parent) forkJoins.set(start, { fork, key: mark(item.repoId, fork.parent, start) });
   });
   const merges = items.map((item, row) => {
     const pr = nodeShape(item) === 'merge' ? pullRequest(item) : undefined;

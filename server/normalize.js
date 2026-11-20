@@ -20,7 +20,8 @@ import { mergeUpdates } from './merge-evidence.js';
 /** Entity data is stored JSON, so its shape depends on the entity type. */
 /** @typedef {{ type: string, id: string, data: any }} Entity */
 /** @typedef {import('./rewrite-check.js').RewriteJob} RewriteJob */
-/** @typedef {{ events: SyncEvent[], entities: Entity[], jobs?: RewriteJob[] }} SyncBatch */
+/** @typedef {import('./fork-origin.js').ForkJob} ForkJob */
+/** @typedef {{ events: SyncEvent[], entities: Entity[], jobs?: (RewriteJob | ForkJob)[] }} SyncBatch */
 /**
  * @typedef {{
  *   getSetting: (key: string, fallback: unknown) => unknown,
@@ -339,7 +340,29 @@ export function createNormalizer({ store, now = Date.now }) {
           nextAt: event.observedAt,
         })),
       );
-    return { events, entities, jobs };
+    // A live branch creation is checked for the commit and branch it started from.
+    /** @type {ForkJob[]} */
+    const forks = events
+      .filter(event => event.kind === 'branch-created' && !event.imported && event.data?.evidence === 'push')
+      .flatMap(event => {
+        const { name, newObjectId, pushId } = event.data ?? {};
+        if (typeof name !== 'string' || typeof newObjectId !== 'string' || !/^[0-9a-f]{40}$/i.test(newObjectId)) return [];
+        return [
+          {
+            id: `fork:${event.id}`,
+            type: /** @type {const} */ ('fork'),
+            repoId: repo.id,
+            eventId: event.id,
+            ref: name,
+            pushId: Number(pushId),
+            at: newObjectId.toLowerCase(),
+            reads: 0,
+            attempts: 0,
+            nextAt: event.observedAt,
+          },
+        ];
+      });
+    return { events, entities, jobs: [...jobs, ...forks] };
   }
 
   /**
