@@ -211,8 +211,7 @@ function refUpdateSummary(event) {
 
 /** @param {ActivityEvent} event */
 export function activitySummary(event) {
-  // A run with no recorded trigger has nothing to summarise; the detail page still lists the trigger as not supplied.
-  if (event.kind === 'build') return event.data?.reason ? triggerLabel(event.data.reason) : '';
+  if (event.kind === 'build') return triggerLabel(event.data?.reason);
   if (event.kind === 'pr' && event.data && (event.data.targetRefName || event.data.voteChanges?.length)) return prSummary(event.data);
   const listed = ['snapshot', 'refs'].includes(event.data?.evidence ?? '');
   if (event.kind === 'branch-created') return listed ? 'First seen remotely; creation time not supplied' : 'New remote branch';

@@ -296,6 +296,9 @@ ol.rows {
 .row:not(.new, .crit) {
   background-image: none;
 }
+.row.new.tone-neutral {
+  background-image: linear-gradient(90deg, var(--primary-wash), transparent 36%);
+}
 .row.new .title {
   font-weight: 600;
 }

@@ -20,6 +20,19 @@ export function replacementFocus(id) {
 }
 
 /**
+ * Focus the control that had focus, or a neighbour of a Seen toggle whose row left. A neighbour can sit off screen,
+ * so focusing it may scroll; the same control stays where it was.
+ * @param {string} id @param {string[]} neighbours
+ */
+function restoreFocus(id, neighbours) {
+  const same = replacementFocus(id);
+  const neighbour = same ? null : neighbours.map(other => document.getElementById(other)).find(element => element instanceof HTMLElement);
+  const replacement = same ?? neighbour ?? null;
+  replacement?.focus({ preventScroll: !neighbour });
+  return replacement;
+}
+
+/**
  * A row's Seen toggle can leave with its row (New updates). Its neighbours, nearest first and following rows before
  * earlier ones, take focus in that case.
  * @param {HTMLElement} element
@@ -106,11 +119,7 @@ export function createBrowserView({ page, header, demo, syncLive, picker, toolba
         ?.toggleAttribute('open', open);
     }
     if (focusId) {
-      const replacement =
-        replacementFocus(focusId) ??
-        neighbours.map(id => document.getElementById(id)).find(element => element instanceof HTMLElement) ??
-        null;
-      replacement?.focus({ preventScroll: true });
+      const replacement = restoreFocus(focusId, neighbours);
       if (selection && replacement instanceof HTMLInputElement) replacement.setSelectionRange(...selection);
     }
     onPageRendered();

@@ -70,7 +70,7 @@ async function setup(t, demo = true) {
 }
 
 test('the row Seen toggle keeps keyboard focus and shows state without a status column', async t => {
-  const { page } = await setup(t);
+  const { page, runtime } = await setup(t);
   await page.goto(`${page.url().split('#')[0]}#activity/new`);
   const rows = page.locator('li[data-event-id]');
   const [first, second] = await rows.evaluateAll(elements => elements.slice(0, 2).map(element => element.getAttribute('data-event-id')));
@@ -93,6 +93,27 @@ test('the row Seen toggle keeps keyboard focus and shows state without a status 
   await page.keyboard.press('Enter');
   await expect(seen).toHaveAttribute('aria-pressed', 'false');
   await expect(seen).toBeFocused();
+
+  // A kind without its own tint (a draft PR) still gets the unread wash, and loses it once seen.
+  runtime.store.insertEvents([
+    {
+      id: 'live-draft',
+      repoId: 'demo-orders',
+      kind: 'pr',
+      branch: 'feature/draft',
+      title: 'Draft work',
+      time: new Date().toISOString(),
+      data: { status: 'active', isDraft: true },
+    },
+  ]);
+  await page.reload();
+  const draft = page.locator('li[data-event-id="live-draft"]');
+  await expect(draft).toHaveClass(/\btone-neutral\b/);
+  const wash = () => draft.evaluate(element => getComputedStyle(element).backgroundImage);
+  assert.notEqual(await wash(), 'none');
+  await draft.locator('.seen-toggle').click();
+  await expect(draft.locator('.seen-toggle')).toHaveAttribute('aria-pressed', 'true');
+  assert.equal(await wash(), 'none');
 });
 
 test('approved light/dark/System UI and responsive routes work without remote traffic', async t => {
@@ -1099,7 +1120,7 @@ test('semantic status colors match rows, imported history, details and trails in
     for (const result of contrast) {
       assert.equal(result.matchesToken, true, `${theme} ${result.id} token`);
       // The wash marks unread rows and failed runs; seen rows stay plain.
-      assert.equal(result.hasWash, result.washed && result.tone !== 'neutral', `${theme} ${result.id} wash`);
+      assert.equal(result.hasWash, result.washed, `${theme} ${result.id} wash`);
       assert.ok(result.ratio >= 4.5, `${theme} ${result.id} contrast ${result.ratio}`);
     }
     const trail = page.locator('[data-event-id="canceled-transition"] .trail');

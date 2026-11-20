@@ -53,6 +53,12 @@ export function filterControls(ui, state) {
   </div>`;
 }
 
+/** A CI run without a known trigger has nothing to summarise in its row; the detail page still names the gap. @param {ActivityItem} record */
+function rowSummary(record) {
+  const summary = activitySummary(record);
+  return record.kind === 'build' && summary === 'Not supplied' ? '' : summary;
+}
+
 /** @param {ActivityItem} record @param {PageState} state @param {import('../activity-tree.js').TreeRow} [tree] */
 function row(record, state, tree) {
   const repo = state.repos.find(item => item.id === record.repoId);
@@ -67,7 +73,7 @@ function row(record, state, tree) {
   return html`<li class="${['row', failed ? 'crit' : '', record.unseen ? 'new' : '', `tone-${tone}`].filter(Boolean).join(' ')}" data-event-id="${record.id}" data-event-ids="${ids}" data-group-key="${record.groupKey}" data-unseen-ids="${unreadIds}">${tree ? renderTreeCell(tree, tone) : emptyHtml}
     <span class="kind ${tone}">${record.kind === 'branch-created' ? icons.branch : html`<span class="d"></span>`}${activityLabel(record)}</span>
     <div class="subject"><button class="feed-title" type="button" data-action="detail" data-id="${record.id}"><span class="title">${title}${record.unseenIds.length > 1 ? html` <span class="pill u new-count">${record.unseenIds.length} new</span>` : emptyHtml}</span><span class="subref">${repo?.name || 'Unknown repository'}${record.branch ? ` / ${activityRef(record)}` : ''}</span></button></div>
-    <div class="event">${activitySummary(record)}${mergeEvidenceBadge(record)}<div class="help">${actor ? `${record.kind === 'pr' ? 'Created by ' : record.kind === 'push' ? 'Pushed by ' : ''}${actor} · ` : ''}<time datetime="${record.time}">${dateTime(record.time)}</time>${origin ? ` · ${origin}` : ''}</div>${renderTrail(record)}</div>
+    <div class="event">${rowSummary(record)}${mergeEvidenceBadge(record)}<div class="help">${actor ? `${record.kind === 'pr' ? 'Created by ' : record.kind === 'push' ? 'Pushed by ' : ''}${actor} · ` : ''}<time datetime="${record.time}">${dateTime(record.time)}</time>${origin ? ` · ${origin}` : ''}</div>${renderTrail(record)}</div>
     <div class="rowact">${azureLink(record.url)}${record.imported ? emptyHtml : html`<button class="ghost sm seen-toggle" type="button" id="seen-${record.id}" data-action="ack-item" data-id="${record.id}" data-mark-seen="${record.unseen}" data-event-ids="${ackIds}" aria-pressed="${!record.unseen}" aria-label="Seen: ${title}">${icons.seenBox}Seen</button>`}</div></li>`;
 }
 

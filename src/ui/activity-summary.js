@@ -12,7 +12,7 @@ export function emptyActivityMessage(ui, partial) {
   return ui.route === 'activity' ? 'No activity recorded yet' : 'No new updates';
 }
 /**
- * @param {import('../activity.js').ActivityItem[]} records @param {Pick<PageState, 'activity' | 'repos'>} state
+ * @param {import('../activity.js').ActivityItem[]} records @param {Pick<PageState, 'activity'>} state
  * @param {{ repoIds: string[] | null, route?: string, search?: string, kind?: string }} ui @param {boolean} partial the counts may be incomplete
  */
 export function renderSummary(records, state, ui, partial) {

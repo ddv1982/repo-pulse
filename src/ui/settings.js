@@ -52,7 +52,7 @@ export function renderSettings(state, connection) {
         <input class="setting-switch" type="checkbox" role="switch" id="refresh-enabled" data-auto-toggle aria-labelledby="refresh-label" aria-describedby="refresh-help" ${settings.refreshEnabled !== false ? html`checked` : emptyHtml}>
       </label>
       <details data-group="troubleshooting">
-        <summary class="settings-row" id="troubleshooting-toggle">Troubleshooting <span class="settings-chevron" aria-hidden="true"></span></summary>
+        <summary class="settings-row" id="troubleshooting-toggle"><strong>Troubleshooting</strong> <span class="settings-chevron" aria-hidden="true"></span></summary>
         <div class="settings-content">
           <p class="sync-sentence">${syncSentence(syncStatus.overall, syncRepoName(state.repos, syncStatus.overall))}</p>
           <button class="btn sm" type="button" id="copy-diagnostics" data-action="copy-diagnostics">Copy diagnostics</button>
@@ -67,7 +67,7 @@ export function renderSettings(state, connection) {
       </div>`
       }
       <details data-group="coverage">
-        <summary class="settings-row" id="coverage-toggle">What Repo Pulse tracks <span class="settings-chevron" aria-hidden="true"></span></summary>
+        <summary class="settings-row" id="coverage-toggle"><strong>What Repo Pulse tracks</strong> <span class="settings-chevron" aria-hidden="true"></span></summary>
         <div class="settings-content help">
           <p>Repo Pulse reads remote branches, pushes, pull requests, and CI runs for the primary repository. It stores the results locally.</p>
           <p>Initial history covers about seven days plus older active items. All activity includes imported history. Polling can miss changes between checks.</p>

@@ -27,9 +27,6 @@ test('CI presentation maps real statuses and results without calling a running r
   assert.equal(buildState({ data: { status: 'completed', result: 'canceled' } }).label, 'Canceled');
   assert.equal(buildState({ data: { status: 'completed' } }).label, 'Unknown');
   assert.equal(triggerLabel('manual'), 'Triggered manually');
-  // A run without a recorded trigger shows no summary line in the feed instead of a bare "Not supplied".
-  assert.equal(activitySummary({ kind: 'build', data: { status: 'completed' } }), '');
-  assert.equal(activitySummary({ kind: 'build', data: { reason: 'manual' } }), 'Triggered manually');
   assert.equal(streamLabel('closedPrs'), 'Closed pull requests');
 });
 
@@ -452,4 +449,18 @@ test('a grouped row counts its unread updates beside the title only when there i
   assert.match(markup, /<span class="pill u new-count">2 new<\/span>/);
   state.events = [state.events[0]];
   assert.doesNotMatch(renderFeed(state, view), /new-count/);
+});
+
+test('a CI row without a known trigger shows no summary line, and the detail page still names the gap', () => {
+  const state = fixture();
+  const base = { repoId: 'r', kind: 'build', title: 'CI', time: '2026-11-17T10:00:00Z' };
+  state.events = [
+    { ...base, id: 'omitted', data: { buildId: 1, status: 'completed', result: 'succeeded' } },
+    { ...base, id: 'none', data: { buildId: 2, status: 'completed', result: 'succeeded', reason: 'none' } },
+    { ...base, id: 'manual', data: { buildId: 3, status: 'completed', result: 'succeeded', reason: 'manual' } },
+  ];
+  const markup = String(renderFeed(state, view));
+  assert.doesNotMatch(markup, /Not supplied/);
+  assert.match(markup, /<div class="event">Triggered manually/);
+  assert.match(String(renderDetail(state.events[1], state)), /Not supplied/);
 });
