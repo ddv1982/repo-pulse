@@ -6,6 +6,7 @@ import { activityKey, lifecycleKey, supportingPushKey } from '../src/activity.js
 import { activityStatusId, activityEvidenceId, activitySearchText, azureDevOpsService } from '../src/activity-text.js';
 import { createActivityQuery } from './activity-query.js';
 import { localPrLink, mergeUpdates } from './merge-evidence.js';
+import { forkJob } from './fork-origin.js';
 
 /** @typedef {import('node:sqlite').SQLOutputValue} SqlValue */
 /** @typedef {Record<string, SqlValue>} SqlRow */
@@ -55,6 +56,8 @@ const readEnrichment = parse;
 /** Entity data depends on the entity type, so callers check its shape. */
 /** @type {Reader<unknown>} */
 const readEntity = parse;
+/** The first sync imports this far back from its baseline (server/sync.js, the first window's `since`). */
+const FIRST_SYNC_MS = 7 * 86400000;
 /** @param {string} message */
 const badRequest = message => Object.assign(new Error(message), { code: 'BAD_REQUEST' });
 /** @param {string} value */
@@ -305,6 +308,26 @@ export function createStore(path = ':memory:') {
           WHERE json_extract(data,'$.actor')=? AND COALESCE(json_extract(data,'$.branch'),'')=''
           AND COALESCE(json_array_length(data,'$.data.refUpdates'),0)=0)`).run(azureDevOpsService);
         bumpActivity();
+      },
+    ],
+    [
+      15,
+      () => {
+        // Branch creations stored before fork checks existed get one, if a sync recorded them: live, or imported by
+        // the first sync's 7-day window. An explicit history import stays unchecked, as it does when it runs.
+        const insert = q('INSERT OR IGNORE INTO jobs(id,repo_id,type,next_at,data) VALUES(?,?,?,?,?)');
+        const rows = q(`${selectEvents} WHERE json_extract(e.data,'$.kind')='branch-created'
+          AND json_extract(n.data,'$.forkOrigin') IS NULL`).all();
+        for (const row of rows) {
+          const event = hydrate(row);
+          const job = forkJob(event);
+          if (!job) continue;
+          if (event.imported) {
+            const baseline = Date.parse(String(getSetting(`baseline:${event.repoId}`, '')));
+            if (!(Date.parse(event.time) >= baseline - FIRST_SYNC_MS)) continue;
+          }
+          insert.run(job.id, job.repoId, job.type, job.nextAt || '1970-01-01T00:00:00.000Z', JSON.stringify(job));
+        }
       },
     ],
   ];

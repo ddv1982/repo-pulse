@@ -57,7 +57,7 @@ time". No phase may word a fork as "branched from P".
 | unknown | Nothing above | none | (no fork text) |
 
 Decision D1 (resolved 2026-11-20): the unchecked `pr` level keeps its dotted line, labelled "origin not checked".
-A run of the real check over a copy of the live database (77 live branch creations, 206 Azure reads) gave 46 tip
+A run of the real check over a copy of the live database (77 branch creations: 16 live and 61 from the first sync's import; 206 Azure reads) gave 46 tip
 matches and 23 contained, all solid; 1 ambiguous, 1 refuted, 2 unplaced and 1 merge, all without a line; and 3
 unknown, which fall back to the unchecked evidence. Only rows the check never covered keep the dotted line.
 
@@ -119,3 +119,12 @@ written first and seen to fail.
 ## Out of scope
 
 Lane layout, merge curves, CI placement, and any change to how branches are discovered.
+
+## Follow-ups measured and skipped (2026-11-20)
+
+- Re-check when a pull request arrives after the check: 81 of 93 push creations have a PR, and its first row is often
+  stored after the creation (up to 25 hours later). In 81 of 81 the PR target was already the repository's most
+  common target, which the check tries, so a re-check would change no row. Revisit when a repository's PRs often
+  target a branch other than its most common target.
+- Read the repository's default branch: the most common PR target is `main` in 4 of 4 repositories (109 of 114 PRs
+  in the enabled one). Revisit for a repository with no stored PRs.
