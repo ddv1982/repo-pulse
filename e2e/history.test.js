@@ -1357,13 +1357,34 @@ test('New updates offers one bulk action that clears a fully shown list without 
   const { runtime, page } = await demo(t);
   const total = runtime.store.queryActivity({ view: 'new' }).newUpdates;
   assert.ok(total > 0 && total < 50);
+  runtime.store.setSetting('savedActivityFilters', [
+    { id: 'pushes', name: 'Pushes', filters: { view: 'new', search: '', kind: 'push', repoIds: null, people: '' } },
+  ]);
   await page.goto(runtime.url + '/#activity/new');
   const bar = page.locator('.feed-actions button');
   await expect(bar).toHaveCount(1);
   await expect(bar).toHaveText(`Mark all seen (${total})`);
+  // The saved-filter picker defers redraws while open; the write's refresh must still land.
+  const release = Promise.withResolvers();
+  await page.route(
+    '**/api/ack',
+    async route => {
+      const response = await route.fetch();
+      await release.promise;
+      await route.fulfill({ response });
+    },
+    { times: 1 },
+  );
   await bar.click();
+  await page.getByRole('button', { name: 'Saved filters', exact: true }).click();
+  await expect(page.getByRole('listbox', { name: 'Saved filters' })).toBeVisible();
+  release.resolve();
   await expect(page.getByText(`${total} updates marked seen.`)).toBeVisible();
   await expect(page.getByRole('dialog')).not.toBeVisible();
+  await expect(page.locator('li[data-event-id]')).toHaveCount(0);
+  await page.keyboard.press('Escape');
   await expect(page.getByRole('region', { name: 'Activity summary' }).locator('.headline b')).toHaveText('No new updates');
+  // With nothing to mark there is no empty action bar.
+  await expect(page.locator('.feed-actions')).toHaveCount(0);
   assert.equal(runtime.store.queryActivity({ view: 'new' }).newUpdates, 0);
 });
