@@ -19,11 +19,11 @@ Scope: Activity rows (`src/ui/feed.js`, `src/activity-text.js`, `web/styles/feed
 
 ## Phase 2: one 20px line rhythm (must-have, CSS)
 
-- [ ] Ref line: 12/20, items baseline aligned (branch, repo token and PR chip share a baseline), 2px gap above it, matching the meta line.
-- [ ] Meta line, origin notes and update trail: 12/20 with the same 2px gap (meta loses `.help`'s 4px).
-- [ ] PR chip 11px to 12px; chips inside the summary line held to a 20px line (no 22px growth).
-- [ ] Type label and Azure/Seen centred on the title's first line (label box to 20px, control offset), tree dot offset adjusted so the existing tree geometry test passes.
-- [ ] Phase 0 check passes for every one-line-title row with a summary; screenshots light and dark at 1280 and 390 show stacked spacing unchanged.
+- [x] Ref line: 12/20, items baseline aligned (branch, repo token and PR chip share a baseline), 2px gap above it, matching the meta line.
+- [x] Meta line, origin notes and update trail: 12/20 with the same 2px gap (meta loses `.help`'s 4px).
+- [x] PR chip 11px to 12px; chips inside the summary line held to a 20px line (no 22px growth).
+- [x] Type label and Azure/Seen centred on the title's first line (label box to 20px, control offset), tree dot offset adjusted so the existing tree geometry test passes.
+- [x] Phase 0 check passes for every one-line-title row with a summary; screenshots light and dark at 1280 and 390 show stacked spacing unchanged.
 
 ## Phase 3: column balance (must-have)
 

@@ -1633,29 +1633,42 @@ test('on desktop a row lines up its ref line with its meta line, and its summary
   await expect(page.locator('.with-tree .row').first()).toBeVisible();
   const rows = await page.locator('.with-tree .row').evaluateAll(items =>
     items.map(row => {
-      const top = selector => row.querySelector(selector)?.getBoundingClientRect().top;
+      // The baseline of an element's first visible text: a zero-size inline box placed before that text sits on it.
+      const baseline = selector => {
+        const element = row.querySelector(selector);
+        if (!element) return undefined;
+        const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT, {
+          acceptNode: node =>
+            node.textContent.trim() && !node.parentElement.closest('.sr') ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP,
+        });
+        const text = walker.nextNode();
+        const wrap = document.createElement('span');
+        const probe = document.createElement('span');
+        probe.style.cssText = 'display: inline-block; width: 0; height: 0';
+        text.replaceWith(wrap);
+        wrap.append(probe, text);
+        const y = probe.getBoundingClientRect().top;
+        wrap.replaceWith(text);
+        return y;
+      };
       const oneLine = element => !element || element.getBoundingClientRect().height <= parseFloat(getComputedStyle(element).lineHeight) + 1;
       return {
         id: row.dataset.eventId,
         oneLine: oneLine(row.querySelector('.feed-title .title')) && oneLine(row.querySelector('.event-main')),
-        title: top('.feed-title .title'),
-        summary: top('.event-main'),
-        ref: top('.feed-title .subref'),
-        meta: top('.event-meta'),
-        lines: ['.feed-title .subref', '.event-meta'].map(selector => getComputedStyle(row.querySelector(selector)).lineHeight).join(' / '),
+        title: baseline('.feed-title .title'),
+        summary: baseline('.event-main'),
+        refs: ['.ref-repo', '.ref-name', '.ref-pr'].map(baseline).filter(y => y !== undefined),
+        meta: baseline('.event-meta'),
       };
     }),
   );
-  const checked = rows.filter(row => row.oneLine && row.summary !== undefined && row.ref !== undefined);
+  const checked = rows.filter(row => row.oneLine && row.summary !== undefined && row.refs.length);
   assert.ok(checked.length >= 5, `enough rows to measure: ${checked.length}`);
-  // Equal tops only mean equal baselines when both lines share a line height.
-  const off = checked.filter(
-    row => Math.abs(row.ref - row.meta) > 1 || Math.abs(row.title - row.summary) > 1 || row.lines !== '20px / 20px',
-  );
+  const off = checked.filter(row => Math.abs(row.title - row.summary) > 1 || row.refs.some(y => Math.abs(y - row.meta) > 1));
   assert.deepEqual(
     off.map(
       row =>
-        `${row.id}: ref-meta ${(row.ref - row.meta).toFixed(1)}, title-summary ${(row.title - row.summary).toFixed(1)}, lines ${row.lines}`,
+        `${row.id}: title-summary ${(row.title - row.summary).toFixed(1)}, ref-meta ${row.refs.map(y => (y - row.meta).toFixed(1)).join(' ')}`,
     ),
     [],
   );
