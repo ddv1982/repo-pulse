@@ -4,6 +4,7 @@ import {
   emptyHtml,
   html,
   dateTime,
+  fullDateTime,
   azureLink,
   activityActor,
   activityLabel,
@@ -53,6 +54,33 @@ export function filterControls(ui, state) {
   </div>`;
 }
 
+/** What the named person did, per kind. A branch or tag event comes from a push. @type {Record<import('../activity.js').ActivityKind, string>} */
+const actorRoles = { pr: 'Created by', build: 'Requested by', push: 'Pushed by', 'branch-created': 'Pushed by', 'branch-deleted': 'Pushed by', tag: 'Pushed by' };
+
+/**
+ * Who and when. The actor is left out when the title already starts with them ("Ana pushed to main"); an unknown
+ * actor has no role to name.
+ * @param {ActivityItem} record @param {string} title
+ */
+function renderMeta(record, title) {
+  const actor = activityActor(record);
+  const shown = actor && !title.startsWith(`${actor} `);
+  const role = actor === 'Unknown' ? '' : `${actorRoles[record.kind]} `;
+  return html`<div class="help event-meta">${shown ? html`${role}<span class="actor">${actor}</span> · ` : emptyHtml}<time datetime="${record.time}" title="${fullDateTime(record.time)}">${dateTime(record.time)}</time></div>`;
+}
+
+/**
+ * The event column in tiers: what happened with its evidence chips, then who and when, then where the branch started.
+ * @param {ActivityItem} record @param {string} title @param {string} origin
+ */
+function renderEvent(record, title, origin) {
+  const summary = rowSummary(record);
+  const badge = mergeEvidenceBadge(record);
+  return html`<div class="event">${summary || badge !== emptyHtml ? html`<div class="event-main">${summary ? html`<span>${summary}</span>` : emptyHtml}${badge}</div>` : emptyHtml}${renderMeta(record, title)}${
+    origin ? html`<div class="help event-origin">${icons.branch}<span>${origin}</span></div>` : emptyHtml
+  }${renderTrail(record)}</div>`;
+}
+
 /** A CI run without a known trigger has nothing to summarise in its row; the detail page still names the gap. @param {ActivityItem} record */
 function rowSummary(record) {
   const summary = activitySummary(record);
@@ -91,12 +119,11 @@ function row(record, state, tree, showRepo = true) {
   const unreadIds = JSON.stringify(record.unseenIds);
   const ackIds = record.unseen ? unreadIds : JSON.stringify(record.events.filter(event => !event.imported).map(event => event.id));
   const title = activityTitle(record);
-  const actor = activityActor(record);
   const origin = forkText(tree?.fork ?? null);
   return html`<li class="${['row', failed ? 'crit' : '', record.unseen ? 'new' : '', `tone-${tone}`].filter(Boolean).join(' ')}" data-event-id="${record.id}" data-event-ids="${ids}" data-group-key="${record.groupKey}" data-unseen-ids="${unreadIds}">${tree ? renderTreeCell(tree, tone) : emptyHtml}
     <span class="kind ${tone}">${record.kind === 'branch-created' ? icons.branch : html`<span class="d"></span>`}${activityLabel(record)}</span>
     <div class="subject"><button class="feed-title" type="button" data-action="detail" data-id="${record.id}"><span class="title">${title}${record.unseenIds.length > 1 ? html` <span class="pill u new-count">${record.unseenIds.length} new</span>` : emptyHtml}</span>${renderRefLine(record, title, showRepo ? repo?.name || 'Unknown repository' : '')}</button></div>
-    <div class="event">${rowSummary(record)}${mergeEvidenceBadge(record)}<div class="help">${actor ? `${record.kind === 'pr' ? 'Created by ' : record.kind === 'push' ? 'Pushed by ' : ''}${actor} · ` : ''}<time datetime="${record.time}">${dateTime(record.time)}</time>${origin ? ` · ${origin}` : ''}</div>${renderTrail(record)}</div>
+    ${renderEvent(record, title, origin)}
     <div class="rowact">${azureLink(record.url)}${record.imported ? emptyHtml : html`<button class="ghost sm seen-toggle" type="button" id="seen-${record.id}" data-action="ack-item" data-id="${record.id}" data-mark-seen="${record.unseen}" data-event-ids="${ackIds}" aria-pressed="${!record.unseen}" aria-label="Seen: ${title}">${icons.seenBox}Seen</button>`}</div></li>`;
 }
 

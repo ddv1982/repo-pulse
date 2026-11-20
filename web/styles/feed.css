@@ -438,6 +438,37 @@ ol.rows {
 .event .mono {
   font-size: 12px;
 }
+/* What happened, then who and when, then where the branch started: each on its own line. */
+.event-main {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  line-height: 20px;
+}
+.event > .help:first-child {
+  margin-top: 0;
+  line-height: 20px;
+}
+.event-meta time {
+  font-variant-numeric: tabular-nums;
+}
+.event-meta .actor {
+  font-weight: 500;
+  color: color-mix(in oklab, var(--foreground) 80%, var(--muted-foreground));
+}
+.event-origin {
+  display: flex;
+  align-items: flex-start;
+  gap: 5px;
+  margin-top: 2px;
+}
+.event-origin svg {
+  flex: none;
+  width: 12px;
+  height: 12px;
+  margin-top: 2px;
+}
 .rowact {
   display: flex;
   align-items: center;

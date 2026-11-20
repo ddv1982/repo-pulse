@@ -59,20 +59,25 @@ change that makes it pass.
 
 ## Phase 4: event column in tiers
 
-- [ ] `.event-main`: the `rowSummary` text, then `mergeEvidenceBadge` chips in
+- [x] `.event-main`: the `rowSummary` text, then `mergeEvidenceBadge` chips in
       a wrapping flex row with a gap (today the badge touches the text).
-- [ ] `.event-origin`: the tree's `forkText` (for example "Started at 3f9a2c1,
-      the tip of main") on its own muted line instead of trailing the time.
-- [ ] `.help` keeps `[Created by | Pushed by] actor · time`. Drop "Pushed by X"
-      only when the title already starts with that actor ("X pushed to …");
-      keep it for "Push to main · Linked PR #12" (`e2e/history.test.js:505`).
-- [ ] `<time>` gets a `title` with the full date including the year;
+- [x] `.event-origin`: the tree's `forkText` (for example "Started at 3f9a2c1,
+      the tip of main") on its own muted line with the branch glyph, below
+      who and when, instead of trailing the time.
+- [x] `.event-meta` (who and when) holds only `role actor · time`, with the
+      name in medium weight. Every kind gets a role label, not only PR and
+      push: "Created by" (PR), "Requested by" (CI run, Azure's
+      `requestedFor`), "Pushed by" (push, branch, tag). An actor of
+      `Unknown` keeps showing without a role label. Drop the actor only when
+      the title already starts with it ("X pushed to …"); keep it for
+      "Push to main · Linked PR #12" (`e2e/history.test.js:505`).
+- [x] `<time>` gets a `title` with the full date including the year;
       `dateTime()` itself is unchanged.
-- [ ] A row with no summary (CI run, unknown trigger) aligns its meta line
+- [x] A row with no summary (CI run, unknown trigger) aligns its meta line
       with the title instead of floating.
-- [ ] Update `test/presentation.test.js:464` and `test/escaping.test.js:412`
+- [x] Update `test/presentation.test.js:464` and `test/escaping.test.js:412`
       (both expect the summary directly after `<div class="event">`).
-- [ ] Run `npm test`, `npm run test:ui`; visual check of the Failed row, a
+- [x] Run `npm test`, `npm run test:ui`; visual check of the Failed row, a
       row with a merge chip and a row with an origin line at 390px.
 
 ## Phase 5 (optional, decide after phase 4): PR detail in the event column
@@ -83,6 +88,19 @@ change that makes it pass.
       `activitySummary` keeps returning the same string for detail and search.
 - [ ] Unit tests for both; `activitySummary` assertions in
       `test/presentation.test.js` pass unchanged.
+
+## Phase 5b: redacted names in the demo data
+
+Requested during implementation so the README screenshots show no
+person-like names.
+
+- [ ] In `server/demo.js`, replace each person with `Redacted N`, one number
+      per person used consistently in actors, reviewer votes, `closedBy` and
+      titles: Sam Ortega → Redacted 1, Priya Nair → Redacted 2,
+      Lars de Wit → Redacted 3, Demo developer → Redacted 4.
+- [ ] Update the e2e assertions that name them (`e2e/ui.test.js:1437-1438`).
+- [ ] Run `npm test` and `npm run test:ui`; grep confirms no old names remain
+      in `server/demo.js` and `e2e/`.
 
 ## Phase 6: screenshots
 

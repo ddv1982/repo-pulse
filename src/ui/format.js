@@ -103,6 +103,12 @@ export function dateTime(value) {
     : date.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 
+/** The full date with year and weekday, for hover text beside the short dateTime. @param {string | number | undefined} value */
+export function fullDateTime(value) {
+  const date = new Date(value === undefined ? NaN : value);
+  return Number.isNaN(date.valueOf()) ? '' : date.toLocaleString([], { dateStyle: 'full', timeStyle: 'short' });
+}
+
 /** @param {unknown} value @returns {SafeHtml} */
 export function azureLink(value, label = 'Azure ↗', className = 'ghost sm') {
   try {
