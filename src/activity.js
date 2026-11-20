@@ -58,7 +58,7 @@
 /** @typedef {ActivityEvent & {groupKey: string, events: ActivityEvent[], eventIds: string[], unseenIds: string[], unseen: boolean}} ActivityItem */
 
 /** @typedef {{ repoIds?: string[], view?: 'new'|'all', kind?: string, search?: string, people?: string, limit?: number, cursor?: string }} ActivityRequest */
-/** @typedef {{ items: ActivityItem[], nextCursor: string|null, total: number, newItems: number, newUpdates: number, filterOptions?: string[], counts?: Record<string,number>, newCounts?: Record<string,number> }} ActivityPage */
+/** @typedef {{ items: ActivityItem[], nextCursor: string|null, total: number, newItems: number, newUpdates: number, filterOptions?: string[], counts?: Record<string,number>, newCounts?: Record<string,number>, asOf?: number }} ActivityPage */
 
 /** @param {Pick<ActivityEvent, 'seen' | 'imported'>} event */
 export const isUnseen = event => !event.seen && !event.imported;

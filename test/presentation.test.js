@@ -464,3 +464,31 @@ test('a CI row without a known trigger shows no summary line, and the detail pag
   assert.match(markup, /<div class="event">Triggered manually/);
   assert.match(String(renderDetail(state.events[1], state)), /<dt>Trigger<\/dt><dd>Not supplied<\/dd>/);
 });
+
+test('the summary counts every unread item in scope, not only the loaded rows', () => {
+  const state = fixture();
+  const at = minute => `2026-11-20T10:${String(minute).padStart(2, '0')}:00Z`;
+  const extra = [
+    ...[0, 1, 2, 3, 4].map(i => ({ id: `p${i}`, repoId: 'r', kind: 'push', title: `Push ${i}`, branch: `f/${i}`, time: at(i) })),
+    { id: 'b1', repoId: 'r', kind: 'branch-created', title: 'New branch', branch: 'f/new', time: at(5) },
+  ];
+  const store = createStore();
+  try {
+    for (const repo of state.repos) store.saveRepo(repo);
+    store.insertEvents([...state.events, ...extra]);
+    const activity = store.queryActivity({ view: 'all', limit: 2 });
+    const markup = renderPagedFeed({ ...state, events: [...state.events, ...extra], activity }, { ...view, route: 'activity' });
+    const summary = markup.slice(markup.indexOf('Activity summary'), markup.indexOf('</section>'));
+    assert.match(summary, /<b class="">7 new items<\/b> · 8 updates/);
+    assert.match(summary, /Showing 2 of 7 items/);
+    assert.match(summary, /data-summary-kind="Pushes"><div class="label">Pushes<\/div><div class="val t-info">5</);
+    assert.match(
+      summary,
+      /data-summary-kind="Branches"><div class="label">Branches<\/div><div class="val t-info">1<\/div><div class="sub">1 new</,
+    );
+    // The CI row is not loaded, so its status line would describe nothing on screen.
+    assert.match(summary, /data-summary-kind="CI runs"><div class="label">CI runs<\/div><div class="val t-info">1<\/div><\/div>/);
+  } finally {
+    store.close();
+  }
+});
