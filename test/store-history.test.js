@@ -921,3 +921,31 @@ test('a CI run on a pull request ref carries the refs of the stored pull request
   });
   store.close();
 });
+
+test('a compaction blocked by an open reader stays pending and finishes on the next start', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'pulse-compact-busy-'));
+  const path = join(dir, 'state.sqlite');
+  createStore(path).close();
+  const raw = new DatabaseSync(path);
+  raw.exec(`PRAGMA foreign_keys=OFF; WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i+1 FROM n WHERE i<200)
+    INSERT INTO entities(repo_id,type,id,data) SELECT 'r','cache','c'||i,hex(zeroblob(2048)) FROM n;
+    DELETE FROM entities; INSERT INTO settings(key,data) VALUES('compactPending','true');`);
+  raw.close();
+  const before = statSync(path).size;
+  // A read-only snapshot, such as scripts/probe-coverage.js, blocks the checkpoint that returns the space.
+  const reader = new DatabaseSync(path, { readOnly: true });
+  reader.exec('BEGIN');
+  reader.prepare('SELECT COUNT(*) FROM settings').get();
+  createStore(path).close();
+  reader.exec('COMMIT');
+  reader.close();
+  const pending = new DatabaseSync(path);
+  assert.ok(pending.prepare("SELECT 1 FROM settings WHERE key='compactPending'").get(), 'the blocked compaction stays pending');
+  pending.close();
+  createStore(path).close();
+  const after = new DatabaseSync(path);
+  assert.equal(after.prepare("SELECT 1 FROM settings WHERE key='compactPending'").get(), undefined);
+  after.close();
+  assert.ok(statSync(path).size < before / 2, 'the next start compacts the file');
+  rmSync(dir, { recursive: true });
+});

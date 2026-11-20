@@ -416,7 +416,8 @@ export function createStore(path = ':memory:') {
     if (!q("SELECT 1 FROM settings WHERE key='compactPending'").get()) return;
     try {
       db.exec('VACUUM');
-      if (path !== ':memory:') db.exec('PRAGMA wal_checkpoint(TRUNCATE)');
+      // In WAL mode the space returns only once the checkpoint copies the vacuumed pages back; a reader can block it.
+      if (path !== ':memory:' && db.prepare('PRAGMA wal_checkpoint(TRUNCATE)').get()?.busy) return;
       q("DELETE FROM settings WHERE key='compactPending'").run();
     } catch {
       /* Retried on the next start. */
