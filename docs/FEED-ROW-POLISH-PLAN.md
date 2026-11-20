@@ -48,14 +48,14 @@ change that makes it pass.
 
 ## Phase 3: drop the branch token when the title already names it
 
-- [ ] Unit tests per kind: push, branch-created, branch-deleted and tag rows
+- [x] Unit tests per kind: push, branch-created, branch-deleted and tag rows
       whose title contains the branch render no `.ref-branch`; PR and CI rows
       always keep it (a PR titled "Fix main menu" from branch `main` still
       shows `main`). Watch them fail.
-- [ ] Rule in `row()`: omit the branch when the kind is not `pr` or `build`
+- [x] Rule in `row()`: omit the branch when the kind is not `pr` or `build`
       and the title contains `branchName(record.branch)`. Omit `.subref`
       entirely when no tokens remain.
-- [ ] Run `npm test`, `npm run test:ui`; visual check of push and branch rows.
+- [x] Run `npm test`, `npm run test:ui`; visual check of push and branch rows.
 
 ## Phase 4: event column in tiers
 

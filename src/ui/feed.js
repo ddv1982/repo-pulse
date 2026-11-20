@@ -59,13 +59,21 @@ function rowSummary(record) {
   return record.kind === 'build' && summary === 'Not supplied' ? '' : summary;
 }
 
+/** Whether the title names the ref as a whole word, so `main` is not found inside `main-old`. @param {string} title @param {string} ref */
+const namesRef = (title, ref) => new RegExp(`(^|[\\s,(])${ref.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}($|[\\s,)])`).test(title);
+
 /**
  * The line under a row's title says where it happened: repository, branch and pull request as separate tokens.
- * The hidden words keep the button's accessible name readable after its title.
- * @param {ActivityItem} record @param {string} repoName empty when the row needs no repository name
+ * The hidden words keep the button's accessible name readable after its title. A push, branch or tag title already
+ * names its ref, so the line leaves it out; a PR or CI title can contain a branch name by accident, so those keep it.
+ * @param {ActivityItem} record @param {string} title the row's shown title
+ * @param {string} repoName empty when the row needs no repository name
  */
-function renderRefLine(record, repoName) {
-  const { branch, pullRequestId } = record.branch ? activityRef(record) : { branch: '' };
+function renderRefLine(record, title, repoName) {
+  const ref = record.branch ? activityRef(record) : { branch: '' };
+  const named = !['pr', 'build'].includes(record.kind) && Boolean(ref.branch) && namesRef(title, ref.branch);
+  const { branch, pullRequestId } = named ? { ...ref, branch: '' } : ref;
+  if (!repoName && !branch && !pullRequestId) return emptyHtml;
   return html`<span class="subref">${repoName ? html`<span class="ref-repo"><span class="sr"> · repository </span>${repoName}</span>` : emptyHtml}${
     branch ? html`<span class="ref-branch" title="${branch}">${icons.branch}<span class="sr"> · branch </span><span class="ref-name">${branch}</span></span>` : emptyHtml
   }${pullRequestId ? html`<span class="chip ref-pr"><span class="sr"> · </span>PR ${pullRequestId}</span>` : emptyHtml}</span>`;
@@ -87,7 +95,7 @@ function row(record, state, tree, showRepo = true) {
   const origin = forkText(tree?.fork ?? null);
   return html`<li class="${['row', failed ? 'crit' : '', record.unseen ? 'new' : '', `tone-${tone}`].filter(Boolean).join(' ')}" data-event-id="${record.id}" data-event-ids="${ids}" data-group-key="${record.groupKey}" data-unseen-ids="${unreadIds}">${tree ? renderTreeCell(tree, tone) : emptyHtml}
     <span class="kind ${tone}">${record.kind === 'branch-created' ? icons.branch : html`<span class="d"></span>`}${activityLabel(record)}</span>
-    <div class="subject"><button class="feed-title" type="button" data-action="detail" data-id="${record.id}"><span class="title">${title}${record.unseenIds.length > 1 ? html` <span class="pill u new-count">${record.unseenIds.length} new</span>` : emptyHtml}</span>${renderRefLine(record, showRepo ? repo?.name || 'Unknown repository' : '')}</button></div>
+    <div class="subject"><button class="feed-title" type="button" data-action="detail" data-id="${record.id}"><span class="title">${title}${record.unseenIds.length > 1 ? html` <span class="pill u new-count">${record.unseenIds.length} new</span>` : emptyHtml}</span>${renderRefLine(record, title, showRepo ? repo?.name || 'Unknown repository' : '')}</button></div>
     <div class="event">${rowSummary(record)}${mergeEvidenceBadge(record)}<div class="help">${actor ? `${record.kind === 'pr' ? 'Created by ' : record.kind === 'push' ? 'Pushed by ' : ''}${actor} · ` : ''}<time datetime="${record.time}">${dateTime(record.time)}</time>${origin ? ` · ${origin}` : ''}</div>${renderTrail(record)}</div>
     <div class="rowact">${azureLink(record.url)}${record.imported ? emptyHtml : html`<button class="ghost sm seen-toggle" type="button" id="seen-${record.id}" data-action="ack-item" data-id="${record.id}" data-mark-seen="${record.unseen}" data-event-ids="${ackIds}" aria-pressed="${!record.unseen}" aria-label="Seen: ${title}">${icons.seenBox}Seen</button>`}</div></li>`;
 }

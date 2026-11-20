@@ -421,6 +421,29 @@ test('a row names its repository only when more than one repository is shown', (
   assert.doesNotMatch(subref(renderFeed(state, { ...view, repoIds: ['r'] })), /Orders/);
 });
 
+test('a row leaves out the branch its title already names, except on pull requests and CI runs', () => {
+  const state = fixture();
+  const base = { repoId: 'r', seen: false, imported: false, time: '2026-11-17T10:00:00Z' };
+  state.events = [
+    { ...base, id: 'push', kind: 'push', branch: 'feature/a', title: 'Ana pushed to feature/a', data: {} },
+    { ...base, id: 'created', kind: 'branch-created', branch: 'feature/b', title: 'feature/b', data: {} },
+    { ...base, id: 'deleted', kind: 'branch-deleted', branch: 'feature/c', title: 'Branch deleted', data: {} },
+    { ...base, id: 'tag', kind: 'tag', branch: 'v1.0', title: 'Tag moved · v1.0', data: {} },
+    { ...base, id: 'old-push', kind: 'push', branch: 'feature/d', title: 'Ana pushed', data: {} },
+    { ...base, id: 'other-ref', kind: 'push', branch: 'main', title: 'Ana pushed to main-old', data: {} },
+    { ...base, id: 'pr', kind: 'pr', branch: 'main', title: 'PR 3 · Fix main menu', data: { id: 3 } },
+    { ...base, id: 'build', kind: 'build', branch: 'main', title: 'main CI · 1', data: { buildId: 1 } },
+  ];
+  const out = String(renderFeed(state, view));
+  const refLine = (/** @type {string} */ id) => out.match(new RegExp(`data-event-id="${id}"[^]*?</button>`))?.[0] ?? '';
+  for (const id of ['push', 'created', 'deleted', 'tag']) assert.doesNotMatch(refLine(id), /class="subref"/, id);
+  for (const [id, name] of [['old-push', 'feature/d'], ['other-ref', 'main'], ['pr', 'main'], ['build', 'main']])
+    assert.match(refLine(id), new RegExp(`<span class="ref-name">${name}</span>`), id);
+  // With several repositories shown the line stays for the repository alone.
+  state.repos.push({ id: 'other', name: 'Billing' });
+  assert.match(String(renderFeed(state, view)).match(/data-event-id="push"[^]*?<\/button>/)?.[0] ?? '', /<span class="subref"><span class="ref-repo">[^]*?<\/span><\/span><\/button>/);
+});
+
 test('each fork origin has its own row text, and only an unchecked PR target is dotted', () => {
   const base = 'd'.repeat(40);
   assert.deepEqual(
