@@ -615,7 +615,7 @@ test('v9 migration drops the old Pull journal and keeps repositories and events'
   }
   const check = new DatabaseSync(path);
   assert.equal(check.prepare("SELECT name FROM sqlite_master WHERE name='pull_operations'").get(), undefined);
-  assert.equal(check.prepare('PRAGMA user_version').get().user_version, 13);
+  assert.equal(check.prepare('PRAGMA user_version').get().user_version, 14);
   check.close();
   rmSync(dir, { recursive: true });
 });
@@ -635,13 +635,13 @@ test('a fresh database is created with its final activity columns', () => {
       { name: 'evidence_id', notnull: 1, dflt_value: "''" },
     ],
   );
-  assert.equal(check.prepare('PRAGMA user_version').get().user_version, 13);
+  assert.equal(check.prepare('PRAGMA user_version').get().user_version, 14);
   check.close();
   rmSync(dir, { recursive: true });
 });
 
 test('every older database version and a fresh database end at the latest version, and a newer one is refused', () => {
-  const latest = 13;
+  const latest = 14;
   const dir = mkdtempSync(join(tmpdir(), 'pulse-versions-'));
   const versionOf = path => {
     const db = new DatabaseSync(path);
@@ -871,4 +871,37 @@ test('comma-separated text search matches any term within the same repository sc
   } finally {
     store.close();
   }
+});
+
+test('a CI run on a pull request ref carries the refs of the stored pull request, also when that PR is on another page', () => {
+  const store = setup();
+  const pr = (id, time, data) =>
+    event(id, {
+      kind: 'pr',
+      branch: 'feature/a',
+      time,
+      data: { pullRequestId: 7, status: 'active', targetRefName: 'refs/heads/main', ...data },
+    });
+  const run = (id, branch, time) => event(id, { kind: 'build', branch, time, data: { buildId: id, status: 'completed' } });
+  store.insertEvents([
+    pr('pr-old', '2026-11-10T10:00:00Z', { sourceRefName: 'refs/heads/feature/old-name' }),
+    pr('pr-new', '2026-11-11T10:00:00Z', { sourceRefName: 'refs/heads/feature/a', fork: { repository: 'Fork', project: 'Other' } }),
+    run('run-7', 'refs/pull/7/merge', '2026-11-17T12:00:00Z'),
+    run('run-8', 'refs/pull/8/merge', '2026-11-17T11:00:00Z'),
+    run('run-main', 'main', '2026-11-17T10:30:00Z'),
+  ]);
+  const page = store.queryActivity({ limit: 3 });
+  assert.deepEqual(
+    page.items.map(item => [item.id, item.data.pullRequest]),
+    [
+      [
+        'run-7',
+        { id: 7, sourceRefName: 'refs/heads/feature/a', targetRefName: 'refs/heads/main', fork: { repository: 'Fork', project: 'Other' } },
+      ],
+      ['run-8', undefined],
+      ['run-main', undefined],
+    ],
+  );
+  assert.equal(store.getEvent('run-7').data.pullRequest, undefined, 'the saved event is not changed');
+  store.close();
 });

@@ -46,16 +46,21 @@ function hash(text) {
 }
 
 /**
- * The refs one pull request row names. A PR from a fork keeps its source apart from the branches of this repository.
- * @param {ActivityEvent} item @returns {PullRequest | undefined}
+ * The refs of a pull request. A PR from a fork keeps its source apart from the branches of this repository.
+ * @param {number | string} id @param {string | undefined} sourceRef @param {string | undefined} targetRef
+ * @param {{ repository?: string, project?: string } | undefined} fork @returns {PullRequest}
  */
+function pullRequestRefs(id, sourceRef, targetRef, fork) {
+  const branch = branchName(sourceRef);
+  const source = fork && branch ? `${fork.project ?? ''}/${fork.repository ?? 'fork'}:${branch}` : branch;
+  return { id, source, target: branchName(targetRef) };
+}
+
+/** The refs one pull request row names. @param {ActivityEvent} item @returns {PullRequest | undefined} */
 function pullRequest(item) {
   const id = item.kind === 'pr' ? item.data?.pullRequestId : undefined;
   if (id === undefined) return undefined;
-  const branch = branchName(item.data?.sourceRefName) || item.branch || '';
-  const fork = item.data?.fork;
-  const source = fork && branch ? `${fork.project ?? ''}/${fork.repository ?? 'fork'}:${branch}` : branch;
-  return { id, source, target: branchName(item.data?.targetRefName) };
+  return pullRequestRefs(id, item.data?.sourceRefName || item.branch, item.data?.targetRefName, item.data?.fork);
 }
 
 /** Pull requests by id, newest row first, and every PR row of each source branch in list order. @param {ActivityEvent[]} items */
@@ -115,8 +120,12 @@ function rowBranch(item, prs) {
   const pr = pullRequest(item);
   if (pr) return (item.data?.status === 'completed' && pr.target) || pr.source;
   const prRef = item.kind === 'build' ? PR_REF.exec(item.branch ?? '') : null;
-  // A CI run on a pull request ref belongs to the PR source branch. Without that PR in the list it stands alone.
-  return prRef ? (prs.get(laneKey(item.repoId, prRef[1]))?.source ?? '') : item.branch || '';
+  if (!prRef) return item.branch || '';
+  // A CI run on a pull request ref belongs to the PR source branch: from the stored PR the server attached, or from a
+  // PR row in the list. With neither, the runs of that pull request still share a lane of their own.
+  const stored = item.data?.pullRequest;
+  if (stored) return pullRequestRefs(stored.id, stored.sourceRefName, stored.targetRefName, stored.fork).source;
+  return prs.get(laneKey(item.repoId, prRef[1]))?.source ?? `refs/pull/${prRef[1]}`;
 }
 
 /** @param {ActivityEvent} item @returns {TreeNode['shape']} */

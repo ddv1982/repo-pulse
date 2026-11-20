@@ -188,6 +188,55 @@ function loadMembers(db, hydrate, { scope, params }, filter, groups) {
   return members;
 }
 
+const PULL_REF = /^refs\/pull\/(\d+)\//;
+
+/**
+ * A CI run on refs/pull/N names no branch. Each such run in the page gets the refs of the newest stored event of
+ * that pull request, so a reader sees the source branch without the PR being on the same page. Saved events stay as they are.
+ * @param {import('node:sqlite').DatabaseSync} db @param {Iterable<ActivityEvent[]>} groups
+ */
+function attachPullRequests(db, groups) {
+  /** @type {Map<string, ActivityEvent[]>} */
+  const runs = new Map();
+  for (const events of groups)
+    for (const event of events) {
+      const id = event.kind === 'build' ? PULL_REF.exec(event.branch ?? '')?.[1] : undefined;
+      if (!id) continue;
+      const key = JSON.stringify([event.repoId, id]);
+      const list = runs.get(key);
+      if (list) list.push(event);
+      else runs.set(key, [event]);
+    }
+  if (!runs.size) return;
+  const wanted = [...runs.keys()].map(key => /** @type {[string, string]} */ (JSON.parse(key)));
+  const repoIds = [...new Set(wanted.map(([repoId]) => repoId))];
+  const ids = [...new Set(wanted.map(([, id]) => id))];
+  const rows = db
+    .prepare(
+      `SELECT repo_id, CAST(json_extract(data,'$.data.pullRequestId') AS TEXT) AS id,
+        json_extract(data,'$.data.sourceRefName') AS source, json_extract(data,'$.data.targetRefName') AS target,
+        json_extract(data,'$.data.fork') AS fork
+      FROM events WHERE repo_id IN (${repoIds.map(() => '?').join(',')}) AND json_extract(data,'$.kind')='pr'
+        AND CAST(json_extract(data,'$.data.pullRequestId') AS TEXT) IN (${ids.map(() => '?').join(',')})
+      ORDER BY time DESC, observed_at DESC, rowid DESC`,
+    )
+    .all(...repoIds, ...ids);
+  const done = new Set();
+  for (const row of rows) {
+    const key = JSON.stringify([row.repo_id, row.id]);
+    const events = runs.get(key);
+    if (!events || done.has(key)) continue;
+    done.add(key);
+    const pullRequest = {
+      id: Number(row.id),
+      ...(row.source ? { sourceRefName: String(row.source) } : {}),
+      ...(row.target ? { targetRefName: String(row.target) } : {}),
+      ...(row.fork ? { fork: JSON.parse(String(row.fork)) } : {}),
+    };
+    for (const event of events) event.data = { ...event.data, pullRequest };
+  }
+}
+
 /** @param {CountRow[]} countRows */
 function summarizeCounts(countRows) {
   /** @type {Record<string, number>} */
@@ -279,6 +328,7 @@ export function createActivityQuery(db, hydrate, requireRepo, activityRevision) 
     const options = page?.options ? filterOptions(JSON.parse(String(page.options))) : undefined;
     const selectedGroups = groups.slice(0, pageSize);
     const members = loadMembers(db, hydrate, member, filter, selectedGroups);
+    attachPullRequests(db, members.values());
     const items = selectedGroups.flatMap(group => projectActivity(group.key, members.get(group.key) || [], group.representative) || []);
     const { counts, newCounts, total, newItems, newUpdates } = summarizeCounts(countRows);
     const nextCursor = groups.length > pageSize ? encodeCursor(selectedGroups.at(-1), maxSequence, filterKey, revision) : null;

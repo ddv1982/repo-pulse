@@ -3,7 +3,6 @@
 import {
   emptyHtml,
   html,
-  branchName,
   dateTime,
   azureLink,
   activityActor,
@@ -21,7 +20,7 @@ import { renderTrail } from './activity-trail.js';
 import { activityHref } from './navigation.js';
 import { renderTypeFilter } from './type-filter.js';
 import { activityScopeQuery } from './activity-data.js';
-import { activityFilterLabel } from '../activity-text.js';
+import { activityFilterLabel, activityRef } from '../activity-text.js';
 import { scopeName } from './header.js';
 import { currentActivityFilters, isSavedFilterModified, renderSavedFilters } from './saved-filters.js';
 import { mergeEvidenceBadge } from './merge-evidence.js';
@@ -67,7 +66,7 @@ function row(record, state, tree) {
   const origin = forkText(tree?.fork ?? null);
   return html`<li class="row ${failed ? 'crit' : record.unseen ? 'new' : ''} tone-${tone}" data-event-id="${record.id}" data-event-ids="${ids}" data-group-key="${record.groupKey}" data-unseen-ids="${unreadIds}">${tree ? renderTreeCell(tree, tone) : emptyHtml}
     <span class="kind ${tone}">${record.kind === 'branch-created' ? icons.branch : html`<span class="d"></span>`}${activityLabel(record)}</span>
-    <div class="subject"><button class="feed-title" type="button" data-action="detail" data-id="${record.id}"><span class="title">${title}</span><span class="subref">${repo?.name || 'Unknown repository'}${record.branch ? ` / ${branchName(record.branch)}` : ''}</span></button></div>
+    <div class="subject"><button class="feed-title" type="button" data-action="detail" data-id="${record.id}"><span class="title">${title}</span><span class="subref">${repo?.name || 'Unknown repository'}${record.branch ? ` / ${activityRef(record)}` : ''}</span></button></div>
     <div class="event">${activitySummary(record)}${mergeEvidenceBadge(record)}<div class="help">${actor ? `${record.kind === 'pr' ? 'Created by ' : record.kind === 'push' ? 'Pushed by ' : ''}${actor} · ` : ''}<time datetime="${record.time}">${dateTime(record.time)}</time>${origin ? ` · ${origin}` : ''}</div>${renderTrail(record)}</div>
     <div class="counts">${record.unseen ? html`<b>${record.unseenIds.length > 1 ? `${record.unseenIds.length} new` : 'New'}</b>` : record.imported ? 'History' : 'Seen'}</div>
     <div class="rowact">${azureLink(record.url)}${record.imported ? emptyHtml : html`<button class="ghost sm" type="button" data-action="ack-item" data-id="${record.id}" data-mark-seen="${record.unseen}" data-event-ids="${ackIds}" aria-label="Mark ${title} ${record.unseen ? 'seen' : 'unseen'}">${record.unseen ? 'Mark seen' : 'Mark unseen'}</button>`}</div></li>`;

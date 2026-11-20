@@ -187,9 +187,27 @@ test('a CI run on a pull request ref joins the lane of the PR source branch', ()
   const tree = buildActivityTree([event('build', 'refs/pull/7/merge'), pr(7, 'feature/a'), event('build', 'refs/pull/9/merge')]);
   assert.equal(tree.rows[0].node.slot, tree.rows[1].node.slot);
   assert.equal(tree.rows[0].node.down, true);
-  const unresolved = buildActivityTree([event('build', 'refs/pull/9/merge'), push('main'), event('build', 'refs/pull/9/merge')]);
-  for (const row of [unresolved.rows[0], unresolved.rows[2]])
-    assert.deepEqual([row.node.color, row.node.up, row.node.down], [-1, false, false]);
+  const lone = buildActivityTree([event('build', 'refs/pull/9/merge'), push('main'), push('main')]);
+  assert.deepEqual([lone.rows[0].node.color, lone.rows[0].node.up, lone.rows[0].node.down], [-1, false, false]);
+});
+
+test('a CI run carrying its stored pull request joins the source branch without the PR in the list', () => {
+  const stored = { pullRequest: { id: 7, sourceRefName: 'refs/heads/feature/a', targetRefName: 'refs/heads/main' } };
+  const tree = buildActivityTree([event('build', 'refs/pull/7/merge', { data: stored }), push('main'), push('feature/a')]);
+  assert.equal(tree.rows[0].node.slot, tree.rows[2].node.slot);
+  assert.deepEqual([tree.rows[0].node.down, tree.rows[2].node.up], [true, true]);
+  assert.notEqual(tree.rows[0].node.slot, tree.rows[1].node.slot);
+  // The stored pull request wins over the ref name, so a PR from a fork stays off the same-named branch here.
+  const fork = { pullRequest: { ...stored.pullRequest, fork: { project: 'Other', repository: 'Fork' } } };
+  const apart = buildActivityTree([event('build', 'refs/pull/7/merge', { data: fork }), push('feature/a')]);
+  assert.deepEqual([apart.rows[0].node.down, apart.rows[1].node.up], [false, false]);
+});
+
+test('CI runs of one pull request that is stored nowhere share a lane', () => {
+  const tree = buildActivityTree([event('build', 'refs/pull/9/merge'), push('main'), event('build', 'refs/pull/9/merge')]);
+  assert.equal(tree.rows[0].node.slot, tree.rows[2].node.slot);
+  assert.deepEqual([tree.rows[0].node.down, tree.rows[2].node.up], [true, true]);
+  assert.notEqual(tree.rows[0].node.color, -1);
 });
 
 test('rows without a branch, and tags, stand alone without a lane colour', () => {
