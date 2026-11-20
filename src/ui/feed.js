@@ -128,10 +128,10 @@ function renderRefLine(record, title, repoName) {
 }
 
 /**
- * @param {ActivityItem} record @param {PageState} state @param {import('../activity-tree.js').TreeRow} [tree]
- * @param {boolean} [showRepo] whether more than one repository is in view, so the row has to say which one it belongs to
+ * @param {ActivityItem} record @param {PageState} state @param {import('../activity-tree.js').TreeRow | undefined} tree
+ * @param {boolean} showRepo whether more than one repository is in view, so the row has to say which one it belongs to
  */
-function row(record, state, tree, showRepo = true) {
+function row(record, state, tree, showRepo) {
   const repo = state.repos.find(item => item.id === record.repoId);
   const tone = activityTone(record);
   const failed = record.kind === 'build' && buildState(record).tone === 'crit';
@@ -147,8 +147,8 @@ function row(record, state, tree, showRepo = true) {
     <div class="rowact">${azureLink(record.url)}${record.imported ? emptyHtml : html`<button class="ghost sm seen-toggle" type="button" id="seen-${record.id}" data-action="ack-item" data-id="${record.id}" data-mark-seen="${record.unseen}" data-event-ids="${ackIds}" aria-pressed="${!record.unseen}" aria-label="Seen: ${title}">${icons.seenBox}Seen</button>`}</div></li>`;
 }
 
-/** @param {string} title @param {ActivityItem[]} records @param {PageState} state @param {{ open?: boolean, description?: string, tree?: import('../activity-tree.js').ActivityTree, showRepo?: boolean }} [options] */
-function group(title, records, state, { open = true, description = '', tree, showRepo = true } = {}) {
+/** @param {string} title @param {ActivityItem[]} records @param {PageState} state @param {{ open?: boolean, description?: string, tree?: import('../activity-tree.js').ActivityTree, showRepo: boolean }} options */
+function group(title, records, state, { open = true, description = '', tree, showRepo }) {
   if (!records.length) return emptyHtml;
   return html`<section class="group"><details data-group="${title}" ${open ? html`open` : emptyHtml}><summary class="ghead">${title} <span class="pill u">${records.length}</span><span class="note">${description}</span></summary><ul class="rows${tree ? ' with-tree' : ''}" ${tree ? html`data-tree-lanes="${tree.width}"` : emptyHtml}>${records.map((record, index) => row(record, state, tree?.rows[index], showRepo))}</ul></details></section>`;
 }
