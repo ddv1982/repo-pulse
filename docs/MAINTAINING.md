@@ -10,7 +10,9 @@
 | [server/sync-status.js](../server/sync-status.js) | The per-repository and overall sync status sent with `/api/state` |
 | [server/store.js](../server/store.js) and [server/merge-evidence.js](../server/merge-evidence.js) | SQLite events, migrations, atomic checkpoints, reset, and linking pushes to completed PRs by tip |
 | [server/activity-query.js](../server/activity-query.js) | Scoped Activity rows, stable filter IDs, counts, and paging |
-| [server/repositories.js](../server/repositories.js), [server/checkout-git.js](../server/checkout-git.js), and [server/checkout-switch-refs.js](../server/checkout-switch-refs.js) | Checkout discovery, local Git status, verified branch switches and tracking-ref recovery, and guarded fast-forward |
+| [server/repositories.js](../server/repositories.js) and [server/checkout-git.js](../server/checkout-git.js) | Checkout discovery, Git runner and safety checks, status and cache, and the shared write lock |
+| [server/checkout-activity-switch.js](../server/checkout-activity-switch.js) and [server/checkout-switch-refs.js](../server/checkout-switch-refs.js) | Activity branch switches, tracking-ref transactions, and rewrite recovery |
+| [server/checkout-update.js](../server/checkout-update.js) and [server/checkout-branches.js](../server/checkout-branches.js) | Check, Pull, and PR branch follow-up workflows |
 | [src/web.js](../src/web.js) and [src/ui/](../src/ui/) | Browser wiring, view rendering, refresh coordination, navigation, and exact seen actions |
 | [web/app.css](../web/app.css), [web/styles/](../web/styles/) and [web/theme.js](../web/theme.js) | Modular CSS tokens, layouts, screen styles, light-mode glass, and System, Light, and Dark controls |
 
