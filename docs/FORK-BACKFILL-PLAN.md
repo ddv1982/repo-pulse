@@ -44,19 +44,19 @@ Each phase starts with a test seen failing and ends with `npm test`, `npm run ch
 
 ### Phase 2: migration 15 queues the stored creations
 
-- [ ] Add store migration 15: for every repository, insert a fork job with `INSERT OR IGNORE` on `fork:<eventId>` for
+- [x] Add store migration 15: for every repository, insert a fork job with `INSERT OR IGNORE` on `fork:<eventId>` for
       each push `branch-created` row with a valid tip and push ID, no `forkOrigin`, that is live or imported at or after
       its repository's baseline minus 7 days. Check: a v14-to-v15 migration test in `test/store.test.js` with a live row,
       a checked row, an imported row inside and one outside the window, a snapshot row and a malformed row; only the
       first and third get jobs, and reopening adds none.
-- [ ] Run the migration on a copy of the live database and count the queued jobs (expected 92: 77 enabled, 15
+- [x] Run the migration on a copy of the live database and count the queued jobs (expected 92: 77 enabled, 15
       disabled). Then tick the real check on that copy with real Azure reads and record the status counts, the read
       count and how far the live streams fell behind.
-- [ ] Correct the "77 live branch creations" wording in `docs/FORK-EVIDENCE-PLAN.md`.
+- [x] Correct the "77 live branch creations" wording in `docs/FORK-EVIDENCE-PLAN.md`.
 
 ### Phase 3: record the skipped follow-ups
 
-- [ ] Add the late-PR and default-branch measurements with their revisit triggers to `docs/FORK-EVIDENCE-PLAN.md`.
+- [x] Add the late-PR and default-branch measurements with their revisit triggers to `docs/FORK-EVIDENCE-PLAN.md`.
 
 ## Risks
 
@@ -70,3 +70,10 @@ Each phase starts with a test seen failing and ends with `npm test`, `npm run ch
 
 Re-checking on PR arrival, reading the default branch, snapshot-discovered branches, local clones, pacing unless phase 2
 shows it is needed.
+
+## Result (2026-11-20)
+
+The real app in live mode on a copy of the live database queued 92 jobs (77 in the enabled repository) and drained
+the 77 in 280 seconds with no live stream overdue (maximum delay 0 ms), so no pacing was added. Results: 46 tip
+matches and 23 contained, all solid; 1 tie, 1 not on the PR target, 2 with no checkable candidate and 1 merge, all
+without a line; 3 unknown.
