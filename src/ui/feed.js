@@ -25,6 +25,8 @@ import { activityFilterLabel } from '../activity-text.js';
 import { scopeName } from './header.js';
 import { currentActivityFilters, isSavedFilterModified, renderSavedFilters } from './saved-filters.js';
 import { mergeEvidenceBadge } from './merge-evidence.js';
+import { buildActivityTree } from '../activity-tree.js';
+import { forkText, renderTreeCell, treeLegend } from './activity-tree.js';
 export { renderDetail } from './activity-detail.js';
 
 /** @typedef {import('./refresh.js').PageState} PageState */
@@ -52,8 +54,8 @@ export function filterControls(ui, state) {
   </div>`;
 }
 
-/** @param {ActivityItem} record @param {PageState} state */
-function row(record, state) {
+/** @param {ActivityItem} record @param {PageState} state @param {import('../activity-tree.js').TreeRow} [tree] */
+function row(record, state, tree) {
   const repo = state.repos.find(item => item.id === record.repoId);
   const tone = activityTone(record);
   const failed = record.kind === 'build' && buildState(record).tone === 'crit';
@@ -62,18 +64,31 @@ function row(record, state) {
   const ackIds = record.unseen ? unreadIds : JSON.stringify(record.events.filter(event => !event.imported).map(event => event.id));
   const title = activityTitle(record);
   const actor = activityActor(record);
-  return html`<li class="row ${failed ? 'crit' : record.unseen ? 'new' : ''} tone-${tone}" data-event-id="${record.id}" data-event-ids="${ids}" data-group-key="${record.groupKey}" data-unseen-ids="${unreadIds}">
+  const origin = forkText(tree?.fork ?? null);
+  return html`<li class="row ${failed ? 'crit' : record.unseen ? 'new' : ''} tone-${tone}" data-event-id="${record.id}" data-event-ids="${ids}" data-group-key="${record.groupKey}" data-unseen-ids="${unreadIds}">${tree ? renderTreeCell(tree, tone) : emptyHtml}
     <span class="kind ${tone}">${record.kind === 'branch-created' ? icons.branch : html`<span class="d"></span>`}${activityLabel(record)}</span>
     <div class="subject"><button class="feed-title" type="button" data-action="detail" data-id="${record.id}"><span class="title">${title}</span><span class="subref">${repo?.name || 'Unknown repository'}${record.branch ? ` / ${branchName(record.branch)}` : ''}</span></button></div>
-    <div class="event">${activitySummary(record)}${mergeEvidenceBadge(record)}<div class="help">${actor ? `${record.kind === 'pr' ? 'Created by ' : record.kind === 'push' ? 'Pushed by ' : ''}${actor} · ` : ''}<time datetime="${record.time}">${dateTime(record.time)}</time></div>${renderTrail(record)}</div>
+    <div class="event">${activitySummary(record)}${mergeEvidenceBadge(record)}<div class="help">${actor ? `${record.kind === 'pr' ? 'Created by ' : record.kind === 'push' ? 'Pushed by ' : ''}${actor} · ` : ''}<time datetime="${record.time}">${dateTime(record.time)}</time>${origin ? ` · ${origin}` : ''}</div>${renderTrail(record)}</div>
     <div class="counts">${record.unseen ? html`<b>${record.unseenIds.length > 1 ? `${record.unseenIds.length} new` : 'New'}</b>` : record.imported ? 'History' : 'Seen'}</div>
     <div class="rowact">${azureLink(record.url)}${record.imported ? emptyHtml : html`<button class="ghost sm" type="button" data-action="ack-item" data-id="${record.id}" data-mark-seen="${record.unseen}" data-event-ids="${ackIds}" aria-label="Mark ${title} ${record.unseen ? 'seen' : 'unseen'}">${record.unseen ? 'Mark seen' : 'Mark unseen'}</button>`}</div></li>`;
 }
 
-/** @param {string} title @param {ActivityItem[]} records @param {PageState} state @param {{ open?: boolean, description?: string }} [options] */
-function group(title, records, state, { open = true, description = '' } = {}) {
+/** @param {string} title @param {ActivityItem[]} records @param {PageState} state @param {{ open?: boolean, description?: string, tree?: import('../activity-tree.js').ActivityTree }} [options] */
+function group(title, records, state, { open = true, description = '', tree } = {}) {
   if (!records.length) return emptyHtml;
-  return html`<section class="group"><details data-group="${title}" ${open ? html`open` : emptyHtml}><summary class="ghead">${title} <span class="pill u">${records.length}</span><span class="note">${description}</span></summary><ul class="rows">${records.map(record => row(record, state))}</ul></details></section>`;
+  return html`<section class="group"><details data-group="${title}" ${open ? html`open` : emptyHtml}><summary class="ghead">${title} <span class="pill u">${records.length}</span><span class="note">${description}</span></summary><ul class="rows${tree ? ' with-tree' : ''}" ${tree ? html`style="--tree-lanes:${tree.width}"` : emptyHtml}>${records.map((record, index) => row(record, state, tree?.rows[index]))}</ul></details></section>`;
+}
+
+/**
+ * All activity: both groups carry a branch tree. They share one width so their columns line up.
+ * @param {ActivityItem[]} records @param {PageState} state @param {boolean} hasQuery
+ */
+function historyGroups(records, state, hasQuery) {
+  const lists = [records.filter(record => !record.imported), records.filter(record => record.imported)];
+  const trees = lists.map(list => buildActivityTree(list));
+  const width = Math.max(...trees.map(tree => tree.width));
+  const [recorded, imported] = trees.map(tree => ({ ...tree, width }));
+  return html`${group('Activity', lists[0], state, { tree: recorded })}${group('Imported history', lists[1], state, { open: hasQuery, description: 'Captured before monitoring started', tree: imported })}`;
 }
 
 /**
@@ -119,21 +134,14 @@ export function renderFeed(state, ui) {
   const unseen = records
     .filter(record => record.unseen)
     .sort((a, b) => Number(b.kind === 'branch-created') - Number(a.kind === 'branch-created'));
-  const imported = records.filter(record => record.imported);
-  const content =
-    ui.route === 'activity'
-      ? html`${group(
-          'Activity',
-          records.filter(record => !record.imported),
-          state,
-        )}${group('Imported history', imported, state, { open: hasQuery, description: 'Captured before monitoring started' })}`
-      : group('New updates', unseen, state);
+  // New updates lists new branches first, so its rows are not in time order and it gets no tree.
+  const content = ui.route === 'activity' ? historyGroups(records, state, hasQuery) : group('New updates', unseen, state);
   const current = html`aria-current="page"`;
   const emptyMessage = emptyActivityMessage(ui, partial);
   const unreadTotal = state.activity.newUpdates ?? 0;
   const viewControl = html`<h1 class="sr">Activity</h1><div class="activity-view"><nav class="seg" aria-label="Activity view" aria-describedby="activity-view-help"><a href="${activityHref('catchup')}" ${ui.route !== 'activity' ? current : emptyHtml}>New updates</a><a href="${activityHref('activity')}" ${ui.route === 'activity' ? current : emptyHtml}>All activity</a></nav><p class="help activity-view-help" id="activity-view-help">${ui.route === 'activity' ? 'Browse recorded updates, including seen and imported history.' : 'Updates you haven’t marked seen yet. Opening a page marks nothing.'}</p></div>`;
   return html`${viewControl}${renderSummary(records, state, ui, partial)}${statusBanner(state, attention)}${filterControls(ui, state)}
-    <section class="card feed" aria-label="Repository activity">${records.length ? content : html`<div class="empty"><p class="big">${state.activity?.loading ? 'Loading activity…' : state.activity?.error ? 'Activity could not load' : emptyMessage}</p><p class="dim">${state.activity?.error ? state.activity.error : state.activity?.loading ? 'Reading your locally stored history.' : partial ? 'This does not confirm that nothing changed. Check repository status.' : 'Use All activity to browse history, or adjust your filters.'}</p>${state.activity?.error ? html`<button class="btn sm" type="button" data-action="retry-activity">Try again</button>` : emptyHtml}</div>`}${state.activity?.nextCursor ? html`<div class="foot"><button class="btn" type="button" data-action="load-more-activity">Load more</button><span>Showing ${records.length} of ${state.activity.total} recorded items.</span></div>` : emptyHtml}<div class="foot"><button class="btn sm" type="button" data-action="ack-shown" ${unseen.length ? emptyHtml : html`disabled`}>Mark shown seen (${unseen.reduce((sum, record) => sum + record.unseenIds.length, 0)})</button>${matchingAction(
+    <section class="card feed" aria-label="Repository activity">${ui.route === 'activity' && records.length ? treeLegend : emptyHtml}${records.length ? content : html`<div class="empty"><p class="big">${state.activity?.loading ? 'Loading activity…' : state.activity?.error ? 'Activity could not load' : emptyMessage}</p><p class="dim">${state.activity?.error ? state.activity.error : state.activity?.loading ? 'Reading your locally stored history.' : partial ? 'This does not confirm that nothing changed. Check repository status.' : 'Use All activity to browse history, or adjust your filters.'}</p>${state.activity?.error ? html`<button class="btn sm" type="button" data-action="retry-activity">Try again</button>` : emptyHtml}</div>`}${state.activity?.nextCursor ? html`<div class="foot"><button class="btn" type="button" data-action="load-more-activity">Load more</button><span>Showing ${records.length} of ${state.activity.total} recorded items.</span></div>` : emptyHtml}<div class="foot"><button class="btn sm" type="button" data-action="ack-shown" ${unseen.length ? emptyHtml : html`disabled`}>Mark shown seen (${unseen.reduce((sum, record) => sum + record.unseenIds.length, 0)})</button>${matchingAction(
       state,
       ui,
       shown.map(repo => repo.id),

@@ -1430,3 +1430,28 @@ test('Start from scratch in Settings confirms, empties the feed and shows Syncin
   gate.release();
   await expect(page.locator('[data-event-id="one:push:1"]')).toHaveCount(1, { timeout: 15000 });
 });
+
+test('All activity shows the branch tree in the status column, and narrow screens and New updates keep the dot', async t => {
+  const { page } = await setup(t);
+  await page.getByRole('link', { name: 'All activity', exact: true }).click();
+  const rows = page.locator('.with-tree .row');
+  await expect(rows.first()).toBeVisible();
+  await expect(page.locator('.with-tree svg.tree')).toHaveCount(await rows.count());
+  const hotfix = page.locator('[data-event-id="demo-branch-1"]');
+  await expect(hotfix).toContainText('Started at a revision seen on main');
+  await expect(page.locator('[data-event-id="demo-branch-3"]')).toContainText('Branched from main, assumed from PR 1175');
+  await expect(page.locator('[data-event-id="demo-branch-3"] svg.tree path.assumed')).toHaveCount(1);
+  await expect(page.locator('[data-event-id="demo-pr-2"] svg.tree path')).toHaveCount(1);
+  // A lane must run unbroken through a row, so each cell covers its row from border to border.
+  const [cell, row] = await Promise.all([hotfix.locator('svg.tree').boundingBox(), hotfix.boundingBox()]);
+  assert.ok(Math.abs(cell.y - row.y) <= 1 && Math.abs(cell.y + cell.height - (row.y + row.height)) <= 1, 'tree cell spans the row');
+  await expect(hotfix.locator('.kind > svg')).toBeHidden();
+
+  await page.setViewportSize({ width: 420, height: 900 });
+  await expect(hotfix.locator('svg.tree')).toBeHidden();
+  await expect(hotfix.locator('.kind > svg')).toBeVisible();
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.getByRole('link', { name: 'New updates', exact: true }).click();
+  await expect(page.locator('[data-event-id="demo-branch-1"]')).toBeVisible();
+  await expect(page.locator('svg.tree')).toHaveCount(0);
+});

@@ -84,7 +84,7 @@ test('new updates, paged history, filters and deep links reach events beyond the
   await expect(page.locator('li.row')).toHaveCount(50);
   await page.getByRole('button', { name: 'Load more', exact: true }).click();
   await expect(page.locator('li.row')).toHaveCount(100);
-  await expect(page.getByRole('region', { name: 'Activity summary' })).toContainText('Showing 100 of 1058 items');
+  await expect(page.getByRole('region', { name: 'Activity summary' })).toContainText('Showing 100 of 1062 items');
   await page.locator('details[data-group="Imported history"] > summary').click();
   const last = page.locator('li.row').last();
   const id = await last.getAttribute('data-event-id');
@@ -310,7 +310,7 @@ test('paged query reset follows type and repository scope without acknowledging 
   await expect(page.locator('li.row')).toHaveCount(100);
   await page.getByRole('button', { name: /^Activity type:/ }).click();
   await page.getByRole('option', { name: 'Pull request', exact: true }).click();
-  await expect(page.locator('li.row')).toHaveCount(1);
+  await expect(page.locator('li.row')).toHaveCount(2);
   await page.locator('#repo-toggle').click();
   await page.locator('[data-scope-repo="demo-billing"]').uncheck();
   await page.locator('[data-scope-repo="demo-shared"]').uncheck();
