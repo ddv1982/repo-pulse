@@ -78,7 +78,7 @@ export function forkText(fork) {
     case 'refuted':
       return `PR ${fork.pullRequestId} targets ${fork.target}, which did not hold ${base}`;
     case 'unplaced':
-      return `Started at ${base}, on no recorded branch`;
+      return `Started at ${base}, no branch match found`;
     case 'orphan':
       return 'Started with no earlier commit';
     case 'merge':

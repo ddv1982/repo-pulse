@@ -36,7 +36,7 @@ const notFound = () => Object.assign(new Error('gone'), { code: 'NOT_FOUND' });
  * A live sync of pushes and PRs, with the fork origin check as its background work.
  * `graph` maps a commit to its parents and the push that brought it; `contains(base, tip)` answers ancestry checks.
  */
-function setup({ pushes = [], prs = [], graph = {}, contains = () => false, commit } = {}) {
+function setup({ pushes = [], prs = [], graph = {}, contains = () => false, commit, pages } = {}) {
   const store = createStore();
   store.saveRepo(repo);
   let time = BASE;
@@ -44,7 +44,10 @@ function setup({ pushes = [], prs = [], graph = {}, contains = () => false, comm
   const checks = [];
   const offered = { pushes, prs };
   const provider = {
-    read: async (_repo, stream) => ({ items: offered[stream] || [], nextCursor: null }),
+    read: async (_repo, stream, { cursor } = {}) =>
+      stream === 'pushes' && pages
+        ? { items: pages[cursor?.skip ? 1 : 0], nextCursor: cursor?.skip ? null : { skip: 100 } }
+        : { items: offered[stream] || [], nextCursor: null },
     async commit(_repo, id) {
       reads.push(id);
       if (commit) return commit(id);
@@ -53,7 +56,9 @@ function setup({ pushes = [], prs = [], graph = {}, contains = () => false, comm
     },
     async droppedCommits(_repo, from, to) {
       checks.push([from, to]);
-      return page(contains(from, to) ? 0 : 2);
+      const held = contains(from, to);
+      if (held instanceof Error) throw held;
+      return page(held ? 0 : 2);
     },
   };
   const check = createForkOriginCheck({ store, provider, now: () => time });
@@ -76,6 +81,7 @@ function setup({ pushes = [], prs = [], graph = {}, contains = () => false, comm
     offered,
     backfill,
     check,
+    sync,
     advance(ms) {
       time += ms;
     },
@@ -267,4 +273,38 @@ test('fork candidates are the branch pull request targets, oldest first, then th
   assert.deepEqual(store.forkCandidates('one', 'refs/heads/feature'), ['refs/heads/release/x', 'refs/heads/develop', 'refs/heads/main']);
   assert.deepEqual(store.forkCandidates('one', 'refs/heads/main'), []);
   store.close();
+});
+
+test('a check waits while the push stream is still reading older pages of the same window', async () => {
+  const { store, reads, check, sync, run } = setup({
+    pages: [[push(10, [move('feature', ZERO, B)])], [push(5, [move('main', A, B)])]],
+    graph: { [B]: { parents: [A], pushId: 5 } },
+  });
+  while (!store.getEvent('one:branch-created:10:refs/heads/feature')) await sync.tick();
+  assert.equal(store.getEvent('one:push:5'), undefined, 'the older page is not read yet');
+  assert.equal(await check.tick(), false);
+  assert.deepEqual(reads, []);
+  await run();
+  assert.deepEqual(origin(store, 10, 'feature'), { status: 'found', base: B, on: ['refs/heads/main'], via: 'tip' });
+});
+
+test('a failed ancestry read keeps the base and the candidates already ruled out', async () => {
+  const { store, run } = setup({
+    pushes: [push(10, [move('feature', ZERO, E)]), push(8, [move('main', C, D)]), push(7, [move('release/x', ZERO, F)])],
+    prs: [pr(1, 'feature', 'release/x'), pr(2, 'other', 'main')],
+    graph: { [E]: { parents: [C], pushId: 10 }, [C]: { parents: [A], pushId: 4 } },
+    contains: (_base, tip) => (tip === D ? notFound() : false),
+  });
+  await run(16);
+  assert.deepEqual(origin(store, 10, 'feature'), { status: 'none', base: C, notOn: ['refs/heads/release/x'] });
+  store.close();
+});
+
+test('only a commit from a strictly earlier push is taken as the base', async () => {
+  for (const pushId of [null, 11]) {
+    const { store, run } = setup({ pushes: [push(10, [move('feature', ZERO, B)])], graph: { [B]: { parents: [A], pushId } } });
+    await run();
+    assert.deepEqual(origin(store, 10, 'feature'), { status: 'unknown' }, `push ${pushId}`);
+    store.close();
+  }
 });

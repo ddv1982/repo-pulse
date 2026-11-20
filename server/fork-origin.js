@@ -12,7 +12,7 @@
  */
 /**
  * @typedef {Pick<ReturnType<typeof import('./store.js').createStore>,
- *   'listRepos'|'listJobs'|'saveJob'|'getEvent'|'saveForkResult'|'branchTipsBefore'|'forkCandidates'>} ForkStore
+ *   'listRepos'|'listJobs'|'saveJob'|'getEvent'|'saveForkResult'|'branchTipsBefore'|'forkCandidates'|'getStreams'>} ForkStore
  */
 
 const ATTEMPTS = 4;
@@ -55,8 +55,9 @@ export function createForkOriginCheck({ store, provider, now = Date.now }) {
   async function step(job, repo) {
     if (!job.base) {
       const commit = await provider.commit(repo, job.at);
-      // The first commit an earlier push brought is where the branch started.
-      if (commit.pushId !== job.pushId) return fromBase(job, job.at);
+      // The first commit an earlier push brought is where the branch started. Without a push order there is no base.
+      if (commit.pushId === null || commit.pushId > job.pushId) return { status: 'unknown' };
+      if (commit.pushId < job.pushId) return fromBase(job, job.at);
       if (commit.parents.length === 0) return { status: 'orphan' };
       if (commit.parents.length > 1) return { status: 'merge' };
       if (job.reads + 1 >= MAX_READS) return { status: 'unknown' };
@@ -69,15 +70,30 @@ export function createForkOriginCheck({ store, provider, now = Date.now }) {
       notOn = [...(job.notOn ?? [])];
     (page.items.length ? notOn : on).push(check.ref);
     if (rest.length) return { ...job, checks: rest, on, notOn };
-    return on.length ? { status: 'found', base: job.base, on, via: 'contained', notOn } : { status: 'none', base: job.base, notOn };
+    return settle({ ...job, on, notOn });
+  }
+
+  /** The claim the finished checks support. A failed check keeps the base and the candidates already answered. @param {ForkJob} job @returns {ForkOrigin} */
+  function settle(job) {
+    const base = /** @type {string} */ (job.base),
+      on = job.on ?? [],
+      notOn = job.notOn ?? [];
+    return on.length ? { status: 'found', base, on, via: 'contained', notOn } : { status: 'none', base, notOn };
   }
 
   /** @returns {Promise<boolean>} whether a check ran */
   async function tick() {
+    // Tips are matched against stored pushes, so a repository whose push stream is still paging through a window waits.
+    const reading = new Set(
+      store
+        .getStreams()
+        .filter(state => state.stream === 'pushes' && state.window)
+        .map(state => state.repoId),
+    );
     const repos = new Map(
       store
         .listRepos()
-        .filter(repo => !repo.disabled)
+        .filter(repo => !repo.disabled && !reading.has(repo.id))
         .map(repo => [repo.id, repo]),
     );
     // Rows of type 'fork' are only written by server/normalize.js and this check, as a ForkJob.
@@ -102,7 +118,7 @@ export function createForkOriginCheck({ store, provider, now = Date.now }) {
           }
           return true;
         }
-        next = { status: 'unknown' };
+        next = job.base ? settle(job) : { status: 'unknown' };
       }
     if ('type' in next) {
       // A later step is due at once; a failed write repeats this step on a later tick.

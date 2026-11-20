@@ -407,7 +407,7 @@ test('each fork origin has its own row text, and only an unchecked PR target is 
       'PR 7 targets main, origin not checked',
       'Started at ddddddd, on main and release',
       'PR 7 targets release/x, which did not hold ddddddd',
-      'Started at ddddddd, on no recorded branch',
+      'Started at ddddddd, no branch match found',
       'Started with no earlier commit',
       'Started with a merge commit',
     ],

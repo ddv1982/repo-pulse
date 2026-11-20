@@ -50,8 +50,10 @@ time". No phase may word a fork as "branched from P".
 | `tip` | `F` (or the created tip) was the latest recorded tip of exactly one other branch P before the creation push | solid | Started at `abc1234`, the tip of P |
 | `contained` | `F` is an ancestor of exactly one capped candidate's recorded tip before creation | solid | Started at `abc1234`, already on P |
 | ambiguous | Several branches qualify | none | Started at `abc1234`, on P and Q |
-| refuted | `F` is not on the PR target T | none | PR 7 targets T, which did not contain `abc1234` |
-| `pr` (unchecked) | No check ran yet (imported, failed, demo, offline) | dotted | PR 7 targets T, origin not checked |
+| refuted | `F` is not on the PR target T | none | PR 7 targets T, which did not hold `abc1234` |
+| unplaced | `F` known, no recorded tip or checked candidate held it | none | Started at `abc1234`, no branch match found |
+| orphan, merge | The first pushed commit has no parent, or several | none | Started with no earlier commit / a merge commit |
+| `pr` (unchecked) | No check ran, or it failed before finding `F` | dotted | PR 7 targets T, origin not checked |
 | unknown | Nothing above | none | (no fork text) |
 
 Decision D1 (resolved 2026-11-20): the unchecked `pr` level keeps its dotted line, labelled "origin not checked".
