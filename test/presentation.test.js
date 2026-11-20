@@ -478,8 +478,8 @@ test('a branch row shows its branch as the token under a title that no longer na
     ['created', 'New branch', 'feature/b'],
     ['bare', 'New branch', 'feature/e'],
     ['deleted', 'Branch deleted', 'feature/c'],
-    ['old-push', 'Ana pushed', 'feature/d'],
-    ['other-ref', 'Ana pushed to main-old', 'main'],
+    ['old-push', 'Pushed', 'feature/d'],
+    ['other-ref', 'Pushed to main-old', 'main'],
     ['pr', 'PR 3 · Fix main menu', 'main'],
     ['build', 'main CI · 1', 'main'],
   ]) {
@@ -507,8 +507,9 @@ test('a push that names several branches keeps its title and shows no single bra
     },
   ];
   const out = String(renderFeed(state, view));
-  assert.match(out, /<span class="title">Ana pushed to feature\/a, feature\/b/);
+  assert.match(out, /<span class="title">Pushed to feature\/a, feature\/b/);
   assert.doesNotMatch(out, /class="subref"/);
+  assert.match(out, /<div class="help event-meta">Pushed by <span class="actor">Ana<\/span> · <time/);
 });
 
 test('the event column puts what happened first, then who and when, each actor with its role', () => {
