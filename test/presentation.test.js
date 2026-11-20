@@ -377,7 +377,7 @@ test('All activity draws a branch tree with the fork evidence in the row text; N
     },
   ];
   const all = renderFeed(state, { ...view, route: 'activity' });
-  assert.match(all, /<ul class="rows with-tree" style="--tree-lanes:2">/);
+  assert.match(all, /<ul class="rows with-tree" data-tree-lanes="2">/);
   assert.equal((all.match(/<svg class="tree" aria-hidden="true"/g) || []).length, 2);
   assert.match(all, /<path class="lane-\d assumed" d="M5 18C5 9 15 9 15 0"\/>/);
   assert.match(all, /<circle class="lane-\d hole" cx="15" cy="0" r="3.75"\/>/);

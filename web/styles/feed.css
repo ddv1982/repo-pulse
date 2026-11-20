@@ -674,9 +674,28 @@ ol.rows {
 }
 @media (min-width: 640px) {
   .rows.with-tree {
+    --tree-lanes: 1;
     --tree-width: calc(var(--tree-lanes) * 10px);
     --tree-label-y: 25px;
     --kind-width: calc(9rem + var(--tree-width) - 8px);
+  }
+  .rows.with-tree[data-tree-lanes='0'] {
+    --tree-lanes: 0;
+  }
+  .rows.with-tree[data-tree-lanes='1'] {
+    --tree-lanes: 1;
+  }
+  .rows.with-tree[data-tree-lanes='2'] {
+    --tree-lanes: 2;
+  }
+  .rows.with-tree[data-tree-lanes='3'] {
+    --tree-lanes: 3;
+  }
+  .rows.with-tree[data-tree-lanes='4'] {
+    --tree-lanes: 4;
+  }
+  .rows.with-tree[data-tree-lanes='5'] {
+    --tree-lanes: 5;
   }
   .with-tree .row {
     position: relative;

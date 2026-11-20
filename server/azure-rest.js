@@ -15,6 +15,7 @@ import { cliError } from './azure-cli.js';
 /** The Microsoft Entra application ID of Azure DevOps, the audience of its access tokens. */
 export const AZURE_DEVOPS_RESOURCE = '499b84ac-1321-427f-aa17-267ca6975798';
 const RENEW_BEFORE_MS = 5 * 60000;
+const MAX_RESPONSE_BYTES = 16 * 1024 * 1024;
 /** @param {string} message */
 const refused = message => Object.assign(new Error(message), { stderr: 'not in the command group' });
 
@@ -115,12 +116,45 @@ function transportError(error) {
 }
 
 /**
+ * Reads a JSON response up to `maxBytes` so REST reads match `defaultExecutor`'s 16 MiB cap.
+ * @param {Response} response
+ * @param {number} maxBytes
+ */
+async function readJsonBody(response, maxBytes) {
+  const declared = Number(response.headers?.get('content-length'));
+  if (Number.isFinite(declared) && declared > maxBytes) {
+    await response.body?.cancel().catch(() => {});
+    throw cliError('INVALID_RESPONSE', 'Azure DevOps returned an unexpectedly large response.');
+  }
+  if (!response.body) return response.json();
+  const reader = response.body.getReader();
+  /** @type {Uint8Array[]} */
+  const chunks = [];
+  let total = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > maxBytes) {
+        await reader.cancel().catch(() => {});
+        throw cliError('INVALID_RESPONSE', 'Azure DevOps returned an unexpectedly large response.');
+      }
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  return JSON.parse(Buffer.concat(chunks, total).toString('utf8'));
+}
+
+/**
  * Executor for createAzureCli that sends `devops invoke` reads over HTTPS with one Azure CLI token
  * instead of starting az for each read. Other commands still run through az. The token stays in this
  * closure: it is never returned, logged or put in an error, and run() still refuses to request one.
- * @param {{ cliExecutor: Executor, fetch?: typeof globalThis.fetch, now?: () => number }} options
+ * @param {{ cliExecutor: Executor, fetch?: typeof globalThis.fetch, now?: () => number, maxResponseBytes?: number }} options
  */
-export function createRestExecutor({ cliExecutor, fetch = globalThis.fetch, now = Date.now }) {
+export function createRestExecutor({ cliExecutor, fetch = globalThis.fetch, now = Date.now, maxResponseBytes = MAX_RESPONSE_BYTES }) {
   /** @type {CachedToken | undefined} */
   let token,
     /** @type {Promise<string> | undefined} */
@@ -223,8 +257,9 @@ export function createRestExecutor({ cliExecutor, fetch = globalThis.fetch, now 
     }
     let data;
     try {
-      data = await response.json();
+      data = await readJsonBody(response, maxResponseBytes);
     } catch (error) {
+      if (/** @type {{ code?: unknown }} */ (error)?.code === 'INVALID_RESPONSE') throw error;
       if (error instanceof SyntaxError) throw cliError('INVALID_RESPONSE', 'Azure DevOps returned an invalid JSON response.');
       throw transportError(error);
     }

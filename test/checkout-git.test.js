@@ -4,7 +4,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, renameSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { checkoutFixture, git } from './fixtures/checkout.js';
-import { createCheckoutGit } from '../server/checkout-git.js';
+import { createCheckoutGit, runGit } from '../server/checkout-git.js';
 
 test('status reads the last fetched upstream; Check changes refs and Pull fast-forwards the checkout', async t => {
   const fixture = checkoutFixture(t);
@@ -510,4 +510,19 @@ test('conditional includes, transport and signing keys in checkout config are re
   git(local, 'config', 'lfs.repositoryformatversion', '0');
   git(local, 'config', 'lfs.https://dev.azure.com/example/Testing/_git/Orders/info/lfs.access', 'basic');
   assert.notEqual((await createCheckoutGit({ matchesRemote: url => url === remote }).status(repo)).state, 'unavailable');
+});
+
+test('checkout status scans local config and index once per reading', async t => {
+  const { repo, remote } = checkoutFixture(t);
+  let indexScans = 0;
+  const checkoutGit = createCheckoutGit({
+    matchesRemote: url => url === remote,
+    run: (path, args, options) => {
+      if (args[0] === 'ls-files' && args.includes('--stage')) indexScans++;
+      return runGit(path, args, options);
+    },
+  });
+  const status = await checkoutGit.status(repo);
+  assert.equal(status.state, 'current');
+  assert.equal(indexScans, 1);
 });

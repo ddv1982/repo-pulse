@@ -68,8 +68,7 @@ function allowed(args) {
   if (command === 'extension show --name') return args[3] === 'azure-devops' && args.length === 4;
   if (args.slice(0, 2).join(' ') === 'account show') return args.length === 2;
   if (args.slice(0, 3).join(' ') === 'repos pr show' && args.includes('--id')) return true;
-  if (['repos show --repository', 'devops project list'].some(prefix => command === prefix || args.slice(0, 3).join(' ') === prefix))
-    return true;
+  if (['repos show --repository', 'devops project list'].includes(command)) return true;
   if (args.slice(0, 2).join(' ') !== 'devops invoke') return false;
   /** @param {string} flag */
   const value = flag => args[args.indexOf(flag) + 1];

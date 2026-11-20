@@ -67,8 +67,17 @@ export function createStore(path = ':memory:') {
   if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
   const db = new DatabaseSync(path);
   if (path !== ':memory:') chmodSync(path, 0o600);
-  /** @param {string} sql */
-  const q = sql => db.prepare(sql);
+  /** @type {Map<string, import('node:sqlite').StatementSync>} */
+  const statements = new Map();
+  /** Prepares and caches static SQL statements for the lifetime of this connection. @param {string} sql */
+  const q = sql => {
+    let statement = statements.get(sql);
+    if (!statement) {
+      statement = db.prepare(sql);
+      statements.set(sql, statement);
+    }
+    return statement;
+  };
   // `settings.data` is a TEXT column, so the incremented counter reads back as a string.
   const activityRevision = () => /** @type {string} */ (q("SELECT data FROM settings WHERE key='activityRevision'").get()?.data || '0');
   const bumpActivity = () =>
@@ -344,6 +353,7 @@ export function createStore(path = ':memory:') {
     throw new Error('This database was created by a newer Repo Pulse version.');
   }
   db.exec('PRAGMA foreign_keys = ON');
+  if (path !== ':memory:') db.exec('PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL;');
   transaction(() => {
     db.exec(`
       CREATE TABLE IF NOT EXISTS repositories (id TEXT PRIMARY KEY, data TEXT NOT NULL);
@@ -373,6 +383,12 @@ export function createStore(path = ':memory:') {
       CREATE INDEX IF NOT EXISTS push_tips_lookup ON push_tips(repo_id,ref,tip);
       CREATE INDEX IF NOT EXISTS events_pr_merge ON events(repo_id,json_extract(data,'$.data.targetRefName'),
         lower(json_extract(data,'$.data.mergeCommit'))) WHERE json_extract(data,'$.kind')='pr' AND json_extract(data,'$.data.status')='completed';
+      CREATE INDEX IF NOT EXISTS events_pr_source ON events(repo_id,json_extract(data,'$.data.sourceRefName'),time DESC)
+        WHERE json_extract(data,'$.kind')='pr' AND json_extract(data,'$.data.status')='completed';
+      CREATE INDEX IF NOT EXISTS events_pr_id ON events(repo_id,CAST(json_extract(data,'$.data.pullRequestId') AS TEXT))
+        WHERE json_extract(data,'$.kind')='pr';
+      CREATE INDEX IF NOT EXISTS events_push_id ON events(repo_id,json_extract(data,'$.data.pushId'))
+        WHERE json_extract(data,'$.kind')='push';
     `);
     if (version < 7) {
       // Databases from before version 7 have no status columns, or the older label and evidence names.
@@ -400,6 +416,7 @@ export function createStore(path = ':memory:') {
     if (!q("SELECT 1 FROM settings WHERE key='compactPending'").get()) return;
     try {
       db.exec('VACUUM');
+      if (path !== ':memory:') db.exec('PRAGMA wal_checkpoint(TRUNCATE)');
       q("DELETE FROM settings WHERE key='compactPending'").run();
     } catch {
       /* Retried on the next start. */
@@ -533,9 +550,10 @@ export function createStore(path = ':memory:') {
         params.push(...repoIds);
       }
       if (unseen) where.push('e.seen=0 AND e.imported=0');
-      return q(
-        `${selectEvents} ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY e.time DESC,e.observed_at DESC,e.rowid DESC LIMIT ?`,
-      )
+      return db
+        .prepare(
+          `${selectEvents} ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY e.time DESC,e.observed_at DESC,e.rowid DESC LIMIT ?`,
+        )
         .all(...params, capped)
         .map(hydrate);
     },
@@ -725,7 +743,10 @@ export function createStore(path = ':memory:') {
     },
     getSetting,
     setSetting,
-    close: () => db.close(),
+    close() {
+      statements.clear();
+      db.close();
+    },
   };
   return store;
 }

@@ -465,3 +465,26 @@ test('an absurd Retry-After is capped at ten minutes and an unreadable one is ig
     ignored.cli.close();
   }
 });
+
+test('oversized REST responses are rejected by Content-Length and by streamed byte count', async () => {
+  const cliExecutor = async () => JSON.stringify({ accessToken: TOKEN, expires_on: 4102444800 });
+  const declaredTooLarge = createRestExecutor({
+    cliExecutor,
+    maxResponseBytes: 64,
+    fetch: async () => new Response('{"value":[]}', { status: 200, headers: { 'content-length': '128' } }),
+  });
+  await assert.rejects(
+    declaredTooLarge(invoke('git', 'refs', ['project=P', 'repositoryId=r']), { signal: new AbortController().signal, timeoutMs: 5000 }),
+    error => error.code === 'INVALID_RESPONSE',
+  );
+
+  const streamedTooLarge = createRestExecutor({
+    cliExecutor,
+    maxResponseBytes: 64,
+    fetch: async () => new Response(JSON.stringify({ value: 'x'.repeat(200) }), { status: 200 }),
+  });
+  await assert.rejects(
+    streamedTooLarge(invoke('git', 'refs', ['project=P', 'repositoryId=r']), { signal: new AbortController().signal, timeoutMs: 5000 }),
+    error => error.code === 'INVALID_RESPONSE',
+  );
+});

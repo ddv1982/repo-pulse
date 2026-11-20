@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, statSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createStore } from '../server/store.js';
@@ -179,7 +179,8 @@ test('starting from scratch clears activity, checkpoints, jobs and baselines but
   ])
     store.setSetting(key, value);
   const revision = Number(store.activityRevision());
-  const before = statSync(path).size;
+  const diskSize = () => statSync(path).size + (existsSync(`${path}-wal`) ? statSync(`${path}-wal`).size : 0);
+  const before = diskSize();
 
   store.resetActivity();
 
@@ -204,7 +205,7 @@ test('starting from scratch clears activity, checkpoints, jobs and baselines but
     ['activityRevision', 'checkout-followup:one', 'checkout:one', 'refreshEnabled', 'refreshResumedAt'],
   );
   assert.equal(Number(store.activityRevision()), revision + 1, 'the page reloads its activity');
-  assert.ok(statSync(path).size < before / 4, `compacted from ${before} to ${statSync(path).size} bytes`);
+  assert.ok(diskSize() < before / 4, `compacted from ${before} to ${diskSize()} bytes`);
   db.close();
   store.close();
   rmSync(folder, { recursive: true });
@@ -345,6 +346,28 @@ test('upgrading leaves imported branch creations unchecked in a repository that 
     store.listJobs({ type: 'fork' }).map(job => job.eventId),
     ['live'],
   );
+  store.close();
+  rmSync(folder, { recursive: true });
+});
+
+test('file-backed stores use WAL mode and index push and pull request lookups', () => {
+  const folder = mkdtempSync(join(tmpdir(), 'repo-pulse-wal-'));
+  const path = join(folder, 'store.sqlite');
+  const store = createStore(path);
+  store.saveRepo(repo);
+  store.insertEvents([event('e1', { kind: 'push', data: { pushId: 1 } })]);
+  const raw = new DatabaseSync(path);
+  assert.equal(raw.prepare('PRAGMA journal_mode').get().journal_mode, 'wal');
+  const indexes = new Set(
+    raw
+      .prepare("SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='events'")
+      .all()
+      .map(row => row.name),
+  );
+  for (const name of ['events_pr_source', 'events_pr_id', 'events_push_id']) {
+    assert.ok(indexes.has(name), name);
+  }
+  raw.close();
   store.close();
   rmSync(folder, { recursive: true });
 });

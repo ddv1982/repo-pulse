@@ -105,7 +105,7 @@ const ROOT = dirname(fileURLToPath(import.meta.url));
 const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml' };
 const HEADERS = {
   'content-security-policy':
-    "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'",
+    "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'",
   'x-content-type-options': 'nosniff',
   'referrer-policy': 'no-referrer',
   'cache-control': 'no-store',
@@ -114,6 +114,15 @@ const HEADERS = {
 /** @param {string} message @returns {RequestError} */
 function problem(message, status = 400) {
   return Object.assign(new Error(message), { status });
+}
+
+/** @param {string} value */
+function decodeParam(value) {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    throw problem('Invalid request path.', 400);
+  }
 }
 
 /**
@@ -315,12 +324,7 @@ export function createApp({
       path: '/api/activity',
       handler: ({ res, url }) => {
         const query = url.searchParams;
-        let cursor;
-        try {
-          cursor = query.get('cursor') || undefined;
-        } catch {
-          throw problem('Invalid activity cursor.');
-        }
+        const cursor = query.get('cursor') || undefined;
         const view = query.get('view') || 'all';
         if (view !== 'new' && view !== 'all') throw problem('Invalid activity view.');
         const limit = Number(query.get('limit') || 50);
@@ -353,13 +357,13 @@ export function createApp({
     {
       method: 'PATCH',
       path: /^\/api\/activity-filters\/([^/]+)$/,
-      handler: async ({ req, res, params: [id] }) => json(res, 200, savedFilters.update(id, await body(req))),
+      handler: async ({ req, res, params: [rawId] }) => json(res, 200, savedFilters.update(decodeParam(rawId), await body(req))),
     },
     {
       method: 'DELETE',
       path: /^\/api\/activity-filters\/([^/]+)$/,
-      handler: ({ res, params: [id] }) => {
-        savedFilters.remove(id);
+      handler: ({ res, params: [rawId] }) => {
+        savedFilters.remove(decodeParam(rawId));
         return json(res, 200, /** @satisfies {OkResponse} */ ({ ok: true }));
       },
     },
@@ -367,7 +371,7 @@ export function createApp({
       method: 'GET',
       path: /^\/api\/events\/(.+)$/,
       handler: ({ res, params: [rawId] }) => {
-        const id = decodeURIComponent(rawId);
+        const id = decodeParam(rawId);
         const event = store.getEvent(id);
         if (!event || !enabledRepoIds().includes(event.repoId)) throw problem('Activity not found.', 404);
         return json(res, 200, /** @satisfies {EventResponse} */ ({ event, events: store.getEventGroup(id) }));
@@ -476,7 +480,7 @@ export function createApp({
       path: /^\/api\/repos\/([^/]+)\/checkout\/branches$/,
       handler: async ({ res, params: [rawId] }) => {
         if (demo) throw problem('Demo checkouts have no local branches.', 403);
-        const repo = enabledRepoById(decodeURIComponent(rawId));
+        const repo = enabledRepoById(decodeParam(rawId));
         const local = new Set(await checkoutGit.localBranches(repo));
         const pinned = ['main', 'master'];
         /** @typedef {{ active?: boolean, lastPushId?: number }} RefData */
@@ -501,7 +505,7 @@ export function createApp({
       path: /^\/api\/repos\/([^/]+)\/checkout\/status$/,
       handler: async ({ res, params: [rawId] }) => {
         if (demo) throw problem('Demo checkouts have no local status.', 403);
-        const repo = enabledRepoById(decodeURIComponent(rawId));
+        const repo = enabledRepoById(decodeParam(rawId));
         return json(res, 200, /** @satisfies {CheckoutStatusResponse} */ (await checkoutGit.status(repo)));
       },
     },
@@ -510,7 +514,7 @@ export function createApp({
       path: /^\/api\/repos\/([^/]+)\/checkout$/,
       handler: async ({ req, res, params: [rawId] }) => {
         if (demo) throw problem('Demo checkouts cannot be updated.', 403);
-        const repo = enabledRepoById(decodeURIComponent(rawId));
+        const repo = enabledRepoById(decodeParam(rawId));
         const input = (await body(req)) || {};
         const { operation, expected } = input;
         if (operation === 'switch-activity' && isSwitchIntent(expected) && typeof input.eventId === 'string') {
@@ -556,7 +560,7 @@ export function createApp({
       method: 'PATCH',
       path: /^\/api\/repos\/([^/]+)$/,
       handler: async ({ req, res, params: [rawId] }) => {
-        const id = decodeURIComponent(rawId);
+        const id = decodeParam(rawId);
         const repo = repoById(id);
         const input = await body(req);
         if (typeof input.disabled !== 'boolean') throw problem('disabled must be true or false.');
@@ -569,7 +573,7 @@ export function createApp({
       method: 'DELETE',
       path: /^\/api\/repos\/([^/]+)$/,
       handler: ({ res, params: [rawId] }) => {
-        const id = decodeURIComponent(rawId);
+        const id = decodeParam(rawId);
         repoById(id);
         store.removeRepo(id);
         return json(res, 200, /** @satisfies {OkResponse} */ ({ ok: true }));
@@ -651,7 +655,7 @@ export function createApp({
       method: 'GET',
       path: /^\/api\/push\/([^/]+)\/(\d+)\/commits$/,
       handler: async ({ res, url, params: [rawId, pushId] }) => {
-        const repo = enabledRepoById(decodeURIComponent(rawId));
+        const repo = enabledRepoById(decodeParam(rawId));
         if (!provider.pushCommits)
           return json(
             res,
@@ -673,7 +677,7 @@ export function createApp({
       method: 'GET',
       path: /^\/api\/pr\/([^/]+)\/(\d+)\/review$/,
       handler: async ({ res, params: [rawId, pullRequestId] }) => {
-        const repo = enabledRepoById(decodeURIComponent(rawId));
+        const repo = enabledRepoById(decodeParam(rawId));
         return json(res, 200, /** @satisfies {PrReviewResponse} */ (await provider.prReview(repo, pullRequestId)));
       },
     },
