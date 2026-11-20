@@ -203,6 +203,13 @@ test('a CI run carrying its stored pull request joins the source branch without 
   assert.deepEqual([apart.rows[0].node.down, apart.rows[1].node.up], [false, false]);
 });
 
+test('a stored pull request without a source ref falls back to the PR row in the list', () => {
+  const run = event('build', 'refs/pull/7/merge', { data: { pullRequest: { id: 7, targetRefName: 'refs/heads/main' } } });
+  const tree = buildActivityTree([run, pr(7, 'feature/a')]);
+  assert.equal(tree.rows[0].node.slot, tree.rows[1].node.slot);
+  assert.deepEqual([tree.rows[0].node.down, tree.rows[1].node.up], [true, true]);
+});
+
 test('CI runs of one pull request that is stored nowhere share a lane', () => {
   const tree = buildActivityTree([event('build', 'refs/pull/9/merge'), push('main'), event('build', 'refs/pull/9/merge')]);
   assert.equal(tree.rows[0].node.slot, tree.rows[2].node.slot);

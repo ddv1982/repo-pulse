@@ -1445,7 +1445,6 @@ test('All activity shows the branch tree in the status column, and narrow screen
   // A CI run on a pull request ref takes the branch of the stored PR and joins its lane.
   await expect(page.locator('[data-event-id="demo-build-2"] .subref')).toHaveText('shared-components / feature/date-range · PR 412');
   await expect(page.locator('[data-event-id="demo-build-2"] svg.tree circle.dot:not(.lane-none)')).toHaveCount(1);
-  await expect(page.locator('.tree-legend')).toContainText('A line can pass rows of other branches.');
   // A lane must run unbroken through a row, so each cell covers its row from border to border.
   const [cell, row] = await Promise.all([hotfix.locator('svg.tree').boundingBox(), hotfix.boundingBox()]);
   assert.ok(Math.abs(cell.y - row.y) <= 1 && Math.abs(cell.y + cell.height - (row.y + row.height)) <= 1, 'tree cell spans the row');

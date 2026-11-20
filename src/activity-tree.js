@@ -124,8 +124,8 @@ function rowBranch(item, prs) {
   // A CI run on a pull request ref belongs to the PR source branch: from the stored PR the server attached, or from a
   // PR row in the list. With neither, the runs of that pull request still share a lane of their own.
   const stored = item.data?.pullRequest;
-  if (stored) return pullRequestRefs(stored.id, stored.sourceRefName, stored.targetRefName, stored.fork).source;
-  return prs.get(laneKey(item.repoId, prRef[1]))?.source ?? `refs/pull/${prRef[1]}`;
+  const attached = stored && pullRequestRefs(stored.id, stored.sourceRefName, stored.targetRefName, stored.fork).source;
+  return attached || prs.get(laneKey(item.repoId, prRef[1]))?.source || `refs/pull/${prRef[1]}`;
 }
 
 /** @param {ActivityEvent} item @returns {TreeNode['shape']} */
