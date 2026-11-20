@@ -219,7 +219,10 @@ export function buildActivityTree(items, { maxLanes = MAX_LANES, maxGap = MAX_GA
     const tip = createdAt(item).toLowerCase();
     const seen = sightings.get(laneKey(item.repoId, tip))?.find(sighting => sighting.row > start && sighting.branch !== branch);
     if (seen) return { evidence: 'tip', parent: seen.branch };
-    const pr = prs.bySource.get(laneKey(item.repoId, branch))?.findLast(entry => entry.row > after && entry.row < row)?.pr;
+    const requests = prs.bySource.get(laneKey(item.repoId, branch)) ?? [];
+    // A push dates the branch, so its pull request has every row above. A snapshot only dates the discovery.
+    const earlier = new Set(tip ? requests.filter(entry => entry.row > row).map(entry => entry.pr.id) : []);
+    const pr = requests.findLast(entry => entry.row > after && (!tip || (entry.row < row && !earlier.has(entry.pr.id))))?.pr;
     return pr && pr.target !== branch ? { evidence: 'pr', parent: pr.target, pullRequestId: pr.id } : null;
   };
   /** @type {(TreeFork | null)[]} */

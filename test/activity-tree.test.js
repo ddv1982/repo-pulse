@@ -98,6 +98,17 @@ test('the push that created a branch may sort below its row: the fork is describ
   assert.deepEqual([tree.rows[1].node.down, tree.rows[2].node.up], [true, true]);
 });
 
+test('a pull request that began before a push-created branch belongs to an earlier branch of that name', () => {
+  const tree = buildActivityTree([pr(7, 'feature/a', 'abandoned'), created('feature/a'), pr(7, 'feature/a')]);
+  assert.equal(tree.rows[1].fork, null);
+});
+
+test('a branch found in a snapshot may be discovered after its pull request was opened', () => {
+  const found = event('branch-created', 'feature/a', { data: { name: 'refs/heads/feature/a', objectId: sha('x'), evidence: 'snapshot' } });
+  const tree = buildActivityTree([found, pr(7, 'feature/a')]);
+  assert.deepEqual(tree.rows[0].fork, { evidence: 'pr', parent: 'main', pullRequestId: 7 });
+});
+
 test('one push that creates two branches keeps each creation with that push', () => {
   const samePush = { pushId: 5 };
   const both = push('feature/a', zero, sha('c'), { data: { ...samePush, refUpdates: [] } });
