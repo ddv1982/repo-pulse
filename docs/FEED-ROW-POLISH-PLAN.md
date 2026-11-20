@@ -26,23 +26,23 @@ change that makes it pass.
 
 ## Phase 2: repo, branch and PR as separate tokens
 
-- [ ] Change `activityRef` (`src/activity-text.js:196`, only caller is
+- [x] Change `activityRef` (`src/activity-text.js:196`, only caller is
       `feed.js`) to return `{ branch, pr }` instead of a joined string.
-- [ ] Render up to three spans inside `.subref`: `.ref-repo` (sans, 12px,
+- [x] Render up to three spans inside `.subref`: `.ref-repo` (sans, 12px,
       weight 500, muted), `.ref-branch` (`icons.branch` 12px, aria-hidden,
       plus monospace name), `.ref-pr` (compact `.chip`, `PR 21431`, tabular
       numerals). Drop the ` / ` and ` · ` separators in favour of a flex gap.
       Tokens stay non-interactive inside the detail button.
-- [ ] Add `.sr` words between tokens ("repository", "branch") so the button's
+- [x] Add `.sr` words between tokens ("repository", "branch") so the button's
       accessible name still starts with the title.
-- [ ] CSS scoped to `.feed-title .subref` so the checkout panel's `.subref`
+- [x] CSS scoped to `.feed-title .subref` so the checkout panel's `.subref`
       (`src/ui/checkout-render.js:223`, `web/styles/repositories.css:111`) is
       unchanged. Tokens wrap to the next line as whole units
       (`flex-wrap: wrap`); a single token wider than the column ends in an
       ellipsis and the branch keeps its full name in `title`.
-- [ ] Token-level unit tests replace the flat-string assertions; rewrite the
+- [x] Token-level unit tests replace the flat-string assertions; rewrite the
       `e2e/ui.test.js:1607` assertion per token.
-- [ ] Visual check: the long branch from the screenshot with a PR chip, in a
+- [x] Visual check: the long branch from the screenshot with a PR chip, in a
       multi-repo view, at 1280px and 390px, both themes; checkout panel
       unchanged.
 

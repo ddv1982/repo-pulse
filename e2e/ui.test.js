@@ -1604,7 +1604,11 @@ test('All activity shows the branch tree beside the type label, and narrow scree
   await expect(page.locator('[data-event-id="demo-branch-3"] svg.tree path.assumed')).toHaveCount(1);
   await expect(page.locator('[data-event-id="demo-pr-2"] svg.tree path')).toHaveCount(1);
   // A CI run on a pull request ref takes the branch of the stored PR and joins its lane.
-  await expect(page.locator('[data-event-id="demo-build-2"] .subref')).toHaveText('shared-components / feature/date-range · PR 412');
+  const ciRef = page.locator('[data-event-id="demo-build-2"] .subref');
+  await expect(ciRef.locator('.ref-repo')).toHaveText(' · repository shared-components');
+  await expect(ciRef.locator('.ref-name')).toHaveText('feature/date-range');
+  await expect(ciRef.locator('.ref-pr')).toHaveText(' · PR 412');
+  await expect(ciRef.locator('.ref-pr')).toBeVisible();
   await expect(page.locator('[data-event-id="demo-build-2"] svg.tree circle.dot:not(.lane-none)')).toHaveCount(1);
   // A lane must run unbroken through a row, so each cell covers its row from border to border.
   const [cell, row] = await Promise.all([hotfix.locator('svg.tree').boundingBox(), hotfix.boundingBox()]);

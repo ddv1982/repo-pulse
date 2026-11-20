@@ -400,9 +400,15 @@ test('a CI run on a pull request ref names the source branch and the pull reques
     },
     { ...run, id: 'unknown', branch: 'refs/pull/8/merge', data: { buildId: 2 } },
   ];
-  const out = renderFeed(state, view);
-  assert.match(out, /<span class="subref">feature\/a · PR 7<\/span>/);
-  assert.match(out, /<span class="subref">refs\/pull\/8\/merge<\/span>/);
+  const out = String(renderFeed(state, view));
+  const branch = (/** @type {string} */ name) =>
+    new RegExp(`<span class="ref-branch" title="${name}"><svg aria-hidden="true"[^]*?</svg><span class="sr"> · branch </span><span class="ref-name">${name}</span></span>`);
+  assert.match(out, branch('feature/a'));
+  assert.match(out, /<span class="chip ref-pr"><span class="sr"> · <\/span>PR 7<\/span>/);
+  assert.match(out, branch('refs/pull/8/merge'));
+  assert.equal(out.match(/ref-pr/g)?.length, 1);
+  // No separators are drawn between tokens; spacing does that job.
+  assert.doesNotMatch(out, /<span class="subref">[^]*? \/ [^]*?<\/button>/);
 });
 
 test('a row names its repository only when more than one repository is shown', () => {
@@ -410,7 +416,7 @@ test('a row names its repository only when more than one repository is shown', (
   const subref = (/** @type {unknown} */ out) => String(out).match(/<span class="subref">.*?<\/span><\/button>/)?.[0] ?? '';
   assert.doesNotMatch(subref(renderFeed(state, view)), /Orders/);
   state.repos.push({ id: 'other', name: 'Billing' });
-  assert.match(subref(renderFeed(state, view)), /Orders/);
+  assert.match(subref(renderFeed(state, view)), /<span class="ref-repo"><span class="sr"> · repository <\/span>Orders<\/span>/);
   // The selected scope decides, not which repositories happen to have rows on the page.
   assert.doesNotMatch(subref(renderFeed(state, { ...view, repoIds: ['r'] })), /Orders/);
 });

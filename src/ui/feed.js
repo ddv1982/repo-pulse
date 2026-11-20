@@ -60,6 +60,18 @@ function rowSummary(record) {
 }
 
 /**
+ * The line under a row's title says where it happened: repository, branch and pull request as separate tokens.
+ * The hidden words keep the button's accessible name readable after its title.
+ * @param {ActivityItem} record @param {string} repoName empty when the row needs no repository name
+ */
+function renderRefLine(record, repoName) {
+  const { branch, pullRequestId } = record.branch ? activityRef(record) : { branch: '' };
+  return html`<span class="subref">${repoName ? html`<span class="ref-repo"><span class="sr"> · repository </span>${repoName}</span>` : emptyHtml}${
+    branch ? html`<span class="ref-branch" title="${branch}">${icons.branch}<span class="sr"> · branch </span><span class="ref-name">${branch}</span></span>` : emptyHtml
+  }${pullRequestId ? html`<span class="chip ref-pr"><span class="sr"> · </span>PR ${pullRequestId}</span>` : emptyHtml}</span>`;
+}
+
+/**
  * @param {ActivityItem} record @param {PageState} state @param {import('../activity-tree.js').TreeRow} [tree]
  * @param {boolean} [showRepo] whether more than one repository is in view, so the row has to say which one it belongs to
  */
@@ -75,7 +87,7 @@ function row(record, state, tree, showRepo = true) {
   const origin = forkText(tree?.fork ?? null);
   return html`<li class="${['row', failed ? 'crit' : '', record.unseen ? 'new' : '', `tone-${tone}`].filter(Boolean).join(' ')}" data-event-id="${record.id}" data-event-ids="${ids}" data-group-key="${record.groupKey}" data-unseen-ids="${unreadIds}">${tree ? renderTreeCell(tree, tone) : emptyHtml}
     <span class="kind ${tone}">${record.kind === 'branch-created' ? icons.branch : html`<span class="d"></span>`}${activityLabel(record)}</span>
-    <div class="subject"><button class="feed-title" type="button" data-action="detail" data-id="${record.id}"><span class="title">${title}${record.unseenIds.length > 1 ? html` <span class="pill u new-count">${record.unseenIds.length} new</span>` : emptyHtml}</span><span class="subref">${[showRepo ? repo?.name || 'Unknown repository' : '', record.branch ? activityRef(record) : ''].filter(Boolean).join(' / ')}</span></button></div>
+    <div class="subject"><button class="feed-title" type="button" data-action="detail" data-id="${record.id}"><span class="title">${title}${record.unseenIds.length > 1 ? html` <span class="pill u new-count">${record.unseenIds.length} new</span>` : emptyHtml}</span>${renderRefLine(record, showRepo ? repo?.name || 'Unknown repository' : '')}</button></div>
     <div class="event">${rowSummary(record)}${mergeEvidenceBadge(record)}<div class="help">${actor ? `${record.kind === 'pr' ? 'Created by ' : record.kind === 'push' ? 'Pushed by ' : ''}${actor} · ` : ''}<time datetime="${record.time}">${dateTime(record.time)}</time>${origin ? ` · ${origin}` : ''}</div>${renderTrail(record)}</div>
     <div class="rowact">${azureLink(record.url)}${record.imported ? emptyHtml : html`<button class="ghost sm seen-toggle" type="button" id="seen-${record.id}" data-action="ack-item" data-id="${record.id}" data-mark-seen="${record.unseen}" data-event-ids="${ackIds}" aria-pressed="${!record.unseen}" aria-label="Seen: ${title}">${icons.seenBox}Seen</button>`}</div></li>`;
 }
