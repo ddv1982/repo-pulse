@@ -753,9 +753,42 @@ ol.rows {
   .subject {
     grid-column: 2;
   }
-  .event {
-    grid-column: 3;
+  /* The title column and the event column share the row's line tracks: what happened, then where and who, then
+     notes. A wrapped title or summary grows its track for both columns, so the second lines stay level. */
+  .row {
+    grid-template-rows: auto auto auto;
+    row-gap: 0;
+  }
+  .subject,
+  .feed-title {
+    display: grid;
+    grid-template-rows: subgrid;
+    grid-row: 1 / span 2;
+    align-items: start;
+  }
+  .feed-title .title {
     grid-row: 1;
+  }
+  .feed-title .subref {
+    grid-row: 2;
+  }
+  .event {
+    display: grid;
+    grid-template-rows: subgrid;
+    grid-column: 3;
+    grid-row: 1 / span 3;
+    align-items: start;
+  }
+  .event-main {
+    grid-row: 1;
+  }
+  .event > .event-meta,
+  .event > .event-meta:first-child {
+    grid-row: 2;
+    margin-top: 2px;
+  }
+  .event-notes {
+    grid-row: 3;
   }
   .rowact {
     grid-column: 4;

@@ -31,9 +31,9 @@ Scope: Activity rows (`src/ui/feed.js`, `src/activity-text.js`, `web/styles/feed
 
 ## Phase 4: shared row tracks (decision gate)
 
-- [ ] From 1024px up, give `.row` row tracks shared through subgrid by the subject, title button and event; wrap origin notes and trail in one `.event-notes` element in track 3. Fix the three prototype defects: `.event-main` aligned to start, origin note not auto-placed into an empty first cell, chips not stretching track 1.
-- [ ] Phase 0 check passes for every row, including wrapped titles, rows with no summary and multi-repo ref wraps.
-- [ ] Gate: screenshots before and after this phase. Wrapped-title rows gain a blank line between summary and meta; keep this phase only if it reads better after phase 3, and attach both screenshots to the PR so the owner can overrule. Check Firefox and WebKit if available.
+- [x] From 1024px up, give `.row` row tracks shared through subgrid by the subject, title button and event; wrap origin notes and trail in one `.event-notes` element in track 3. Fix the three prototype defects: `.event-main` aligned to start, origin note not auto-placed into an empty first cell, chips not stretching track 1.
+- [x] Phase 0 check passes for every row, including wrapped titles, rows with no summary and multi-repo ref wraps.
+- [x] Gate: screenshots before and after this phase. Wrapped-title rows gain a blank line between summary and meta; keep this phase only if it reads better after phase 3, and attach both screenshots to the PR so the owner can overrule. Check Firefox and WebKit if available. Result: kept; every row aligned in Chromium and WebKit 27.2 at 1280 and 1024. Firefox 157 launches but cannot open a page with this Playwright version, so it is unverified (subgrid ships since Firefox 71).
 
 ## Phase 5: finish (nice-to-have)
 

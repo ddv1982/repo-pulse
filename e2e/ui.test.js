@@ -1627,9 +1627,31 @@ test('All activity shows the branch tree beside the type label, and narrow scree
   await expect(page.locator('svg.tree')).toHaveCount(0);
 });
 
-test('on desktop a row lines up its ref line with its meta line, and its summary with its title', async t => {
-  const { page } = await setup(t);
+test('on desktop every row lines up its ref line with its meta line, and its summary with its title', async t => {
+  const { page, runtime } = await setup(t);
+  // A pull request title long enough to wrap at 1280px.
+  runtime.store.insertEvents([
+    {
+      id: 'long-title-pr',
+      repoId: 'demo-orders',
+      kind: 'pr',
+      title: 'PR 21431 · DAT-9861: the 12 animal seeds load into seed_standards, bridge views in animal and refined bull',
+      branch: 'refs/heads/feature/DAT-9861_animal_seeds_standards',
+      actor: 'Ana',
+      time: new Date().toISOString(),
+      data: {
+        pullRequestId: 21431,
+        status: 'active',
+        sourceRefName: 'refs/heads/feature/DAT-9861_animal_seeds_standards',
+        targetRefName: 'refs/heads/main',
+      },
+    },
+  ]);
+  await page.reload();
   await page.getByRole('link', { name: 'All activity', exact: true }).click();
+  const longTitle = page.locator('[data-event-id="long-title-pr"] .feed-title .title');
+  await expect(longTitle).toBeVisible();
+  assert.ok((await longTitle.boundingBox()).height > 30, 'the long title wraps');
   await expect(page.locator('.with-tree .row').first()).toBeVisible();
   const rows = await page.locator('.with-tree .row').evaluateAll(items =>
     items.map(row => {
@@ -1651,10 +1673,8 @@ test('on desktop a row lines up its ref line with its meta line, and its summary
         wrap.replaceWith(text);
         return y;
       };
-      const oneLine = element => !element || element.getBoundingClientRect().height <= parseFloat(getComputedStyle(element).lineHeight) + 1;
       return {
         id: row.dataset.eventId,
-        oneLine: oneLine(row.querySelector('.feed-title .title')) && oneLine(row.querySelector('.event-main')),
         title: baseline('.feed-title .title'),
         summary: baseline('.event-main'),
         refs: ['.ref-repo', '.ref-name', '.ref-pr'].map(baseline).filter(y => y !== undefined),
@@ -1662,13 +1682,16 @@ test('on desktop a row lines up its ref line with its meta line, and its summary
       };
     }),
   );
-  const checked = rows.filter(row => row.oneLine && row.summary !== undefined && row.refs.length);
-  assert.ok(checked.length >= 5, `enough rows to measure: ${checked.length}`);
-  const off = checked.filter(row => Math.abs(row.title - row.summary) > 1 || row.refs.some(y => Math.abs(y - row.meta) > 1));
+  // A wrapped title, a wrapped summary or a row without a summary still keeps both second lines level.
+  const checked = rows.filter(row => row.refs.length);
+  assert.ok(checked.length >= 10, `enough rows to measure: ${checked.length}`);
+  const off = checked.filter(
+    row => (row.summary !== undefined && Math.abs(row.title - row.summary) > 1) || row.refs.some(y => Math.abs(y - row.meta) > 1),
+  );
   assert.deepEqual(
     off.map(
       row =>
-        `${row.id}: title-summary ${(row.title - row.summary).toFixed(1)}, ref-meta ${row.refs.map(y => (y - row.meta).toFixed(1)).join(' ')}`,
+        `${row.id}: title-summary ${((row.summary ?? row.title) - row.title).toFixed(1)}, ref-meta ${row.refs.map(y => (y - row.meta).toFixed(1)).join(' ')}`,
     ),
     [],
   );
