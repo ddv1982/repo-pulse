@@ -18,7 +18,7 @@ function selectedRepos(state, ui) {
 /** @param {ScopeState} state @param {ScopeView} ui */
 export function scopeName(state, ui) {
   const count = ui.repoIds === null ? state.repos.length : selectedRepos(state, ui).length;
-  return `${ui.repoIds === null ? 'All ' : ''}${count} repositor${count === 1 ? 'y' : 'ies'}${ui.repoIds === null ? '' : ' shown'}`;
+  return `${ui.repoIds === null && count > 1 ? 'All ' : ''}${count} repositor${count === 1 ? 'y' : 'ies'}${ui.repoIds === null ? '' : ' shown'}`;
 }
 
 /** @param {ScopeState} state @param {ScopeView} ui */

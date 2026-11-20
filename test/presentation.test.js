@@ -13,6 +13,7 @@ import {
 import { renderRepositories as renderRepositoriesHtml } from '../src/ui/repositories.js';
 import { renderFeed as renderPagedFeedHtml, renderDetail as renderDetailHtml } from '../src/ui/feed.js';
 import { forkText, treeLegend } from '../src/ui/activity-tree.js';
+import { scopeName } from '../src/ui/header.js';
 import { createStore } from '../server/store.js';
 
 const renderRepositories = (...args) => String(renderRepositoriesHtml(...args));
@@ -290,12 +291,12 @@ test('tag rows say what happened to the tag and never claim a commit for a pushe
   assert.equal(labels.tag, 'Tag');
 });
 
-test('a push that creates a branch names its new tip, not a start, in the short commit length the server stores', () => {
+test('a push that creates a branch names its tip, not a new branch or a start, in the short commit length the server stores', () => {
   const push = {
     kind: 'push',
     data: { refUpdates: [{ name: 'refs/heads/feature/a', oldObjectId: '0'.repeat(40), newObjectId: '54a2ad26'.padEnd(40, 'c') }] },
   };
-  assert.equal(activitySummary(push), 'New branch at 54a2ad2');
+  assert.equal(activitySummary(push), 'Tip at 54a2ad2');
 });
 
 test('a branch row from a push does not repeat its label in the event column; a listed branch keeps its caveat', () => {
@@ -679,4 +680,11 @@ test('the summary counts every unread item in scope, not only the loaded rows', 
   } finally {
     store.close();
   }
+});
+
+test('the scope reads 1 repository when only one exists, and All N repositories when there are more', () => {
+  const repos = [{ id: 'a' }, { id: 'b' }];
+  assert.equal(scopeName({ repos: repos.slice(0, 1) }, { repoIds: null }), '1 repository');
+  assert.equal(scopeName({ repos }, { repoIds: null }), 'All 2 repositories');
+  assert.equal(scopeName({ repos }, { repoIds: ['a'] }), '1 repository shown');
 });

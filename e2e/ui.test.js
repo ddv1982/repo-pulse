@@ -1598,7 +1598,9 @@ test('All activity shows the branch tree beside the type label, and narrow scree
   await expect(rows.first()).toBeVisible();
   await expect(page.locator('.with-tree svg.tree')).toHaveCount(await rows.count());
   const hotfix = page.locator('[data-event-id="demo-branch-1"]');
-  await expect(hotfix).toContainText('Started at 3f9a2c1, the tip of main');
+  // A new branch has nothing else to say first, so where it started is its top line, above who and when.
+  await expect(hotfix.locator('.event-main')).toHaveText('Started at 3f9a2c1, the tip of main');
+  await expect(hotfix.locator('.event-origin')).toHaveCount(0);
   await expect(hotfix.locator('svg.tree path')).toHaveCount(1);
   await expect(hotfix.locator('svg.tree path.assumed')).toHaveCount(0);
   await expect(page.locator('[data-event-id="demo-branch-3"]')).toContainText('PR 1175 targets main, origin not checked');
@@ -1623,4 +1625,38 @@ test('All activity shows the branch tree beside the type label, and narrow scree
   await page.getByRole('link', { name: 'New updates', exact: true }).click();
   await expect(page.locator('[data-event-id="demo-branch-1"]')).toBeVisible();
   await expect(page.locator('svg.tree')).toHaveCount(0);
+});
+
+test('on desktop a row lines up its ref line with its meta line, and its summary with its title', async t => {
+  const { page } = await setup(t);
+  await page.getByRole('link', { name: 'All activity', exact: true }).click();
+  await expect(page.locator('.with-tree .row').first()).toBeVisible();
+  const rows = await page.locator('.with-tree .row').evaluateAll(items =>
+    items.map(row => {
+      const top = selector => row.querySelector(selector)?.getBoundingClientRect().top;
+      const oneLine = element => !element || element.getBoundingClientRect().height <= parseFloat(getComputedStyle(element).lineHeight) + 1;
+      return {
+        id: row.dataset.eventId,
+        oneLine: oneLine(row.querySelector('.feed-title .title')) && oneLine(row.querySelector('.event-main')),
+        title: top('.feed-title .title'),
+        summary: top('.event-main'),
+        ref: top('.feed-title .subref'),
+        meta: top('.event-meta'),
+        lines: ['.feed-title .subref', '.event-meta'].map(selector => getComputedStyle(row.querySelector(selector)).lineHeight).join(' / '),
+      };
+    }),
+  );
+  const checked = rows.filter(row => row.oneLine && row.summary !== undefined && row.ref !== undefined);
+  assert.ok(checked.length >= 5, `enough rows to measure: ${checked.length}`);
+  // Equal tops only mean equal baselines when both lines share a line height.
+  const off = checked.filter(
+    row => Math.abs(row.ref - row.meta) > 1 || Math.abs(row.title - row.summary) > 1 || row.lines !== '20px / 20px',
+  );
+  assert.deepEqual(
+    off.map(
+      row =>
+        `${row.id}: ref-meta ${(row.ref - row.meta).toFixed(1)}, title-summary ${(row.title - row.summary).toFixed(1)}, lines ${row.lines}`,
+    ),
+    [],
+  );
 });
