@@ -33,12 +33,13 @@
         ><button type="button" class="btn primary" id="confirm-button" data-action="confirm-dialog">Confirm</button>
       </div>
     </dialog>
-    <dialog id="filter-name-dialog" aria-labelledby="filter-name-title">
+    <dialog id="filter-name-dialog" aria-labelledby="filter-name-title" aria-describedby="filter-name-scope">
       <form>
         <div class="dbody">
           <h2 id="filter-name-title"></h2>
           <label for="filter-name">Filter name</label>
           <input id="filter-name" class="search" maxlength="80" required autofocus />
+          <p class="help" id="filter-name-scope" hidden></p>
           <p class="status-text crit" role="alert" hidden></p>
         </div>
         <div class="dfoot">

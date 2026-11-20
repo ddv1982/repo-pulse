@@ -7,10 +7,27 @@ import { eventIds } from './seen-actions.js';
 import { required, setHtml } from './dom.js';
 import { emptyHtml, html } from './format.js';
 
+/** @param {string} id */
+export function replacementFocus(id) {
+  const current = document.getElementById(id);
+  if (current instanceof HTMLButtonElement && current.disabled && current.matches('[data-action="open-history-import"]'))
+    return document.getElementById(`history-${current.dataset.id}`);
+  if (current) return current;
+  if (id === 'clear-filters') return document.getElementById('feed-search');
+  if (['saved-filter-toggle', 'saved-filter-actions-toggle', 'update-filter', 'save-filter'].includes(id))
+    return document.getElementById('saved-filter-toggle') ?? document.getElementById('save-filter');
+  return null;
+}
+
+/** @param {Element} element */
+function focusedControlId(element) {
+  return element.id || element.closest('.saved-filter-menu, .saved-filter-actions')?.querySelector('[aria-expanded]')?.id || '';
+}
+
 /** @typedef {import('./refresh.js').PageState} PageState */
 /** @typedef {import('./navigation.js').ResultsContext} ResultsContext */
 /** web.js owns this object: navigation state plus the connection panel state and the refresh flag the header reads. */
-/** @typedef {import('./navigation.js').NavigationState & { connection: import('./connection.js').ConnectionState, refreshing?: boolean, savedFilterId: string }} BrowserUi */
+/** @typedef {import('./navigation.js').NavigationState & { connection: import('./connection.js').ConnectionState, refreshing?: boolean }} BrowserUi */
 /**
  * @typedef {{ restored: ResultsContext | null, returnRoute: string, matchingIds?: string[], commits: import('./activity-detail.js').LoadedView | undefined,
  *   checkouts: Record<string, import('./checkout.js').CheckoutSnapshot>, checkoutFocus?: string|null, isCurrent: () => boolean }} RenderOptions
@@ -20,9 +37,9 @@ import { emptyHtml, html } from './format.js';
 /**
  * `syncLive` sits outside the header so re-rendering the header never replaces it.
  * @param {{ page: HTMLElement, header: HTMLElement, demo: HTMLElement, syncLive: HTMLElement, picker: { mount: (element: HTMLElement | null) => void },
- *   typeFilter: { mount: (element: HTMLElement | null) => void }, onPageRendered: () => void }} options
+ *   toolbarMenus: Record<string, { mount: (element: HTMLElement | null) => void }>, onPageRendered: () => void }} options
  */
-export function createBrowserView({ page, header, demo, syncLive, picker, typeFilter, onPageRendered }) {
+export function createBrowserView({ page, header, demo, syncLive, picker, toolbarMenus, onPageRendered }) {
   const groupElements = () => [...page.querySelectorAll('details[data-group]')].filter(element => element instanceof HTMLDetailsElement);
   /** @param {string} selector */
   const shown = selector => {
@@ -40,7 +57,7 @@ export function createBrowserView({ page, header, demo, syncLive, picker, typeFi
   function renderPage(state, ui, { restored, returnRoute, matchingIds, commits, checkouts, checkoutFocus, isCurrent }) {
     const groups = restored?.groups || captureGroups();
     const focused = document.activeElement;
-    const focusId = focused && page.contains(focused) ? focused.id : '';
+    const focusId = focused && page.contains(focused) ? focusedControlId(focused) : '';
     /** @type {[number | null, number | null] | null} */
     const selection =
       focused instanceof HTMLInputElement && focused.type === 'search' ? [focused.selectionStart, focused.selectionEnd] : null;
@@ -66,19 +83,17 @@ export function createBrowserView({ page, header, demo, syncLive, picker, typeFi
     else setHtml(page, renderFeed(state, ui));
     const pickerHost = page.querySelector('#repository-picker');
     picker.mount(pickerHost instanceof HTMLElement ? pickerHost : null);
-    const typeMenu = page.querySelector('.type-menu');
-    typeFilter.mount(typeMenu instanceof HTMLElement ? typeMenu : null);
+    for (const [selector, menu] of Object.entries(toolbarMenus)) {
+      const host = page.querySelector(selector);
+      menu.mount(host instanceof HTMLElement ? host : null);
+    }
     for (const [name, open] of groups) {
       groupElements()
         .find(element => element.dataset.group === name)
         ?.toggleAttribute('open', open);
     }
     if (focusId) {
-      const current = document.getElementById(focusId);
-      const replacement =
-        current instanceof HTMLButtonElement && current.disabled && current.matches('[data-action="open-history-import"]')
-          ? document.getElementById(`history-${current.dataset.id}`)
-          : current;
+      const replacement = replacementFocus(focusId);
       replacement?.focus({ preventScroll: true });
       if (selection && replacement instanceof HTMLInputElement) replacement.setSelectionRange(...selection);
     }
@@ -113,7 +128,7 @@ export function createBrowserView({ page, header, demo, syncLive, picker, typeFi
     const focused = document.activeElement;
     const refreshable =
       focused?.id === 'feed-search' ||
-      focused?.id === 'kind-toggle' ||
+      ['kind-toggle', 'saved-filter-toggle', 'saved-filter-actions-toggle'].includes(focused?.id ?? '') ||
       (focused?.id && focused.matches('.settings-card *, .repo-entry *, .repo-add > summary'));
     const preserve =
       interacting ||

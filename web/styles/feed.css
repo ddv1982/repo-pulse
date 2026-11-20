@@ -102,18 +102,60 @@
   border-color: var(--primary);
   box-shadow: 0 0 0 2px color-mix(in oklab, var(--primary) 30%, transparent);
 }
-.filters-box {
+.activity-filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 8px 12px;
   margin-bottom: 16px;
 }
-.filters-box > summary {
-  display: inline-flex;
-  cursor: pointer;
+.filters-toggle {
+  display: none;
 }
-.filters-box[open] > summary {
-  margin-bottom: 8px;
+.filters-box {
+  flex: 1;
+  min-width: min(100%, 26rem);
 }
 .filters-box .toolbar {
   margin-bottom: 0;
+}
+.saved-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.saved-filter-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: min(100%, 13rem);
+}
+.saved-filter-menu {
+  min-width: 0;
+}
+.saved-filter-toggle span,
+.saved-filter-update {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.saved-filter-update {
+  max-width: 11rem;
+}
+.saved-filter-toggle small {
+  color: var(--muted-foreground);
+}
+.saved-filter-panel .type-option > span:last-child {
+  overflow-wrap: anywhere;
+}
+.saved-filter-panel small {
+  display: block;
+}
+.saved-filter-actions-panel {
+  left: auto;
+  right: 0;
 }
 .type-panel {
   width: 220px;
@@ -488,6 +530,24 @@ ol.rows {
     width: 200px;
     max-width: calc(100vw - 32px);
   }
+  .filters-toggle {
+    display: inline-flex;
+  }
+  .saved-filters {
+    flex: 1;
+    position: relative;
+  }
+  .saved-filters .menu {
+    position: static;
+  }
+  .saved-filters .menu-panel {
+    top: 100%;
+    width: min(200px, 100%);
+  }
+  .saved-filter-actions-panel {
+    left: auto;
+    right: 0;
+  }
   .activity-view-help {
     position: absolute;
     width: 1px;
@@ -516,18 +576,12 @@ ol.rows {
     margin-top: 6px;
   }
   .filters-box {
-    margin-bottom: 12px;
-  }
-  .filters-box .toolbar {
-    margin-top: 4px;
+    flex-basis: 100%;
   }
 }
 @media (min-width: 640px) {
   .cells {
     grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-  .filters-box > summary {
-    display: none;
   }
   .detail-facts {
     grid-template-columns: repeat(2, minmax(0, 1fr));
