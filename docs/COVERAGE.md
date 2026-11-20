@@ -53,7 +53,9 @@ Evidence saved before deeper analysis stopped also enumerated ref ranges, becaus
 - The branch tree in **All activity** is drawn from the rows on the page, plus the checked fork origin of each
   new branch. A lane joins nearby rows of one branch and ends when the branch is quiet for more than 12 rows.
 - A branch created by a push, live or from the first sync's 7-day import, is checked in the background, during the automatic-check turns when no
-  rewrite check is due, and waits while the repository's push stream is still paging through a window. The
+  rewrite check is due, and waits while the repository's push stream is still paging through a window. Imported rows
+  stored before fork checks existed stay unchecked in a repository that had run an explicit history import, because
+  its imported rows cannot be told apart. The
   check reads commits from the created tip back past the ones that push brought,
   one read per commit and at most 8, to find the commit the branch started at. A solid fork means that
   commit was the latest recorded tip of exactly one other branch before the push ("the tip of main"), or,
@@ -66,7 +68,7 @@ Evidence saved before deeper analysis stopped also enumerated ref ranges, becaus
 - Branches the check did not cover (an explicit history import, snapshot
   discoveries, and checks that failed before finding the start commit) keep the unchecked evidence: a solid fork when an older row on the
   page shows the created revision as another branch's tip, otherwise a dotted fork to the target of a pull
-  request from the branch, labelled "origin not checked". No fork line means the origin is unknown. A
+  request from the branch, labelled "origin not checked". A
   completed pull request draws a merge from its own source and target refs. A CI run on a pull
   request ref (`refs/pull/N/merge`) is placed on the source branch of that pull request, read from the
   stored pull request records, and its row names that branch and the pull request. A branch with a single
@@ -101,7 +103,8 @@ Evidence saved before deeper analysis stopped also enumerated ref ranges, becaus
   automatic checks are on; with them off, a manual refresh ends when its read fails. An explicit history
   import retries either way.
 - Background work is the rewrite check for new pushes and an explicit history import, taking turns.
-  Rewrite checks wait while automatic checks are off; a history import keeps running. Background work
+  The fork origin check of new branches uses the rewrite check's turn when no rewrite check is due.
+  Rewrite and fork checks wait while automatic checks are off; a history import keeps running. Background work
   gets every turn when no live check is due and, under sustained live work, one turn after six live
   turns. These are scheduler turns, so queueing and provider response times still affect freshness.
 - The server derives one sync status per enabled repository. The header shows the one that needs the

@@ -20,7 +20,7 @@ Repo Pulse records tag changes, checks live branch moves for history rewrites, k
 - **Packaging and shared setup.** Gather feedback from two weeks of daily use and a few testers trying demo and live mode before deciding whether to package Repo Pulse for others.
 - **Fork origin for snapshot-discovered branches (optional).** Use PR iterations `commonRefCommit` or merge bases, shown as text only ("shares history with P from `abc1234`"), never a fork line.
 - **Local clones as an ancestry accelerator (optional).** Use local objects for zero-call ancestry checks only when they are present, with the existing `checkout-git.js` guards. Never fetch.
-- **Fork re-check when a late pull request arrives.** Skipped after measuring on 2026-11-20: in 81 of 81 push creations with a PR, its target was already the repository's most common target, which the check tries. Revisit when a repository's PRs often target another branch.
+- **Fork re-check when a late pull request arrives.** Skipped after measuring on 2026-11-20: 81 of 93 push creations have a PR, often stored after the creation (up to 25 hours later), and in 81 of 81 its target was already the repository's most common PR target, which the check already takes as a candidate. Revisit when a repository's PRs often target another branch.
 - **Read the repository's default branch for the fork check.** Skipped after measuring on 2026-11-20: the most common PR target was `main` in 4 of 4 repositories. Revisit for a repository with no stored PRs.
 
 ## Constraints

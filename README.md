@@ -8,7 +8,7 @@ A local Azure DevOps activity feed for testers. Watch multiple repositories for 
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/activity-dark.png">
-  <img src="docs/screenshots/activity-light.png" alt="Repo Pulse All activity showing branch, push, CI and pull request updates across three demo repositories, with a branch tree beside each row's type label that links each branch to its fork and merge.">
+  <img src="docs/screenshots/activity-light.png" alt="Repo Pulse All activity showing branch, push, CI and pull request updates across three demo repositories, with a branch tree beside each row's type label that shows fork and merge links where they are known.">
 </picture>
 
 [Light mode](docs/screenshots/activity-light.png) · [Dark mode](docs/screenshots/activity-dark.png)
