@@ -174,9 +174,9 @@ test('repo subset acknowledgement preserves hidden/incoming events and survives 
     },
     { times: 1 },
   );
-  await page.getByRole('button', { name: 'Mark shown seen (2)', exact: true }).click();
+  await page.getByRole('button', { name: 'Mark all matching seen (2)', exact: true }).click();
   await expect(page.getByRole('dialog')).not.toBeVisible();
-  await expect(page.getByRole('button', { name: 'Mark shown seen (0)', exact: true })).toBeDisabled();
+  await expect(page.locator('.feed-actions button')).toHaveCount(0);
   assert.ok(
     app.runtime.store
       .listEvents()
@@ -787,7 +787,7 @@ test('build transitions group into one item and exact acknowledgement leaves a l
     },
     { times: 1 },
   );
-  await page.getByRole('button', { name: 'Mark shown seen (2)', exact: true }).click();
+  await page.getByRole('button', { name: 'Mark all seen (2)', exact: true }).click();
   await expect(page.locator('li.row .kind')).toHaveText('Succeeded');
   assert.equal(runtime.store.listEvents().find(item => item.id === 'build-queued').seen, true);
   assert.equal(runtime.store.listEvents().find(item => item.id === 'build-running').seen, true);
@@ -800,8 +800,8 @@ test('build transitions group into one item and exact acknowledgement leaves a l
 test('filtered group marks only shown matching updates while the hidden transition stays unseen', async t => {
   const { page, runtime } = await groupedFixture(t);
   await page.getByRole('searchbox', { name: 'Search activity' }).fill('Running');
-  await page.getByRole('button', { name: 'Mark shown seen (1)', exact: true }).click();
-  await expect(page.getByRole('button', { name: 'Mark shown seen (0)', exact: true })).toBeDisabled();
+  await page.getByRole('button', { name: 'Mark all matching seen (1)', exact: true }).click();
+  await expect(page.locator('.feed-actions button')).toHaveCount(0);
   assert.equal(runtime.store.listEvents().find(item => item.id === 'build-running').seen, true);
   assert.equal(runtime.store.listEvents().find(item => item.id === 'build-queued').seen, false);
 });

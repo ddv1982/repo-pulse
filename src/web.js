@@ -136,7 +136,6 @@ const view = createBrowserView({
   syncLive: required('#sync-live'),
   picker,
   toolbarMenus: { '.type-menu': typeFilter, '.saved-filter-menu': savedFilterPicker, '.saved-filter-actions': savedFilterActions },
-  onPageRendered: seen.updateShownCount,
 });
 const checkoutPanel = createCheckoutPanel({
   page,
@@ -459,9 +458,11 @@ const actions = {
     }
     const shown = new Set(seen.shownUnseenIds());
     const below = ids.filter(id => !shown.has(id)).length;
+    // Everything it would mark is on screen, so there is nothing to preview; Undo covers a slip.
+    if (!below) return seen.acknowledge(ids, true);
     confirm(
       `Mark ${ids.length} update${ids.length === 1 ? '' : 's'} as seen?`,
-      `${below ? `${below} ${below === 1 ? 'is' : 'are'} below the rows shown. ` : ''}Updates recorded after this page loaded stay unread.`,
+      `${below} ${below === 1 ? 'is' : 'are'} below the rows shown. Updates recorded after this page loaded stay unread.`,
       () => seen.acknowledge(ids, true),
       'Mark as seen',
       { subject: scope },
@@ -705,7 +706,6 @@ document.addEventListener('change', event => {
   }
 });
 
-page.addEventListener('toggle', seen.updateShownCount, true);
 dialog.addEventListener('cancel', event => {
   event.preventDefault();
   closeDialog();

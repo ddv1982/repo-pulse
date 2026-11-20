@@ -217,7 +217,7 @@ for (const undo of [false, true]) {
     }));
     runtime.store.insertEvents(events);
     await page.goto(runtime.url + '/#activity/new');
-    const mark = page.getByRole('button', { name: 'Mark shown seen (251)', exact: true });
+    const mark = page.getByRole('button', { name: 'Mark all seen (251)', exact: true });
     const undoButton = page.getByRole('button', { name: 'Undo', exact: true });
     if (undo) {
       await mark.click();
@@ -246,60 +246,6 @@ for (const undo of [false, true]) {
     assert.ok(events.every(event => !runtime.store.getEvent(event.id).seen));
   });
 }
-
-test('mark shown acknowledges the rendered page even when the saved-filter picker defers a redraw', async t => {
-  const { runtime, page } = await demo(t);
-  runtime.store.acknowledge(runtime.store.listEvents().map(event => event.id));
-  runtime.store.setSetting('savedActivityFilters', [
-    { id: 'pushes', name: 'Pushes', filters: { view: 'new', search: '', kind: 'push', repoIds: null, people: '' } },
-  ]);
-  const batch = (prefix, offset, size) =>
-    Array.from({ length: size }, (_, index) => ({
-      id: `${prefix}-${index}`,
-      repoId: 'demo-orders',
-      kind: 'push',
-      title: `${prefix} push ${index}`,
-      time: new Date(Date.now() + offset + index).toISOString(),
-    }));
-  const original = batch('shown', 0, 50);
-  runtime.store.insertEvents(original);
-  await page.goto(runtime.url + '/#activity/new');
-  const shown = page.getByRole('button', { name: 'Mark shown seen (50)', exact: true });
-  await expect(shown).toBeEnabled();
-  await shown.focus();
-  const polled = page.waitForResponse(response => response.url().includes('/api/activity?') && response.ok());
-  runtime.store.insertEvents(batch('recent', 60000, 51));
-  await page.evaluate(() => window.dispatchEvent(new Event('focus')));
-  await polled;
-  await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
-  await expect(page.locator('li[data-event-id^="shown-"]')).toHaveCount(50);
-  const captured = Promise.withResolvers();
-  const release = Promise.withResolvers();
-  await page.route(
-    '**/api/ack',
-    async route => {
-      const response = await route.fetch();
-      captured.resolve(route.request().postDataJSON());
-      await release.promise;
-      await route.fulfill({ response });
-    },
-    { times: 1 },
-  );
-  try {
-    await shown.click();
-    const ack = await captured.promise;
-    assert.deepEqual(new Set(ack.ids), new Set(original.map(event => event.id)));
-    await page.getByRole('button', { name: 'Saved filters', exact: true }).click();
-    await expect(page.getByRole('listbox', { name: 'Saved filters' })).toBeVisible();
-    release.resolve();
-    await expect(page.getByText('50 updates marked seen.')).toBeVisible();
-    await expect(page.locator('li[data-event-id^="shown-"]')).toHaveCount(0);
-    await expect(page.locator('li[data-event-id^="recent-"]')).toHaveCount(50);
-    assert.equal(runtime.store.getEvent('recent-0').seen, false);
-  } finally {
-    release.resolve();
-  }
-});
 
 test('paged query reset follows type and repository scope without acknowledging hidden history', async t => {
   const { runtime, page } = await demo(t);
@@ -352,8 +298,8 @@ test('one long build history keeps every constituent and acknowledges explicit b
     },
     { times: 1 },
   );
-  await page.getByRole('button', { name: 'Mark shown seen (1050)', exact: true }).click();
-  await expect(page.getByRole('button', { name: 'Mark shown seen (1)', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Mark all seen (1050)', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Mark all seen (1)', exact: true })).toBeVisible();
   assert.deepEqual(
     batches.map(batch => batch.ids.length),
     [250, 250, 250, 250, 50],
@@ -366,7 +312,7 @@ test('one long build history keeps every constituent and acknowledges explicit b
   assert.equal(runtime.store.getEvent('long-build-0').seen, true);
   assert.equal(runtime.store.getEvent('long-build-late').seen, false);
   await page.getByRole('button', { name: 'Undo', exact: true }).click();
-  await expect(page.getByRole('button', { name: 'Mark shown seen (1051)', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Mark all seen (1051)', exact: true })).toBeVisible();
 });
 
 test('repository history import scopes the confirmed range and keeps progress visible through polls', async t => {
@@ -583,7 +529,7 @@ test('seen feedback waits for its refresh when a background poll is in flight', 
     await page.evaluate(() => window.dispatchEvent(new Event('focus')));
     await started.promise;
     const ack = page.waitForResponse(response => response.url().endsWith('/api/ack'));
-    await page.getByRole('button', { name: /^Mark shown seen/ }).click();
+    await page.getByRole('button', { name: /^Mark all seen/ }).click();
     await ack;
     await expect(page.getByRole('dialog')).not.toBeVisible();
     await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
@@ -592,7 +538,7 @@ test('seen feedback waits for its refresh when a background poll is in flight', 
     release.resolve();
   }
   await expect(page.locator('#toast')).toContainText('marked seen');
-  await expect(page.getByRole('button', { name: 'Mark shown seen (0)' })).toBeDisabled();
+  await expect(page.locator('.feed-actions button')).toHaveCount(0);
 });
 
 test('Repositories shows the checkout, checks on demand, and pulls only after confirmation', async t => {
@@ -800,7 +746,7 @@ test('New updates filters a grouped run by the status it shows and acknowledges 
   await toggle.click();
   await page.getByRole('option', { name: 'Succeeded', exact: true }).click();
   await expect(page.locator('li.row')).toHaveCount(1);
-  await page.getByRole('button', { name: 'Mark shown seen (1)' }).click();
+  await page.getByRole('button', { name: 'Mark all matching seen (1)', exact: true }).click();
   await expect(page.locator('li.row')).toHaveCount(0);
   assert.equal(runtime.store.getEvent('scope-running').seen, true);
   assert.equal(runtime.store.getEvent('demo-branch-1').seen, false);
@@ -1336,7 +1282,7 @@ test('People detail only acknowledges the updates that matched the originating r
   assert.equal(runtime.store.getEvent('other-build').seen, false);
 });
 
-test('marking the shown rows in New updates lowers the totals even when the next rows take their place', async t => {
+test('a New updates backlog beyond the shown rows is confirmed with its count below and then reads zero', async t => {
   const { runtime, page } = await demo(t);
   runtime.store.acknowledge(runtime.store.listEvents().map(event => event.id));
   runtime.store.insertEvents(
@@ -1353,11 +1299,13 @@ test('marking the shown rows in New updates lowers the totals even when the next
   const summary = page.getByRole('region', { name: 'Activity summary' });
   await expect(summary.locator('.headline b')).toHaveText('150 new items');
   await expect(page.locator('[data-summary-kind="Pushes"] .val')).toHaveText('150');
-  await page.getByRole('button', { name: 'Mark shown seen (50)', exact: true }).click();
-  await expect(page.getByText('50 updates marked seen.')).toBeVisible();
-  await expect(summary.locator('.headline b')).toHaveText('100 new items');
-  await expect(page.locator('[data-summary-kind="Pushes"] .val')).toHaveText('100');
-  await expect(page.locator('li[data-event-id^="backlog-"]')).toHaveCount(50);
+  await page.getByRole('button', { name: 'Mark all seen (150)', exact: true }).click();
+  const confirm = page.getByRole('dialog', { name: 'Mark 150 updates as seen?' });
+  await expect(confirm).toContainText('100 are below the rows shown.');
+  await confirm.getByRole('button', { name: 'Mark as seen', exact: true }).click();
+  await expect(page.getByText('150 updates marked seen.')).toBeVisible();
+  await expect(summary.locator('.headline b')).toHaveText('No new updates');
+  await expect(page.locator('[data-summary-kind="Pushes"] .val')).toHaveText('0');
 });
 
 test('after the newest rows are marked seen, one catch-up action clears the older backlog and stops at what the page showed', async t => {
@@ -1405,13 +1353,38 @@ test('after the newest rows are marked seen, one catch-up action clears the olde
   await expect(headline).toHaveText('236 new items');
 });
 
-test('New updates leads with Mark all seen even when every unread update fits on one page', async t => {
+test('New updates offers one bulk action that clears a fully shown list without a dialog', async t => {
   const { runtime, page } = await demo(t);
   const total = runtime.store.queryActivity({ view: 'new' }).newUpdates;
   assert.ok(total > 0 && total < 50);
+  runtime.store.setSetting('savedActivityFilters', [
+    { id: 'pushes', name: 'Pushes', filters: { view: 'new', search: '', kind: 'push', repoIds: null, people: '' } },
+  ]);
   await page.goto(runtime.url + '/#activity/new');
   const bar = page.locator('.feed-actions button');
-  await expect(bar.first()).toHaveText(`Mark all seen (${total})`);
-  await expect(bar.first()).toBeVisible();
-  await expect(bar.nth(1)).toHaveText(/^Mark shown seen/);
+  await expect(bar).toHaveCount(1);
+  await expect(bar).toHaveText(`Mark all seen (${total})`);
+  // The saved-filter picker defers redraws while open; the write's refresh must still land.
+  const release = Promise.withResolvers();
+  await page.route(
+    '**/api/ack',
+    async route => {
+      const response = await route.fetch();
+      await release.promise;
+      await route.fulfill({ response });
+    },
+    { times: 1 },
+  );
+  await bar.click();
+  await page.getByRole('button', { name: 'Saved filters', exact: true }).click();
+  await expect(page.getByRole('listbox', { name: 'Saved filters' })).toBeVisible();
+  release.resolve();
+  await expect(page.getByText(`${total} updates marked seen.`)).toBeVisible();
+  await expect(page.getByRole('dialog')).not.toBeVisible();
+  await expect(page.locator('li[data-event-id]')).toHaveCount(0);
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('region', { name: 'Activity summary' }).locator('.headline b')).toHaveText('No new updates');
+  // With nothing to mark there is no empty action bar.
+  await expect(page.locator('.feed-actions')).toHaveCount(0);
+  assert.equal(runtime.store.queryActivity({ view: 'new' }).newUpdates, 0);
 });
