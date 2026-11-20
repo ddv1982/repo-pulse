@@ -2,6 +2,7 @@
 import { createHash } from 'node:crypto';
 import { actorName, branchName, safeAzureUrl } from '../src/events.js';
 import { mergeUpdates } from './merge-evidence.js';
+import { forkJob } from './fork-origin.js';
 
 /** @typedef {import('../src/activity.js').ActivityKind} ActivityKind */
 /** @typedef {import('./azure-client.js').AzureStream} StreamName */
@@ -340,28 +341,9 @@ export function createNormalizer({ store, now = Date.now }) {
           nextAt: event.observedAt,
         })),
       );
-    // A live branch creation is checked for the commit and branch it started from.
-    /** @type {ForkJob[]} */
-    const forks = events
-      .filter(event => event.kind === 'branch-created' && !event.imported && event.data?.evidence === 'push')
-      .flatMap(event => {
-        const { name, newObjectId, pushId } = event.data ?? {};
-        if (typeof name !== 'string' || typeof newObjectId !== 'string' || !/^[0-9a-f]{40}$/i.test(newObjectId)) return [];
-        return [
-          {
-            id: `fork:${event.id}`,
-            type: /** @type {const} */ ('fork'),
-            repoId: repo.id,
-            eventId: event.id,
-            ref: name,
-            pushId: Number(pushId),
-            at: newObjectId.toLowerCase(),
-            reads: 0,
-            attempts: 0,
-            nextAt: event.observedAt,
-          },
-        ];
-      });
+    // A branch creation is checked for the commit and branch it started from, except during a history import, whose
+    // older pushes are stored only after it.
+    const forks = historical ? [] : events.flatMap(event => forkJob(event) ?? []);
     return { events, entities, jobs: [...jobs, ...forks] };
   }
 

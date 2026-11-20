@@ -35,12 +35,12 @@ Each phase starts with a test seen failing and ends with `npm test`, `npm run ch
 
 ### Phase 1: check first-sync imported creations from now on
 
-- [ ] Export a `forkJob(event, repoId)` builder from `server/fork-origin.js` and use it in `server/normalize.js`, so the
+- [x] Export a `forkJob(event)` builder from `server/fork-origin.js` and use it in `server/normalize.js`, so the
       job shape is defined once.
-- [ ] Queue fork jobs for branch creations on any page that is not a history import (`!state.historical`). Check: split
+- [x] Queue fork jobs for branch creations on any page that is not a history import (`!state.historical`). Check: split
       "imported branch creations are never checked" in `test/fork-origin.test.js` into a first-sync import that is
       checked (fails today) and a history-import page that queues no fork job.
-- [ ] Update the "Branches the check did not cover" bullet in `docs/COVERAGE.md`.
+- [x] Update the "Branches the check did not cover" bullet in `docs/COVERAGE.md`.
 
 ### Phase 2: migration 15 queues the stored creations
 
