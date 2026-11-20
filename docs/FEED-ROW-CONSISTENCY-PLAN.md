@@ -32,7 +32,7 @@ Interpretations:
 
 ## Phase 3: PR chip stays with the branch
 
-- [ ] Branch token and PR chip share one non-wrapping group; the branch name ellipsizes first. Verified in the browser
+- [x] Branch token and PR chip share one non-wrapping group; the branch name ellipsizes first. Verified in the browser
       at 1280px and 390px with one and three repositories
 
 ## Phase 4: proof and docs

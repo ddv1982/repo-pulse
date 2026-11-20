@@ -143,11 +143,16 @@ function renderRefLine(record, title, repoName) {
   const named = !['pr', 'build'].includes(record.kind) && Boolean(ref.branch) && namesRef(title, ref.branch);
   const { branch, pullRequestId } = named ? { ...ref, branch: '' } : ref;
   if (!repoName && !branch && !pullRequestId) return emptyHtml;
+  // The branch and its PR share a group that never wraps, so a long branch name is cut short before the chip moves.
   return html`<span class="subref">${repoName ? html`<span class="ref-repo"><span class="sr"> · repository </span>${repoName}</span>` : emptyHtml}${
-    branch
-      ? html`<span class="ref-branch" title="${branch}">${icons.branch}<span class="sr"> · branch </span><span class="ref-name">${branch}</span></span>`
+    branch || pullRequestId
+      ? html`<span class="ref-target">${
+          branch
+            ? html`<span class="ref-branch" title="${branch}">${icons.branch}<span class="sr"> · branch </span><span class="ref-name">${branch}</span></span>`
+            : emptyHtml
+        }${pullRequestId ? html`<span class="chip ref-pr"><span class="sr"> · </span>PR ${pullRequestId}</span>` : emptyHtml}</span>`
       : emptyHtml
-  }${pullRequestId ? html`<span class="chip ref-pr"><span class="sr"> · </span>PR ${pullRequestId}</span>` : emptyHtml}</span>`;
+  }</span>`;
 }
 
 /**

@@ -434,6 +434,11 @@ test('a CI run on a pull request ref names the source branch and the pull reques
     );
   assert.match(out, branch('feature/a'));
   assert.match(out, /<span class="chip ref-pr"><span class="sr"> · <\/span>PR 7<\/span>/);
+  // Branch and PR sit in one group that does not wrap, so the chip never ends up on a line of its own.
+  assert.match(
+    out,
+    /<span class="ref-target"><span class="ref-branch" title="feature\/a">[^]*?<span class="chip ref-pr">[^]*?PR 7<\/span><\/span><\/span><\/button>/,
+  );
   assert.match(out, branch('refs/pull/8/merge'));
   assert.equal(out.match(/ref-pr/g)?.length, 1);
   // No separators are drawn between tokens; spacing does that job.
