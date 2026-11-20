@@ -465,6 +465,7 @@ test('an open Activity view picks up a seen action in another tab and later merg
       repoId: 'demo-orders',
       kind: 'push',
       title: 'Microsoft.VisualStudio.Services.TFS pushed to main',
+      branch: 'main',
       actor: 'Microsoft.VisualStudio.Services.TFS',
       time: new Date().toISOString(),
       data: { pushId: 18000, refUpdates: [{ name: 'refs/heads/main', oldObjectId: 'b'.repeat(40), newObjectId: result }] },
@@ -473,7 +474,8 @@ test('an open Activity view picks up a seen action in another tab and later merg
   await page.goto(runtime.url + '/#activity/all');
   const row = page.locator('li[data-event-id="revision-test"]');
   await expect(row).toHaveClass(/\bnew\b/);
-  await expect(row.getByRole('button', { name: /^Azure DevOps service pushed to main/ })).toBeVisible();
+  await expect(row.getByRole('button', { name: /^Pushed · .*branch main$/ })).toBeVisible();
+  await expect(row.getByText('Pushed by Azure DevOps service')).toBeVisible();
 
   const other = await page.context().newPage();
   await other.goto(runtime.url + '/#activity/new');
@@ -500,10 +502,11 @@ test('an open Activity view picks up a seen action in another tab and later merg
       ],
     },
   });
-  const title = 'Push to main · Linked PR #12';
+  const title = 'Merge of PR 12 pushed to main';
   await expect(row.getByText('Completed PR linked')).toBeVisible({ timeout: 8000 });
   await expect(row.getByText('Pushed by Azure DevOps service')).toBeVisible();
-  await row.getByRole('button', { name: new RegExp(`^${title}`) }).click();
+  // The row title leaves the branch to the ref line; the detail heading keeps the whole title.
+  await row.getByRole('button', { name: /^Merge of PR 12 pushed · .*branch main$/ }).click();
   await expect(page.getByRole('heading', { name: title, exact: true })).toBeVisible();
   await expect(page.getByText('Pushed by', { exact: true })).toBeVisible();
   await expect(page.getByText(/PR closed by Alice Morgan/)).toBeVisible();

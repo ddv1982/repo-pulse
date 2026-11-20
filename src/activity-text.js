@@ -143,7 +143,7 @@ export function activityTitle(event) {
     const pr = prs?.[0];
     const id = pr?.pullRequestId ?? pr?.id;
     if (prs.length === 1 && id) {
-      return `Push to ${branchName(pr.targetRefName)} · Linked PR #${id}`;
+      return `Merge of PR ${id} pushed to ${branchName(pr.targetRefName)}`;
     }
     if (event.actor === azureDevOpsService && event.title?.startsWith(`${azureDevOpsService} pushed`)) {
       return event.title.replace(azureDevOpsService, 'Azure DevOps service');

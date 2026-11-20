@@ -109,6 +109,24 @@ function rowSummary(record) {
 const namesRef = (title, ref) => new RegExp(`(^|[\\s,(])${ref.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}($|[\\s,)])`).test(title);
 
 /**
+ * A branch row's title without its branch and pusher, which the ref line and the meta line show instead, so every
+ * branch row reads the same way. Only a title that ends with the row's single branch is shortened; one that names
+ * several branches stays whole.
+ * @param {ActivityItem} record @param {string} title
+ */
+function rowTitle(record, title) {
+  if (!['push', 'branch-created', 'branch-deleted'].includes(record.kind) || !record.branch) return title;
+  const { branch } = activityRef(record);
+  if (title === branch) return activityLabel(record);
+  const suffix = [` to ${branch}`, ` · ${branch}`].find(end => title.endsWith(end));
+  if (!suffix) return title;
+  const actor = activityActor(record);
+  const rest = title.slice(0, -suffix.length);
+  const text = actor && rest.startsWith(`${actor} `) ? rest.slice(actor.length + 1) : rest;
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+/**
  * The line under a row's title says where it happened: repository, branch and pull request as separate tokens.
  * The hidden words keep the button's accessible name readable after its title. A push, branch or tag title already
  * names its ref, so the line leaves it out; a PR or CI title can contain a branch name by accident, so those keep it.
@@ -138,13 +156,14 @@ function row(record, state, tree, showRepo) {
   const ids = JSON.stringify(record.eventIds);
   const unreadIds = JSON.stringify(record.unseenIds);
   const ackIds = record.unseen ? unreadIds : JSON.stringify(record.events.filter(event => !event.imported).map(event => event.id));
-  const title = activityTitle(record);
+  const fullTitle = activityTitle(record);
+  const title = rowTitle(record, fullTitle);
   const origin = forkText(tree?.fork ?? null);
   return html`<li class="${['row', failed ? 'crit' : '', record.unseen ? 'new' : '', `tone-${tone}`].filter(Boolean).join(' ')}" data-event-id="${record.id}" data-event-ids="${ids}" data-group-key="${record.groupKey}" data-unseen-ids="${unreadIds}">${tree ? renderTreeCell(tree, tone) : emptyHtml}
     <span class="kind ${tone}">${record.kind === 'branch-created' ? icons.branch : html`<span class="d"></span>`}${activityLabel(record)}</span>
     <div class="subject"><button class="feed-title" type="button" data-action="detail" data-id="${record.id}"><span class="title">${title}${record.unseenIds.length > 1 ? html` <span class="pill u new-count">${record.unseenIds.length} new</span>` : emptyHtml}</span>${renderRefLine(record, title, showRepo ? repo?.name || 'Unknown repository' : '')}</button></div>
     ${renderEvent(record, title, origin)}
-    <div class="rowact">${azureLink(record.url)}${record.imported ? emptyHtml : html`<button class="ghost sm seen-toggle" type="button" id="seen-${record.id}" data-action="ack-item" data-id="${record.id}" data-mark-seen="${record.unseen}" data-event-ids="${ackIds}" aria-pressed="${!record.unseen}" aria-label="Seen: ${title}">${icons.seenBox}Seen</button>`}</div></li>`;
+    <div class="rowact">${azureLink(record.url)}${record.imported ? emptyHtml : html`<button class="ghost sm seen-toggle" type="button" id="seen-${record.id}" data-action="ack-item" data-id="${record.id}" data-mark-seen="${record.unseen}" data-event-ids="${ackIds}" aria-pressed="${!record.unseen}" aria-label="Seen: ${fullTitle}">${icons.seenBox}Seen</button>`}</div></li>`;
 }
 
 /** @param {string} title @param {ActivityItem[]} records @param {PageState} state @param {{ open?: boolean, description?: string, tree?: import('../activity-tree.js').ActivityTree, showRepo: boolean }} options */
