@@ -745,7 +745,7 @@ ol.rows {
   }
   .row {
     display: grid;
-    grid-template-columns: var(--kind-width, 9rem) minmax(0, 1.3fr) minmax(0, 1.7fr) 8.5rem;
+    grid-template-columns: var(--kind-width, 9rem) minmax(0, 1fr) minmax(0, 1fr) 8.5rem;
     gap: 12px;
     align-items: start;
     padding: 10px 12px;

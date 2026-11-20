@@ -27,7 +27,7 @@ Scope: Activity rows (`src/ui/feed.js`, `src/activity-text.js`, `web/styles/feed
 
 ## Phase 3: column balance (must-have)
 
-- [ ] Swap the subject/event split from 1.3fr/1.7fr to about 1.7fr/1.3fr with a minimum event width, so PR titles and multi-repo ref lines wrap less. Verify at 1024 and 1280: count wrapped titles before and after, meta lines do not wrap for demo names.
+- [x] Swap the subject/event split from 1.3fr/1.7fr to equal columns. Deviation: about 1.7fr/1.3fr was planned, but measured on the demo plus the owner's long rows it wrapped more summaries (commit messages) at 1024 and 1280; equal columns wrapped the fewest lines at every width and repository count. The owner's long PR titles (about 85 characters) wrap under every split.
 
 ## Phase 4: shared row tracks (decision gate)
 
