@@ -465,3 +465,23 @@ test('an absurd Retry-After is capped at ten minutes and an unreadable one is ig
     ignored.cli.close();
   }
 });
+
+test('REST responses over 16 MiB are rejected by Content-Length and by streamed byte count, and a UTF-8 BOM still parses', async () => {
+  const cliExecutor = async () => JSON.stringify({ accessToken: TOKEN, expires_on: 4102444800 });
+  const read = response =>
+    createRestExecutor({ cliExecutor, fetch: async () => response })(invoke('git', 'refs', ['project=P', 'repositoryId=r']), {
+      signal: new AbortController().signal,
+      timeoutMs: 5000,
+    });
+  const tooLarge = error => error.code === 'INVALID_RESPONSE' && /unexpectedly large/.test(error.message);
+  await assert.rejects(
+    read(new Response('{"value":[]}', { status: 200, headers: { 'content-length': String(17 * 1024 * 1024) } })),
+    tooLarge,
+  );
+  // One reused 1 MiB chunk streamed 17 times, with no Content-Length.
+  const chunk = new Uint8Array(1024 * 1024).fill(0x20);
+  let sent = 0;
+  const stream = new ReadableStream({ pull: controller => (sent++ < 17 ? controller.enqueue(chunk) : controller.close()) });
+  await assert.rejects(read(new Response(stream, { status: 200 })), tooLarge);
+  assert.deepEqual(await read(new Response('\uFEFF{"value":[]}', { status: 200 })), { value: [] });
+});

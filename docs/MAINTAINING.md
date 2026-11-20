@@ -10,7 +10,7 @@
 | [server/sync-status.js](../server/sync-status.js) | The per-repository and overall sync status sent with `/api/state` |
 | [server/store.js](../server/store.js) and [server/merge-evidence.js](../server/merge-evidence.js) | SQLite events, migrations, atomic checkpoints, reset, and linking pushes to completed PRs by tip |
 | [server/activity-query.js](../server/activity-query.js) | Scoped Activity rows, stable filter IDs, counts, and paging |
-| [server/repositories.js](../server/repositories.js) and [server/checkout-git.js](../server/checkout-git.js) | Checkout discovery, Git runner and safety checks, status and cache, and the shared write lock |
+| [server/repositories.js](../server/repositories.js) and [server/checkout-git.js](../server/checkout-git.js) | Checkout discovery, Git runner and safety checks, status and cache, and the per-repository/shared-Git-dir write lock |
 | [server/checkout-activity-switch.js](../server/checkout-activity-switch.js) and [server/checkout-switch-refs.js](../server/checkout-switch-refs.js) | Branch switches from Activity and Repositories, tracking-ref transactions, and rewrite recovery |
 | [server/checkout-update.js](../server/checkout-update.js) and [server/checkout-branches.js](../server/checkout-branches.js) | Check, Pull, and PR branch follow-up workflows |
 | [src/activity-tree.js](../src/activity-tree.js) and [src/ui/activity-tree.js](../src/ui/activity-tree.js) | The branch tree of All activity: lanes, fork and merge links from the rendered rows, and the SVG cell of each row. [server/activity-query.js](../server/activity-query.js) attaches the stored pull request to CI runs on a pull request ref |

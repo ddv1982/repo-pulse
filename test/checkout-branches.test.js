@@ -10,10 +10,13 @@ import { checkoutFixture, git, squashFixture } from './fixtures/checkout.js';
 
 const exec = promisify(execFile);
 
-test('an in-flight Check holds the write lock against Activity Switch in another repository', async t => {
+test('an in-flight Check locks its checkout and linked worktrees while allowing independent repositories to update', async t => {
   const { source, local, remote, repo, original } = checkoutFixture(t);
   git(source, 'switch', '-c', 'topic');
   git(source, 'push', 'origin', 'topic');
+  const worktreePath = join(local, '..', 'linked-worktree');
+  git(local, 'worktree', 'add', '-b', 'wt-branch', worktreePath);
+  const worktreeRepo = { ...repo, id: 'worktree', localPath: worktreePath };
   const otherPath = join(local, '..', 'other-checkout');
   git(source, 'clone', '--no-local', remote, otherPath);
   const other = { ...repo, id: 'other', localPath: otherPath };
@@ -22,26 +25,34 @@ test('an in-flight Check holds the write lock against Activity Switch in another
   const checkoutGit = createCheckoutGit({
     matchesRemote: url => url === remote,
     run: async (path, args, options) => {
-      if (args[2] === 'fetch') {
+      if (path === local && args[2] === 'fetch') {
         fetching.resolve();
         await release.promise;
       }
       return runGit(path, args, options);
     },
   });
+  const repoStatus = await checkoutGit.status(repo);
+  const worktreeStatus = await checkoutGit.status(worktreeRepo);
   const otherStatus = await checkoutGit.status(other);
-  const check = checkoutGit.update(repo, 'check', await checkoutGit.status(repo));
+  const check = checkoutGit.update(repo, 'check', repoStatus);
   try {
     await Promise.race([fetching.promise, check.then(() => assert.fail('Check did not reach fetch.'))]);
-    await assert.rejects(checkoutGit.switchToActivityBranch(other, 'topic', otherStatus), /Another checkout is updating/);
-    assert.equal(git(otherPath, 'rev-parse', 'HEAD'), original);
-    assert.equal(git(otherPath, 'branch', '--show-current'), 'main');
+    await assert.rejects(checkoutGit.switchToActivityBranch(repo, 'topic', repoStatus), /already updating/);
+    await assert.rejects(
+      checkoutGit.switchToActivityBranch(worktreeRepo, 'topic', worktreeStatus),
+      /Another checkout sharing this Git repository is updating/,
+    );
+    assert.equal(git(worktreePath, 'branch', '--show-current'), 'wt-branch');
+    const switched = await checkoutGit.switchToActivityBranch(other, 'topic', otherStatus);
+    assert.equal(switched.checkout.branch, 'topic');
   } finally {
     release.resolve();
     await check;
   }
-  const switched = await checkoutGit.switchToActivityBranch(other, 'topic', otherStatus);
-  assert.equal(switched.checkout.branch, 'topic');
+  const worktreeSwitched = await checkoutGit.switchToActivityBranch(worktreeRepo, 'topic', await checkoutGit.status(worktreeRepo));
+  assert.equal(worktreeSwitched.checkout.branch, 'topic');
+  assert.equal(git(local, 'rev-parse', 'HEAD'), original);
 });
 
 test('Activity switch keeps the commits, upstream and compatible local edits of an existing feature branch', async t => {

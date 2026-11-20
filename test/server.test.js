@@ -450,3 +450,21 @@ test('the unread lookup honours a page snapshot and rejects an invalid one', asy
   assert.ok((await (await fetch(`${url}/api/activity/unseen`)).json()).ids.includes('after-snapshot'));
   for (const bad of ['-1', '1.5', 'x']) assert.equal((await fetch(`${url}/api/activity/unseen?through=${bad}`)).status, 400, bad);
 });
+
+test('malformed percent-encoding in route parameters returns 400 and CSP forbids inline styles', async t => {
+  const { url } = await fixture(t, { demo: false });
+  const page = await globalThis.fetch(url + '/');
+  assert.equal(page.status, 200);
+  const csp = page.headers.get('content-security-policy') || '';
+  assert.match(csp, /style-src 'self';/);
+  assert.doesNotMatch(csp, /unsafe-inline/);
+  for (const [method, path] of [
+    ['GET', '/api/events/%E0%A4%A'],
+    ['DELETE', '/api/activity-filters/%E0%A4%A'],
+    ['DELETE', '/api/repos/%E0%A4%A'],
+    ['GET', '/api/repos/%E0%A4%A/checkout/status'],
+  ]) {
+    const response = await fetch(url + path, { method });
+    assert.equal(response.status, 400, `${method} ${path}`);
+  }
+});

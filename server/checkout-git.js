@@ -262,7 +262,10 @@ export function createCheckoutGit({
 } = {}) {
   /** @type {Map<string, { path: string, until: number, value: Promise<CheckoutStatus> }>} */
   const readings = new Map();
-  let updating = false;
+  /** Active checkout write locks: repo IDs and canonical Git common directories currently updating. @type {Set<string>} */
+  const updatingRepos = new Set();
+  /** @type {Set<string>} */
+  const updatingGitDirs = new Set();
   const updateAt = createCheckoutUpdater({
     run,
     hooks,
@@ -430,10 +433,11 @@ export function createCheckoutGit({
     return { operation: operations[found.indexOf(true)]?.[1], gitDirectory };
   }
 
-  /** @param {string} path @param {LinkedRepo} repo @returns {ReturnType<ReadCheckoutStatus>} */
-  async function statusAt(path, repo) {
+  /** @param {string} path @param {LinkedRepo} repo @param {{ configChecked?: boolean }} [options] @returns {ReturnType<ReadCheckoutStatus>} */
+  async function statusAt(path, repo, { configChecked = false } = {}) {
     // Checked again here because a Pull or branch switch can bring in a gitlink over a nested checkout.
-    refuseConfiguredCommands(await configuredCommands(path));
+    // Callers that just verified the checkout in checkoutPath without mutating it can skip the duplicate scan.
+    if (!configChecked) refuseConfiguredCommands(await configuredCommands(path));
     const snapshot = readStatus(
       await run(path, ['status', '--porcelain=v2', '--branch', '-z', '--untracked-files=normal', '--ignore-submodules=none']),
     );
@@ -510,10 +514,10 @@ export function createCheckoutGit({
     return isCommit(hash) ? hash : null;
   }
 
-  /** @param {string} path @param {LinkedRepo} repo @returns {Promise<CheckoutStatus>} */
-  async function inspect(path, repo) {
+  /** @param {string} path @param {LinkedRepo} repo @param {{ configChecked?: boolean }} [options] @returns {Promise<CheckoutStatus>} */
+  async function inspect(path, repo, { configChecked = false } = {}) {
     try {
-      const { snapshot } = await statusAt(path, repo);
+      const { snapshot } = await statusAt(path, repo, { configChecked });
       return await branches.decorate(repo, path, snapshot);
     } catch {
       return { state: 'unavailable' };
@@ -526,7 +530,7 @@ export function createCheckoutGit({
     const previous = readings.get(repo.id);
     if (previous?.path === repo.localPath && previous.until > now()) return previous.value;
     const value = checkoutPath(repo).then(
-      path => inspect(path, repo),
+      path => inspect(path, repo, { configChecked: true }),
       /** @param {{ diagnostic?: import('./checkout-observations.js').CheckoutDiagnostic }} error @returns {CheckoutStatus} */
       error => (error.diagnostic ? { state: 'unavailable', diagnostic: error.diagnostic } : { state: 'unavailable' }),
     );
@@ -564,14 +568,25 @@ export function createCheckoutGit({
 
   /** @template T @param {LinkedRepo} repo @param {(path: string) => Promise<T>} action */
   async function exclusively(repo, action) {
-    if (updating) throw problem('Another checkout is updating. Try again in a moment.');
-    updating = true;
+    if (updatingRepos.has(repo.id)) throw problem('This checkout is already updating. Try again in a moment.');
+    updatingRepos.add(repo.id);
     readings.delete(repo.id);
+    /** @type {string | null} */
+    let commonDir = null;
     try {
-      return await action(await checkoutPath(repo));
+      const path = await checkoutPath(repo);
+      const rawCommonDir = (await run(path, ['rev-parse', '--path-format=absolute', '--git-common-dir'])).trimEnd();
+      const resolvedCommonDir = await realpath(rawCommonDir).catch(() => rawCommonDir);
+      if (updatingGitDirs.has(resolvedCommonDir)) {
+        throw problem('Another checkout sharing this Git repository is updating. Try again in a moment.');
+      }
+      updatingGitDirs.add(resolvedCommonDir);
+      commonDir = resolvedCommonDir;
+      return await action(path);
     } finally {
       readings.delete(repo.id);
-      updating = false;
+      updatingRepos.delete(repo.id);
+      if (commonDir) updatingGitDirs.delete(commonDir);
     }
   }
 
