@@ -165,6 +165,25 @@ test('detail has readable labels, exact group IDs and abbreviated copyable commi
   assert.match(markup, /running/);
 });
 
+test('a completed pull request detail offers a switch to the branch it merged into', () => {
+  const state = fixture();
+  const pr = {
+    id: 'merged',
+    repoId: 'on',
+    kind: 'pr',
+    title: 'PR 7 · Merge',
+    branch: 'feature/topic',
+    time: '2026-11-17T10:00:00Z',
+    data: { pullRequestId: 7, status: 'completed', sourceRefName: 'refs/heads/feature/topic', targetRefName: 'refs/heads/main' },
+  };
+  state.events = [pr];
+  state.repos = [{ id: 'on', name: 'Orders', localPath: '/src/orders' }];
+  assert.match(renderDetail(pr, state, null), /data-action="switch-activity-branch">Switch to main…</);
+  const onMain = renderDetail(pr, state, null, { checkouts: { on: { branch: 'main' } } });
+  assert.match(onMain, />View in Repositories</);
+  assert.doesNotMatch(renderDetail(pr, { ...state, demo: true }, null), /Switch to/);
+});
+
 test('Activity shows ordinary pushes, hotfixes, and new branches in source-time order', () => {
   const state = fixture();
   const event = { repoId: 'r', kind: 'push', seen: false, imported: false, summary: 'Branch updated' };

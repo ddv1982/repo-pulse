@@ -204,7 +204,13 @@ test('Activity checkout mutations resolve the target from an event in the reques
     kind: 'branch-created',
     data: { name: 'refs/heads/feature/topic' },
   };
-  store.insertEvents([event, { ...event, id: 'deleted-branch', kind: 'branch-deleted' }]);
+  const merged = {
+    id: 'merged-pr',
+    repoId: 'demo-billing',
+    kind: 'pr',
+    data: { status: 'completed', sourceRefName: 'refs/heads/feature/topic', targetRefName: 'refs/heads/main' },
+  };
+  store.insertEvents([event, { ...event, id: 'deleted-branch', kind: 'branch-deleted' }, merged]);
   const expected = { branch: 'main', head: 'a'.repeat(40), upstream: null, identity: 'fixture', switchIdentity: 'git-directory' };
   const input = { operation: 'switch-activity', eventId: event.id, branch: 'ignored', expected };
   const endpoint = '/api/repos/demo-billing/checkout';
@@ -212,7 +218,11 @@ test('Activity checkout mutations resolve the target from an event in the reques
   assert.equal((await mutate(endpoint, { ...input, eventId: 'deleted-branch' })).status, 400);
   assert.equal((await mutate(endpoint, { ...input, eventId: 'demo-branch-1' })).status, 404);
   assert.equal((await mutate(endpoint, input)).status, 200);
-  assert.deepEqual(calls, [{ repo: 'demo-billing', branch: 'feature/topic', expected }]);
+  assert.equal((await mutate(endpoint, { ...input, eventId: 'merged-pr' })).status, 200);
+  assert.deepEqual(calls, [
+    { repo: 'demo-billing', branch: 'feature/topic', expected },
+    { repo: 'demo-billing', branch: 'main', expected },
+  ]);
 });
 
 test('checkout status skips disabled repositories', async t => {

@@ -202,7 +202,7 @@ export function renderDetail(
     ? emptyHtml
     : checkouts?.[event.repoId]?.branch === branch
       ? html`<a class="btn" id="activity-branch-action" href="${repositoryHref(event.repoId)}">View in Repositories</a>`
-      : html`<button class="btn" type="button" id="activity-branch-action" data-action="switch-activity-branch">Switch branch…</button>`;
+      : html`<button class="btn" type="button" id="activity-branch-action" data-action="switch-activity-branch">Switch to ${branch}…</button>`;
   return html`<div class="crumb">${back}<span>${repo?.name}</span></div><section class="card">${detailHead(record, repo, activityTitle(record), matching, branchAction)}
     ${detailFacts(record, activityTone(record), matching)}
     ${detailData(record, repo, data, fields, pushId, commits)}</section>`;

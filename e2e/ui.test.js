@@ -405,7 +405,7 @@ test('a New branch detail reviews a rewritten tracking ref before switching, the
   const search = page.getByRole('searchbox', { name: 'Search activity' });
   await search.fill('checkout-from-activity');
   await page.getByRole('button', { name: new RegExp(`^New branch · ${branch}`) }).click();
-  await page.getByRole('button', { name: 'Switch branch…' }).click();
+  await page.getByRole('button', { name: `Switch to ${branch}…` }).click();
   const dialog = page.getByRole('dialog');
   await expect(dialog).toContainText(`Switch to ${branch}?`);
   await expect(dialog).toContainText(local);
@@ -418,7 +418,7 @@ test('a New branch detail reviews a rewritten tracking ref before switching, the
   await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
   assert.equal(git(local, 'rev-parse', 'HEAD'), original);
   assert.equal(git(local, 'rev-parse', `origin/${branch}`), previousTip);
-  await page.getByRole('button', { name: 'Switch branch…' }).click();
+  await page.getByRole('button', { name: `Switch to ${branch}…` }).click();
   await dialog.getByRole('button', { name: 'Switch branch', exact: true }).click();
   await dialog.getByRole('button', { name: 'Confirm switch', exact: true }).click();
 
@@ -445,7 +445,7 @@ test('a New branch detail reviews a rewritten tracking ref before switching, the
   await page.goBack();
   await expect(page.getByRole('link', { name: 'View in Repositories' })).toBeVisible();
   git(local, 'switch', 'main');
-  await expect(page.getByRole('button', { name: 'Switch branch…' })).toBeVisible({ timeout: 12000 });
+  await expect(page.getByRole('button', { name: `Switch to ${branch}…` })).toBeVisible({ timeout: 12000 });
   await page.getByRole('link', { name: /Back to All activity/ }).click();
   await expect(page.locator('#feed-search')).toHaveValue('checkout-from-activity');
   assert.deepEqual(errors, []);

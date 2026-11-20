@@ -15,3 +15,25 @@ test('only explicit branch creation and single-branch pushes produce a checkout 
   assert.equal(branchFor('pr', { sourceRefName: name }), null);
   assert.equal(branchFor('tag', { name: 'refs/tags/topic' }), null);
 });
+
+test('pull requests, builds and merge pushes name the branch they leave behind', () => {
+  const live = 'a'.repeat(40);
+  const gone = '0'.repeat(40);
+  const branchFor = (kind, data) => activityBranch({ kind, data });
+  const pr = { sourceRefName: 'refs/heads/feature/topic', targetRefName: 'refs/heads/main' };
+  assert.equal(branchFor('pr', { ...pr, status: 'completed' }), 'main');
+  assert.equal(branchFor('pr', { ...pr, status: 'active' }), 'feature/topic');
+  assert.equal(branchFor('pr', { ...pr, status: 'active', fork: { repository: 'other' } }), null);
+  assert.equal(branchFor('pr', { ...pr, status: 'abandoned' }), null);
+  assert.equal(branchFor('pr', { ...pr, status: 'completed', targetRefName: 'refs/tags/v1' }), null);
+  assert.equal(branchFor('build', { sourceBranch: 'refs/heads/main' }), 'main');
+  assert.equal(branchFor('build', { sourceBranch: 'refs/pull/7/merge' }), null);
+  assert.equal(branchFor('build', {}), null);
+  const merge = [
+    { name: 'refs/heads/main', newObjectId: live },
+    { name: 'refs/heads/feature/topic', newObjectId: gone },
+  ];
+  assert.equal(branchFor('push', { refUpdates: merge }), 'main');
+  assert.equal(branchFor('push', { refUpdates: [...merge, { name: 'refs/heads/other', newObjectId: live }] }), null);
+  assert.equal(branchFor('push', { refUpdates: [{ name: 'refs/tags/v1', newObjectId: live }, merge[1]] }), null);
+});
