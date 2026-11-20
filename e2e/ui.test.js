@@ -1438,7 +1438,7 @@ test('All activity shows the branch tree in the status column, and narrow screen
   await expect(rows.first()).toBeVisible();
   await expect(page.locator('.with-tree svg.tree')).toHaveCount(await rows.count());
   const hotfix = page.locator('[data-event-id="demo-branch-1"]');
-  await expect(hotfix).toContainText('Branched from main at a known revision');
+  await expect(hotfix).toContainText('Started at a revision seen on main');
   await expect(page.locator('[data-event-id="demo-branch-3"]')).toContainText('Branched from main, assumed from PR 1175');
   await expect(page.locator('[data-event-id="demo-branch-3"] svg.tree path.assumed')).toHaveCount(1);
   await expect(page.locator('[data-event-id="demo-pr-2"] svg.tree path')).toHaveCount(1);
@@ -1446,7 +1446,6 @@ test('All activity shows the branch tree in the status column, and narrow screen
   const [cell, row] = await Promise.all([hotfix.locator('svg.tree').boundingBox(), hotfix.boundingBox()]);
   assert.ok(Math.abs(cell.y - row.y) <= 1 && Math.abs(cell.y + cell.height - (row.y + row.height)) <= 1, 'tree cell spans the row');
   await expect(hotfix.locator('.kind > svg')).toBeHidden();
-  await page.screenshot({ path: 'test-results/activity-tree.png', fullPage: true });
 
   await page.setViewportSize({ width: 420, height: 900 });
   await expect(hotfix.locator('svg.tree')).toBeHidden();

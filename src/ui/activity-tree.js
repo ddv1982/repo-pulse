@@ -23,10 +23,17 @@ function segment(line, anchor) {
   return html`<line class="${lane(line.color)}" x1="${x(line.slot)}" x2="${x(line.slot)}" y1="${line.up ? ABOVE : anchor}" y2="${line.down ? '100%' : anchor}"/>`;
 }
 
-/** A fork or merge: the other lane, and the curve between it and this row's node. @param {TreeLine} other @param {TreeRow['node']} node @param {string} style */
+/**
+ * A fork or merge: the other lane, and the curve between it and this row's node. A lane with nothing below it in
+ * the list ends in a short faded tail, because its history goes on.
+ * @param {TreeLine} other @param {TreeRow['node']} node @param {string} style
+ */
 function join(other, node, style) {
   const [from, to] = [x(other.slot), x(node.slot)];
-  return html`${segment(other, JOIN)}<path class="${style}" d="M${from} ${JOIN}C${from} ${JOIN / 2} ${to} ${JOIN / 2} ${to} 0"/>`;
+  const tail = other.down
+    ? emptyHtml
+    : html`<line class="${lane(other.color)} tail" x1="${from}" x2="${from}" y1="${JOIN}" y2="${JOIN + TAIL}"/>`;
+  return html`${segment(other, JOIN)}${tail}<path class="${style}" d="M${from} ${JOIN}C${from} ${JOIN / 2} ${to} ${JOIN / 2} ${to} 0"/>`;
 }
 
 /** @param {TreeRow['node']} node @param {string} color */
@@ -43,21 +50,17 @@ function marker(node, color) {
  * @param {TreeRow} row @param {string} tone
  */
 export function renderTreeCell(row, tone) {
-  const { node, fork, mergeFrom } = row;
-  const tail =
-    fork?.line && !fork.line.down
-      ? html`<line class="${lane(fork.line.color)} tail" x1="${x(fork.line.slot)}" x2="${x(fork.line.slot)}" y1="${JOIN}" y2="${JOIN + TAIL}"/>`
-      : emptyHtml;
+  const { node, forkFrom, mergeFrom } = row;
   return html`<svg class="tree" aria-hidden="true" focusable="false"><g>${row.through.map(line => segment({ ...line, up: true, down: true }, 0))}${segment(node, 0)}${
-    fork?.line ? join(fork.line, node, `${lane(node.color)}${fork.evidence === 'pr' ? ' assumed' : ''}`) : emptyHtml
-  }${tail}${mergeFrom ? join(mergeFrom, node, lane(mergeFrom.color)) : emptyHtml}${marker(node, tone === 'crit' ? 'lane-crit' : lane(node.color))}</g></svg>`;
+    forkFrom ? join(forkFrom, node, `${lane(node.color)}${forkFrom.evidence === 'pr' ? ' assumed' : ''}`) : emptyHtml
+  }${mergeFrom ? join(mergeFrom, node, lane(mergeFrom.color)) : emptyHtml}${marker(node, tone === 'crit' ? 'lane-crit' : lane(node.color))}</g></svg>`;
 }
 
 /** @param {TreeFork | null} fork */
 export function forkText(fork) {
   if (!fork) return '';
   return fork.evidence === 'tip'
-    ? `Branched from ${fork.parent} at a known revision`
+    ? `Started at a revision seen on ${fork.parent}`
     : `Branched from ${fork.parent}, assumed from PR ${fork.pullRequestId}`;
 }
 
