@@ -37,6 +37,6 @@ Interpretations:
 
 ## Phase 4: proof and docs
 
-- [ ] `npm run check`, `check:types`, `lint`, `test`, `test:ui` green
-- [ ] Screenshots of the demo in light and dark, desktop and 390px; README screenshots refreshed if rows changed
+- [x] `npm run check`, `check:types`, `lint`, `test`, `test:ui` green
+- [x] Screenshots of the demo in light and dark, desktop and 390px; README screenshots refreshed if rows changed
 - [ ] Remove this plan once every item is ticked
