@@ -507,6 +507,12 @@ test('Repositories switches between watched branches, and a merged pull request 
   await page.keyboard.press('Escape');
   await expect(picker).toBeHidden();
   await expect(open).toBeFocused();
+  // Checkout polling can replace the button that opened the picker; focus still returns to the checkout's button.
+  await open.click();
+  await open.evaluate(button => button.replaceWith(button.cloneNode(true)));
+  await picker.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(picker).toBeHidden();
+  await expect(open).toBeFocused();
 
   await open.click();
   await page.getByRole('searchbox', { name: 'Filter branches' }).fill('top');

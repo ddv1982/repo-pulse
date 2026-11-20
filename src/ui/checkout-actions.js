@@ -14,10 +14,11 @@ import { repositoryHref } from './navigation.js';
  *   confirm: (title: string, description: string, callback: () => Promise<void>, label?: string, options?: { subject?: string, destructive?: boolean }) => void,
  *   toast: (message: string) => void,
  *   closeBranchPicker: () => void,
+ *   currentView: () => () => boolean,
  * }} options
  * @returns {Record<string, Action>}
  */
-export function createCheckoutActions({ checkoutPanel, getActivityCheckout, confirm, toast, closeBranchPicker }) {
+export function createCheckoutActions({ checkoutPanel, getActivityCheckout, confirm, toast, closeBranchPicker, currentView }) {
   /** @param {string} id @param {CheckoutOperation} operation @param {CheckoutSnapshot} checkout @param {Record<string, unknown>} [options] */
   async function updateCheckout(id, operation, checkout, options) {
     const { branch, head, upstream, identity } = checkout;
@@ -159,7 +160,7 @@ export function createCheckoutActions({ checkoutPanel, getActivityCheckout, conf
       closeBranchPicker();
       if (!repoId || !branch) return;
       const focus = () => document.getElementById(`checkout-state-${repoId}`)?.focus();
-      const isCurrent = () => location.hash.startsWith('#repositories');
+      const isCurrent = currentView();
       await switchCheckout({ repoId, localPath, branch, isCurrent }, 'switch-branch', { branch }, focus);
     },
     'check-checkout': element => {

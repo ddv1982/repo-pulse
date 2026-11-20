@@ -59,7 +59,8 @@ export function createBranchPicker(dialog, { load }) {
   required('[data-branch-cancel]', HTMLElement, dialog).addEventListener('click', () => dialog.close());
   // Checkout polling may have replaced the button that opened the dialog; focus its replacement or the checkout.
   dialog.addEventListener('close', () => {
-    if (document.activeElement && document.activeElement !== document.body) return;
+    const active = document.activeElement;
+    if (active && active !== document.body && !dialog.contains(active)) return;
     (document.getElementById(`checkout-switch-${repo?.id}`) ?? document.getElementById(`checkout-state-${repo?.id}`))?.focus();
   });
 

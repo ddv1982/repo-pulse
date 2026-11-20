@@ -166,15 +166,14 @@ function getActivityCheckout() {
   const repo = event && refresh.state.repos.find(repo => repo.id === event.repoId);
   const branch = event && activityBranch(event);
   if (!event || !repo?.localPath || !branch) return null;
+  return { repoId: repo.id, localPath: repo.localPath, eventId: event.id, branch, isCurrent: currentView() };
+}
+
+/** A check that the page shown now is still the one shown when it was made. */
+function currentView() {
   const { generation } = navigation.view();
   const hash = location.hash;
-  return {
-    repoId: repo.id,
-    localPath: repo.localPath,
-    eventId: event.id,
-    branch,
-    isCurrent: () => location.hash === hash && navigation.view().generation === generation,
-  };
+  return () => location.hash === hash && navigation.view().generation === generation;
 }
 
 function renderPage() {
@@ -380,7 +379,14 @@ function applySavedFilter({ id, name, filters }) {
 
 /** @type {Record<string, Action>} */
 const actions = {
-  ...createCheckoutActions({ checkoutPanel, getActivityCheckout, confirm, toast, closeBranchPicker: () => branchPicker.close() }),
+  ...createCheckoutActions({
+    checkoutPanel,
+    getActivityCheckout,
+    confirm,
+    toast,
+    closeBranchPicker: () => branchPicker.close(),
+    currentView,
+  }),
   'open-branch-picker': element => {
     const repo = refresh.state.repos.find(item => item.id === element.dataset.id);
     const branch = checkoutPanel.snapshots[element.dataset.id ?? '']?.branch;
