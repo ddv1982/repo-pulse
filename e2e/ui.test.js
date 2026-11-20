@@ -1434,8 +1434,8 @@ test('a pull request detail lists its reviewers and their votes in words', async
   const { page } = await setup(t);
   await page.locator('[data-event-id="demo-pr-1"] .feed-title').click();
   const facts = page.locator('.detail-facts');
-  await expect(facts).toContainText('Lars de Wit (required): approved');
-  await expect(facts).toContainText('Sam Ortega: waiting for author');
+  await expect(facts).toContainText('Redacted 3 (required): approved');
+  await expect(facts).toContainText('Redacted 1: waiting for author');
   await expect(facts).toContainText('Billing reviewers (required): no vote');
 });
 
@@ -1604,7 +1604,11 @@ test('All activity shows the branch tree beside the type label, and narrow scree
   await expect(page.locator('[data-event-id="demo-branch-3"] svg.tree path.assumed')).toHaveCount(1);
   await expect(page.locator('[data-event-id="demo-pr-2"] svg.tree path')).toHaveCount(1);
   // A CI run on a pull request ref takes the branch of the stored PR and joins its lane.
-  await expect(page.locator('[data-event-id="demo-build-2"] .subref')).toHaveText('shared-components / feature/date-range · PR 412');
+  const ciRef = page.locator('[data-event-id="demo-build-2"] .subref');
+  await expect(ciRef.locator('.ref-repo')).toHaveText(' · repository shared-components');
+  await expect(ciRef.locator('.ref-name')).toHaveText('feature/date-range');
+  await expect(ciRef.locator('.ref-pr')).toHaveText(' · PR 412');
+  await expect(ciRef.locator('.ref-pr')).toBeVisible();
   await expect(page.locator('[data-event-id="demo-build-2"] svg.tree circle.dot:not(.lane-none)')).toHaveCount(1);
   // A lane must run unbroken through a row, so each cell covers its row from border to border.
   const [cell, row] = await Promise.all([hotfix.locator('svg.tree').boundingBox(), hotfix.boundingBox()]);

@@ -379,6 +379,56 @@ ol.rows {
   color: var(--muted-foreground);
   overflow-wrap: anywhere;
 }
+/* Where a row happened: repository, branch and PR as tokens that wrap as whole units. A single token wider than the
+   column ends in an ellipsis; the branch keeps its full name in its title and in the DOM. */
+.feed-title .subref {
+  font-family: inherit;
+  overflow-wrap: normal;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 10px;
+  margin-top: 2px;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--muted-foreground);
+}
+.ref-repo,
+.ref-branch {
+  min-width: 0;
+  max-width: 100%;
+}
+.ref-repo {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+}
+.ref-branch {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.ref-branch svg {
+  flex: none;
+  width: 12px;
+  height: 12px;
+}
+.ref-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+}
+.chip.ref-pr {
+  flex: none;
+  padding: 0 6px;
+  font-size: 11px;
+  line-height: 16px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
 .event {
   grid-column: 1 / -1;
   min-width: 0;
@@ -387,6 +437,37 @@ ol.rows {
 }
 .event .mono {
   font-size: 12px;
+}
+/* What happened, then who and when, then where the branch started: each on its own line. */
+.event-main {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  line-height: 20px;
+}
+.event > .help:first-child {
+  margin-top: 0;
+  line-height: 20px;
+}
+.event-meta time {
+  font-variant-numeric: tabular-nums;
+}
+.event-meta .actor {
+  font-weight: 500;
+  color: color-mix(in oklab, var(--foreground) 80%, var(--muted-foreground));
+}
+.event-origin {
+  display: flex;
+  align-items: flex-start;
+  gap: 5px;
+  margin-top: 2px;
+}
+.event-origin svg {
+  flex: none;
+  width: 12px;
+  height: 12px;
+  margin-top: 2px;
 }
 .rowact {
   display: flex;

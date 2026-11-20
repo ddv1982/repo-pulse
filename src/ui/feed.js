@@ -4,6 +4,7 @@ import {
   emptyHtml,
   html,
   dateTime,
+  fullDateTime,
   azureLink,
   activityActor,
   activityLabel,
@@ -20,7 +21,7 @@ import { renderTrail } from './activity-trail.js';
 import { activityHref } from './navigation.js';
 import { renderTypeFilter } from './type-filter.js';
 import { activityScopeQuery } from './activity-data.js';
-import { activityFilterLabel, activityRef } from '../activity-text.js';
+import { activityFilterLabel, activityRef, prForkSource, prTarget, prVoteChanges } from '../activity-text.js';
 import { scopeName } from './header.js';
 import { currentActivityFilters, isSavedFilterModified, renderSavedFilters } from './saved-filters.js';
 import { mergeEvidenceBadge } from './merge-evidence.js';
@@ -53,14 +54,84 @@ export function filterControls(ui, state) {
   </div>`;
 }
 
+/** What the named person did, per kind. A branch or tag event comes from a push. @type {Record<import('../activity.js').ActivityKind, string>} */
+const actorRoles = {
+  pr: 'Created by',
+  build: 'Requested by',
+  push: 'Pushed by',
+  'branch-created': 'Pushed by',
+  'branch-deleted': 'Pushed by',
+  tag: 'Pushed by',
+};
+
+/**
+ * Who and when. The actor is left out when the title already starts with them ("Ana pushed to main"); an unknown
+ * actor has no role to name.
+ * @param {ActivityItem} record @param {string} title
+ */
+function renderMeta(record, title) {
+  const actor = activityActor(record);
+  const shown = actor && !title.startsWith(`${actor} `);
+  const role = actor === 'Unknown' ? '' : `${actorRoles[record.kind]} `;
+  return html`<div class="help event-meta">${shown ? html`${role}<span class="actor">${actor}</span> · ` : emptyHtml}<time datetime="${record.time}" title="${fullDateTime(record.time)}">${dateTime(record.time)}</time></div>`;
+}
+
+/**
+ * The event column in tiers: what happened with its evidence chips, then who and when, then where the branch started.
+ * @param {ActivityItem} record @param {string} title @param {string} origin
+ */
+function renderEvent(record, title, origin) {
+  const pr =
+    record.kind === 'pr' && record.data && (record.data.targetRefName || record.data.voteChanges?.length) ? record.data : undefined;
+  const votes = pr ? prVoteChanges(pr) : [];
+  const summary = votes.length
+    ? html`${votes.map(change => html`<span class="status-text ${voteTone(change.vote)}"><span class="status-dot" aria-hidden="true"></span>${change.text}</span>`)}`
+    : pr
+      ? prTarget(pr)
+      : rowSummary(record);
+  const badge = mergeEvidenceBadge(record);
+  const origins = [pr ? prForkSource(pr.fork) : '', origin].filter(Boolean);
+  return html`<div class="event">${summary || badge !== emptyHtml ? html`<div class="event-main">${typeof summary === 'string' ? (summary ? html`<span>${summary}</span>` : emptyHtml) : summary}${badge}</div>` : emptyHtml}${renderMeta(record, title)}${origins.map(
+    text => html`<div class="help event-origin">${icons.branch}<span>${text}</span></div>`,
+  )}${renderTrail(record)}</div>`;
+}
+
+/** A reviewer vote's tone; the words carry the meaning, the color repeats it. @param {number} vote */
+const voteTone = vote => (vote > 0 ? 'ok' : vote === -5 ? 'warn' : vote < 0 ? 'crit' : 'neutral');
+
 /** A CI run without a known trigger has nothing to summarise in its row; the detail page still names the gap. @param {ActivityItem} record */
 function rowSummary(record) {
   const summary = activitySummary(record);
   return record.kind === 'build' && summary === 'Not supplied' ? '' : summary;
 }
 
-/** @param {ActivityItem} record @param {PageState} state @param {import('../activity-tree.js').TreeRow} [tree] */
-function row(record, state, tree) {
+/** Whether the title names the ref as a whole word, so `main` is not found inside `main-old`. @param {string} title @param {string} ref */
+const namesRef = (title, ref) => new RegExp(`(^|[\\s,(])${ref.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}($|[\\s,)])`).test(title);
+
+/**
+ * The line under a row's title says where it happened: repository, branch and pull request as separate tokens.
+ * The hidden words keep the button's accessible name readable after its title. A push, branch or tag title already
+ * names its ref, so the line leaves it out; a PR or CI title can contain a branch name by accident, so those keep it.
+ * @param {ActivityItem} record @param {string} title the row's shown title
+ * @param {string} repoName empty when the row needs no repository name
+ */
+function renderRefLine(record, title, repoName) {
+  const ref = record.branch ? activityRef(record) : { branch: '' };
+  const named = !['pr', 'build'].includes(record.kind) && Boolean(ref.branch) && namesRef(title, ref.branch);
+  const { branch, pullRequestId } = named ? { ...ref, branch: '' } : ref;
+  if (!repoName && !branch && !pullRequestId) return emptyHtml;
+  return html`<span class="subref">${repoName ? html`<span class="ref-repo"><span class="sr"> · repository </span>${repoName}</span>` : emptyHtml}${
+    branch
+      ? html`<span class="ref-branch" title="${branch}">${icons.branch}<span class="sr"> · branch </span><span class="ref-name">${branch}</span></span>`
+      : emptyHtml
+  }${pullRequestId ? html`<span class="chip ref-pr"><span class="sr"> · </span>PR ${pullRequestId}</span>` : emptyHtml}</span>`;
+}
+
+/**
+ * @param {ActivityItem} record @param {PageState} state @param {import('../activity-tree.js').TreeRow | undefined} tree
+ * @param {boolean} showRepo whether more than one repository is in view, so the row has to say which one it belongs to
+ */
+function row(record, state, tree, showRepo) {
   const repo = state.repos.find(item => item.id === record.repoId);
   const tone = activityTone(record);
   const failed = record.kind === 'build' && buildState(record).tone === 'crit';
@@ -68,31 +139,30 @@ function row(record, state, tree) {
   const unreadIds = JSON.stringify(record.unseenIds);
   const ackIds = record.unseen ? unreadIds : JSON.stringify(record.events.filter(event => !event.imported).map(event => event.id));
   const title = activityTitle(record);
-  const actor = activityActor(record);
   const origin = forkText(tree?.fork ?? null);
   return html`<li class="${['row', failed ? 'crit' : '', record.unseen ? 'new' : '', `tone-${tone}`].filter(Boolean).join(' ')}" data-event-id="${record.id}" data-event-ids="${ids}" data-group-key="${record.groupKey}" data-unseen-ids="${unreadIds}">${tree ? renderTreeCell(tree, tone) : emptyHtml}
     <span class="kind ${tone}">${record.kind === 'branch-created' ? icons.branch : html`<span class="d"></span>`}${activityLabel(record)}</span>
-    <div class="subject"><button class="feed-title" type="button" data-action="detail" data-id="${record.id}"><span class="title">${title}${record.unseenIds.length > 1 ? html` <span class="pill u new-count">${record.unseenIds.length} new</span>` : emptyHtml}</span><span class="subref">${repo?.name || 'Unknown repository'}${record.branch ? ` / ${activityRef(record)}` : ''}</span></button></div>
-    <div class="event">${rowSummary(record)}${mergeEvidenceBadge(record)}<div class="help">${actor ? `${record.kind === 'pr' ? 'Created by ' : record.kind === 'push' ? 'Pushed by ' : ''}${actor} · ` : ''}<time datetime="${record.time}">${dateTime(record.time)}</time>${origin ? ` · ${origin}` : ''}</div>${renderTrail(record)}</div>
+    <div class="subject"><button class="feed-title" type="button" data-action="detail" data-id="${record.id}"><span class="title">${title}${record.unseenIds.length > 1 ? html` <span class="pill u new-count">${record.unseenIds.length} new</span>` : emptyHtml}</span>${renderRefLine(record, title, showRepo ? repo?.name || 'Unknown repository' : '')}</button></div>
+    ${renderEvent(record, title, origin)}
     <div class="rowact">${azureLink(record.url)}${record.imported ? emptyHtml : html`<button class="ghost sm seen-toggle" type="button" id="seen-${record.id}" data-action="ack-item" data-id="${record.id}" data-mark-seen="${record.unseen}" data-event-ids="${ackIds}" aria-pressed="${!record.unseen}" aria-label="Seen: ${title}">${icons.seenBox}Seen</button>`}</div></li>`;
 }
 
-/** @param {string} title @param {ActivityItem[]} records @param {PageState} state @param {{ open?: boolean, description?: string, tree?: import('../activity-tree.js').ActivityTree }} [options] */
-function group(title, records, state, { open = true, description = '', tree } = {}) {
+/** @param {string} title @param {ActivityItem[]} records @param {PageState} state @param {{ open?: boolean, description?: string, tree?: import('../activity-tree.js').ActivityTree, showRepo: boolean }} options */
+function group(title, records, state, { open = true, description = '', tree, showRepo }) {
   if (!records.length) return emptyHtml;
-  return html`<section class="group"><details data-group="${title}" ${open ? html`open` : emptyHtml}><summary class="ghead">${title} <span class="pill u">${records.length}</span><span class="note">${description}</span></summary><ul class="rows${tree ? ' with-tree' : ''}" ${tree ? html`data-tree-lanes="${tree.width}"` : emptyHtml}>${records.map((record, index) => row(record, state, tree?.rows[index]))}</ul></details></section>`;
+  return html`<section class="group"><details data-group="${title}" ${open ? html`open` : emptyHtml}><summary class="ghead">${title} <span class="pill u">${records.length}</span><span class="note">${description}</span></summary><ul class="rows${tree ? ' with-tree' : ''}" ${tree ? html`data-tree-lanes="${tree.width}"` : emptyHtml}>${records.map((record, index) => row(record, state, tree?.rows[index], showRepo))}</ul></details></section>`;
 }
 
 /**
  * All activity: both groups carry a branch tree. They share one width so their columns line up.
- * @param {ActivityItem[]} records @param {PageState} state @param {boolean} hasQuery
+ * @param {ActivityItem[]} records @param {PageState} state @param {boolean} hasQuery @param {boolean} showRepo
  */
-function historyGroups(records, state, hasQuery) {
+function historyGroups(records, state, hasQuery, showRepo) {
   const lists = [records.filter(record => !record.imported), records.filter(record => record.imported)];
   const trees = lists.map(list => buildActivityTree(list));
   const width = Math.max(...trees.map(tree => tree.width));
   const [recorded, imported] = trees.map(tree => ({ ...tree, width }));
-  return html`${group('Activity', lists[0], state, { tree: recorded })}${group('Imported history', lists[1], state, { open: hasQuery, description: 'Captured before monitoring started', tree: imported })}`;
+  return html`${group('Activity', lists[0], state, { tree: recorded, showRepo })}${group('Imported history', lists[1], state, { open: hasQuery, description: 'Captured before monitoring started', tree: imported, showRepo })}`;
 }
 
 /**
@@ -142,8 +212,11 @@ export function renderFeed(state, ui) {
   const unseen = records
     .filter(record => record.unseen)
     .sort((a, b) => Number(b.kind === 'branch-created') - Number(a.kind === 'branch-created'));
+  // With one repository in view every row would repeat its name, so rows name it only when several are shown.
+  const showRepo = shown.length > 1;
   // New updates lists new branches first, so its rows are not in time order and it gets no tree.
-  const content = ui.route === 'activity' ? historyGroups(records, state, hasQuery) : group('New updates', unseen, state);
+  const content =
+    ui.route === 'activity' ? historyGroups(records, state, hasQuery, showRepo) : group('New updates', unseen, state, { showRepo });
   const current = html`aria-current="page"`;
   const emptyMessage = emptyActivityMessage(ui, partial);
   const bulk = matchingAction(
