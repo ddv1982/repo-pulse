@@ -13,10 +13,11 @@ import { repositoryHref } from './navigation.js';
  *   getActivityCheckout: () => ActivityCheckout | null,
  *   confirm: (title: string, description: string, callback: () => Promise<void>, label?: string, options?: { subject?: string, destructive?: boolean }) => void,
  *   toast: (message: string) => void,
+ *   closeBranchPicker: () => void,
  * }} options
  * @returns {Record<string, Action>}
  */
-export function createCheckoutActions({ checkoutPanel, getActivityCheckout, confirm, toast }) {
+export function createCheckoutActions({ checkoutPanel, getActivityCheckout, confirm, toast, closeBranchPicker }) {
   /** @param {string} id @param {CheckoutOperation} operation @param {CheckoutSnapshot} checkout @param {Record<string, unknown>} [options] */
   async function updateCheckout(id, operation, checkout, options) {
     const { branch, head, upstream, identity } = checkout;
@@ -84,64 +85,81 @@ export function createCheckoutActions({ checkoutPanel, getActivityCheckout, conf
     return perform();
   }
 
+  /**
+   * Confirms and runs a branch switch, with a second review when the branch's remote history was rewritten or has
+   * diverged from the local branch. Activity and Repositories share it so both ask the same questions.
+   * @param {{ repoId: string, localPath: string, branch: string, isCurrent: () => boolean }} target
+   * @param {'switch-activity' | 'switch-branch'} operation @param {Record<string, unknown>} request
+   * @param {() => void} done runs after a verified switch, and when the checkout is already on the branch
+   */
+  async function switchCheckout({ repoId, localPath, branch, isCurrent }, operation, request, done) {
+    const checkout = await checkoutPanel.read(repoId);
+    if (!isCurrent()) return;
+    if (checkout.branch === branch) return done();
+    if (checkout.state === 'unavailable' || checkout.state === 'not-linked')
+      throw new Error(checkout.diagnostic?.title || 'The linked checkout is unavailable.');
+    if (checkout.state === 'in-progress') throw new Error('Finish the Git operation before switching branches.');
+    const { branch: current, head, upstream, identity, switchIdentity } = checkout;
+    if (!current || !head || !identity) throw new Error('Switching requires an existing branch checked out in Git.');
+    if (!switchIdentity) throw new Error('Repo Pulse could not verify the local Git directory.');
+    /** @param {string} [confirmation] */
+    const switchBranch = async confirmation => {
+      if (!isCurrent()) return;
+      const result = await checkoutPanel.update(
+        repoId,
+        operation,
+        { branch: current, head, upstream, identity, switchIdentity },
+        { ...request, confirmation },
+      );
+      if (!isCurrent()) return;
+      if (result.switchReview) {
+        const review = result.switchReview;
+        const rewrite = review.previous
+          ? `The history of ${review.upstream} changed from ${review.previous.slice(0, 12)} to ${review.tip.slice(0, 12)}. Repo Pulse will save the previous tip before refreshing it. `
+          : '';
+        const divergence =
+          review.ahead && review.behind
+            ? `Your local ${branch} is ${review.ahead} ahead and ${review.behind} behind the verified remote. Switching keeps its commits. `
+            : '';
+        confirm(
+          `Review switch to ${branch}`,
+          `${rewrite}${divergence}Git will stop if switching would overwrite local changes.`,
+          () => switchBranch(review.token),
+          'Confirm switch',
+          { subject: localPath },
+        );
+        return;
+      }
+      if (result.message) throw new Error(result.message);
+      if (result.checkout.branch !== branch)
+        throw new Error('Git finished switching, but the new checkout status could not be verified. Review it in Repositories.');
+      toast(`Switched to ${branch}.${result.notice ? ` ${result.notice}` : ''}`);
+      done();
+    };
+    confirm(
+      `Switch to ${branch}?`,
+      `Switch the local checkout from ${current} to ${branch}. Git will stop if switching would overwrite local changes. You can check for updates or pull from Repositories afterward.`,
+      () => switchBranch(),
+      'Switch branch',
+      { subject: localPath },
+    );
+  }
+
   return {
     'switch-activity-branch': async () => {
       const context = getActivityCheckout();
       if (!context) return;
       const { repoId, localPath, eventId, branch, isCurrent } = context;
-      const checkout = await checkoutPanel.read(repoId);
-      if (!isCurrent()) return;
-      if (checkout.branch === branch) {
+      await switchCheckout({ repoId, localPath, branch, isCurrent }, 'switch-activity', { eventId }, () => {
         location.hash = repositoryHref(repoId);
-        return;
-      }
-      if (checkout.state === 'unavailable' || checkout.state === 'not-linked')
-        throw new Error(checkout.diagnostic?.title || 'The linked checkout is unavailable.');
-      if (checkout.state === 'in-progress') throw new Error('Finish the Git operation before switching branches.');
-      const { branch: current, head, upstream, identity, switchIdentity } = checkout;
-      if (!current || !head || !identity) throw new Error('Switching requires an existing branch checked out in Git.');
-      if (!switchIdentity) throw new Error('Repo Pulse could not verify the local Git directory.');
-      /** @param {string} [confirmation] */
-      const switchBranch = async confirmation => {
-        if (!isCurrent()) return;
-        const result = await checkoutPanel.update(
-          repoId,
-          'switch-activity',
-          { branch: current, head, upstream, identity, switchIdentity },
-          { eventId, confirmation },
-        );
-        if (!isCurrent()) return;
-        if (result.switchReview) {
-          const review = result.switchReview;
-          const rewrite = review.previous
-            ? `The history of ${review.upstream} changed from ${review.previous.slice(0, 12)} to ${review.tip.slice(0, 12)}. Repo Pulse will save the previous tip before refreshing it. `
-            : '';
-          const divergence =
-            review.ahead && review.behind
-              ? `Your local ${branch} is ${review.ahead} ahead and ${review.behind} behind the verified remote. Switching keeps its commits. `
-              : '';
-          confirm(
-            `Review switch to ${branch}`,
-            `${rewrite}${divergence}Git will stop if switching would overwrite local changes.`,
-            () => switchBranch(review.token),
-            'Confirm switch',
-            { subject: localPath },
-          );
-          return;
-        }
-        if (result.message) throw new Error(result.message);
-        if (result.checkout.branch !== branch)
-          throw new Error('Git finished switching, but the new checkout status could not be verified. Review it in Repositories.');
-        toast(`Switched to ${branch}.${result.notice ? ` ${result.notice}` : ''}`);
-        location.hash = repositoryHref(repoId);
-      };
-      confirm(
-        `Switch to ${branch}?`,
-        `Switch the local checkout from ${current} to ${branch}. Git will stop if switching would overwrite local changes. You can check for updates or pull from Repositories afterward.`,
-        () => switchBranch(),
-        'Switch branch',
-        { subject: localPath },
-      );
+      });
+    },
+    'switch-checkout-branch': async element => {
+      const { id: repoId = '', branch = '', path: localPath = '' } = element.dataset;
+      closeBranchPicker();
+      if (!repoId || !branch) return;
+      const focus = () => document.getElementById(`checkout-state-${repoId}`)?.focus();
+      await switchCheckout({ repoId, localPath, branch, isCurrent: () => true }, 'switch-branch', { branch }, focus);
     },
     'check-checkout': element => {
       const id = element.dataset.id ?? '';

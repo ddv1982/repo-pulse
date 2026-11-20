@@ -70,6 +70,21 @@
         </div>
       </form>
     </dialog>
+    <dialog id="branch-dialog" aria-labelledby="branch-title" aria-describedby="branch-repository">
+      <form>
+        <div class="dbody">
+          <h2 id="branch-title">Switch branch</h2>
+          <p class="history-repository" id="branch-repository"></p>
+          <label for="branch-filter">Filter branches</label>
+          <input id="branch-filter" class="search" type="search" autocomplete="off" spellcheck="false" autofocus />
+          <p class="help" id="branch-status" role="status"></p>
+          <ul class="branch-list" id="branch-list"></ul>
+        </div>
+        <div class="dfoot">
+          <button type="button" class="btn" data-branch-cancel>Cancel</button>
+        </div>
+      </form>
+    </dialog>
     <div id="toast" class="toast" role="status" hidden></div>
   </body>
 </html>

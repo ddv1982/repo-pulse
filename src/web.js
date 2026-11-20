@@ -16,6 +16,7 @@ import { createFilterNameDialog, currentActivityFilters, isSavedFilterModified, 
 import { createToolbarMenu } from './ui/toolbar-menu.js';
 import { scopeName } from './ui/header.js';
 import { createHistoryImport } from './ui/history-import.js';
+import { createBranchPicker } from './ui/branch-picker.js';
 import { required, setHtml } from './ui/dom.js';
 
 /** @typedef {import('./ui/refresh.js').PageState} PageState */
@@ -101,6 +102,9 @@ const savedFilterActions = createToolbarMenu({
   },
 });
 const filterName = createFilterNameDialog(required('#filter-name-dialog', HTMLDialogElement));
+const branchPicker = createBranchPicker(required('#branch-dialog', HTMLDialogElement), {
+  load: async repoId => (await request(`/api/repos/${encodeURIComponent(repoId)}/checkout/branches`)).branches,
+});
 const historyImport = createHistoryImport(required('#history-dialog', HTMLDialogElement), {
   start: (repoId, days) => request('/api/backfill', { method: 'POST', body: { repoId, days } }),
   onStarted: async id => {
@@ -205,7 +209,7 @@ function refreshTarget(force) {
   }
   return view.refreshTarget(
     force,
-    busy || dialog.open || historyImport.open || filterName.open || (ui.route === 'repositories' && picker.active()),
+    busy || dialog.open || historyImport.open || filterName.open || branchPicker.open || (ui.route === 'repositories' && picker.active()),
   );
 }
 
@@ -376,7 +380,12 @@ function applySavedFilter({ id, name, filters }) {
 
 /** @type {Record<string, Action>} */
 const actions = {
-  ...createCheckoutActions({ checkoutPanel, getActivityCheckout, confirm, toast }),
+  ...createCheckoutActions({ checkoutPanel, getActivityCheckout, confirm, toast, closeBranchPicker: () => branchPicker.close() }),
+  'open-branch-picker': element => {
+    const repo = refresh.state.repos.find(item => item.id === element.dataset.id);
+    const branch = checkoutPanel.snapshots[element.dataset.id ?? '']?.branch;
+    if (repo && branch && !refresh.state.demo) void branchPicker.show(repo, branch);
+  },
   'load-more-activity': async () => {
     await load({ force: true, more: true });
   },
@@ -713,6 +722,7 @@ document.addEventListener('keydown', event => {
     !dialog.open &&
     !historyImport.open &&
     !filterName.open &&
+    !branchPicker.open &&
     !savedFilterMenuOpen() &&
     !['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement?.tagName ?? '')
   ) {

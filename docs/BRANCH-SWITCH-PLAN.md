@@ -80,12 +80,12 @@ Each phase starts with a test seen failing and ends with `npm test`, `npm run ch
 
 ### Phase 3: Repositories picker
 
-- [ ] Move the Activity confirm and review flow in `src/ui/checkout-actions.js` into one shared function. Check: the
+- [x] Move the Activity confirm and review flow in `src/ui/checkout-actions.js` into one shared function. Check: the
       existing Activity switch tests and e2e pass unchanged.
-- [ ] Branch dialog and "Switch branch…" button, hidden for demo and for unlinked, unavailable, detached and
+- [x] Branch dialog and "Switch branch…" button, hidden for demo and for unlinked, unavailable, detached and
       in-progress checkouts. Check: e2e covering filter, keyboard, Current disabled, a clean switch, the divergence
       review confirm, focus return on cancel, and phone width.
-- [ ] Run the app on a temporary Git fixture and switch to `main` from both entry points. Check: screenshot and the
+- [x] Run the app on a temporary Git fixture and switch to `main` from both entry points. Check: screenshot and the
       checkout status read back.
 
 ### Phase 4: docs
