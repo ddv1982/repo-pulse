@@ -457,7 +457,8 @@ const actions = {
       await load({ force: true });
       return toast('No unread updates match the current filters.');
     }
-    const below = Math.max(0, ids.length - seen.shownUnseenCount());
+    const shown = new Set(seen.shownUnseenIds());
+    const below = ids.filter(id => !shown.has(id)).length;
     confirm(
       `Mark ${ids.length} update${ids.length === 1 ? '' : 's'} as seen?`,
       `${below ? `${below} ${below === 1 ? 'is' : 'are'} below the rows shown. ` : ''}Updates recorded after this page loaded stay unread.`,

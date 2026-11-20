@@ -1404,3 +1404,14 @@ test('after the newest rows are marked seen, one catch-up action clears the olde
   await expect(page.getByText('235 updates marked unseen.')).toBeVisible();
   await expect(headline).toHaveText('236 new items');
 });
+
+test('New updates leads with Mark all seen even when every unread update fits on one page', async t => {
+  const { runtime, page } = await demo(t);
+  const total = runtime.store.queryActivity({ view: 'new' }).newUpdates;
+  assert.ok(total > 0 && total < 50);
+  await page.goto(runtime.url + '/#activity/new');
+  const bar = page.locator('.feed-actions button');
+  await expect(bar.first()).toHaveText(`Mark all seen (${total})`);
+  await expect(bar.first()).toBeVisible();
+  await expect(bar.nth(1)).toHaveText(/^Mark shown seen/);
+});

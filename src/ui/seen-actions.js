@@ -90,19 +90,13 @@ export function createSeenActions({ page, request, reload, toast }) {
 
   return {
     acknowledge,
-    shownUnseenCount: () => shownUnseenIds(page).length,
+    shownUnseenIds: () => shownUnseenIds(page),
     updateShownCount() {
       const button = page.querySelector('[data-action="ack-shown"]');
       if (!(button instanceof HTMLButtonElement)) return;
       const count = shownUnseenIds(page).length;
       button.textContent = `Mark shown seen (${count})`;
       button.disabled = count === 0;
-      // When every unread update is shown, Mark shown seen already covers them all.
-      const remaining = page.querySelector('[data-unseen-total]');
-      if (remaining instanceof HTMLElement) {
-        const all = page.querySelector('[data-action="ack-matching"]');
-        if (all instanceof HTMLButtonElement) all.hidden = Number(remaining.dataset.unseenTotal) <= count;
-      }
     },
     /** @type {Record<string, Action>} */
     actions: {

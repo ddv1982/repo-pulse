@@ -44,9 +44,10 @@ test('pages report the snapshot they were read at, and the unread lookup stops t
   const store = reportedCase();
   const page = store.queryActivity({ view: 'all' });
   assert.equal(typeof page.asOf, 'number');
-  assert.equal(store.queryActivity({ view: 'all', cursor: page.nextCursor ?? undefined }).asOf, page.asOf);
+  assert.ok(page.nextCursor);
   // Recorded after the page was read, with a source time older than everything on it.
   store.insertEvents([push('late', -60)]);
+  assert.equal(store.queryActivity({ view: 'all', cursor: page.nextCursor }).asOf, page.asOf);
   const ids = store.queryActivity.unseenIds({ through: page.asOf });
   assert.equal(ids.length, 235);
   assert.ok(!ids.includes('late'));
