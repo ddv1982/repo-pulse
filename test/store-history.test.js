@@ -903,12 +903,18 @@ test('a CI run on a pull request ref carries the refs of the stored pull request
     ],
   );
   assert.equal(store.getEvent('run-7').data.pullRequest, undefined, 'the saved event is not changed');
+  // A PR event that names its source only as the row branch still resolves, as it does in the tree.
+  store.insertEvents([
+    event('pr-9', { kind: 'pr', branch: 'fix/b', data: { pullRequestId: 9 } }),
+    run('run-9', 'refs/pull/9/merge', '2026-11-18T12:00:00Z'),
+  ]);
+  assert.deepEqual(store.queryActivity({ limit: 1 }).items[0].data.pullRequest, { id: 9, sourceRefName: 'fix/b' });
   // Timestamps with and without fractions compare by time, and a PR event without a source ref is passed over.
   store.insertEvents([
     pr('pr-retarget', '2026-11-11T10:00:00.800Z', { sourceRefName: 'refs/heads/feature/a', targetRefName: 'refs/heads/release' }),
-    pr('pr-bare', '2026-11-12T10:00:00Z', {}),
+    { ...pr('pr-bare', '2026-11-12T10:00:00Z', {}), branch: '' },
   ]);
-  assert.deepEqual(store.queryActivity({ limit: 1 }).items[0].data.pullRequest, {
+  assert.deepEqual(store.queryActivity({ limit: 2 }).items[1].data.pullRequest, {
     id: 7,
     sourceRefName: 'refs/heads/feature/a',
     targetRefName: 'refs/heads/release',

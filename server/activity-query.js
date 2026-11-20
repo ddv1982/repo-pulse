@@ -214,11 +214,11 @@ function attachPullRequests(db, groups) {
   const rows = db
     .prepare(
       `SELECT repo_id, CAST(json_extract(data,'$.data.pullRequestId') AS TEXT) AS id,
-        json_extract(data,'$.data.sourceRefName') AS source, json_extract(data,'$.data.targetRefName') AS target,
+        COALESCE(json_extract(data,'$.data.sourceRefName'), NULLIF(json_extract(data,'$.branch'),'')) AS source, json_extract(data,'$.data.targetRefName') AS target,
         json_extract(data,'$.data.fork') AS fork
       FROM events WHERE repo_id IN (${repoIds.map(() => '?').join(',')}) AND json_extract(data,'$.kind')='pr'
         AND CAST(json_extract(data,'$.data.pullRequestId') AS TEXT) IN (${ids.map(() => '?').join(',')})
-        AND json_extract(data,'$.data.sourceRefName') IS NOT NULL
+        AND source IS NOT NULL
       ORDER BY julianday(time) DESC, julianday(observed_at) DESC, rowid DESC`,
     )
     .all(...repoIds, ...ids);
