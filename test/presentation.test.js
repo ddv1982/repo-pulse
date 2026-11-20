@@ -462,5 +462,5 @@ test('a CI row without a known trigger shows no summary line, and the detail pag
   const markup = String(renderFeed(state, view));
   assert.doesNotMatch(markup, /Not supplied/);
   assert.match(markup, /<div class="event">Triggered manually/);
-  assert.match(String(renderDetail(state.events[1], state)), /Not supplied/);
+  assert.match(String(renderDetail(state.events[1], state)), /<dt>Trigger<\/dt><dd>Not supplied<\/dd>/);
 });
