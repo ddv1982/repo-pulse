@@ -21,7 +21,7 @@ import { renderTrail } from './activity-trail.js';
 import { activityHref } from './navigation.js';
 import { renderTypeFilter } from './type-filter.js';
 import { activityScopeQuery } from './activity-data.js';
-import { activityFilterLabel, activityRef } from '../activity-text.js';
+import { activityFilterLabel, activityRef, prForkSource, prTarget, prVoteChanges } from '../activity-text.js';
 import { scopeName } from './header.js';
 import { currentActivityFilters, isSavedFilterModified, renderSavedFilters } from './saved-filters.js';
 import { mergeEvidenceBadge } from './merge-evidence.js';
@@ -55,7 +55,14 @@ export function filterControls(ui, state) {
 }
 
 /** What the named person did, per kind. A branch or tag event comes from a push. @type {Record<import('../activity.js').ActivityKind, string>} */
-const actorRoles = { pr: 'Created by', build: 'Requested by', push: 'Pushed by', 'branch-created': 'Pushed by', 'branch-deleted': 'Pushed by', tag: 'Pushed by' };
+const actorRoles = {
+  pr: 'Created by',
+  build: 'Requested by',
+  push: 'Pushed by',
+  'branch-created': 'Pushed by',
+  'branch-deleted': 'Pushed by',
+  tag: 'Pushed by',
+};
 
 /**
  * Who and when. The actor is left out when the title already starts with them ("Ana pushed to main"); an unknown
@@ -74,12 +81,23 @@ function renderMeta(record, title) {
  * @param {ActivityItem} record @param {string} title @param {string} origin
  */
 function renderEvent(record, title, origin) {
-  const summary = rowSummary(record);
+  const pr =
+    record.kind === 'pr' && record.data && (record.data.targetRefName || record.data.voteChanges?.length) ? record.data : undefined;
+  const votes = pr ? prVoteChanges(pr) : [];
+  const summary = votes.length
+    ? html`${votes.map(change => html`<span class="status-text ${voteTone(change.vote)}"><span class="status-dot" aria-hidden="true"></span>${change.text}</span>`)}`
+    : pr
+      ? prTarget(pr)
+      : rowSummary(record);
   const badge = mergeEvidenceBadge(record);
-  return html`<div class="event">${summary || badge !== emptyHtml ? html`<div class="event-main">${summary ? html`<span>${summary}</span>` : emptyHtml}${badge}</div>` : emptyHtml}${renderMeta(record, title)}${
-    origin ? html`<div class="help event-origin">${icons.branch}<span>${origin}</span></div>` : emptyHtml
-  }${renderTrail(record)}</div>`;
+  const origins = [pr ? prForkSource(pr.fork) : '', origin].filter(Boolean);
+  return html`<div class="event">${summary || badge !== emptyHtml ? html`<div class="event-main">${typeof summary === 'string' ? (summary ? html`<span>${summary}</span>` : emptyHtml) : summary}${badge}</div>` : emptyHtml}${renderMeta(record, title)}${origins.map(
+    text => html`<div class="help event-origin">${icons.branch}<span>${text}</span></div>`,
+  )}${renderTrail(record)}</div>`;
 }
+
+/** A reviewer vote's tone; the words carry the meaning, the color repeats it. @param {number} vote */
+const voteTone = vote => (vote > 0 ? 'ok' : vote === -5 ? 'warn' : vote < 0 ? 'crit' : 'neutral');
 
 /** A CI run without a known trigger has nothing to summarise in its row; the detail page still names the gap. @param {ActivityItem} record */
 function rowSummary(record) {
@@ -103,7 +121,9 @@ function renderRefLine(record, title, repoName) {
   const { branch, pullRequestId } = named ? { ...ref, branch: '' } : ref;
   if (!repoName && !branch && !pullRequestId) return emptyHtml;
   return html`<span class="subref">${repoName ? html`<span class="ref-repo"><span class="sr"> · repository </span>${repoName}</span>` : emptyHtml}${
-    branch ? html`<span class="ref-branch" title="${branch}">${icons.branch}<span class="sr"> · branch </span><span class="ref-name">${branch}</span></span>` : emptyHtml
+    branch
+      ? html`<span class="ref-branch" title="${branch}">${icons.branch}<span class="sr"> · branch </span><span class="ref-name">${branch}</span></span>`
+      : emptyHtml
   }${pullRequestId ? html`<span class="chip ref-pr"><span class="sr"> · </span>PR ${pullRequestId}</span>` : emptyHtml}</span>`;
 }
 

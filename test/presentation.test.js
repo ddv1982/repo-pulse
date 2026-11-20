@@ -381,7 +381,10 @@ test('All activity draws a branch tree with the fork evidence in the row text; N
   assert.equal((all.match(/<svg class="tree" aria-hidden="true"/g) || []).length, 2);
   assert.match(all, /<path class="lane-\d assumed" d="M5 18C5 9 15 9 15 0"\/>/);
   assert.match(all, /<circle class="lane-\d hole" cx="15" cy="0" r="3.75"\/>/);
-  assert.match(all, /<div class="help event-origin"><svg aria-hidden="true"[^]*?<\/svg><span>PR 7 targets main, origin not checked<\/span><\/div>/);
+  assert.match(
+    all,
+    /<div class="help event-origin"><svg aria-hidden="true"[^]*?<\/svg><span>PR 7 targets main, origin not checked<\/span><\/div>/,
+  );
   assert.match(all, /class="help tree-legend"/);
   assert.match(all, /Lines can pass rows of other branches\./);
   const updates = renderFeed(state, view);
@@ -402,7 +405,9 @@ test('a CI run on a pull request ref names the source branch and the pull reques
   ];
   const out = String(renderFeed(state, view));
   const branch = (/** @type {string} */ name) =>
-    new RegExp(`<span class="ref-branch" title="${name}"><svg aria-hidden="true"[^]*?</svg><span class="sr"> · branch </span><span class="ref-name">${name}</span></span>`);
+    new RegExp(
+      `<span class="ref-branch" title="${name}"><svg aria-hidden="true"[^]*?</svg><span class="sr"> · branch </span><span class="ref-name">${name}</span></span>`,
+    );
   assert.match(out, branch('feature/a'));
   assert.match(out, /<span class="chip ref-pr"><span class="sr"> · <\/span>PR 7<\/span>/);
   assert.match(out, branch('refs/pull/8/merge'));
@@ -437,18 +442,34 @@ test('a row leaves out the branch its title already names, except on pull reques
   const out = String(renderFeed(state, view));
   const refLine = (/** @type {string} */ id) => out.match(new RegExp(`data-event-id="${id}"[^]*?</button>`))?.[0] ?? '';
   for (const id of ['push', 'created', 'deleted', 'tag']) assert.doesNotMatch(refLine(id), /class="subref"/, id);
-  for (const [id, name] of [['old-push', 'feature/d'], ['other-ref', 'main'], ['pr', 'main'], ['build', 'main']])
+  for (const [id, name] of [
+    ['old-push', 'feature/d'],
+    ['other-ref', 'main'],
+    ['pr', 'main'],
+    ['build', 'main'],
+  ])
     assert.match(refLine(id), new RegExp(`<span class="ref-name">${name}</span>`), id);
   // With several repositories shown the line stays for the repository alone.
   state.repos.push({ id: 'other', name: 'Billing' });
-  assert.match(String(renderFeed(state, view)).match(/data-event-id="push"[^]*?<\/button>/)?.[0] ?? '', /<span class="subref"><span class="ref-repo">[^]*?<\/span><\/span><\/button>/);
+  assert.match(
+    String(renderFeed(state, view)).match(/data-event-id="push"[^]*?<\/button>/)?.[0] ?? '',
+    /<span class="subref"><span class="ref-repo">[^]*?<\/span><\/span><\/button>/,
+  );
 });
 
 test('the event column puts what happened first, then who and when, each actor with its role', () => {
   const state = fixture();
   const base = { repoId: 'r', seen: false, imported: false, time: '2026-11-17T10:00:00Z' };
   state.events = [
-    { ...base, id: 'pr', kind: 'pr', branch: 'feature/a', title: 'PR 3 · Fix', actor: 'Ana', data: { id: 3, status: 'active', targetRefName: 'refs/heads/main' } },
+    {
+      ...base,
+      id: 'pr',
+      kind: 'pr',
+      branch: 'feature/a',
+      title: 'PR 3 · Fix',
+      actor: 'Ana',
+      data: { id: 3, status: 'active', targetRefName: 'refs/heads/main' },
+    },
     { ...base, id: 'build', kind: 'build', branch: 'main', title: 'CI · 1', actor: 'Bo', data: { buildId: 1, reason: 'manual' } },
     { ...base, id: 'created', kind: 'branch-created', branch: 'feature/b', title: 'feature/b', actor: 'Cy', data: {} },
     { ...base, id: 'named', kind: 'push', branch: 'feature/c', title: 'Di pushed to feature/c', actor: 'Di', summary: 'Tidy up', data: {} },
@@ -456,7 +477,8 @@ test('the event column puts what happened first, then who and when, each actor w
     { ...base, id: 'unknown', kind: 'tag', branch: 'v1', title: 'Tag moved · v1', actor: 'Unknown', data: {} },
   ];
   const out = String(renderFeed(state, view));
-  const event = (/** @type {string} */ id) => out.match(new RegExp(`data-event-id="${id}"[^]*?<div class="event">([^]*?)<div class="rowact">`))?.[1] ?? '';
+  const event = (/** @type {string} */ id) =>
+    out.match(new RegExp(`data-event-id="${id}"[^]*?<div class="event">([^]*?)<div class="rowact">`))?.[1] ?? '';
   const meta = (/** @type {string} */ id) => event(id).match(/<div class="help event-meta">([^]*?)<\/div>/)?.[1] ?? '';
   assert.match(event('pr'), /^<div class="event-main"><span>Target: main<\/span><\/div><div class="help event-meta">/);
   assert.match(meta('pr'), /^Created by <span class="actor">Ana<\/span> · <time datetime="2026-11-17T10:00:00Z" title="[^"]*2026[^"]*">/);
@@ -466,6 +488,51 @@ test('the event column puts what happened first, then who and when, each actor w
   // The title already says who pushed, and an unknown actor has no role to name.
   assert.match(meta('named'), /^<time/);
   assert.match(meta('unknown'), /^<span class="actor">Unknown<\/span> · <time/);
+});
+
+test('a PR row lists each vote change on its own and names a fork source on the origin line', () => {
+  const state = fixture();
+  const base = {
+    repoId: 'r',
+    kind: 'pr',
+    branch: 'feature/a',
+    title: 'PR 3 · Fix',
+    actor: 'Ana',
+    seen: false,
+    imported: false,
+    time: '2026-11-17T10:00:00Z',
+  };
+  const fork = { repository: 'One-fork', project: 'Q' };
+  state.events = [
+    {
+      ...base,
+      id: 'votes',
+      data: {
+        id: 3,
+        status: 'active',
+        targetRefName: 'refs/heads/main',
+        fork,
+        voteChanges: [
+          { name: 'Bo', vote: 10 },
+          { name: 'Cy', vote: -5 },
+          { name: 'Di', vote: 0 },
+        ],
+      },
+    },
+    { ...base, id: 'target', data: { id: 4, status: 'active', targetRefName: 'refs/heads/main', fork } },
+  ];
+  const out = String(renderFeed(state, view));
+  const event = (/** @type {string} */ id) =>
+    out.match(new RegExp(`data-event-id="${id}"[^]*?<div class="event">([^]*?)<div class="rowact">`))?.[1] ?? '';
+  assert.match(
+    event('votes'),
+    /^<div class="event-main"><span class="status-text ok"><span class="status-dot" aria-hidden="true"><\/span>Bo: approved<\/span><span class="status-text warn"><span class="status-dot" aria-hidden="true"><\/span>Cy: waiting for author<\/span><span class="status-text neutral"><span class="status-dot" aria-hidden="true"><\/span>Di: vote reset<\/span><\/div>/,
+  );
+  assert.match(event('target'), /^<div class="event-main"><span>Target: main<\/span><\/div>/);
+  for (const id of ['votes', 'target'])
+    assert.match(event(id), /<div class="help event-origin"><svg[^]*?<\/svg><span>From fork One-fork in Q<\/span><\/div>/, id);
+  // Search and the detail page keep the single summary sentence.
+  assert.equal(activitySummary(state.events[1]), 'From fork One-fork in Q · Target: main');
 });
 
 test('each fork origin has its own row text, and only an unchecked PR target is dotted', () => {

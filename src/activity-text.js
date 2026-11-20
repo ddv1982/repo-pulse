@@ -175,15 +175,25 @@ const votes = { 10: 'approved', 5: 'approved with suggestions', 0: 'no vote', '-
 /** Azure's reviewer vote in words, so it never depends on color. @param {number} vote */
 export const voteLabel = vote => votes[vote] || 'unknown vote';
 
-/** @param {{ repository?: string, project?: string } | undefined} fork */
-const forkText = fork => (fork ? `From fork ${fork.repository || 'of unknown name'}${fork.project ? ` in ${fork.project}` : ''} · ` : '');
+/** Where a PR's source branch lives when it comes from a fork. @param {{ repository?: string, project?: string } | undefined} fork */
+export const prForkSource = fork =>
+  fork ? `From fork ${fork.repository || 'of unknown name'}${fork.project ? ` in ${fork.project}` : ''}` : '';
+
+/** The vote changes that are an open PR's news, each in words. @param {NonNullable<ActivityEvent['data']>} data */
+export const prVoteChanges = data =>
+  (data.status === 'active' ? data.voteChanges || [] : []).map(change => ({
+    vote: change.vote,
+    text: `${change.name}: ${change.vote ? voteLabel(change.vote) : 'vote reset'}`,
+  }));
+
+/** Where the PR goes. @param {NonNullable<ActivityEvent['data']>} data */
+export const prTarget = data => `${data.status === 'completed' ? 'Merged into' : 'Target:'} ${branchName(data.targetRefName)}`;
 
 /** A vote change on an open PR is the news; otherwise the summary names where the PR goes. @param {NonNullable<ActivityEvent['data']>} data */
 function prSummary(data) {
-  const changes = data.status === 'active' ? data.voteChanges || [] : [];
-  if (changes.length)
-    return `${forkText(data.fork)}${changes.map(change => `${change.name}: ${change.vote ? voteLabel(change.vote) : 'vote reset'}`).join(' · ')}`;
-  return `${forkText(data.fork)}${data.status === 'completed' ? 'Merged into' : 'Target:'} ${branchName(data.targetRefName)}`;
+  const changes = prVoteChanges(data);
+  const source = prForkSource(data.fork);
+  return `${source ? `${source} · ` : ''}${changes.length ? changes.map(change => change.text).join(' · ') : prTarget(data)}`;
 }
 
 /** @param {NonNullable<ActivityEvent['data']>} data */

@@ -82,11 +82,11 @@ change that makes it pass.
 
 ## Phase 5 (optional, decide after phase 4): PR detail in the event column
 
-- [ ] Vote changes as one item per reviewer with `voteLabel` words
+- [x] Vote changes as one item per reviewer with `voteLabel` words
       ("Ana approved"), status tone as a redundant cue only.
-- [ ] "From fork X" moves from the summary prefix to the origin tier, while
+- [x] "From fork X" moves from the summary prefix to the origin tier, while
       `activitySummary` keeps returning the same string for detail and search.
-- [ ] Unit tests for both; `activitySummary` assertions in
+- [x] Unit tests for both; `activitySummary` assertions in
       `test/presentation.test.js` pass unchanged.
 
 ## Phase 5b: redacted names in the demo data
