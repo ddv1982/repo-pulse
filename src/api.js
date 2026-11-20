@@ -18,6 +18,7 @@
  * @template {string} P
  * @typedef {P extends '/api/state' ? StateResponse
  *   : P extends '/api/activity' | `/api/activity?${string}` ? ActivityResponse
+ *   : P extends `/api/activity/unseen?${string}` ? {ids: string[]}
  *   : P extends '/api/activity-filters' ? import('../server/saved-activity-filters.js').SavedActivityFilter
  *   : P extends `/api/activity-filters/${string}` ? import('../server/saved-activity-filters.js').SavedActivityFilter | OkResponse
  *   : P extends `/api/events/${string}` ? EventResponse
@@ -35,7 +36,8 @@
  *   : P extends '/api/discover' ? DiscoverResponse
  *   : P extends '/api/folders' ? FoldersResponse
  *   : P extends '/api/demo/event' ? import('../server.js').DemoEventResponse
- *   : P extends '/api/ack' | '/api/settings' ? OkResponse
+ *   : P extends '/api/ack' ? OkResponse & {changedIds: string[]}
+ *   : P extends '/api/settings' ? OkResponse
  *   : unknown} ResponseFor
  */
 /** @typedef {{ method?: 'GET'|'POST'|'PATCH'|'DELETE', body?: Record<string, unknown> }} RequestOptions */

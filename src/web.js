@@ -112,7 +112,19 @@ const historyImport = createHistoryImport(required('#history-dialog', HTMLDialog
   },
 });
 
-const seen = createSeenActions({ page, request, getEvents: () => refresh.state.events, reload: () => load({ force: true }), toast });
+const seen = createSeenActions({
+  page,
+  request,
+  toast,
+  async reload() {
+    const outcome = await load({ force: true });
+    if (outcome.type !== 'superseded' && deferredSavedFilterRender) {
+      deferredSavedFilterRender = false;
+      renderPage();
+    }
+    if (outcome.type === 'failed') throw new Error(`Could not refresh seen status. ${outcome.error.message}`);
+  },
+});
 const view = createBrowserView({
   page,
   header,
@@ -404,7 +416,7 @@ const actions = {
   detail: element => {
     // Detail buttons always carry data-id, so the fallbacks never apply.
     const row = element.closest('li[data-event-id]');
-    const matchingIds = ui.search && row instanceof HTMLElement ? eventIds(row) : undefined;
+    const matchingIds = (ui.search || ui.kind) && row instanceof HTMLElement ? eventIds(row) : undefined;
     navigation.remember(element.dataset.id ?? null, matchingIds);
     location.hash = `event/${encodeURIComponent(element.dataset.id ?? '')}`;
   },
@@ -420,6 +432,24 @@ const actions = {
     }
   },
   ...seen.actions,
+  'ack-matching': async element => {
+    const { query, scope } = element.dataset;
+    if (!query || !scope) return;
+    const { generation } = navigation.view();
+    const { ids } = await request(`/api/activity/unseen?${query}`);
+    if (navigation.view().generation !== generation) return;
+    if (!ids.length) {
+      await load({ force: true });
+      return toast('No unread updates match the current filters.');
+    }
+    confirm(
+      `Mark ${ids.length} matching update${ids.length === 1 ? '' : 's'} as seen?`,
+      'This includes matching updates on older pages. Updates that arrive after this preview will remain unread.',
+      () => seen.acknowledge(ids, true),
+      'Mark as seen',
+      { subject: scope },
+    );
+  },
   'cancel-dialog': closeDialog,
   'confirm-dialog': async () => {
     const callback = pendingConfirmation;

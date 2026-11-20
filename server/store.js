@@ -541,12 +541,12 @@ export function createStore(path = ':memory:') {
     /** @param {unknown} ids @param {boolean} [seen] */
     acknowledge(ids, seen = true) {
       if (!Array.isArray(ids) || ids.length > 5000) throw badRequest('An explicit list of up to 5000 event IDs is required.');
-      transaction(() => {
+      return transaction(() => {
         const value = Number(Boolean(seen));
         const statement = q('UPDATE events SET seen=? WHERE id=? AND imported=0 AND seen<>?');
-        let changed = false;
-        for (const id of ids) if (statement.run(value, id, value).changes) changed = true;
-        if (changed) bumpActivity();
+        const changedIds = ids.filter(id => statement.run(value, id, value).changes);
+        if (changedIds.length) bumpActivity();
+        return changedIds;
       });
     },
     /** @param {ActivityEvent[]} events */

@@ -107,6 +107,7 @@ test('raw filters apply before grouping and never acknowledge hidden group membe
   const filtered = store.queryActivity({ view: 'new', kind: 'build', search: 'Running' });
   assert.equal(filtered.total, 1);
   assert.deepEqual(filtered.items[0].eventIds, ['running']);
+  assert.deepEqual(store.queryActivity.unseenIds({ kind: 'build', search: 'Running' }), ['running']);
   assert.equal(store.getEventGroup('running').length, 2);
   store.acknowledge(filtered.items[0].unseenIds);
   assert.equal(store.getEvent('queued').seen, false);
@@ -493,6 +494,7 @@ test('New activity offers the displayed run status even when only an earlier upd
     const succeeded = store.queryActivity({ ...base, kind: 'status:succeeded' });
     assert.equal(succeeded.items[0].id, 'a-succeeded');
     assert.deepEqual(succeeded.items[0].unseenIds, ['a-running']);
+    assert.deepEqual(store.queryActivity.unseenIds({ ...base, kind: 'status:succeeded' }), ['a-running']);
     store.acknowledge(succeeded.items[0].unseenIds);
     assert.equal(store.queryActivity({ ...base, kind: 'status:succeeded' }).total, 0);
     assert.equal(store.getEvent('b-failed').seen, false);

@@ -8,7 +8,7 @@ A local Azure DevOps activity feed for testers. Watch multiple repositories for 
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/activity-dark.png">
-  <img src="docs/screenshots/activity-light.png" alt="Repo Pulse activity feed showing new branches, a push, a failed CI run, and an open pull request across three demo repositories.">
+  <img src="docs/screenshots/activity-light.png" alt="Repo Pulse Activity showing the saved-filter controls and recent branch, push, CI and pull request updates across three demo repositories.">
 </picture>
 
 [Light mode](docs/screenshots/activity-light.png) · [Dark mode](docs/screenshots/activity-dark.png)
@@ -37,11 +37,14 @@ Then start Repo Pulse and use **Settings → Check connection**. Your checkouts 
 
 ## Use Repo Pulse
 
-- **Activity.** Open **New updates** to catch up or **All activity** to browse cached history. Filter by repository, status, or search. Enter `Ali, Jose` in **Search Activity** to match either term, including names such as Alice and José. Use `people:Ali Mor, Jose` to match recorded people only, with partial name words in order. Choose **Save filter** to name the current filters, then select it in **Saved filters** and choose **Apply** to use it again. Use **Mark shown seen** to clear the displayed updates, or **Undo** to bring them back. Opening an item never marks it seen.
+- **Activity.** Open **New updates** to catch up or **All activity** to browse cached history. Enter `Ali, Jose` in **Search activity** to match either term, including names such as Alice and José. Use `people:Ali Mor, Jose` to search recorded names with partial words in order. Opening an item never marks it seen.
+- **Catch up.** Use **Mark seen** on a row or **Mark shown seen** for the loaded rows in open groups. When more matching updates are unread, **Mark all matching as seen** previews the count across all pages of the current filters and repository scope. Confirm to clear that snapshot. Later arrivals stay unread, and **Undo** restores the updates changed by your action.
+- **Saved filters.** Choose **Save filter…** to save your search, activity type, repository scope, and Activity tab. Choosing a saved filter applies it immediately. Edits show **Modified** and stay in your current view until you choose **Update**. Use **More** to save a variation, restore the saved version, or manage the filter.
+- **Switch branches.** On a **New branch** or single-branch push detail for a linked checkout, choose **Switch branch…**. Repo Pulse verifies the remote and refreshes the local tracking ref before switching. It asks for confirmation if the upstream history was rewritten or the local branch has diverged. Git carries compatible local edits and stops if switching would overwrite them. After the switch, **Repositories** shows the checkout and its update controls.
 - **Repositories.** See your checked-out branch, sync older activity, or use **Check for updates**. **Pull** asks for confirmation and fast-forwards when Git can preserve your local changes.
 - **Sync status.** The header shows whether activity is **Synced**, **Syncing**, **Delayed**, **Paused**, or has a **Problem**, and each enabled repository shows its own sync status in **Repositories**. A disabled repository shows **Disabled** and has no sync status.
 - **Settings.** Check Azure DevOps access, manage automatic checks, copy diagnostics from **Troubleshooting**, or **Start from scratch** to delete stored activity and import the last seven days again.
 
-Watches, activity, and seen state stay in `.repo-pulse/live.sqlite`. Monitoring runs while the app is open. Repo Pulse reads Azure activity and makes no Azure writes.
+Watches, saved filters, activity, and seen state stay in `.repo-pulse/live.sqlite`. Monitoring runs while the app is open. Azure activity access is read-only. Confirmed checkout actions can change files and refs in your local Git repository.
 
 See [coverage and limits](docs/COVERAGE.md), the [roadmap](PLAN.md), and the [maintainer notes](docs/MAINTAINING.md).

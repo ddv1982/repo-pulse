@@ -123,7 +123,7 @@ test('the Activity banner and partial wording follow the repositories in the Act
 
   const syncedScope = renderFeed(twoRepos({ r: problem, s: synced }), { ...feedView, repoIds: ['s'] });
   assert.deepEqual(banners(syncedScope), []);
-  assert.match(syncedScope, /<p class="big">No new updates<\/p>/);
+  assert.match(syncedScope, /<p class="big">No unread updates match these filters<\/p>/);
   assert.match(pill(renderHeader(twoRepos({ r: problem, s: synced }), { ...headerView, repoIds: ['s'] }))?.[3] ?? '', /^Problem$/);
 
   const delayedScope = banners(renderFeed(twoRepos({ r: problem, s: delayed }), { ...feedView, repoIds: ['s'] }));
@@ -181,10 +181,10 @@ test('the Activity banner is plain text, not a second live region for sync chang
 
 test('with filters active and nothing found, the summary uses the same filter wording as the feed', () => {
   const status = states[2][0];
-  for (const filters of [{ search: 'hotfix' }, { kind: 'build' }, { repoIds: [] }]) {
+  for (const filters of [{ search: 'hotfix' }, { kind: 'build' }, { repoIds: [] }, { repoIds: ['r'] }]) {
     const markup = renderFeed(page({ ...status, repoId: 'r' }, { r: status }), { ...feedView, ...filters });
-    assert.equal(markup.match(/<b class="zero">([^<]*)<\/b>/)?.[1], 'No activity matches these filters', JSON.stringify(filters));
-    assert.match(markup, /<p class="big">No activity matches these filters<\/p>/);
+    assert.equal(markup.match(/<b class="zero">([^<]*)<\/b>/)?.[1], 'No unread updates match these filters', JSON.stringify(filters));
+    assert.match(markup, /<p class="big">No unread updates match these filters<\/p>/);
   }
 });
 

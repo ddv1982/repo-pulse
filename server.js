@@ -247,6 +247,19 @@ export function createApp({
       .filter(repo => !repo.disabled)
       .map(repo => repo.id);
   const savedFilters = createSavedActivityFilters(store);
+  /** @param {URLSearchParams} query */
+  function activityScope(query) {
+    const repoIdList = query.get('repoIds');
+    const requested = repoIdList !== null ? repoIdList.split(',').filter(Boolean) : undefined;
+    requested?.forEach(repoById);
+    const enabled = enabledRepoIds();
+    return {
+      repoIds: (requested || enabled).filter(id => enabled.includes(id)),
+      kind: query.get('kind') || '',
+      search: query.get('search') || '',
+      people: query.get('people') || '',
+    };
+  }
   // First match wins, in table order. Route params arrive undecoded so each handler keeps its own check order.
   /** @type {Route[]} */
   const routes = [
@@ -308,24 +321,21 @@ export function createApp({
         }
         const view = query.get('view') || 'all';
         if (view !== 'new' && view !== 'all') throw problem('Invalid activity view.');
-        const repoIdList = query.get('repoIds');
-        const requested = repoIdList !== null ? repoIdList.split(',').filter(Boolean) : undefined;
-        requested?.forEach(repoById);
-        const enabled = enabledRepoIds();
-        const repoIds = (requested || enabled).filter(id => enabled.includes(id));
         const limit = Number(query.get('limit') || 50);
         if (!Number.isInteger(limit) || limit < 1 || limit > 200) throw problem('Choose a page size from 1 to 200.');
         const result = store.queryActivity({
-          repoIds,
+          ...activityScope(query),
           view,
-          kind: query.get('kind') || '',
-          search: query.get('search') || '',
-          people: query.get('people') || '',
           limit,
           cursor,
         });
         return json(res, 200, /** @satisfies {ActivityResponse} */ (result));
       },
+    },
+    {
+      method: 'GET',
+      path: '/api/activity/unseen',
+      handler: ({ res, url }) => json(res, 200, { ids: store.queryActivity.unseenIds(activityScope(url.searchParams)) }),
     },
     {
       method: 'POST',
@@ -560,8 +570,8 @@ export function createApp({
         const { ids, seen } = input;
         if (!Array.isArray(ids) || ids.length > 1000 || !isStringList(ids)) throw problem('Send up to 1000 explicit event IDs.');
         if (seen !== undefined && typeof seen !== 'boolean') throw problem('seen must be true or false.');
-        store.acknowledge(ids, seen !== false);
-        return json(res, 200, /** @satisfies {OkResponse} */ ({ ok: true }));
+        const changedIds = store.acknowledge(ids, seen !== false);
+        return json(res, 200, { ok: true, changedIds });
       },
     },
     {
