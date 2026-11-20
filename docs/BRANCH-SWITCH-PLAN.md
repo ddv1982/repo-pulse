@@ -67,15 +67,15 @@ Each phase starts with a test seen failing and ends with `npm test`, `npm run ch
 
 ### Phase 2: switch by branch name on the server
 
-- [ ] Tests for `operation: 'switch-branch'`:
+- [x] Tests for `operation: 'switch-branch'`:
   - 400 for a name with no active stored ref, and for an inactive ref;
   - 403 in demo mode;
   - success with the right name;
   - a review token from `switch-activity` is refused.
 
   Then implement it in `server.js` reusing `switchAt`, and bind the operation into the token.
-- [ ] Branch list endpoint `GET /api/repos/:id/checkout/branches`. It returns the stored active refs, pinned
-      `main`/`master` first, then newest first, each marked current/local/remote. Check: tests for order, marks, an
+- [x] Branch list endpoint `GET /api/repos/:id/checkout/branches`. It returns the stored active refs, pinned
+      `main`/`master` first, then newest first, each marked local or not. The picker marks the current branch from the checkout status it already holds. Check: tests for order, marks, an
       inactive ref left out, and the demo and unlinked refusals.
 
 ### Phase 3: Repositories picker

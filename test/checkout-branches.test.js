@@ -237,6 +237,11 @@ test('Activity refuses stale confirmation and keeps the local tip when refreshin
     checkoutGit.switchToActivityBranch(repo, 'topic', expected, { eventId: 'other-event', confirmation: switchReview.token }),
     /changed since confirmation/,
   );
+  await assert.rejects(
+    checkoutGit.switchToActivityBranch(repo, 'topic', expected, { confirmation: switchReview.token }),
+    /changed since confirmation/,
+    'a review from Activity cannot confirm a switch chosen in Repositories',
+  );
   const { checkout } = await checkoutGit.switchToActivityBranch(repo, 'topic', expected, {
     eventId: 'topic-event',
     confirmation: switchReview.token,
@@ -797,4 +802,12 @@ test('carry conflicts remain in a separate worktree for native Git continue or a
   assert.match(readFileSync(join(workspace, 'second.txt'), 'utf8'), /<<<<<<< HEAD/);
   git(workspace, 'cherry-pick', '--abort');
   assert.equal(git(workspace, 'rev-parse', 'HEAD'), tip);
+});
+
+test('local branches lists the checkout heads without switching', async t => {
+  const { local, repo, checkoutGit } = checkoutFixture(t);
+  git(local, 'branch', 'feature/local');
+  assert.deepEqual((await checkoutGit.localBranches(repo)).sort(), ['feature/local', 'main']);
+  assert.equal(git(local, 'branch', '--show-current'), 'main');
+  await assert.rejects(checkoutGit.localBranches({ ...repo, localPath: undefined }), /No local checkout linked/);
 });

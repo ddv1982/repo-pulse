@@ -225,6 +225,57 @@ test('Activity checkout mutations resolve the target from an event in the reques
   ]);
 });
 
+test('Repositories switches only to a branch the repository still lists', async t => {
+  const calls = [];
+  const checkoutGit = {
+    status: async () => ({ state: 'clean' }),
+    localBranches: async () => ['main', 'feature/local'],
+    switchToActivityBranch: async (repo, branch, expected, options) => {
+      calls.push({ repo: repo.id, branch, options });
+      return { checkout: { branch } };
+    },
+  };
+  const { store, mutate, url } = await fixture(t, { demo: false, checkoutGit });
+  const ref = (name, data = {}) => ({ type: 'ref', id: name, data: { name, objectId: 'a'.repeat(40), active: true, ...data } });
+  store.commitPage({
+    repoId: 'demo-billing',
+    entities: [
+      ref('refs/heads/feature/old', { lastPushId: 3 }),
+      ref('refs/heads/feature/new', { lastPushId: 9 }),
+      ref('refs/heads/feature/local'),
+      ref('refs/heads/main', { lastPushId: 1 }),
+      ref('refs/heads/gone', { active: false, lastPushId: 20 }),
+      ref('refs/tags/v1'),
+    ],
+  });
+  const expected = { branch: 'feature/new', head: 'a'.repeat(40), upstream: null, identity: 'fixture', switchIdentity: 'git-directory' };
+  const endpoint = '/api/repos/demo-billing/checkout';
+  const input = { operation: 'switch-branch', branch: 'main', expected };
+  assert.equal((await mutate(endpoint, { ...input, branch: 'gone' })).status, 400);
+  assert.equal((await mutate(endpoint, { ...input, branch: 'unknown' })).status, 400);
+  assert.equal((await mutate(endpoint, { ...input, branch: 'v1' })).status, 400);
+  assert.equal((await mutate(endpoint, { ...input, branch: 7 })).status, 400);
+  assert.equal((await mutate(endpoint, { ...input, confirmation: 'token' })).status, 200);
+  assert.deepEqual(calls, [{ repo: 'demo-billing', branch: 'main', options: { confirmation: 'token' } }]);
+
+  const listed = await (await fetch(`${url}/api/repos/demo-billing/checkout/branches`)).json();
+  assert.deepEqual(listed, {
+    branches: [
+      { name: 'main', local: true },
+      { name: 'feature/new', local: false },
+      { name: 'feature/old', local: false },
+      { name: 'feature/local', local: true },
+    ],
+  });
+});
+
+test('demo mode lists and switches no checkout branches', async t => {
+  const { mutate, url } = await fixture(t);
+  assert.equal((await fetch(`${url}/api/repos/demo-billing/checkout/branches`)).status, 403);
+  const expected = { branch: 'a', head: 'a'.repeat(40), upstream: null, identity: 'i', switchIdentity: 's' };
+  assert.equal((await mutate('/api/repos/demo-billing/checkout', { operation: 'switch-branch', branch: 'main', expected })).status, 403);
+});
+
 test('checkout status skips disabled repositories', async t => {
   const checked = [];
   const checkoutGit = {

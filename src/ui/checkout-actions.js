@@ -37,7 +37,7 @@ export function createCheckoutActions({ checkoutPanel, getActivityCheckout, conf
     }
   }
 
-  /** @param {HTMLElement} element @param {Exclude<CheckoutOperation, 'check' | 'pull' | 'switch-activity'>} operation */
+  /** @param {HTMLElement} element @param {Exclude<CheckoutOperation, 'check' | 'pull' | 'switch-activity' | 'switch-branch'>} operation */
   function branchAction(element, operation) {
     const id = element.dataset.id ?? '';
     const checkout = checkoutPanel.snapshots[id];
