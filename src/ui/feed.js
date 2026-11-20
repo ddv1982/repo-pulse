@@ -48,7 +48,7 @@ export function filterControls(ui, state) {
       <div class="toolbar"><input id="feed-search" class="search" type="search" aria-label="Search activity" aria-describedby="feed-search-help" placeholder="Search branch, commit, person or repository…" value="${ui.search}">
         ${renderTypeFilter(ui.kind, state.activity.filterOptions, state.activity.loading)}
         ${active ? html`<button class="btn" id="clear-filters" type="button" data-action="clear-filters">Clear search and type</button>` : emptyHtml}
-      </div><p class="help" id="feed-search-help">Enter a partial name or other search term. Separate terms with commas to match any. Use <code>people:Ali, Jo</code> to search recorded names only.</p>
+      </div><p class="help" id="feed-search-help">Commas match any term · <code>people:Ali, Jo</code> searches names only</p>
     </div>
   </div>`;
 }
@@ -64,12 +64,11 @@ function row(record, state, tree) {
   const title = activityTitle(record);
   const actor = activityActor(record);
   const origin = forkText(tree?.fork ?? null);
-  return html`<li class="row ${failed ? 'crit' : record.unseen ? 'new' : ''} tone-${tone}" data-event-id="${record.id}" data-event-ids="${ids}" data-group-key="${record.groupKey}" data-unseen-ids="${unreadIds}">${tree ? renderTreeCell(tree, tone) : emptyHtml}
+  return html`<li class="${['row', failed ? 'crit' : '', record.unseen ? 'new' : '', `tone-${tone}`].filter(Boolean).join(' ')}" data-event-id="${record.id}" data-event-ids="${ids}" data-group-key="${record.groupKey}" data-unseen-ids="${unreadIds}">${tree ? renderTreeCell(tree, tone) : emptyHtml}
     <span class="kind ${tone}">${record.kind === 'branch-created' ? icons.branch : html`<span class="d"></span>`}${activityLabel(record)}</span>
-    <div class="subject"><button class="feed-title" type="button" data-action="detail" data-id="${record.id}"><span class="title">${title}</span><span class="subref">${repo?.name || 'Unknown repository'}${record.branch ? ` / ${activityRef(record)}` : ''}</span></button></div>
+    <div class="subject"><button class="feed-title" type="button" data-action="detail" data-id="${record.id}"><span class="title">${title}${record.unseenIds.length > 1 ? html` <span class="pill u new-count">${record.unseenIds.length} new</span>` : emptyHtml}</span><span class="subref">${repo?.name || 'Unknown repository'}${record.branch ? ` / ${activityRef(record)}` : ''}</span></button></div>
     <div class="event">${activitySummary(record)}${mergeEvidenceBadge(record)}<div class="help">${actor ? `${record.kind === 'pr' ? 'Created by ' : record.kind === 'push' ? 'Pushed by ' : ''}${actor} · ` : ''}<time datetime="${record.time}">${dateTime(record.time)}</time>${origin ? ` · ${origin}` : ''}</div>${renderTrail(record)}</div>
-    <div class="counts">${record.unseen ? html`<b>${record.unseenIds.length > 1 ? `${record.unseenIds.length} new` : 'New'}</b>` : record.imported ? 'History' : 'Seen'}</div>
-    <div class="rowact">${azureLink(record.url)}${record.imported ? emptyHtml : html`<button class="ghost sm" type="button" data-action="ack-item" data-id="${record.id}" data-mark-seen="${record.unseen}" data-event-ids="${ackIds}" aria-label="Mark ${title} ${record.unseen ? 'seen' : 'unseen'}">${record.unseen ? 'Mark seen' : 'Mark unseen'}</button>`}</div></li>`;
+    <div class="rowact">${azureLink(record.url)}${record.imported ? emptyHtml : html`<button class="ghost sm seen-toggle" type="button" id="seen-${record.id}" data-action="ack-item" data-id="${record.id}" data-mark-seen="${record.unseen}" data-event-ids="${ackIds}" aria-pressed="${!record.unseen}" aria-label="Seen: ${title}">${icons.seenBox}Seen</button>`}</div></li>`;
 }
 
 /** @param {string} title @param {ActivityItem[]} records @param {PageState} state @param {{ open?: boolean, description?: string, tree?: import('../activity-tree.js').ActivityTree }} [options] */

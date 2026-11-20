@@ -533,7 +533,7 @@ test('an open Activity view picks up a seen action in another tab and later merg
   await other.goto(runtime.url + '/#activity/new');
   await other
     .locator('li[data-event-id="revision-test"]')
-    .getByRole('button', { name: 'Mark Azure DevOps service pushed to main seen' })
+    .getByRole('button', { name: 'Seen: Azure DevOps service pushed to main' })
     .click();
   await expect(other.locator('li[data-event-id="revision-test"]')).toHaveCount(0);
   await other.close();

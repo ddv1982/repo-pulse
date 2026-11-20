@@ -19,6 +19,18 @@ export function replacementFocus(id) {
   return null;
 }
 
+/**
+ * A row's Seen toggle can leave with its row (New updates). Its neighbours, nearest first and following rows before
+ * earlier ones, take focus in that case.
+ * @param {HTMLElement} element
+ */
+function seenToggleNeighbours(element) {
+  if (!element.matches('.seen-toggle')) return [];
+  const toggles = [...(element.closest('ul.rows')?.querySelectorAll('.seen-toggle') ?? [])];
+  const index = toggles.indexOf(element);
+  return [...toggles.slice(index + 1), ...toggles.slice(0, index).reverse()].map(toggle => toggle.id);
+}
+
 /** @param {Element} element */
 function focusedControlId(element) {
   return element.id || element.closest('.saved-filter-menu, .saved-filter-actions')?.querySelector('[aria-expanded]')?.id || '';
@@ -58,6 +70,7 @@ export function createBrowserView({ page, header, demo, syncLive, picker, toolba
     const groups = restored?.groups || captureGroups();
     const focused = document.activeElement;
     const focusId = focused && page.contains(focused) ? focusedControlId(focused) : '';
+    const neighbours = focused instanceof HTMLElement && page.contains(focused) ? seenToggleNeighbours(focused) : [];
     /** @type {[number | null, number | null] | null} */
     const selection =
       focused instanceof HTMLInputElement && focused.type === 'search' ? [focused.selectionStart, focused.selectionEnd] : null;
@@ -93,7 +106,10 @@ export function createBrowserView({ page, header, demo, syncLive, picker, toolba
         ?.toggleAttribute('open', open);
     }
     if (focusId) {
-      const replacement = replacementFocus(focusId);
+      const replacement =
+        replacementFocus(focusId) ??
+        neighbours.map(id => document.getElementById(id)).find(element => element instanceof HTMLElement) ??
+        null;
       replacement?.focus({ preventScroll: true });
       if (selection && replacement instanceof HTMLInputElement) replacement.setSelectionRange(...selection);
     }

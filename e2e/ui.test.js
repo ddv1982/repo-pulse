@@ -69,6 +69,32 @@ async function setup(t, demo = true) {
   };
 }
 
+test('the row Seen toggle keeps keyboard focus and shows state without a status column', async t => {
+  const { page } = await setup(t);
+  await page.goto(`${page.url().split('#')[0]}#activity/new`);
+  const rows = page.locator('li[data-event-id]');
+  const [first, second] = await rows.evaluateAll(elements => elements.slice(0, 2).map(element => element.getAttribute('data-event-id')));
+  await expect(page.locator('.counts')).toHaveCount(0);
+  const toggle = page.locator(`li[data-event-id="${first}"] .seen-toggle`);
+  await expect(toggle).toHaveText('Seen');
+  await expect(toggle).toHaveAttribute('aria-pressed', 'false');
+  await expect(page.locator(`li[data-event-id="${first}"]`)).toHaveClass(/\bnew\b/);
+  await toggle.focus();
+  await page.keyboard.press('Enter');
+  await expect(page.locator(`li[data-event-id="${first}"]`)).toHaveCount(0);
+  // The row left New updates, so focus moves to the next row's toggle rather than the page body.
+  await expect(page.locator(`li[data-event-id="${second}"] .seen-toggle`)).toBeFocused();
+
+  await page.goto(`${page.url().split('#')[0]}#activity/all`);
+  const seen = page.locator(`li[data-event-id="${first}"] .seen-toggle`);
+  await expect(seen).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator(`li[data-event-id="${first}"]`)).not.toHaveClass(/\bnew\b/);
+  await seen.focus();
+  await page.keyboard.press('Enter');
+  await expect(seen).toHaveAttribute('aria-pressed', 'false');
+  await expect(seen).toBeFocused();
+});
+
 test('approved light/dark/System UI and responsive routes work without remote traffic', async t => {
   const { page } = await setup(t);
   await expect(page.getByText('Demo mode · fictional repositories and people')).toBeVisible();
@@ -728,7 +754,7 @@ test('build transitions group into one item and exact acknowledgement leaves a l
   await expect(page.locator('[data-summary-kind="CI runs"]')).toContainText('1 running');
   await expect(page.locator('.cell .val.zero')).toHaveCount(3);
   await expect(page.locator('li.row .kind')).toHaveText('Running');
-  await expect(page.locator('li.row .feed-title .title')).toHaveText('Orders CI · 20261117.6');
+  await expect(page.locator('li.row .feed-title .title')).toHaveText('Orders CI · 20261117.6 2 new');
   await page.locator('.trail > summary').click();
   await expect(page.locator('.trail li')).toHaveCount(2);
   await page.route(
@@ -1063,6 +1089,7 @@ test('semantic status colors match rows, imported history, details and trails in
           id: row.dataset.eventId,
           tone,
           hasWash: getComputedStyle(row).backgroundImage !== 'none',
+          washed: row.classList.contains('new') || row.classList.contains('crit'),
           ratio: (Math.max(first, second) + 0.05) / (Math.min(first, second) + 0.05),
           matchesToken: JSON.stringify(foreground) === JSON.stringify(rgba(tokens.getPropertyValue(names[tone]))),
         };
@@ -1070,7 +1097,8 @@ test('semantic status colors match rows, imported history, details and trails in
     });
     for (const result of contrast) {
       assert.equal(result.matchesToken, true, `${theme} ${result.id} token`);
-      assert.equal(result.hasWash, result.tone !== 'neutral');
+      // The wash marks unread rows and failed runs; seen rows stay plain.
+      assert.equal(result.hasWash, result.washed && result.tone !== 'neutral', `${theme} ${result.id} wash`);
       assert.ok(result.ratio >= 4.5, `${theme} ${result.id} contrast ${result.ratio}`);
     }
     const trail = page.locator('[data-event-id="canceled-transition"] .trail');
