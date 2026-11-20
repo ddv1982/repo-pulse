@@ -16,6 +16,7 @@ import { seedDemo, addDemoEvent, demoProvider } from './server/demo.js';
 import { syncStatus } from './server/sync-status.js';
 import { createBackfill } from './server/backfill.js';
 import { createRewriteCheck } from './server/rewrite-check.js';
+import { createForkOriginCheck } from './server/fork-origin.js';
 import { createCheckoutLookup } from './server/checkout-advice.js';
 import { isBranchAction } from './server/checkout-branches.js';
 import { createCheckoutGit, isCheckoutIntent, isSwitchIntent } from './server/checkout-git.js';
@@ -706,6 +707,7 @@ export async function startApp({ demo = false, port = 0, dataDir = resolve(ROOT,
   /** @type {ReturnType<typeof createBackfill> | undefined} */
   let backfill;
   const rewriteCheck = azure && createRewriteCheck({ store, provider: azure });
+  const forkCheck = azure && createForkOriginCheck({ store, provider: azure });
   const liveSync =
     azure &&
     createSync({
@@ -713,7 +715,8 @@ export async function startApp({ demo = false, port = 0, dataDir = resolve(ROOT,
       provider: azure,
       isForeground: () => Date.now() - lastClientAt < 45_000,
       // Assigned below, before sync.start() can schedule any work.
-      background: { rewrite: () => rewriteCheck?.tick(), history: () => backfill?.tick() },
+      // Fork origin checks share the automatic-check turn and run when no rewrite check is due.
+      background: { rewrite: async () => (await rewriteCheck?.tick()) || forkCheck?.tick(), history: () => backfill?.tick() },
     });
   const sync = (liveSync && {
     ...liveSync,
@@ -722,6 +725,7 @@ export async function startApp({ demo = false, port = 0, dataDir = resolve(ROOT,
       liveSync.reset(() => {
         clear();
         rewriteCheck?.reset();
+        forkCheck?.reset();
       }),
   }) || {
     start() {},

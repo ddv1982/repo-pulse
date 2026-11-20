@@ -38,6 +38,8 @@ time". No phase may word a fork as "branched from P".
 - No default branch is stored for a repository. The candidate set is this branch's stored PR targets, oldest first,
   then the repository's most common stored PR target, at most three.
 - A checked result replaces the PR assumption: when the job found `F`, the PR target is never drawn as a fork.
+- The check shares the existing automatic-check background turn and runs when no rewrite check is due, instead of
+  adding a third background kind to `server/sync.js`.
 
 ## Evidence levels and wording
 
@@ -68,8 +70,8 @@ written first and seen to fail.
 
 ### Phase 1: base commit from the creation push
 
-- [ ] Add `commit(repo, id)` to the Azure client (parents and `push.pushId`). Check: client test.
-- [ ] Add a `fork` job modelled on `rewrite-check.js`, queued only for live (not imported) `branch-created` push
+- [x] Add `commit(repo, id)` to the Azure client (parents and `push.pushId`). Check: client test.
+- [x] Add a `fork` job modelled on `rewrite-check.js`, queued only for live (not imported) `branch-created` push
       events. One read per tick walks from the tip while the commit belongs to the creation push; the first commit
       outside it is `F`. No parent means orphan, several mean merge, more than 8 reads means unknown. Check: tests
       for queueing, skip of imported rows, created at an existing commit, linear walk, merge, orphan, cap,
@@ -77,9 +79,9 @@ written first and seen to fail.
 
 ### Phase 2: match the base against recorded tips (zero Azure calls)
 
-- [ ] Store query for the latest recorded tip of each branch before push N, and the fork candidates of a branch.
+- [x] Store query for the latest recorded tip of each branch before push N, and the fork candidates of a branch.
       Check: store tests for a tip that moved before creation (no claim), a deleted branch, and candidate order.
-- [ ] The job matches `F` against those tips and saves the claim on the event. Check: job tests for a unique match
+- [x] The job matches `F` against those tips and saves the claim on the event. Check: job tests for a unique match
       and two branches sharing the tip (ambiguous).
 - [ ] `forkOrigin` in the tree prefers the stored claim over page-only sightings and the PR target. Check:
       `test/activity-tree.test.js` cases for an off-page parent, a stacked branch drawn to feature-a, an ambiguous
@@ -87,11 +89,12 @@ written first and seen to fail.
 
 ### Phase 3: verify or refute candidates by ancestry
 
-- [ ] When phase 2 finds no tip match, test `F` with `droppedCommits(F, tip)` against at most three candidates:
+- [x] When phase 2 finds no tip match, test `F` with `droppedCommits(F, tip)` against at most three candidates:
       PR target, original PR target if retargeted in stored history, default branch. Use their recorded tips
       before creation. Exactly one container gives `contained`; a PR target that does not contain `F` is
       `refuted`. Check: tests for cut from main with PR into release/x (refuted), cut from an older commit of main
-      (contained), and a call-count test proving at most four Azure calls per creation.
+      (contained), and a test proving the walk stops after 8 reads. A creation costs at most 8 commit reads and 3 ancestry reads,
+      usually 1 to 3 in total.
 
 ### Phase 4: wording, legend and docs
 

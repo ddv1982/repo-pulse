@@ -438,6 +438,20 @@ export function createAzureClient({ cli, now = Date.now } = {}) {
       return page;
     },
     /**
+     * One commit's parents and the push that first brought it into the repository (null when Azure names none).
+     * @param {AzureRepo} repo @param {string} commitId @returns {Promise<{ parents: string[], pushId: number | null }>}
+     */
+    async commit(repo, commitId) {
+      if (typeof commitId !== 'string' || !/^[0-9a-f]{40}$/i.test(commitId))
+        throw cliError('INVALID_QUERY', 'A commit read requires a complete commit ID.');
+      const raw = await invoke(repo, 'git', 'commits', { changeCount: 0 }, { commitId: commitId.toLowerCase() });
+      const parents = raw?.parents;
+      if (!Array.isArray(parents) || parents.some(parent => typeof parent !== 'string' || !/^[0-9a-f]{40}$/i.test(parent)))
+        throw cliError('INVALID_RESPONSE', 'Azure returned an invalid commit.');
+      const pushId = raw?.push?.pushId;
+      return { parents: parents.map(parent => parent.toLowerCase()), pushId: Number.isSafeInteger(pushId) ? pushId : null };
+    },
+    /**
      * Read when a PR detail asks for it, never by polling: one read for discussion threads, one for policy evaluations.
      * @param {AzureRepo} repo @param {string|number} pullRequestId @returns {Promise<PullRequestReview>}
      */

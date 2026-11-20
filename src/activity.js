@@ -26,11 +26,21 @@
  *   introducedCommitIds?: string[], rewrite?: RewriteResult[] }} MergeEvidenceData
  */
 /**
+ * Where a live branch creation started, checked by server/fork-origin.js. `base` is the first commit of the branch that
+ * the creating push did not bring. `found`: `on` lists the branches whose latest recorded tip before that push was the
+ * base (`via: 'tip'`), or, failing that, the checked candidates whose tip then contained it (`via: 'contained'`).
+ * `none`: the base is known but no recorded tip or checked candidate held it; `notOn` lists the candidates checked.
+ * `orphan`: the branch history has no earlier commit. `merge`: its first pushed commit has several parents.
+ * `unknown`: the check failed or the creating push brought too many commits to walk.
+ * @typedef {{ status: 'found' | 'none' | 'orphan' | 'merge' | 'unknown', base?: string, on?: string[],
+ *   via?: 'tip' | 'contained', notOn?: string[] }} ForkOrigin
+ */
+/**
  * Provider fields of an event, plus enrichment. Each kind fills its own subset (see server/normalize.js).
  * @typedef {RefUpdate & { id?: number|string, buildId?: number|string, pushId?: number|string,
  *   status?: string, result?: string, reason?: string, isDraft?: boolean, evidence?: string,
  *   targetRefName?: string, refUpdates?: RefUpdate[], commits?: unknown[],
- *   definition?: {name?: string}, mergeEvidence?: MergeEvidenceData,
+ *   definition?: {name?: string}, mergeEvidence?: MergeEvidenceData, forkOrigin?: ForkOrigin,
  *   pullRequestId?: number|string, sourceRefName?: string, sourceCommit?: string, targetCommit?: string,
  *   mergeCommit?: string, mergeStrategy?: string, closedBy?: string, sourceVersion?: string, sourceBranch?: string,
  *   commitId?: string, push?: { pushId?: number|string },
