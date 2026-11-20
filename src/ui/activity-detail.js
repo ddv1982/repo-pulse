@@ -106,11 +106,11 @@ function detailFields(record, repo, data, sha, pushId) {
  * @param {ActivityEvent[]} matching @param {HtmlValue} branchAction
  */
 function detailHead(record, repo, title, matching, branchAction) {
-  const ids = JSON.stringify(matching.map(event => event.id));
-  const unseen = matching.some(isUnseen);
-  const ack = matching.every(event => event.imported)
+  const unseen = matching.filter(isUnseen);
+  const ids = (unseen.length ? unseen : matching.filter(event => !event.imported)).map(event => event.id);
+  const ack = !ids.length
     ? emptyHtml
-    : html`<button class="btn" data-action="ack-item" data-id="${record.id}" data-event-ids="${ids}">Mark ${unseen ? 'seen' : 'unseen'}</button>`;
+    : html`<button class="btn" data-action="ack-item" data-mark-seen="${Boolean(unseen.length)}" data-id="${record.id}" data-event-ids="${JSON.stringify(ids)}">Mark ${unseen.length ? 'seen' : 'unseen'}</button>`;
   return html`<div class="dhead"><div><h1>${title}</h1><div class="meta">${record.kind.startsWith('branch-') ? 'Branch' : labels[record.kind]} · ${repo?.name} · ${branchName(record.branch)}</div></div><div class="actions">${branchAction}${azureLink(record.url, 'Open in Azure DevOps', 'btn')}${ack}</div></div>`;
 }
 

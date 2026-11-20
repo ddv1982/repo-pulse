@@ -103,6 +103,204 @@ test('new updates, paged history, filters and deep links reach events beyond the
   assert.equal(runtime.store.getEvent('old-unseen').seen, false);
 });
 
+test('mark all matching clears the confirmed unread snapshot across pages and undo restores only its changes', async t => {
+  const { runtime, page } = await demo(t);
+  const make = (id, repoId = 'demo-orders', title = 'Snapshot test push') => ({
+    id,
+    repoId,
+    kind: 'push',
+    title,
+    time: new Date().toISOString(),
+  });
+  const matching = Array.from({ length: 60 }, (_, i) => make(`snapshot-${i}`));
+  runtime.store.insertEvents([...matching, make('other-repo', 'demo-billing'), make('other-search', 'demo-orders', 'Different push')]);
+  await page.goto(runtime.url + '/#activity/new');
+  await page.locator('#repo-toggle').click();
+  await page.locator('[data-scope-repo="demo-billing"]').uncheck();
+  await page.locator('[data-scope-repo="demo-shared"]').uncheck();
+  await page.keyboard.press('Escape');
+  await page.getByRole('searchbox', { name: 'Search activity' }).fill('Snapshot test');
+  await expect(page.getByText('10 matching unread updates are outside the shown rows.')).toBeVisible();
+  await page.getByRole('button', { name: 'Mark all matching as seen' }).click();
+  const confirm = page.getByRole('dialog', { name: 'Mark 60 matching updates as seen?' });
+  await expect(confirm).toContainText('1 repository shown');
+  await expect(confirm).toContainText('Search “Snapshot test”');
+  runtime.store.insertEvents([make('later-matching')]);
+  runtime.store.acknowledge(['snapshot-0']);
+  await confirm.getByRole('button', { name: 'Mark as seen', exact: true }).click();
+  await expect(page.locator('li.row')).toHaveCount(1);
+  await expect(page.locator('li[data-event-id="later-matching"]')).toBeVisible();
+  await expect(page.getByText('59 updates marked seen.')).toBeVisible();
+  for (const event of matching) assert.equal(runtime.store.getEvent(event.id).seen, true);
+  for (const id of ['other-repo', 'other-search', 'later-matching']) assert.equal(runtime.store.getEvent(id).seen, false);
+  await page.getByRole('button', { name: 'Undo', exact: true }).click();
+  await expect(page.getByText('59 updates marked unseen.')).toBeVisible();
+  assert.equal(runtime.store.getEvent('snapshot-0').seen, true);
+  assert.equal(runtime.store.getEvent('snapshot-59').seen, false);
+});
+
+test('mark all matching uses the rendered repository scope when another repository is enabled', async t => {
+  const { runtime, page } = await demo(t);
+  const shared = runtime.store.listRepos().find(repo => repo.id === 'demo-shared');
+  runtime.store.saveRepo({ ...shared, disabled: true });
+  await page.goto(runtime.url + '/#activity/new');
+  await expect(page.getByRole('button', { name: 'All 2 repositories' })).toBeVisible();
+  await page.locator('details[data-group="New updates"] > summary').click();
+  const ids = runtime.store.queryActivity.unseenIds({ repoIds: ['demo-orders', 'demo-billing'] });
+  runtime.store.saveRepo({ ...shared, disabled: false });
+  const sharedIds = runtime.store.queryActivity.unseenIds({ repoIds: ['demo-shared'] });
+  assert.ok(sharedIds.length > 0);
+  await page.getByRole('button', { name: 'Mark all matching as seen' }).click();
+  const confirm = page.getByRole('dialog', { name: `Mark ${ids.length} matching updates as seen?` });
+  await expect(confirm).toContainText('All 2 repositories');
+  await confirm.getByRole('button', { name: 'Mark as seen', exact: true }).click();
+  await expect(page.getByText(`${ids.length} updates marked seen.`)).toBeVisible();
+  assert.ok(ids.every(id => runtime.store.getEvent(id).seen));
+  assert.ok(sharedIds.every(id => !runtime.store.getEvent(id).seen));
+});
+
+test('detail opened from a type filter only acknowledges the matching member', async t => {
+  const { runtime, page } = await demo(t);
+  const ref = { name: 'refs/heads/topic', oldObjectId: 'a'.repeat(40), newObjectId: '0'.repeat(40) };
+  const base = { repoId: 'demo-orders', branch: 'topic', time: new Date().toISOString() };
+  runtime.store.insertEvents([
+    { ...base, id: 'paired-push', kind: 'push', title: 'Cleanup push', data: { pushId: 10001, refUpdates: [ref], commits: [] } },
+    { ...base, id: 'paired-deletion', kind: 'branch-deleted', title: 'Branch deleted', data: { pushId: 10001, ...ref } },
+  ]);
+  assert.equal(runtime.store.getEventGroup('paired-push').length, 2);
+  await page.goto(runtime.url + '/#activity/new');
+  await page.getByRole('button', { name: /^Activity type:/ }).click();
+  await page.getByRole('option', { name: 'Push', exact: true }).click();
+  await page.getByRole('button', { name: /^Cleanup push/ }).click();
+  const mark = page.getByRole('button', { name: 'Mark seen', exact: true });
+  await expect(mark).toHaveAttribute('data-event-ids', JSON.stringify(['paired-push']));
+  await mark.click();
+  await expect(page.getByText('1 update marked seen.')).toBeVisible();
+  assert.equal(runtime.store.getEvent('paired-push').seen, true);
+  assert.equal(runtime.store.getEvent('paired-deletion').seen, false);
+});
+
+test('undo tracks the successful seen write even if the following refresh fails', async t => {
+  const { runtime, page } = await demo(t);
+  const base = { repoId: 'demo-orders', kind: 'push', time: new Date().toISOString() };
+  runtime.store.insertEvents([
+    { ...base, id: 'seen-earlier', title: 'Earlier push' },
+    { ...base, id: 'seen-later', title: 'Later push' },
+  ]);
+  await page.goto(runtime.url + '/#activity/new');
+  const rowAction = id => page.locator(`li[data-event-id="${id}"] [data-action="ack-item"]`);
+  await rowAction('seen-earlier').click();
+  await expect(page.locator('#toast')).toContainText('1 update marked seen.');
+  await page.route('**/api/state', route => route.fulfill({ status: 500, json: { message: 'Synthetic refresh failure' } }));
+  await rowAction('seen-later').click();
+  await expect(page.getByText(/Could not refresh seen status/)).toBeVisible();
+  const undo = page.getByRole('button', { name: 'Undo', exact: true });
+  await expect(undo).toBeVisible();
+  await page.unroute('**/api/state');
+  await undo.click();
+  await expect(page.locator('#toast')).toContainText('1 update marked unseen.');
+  assert.equal(runtime.store.getEvent('seen-earlier').seen, true);
+  assert.equal(runtime.store.getEvent('seen-later').seen, false);
+});
+
+for (const undo of [false, true]) {
+  test(`a partial ${undo ? 'undo remains retryable' : 'seen write reports both write and refresh errors'}`, async t => {
+    const { runtime, page } = await demo(t);
+    runtime.store.acknowledge(runtime.store.listEvents().map(event => event.id));
+    const events = Array.from({ length: 251 }, (_, index) => ({
+      id: `partial-${index}`,
+      repoId: 'demo-orders',
+      kind: 'build',
+      title: 'Batch test build',
+      time: new Date(Date.now() + index).toISOString(),
+      data: { buildId: 87651, status: 'inProgress' },
+    }));
+    runtime.store.insertEvents(events);
+    await page.goto(runtime.url + '/#activity/new');
+    const mark = page.getByRole('button', { name: 'Mark shown seen (251)', exact: true });
+    const undoButton = page.getByRole('button', { name: 'Undo', exact: true });
+    if (undo) {
+      await mark.click();
+      await expect(page.getByText('251 updates marked seen.')).toBeVisible();
+    }
+    let batches = 0;
+    await page.route('**/api/ack', route => {
+      if (++batches === 2) return route.fulfill({ status: 500, json: { message: 'Synthetic batch failure' } });
+      return route.continue();
+    });
+    if (!undo) await page.route('**/api/state', route => route.fulfill({ status: 500, json: { message: 'Synthetic refresh failure' } }));
+    await (undo ? undoButton : mark).click();
+    const notice = page.locator('#notice');
+    await expect(notice).toContainText('Stopped after processing 250 of 251 updates.');
+    await expect(notice).toContainText('Synthetic batch failure');
+    if (!undo) {
+      await expect(notice).toContainText('Synthetic refresh failure');
+      await expect(page.locator('#toast')).toContainText('250 updates marked seen.');
+    } else {
+      await expect(page.locator('#toast')).toContainText('Retry Undo for 1 remaining update.');
+    }
+    await page.unroute('**/api/ack');
+    await page.unroute('**/api/state');
+    await undoButton.click();
+    await expect(page.locator('#toast')).toContainText(undo ? '1 update marked unseen.' : '250 updates marked unseen.');
+    assert.ok(events.every(event => !runtime.store.getEvent(event.id).seen));
+  });
+}
+
+test('mark shown acknowledges the rendered page even when the saved-filter picker defers a redraw', async t => {
+  const { runtime, page } = await demo(t);
+  runtime.store.acknowledge(runtime.store.listEvents().map(event => event.id));
+  runtime.store.setSetting('savedActivityFilters', [
+    { id: 'pushes', name: 'Pushes', filters: { view: 'new', search: '', kind: 'push', repoIds: null, people: '' } },
+  ]);
+  const batch = (prefix, offset, size) =>
+    Array.from({ length: size }, (_, index) => ({
+      id: `${prefix}-${index}`,
+      repoId: 'demo-orders',
+      kind: 'push',
+      title: `${prefix} push ${index}`,
+      time: new Date(Date.now() + offset + index).toISOString(),
+    }));
+  const original = batch('shown', 0, 50);
+  runtime.store.insertEvents(original);
+  await page.goto(runtime.url + '/#activity/new');
+  const shown = page.getByRole('button', { name: 'Mark shown seen (50)', exact: true });
+  await expect(shown).toBeEnabled();
+  await shown.focus();
+  const polled = page.waitForResponse(response => response.url().includes('/api/activity?') && response.ok());
+  runtime.store.insertEvents(batch('recent', 60000, 51));
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+  await polled;
+  await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  await expect(page.locator('li[data-event-id^="shown-"]')).toHaveCount(50);
+  const captured = Promise.withResolvers();
+  const release = Promise.withResolvers();
+  await page.route(
+    '**/api/ack',
+    async route => {
+      const response = await route.fetch();
+      captured.resolve(route.request().postDataJSON());
+      await release.promise;
+      await route.fulfill({ response });
+    },
+    { times: 1 },
+  );
+  try {
+    await shown.click();
+    const ack = await captured.promise;
+    assert.deepEqual(new Set(ack.ids), new Set(original.map(event => event.id)));
+    await page.getByRole('button', { name: 'Saved filters', exact: true }).click();
+    await expect(page.getByRole('listbox', { name: 'Saved filters' })).toBeVisible();
+    release.resolve();
+    await expect(page.getByText('50 updates marked seen.')).toBeVisible();
+    await expect(page.locator('li[data-event-id^="shown-"]')).toHaveCount(0);
+    await expect(page.locator('li[data-event-id^="recent-"]')).toHaveCount(50);
+    assert.equal(runtime.store.getEvent('recent-0').seen, false);
+  } finally {
+    release.resolve();
+  }
+});
+
 test('paged query reset follows type and repository scope without acknowledging hidden history', async t => {
   const { runtime, page } = await demo(t);
   seedHistory(runtime.store);
@@ -1054,7 +1252,7 @@ test('closing a saved-filter menu delivers a deferred Activity response and dele
   }
   const save = page.getByRole('button', { name: 'Save filter…' });
   const options = page.getByRole('listbox', { name: 'Saved filters' });
-  const emptyFeed = activity.getByText('No activity matches these filters');
+  const emptyFeed = activity.getByText('No unread updates match these filters');
   await respondWithMenuOpen('missing keyboard term');
   await page.keyboard.press('Tab');
   await expect(save).toBeFocused();

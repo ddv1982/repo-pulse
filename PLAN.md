@@ -2,7 +2,7 @@
 
 Repo Pulse helps testers see what changed across watched Azure DevOps repositories and open the source evidence. The app runs locally, uses the existing Azure CLI sign-in, and reads Azure activity.
 
-Branch and push monitoring, PR merge evidence, grouped Activity, resumable history import, and local checkout status are implemented. The [coverage guide](docs/COVERAGE.md) describes what the app can establish today.
+Branch and push monitoring, PR merge evidence, grouped Activity, saved filters, resumable history import, and verified switching to Activity branches in linked checkouts are implemented. The [coverage guide](docs/COVERAGE.md) describes what the app can establish today.
 
 ## Shipped coverage
 

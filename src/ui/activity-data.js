@@ -21,14 +21,22 @@ const keyFor = ui =>
 /** @param {ActivityItem} item */
 const itemKey = item => item.groupKey;
 
-/** @param {ActivityView} ui @param {number} limit @param {string|null} [cursor] @returns {`/api/activity?${string}`} */
-function activityUrl(ui, limit, cursor) {
-  const query = new URLSearchParams({ view: ui.route === 'activity' ? 'all' : 'new', limit: String(limit) });
+/** @param {ActivityView} ui */
+export function activityScopeQuery(ui) {
+  const query = new URLSearchParams();
   if (ui.repoIds !== null) query.set('repoIds', ui.repoIds.join(','));
   if (ui.kind) query.set('kind', ui.kind);
   const { search, people } = splitActivitySearch(ui.search || '');
   if (search) query.set('search', search);
   if (people) query.set('people', people);
+  return query;
+}
+
+/** @param {ActivityView} ui @param {number} limit @param {string|null} [cursor] @returns {`/api/activity?${string}`} */
+function activityUrl(ui, limit, cursor) {
+  const query = activityScopeQuery(ui);
+  query.set('view', ui.route === 'activity' ? 'all' : 'new');
+  query.set('limit', String(limit));
   if (cursor) query.set('cursor', cursor);
   return `/api/activity?${query}`;
 }

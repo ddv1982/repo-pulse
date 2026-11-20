@@ -406,6 +406,7 @@ const views = {
     sinks: [
       ...items.flatMap(item => [
         { field: `row ${idsField(item.eventIds)}`, html: eventIds(item.eventIds, ' data-group-key=') },
+        { field: `row unread ${idsField(item.unseenIds)}`, html: `data-unseen-ids="${html(JSON.stringify(item.unseenIds))}"` },
         { field: `seen button ${idsField(item.eventIds)}`, html: eventIds(item.eventIds, ' aria-label=') },
       ]),
       { field: 'newBranchPush.refUpdates.newObjectId', html: `<div class="event">${summary}` },

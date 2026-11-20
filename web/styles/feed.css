@@ -620,7 +620,7 @@ ol.rows {
   }
   .row {
     display: grid;
-    grid-template-columns: 9rem minmax(0, 1.3fr) minmax(0, 1.7fr) 6.5rem 7.5rem;
+    grid-template-columns: 9rem minmax(0, 1.3fr) minmax(0, 1.7fr) 6.5rem 9rem;
     gap: 12px;
     align-items: start;
     padding: 10px 12px;

@@ -4,9 +4,16 @@ import { emptyHtml, html, buildState } from './format.js';
 
 /** @typedef {import('./refresh.js').PageState} PageState */
 
+/** @param {{repoIds: string[] | null, route?: string, search?: string, kind?: string}} ui @param {boolean} partial */
+export function emptyActivityMessage(ui, partial) {
+  const scoped = Boolean(ui.search || ui.kind || ui.repoIds !== null);
+  if (scoped) return ui.route === 'activity' ? 'No activity matches these filters' : 'No unread updates match these filters';
+  if (partial) return 'No activity loaded yet';
+  return ui.route === 'activity' ? 'No activity recorded yet' : 'No new updates';
+}
 /**
  * @param {import('../activity.js').ActivityItem[]} records @param {Pick<PageState, 'activity' | 'repos'>} state
- * @param {{ repoIds: string[] | null, search?: string, kind?: string }} ui @param {boolean} partial the counts may be incomplete
+ * @param {{ repoIds: string[] | null, route?: string, search?: string, kind?: string }} ui @param {boolean} partial the counts may be incomplete
  */
 export function renderSummary(records, state, ui, partial) {
   const unseen = records.filter(record => record.unseen);
@@ -32,6 +39,8 @@ export function renderSummary(records, state, ui, partial) {
       tone: failed ? 't-crit' : running || queued ? 't-info' : '',
     },
   ];
+  const scoped = Boolean(ui.search || ui.kind || ui.repoIds !== null);
+  const noUnread = scoped ? 'No unread updates match these filters' : 'No new updates';
   const headline = state.activity?.loading
     ? 'Loading activity…'
     : !records.length && state.activity.error
@@ -41,12 +50,8 @@ export function renderSummary(records, state, ui, partial) {
         : state.activity.newItems
           ? '0 new items shown'
           : records.length
-            ? 'No new updates'
-            : ui.search || ui.kind || ui.repoIds?.length === 0
-              ? 'No activity matches these filters'
-              : partial
-                ? 'No activity loaded yet'
-                : 'No new updates';
+            ? noUnread
+            : emptyActivityMessage(ui, partial);
   const repos = state.repos.filter(repo => ui.repoIds === null || ui.repoIds.includes(repo.id)).length;
   return html`<section class="card summary mb" aria-label="Activity summary"><div class="top"><div class="headline"><p><b class="${unseen.length ? '' : 'zero'}">${headline}</b>${updates > unseen.length ? ` · ${updates} updates` : ''}</p><ul class="legend"><li>${repos} repositor${repos === 1 ? 'y' : 'ies'}</li>${!state.activity.loading && !state.activity.error ? html`<li>Showing ${records.length} of ${state.activity.total} items</li><li>${state.activity.newItems} total new items · ${state.activity.newUpdates} new updates</li>` : emptyHtml}</ul></div><div class="summary-chips" aria-label="Activity counts">${counts
     .filter(cell => cell.count)
