@@ -211,6 +211,10 @@ function checkTimeMarkup(checkout) {
     : emptyHtml;
 }
 
+/** A switch needs a named branch and a verified Git directory, and no Git operation in progress. @param {CheckoutSnapshot | undefined} checkout */
+const canSwitch = checkout =>
+  Boolean(checkout?.branch && checkout.head && checkout.identity && checkout.switchIdentity && checkout.state !== 'in-progress');
+
 /** @param {string} id @param {CheckoutSnapshot | undefined} checkout */
 function statusMarkup(id, checkout) {
   const branch = checkout?.branch || (checkout?.state === 'detached' ? checkout.head?.slice(0, 8) : '');
@@ -222,7 +226,8 @@ function statusMarkup(id, checkout) {
     ${checkTimeMarkup(checkout)}
     </div>
     ${checkout?.canCheck ? html`<button type="button" class="ghost sm" id="checkout-check-${id}" data-action="check-checkout" data-id="${id}" title="Fetch ${checkout.upstream} and compare it with your current branch">Check for updates</button>` : emptyHtml}
-    ${checkout?.canPull ? html`<button type="button" class="btn primary sm" id="checkout-pull-${id}" data-action="pull-checkout" data-id="${id}">Pull</button>` : emptyHtml}`;
+    ${checkout?.canPull ? html`<button type="button" class="btn primary sm" id="checkout-pull-${id}" data-action="pull-checkout" data-id="${id}">Pull</button>` : emptyHtml}
+    ${canSwitch(checkout) ? html`<button type="button" class="ghost sm" id="checkout-switch-${id}" data-action="open-branch-picker" data-id="${id}">Switch branch…</button>` : emptyHtml}`;
 }
 
 /** @param {string} id @param {CheckoutSnapshot | undefined} checkout @param {string | undefined} part */

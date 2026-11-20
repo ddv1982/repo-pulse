@@ -405,7 +405,7 @@ test('a New branch detail reviews a rewritten tracking ref before switching, the
   const search = page.getByRole('searchbox', { name: 'Search activity' });
   await search.fill('checkout-from-activity');
   await page.getByRole('button', { name: new RegExp(`^New branch · ${branch}`) }).click();
-  await page.getByRole('button', { name: 'Switch branch…' }).click();
+  await page.getByRole('button', { name: `Switch to ${branch}…` }).click();
   const dialog = page.getByRole('dialog');
   await expect(dialog).toContainText(`Switch to ${branch}?`);
   await expect(dialog).toContainText(local);
@@ -418,7 +418,7 @@ test('a New branch detail reviews a rewritten tracking ref before switching, the
   await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
   assert.equal(git(local, 'rev-parse', 'HEAD'), original);
   assert.equal(git(local, 'rev-parse', `origin/${branch}`), previousTip);
-  await page.getByRole('button', { name: 'Switch branch…' }).click();
+  await page.getByRole('button', { name: `Switch to ${branch}…` }).click();
   await dialog.getByRole('button', { name: 'Switch branch', exact: true }).click();
   await dialog.getByRole('button', { name: 'Confirm switch', exact: true }).click();
 
@@ -445,9 +445,118 @@ test('a New branch detail reviews a rewritten tracking ref before switching, the
   await page.goBack();
   await expect(page.getByRole('link', { name: 'View in Repositories' })).toBeVisible();
   git(local, 'switch', 'main');
-  await expect(page.getByRole('button', { name: 'Switch branch…' })).toBeVisible({ timeout: 12000 });
+  await expect(page.getByRole('button', { name: `Switch to ${branch}…` })).toBeVisible({ timeout: 12000 });
   await page.getByRole('link', { name: /Back to All activity/ }).click();
   await expect(page.locator('#feed-search')).toHaveValue('checkout-from-activity');
+  assert.deepEqual(errors, []);
+});
+
+test('Repositories switches between watched branches, and a merged pull request switches back to main', async t => {
+  const { source, local, repo, checkoutGit, commit, original } = checkoutFixture(t);
+  git(source, 'switch', '-c', 'topic');
+  commit(source, 'topic.txt', 'topic work');
+  git(source, 'push', 'origin', 'topic');
+  const store = createStore();
+  store.saveRepo(repo);
+  const ref = (name, lastPushId) => ({
+    type: 'ref',
+    id: `refs/heads/${name}`,
+    data: { name: `refs/heads/${name}`, active: true, lastPushId },
+  });
+  store.commitPage({ repoId: repo.id, entities: [ref('main', 1), ref('topic', 2), ref('release/old', 0)] });
+  store.insertEvents([
+    {
+      id: 'merged-topic',
+      repoId: repo.id,
+      kind: 'pr',
+      title: 'PR 7 · Topic work',
+      branch: 'topic',
+      actor: 'Test',
+      time: new Date().toISOString(),
+      data: { pullRequestId: 7, status: 'completed', sourceRefName: 'refs/heads/topic', targetRefName: 'refs/heads/main' },
+    },
+  ]);
+  const provider = { checkConnection: async () => ({ available: true }) };
+  const sync = { status: () => ({ running: false, repos: {} }) };
+  const app = createApp({ store, provider, sync, checkoutGit, accessKey: TEST_KEY });
+  await new Promise(resolve => app.listen(0, '127.0.0.1', resolve));
+  const browser = await chromium.launch({ executablePath: await browserPath(), headless: true });
+  t.after(async () => {
+    await browser.close();
+    await new Promise(resolve => app.close(resolve));
+    store.close();
+  });
+  const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+  page.setDefaultTimeout(5000);
+  const errors = [];
+  page.on('pageerror', error => errors.push(error.message));
+  await rememberKey(page);
+  await page.goto(`http://127.0.0.1:${app.address().port}/#repositories`);
+  const checkout = page.locator('#checkout-state-repo');
+  const open = checkout.getByRole('button', { name: 'Switch branch…' });
+  const picker = page.locator('#branch-dialog');
+  const confirmDialog = page.locator('#confirm-dialog');
+
+  await open.click();
+  await expect(picker).toContainText('Orders');
+  await expect(picker).toContainText(local);
+  const options = picker.locator('.branch-option');
+  await expect(options).toHaveText([/^main\s*Checked out$/, /^topic\s*Remote only$/, /^release\/old\s*Remote only$/]);
+  await expect(options.first()).toBeDisabled();
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+  await page.keyboard.press('Escape');
+  await expect(picker).toBeHidden();
+  await expect(open).toBeFocused();
+  // Checkout polling can replace the button that opened the picker; focus still returns to the checkout's button.
+  await open.click();
+  await open.evaluate(button => button.replaceWith(button.cloneNode(true)));
+  await picker.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(picker).toBeHidden();
+  await expect(open).toBeFocused();
+  // Leaving Repositories closes the picker, so it cannot switch the checkout from another page.
+  await open.click();
+  await page.evaluate(() => {
+    location.hash = '#settings';
+  });
+  await expect(picker).toBeHidden();
+  await page.goBack();
+  await expect(open).toBeVisible();
+
+  await open.click();
+  await page.getByRole('searchbox', { name: 'Filter branches' }).fill('top');
+  await expect(options).toHaveCount(1);
+  await page.keyboard.press('Enter');
+  await expect(picker).toBeHidden();
+  await expect(confirmDialog).toContainText('Switch to topic?');
+  await expect(confirmDialog).toContainText('from main');
+  await confirmDialog.getByRole('button', { name: 'Switch branch', exact: true }).click();
+  await expect(checkout).toContainText('topic');
+  await expect(checkout).toBeFocused();
+  assert.equal(git(local, 'branch', '--show-current'), 'topic');
+
+  // A local commit and a newer remote commit make the next switch to topic ask for a second review.
+  const localTip = commit(local, 'local.txt', 'local topic work');
+  git(local, 'switch', 'main');
+  commit(source, 'topic.txt', 'remote topic work');
+  git(source, 'push', 'origin', 'topic');
+  await page.reload();
+  await expect(checkout).toContainText('main');
+  await open.click();
+  await picker.getByRole('button', { name: /^topic/ }).click();
+  await confirmDialog.getByRole('button', { name: 'Switch branch', exact: true }).click();
+  await expect(confirmDialog).toContainText('Review switch to topic');
+  await expect(confirmDialog).toContainText('1 ahead and 1 behind');
+  await confirmDialog.getByRole('button', { name: 'Confirm switch', exact: true }).click();
+  await expect(checkout).toContainText('topic');
+  assert.equal(git(local, 'rev-parse', 'HEAD'), localTip);
+
+  await page.goto(`http://127.0.0.1:${app.address().port}/#event/merged-topic`);
+  await page.getByRole('button', { name: 'Switch to main…' }).click();
+  await confirmDialog.getByRole('button', { name: 'Switch branch', exact: true }).click();
+  await expect(page).toHaveURL(/#repositories\/repo$/);
+  await expect(checkout).toContainText('main');
+  assert.equal(git(local, 'branch', '--show-current'), 'main');
+  assert.equal(git(local, 'rev-parse', 'HEAD'), original);
   assert.deepEqual(errors, []);
 });
 

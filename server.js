@@ -86,6 +86,7 @@ import { canOpenBrowser, openBrowser } from './server/open-browser.js';
 /** @typedef {Record<string, import('./server/checkout-git.js').CheckoutStatus>} CheckoutsResponse */
 /** GET /api/repos/:id/checkout/status. @typedef {import('./server/checkout-git.js').CheckoutStatus} CheckoutStatusResponse */
 /** @typedef {ReturnType<typeof createCheckoutGit>} CheckoutGit */
+/** GET /api/repos/:id/checkout/branches. @typedef {{ branches: { name: string, local: boolean }[] }} CheckoutBranchesResponse */
 /** POST /api/repos/:id/checkout. */
 /** @typedef {Awaited<ReturnType<CheckoutGit['update']>> | Awaited<ReturnType<CheckoutGit['branchAction']>> | Awaited<ReturnType<CheckoutGit['switchToActivityBranch']>>} CheckoutUpdateResponse */
 /** GET /api/connection. @typedef {Awaited<ReturnType<AppProvider['checkConnection']>>} ConnectionResponse */
@@ -466,6 +467,31 @@ export function createApp({
     },
     {
       method: 'GET',
+      path: /^\/api\/repos\/([^/]+)\/checkout\/branches$/,
+      handler: async ({ res, params: [rawId] }) => {
+        if (demo) throw problem('Demo checkouts have no local branches.', 403);
+        const repo = enabledRepoById(decodeURIComponent(rawId));
+        const local = new Set(await checkoutGit.localBranches(repo));
+        const pinned = ['main', 'master'];
+        /** @typedef {{ active?: boolean, lastPushId?: number }} RefData */
+        const branches = store
+          .listEntities(repo.id, 'ref')
+          .map(({ id, data }) => ({ id, ref: /** @type {RefData | null} */ (data) }))
+          .filter(({ id, ref }) => id.startsWith('refs/heads/') && id.length > 11 && ref?.active !== false)
+          .map(({ id, ref }) => ({ name: id.slice(11), pushId: Number(ref?.lastPushId) || 0 }))
+          .sort(
+            (a, b) =>
+              Number(pinned.includes(b.name)) - Number(pinned.includes(a.name)) ||
+              pinned.indexOf(a.name) - pinned.indexOf(b.name) ||
+              b.pushId - a.pushId ||
+              a.name.localeCompare(b.name),
+          )
+          .map(({ name }) => ({ name, local: local.has(name) }));
+        return json(res, 200, /** @satisfies {CheckoutBranchesResponse} */ ({ branches }));
+      },
+    },
+    {
+      method: 'GET',
       path: /^\/api\/repos\/([^/]+)\/checkout\/status$/,
       handler: async ({ res, params: [rawId] }) => {
         if (demo) throw problem('Demo checkouts have no local status.', 403);
@@ -492,6 +518,20 @@ export function createApp({
             /** @satisfies {CheckoutUpdateResponse} */ (
               await checkoutGit.switchToActivityBranch(repo, branch, expected, {
                 eventId: input.eventId,
+                confirmation: typeof input.confirmation === 'string' ? input.confirmation : undefined,
+              })
+            ),
+          );
+        }
+        if (operation === 'switch-branch' && isSwitchIntent(expected) && typeof input.branch === 'string') {
+          // Only a branch the watched repository still lists, like an event, may name the switch target.
+          const ref = /** @type {{ active?: boolean } | null} */ (store.getEntity(repo.id, 'ref', `refs/heads/${input.branch}`));
+          if (!ref || ref.active === false) throw problem('The repository no longer lists this branch.');
+          return json(
+            res,
+            200,
+            /** @satisfies {CheckoutUpdateResponse} */ (
+              await checkoutGit.switchToActivityBranch(repo, input.branch, expected, {
                 confirmation: typeof input.confirmation === 'string' ? input.confirmation : undefined,
               })
             ),

@@ -86,8 +86,6 @@ const prCompletion = item =>
         mergeStatus: item.mergeStatus,
         mergeStrategy: item.completionOptions?.mergeStrategy,
         closedBy: actorName(item.closedBy),
-        sourceRepositoryId: item.forkSource ? item.forkSource.repository?.id : item.repository?.id,
-        targetRepositoryId: item.repository?.id,
       }
     : {};
 /** @param {AzureRecord} build */
@@ -258,6 +256,8 @@ export function createNormalizer({ store, now = Date.now }) {
             sourceRefName: item.sourceRefName,
             targetRefName: item.targetRefName,
             sourceCommit: item.lastMergeSourceCommit?.commitId,
+            sourceRepositoryId: item.forkSource ? item.forkSource.repository?.id : item.repository?.id,
+            targetRepositoryId: item.repository?.id,
             reviewers: reviewers(item),
             voteChanges: voteChanges(previous?.fingerprint?.votes, item),
             // Azure names a source repository only for a PR from a fork. It stays out of the fingerprint,

@@ -922,6 +922,8 @@ test('a fork PR keeps where it came from without changing the fingerprint of PRs
   await sync.tick();
   assert.equal(store.listEvents().length, 1);
   assert.equal(store.listEvents()[0].data.fork, undefined);
+  assert.equal(store.listEvents()[0].data.sourceRepositoryId, 'a', 'an active PR records where its source branch lives');
+  assert.equal(store.listEvents()[0].data.targetRepositoryId, 'a');
   items = [{ ...pr, forkSource: { name: 'refs/heads/fix', repository: { id: 'f', name: 'One-fork', project: { name: 'Q' } } } }];
   advance(600001);
   await sync.tick();
@@ -931,6 +933,7 @@ test('a fork PR keeps where it came from without changing the fingerprint of PRs
   await sync.tick();
   const latest = store.listEvents().find(event => event.data.fork);
   assert.deepEqual(latest.data.fork, { repository: 'One-fork', project: 'Q' });
+  assert.equal(latest.data.sourceRepositoryId, 'f');
   store.close();
 });
 

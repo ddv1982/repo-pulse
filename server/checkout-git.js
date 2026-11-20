@@ -636,5 +636,15 @@ export function createCheckoutGit({
     return exclusively(repo, path => switchAt(path, repo, name, expected, { eventId, confirmation }));
   }
 
-  return { status, update, branchAction, switchToActivityBranch };
+  /** Local branch names, read without the update lock. @param {LinkedRepo} repo */
+  async function localBranches(repo) {
+    const path = await checkoutPath(repo);
+    const refs = await run(path, ['for-each-ref', '--format=%(refname)', 'refs/heads/']);
+    return refs
+      .split('\n')
+      .filter(ref => ref.startsWith('refs/heads/'))
+      .map(ref => ref.slice(11));
+  }
+
+  return { status, update, branchAction, switchToActivityBranch, localBranches };
 }
