@@ -281,13 +281,37 @@ test('tag rows say what happened to the tag and never claim a commit for a pushe
   assert.deepEqual(
     [created, moved, deleted, unlisted].map(event => [activityLabel(event), activityTone(event), activitySummary(event)]),
     [
-      ['New tag', 'info', 'Points at aaaaaaaa'],
-      ['Tag moved', 'warn', 'aaaaaaaa → bbbbbbbb'],
+      ['New tag', 'info', 'Points at aaaaaaa'],
+      ['Tag moved', 'warn', 'aaaaaaa → bbbbbbb'],
       ['Tag deleted', 'warn', 'Remote tag deleted'],
       ['No longer listed', 'warn', 'Missing from complete refs snapshot'],
     ],
   );
   assert.equal(labels.tag, 'Tag');
+});
+
+test('a push that creates a branch names its new tip, not a start, in the short commit length the server stores', () => {
+  const push = {
+    kind: 'push',
+    data: { refUpdates: [{ name: 'refs/heads/feature/a', oldObjectId: '0'.repeat(40), newObjectId: '54a2ad26'.padEnd(40, 'c') }] },
+  };
+  assert.equal(activitySummary(push), 'New branch at 54a2ad2');
+});
+
+test('a branch row from a push does not repeat its label in the event column; a listed branch keeps its caveat', () => {
+  const state = fixture();
+  const base = { repoId: 'r', seen: false, imported: false, time: '2026-11-17T10:00:00Z', actor: 'Ana' };
+  state.events = [
+    { ...base, id: 'created', kind: 'branch-created', branch: 'a', title: 'New branch · a', data: { evidence: 'push' } },
+    { ...base, id: 'deleted', kind: 'branch-deleted', branch: 'b', title: 'Branch deleted', data: { evidence: 'push' } },
+    { ...base, id: 'listed', kind: 'branch-created', branch: 'c', title: 'Branch first seen · c', data: { evidence: 'refs' } },
+  ];
+  const out = String(renderFeed(state, view));
+  const event = (/** @type {string} */ id) =>
+    out.match(new RegExp(`data-event-id="${id}"[^]*?<div class="event">([^]*?)<div class="rowact">`))?.[1] ?? '';
+  assert.match(event('created'), /^<div class="help event-meta">Pushed by/);
+  assert.match(event('deleted'), /^<div class="help event-meta">Pushed by/);
+  assert.match(event('listed'), /^<div class="event-main"><span>First seen remotely; creation time not supplied<\/span>/);
 });
 
 test('a fork PR names its fork in the summary', () => {
@@ -342,12 +366,12 @@ test('push headlines name a single matching PR result without inferring the caus
   };
   const pr = { pullRequestId: 12, relationship: 'result-introduced', targetRefName: 'refs/heads/main', mergeCommit: result.toUpperCase() };
   const linked = (...prs) => ({ ...push, data: { ...push.data, mergeEvidence: { prs } } });
-  assert.equal(activityTitle(linked(pr)), 'Push to main · Linked PR #12');
+  assert.equal(activityTitle(linked(pr)), 'Merge of PR 12 pushed to main');
   assert.equal(activityTitle(linked({ ...pr, targetRefName: 'refs/heads/other' })), 'Azure DevOps service pushed to main');
   assert.equal(activityTitle(linked({ ...pr, relationship: 'constituent-related' })), 'Azure DevOps service pushed to main');
   assert.equal(
     activityTitle(linked(pr, { ...pr, pullRequestId: 14, relationship: 'constituent-related' })),
-    'Push to main · Linked PR #12',
+    'Merge of PR 12 pushed to main',
   );
   assert.equal(activityTitle(linked(pr, { ...pr, pullRequestId: 13 })), 'Azure DevOps service pushed to main');
   assert.equal(activityTitle({ ...push, actor: 'Alice', title: 'Alice pushed to main' }), 'Alice pushed to main');
@@ -410,6 +434,11 @@ test('a CI run on a pull request ref names the source branch and the pull reques
     );
   assert.match(out, branch('feature/a'));
   assert.match(out, /<span class="chip ref-pr"><span class="sr"> · <\/span>PR 7<\/span>/);
+  // Branch and PR sit in one group that does not wrap, so the chip never ends up on a line of its own.
+  assert.match(
+    out,
+    /<span class="ref-target"><span class="ref-branch" title="feature\/a">[^]*?<span class="chip ref-pr">[^]*?PR 7<\/span><\/span><\/span><\/button>/,
+  );
   assert.match(out, branch('refs/pull/8/merge'));
   assert.equal(out.match(/ref-pr/g)?.length, 1);
   // No separators are drawn between tokens; spacing does that job.
@@ -426,35 +455,61 @@ test('a row names its repository only when more than one repository is shown', (
   assert.doesNotMatch(subref(renderFeed(state, { ...view, repoIds: ['r'] })), /Orders/);
 });
 
-test('a row leaves out the branch its title already names, except on pull requests and CI runs', () => {
+test('a branch row shows its branch as the token under a title that no longer names it or the actor', () => {
   const state = fixture();
-  const base = { repoId: 'r', seen: false, imported: false, time: '2026-11-17T10:00:00Z' };
+  const base = { repoId: 'r', seen: false, imported: false, time: '2026-11-17T10:00:00Z', actor: 'Ana' };
   state.events = [
     { ...base, id: 'push', kind: 'push', branch: 'feature/a', title: 'Ana pushed to feature/a', data: {} },
-    { ...base, id: 'created', kind: 'branch-created', branch: 'feature/b', title: 'feature/b', data: {} },
+    { ...base, id: 'counted', kind: 'push', branch: 'fix/b', title: '2 commits pushed to fix/b', data: {} },
+    { ...base, id: 'created', kind: 'branch-created', branch: 'feature/b', title: 'New branch · feature/b', data: {} },
+    { ...base, id: 'bare', kind: 'branch-created', branch: 'feature/e', title: 'feature/e', data: {} },
     { ...base, id: 'deleted', kind: 'branch-deleted', branch: 'feature/c', title: 'Branch deleted', data: {} },
-    { ...base, id: 'tag', kind: 'tag', branch: 'v1.0', title: 'Tag moved · v1.0', data: {} },
     { ...base, id: 'old-push', kind: 'push', branch: 'feature/d', title: 'Ana pushed', data: {} },
     { ...base, id: 'other-ref', kind: 'push', branch: 'main', title: 'Ana pushed to main-old', data: {} },
     { ...base, id: 'pr', kind: 'pr', branch: 'main', title: 'PR 3 · Fix main menu', data: { id: 3 } },
     { ...base, id: 'build', kind: 'build', branch: 'main', title: 'main CI · 1', data: { buildId: 1 } },
   ];
   const out = String(renderFeed(state, view));
-  const refLine = (/** @type {string} */ id) => out.match(new RegExp(`data-event-id="${id}"[^]*?</button>`))?.[0] ?? '';
-  for (const id of ['push', 'created', 'deleted', 'tag']) assert.doesNotMatch(refLine(id), /class="subref"/, id);
-  for (const [id, name] of [
-    ['old-push', 'feature/d'],
-    ['other-ref', 'main'],
-    ['pr', 'main'],
-    ['build', 'main'],
-  ])
-    assert.match(refLine(id), new RegExp(`<span class="ref-name">${name}</span>`), id);
-  // With several repositories shown the line stays for the repository alone.
-  state.repos.push({ id: 'other', name: 'Billing' });
-  assert.match(
-    String(renderFeed(state, view)).match(/data-event-id="push"[^]*?<\/button>/)?.[0] ?? '',
-    /<span class="subref"><span class="ref-repo">[^]*?<\/span><\/span><\/button>/,
-  );
+  const subject = (/** @type {string} */ id) => out.match(new RegExp(`data-event-id="${id}"[^]*?</button>`))?.[0] ?? '';
+  const title = (/** @type {string} */ id) => subject(id).match(/<span class="title">([^<]*)/)?.[1] ?? '';
+  for (const [id, text, name] of [
+    ['push', 'Pushed', 'feature/a'],
+    ['counted', '2 commits pushed', 'fix/b'],
+    ['created', 'New branch', 'feature/b'],
+    ['bare', 'New branch', 'feature/e'],
+    ['deleted', 'Branch deleted', 'feature/c'],
+    ['old-push', 'Pushed', 'feature/d'],
+    ['other-ref', 'Pushed to main-old', 'main'],
+    ['pr', 'PR 3 · Fix main menu', 'main'],
+    ['build', 'main CI · 1', 'main'],
+  ]) {
+    assert.equal(title(id), text, id);
+    assert.match(subject(id), new RegExp(`<span class="ref-name">${name}</span>`), id);
+  }
+  // The Seen button keeps the full title, so its accessible name still says which branch.
+  assert.match(out, /aria-label="Seen: Ana pushed to feature\/a"/);
+});
+
+test('a push that names several branches keeps its title and shows no single branch token', () => {
+  const state = fixture();
+  state.events = [
+    {
+      repoId: 'r',
+      id: 'multi',
+      kind: 'push',
+      seen: false,
+      imported: false,
+      time: '2026-11-17T10:00:00Z',
+      actor: 'Ana',
+      branch: 'feature/a',
+      title: 'Ana pushed to feature/a, feature/b',
+      data: {},
+    },
+  ];
+  const out = String(renderFeed(state, view));
+  assert.match(out, /<span class="title">Pushed to feature\/a, feature\/b/);
+  assert.doesNotMatch(out, /class="subref"/);
+  assert.match(out, /<div class="help event-meta">Pushed by <span class="actor">Ana<\/span> · <time/);
 });
 
 test('the event column puts what happened first, then who and when, each actor with its role', () => {
@@ -485,8 +540,9 @@ test('the event column puts what happened first, then who and when, each actor w
   assert.match(meta('build'), /^Requested by <span class="actor">Bo<\/span> · <time/);
   assert.match(meta('created'), /^Pushed by <span class="actor">Cy<\/span> · <time/);
   assert.match(meta('linked'), /^Pushed by <span class="actor">Ed<\/span> · <time/);
-  // The title already says who pushed, and an unknown actor has no role to name.
-  assert.match(meta('named'), /^<time/);
+  // The row title drops the pusher's name, so the meta line names them like every other row.
+  assert.match(meta('named'), /^Pushed by <span class="actor">Di<\/span> · <time/);
+  // An unknown actor has no role to name.
   assert.match(meta('unknown'), /^<span class="actor">Unknown<\/span> · <time/);
 });
 

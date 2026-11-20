@@ -143,7 +143,7 @@ export function activityTitle(event) {
     const pr = prs?.[0];
     const id = pr?.pullRequestId ?? pr?.id;
     if (prs.length === 1 && id) {
-      return `Push to ${branchName(pr.targetRefName)} · Linked PR #${id}`;
+      return `Merge of PR ${id} pushed to ${branchName(pr.targetRefName)}`;
     }
     if (event.actor === azureDevOpsService && event.title?.startsWith(`${azureDevOpsService} pushed`)) {
       return event.title.replace(azureDevOpsService, 'Azure DevOps service');
@@ -199,7 +199,7 @@ function prSummary(data) {
 /** @param {NonNullable<ActivityEvent['data']>} data */
 function pushedTagSummary({ change, oldObjectId = '', newObjectId = '' }) {
   if (change === 'deleted') return 'Remote tag deleted';
-  return change === 'moved' ? `${oldObjectId.slice(0, 8)} → ${newObjectId.slice(0, 8)}` : `Points at ${newObjectId.slice(0, 8)}`;
+  return change === 'moved' ? `${oldObjectId.slice(0, 7)} → ${newObjectId.slice(0, 7)}` : `Points at ${newObjectId.slice(0, 7)}`;
 }
 
 /**
@@ -219,7 +219,7 @@ function refUpdateSummary(event) {
     return 'Branch details unavailable';
   }
   if (refs?.length === 1 && /^0+$/.test(refs[0].newObjectId || '')) return 'Remote branch deleted';
-  if (refs?.length === 1 && /^0+$/.test(refs[0].oldObjectId || '')) return `Branch starts at ${(refs[0].newObjectId || '').slice(0, 8)}`;
+  if (refs?.length === 1 && /^0+$/.test(refs[0].oldObjectId || '')) return `New branch at ${(refs[0].newObjectId || '').slice(0, 7)}`;
   return event.summary || '';
 }
 

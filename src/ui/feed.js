@@ -64,23 +64,19 @@ const actorRoles = {
   tag: 'Pushed by',
 };
 
-/**
- * Who and when. The actor is left out when the title already starts with them ("Ana pushed to main"); an unknown
- * actor has no role to name.
- * @param {ActivityItem} record @param {string} title
- */
-function renderMeta(record, title) {
+/** Who and when. An unknown actor has no role to name. @param {ActivityItem} record */
+function renderMeta(record) {
   const actor = activityActor(record);
-  const shown = actor && !title.startsWith(`${actor} `);
+  const shown = Boolean(actor);
   const role = actor === 'Unknown' ? '' : `${actorRoles[record.kind]} `;
   return html`<div class="help event-meta">${shown ? html`${role}<span class="actor">${actor}</span> · ` : emptyHtml}<time datetime="${record.time}" title="${fullDateTime(record.time)}">${dateTime(record.time)}</time></div>`;
 }
 
 /**
  * The event column in tiers: what happened with its evidence chips, then who and when, then where the branch started.
- * @param {ActivityItem} record @param {string} title @param {string} origin
+ * @param {ActivityItem} record @param {string} origin
  */
-function renderEvent(record, title, origin) {
+function renderEvent(record, origin) {
   const pr =
     record.kind === 'pr' && record.data && (record.data.targetRefName || record.data.voteChanges?.length) ? record.data : undefined;
   const votes = pr ? prVoteChanges(pr) : [];
@@ -91,7 +87,7 @@ function renderEvent(record, title, origin) {
       : rowSummary(record);
   const badge = mergeEvidenceBadge(record);
   const origins = [pr ? prForkSource(pr.fork) : '', origin].filter(Boolean);
-  return html`<div class="event">${summary || badge !== emptyHtml ? html`<div class="event-main">${typeof summary === 'string' ? (summary ? html`<span>${summary}</span>` : emptyHtml) : summary}${badge}</div>` : emptyHtml}${renderMeta(record, title)}${origins.map(
+  return html`<div class="event">${summary || badge !== emptyHtml ? html`<div class="event-main">${typeof summary === 'string' ? (summary ? html`<span>${summary}</span>` : emptyHtml) : summary}${badge}</div>` : emptyHtml}${renderMeta(record)}${origins.map(
     text => html`<div class="help event-origin">${icons.branch}<span>${text}</span></div>`,
   )}${renderTrail(record)}</div>`;
 }
@@ -99,14 +95,38 @@ function renderEvent(record, title, origin) {
 /** A reviewer vote's tone; the words carry the meaning, the color repeats it. @param {number} vote */
 const voteTone = vote => (vote > 0 ? 'ok' : vote === -5 ? 'warn' : vote < 0 ? 'crit' : 'neutral');
 
-/** A CI run without a known trigger has nothing to summarise in its row; the detail page still names the gap. @param {ActivityItem} record */
+/**
+ * A CI run without a known trigger has nothing to summarise in its row, and a branch a push created or deleted would only
+ * repeat its label. The detail page still says both. A branch read from a ref list keeps its caveat.
+ * @param {ActivityItem} record
+ */
 function rowSummary(record) {
   const summary = activitySummary(record);
-  return record.kind === 'build' && summary === 'Not supplied' ? '' : summary;
+  if (record.kind === 'build' && summary === 'Not supplied') return '';
+  return ['branch-created', 'branch-deleted'].includes(record.kind) && ['New remote branch', 'Remote branch deleted'].includes(summary)
+    ? ''
+    : summary;
 }
 
 /** Whether the title names the ref as a whole word, so `main` is not found inside `main-old`. @param {string} title @param {string} ref */
 const namesRef = (title, ref) => new RegExp(`(^|[\\s,(])${ref.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}($|[\\s,)])`).test(title);
+
+/**
+ * A branch row's title without its branch and pusher, which the ref line and the meta line show instead, so every
+ * branch row reads the same way. Only a title that ends with the row's single branch loses it; one that names several
+ * branches keeps them.
+ * @param {ActivityItem} record @param {string} title
+ */
+function rowTitle(record, title) {
+  if (!['push', 'branch-created', 'branch-deleted'].includes(record.kind)) return title;
+  const branch = record.branch ? activityRef(record).branch : '';
+  if (branch && title === branch) return activityLabel(record);
+  const suffix = branch ? [` to ${branch}`, ` · ${branch}`].find(end => title.endsWith(end)) : undefined;
+  const rest = suffix ? title.slice(0, -suffix.length) : title;
+  const actor = activityActor(record);
+  const text = actor && rest.startsWith(`${actor} `) ? rest.slice(actor.length + 1) : rest;
+  return text === title ? title : text.charAt(0).toUpperCase() + text.slice(1);
+}
 
 /**
  * The line under a row's title says where it happened: repository, branch and pull request as separate tokens.
@@ -120,11 +140,16 @@ function renderRefLine(record, title, repoName) {
   const named = !['pr', 'build'].includes(record.kind) && Boolean(ref.branch) && namesRef(title, ref.branch);
   const { branch, pullRequestId } = named ? { ...ref, branch: '' } : ref;
   if (!repoName && !branch && !pullRequestId) return emptyHtml;
+  // The branch and its PR share a group that never wraps, so a long branch name is cut short before the chip moves.
   return html`<span class="subref">${repoName ? html`<span class="ref-repo"><span class="sr"> · repository </span>${repoName}</span>` : emptyHtml}${
-    branch
-      ? html`<span class="ref-branch" title="${branch}">${icons.branch}<span class="sr"> · branch </span><span class="ref-name">${branch}</span></span>`
+    branch || pullRequestId
+      ? html`<span class="ref-target">${
+          branch
+            ? html`<span class="ref-branch" title="${branch}">${icons.branch}<span class="sr"> · branch </span><span class="ref-name">${branch}</span></span>`
+            : emptyHtml
+        }${pullRequestId ? html`<span class="chip ref-pr"><span class="sr"> · </span>PR ${pullRequestId}</span>` : emptyHtml}</span>`
       : emptyHtml
-  }${pullRequestId ? html`<span class="chip ref-pr"><span class="sr"> · </span>PR ${pullRequestId}</span>` : emptyHtml}</span>`;
+  }</span>`;
 }
 
 /**
@@ -138,13 +163,14 @@ function row(record, state, tree, showRepo) {
   const ids = JSON.stringify(record.eventIds);
   const unreadIds = JSON.stringify(record.unseenIds);
   const ackIds = record.unseen ? unreadIds : JSON.stringify(record.events.filter(event => !event.imported).map(event => event.id));
-  const title = activityTitle(record);
+  const fullTitle = activityTitle(record);
+  const title = rowTitle(record, fullTitle);
   const origin = forkText(tree?.fork ?? null);
   return html`<li class="${['row', failed ? 'crit' : '', record.unseen ? 'new' : '', `tone-${tone}`].filter(Boolean).join(' ')}" data-event-id="${record.id}" data-event-ids="${ids}" data-group-key="${record.groupKey}" data-unseen-ids="${unreadIds}">${tree ? renderTreeCell(tree, tone) : emptyHtml}
     <span class="kind ${tone}">${record.kind === 'branch-created' ? icons.branch : html`<span class="d"></span>`}${activityLabel(record)}</span>
     <div class="subject"><button class="feed-title" type="button" data-action="detail" data-id="${record.id}"><span class="title">${title}${record.unseenIds.length > 1 ? html` <span class="pill u new-count">${record.unseenIds.length} new</span>` : emptyHtml}</span>${renderRefLine(record, title, showRepo ? repo?.name || 'Unknown repository' : '')}</button></div>
-    ${renderEvent(record, title, origin)}
-    <div class="rowact">${azureLink(record.url)}${record.imported ? emptyHtml : html`<button class="ghost sm seen-toggle" type="button" id="seen-${record.id}" data-action="ack-item" data-id="${record.id}" data-mark-seen="${record.unseen}" data-event-ids="${ackIds}" aria-pressed="${!record.unseen}" aria-label="Seen: ${title}">${icons.seenBox}Seen</button>`}</div></li>`;
+    ${renderEvent(record, origin)}
+    <div class="rowact">${azureLink(record.url)}${record.imported ? emptyHtml : html`<button class="ghost sm seen-toggle" type="button" id="seen-${record.id}" data-action="ack-item" data-id="${record.id}" data-mark-seen="${record.unseen}" data-event-ids="${ackIds}" aria-pressed="${!record.unseen}" aria-label="Seen: ${fullTitle}">${icons.seenBox}Seen</button>`}</div></li>`;
 }
 
 /** @param {string} title @param {ActivityItem[]} records @param {PageState} state @param {{ open?: boolean, description?: string, tree?: import('../activity-tree.js').ActivityTree, showRepo: boolean }} options */

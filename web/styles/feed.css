@@ -404,10 +404,18 @@ ol.rows {
   white-space: nowrap;
   font-weight: 500;
 }
+.ref-target {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  max-width: 100%;
+}
 .ref-branch {
   display: inline-flex;
   align-items: center;
   gap: 4px;
+  overflow: hidden;
 }
 .ref-branch svg {
   flex: none;
