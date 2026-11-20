@@ -333,3 +333,37 @@ test('push headlines name a single matching PR result without inferring the caus
   assert.equal(activityTitle({ ...push, actor: 'Alice', title: 'Alice pushed to main' }), 'Alice pushed to main');
   assert.equal(activitySummary({ ...push, data: {} }), 'Branch details unavailable');
 });
+
+test('All activity draws a branch tree with the fork evidence in the row text; New updates stays a plain list', () => {
+  const state = fixture();
+  const base = { repoId: 'r', actor: 'Developer', seen: false, imported: false, branch: 'feature/a' };
+  state.events = [
+    {
+      ...base,
+      id: 'pr',
+      kind: 'pr',
+      title: 'PR 7 · Add a',
+      time: '2026-11-17T10:02:00Z',
+      observedAt: '2026-11-17T10:02:00Z',
+      data: { pullRequestId: 7, status: 'active', sourceRefName: 'refs/heads/feature/a', targetRefName: 'refs/heads/main' },
+    },
+    {
+      ...base,
+      id: 'branch',
+      kind: 'branch-created',
+      time: '2026-11-17T10:01:00Z',
+      observedAt: '2026-11-17T10:01:00Z',
+      data: { name: 'refs/heads/feature/a', evidence: 'refs' },
+    },
+  ];
+  const all = renderFeed(state, { ...view, route: 'activity' });
+  assert.match(all, /<ul class="rows with-tree" style="--tree-lanes:2">/);
+  assert.equal((all.match(/<svg class="tree" aria-hidden="true"/g) || []).length, 2);
+  assert.match(all, /<path class="lane-\d assumed" d="M5 18C5 9 15 9 15 0"\/>/);
+  assert.match(all, /<circle class="lane-\d hole" cx="15" cy="0" r="3.75"\/>/);
+  assert.match(all, /Branched from main, assumed from PR 7/);
+  assert.match(all, /class="help tree-legend"/);
+  const updates = renderFeed(state, view);
+  assert.equal((updates.match(/<li class="row /g) || []).length, 2);
+  assert.doesNotMatch(updates, /with-tree|class="tree"|tree-legend|Branched from/);
+});

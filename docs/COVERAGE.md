@@ -46,6 +46,13 @@ Evidence saved before deeper analysis stopped also enumerated ref ranges, becaus
   alone are never called a rewrite, and a rewrite does not identify the command that caused it. Tag pushes become tag rows; a tag-only push is not shown as a push.
 - A snapshot discovery and a later push record can both describe the same branch. They remain
   separate observations when the app cannot prove a shared branch lifetime/source identity.
+- The branch tree in **All activity** is drawn from the rows on the page, not from commit history. A lane
+  joins nearby rows of one branch and ends when the branch is quiet for more than 12 rows. A solid fork
+  means the new branch started at a revision that an older row shows as the tip of another branch. A
+  dotted fork is an assumption taken from the target of a pull request from that branch, and it does not
+  say at which commit the branch started. No fork line means the origin is unknown. Filters, paging and
+  the four-lane limit can remove links, so a missing line never shows that branches are unrelated.
+  **New updates** has no tree because it lists new branches first.
 - A branch created and deleted entirely between readable observations may be missed. Loss of ref
   visibility cannot safely be presented as confirmed deletion without direct evidence.
 

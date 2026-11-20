@@ -8,7 +8,7 @@ A local Azure DevOps activity feed for testers. Watch multiple repositories for 
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/activity-dark.png">
-  <img src="docs/screenshots/activity-light.png" alt="Repo Pulse Activity showing the saved-filter controls and recent branch, push, CI and pull request updates across three demo repositories.">
+  <img src="docs/screenshots/activity-light.png" alt="Repo Pulse All activity showing branch, push, CI and pull request updates across three demo repositories, with a branch tree in the status column that links each branch to its fork and merge.">
 </picture>
 
 [Light mode](docs/screenshots/activity-light.png) · [Dark mode](docs/screenshots/activity-dark.png)
@@ -37,7 +37,7 @@ Then start Repo Pulse and use **Settings → Check connection**. Your checkouts 
 
 ## Use Repo Pulse
 
-- **Activity.** Open **New updates** to catch up or **All activity** to browse cached history. Enter `Ali, Jose` in **Search activity** to match either term, including names such as Alice and José. Use `people:Ali Mor, Jose` to search recorded names with partial words in order. Opening an item never marks it seen.
+- **Activity.** Open **New updates** to catch up or **All activity** to browse cached history. Enter `Ali, Jose` in **Search activity** to match either term, including names such as Alice and José. Use `people:Ali Mor, Jose` to search recorded names with partial words in order. Opening an item never marks it seen. On wider screens, **All activity** draws a branch tree in the status column: one lane per branch, a solid fork when the branch started at a revision seen on another branch, a dotted fork when the origin is assumed from its pull request target, and a curve where a completed pull request merges.
 - **Catch up.** Use **Mark seen** on a row or **Mark shown seen** for the loaded rows in open groups. When more matching updates are unread, **Mark all matching as seen** previews the count across all pages of the current filters and repository scope. Confirm to clear that snapshot. Later arrivals stay unread, and **Undo** restores the updates changed by your action.
 - **Saved filters.** Choose **Save filter…** to save your search, activity type, repository scope, and Activity tab. Choosing a saved filter applies it immediately. Edits show **Modified** and stay in your current view until you choose **Update**. Use **More** to save a variation, restore the saved version, or manage the filter.
 - **Switch branches.** On a **New branch** or single-branch push detail for a linked checkout, choose **Switch branch…**. Repo Pulse verifies the remote and refreshes the local tracking ref before switching. It asks for confirmation if the upstream history was rewritten or the local branch has diverged. Git carries compatible local edits and stops if switching would overwrite them. After the switch, **Repositories** shows the checkout and its update controls.

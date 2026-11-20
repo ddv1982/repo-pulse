@@ -60,6 +60,13 @@
   );
   --info: var(--primary);
   --neutral-solid: color-mix(in oklab, var(--muted-foreground) 60%, transparent);
+  /* Branch lanes in the Activity tree. Each keeps at least 4.5:1 against the card in its theme. */
+  --lane-1: oklch(0.5 0.2 264);
+  --lane-2: oklch(0.52 0.088 185);
+  --lane-3: oklch(0.55 0.11 70);
+  --lane-4: oklch(0.5 0.2 310);
+  --lane-5: oklch(0.55 0.2 5);
+  --lane-6: oklch(0.52 0.14 145);
 }
 @media (max-width: 767px) {
   :root {
@@ -87,6 +94,12 @@
   --ok-wash: color-mix(in oklab, var(--ok-solid) 7%, transparent);
   --primary-wash: color-mix(in oklab, var(--primary) 9%, transparent);
   --info: oklch(0.72 0.14 264); /* RP: primary as text on dark cards needs a lighter step for 4.5:1 */
+  --lane-1: oklch(0.72 0.14 264);
+  --lane-2: oklch(0.78 0.12 185);
+  --lane-3: oklch(0.8 0.14 70);
+  --lane-4: oklch(0.74 0.15 310);
+  --lane-5: oklch(0.74 0.15 5);
+  --lane-6: oklch(0.78 0.16 145);
   --sky:
     radial-gradient(56rem 32rem at 90% -8rem, oklch(0.4 0.14 288 / 0.6), transparent 72%),
     radial-gradient(50rem 28rem at 2% 106%, oklch(0.42 0.1 200 / 0.4), transparent 72%),

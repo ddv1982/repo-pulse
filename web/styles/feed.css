@@ -587,7 +587,7 @@ ol.rows {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
   .row {
-    grid-template-columns: 9rem minmax(0, 1fr) auto;
+    grid-template-columns: var(--kind-width, 9rem) minmax(0, 1fr) auto;
   }
   .subject {
     grid-column: 2;
@@ -620,7 +620,7 @@ ol.rows {
   }
   .row {
     display: grid;
-    grid-template-columns: 9rem minmax(0, 1.3fr) minmax(0, 1.7fr) 6.5rem 9rem;
+    grid-template-columns: var(--kind-width, 9rem) minmax(0, 1.3fr) minmax(0, 1.7fr) 6.5rem 9rem;
     gap: 12px;
     align-items: start;
     padding: 10px 12px;
@@ -641,4 +641,118 @@ ol.rows {
     grid-column: 5;
     grid-row: 1;
   }
+}
+
+/* Branch tree in the status column of All activity. src/ui/activity-tree.js draws one cell per row, with y = 0 on
+   the status label. Below 640px the status has no column of its own, so rows keep their dot. */
+.tree,
+.tree-legend {
+  display: none;
+}
+@media (min-width: 640px) {
+  .rows.with-tree {
+    --tree-width: calc(var(--tree-lanes) * 10px);
+    --tree-label-y: 25px;
+    --kind-width: calc(9rem + var(--tree-width) - 8px);
+  }
+  .with-tree .row {
+    position: relative;
+  }
+  .with-tree .kind {
+    padding-left: calc(var(--tree-width) + 4px);
+  }
+  .with-tree .kind > .d,
+  .with-tree .kind > svg {
+    display: none;
+  }
+  .tree {
+    display: block;
+    position: absolute;
+    top: -1px;
+    left: 12px;
+    width: var(--tree-width);
+    height: calc(100% + 1px);
+    pointer-events: none;
+  }
+  .tree g {
+    transform: translateY(var(--tree-label-y));
+  }
+  .tree-legend {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px 6px;
+    margin: 0;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border);
+  }
+  .tree-key {
+    width: 22px;
+    height: 12px;
+    margin-left: 10px;
+  }
+  .tree-key:first-child {
+    margin-left: 0;
+  }
+  .tree-key.ring {
+    width: 14px;
+  }
+}
+@media (min-width: 1024px) {
+  .rows.with-tree {
+    --tree-label-y: 23px;
+  }
+}
+.tree line,
+.tree path,
+.tree-key path {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.75;
+  stroke-linecap: round;
+}
+.tree circle,
+.tree-key circle {
+  fill: currentColor;
+}
+.tree .dot {
+  stroke: var(--card);
+  stroke-width: 1.5;
+}
+.tree .hole,
+.tree-key .hole {
+  fill: var(--card);
+  stroke: currentColor;
+  stroke-width: 1.75;
+}
+.tree .assumed,
+.tree-key .assumed {
+  stroke-dasharray: 1 4;
+}
+.tree .tail {
+  opacity: 0.45;
+}
+.lane-1 {
+  color: var(--lane-1);
+}
+.lane-2 {
+  color: var(--lane-2);
+}
+.lane-3 {
+  color: var(--lane-3);
+}
+.lane-4 {
+  color: var(--lane-4);
+}
+.lane-5 {
+  color: var(--lane-5);
+}
+.lane-6 {
+  color: var(--lane-6);
+}
+.lane-none {
+  color: var(--neutral-solid);
+}
+.lane-crit {
+  color: var(--critical);
 }
