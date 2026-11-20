@@ -333,12 +333,14 @@ export function createActivityQuery(db, hydrate, requireRepo, activityRevision) 
     const items = selectedGroups.flatMap(group => projectActivity(group.key, members.get(group.key) || [], group.representative) || []);
     const { counts, newCounts, total, newItems, newUpdates } = summarizeCounts(countRows);
     const nextCursor = groups.length > pageSize ? encodeCursor(selectedGroups.at(-1), maxSequence, filterKey, revision) : null;
-    return { items, nextCursor, total, newItems, newUpdates, counts, newCounts, filterOptions: options };
+    return { items, nextCursor, total, newItems, newUpdates, counts, newCounts, filterOptions: options, asOf: maxSequence };
   }
   /** @param {ActivityRequest} input */
-  queryActivity.unseenIds = input => {
+  // `through` is the snapshot a page was read at, so updates recorded after the user saw the page stay unread.
+  queryActivity.unseenIds = (/** @type {ActivityRequest & { through?: number }} */ input) => {
     const { selected, filter, needles, names } = readScope(input);
-    const maxSequence = Number(db.prepare('SELECT COALESCE(MAX(sequence),0) AS id FROM activity_members').get()?.id);
+    const latest = Number(db.prepare('SELECT COALESCE(MAX(sequence),0) AS id FROM activity_members').get()?.id);
+    const maxSequence = input.through === undefined ? latest : Math.min(input.through, latest);
     const { sql, params, selection } = matchedScope(memberScope(maxSequence, selected, needles, names), filter, 'new');
     return db
       .prepare(

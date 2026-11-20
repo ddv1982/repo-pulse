@@ -771,7 +771,7 @@ async function groupedFixture(t) {
 
 test('build transitions group into one item and exact acknowledgement leaves a later result new', async t => {
   const { page, runtime, event } = await groupedFixture(t);
-  await expect(page.getByRole('region', { name: 'Activity summary' })).toContainText('1 new item shown · 2 updates');
+  await expect(page.getByRole('region', { name: 'Activity summary' })).toContainText('1 new item · 2 updates');
   await expect(page.locator('[data-summary-kind="CI runs"]')).toContainText('1 running');
   await expect(page.locator('.cell .val.zero')).toHaveCount(3);
   await expect(page.locator('li.row .kind')).toHaveText('Running');

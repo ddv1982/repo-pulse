@@ -337,7 +337,13 @@ export function createApp({
     {
       method: 'GET',
       path: '/api/activity/unseen',
-      handler: ({ res, url }) => json(res, 200, { ids: store.queryActivity.unseenIds(activityScope(url.searchParams)) }),
+      handler: ({ res, url }) => {
+        const raw = url.searchParams.get('through');
+        const through = raw === null ? undefined : Number(raw);
+        if (through !== undefined && !(Number.isSafeInteger(through) && through >= 0))
+          throw Object.assign(new Error('Invalid activity snapshot.'), { code: 'BAD_REQUEST' });
+        json(res, 200, { ids: store.queryActivity.unseenIds({ ...activityScope(url.searchParams), through }) });
+      },
     },
     {
       method: 'POST',

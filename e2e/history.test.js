@@ -1335,3 +1335,27 @@ test('People detail only acknowledges the updates that matched the originating r
   assert.equal(runtime.store.getEvent('alice-build').seen, true);
   assert.equal(runtime.store.getEvent('other-build').seen, false);
 });
+
+test('marking the shown rows in New updates lowers the totals even when the next rows take their place', async t => {
+  const { runtime, page } = await demo(t);
+  runtime.store.acknowledge(runtime.store.listEvents().map(event => event.id));
+  runtime.store.insertEvents(
+    Array.from({ length: 150 }, (_, index) => ({
+      id: `backlog-${index}`,
+      repoId: 'demo-orders',
+      kind: 'push',
+      title: `Backlog push ${index}`,
+      branch: `feature/backlog-${index}`,
+      time: new Date(Date.now() - index * 60000).toISOString(),
+    })),
+  );
+  await page.goto(runtime.url + '/#activity/new');
+  const summary = page.getByRole('region', { name: 'Activity summary' });
+  await expect(summary.locator('.headline b')).toHaveText('150 new items');
+  await expect(page.locator('[data-summary-kind="Pushes"] .val')).toHaveText('150');
+  await page.getByRole('button', { name: 'Mark shown seen (50)', exact: true }).click();
+  await expect(page.getByText('50 updates marked seen.')).toBeVisible();
+  await expect(summary.locator('.headline b')).toHaveText('100 new items');
+  await expect(page.locator('[data-summary-kind="Pushes"] .val')).toHaveText('100');
+  await expect(page.locator('li[data-event-id^="backlog-"]')).toHaveCount(50);
+});

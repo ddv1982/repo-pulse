@@ -437,3 +437,16 @@ test('saved Activity filters validate inputs and preserve an explicit empty scop
   assert.equal((await fetch(url + path + '/' + preset.id, { method: 'DELETE' })).status, 200);
   assert.deepEqual((await (await fetch(url + '/api/state')).json()).savedFilters, []);
 });
+
+test('the unread lookup honours a page snapshot and rejects an invalid one', async t => {
+  const { url, store } = await fixture(t);
+  const page = await (await fetch(`${url}/api/activity?view=new`)).json();
+  const before = (await (await fetch(`${url}/api/activity/unseen`)).json()).ids;
+  assert.ok(before.length > 0);
+  const repoId = store.listRepos()[0].id;
+  store.insertEvents([{ id: 'after-snapshot', repoId, kind: 'push', title: 'Later', time: '2020-01-01T00:00:00Z' }]);
+  const bounded = (await (await fetch(`${url}/api/activity/unseen?through=${page.asOf}`)).json()).ids;
+  assert.deepEqual(new Set(bounded), new Set(before));
+  assert.ok((await (await fetch(`${url}/api/activity/unseen`)).json()).ids.includes('after-snapshot'));
+  for (const bad of ['-1', '1.5', 'x']) assert.equal((await fetch(`${url}/api/activity/unseen?through=${bad}`)).status, 400, bad);
+});
