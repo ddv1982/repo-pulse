@@ -448,6 +448,7 @@ ol.rows {
 }
 /* What happened, then who and when, then where the branch started: each on its own line. */
 .event-main {
+  color: var(--foreground-soft);
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -469,7 +470,7 @@ ol.rows {
 }
 .event-meta .actor {
   font-weight: 500;
-  color: color-mix(in oklab, var(--foreground) 80%, var(--muted-foreground));
+  color: var(--foreground-soft);
 }
 .event-origin {
   display: flex;
@@ -648,6 +649,10 @@ ol.rows {
 }
 
 @media (max-width: 639px) {
+  /* The phone's row controls are taller than the label, so the label centres on them. */
+  .row > .kind {
+    align-self: center;
+  }
   .type-menu {
     position: relative;
   }

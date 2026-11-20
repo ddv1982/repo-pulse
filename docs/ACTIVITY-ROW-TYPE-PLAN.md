@@ -37,10 +37,10 @@ Scope: Activity rows (`src/ui/feed.js`, `src/activity-text.js`, `web/styles/feed
 
 ## Phase 5: finish (nice-to-have)
 
-- [ ] Below 640px, centre the type label against the Seen control (6px off today).
-- [ ] Trial a softer summary colour (`--foreground-soft`, the actor's existing mix, as a token) so the summary does not compete with the title. Keep it only if light and dark screenshots read better; otherwise record why it was dropped.
-- [ ] Refresh `docs/screenshots/activity-{light,dark}.png` and any README wording that changed.
-- [ ] Full gate: `npm run check`, `check:types`, `lint`, `test`, `test:ui`.
+- [x] Below 640px, centre the type label against the Seen control (6px off today).
+- [x] Trial a softer summary colour (`--foreground-soft`, the actor's existing mix, as a token) so the summary does not compete with the title. Keep it only if light and dark screenshots read better; otherwise record why it was dropped. Result: kept; the summary steps back from the title in both themes and the colour is the actor's existing mix.
+- [x] Refresh `docs/screenshots/activity-{light,dark}.png` and any README wording that changed.
+- [x] Full gate: `npm run check`, `check:types`, `lint`, `test`, `test:ui`.
 
 ## Out of scope
 

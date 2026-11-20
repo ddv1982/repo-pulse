@@ -12,6 +12,8 @@
   --muted: oklch(0.962 0.004 264);
   --table-head: oklch(0.985 0.002 264);
   --muted-foreground: oklch(0.44 0.016 264);
+  /* Between foreground and muted: text that supports a title without competing with it. Resolves per theme. */
+  --foreground-soft: color-mix(in oklab, var(--foreground) 80%, var(--muted-foreground));
   --accent: oklch(0.955 0.005 264);
   --border: oklch(0.9 0.006 264);
   --input: oklch(0.865 0.008 264);
