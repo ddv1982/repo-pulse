@@ -903,5 +903,15 @@ test('a CI run on a pull request ref carries the refs of the stored pull request
     ],
   );
   assert.equal(store.getEvent('run-7').data.pullRequest, undefined, 'the saved event is not changed');
+  // Timestamps with and without fractions compare by time, and a PR event without a source ref is passed over.
+  store.insertEvents([
+    pr('pr-retarget', '2026-11-11T10:00:00.800Z', { sourceRefName: 'refs/heads/feature/a', targetRefName: 'refs/heads/release' }),
+    pr('pr-bare', '2026-11-12T10:00:00Z', {}),
+  ]);
+  assert.deepEqual(store.queryActivity({ limit: 1 }).items[0].data.pullRequest, {
+    id: 7,
+    sourceRefName: 'refs/heads/feature/a',
+    targetRefName: 'refs/heads/release',
+  });
   store.close();
 });

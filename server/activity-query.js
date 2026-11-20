@@ -218,7 +218,8 @@ function attachPullRequests(db, groups) {
         json_extract(data,'$.data.fork') AS fork
       FROM events WHERE repo_id IN (${repoIds.map(() => '?').join(',')}) AND json_extract(data,'$.kind')='pr'
         AND CAST(json_extract(data,'$.data.pullRequestId') AS TEXT) IN (${ids.map(() => '?').join(',')})
-      ORDER BY time DESC, observed_at DESC, rowid DESC`,
+        AND json_extract(data,'$.data.sourceRefName') IS NOT NULL
+      ORDER BY julianday(time) DESC, julianday(observed_at) DESC, rowid DESC`,
     )
     .all(...repoIds, ...ids);
   const done = new Set();
@@ -229,7 +230,7 @@ function attachPullRequests(db, groups) {
     done.add(key);
     const pullRequest = {
       id: Number(row.id),
-      ...(row.source ? { sourceRefName: String(row.source) } : {}),
+      sourceRefName: String(row.source),
       ...(row.target ? { targetRefName: String(row.target) } : {}),
       ...(row.fork ? { fork: JSON.parse(String(row.fork)) } : {}),
     };
