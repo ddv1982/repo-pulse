@@ -10,6 +10,40 @@ import { checkoutFixture, git, squashFixture } from './fixtures/checkout.js';
 
 const exec = promisify(execFile);
 
+test('an in-flight Check holds the write lock against Activity Switch in another repository', async t => {
+  const { source, local, remote, repo, original } = checkoutFixture(t);
+  git(source, 'switch', '-c', 'topic');
+  git(source, 'push', 'origin', 'topic');
+  const otherPath = join(local, '..', 'other-checkout');
+  git(source, 'clone', '--no-local', remote, otherPath);
+  const other = { ...repo, id: 'other', localPath: otherPath };
+  const fetching = Promise.withResolvers();
+  const release = Promise.withResolvers();
+  const checkoutGit = createCheckoutGit({
+    matchesRemote: url => url === remote,
+    run: async (path, args, options) => {
+      if (args[2] === 'fetch') {
+        fetching.resolve();
+        await release.promise;
+      }
+      return runGit(path, args, options);
+    },
+  });
+  const otherStatus = await checkoutGit.status(other);
+  const check = checkoutGit.update(repo, 'check', await checkoutGit.status(repo));
+  try {
+    await Promise.race([fetching.promise, check.then(() => assert.fail('Check did not reach fetch.'))]);
+    await assert.rejects(checkoutGit.switchToActivityBranch(other, 'topic', otherStatus), /Another checkout is updating/);
+    assert.equal(git(otherPath, 'rev-parse', 'HEAD'), original);
+    assert.equal(git(otherPath, 'branch', '--show-current'), 'main');
+  } finally {
+    release.resolve();
+    await check;
+  }
+  const switched = await checkoutGit.switchToActivityBranch(other, 'topic', otherStatus);
+  assert.equal(switched.checkout.branch, 'topic');
+});
+
 test('Activity switch keeps the commits, upstream and compatible local edits of an existing feature branch', async t => {
   const { source, local, repo, checkoutGit, original, commit } = checkoutFixture(t);
   const branch = 'feature/topic';
@@ -103,6 +137,13 @@ test('Activity confirms a rewrite before switching and preserves protection for 
   assert.equal(git(local, 'branch', '--show-current'), 'main');
   assert.equal(git(local, 'rev-parse', 'origin/topic'), oldTip);
   assert.equal(git(local, 'for-each-ref', 'refs/repo-pulse/upstream-rewrites'), '');
+  const otherAdapter = createCheckoutGit({ matchesRemote: url => url === remote });
+  await assert.rejects(
+    otherAdapter.switchToActivityBranch(repo, 'topic', expected, { eventId: 'rewrite', confirmation: paused.switchReview.token }),
+    /changed since confirmation/,
+  );
+  assert.equal(git(local, 'branch', '--show-current'), 'main');
+  assert.equal(git(local, 'rev-parse', 'origin/topic'), oldTip);
   const switched = await checkoutGit.switchToActivityBranch(repo, 'topic', expected, {
     eventId: 'rewrite',
     confirmation: paused.switchReview.token,

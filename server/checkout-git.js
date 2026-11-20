@@ -1,17 +1,18 @@
 // @ts-check
 
 import { execFile } from 'node:child_process';
-import { createHash, createHmac, randomBytes } from 'node:crypto';
+import { createHash } from 'node:crypto';
 import { access, realpath, stat } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { promisify } from 'node:util';
 import { hasRemoteCredentials, parseRemote } from './repositories.js';
-import { adviseMissingUpstream, ancestry, isCommit } from './checkout-advice.js';
-import { branchFollowups, branchProblem, memoryFollowups, readRef, switchLocalBranch } from './checkout-branches.js';
-import { isSymbolicRef, worktreeUsesBranch } from './checkout-delete-guard.cjs';
+import { adviseMissingUpstream, isCommit } from './checkout-advice.js';
+import { branchFollowups, branchProblem, memoryFollowups } from './checkout-branches.js';
+import { isSymbolicRef } from './checkout-delete-guard.cjs';
 import { checkoutDiagnostic, memoryObservations, observedRewrite } from './checkout-observations.js';
-import { verifyTrackingMapping } from './checkout-tracking.js';
-import { archivedSwitchRewrite, readDirectCommit, refreshSwitchTracking } from './checkout-switch-refs.js';
+import { createActivitySwitch } from './checkout-activity-switch.js';
+import { createCheckoutUpdater } from './checkout-update.js';
+import { archivedSwitchRewrite, readDirectCommit } from './checkout-switch-refs.js';
 
 /**
  * Checkouts belong to watched repositories, so their Azure identity is always present.
@@ -24,6 +25,7 @@ import { archivedSwitchRewrite, readDirectCommit, refreshSwitchTracking } from '
  * @typedef {{ remote: string, source: string, tracking: string, url: string }} Upstream
  * @typedef {{ token: string, upstream: string, previous: string|null, tip: string, ahead: number, behind: number }} ActivitySwitchReview
  * @typedef {'in-progress'|'detached'|'unborn'|'dirty'|'no-upstream'|'different-remote'|'upstream-missing'|'upstream-rewritten'|'fetch-failed'|'unknown'|'diverged'|'ahead'|'current'} BlockedState
+ * @typedef {(path: string, repo: LinkedRepo) => Promise<{ snapshot: ActiveCheckout, target: Upstream|null, gitDirectory: string|null }>} ReadCheckoutStatus
  * @typedef {CheckoutIntent & CheckoutReading & { state: 'behind', canCheck: true, canPull: true }} PullableCheckout
  * @typedef {CheckoutReading & { state: BlockedState, canCheck: boolean, canPull: false, diagnostic?: import('./checkout-observations.js').CheckoutDiagnostic }} BlockedCheckout
  * @typedef {PullableCheckout | BlockedCheckout} ActiveCheckout
@@ -226,22 +228,6 @@ function checkoutState({ operation, observation, rewrite, target, branch, head, 
   return 'current';
 }
 
-/**
- * @param {{ snapshot: ActiveCheckout, target: Upstream|null }} reading @param {'check'|'pull'|'update-target'} operation
- * @returns {Upstream}
- */
-function eligibleTarget({ snapshot, target }, operation) {
-  if (
-    !target ||
-    !snapshot.canCheck ||
-    (operation === 'pull' && !snapshot.canPull) ||
-    (operation === 'update-target' && (snapshot.dirty || !['behind', 'current'].includes(snapshot.state)))
-  ) {
-    throw problem('The checkout is no longer eligible. Review its Git status and try again.');
-  }
-  return target;
-}
-
 /** @param {unknown} value @returns {value is CheckoutIntent} */
 export function isCheckoutIntent(value) {
   return hasCheckoutSelection(value) && typeof value.upstream === 'string';
@@ -277,8 +263,44 @@ export function createCheckoutGit({
   /** @type {Map<string, { path: string, until: number, value: Promise<CheckoutStatus> }>} */
   const readings = new Map();
   let updating = false;
-  const switchSecret = randomBytes(32);
+  const updateAt = createCheckoutUpdater({
+    run,
+    hooks,
+    now,
+    observations,
+    problem,
+    statusAt,
+    validateUpstream,
+    fetchUpstream,
+    trackingTip,
+    fetchFailure,
+    observedAt,
+    upstreamIdentity,
+    readMissing,
+    matchesIntent,
+    verifyCheckoutDirectory,
+  });
   const branches = branchFollowups({ run, hooks, followups, statusAt, updateAt, readMissing, matchesIntent });
+  const switchAt = createActivitySwitch({
+    run,
+    hooks,
+    now,
+    observations,
+    problem,
+    statusAt,
+    inspect,
+    decorate: branches.decorate,
+    remoteTarget,
+    upstreamFor,
+    validateUpstream,
+    fetchUpstream,
+    trackingTip,
+    fetchFailure,
+    observedAt,
+    upstreamIdentity,
+    matchesIntent,
+    verifyCheckoutDirectory,
+  });
 
   /** @param {LinkedRepo} repo @param {string} path @param {Upstream|null} target @param {string|null} gitDirectory */
   function observedAt(repo, path, target, gitDirectory) {
@@ -408,7 +430,7 @@ export function createCheckoutGit({
     return { operation: operations[found.indexOf(true)]?.[1], gitDirectory };
   }
 
-  /** @param {string} path @param {LinkedRepo} repo @returns {Promise<{ snapshot: ActiveCheckout, target: Upstream|null, gitDirectory: string|null }>} */
+  /** @param {string} path @param {LinkedRepo} repo @returns {ReturnType<ReadCheckoutStatus>} */
   async function statusAt(path, repo) {
     // Checked again here because a Pull or branch switch can bring in a gitlink over a nested checkout.
     refuseConfiguredCommands(await configuredCommands(path));
@@ -512,68 +534,6 @@ export function createCheckoutGit({
     return value;
   }
 
-  /** @param {string} path @param {string} head @param {string} tip */
-  async function refuseIgnoredOverlap(path, head, tip) {
-    const additions = (await run(path, ['diff', '--no-renames', '--diff-filter=A', '--name-only', '-z', head, tip, '--']))
-      .split('\0')
-      .filter(Boolean);
-    if (!additions.length) return;
-    // Git reports an ignored-file overlap like any untracked one, so name it before merging.
-    const ignored = (await run(path, ['ls-files', '--others', '--ignored', '--exclude-standard', '--directory', '-z']))
-      .split('\0')
-      .filter(Boolean)
-      .map(name => name.replace(/\/$/, '').toLowerCase());
-    if (
-      additions.some(name => {
-        const incoming = name.toLowerCase();
-        return ignored.some(local => local === incoming || local.startsWith(`${incoming}/`) || incoming.startsWith(`${local}/`));
-      })
-    )
-      throw problem('Incoming files overlap ignored local files. Move them before pulling.');
-  }
-
-  /** @param {string} path @param {string} branch @param {string} tip */
-  async function fastForward(path, branch, tip) {
-    try {
-      // A strategy from branch.<name>.mergeOptions or pull.twohead makes even --ff-only create a merge commit,
-      // so both are cleared for this merge. --no-squash keeps the earlier guard against a configured --squash.
-      // The branch name goes through the config environment, because a name may contain '=', which -c splits on.
-      const count = Number(process.env.GIT_CONFIG_COUNT) || 0;
-      const clearMergeOptions = {
-        GIT_CONFIG_COUNT: String(count + 1),
-        [`GIT_CONFIG_KEY_${count}`]: `branch.${branch}.mergeOptions`,
-        [`GIT_CONFIG_VALUE_${count}`]: '',
-      };
-      await run(
-        path,
-        [
-          '-c',
-          'pull.twohead=ort',
-          '-c',
-          `core.hooksPath=${hooks}`,
-          '-c',
-          'maintenance.auto=false',
-          '-c',
-          'submodule.recurse=false',
-          'merge',
-          '--ff-only',
-          '--no-squash',
-          '--no-autostash',
-          '--no-overwrite-ignore',
-          '--no-stat',
-          tip,
-        ],
-        { guard: clearMergeOptions },
-      );
-    } catch {
-      throw problem(
-        'Pull stopped before the branch was updated. Git could not preserve the local checkout. Review overlapping changes in Git and try again.',
-      );
-    }
-    if ((await run(path, ['rev-parse', 'HEAD'])).trim() !== tip)
-      throw problem('Git did not move the branch to the upstream commit. Review the checkout in Git.');
-  }
-
   /** @param {string} path @param {LinkedRepo} repo @param {Upstream} target @param {ActiveCheckout} snapshot */
   async function readMissing(path, repo, target, snapshot) {
     return snapshot.head
@@ -593,6 +553,13 @@ export function createCheckoutGit({
   /** @param {CheckoutReading} snapshot @param {Pick<CheckoutReading, 'branch'|'head'|'upstream'|'identity'>} expected */
   function matchesIntent(snapshot, expected) {
     return /** @type {const} */ (['branch', 'head', 'upstream', 'identity']).every(key => snapshot[key] === expected[key]);
+  }
+
+  /** @param {string} path @param {string|null} expected */
+  async function verifyCheckoutDirectory(path, expected) {
+    const gitDir = (await run(path, ['rev-parse', '--absolute-git-dir'])).trimEnd();
+    if (!expected || !gitDir || opaqueDirectory(await directoryIdentity(gitDir)) !== expected)
+      throw problem('The checkout changed. Review the current branch and try again.');
   }
 
   /** @template T @param {LinkedRepo} repo @param {(path: string) => Promise<T>} action */
@@ -618,30 +585,6 @@ export function createCheckoutGit({
     if (await isSymbolicRef(run, path, target.tracking)) throw problem('The upstream tracking ref is symbolic. Review it in Git.');
   }
 
-  /** Saves the pre-fetch tracking samples and returns what the later observation saves build on.
-   * @param {string} path @param {LinkedRepo} repo @param {{snapshot: ActiveCheckout, gitDirectory: string|null}} before @param {Upstream} target */
-  async function recordBaseline(path, repo, { snapshot, gitDirectory }, target) {
-    const trackingBeforeFetch = await trackingTip(path, target.tracking, true);
-    const saved = observedAt(repo, path, target, gitDirectory);
-    const baselines = [
-      ...new Set([trackingBeforeFetch, ...(saved?.pending ?? []), saved?.tracking].filter(value => typeof value === 'string')),
-    ];
-    const baseline = {
-      identity: upstreamIdentity(path, target, gitDirectory),
-      tracking: saved?.tracking,
-      lastCheck: saved?.lastCheck,
-      pending: baselines,
-    };
-    const canClearRewrite = Boolean(
-      !snapshot.dirty && saved?.rewrite && (snapshot.head === saved.rewrite.tip || (snapshot.ahead === 0 && snapshot.behind === 0)),
-    );
-    // Keep both tracking samples if Git advances the ref before this check completes.
-    if (baselines.length) observations.save(repo.id, { ...saved, ...baseline });
-    return { saved, baselines, baseline, canClearRewrite, retainedRewrite: saved?.rewrite };
-  }
-
-  /** @typedef {Awaited<ReturnType<typeof recordBaseline>>} Baseline */
-
   /** @param {string} path @param {Upstream} target @param {string|null} [destination] */
   async function fetchUpstream(path, target, destination = target.tracking) {
     await run(path, [
@@ -659,120 +602,6 @@ export function createCheckoutGit({
       target.url,
       destination ? `+${target.source}:${destination}` : target.source,
     ]);
-  }
-
-  /** @param {string} path @param {LinkedRepo} repo @param {'check'|'pull'|'update-target'} operation
-   * @param {ActiveCheckout} snapshot @param {Upstream} target @param {Baseline} recorded @param {unknown} failure */
-  async function recordFetchFailure(path, repo, operation, snapshot, target, { baseline, retainedRewrite }, failure) {
-    const reason = fetchFailure(failure);
-    const advice = reason === 'missing-ref' && operation !== 'update-target' ? await readMissing(path, repo, target, snapshot) : undefined;
-    const { snapshot: current } = await statusAt(path, repo);
-    if (!matchesIntent(snapshot, current) || snapshot.switchIdentity !== current.switchIdentity)
-      throw problem('The checkout changed during the check. Review the current branch and try again.');
-    observations.save(repo.id, {
-      ...baseline,
-      rewrite: retainedRewrite,
-      ...(reason === 'missing-ref' && snapshot.head
-        ? { missing: { head: snapshot.head, advice } }
-        : reason === 'missing-ref'
-          ? {}
-          : { failure: reason }),
-    });
-    return { checkout: (await statusAt(path, repo)).snapshot, updated: false };
-  }
-
-  /** Records the fetched tip and any rewrite, then rereads the checkout and records the branch check.
-   * @param {string} path @param {LinkedRepo} repo @param {{ snapshot: ActiveCheckout, gitDirectory: string|null }} before
-   * @param {Upstream} target @param {Baseline} recorded */
-  async function recordFetch(path, repo, before, target, { saved, baselines, baseline, canClearRewrite, retainedRewrite }) {
-    const { snapshot } = before;
-    await verifyCheckoutDirectory(path, snapshot.switchIdentity);
-    const fetchedAt = new Date(now()).toISOString();
-    const tip = await readDirectCommit(run, path, target.tracking);
-    if (!tip) throw problem('The upstream commit is unavailable.');
-    const { pending, rewrite: observed } = await observedRewrite(run, path, baselines, tip);
-    const retained = retainedRewrite?.verified && (!canClearRewrite || pending.length) ? retainedRewrite : undefined;
-    const rewrite = observed?.verified ? observed : (retained ?? observed);
-    const observedAfterFetch = { identity: baseline.identity, tracking: tip, pending, rewrite, lastCheck: saved?.lastCheck };
-    await verifyFetchedTip(path, target, tip);
-    await verifyCheckoutDirectory(path, snapshot.switchIdentity);
-    observations.save(repo.id, observedAfterFetch);
-    const after = await statusAt(path, repo);
-    if (!matchesIntent(snapshot, after.snapshot) || before.gitDirectory !== after.gitDirectory)
-      throw problem('The checkout or its upstream changed during the check. The branch was not updated.');
-    await verifyCheckoutDirectory(path, snapshot.switchIdentity);
-    if (snapshot.branch && before.gitDirectory && before.gitDirectory === after.gitDirectory) {
-      observations.save(repo.id, {
-        ...observedAfterFetch,
-        lastCheck: { branch: snapshot.branch, at: fetchedAt, tip, gitDirectory: before.gitDirectory },
-      });
-    }
-    return { after: after.snapshot, tip };
-  }
-
-  /** @param {string} path @param {Upstream} target @param {string} tip */
-  async function verifyFetchedTip(path, target, tip) {
-    if ((await readDirectCommit(run, path, target.tracking)) !== tip)
-      throw problem('The checkout or its upstream changed during the check. The branch was not updated.');
-  }
-
-  /** Decides from the post-fetch reading whether to fast-forward, and does so.
-   * @param {string} path @param {LinkedRepo} repo @param {'check'|'pull'|'update-target'} operation
-   * @param {ActiveCheckout} after @param {Upstream} target @param {string} tip @param {string} [result] */
-  async function finishUpdate(path, repo, operation, after, target, tip, result) {
-    if (operation === 'check' || after.state === 'upstream-rewritten') return { checkout: after, updated: false };
-    if (!['behind', 'current'].includes(after.state) || (operation === 'update-target' && after.dirty)) {
-      throw problem('The checkout or its upstream changed during the check. The branch was not updated.');
-    }
-    if (result && (await ancestry(run, path, result, tip)) !== true) {
-      throw problem('The latest upstream could not be verified to contain the PR result.');
-    }
-    if (after.state === 'current') return { checkout: after, updated: false };
-    if (!after.canPull) throw problem('The checkout is no longer eligible.');
-    // Checked after identity and eligibility so a rewritten upstream or changed checkout is reported first.
-    await refuseIgnoredOverlap(path, after.head, tip);
-    await run(path, ['merge-base', '--is-ancestor', after.head, tip]);
-    await verifyFetchedTip(path, target, tip);
-    await verifyCheckoutDirectory(path, after.switchIdentity);
-    await fastForward(path, after.branch, tip);
-    try {
-      return { checkout: (await statusAt(path, repo)).snapshot, updated: true };
-    } catch (caught) {
-      // The branch already moved, so no failure here may read as if Pull did nothing. Unexpected errors keep their text local.
-      const error = /** @type {Error & { status?: number, diagnostic?: unknown }} */ (caught);
-      const reason = error.status ? error.message : 'Review the checkout in Git.';
-      throw Object.assign(problem(`The branch was updated to the upstream commit. ${reason}`, error.status === 404 ? 404 : 409), {
-        diagnostic: error.diagnostic,
-      });
-    }
-  }
-
-  /** @param {string} path @param {LinkedRepo} repo @param {'check'|'pull'|'update-target'} operation
-   * @param {Pick<CheckoutReading, 'branch'|'head'|'upstream'|'identity'>} expected @param {string} [result] */
-  async function updateAt(path, repo, operation, expected, result) {
-    try {
-      const before = await statusAt(path, repo);
-      const { snapshot } = before;
-      if (!expected || !matchesIntent(snapshot, expected)) throw problem('The checkout changed. Review the current branch and try again.');
-      const target = eligibleTarget(before, operation);
-      await validateUpstream(path, target);
-      const recorded = await recordBaseline(path, repo, before, target);
-      await verifyCheckoutDirectory(path, snapshot.switchIdentity);
-      try {
-        await fetchUpstream(path, target);
-      } catch (failure) {
-        return await recordFetchFailure(path, repo, operation, snapshot, target, recorded, failure);
-      }
-      const { after, tip } = await recordFetch(path, repo, before, target, recorded);
-      return await finishUpdate(path, repo, operation, after, target, tip, result);
-    } catch (error) {
-      if (error instanceof Error && 'status' in error && (error.status === 404 || error.status === 409)) throw error;
-      throw problem(
-        operation === 'check'
-          ? 'Could not check the upstream. Check Git access and try again.'
-          : 'Git could not finish the update. Review the checkout and try again.',
-      );
-    }
   }
 
   /** @param {LinkedRepo} repo @param {'check'|'pull'} operation @param {CheckoutIntent} expected */
@@ -800,226 +629,11 @@ export function createCheckoutGit({
     });
   }
 
-  /** @param {string} path @param {LinkedRepo} repo @param {string} source */
-  async function newBranchTarget(path, repo, source) {
-    const remotes = (await run(path, ['remote'])).trimEnd().split('\n').filter(Boolean);
-    const targets = (await Promise.all(remotes.map(remote => remoteTarget(path, repo, remote, source))))
-      .map(({ target }) => target)
-      .filter(target => target !== null);
-    if (targets.length !== 1) throw problem('This checkout needs one matching Git remote for the watched repository.');
-    return targets[0];
-  }
-
-  /** @param {string} path @param {Upstream} target */
-  async function activityRemoteTip(path, target) {
-    const refs = await run(path, ['ls-remote', '--exit-code', '--refs', '--', target.url, target.source]);
-    const [tip] =
-      refs
-        .split('\n')
-        .find(line => line.endsWith(`\t${target.source}`))
-        ?.split('\t') ?? [];
-    if (!isCommit(tip)) throw problem('The branch no longer exists on the watched remote.');
-    return tip;
-  }
-
-  /** @param {string} path @param {Upstream} target */
-  async function activityTip(path, target) {
-    try {
-      const tip = await activityRemoteTip(path, target);
-      if ((await trackingTip(path, tip)) === tip) return tip;
-      // Fetch just the objects until the old tracking tip has been classified.
-      await fetchUpstream(path, target, null);
-      const latest = await activityRemoteTip(path, target);
-      if ((await trackingTip(path, latest)) !== latest) throw problem('The branch changed during the fetch. Try switching again.');
-      return latest;
-    } catch (error) {
-      if (error instanceof Error && 'status' in error) throw error;
-      const reason = fetchFailure(error);
-      if (reason === 'missing-ref' || (error instanceof Error && 'code' in error && error.code === 2))
-        throw problem('The branch no longer exists on the watched remote.');
-      throw problem(`${reason.title}. ${reason.suggestion}`);
-    }
-  }
-
-  /** @param {string} path @param {LinkedRepo} repo @param {string} name @param {boolean} existingBranch */
-  async function activityTarget(path, repo, name, existingBranch) {
-    const source = `refs/heads/${name}`;
-    if (await isSymbolicRef(run, path, source)) throw problem('The local branch ref is symbolic. Review it in Git.');
-    const target = existingBranch ? (await upstreamFor(path, repo, name)).target : await newBranchTarget(path, repo, source);
-    if (target?.source !== source) throw problem('The local branch tracks a different upstream or has no upstream. Review it in Git.');
-    await validateUpstream(path, target);
-    await verifyTrackingMapping(run, path, target);
-    return target;
-  }
-
-  /** @param {ActiveCheckout} snapshot @param {SwitchIntent} expected */
-  function checkSwitchIntent(snapshot, expected) {
-    if (!matchesIntent(snapshot, expected) || snapshot.switchIdentity !== expected.switchIdentity) {
-      throw problem('The checkout changed. Review the current branch and try again.');
-    }
-    if (snapshot.state === 'in-progress') throw problem('Finish the Git operation before switching branches.');
-  }
-
-  /** @param {string} path @param {string|null} expected */
-  async function verifyCheckoutDirectory(path, expected) {
-    const gitDir = (await run(path, ['rev-parse', '--absolute-git-dir'])).trimEnd();
-    if (!expected || !gitDir || opaqueDirectory(await directoryIdentity(gitDir)) !== expected)
-      throw problem('The checkout changed. Review the current branch and try again.');
-  }
-
-  /** @param {string} path @param {LinkedRepo} repo @param {Upstream} target @param {string|null} localTip @param {string|null} gitDirectory */
-  async function planActivitySwitch(path, repo, target, localTip, gitDirectory) {
-    const previous = await readDirectCommit(run, path, target.tracking);
-    const tip = await activityTip(path, target);
-    const saved = observedAt(repo, path, target, gitDirectory);
-    const rewrite = saved?.rewrite;
-    const retained =
-      rewrite?.verified && (await ancestry(run, path, rewrite.tip, tip)) === true
-        ? { previous: rewrite.previous, tip: rewrite.tip }
-        : undefined;
-    const baselines = new Set(
-      [previous, saved?.tracking, retained ? undefined : rewrite?.previous, ...(saved?.pending ?? [])]
-        .filter(oid => typeof oid === 'string')
-        .filter(isCommit),
-    );
-    const replaced = [];
-    for (const baseline of baselines) {
-      const forward = await ancestry(run, path, baseline, tip);
-      if (forward === null) throw problem('Git could not verify upstream history. Review the checkout in Git before switching.');
-      if (!forward) replaced.push(baseline);
-    }
-    const counts = localTip ? (await run(path, ['rev-list', '--left-right', '--count', `${localTip}...${tip}`])).trim() : '0\t0';
-    if (!/^\d+\s+\d+$/.test(counts)) throw problem('Git could not compare the local branch with the remote tip.');
-    const [ahead, behind] = counts.split(/\s+/).map(Number);
-    return { previous, tip, replaced, retained, ahead, behind };
-  }
-
-  /**
-   * @param {string} path @param {LinkedRepo} repo @param {string} name @param {Upstream} target
-   * @param {string} switchIdentity @param {string|null} localTip @param {string} tip @param {boolean} rewritten
-   */
-  async function finishActivitySwitch(path, repo, name, target, switchIdentity, localTip, tip, rewritten) {
-    try {
-      if (!localTip) {
-        const { snapshot } = await statusAt(path, repo);
-        if (snapshot.branch !== name || snapshot.switchIdentity !== switchIdentity)
-          throw problem('The checkout changed during the switch.');
-        await run(path, ['config', '--local', '--replace-all', `branch.${name}.remote`, target.remote]);
-        await run(path, ['config', '--local', '--replace-all', `branch.${name}.merge`, target.source]);
-      }
-      await validateUpstream(path, target);
-      await verifyTrackingMapping(run, path, target);
-      const { snapshot, target: configured, gitDirectory } = await statusAt(path, repo);
-      if (
-        snapshot.branch === name &&
-        snapshot.switchIdentity === switchIdentity &&
-        snapshot.head === (localTip ?? tip) &&
-        gitDirectory &&
-        JSON.stringify(configured) === JSON.stringify(target) &&
-        (await readDirectCommit(run, path, target.tracking)) === tip
-      ) {
-        observations.save(repo.id, {
-          identity: upstreamIdentity(path, target, gitDirectory),
-          tracking: tip,
-          lastCheck: { branch: name, at: new Date(now()).toISOString(), tip, gitDirectory },
-        });
-        const after = await statusAt(path, repo);
-        if (
-          after.snapshot.identity === snapshot.identity &&
-          after.snapshot.switchIdentity === switchIdentity &&
-          after.snapshot.branch === name &&
-          after.snapshot.head === snapshot.head &&
-          after.snapshot.lastBranchCheck?.matchesFetchedTip
-        ) {
-          const checkout = await branches.decorate(repo, path, after.snapshot);
-          if ((await readDirectCommit(run, path, target.tracking)) !== tip)
-            throw problem('The tracking ref changed during final verification.');
-          await verifyCheckoutDirectory(path, switchIdentity);
-          return {
-            checkout,
-            notice: rewritten ? 'The previous upstream tip was saved for review.' : undefined,
-          };
-        }
-      }
-    } catch {
-      // Git already switched. Report that separately from a failed upstream setup or status read.
-    }
-    return {
-      checkout: await inspect(path, repo),
-      message: 'Git finished switching, but the new checkout or its upstream could not be verified. Review it in Repositories.',
-    };
-  }
-
   /** @param {LinkedRepo} repo @param {string} name @param {SwitchIntent} expected
    * @param {{ eventId?: string, confirmation?: string }} [options]
    */
   function switchToActivityBranch(repo, name, expected, { eventId, confirmation } = {}) {
-    return exclusively(repo, async path => {
-      const current = await statusAt(path, repo);
-      checkSwitchIntent(current.snapshot, expected);
-      if (expected.branch === name) return { checkout: await inspect(path, repo) };
-      const source = `refs/heads/${name}`;
-      try {
-        if (name.startsWith('-') || name === 'HEAD' || name === '@') throw new Error();
-        await run(path, ['check-ref-format', source]);
-      } catch {
-        throw problem('The activity branch name cannot be used as a local Git branch.');
-      }
-
-      const localTip = await readRef(run, path, source);
-      const existingBranch = Boolean(localTip);
-      const target = await activityTarget(path, repo, name, existingBranch);
-      const plan = await planActivitySwitch(path, repo, target, localTip, current.gitDirectory);
-      const { previous, tip, replaced, retained, ahead, behind } = plan;
-      const needsReview = Boolean(replaced.length || (ahead && behind));
-      const token = createHmac('sha256', switchSecret)
-        .update(JSON.stringify([repo.id, eventId, name, expected, target, localTip, plan]))
-        .digest('hex');
-      if (confirmation !== undefined && (!needsReview || confirmation !== token))
-        throw problem('The branch or upstream changed since confirmation. Review the switch again.');
-
-      async function verify() {
-        const destination = await activityTarget(path, repo, name, existingBranch);
-        if (JSON.stringify(destination) !== JSON.stringify(target) || (await readRef(run, path, source)) !== localTip)
-          throw problem('The destination branch or its remote changed. Review it in Git and try again.');
-        if (existingBranch && (await worktreeUsesBranch(run, path, source)))
-          throw problem('The destination branch is in an occupied worktree. Open that worktree in Git.');
-        checkSwitchIntent((await statusAt(path, repo)).snapshot, expected);
-        await verifyCheckoutDirectory(path, expected.switchIdentity);
-      }
-      await verify();
-      if (needsReview && confirmation === undefined) {
-        /** @type {ActivitySwitchReview} */
-        const switchReview = {
-          token,
-          upstream: target.tracking.slice('refs/remotes/'.length),
-          previous: replaced[0] ?? null,
-          tip,
-          ahead,
-          behind,
-        };
-        return { checkout: await inspect(path, repo), switchReview };
-      }
-
-      const archives = replaced.map(previous => ({ previous, tip }));
-      if (retained && !archives.some(archive => archive.previous === retained.previous && archive.tip === retained.tip))
-        archives.push(retained);
-      await refreshSwitchTracking(run, path, hooks, repo, target, previous, tip, archives, verify);
-      try {
-        await verify();
-        if ((await readDirectCommit(run, path, target.tracking)) !== tip)
-          throw problem('The tracking ref changed before Git could switch branches.');
-        await verifyCheckoutDirectory(path, expected.switchIdentity);
-        await switchLocalBranch(run, path, hooks, name, existingBranch ? undefined : tip);
-      } catch (error) {
-        if (previous === tip) throw error;
-        return {
-          checkout: await inspect(path, repo),
-          message: `The tracking ref was refreshed, but the checkout was not switched. ${error instanceof Error ? error.message : 'Review the checkout in Git.'}`,
-        };
-      }
-      return finishActivitySwitch(path, repo, name, target, expected.switchIdentity, localTip, tip, Boolean(replaced.length));
-    });
+    return exclusively(repo, path => switchAt(path, repo, name, expected, { eventId, confirmation }));
   }
 
   return { status, update, branchAction, switchToActivityBranch };
