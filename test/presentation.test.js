@@ -281,13 +281,37 @@ test('tag rows say what happened to the tag and never claim a commit for a pushe
   assert.deepEqual(
     [created, moved, deleted, unlisted].map(event => [activityLabel(event), activityTone(event), activitySummary(event)]),
     [
-      ['New tag', 'info', 'Points at aaaaaaaa'],
-      ['Tag moved', 'warn', 'aaaaaaaa → bbbbbbbb'],
+      ['New tag', 'info', 'Points at aaaaaaa'],
+      ['Tag moved', 'warn', 'aaaaaaa → bbbbbbb'],
       ['Tag deleted', 'warn', 'Remote tag deleted'],
       ['No longer listed', 'warn', 'Missing from complete refs snapshot'],
     ],
   );
   assert.equal(labels.tag, 'Tag');
+});
+
+test('a push that creates a branch names its new tip, not a start, in the short commit length the server stores', () => {
+  const push = {
+    kind: 'push',
+    data: { refUpdates: [{ name: 'refs/heads/feature/a', oldObjectId: '0'.repeat(40), newObjectId: '54a2ad26'.padEnd(40, 'c') }] },
+  };
+  assert.equal(activitySummary(push), 'New branch at 54a2ad2');
+});
+
+test('a branch row from a push does not repeat its label in the event column; a listed branch keeps its caveat', () => {
+  const state = fixture();
+  const base = { repoId: 'r', seen: false, imported: false, time: '2026-11-17T10:00:00Z', actor: 'Ana' };
+  state.events = [
+    { ...base, id: 'created', kind: 'branch-created', branch: 'a', title: 'New branch · a', data: { evidence: 'push' } },
+    { ...base, id: 'deleted', kind: 'branch-deleted', branch: 'b', title: 'Branch deleted', data: { evidence: 'push' } },
+    { ...base, id: 'listed', kind: 'branch-created', branch: 'c', title: 'Branch first seen · c', data: { evidence: 'refs' } },
+  ];
+  const out = String(renderFeed(state, view));
+  const event = (/** @type {string} */ id) =>
+    out.match(new RegExp(`data-event-id="${id}"[^]*?<div class="event">([^]*?)<div class="rowact">`))?.[1] ?? '';
+  assert.match(event('created'), /^<div class="help event-meta">Pushed by/);
+  assert.match(event('deleted'), /^<div class="help event-meta">Pushed by/);
+  assert.match(event('listed'), /^<div class="event-main"><span>First seen remotely; creation time not supplied<\/span>/);
 });
 
 test('a fork PR names its fork in the summary', () => {

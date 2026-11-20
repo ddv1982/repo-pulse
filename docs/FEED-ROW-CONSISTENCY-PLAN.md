@@ -25,10 +25,10 @@ Interpretations:
 
 ## Phase 2: column 3 wording
 
-- [ ] Failing tests: `New branch at <7 chars>` replaces `Branch starts at <8 chars>`; tag summaries use 7 characters
-- [ ] Failing test: push-evidence branch-created and branch-deleted rows have no echo summary ("New remote branch",
+- [x] Failing tests: `New branch at <7 chars>` replaces `Branch starts at <8 chars>`; tag summaries use 7 characters
+- [x] Failing test: push-evidence branch-created and branch-deleted rows have no echo summary ("New remote branch",
       "Remote branch deleted") in the feed row; listed-evidence rows keep theirs
-- [ ] Implement in `src/activity-text.js` and `rowSummary`
+- [x] Implement in `src/activity-text.js` and `rowSummary`
 
 ## Phase 3: PR chip stays with the branch
 

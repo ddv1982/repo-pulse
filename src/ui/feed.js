@@ -99,10 +99,15 @@ function renderEvent(record, title, origin) {
 /** A reviewer vote's tone; the words carry the meaning, the color repeats it. @param {number} vote */
 const voteTone = vote => (vote > 0 ? 'ok' : vote === -5 ? 'warn' : vote < 0 ? 'crit' : 'neutral');
 
-/** A CI run without a known trigger has nothing to summarise in its row; the detail page still names the gap. @param {ActivityItem} record */
+/**
+ * A CI run without a known trigger has nothing to summarise in its row, and a branch a push created or deleted would only
+ * repeat its label. The detail page still says both. A branch read from a ref list keeps its caveat.
+ * @param {ActivityItem} record
+ */
 function rowSummary(record) {
   const summary = activitySummary(record);
-  return record.kind === 'build' && summary === 'Not supplied' ? '' : summary;
+  if (record.kind === 'build' && summary === 'Not supplied') return '';
+  return ['New remote branch', 'Remote branch deleted'].includes(summary) && record.kind !== 'push' ? '' : summary;
 }
 
 /** Whether the title names the ref as a whole word, so `main` is not found inside `main-old`. @param {string} title @param {string} ref */
