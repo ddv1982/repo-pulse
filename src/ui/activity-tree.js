@@ -36,11 +36,11 @@ function join(other, node, style) {
   return html`${segment(other, JOIN)}${tail}<path class="${style}" d="M${from} ${JOIN}C${from} ${JOIN / 2} ${to} ${JOIN / 2} ${to} 0"/>`;
 }
 
-/** @param {TreeRow['node']} node @param {string} color */
+/** Every marker stays inside its lane, PITCH wide: the cell clips what leaves it. @param {TreeRow['node']} node @param {string} color */
 function marker(node, color) {
   const at = html`cx="${x(node.slot)}" cy="0"`;
   if (node.shape === 'ring') return html`<circle class="${color} hole" ${at} r="3.75"/>`;
-  if (node.shape === 'merge') return html`<circle class="${color} hole" ${at} r="5.25"/><circle class="${color}" ${at} r="2.25"/>`;
+  if (node.shape === 'merge') return html`<circle class="${color} hole" ${at} r="4.1"/><circle class="${color}" ${at} r="1.9"/>`;
   return html`<circle class="${color} dot" ${at} r="3.75"/>`;
 }
 
@@ -64,4 +64,4 @@ export function forkText(fork) {
     : `Branched from ${fork.parent}, assumed from PR ${fork.pullRequestId}`;
 }
 
-export const treeLegend = html`<p class="help tree-legend"><svg class="tree-key" aria-hidden="true" focusable="false"><path class="lane-none" d="M1 6H21"/></svg>Fork at a known revision<svg class="tree-key" aria-hidden="true" focusable="false"><path class="lane-none assumed" d="M1 6H21"/></svg>Fork assumed from the pull request target<svg class="tree-key ring" aria-hidden="true" focusable="false"><circle class="lane-none hole" cx="7" cy="6" r="5.25"/><circle class="lane-none" cx="7" cy="6" r="2.25"/></svg>Merge</p>`;
+export const treeLegend = html`<p class="help tree-legend"><svg class="tree-key" aria-hidden="true" focusable="false"><path class="lane-none" d="M1 6H21"/></svg>Fork at a known revision<svg class="tree-key" aria-hidden="true" focusable="false"><path class="lane-none assumed" d="M1 6H21"/></svg>Fork assumed from the pull request target<svg class="tree-key ring" aria-hidden="true" focusable="false"><circle class="lane-none hole" cx="7" cy="6" r="4.1"/><circle class="lane-none" cx="7" cy="6" r="1.9"/></svg>Merge</p>`;

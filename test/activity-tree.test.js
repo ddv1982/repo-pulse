@@ -107,6 +107,7 @@ test('a branch found in a snapshot may be discovered after its pull request was 
   const found = event('branch-created', 'feature/a', { data: { name: 'refs/heads/feature/a', objectId: sha('x'), evidence: 'snapshot' } });
   const tree = buildActivityTree([found, pr(7, 'feature/a')]);
   assert.deepEqual(tree.rows[0].fork, { evidence: 'pr', parent: 'main', pullRequestId: 7 });
+  assert.deepEqual([tree.rows[0].node.down, tree.rows[1].node.up], [true, true]);
 });
 
 test('one push that creates two branches keeps each creation with that push', () => {

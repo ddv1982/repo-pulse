@@ -153,7 +153,7 @@ function placeLanes(lanes, maxLanes) {
 /**
  * Splits the rows of each branch into lanes. A branch that is quiet for more than `maxGap` rows gives its lane
  * back, so long-lived branches do not hold a position through pages of unrelated activity. A lane also ends at the
- * row where a branch was created: older rows under the same name belong to an earlier branch.
+ * row where a push created the branch: older rows under the same name belong to an earlier branch.
  * @param {Map<string, { branch: string, rows: Set<number>, starts: Set<number> }>} branches @param {number} maxGap
  */
 function splitLanes(branches, maxGap) {
@@ -235,7 +235,8 @@ export function buildActivityTree(items, { maxLanes = MAX_LANES, maxGap = MAX_GA
     const entry = branches.get(rowKeys[row]);
     if (item.kind !== 'branch-created' || !entry?.branch) return;
     const start = startRow(item, row);
-    entry.starts.add(start);
+    // Only a push proves a new branch. A snapshot discovery has no creation time, so older rows stay on its lane.
+    if (createdAt(item)) entry.starts.add(start);
     const fork = forkOrigin(item, entry.branch, row, start, createdAbove.get(rowKeys[row]) ?? -1);
     createdAbove.set(rowKeys[row], row);
     forks[row] = fork;
