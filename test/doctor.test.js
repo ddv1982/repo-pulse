@@ -125,7 +125,9 @@ test('runDoctor forwards Windows pip-style launcher executable, prefix, env over
   for (const call of azCalls) {
     assert.equal(call.options?.env?.AZ_INSTALLER, 'PIP');
     assert.equal(call.options?.env?.PYTHONPATH, 'C:\\venv\\Scripts\\src');
-    assert.equal(call.options?.env?.PATH, inheritedSentinel);
+    // Windows keeps the variable as Path; the child process reads it case-insensitively.
+    const pathKey = Object.keys(call.options?.env ?? {}).find(key => key.toUpperCase() === 'PATH');
+    assert.equal(pathKey && call.options.env[pathKey], inheritedSentinel);
   }
   const text = formatDoctorReport(report);
   assert.match(text, /\[FAIL\] azure-devops extension: not installed/);

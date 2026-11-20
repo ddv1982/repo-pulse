@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createCheckoutGit } from '../../server/checkout-git.js';
@@ -19,7 +19,8 @@ export function git(path, ...args) {
 }
 
 export function checkoutFixture(t) {
-  const root = mkdtempSync(join(tmpdir(), 'pulse-checkout-'));
+  // The app canonicalises checkout paths; on Windows that expands 8.3 short names in the temp folder.
+  const root = realpathSync.native(mkdtempSync(join(tmpdir(), 'pulse-checkout-')));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const remote = join(root, 'repo.git');
   const source = join(root, 'source');

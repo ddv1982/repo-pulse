@@ -330,7 +330,12 @@ test('live mode cannot generate demo activity or expose arbitrary files', async 
 
 test('every start has a new key, the launch token works once, and the old key file is removed', async t => {
   const directory = await mkdtemp(join(tmpdir(), 'repo-pulse-key-'));
-  t.after(() => rm(directory, { recursive: true, force: true }));
+  let second;
+  // Close before removing: Windows cannot delete the open database.
+  t.after(async () => {
+    await second?.close();
+    await rm(directory, { recursive: true, force: true });
+  });
   await writeFile(join(directory, 'access-key'), 'k'.repeat(43), { mode: 0o644 });
   const first = await startApp({ demo: true, port: 0, dataDir: directory });
   const token = new URL(first.launchUrl).hash.slice('#launch='.length);
@@ -343,8 +348,7 @@ test('every start has a new key, the launch token works once, and the old key fi
   const oldKey = first.accessKey;
   await first.close();
   await assert.rejects(stat(join(directory, 'access-key')), { code: 'ENOENT' });
-  const second = await startApp({ demo: true, port: 0, dataDir: directory });
-  t.after(() => second.close());
+  second = await startApp({ demo: true, port: 0, dataDir: directory });
   assert.notEqual(second.accessKey, oldKey);
   assert.equal((await globalThis.fetch(second.url + '/api/state', { headers: { 'x-repo-pulse-key': oldKey } })).status, 401);
   assert.equal((await globalThis.fetch(second.url + '/api/state', { headers: { 'x-repo-pulse-key': second.accessKey } })).status, 200);
