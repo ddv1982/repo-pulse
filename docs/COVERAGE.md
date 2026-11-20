@@ -50,13 +50,23 @@ Evidence saved before deeper analysis stopped also enumerated ref ranges, becaus
   "Repository push", because their saved record does not say which ref moved.
 - A snapshot discovery and a later push record can both describe the same branch. They remain
   separate observations when the app cannot prove a shared branch lifetime/source identity.
-- The branch tree in **All activity** is drawn from the rows on the page, not from commit history. A lane
-  joins nearby rows of one branch and ends when the branch is quiet for more than 12 rows. A solid fork
-  means a push created the branch at a revision that an older row shows as the tip of another branch,
-  which does not prove that branch was its parent. A dotted fork is an assumption taken from the target
-  of a pull request from that branch. Neither says at which commit the branch left its parent, and a
-  branch first found in a refs snapshot never gets a solid fork. No fork line means the origin is
-  unknown. A completed pull request draws a merge from its own source and target refs. A CI run on a pull
+- The branch tree in **All activity** is drawn from the rows on the page, plus the checked fork origin of each
+  new branch. A lane joins nearby rows of one branch and ends when the branch is quiet for more than 12 rows.
+- A branch created by a live push is checked in the background, during the automatic-check turns when no
+  rewrite check is due. The check reads commits from the created tip back past the ones that push brought,
+  one read per commit and at most 8, to find the commit the branch started at. A solid fork means that
+  commit was the latest recorded tip of exactly one other branch before the push ("the tip of main"), or,
+  when no recorded tip matched, that exactly one checked branch already contained it ("already on main").
+  The checked branches are the branch's stored pull request targets and the repository's most common
+  pull request target, at most three, one read each. Git records no branch parentage, so neither proves
+  which branch the author started from, and a recorded tip can be stale when pushes are missing from the
+  store. Several matching branches, a pull request target that did not hold the commit, no matching
+  branch, an orphan branch or a first commit that is a merge draw no fork and say so in the row text.
+- Branches the check did not cover (imported history, rows saved before the check existed, snapshot
+  discoveries, and checks that failed) keep the unchecked evidence: a solid fork when an older row on the
+  page shows the created revision as another branch's tip, otherwise a dotted fork to the target of a pull
+  request from the branch, labelled "origin not checked". No fork line means the origin is unknown. A
+  completed pull request draws a merge from its own source and target refs. A CI run on a pull
   request ref (`refs/pull/N/merge`) is placed on the source branch of that pull request, read from the
   stored pull request records, and its row names that branch and the pull request. A branch with a single
   row on the page keeps a grey dot, so a merge that restarts validation for many open pull requests shows

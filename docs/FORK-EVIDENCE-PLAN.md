@@ -37,6 +37,8 @@ time". No phase may word a fork as "branched from P".
   enrichment already reaches `event.data`.
 - No default branch is stored for a repository. The candidate set is this branch's stored PR targets, oldest first,
   then the repository's most common stored PR target, at most three.
+- The demo shows the `recorded` and unchecked `pr` levels. Every level's row text is covered by
+  `test/presentation.test.js` instead of a demo row per level, so the demo and its screenshots keep their rows.
 - A checked result replaces the PR assumption: when the job found `F`, the PR target is never drawn as a fork.
 - The check shares the existing automatic-check background turn and runs when no rewrite check is due, instead of
   adding a third background kind to `server/sync.js`.
@@ -52,8 +54,10 @@ time". No phase may word a fork as "branched from P".
 | `pr` (unchecked) | No check ran yet (imported, failed, demo, offline) | dotted | PR 7 targets T, origin not checked |
 | unknown | Nothing above | none | (no fork text) |
 
-Decision D1 (open): whether the unchecked `pr` level keeps a dotted line or shows text only. Recommendation: keep
-it until phase 3 ships, then decide from how many rows still fall back to it.
+Decision D1 (resolved 2026-11-20): the unchecked `pr` level keeps its dotted line, labelled "origin not checked".
+A run of the real check over a copy of the live database (77 live branch creations, 206 Azure reads) gave 46 tip
+matches and 23 contained, all solid; 1 ambiguous, 1 refuted, 2 unplaced and 1 merge, all without a line; and 3
+unknown, which fall back to the unchecked evidence. Only rows the check never covered keep the dotted line.
 
 ## Phases
 
@@ -83,7 +87,7 @@ written first and seen to fail.
       Check: store tests for a tip that moved before creation (no claim), a deleted branch, and candidate order.
 - [x] The job matches `F` against those tips and saves the claim on the event. Check: job tests for a unique match
       and two branches sharing the tip (ambiguous).
-- [ ] `forkOrigin` in the tree prefers the stored claim over page-only sightings and the PR target. Check:
+- [x] `forkOrigin` in the tree prefers the stored claim over page-only sightings and the PR target. Check:
       `test/activity-tree.test.js` cases for an off-page parent, a stacked branch drawn to feature-a, an ambiguous
       tie that draws nothing, and a checked branch whose PR target is not drawn.
 
@@ -98,10 +102,10 @@ written first and seen to fail.
 
 ### Phase 4: wording, legend and docs
 
-- [ ] Rewrite `forkText` and the legend in `src/ui/activity-tree.js` to the table above, add demo fixtures for each
+- [x] Rewrite `forkText` and the legend in `src/ui/activity-tree.js` to the table above, add demo fixtures for each
       level in `server/demo.js`, and update `docs/COVERAGE.md` and the README tree sentence. Check:
       `test/presentation.test.js`, `npm run test:ui`, and a demo screenshot per level.
-- [ ] Resolve D1 using a count of live rows per level.
+- [x] Resolve D1 using a count of live rows per level.
 
 ### Phase 5 (optional, separate decision)
 

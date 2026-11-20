@@ -1438,8 +1438,10 @@ test('All activity shows the branch tree in the status column, and narrow screen
   await expect(rows.first()).toBeVisible();
   await expect(page.locator('.with-tree svg.tree')).toHaveCount(await rows.count());
   const hotfix = page.locator('[data-event-id="demo-branch-1"]');
-  await expect(hotfix).toContainText('Started at a revision seen on main');
-  await expect(page.locator('[data-event-id="demo-branch-3"]')).toContainText('Branched from main, assumed from PR 1175');
+  await expect(hotfix).toContainText('Started at 3f9a2c1, the tip of main');
+  await expect(hotfix.locator('svg.tree path')).toHaveCount(1);
+  await expect(hotfix.locator('svg.tree path.assumed')).toHaveCount(0);
+  await expect(page.locator('[data-event-id="demo-branch-3"]')).toContainText('PR 1175 targets main, origin not checked');
   await expect(page.locator('[data-event-id="demo-branch-3"] svg.tree path.assumed')).toHaveCount(1);
   await expect(page.locator('[data-event-id="demo-pr-2"] svg.tree path')).toHaveCount(1);
   // A CI run on a pull request ref takes the branch of the stored PR and joins its lane.

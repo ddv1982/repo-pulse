@@ -74,7 +74,11 @@ export function seedDemo(store) {
       actor: 'Sam Ortega',
       time: ago(8),
       summary: 'New remote branch at existing revision 3f9a2c1. No PR yet.',
-      data: { newObjectId: '3f9a2c1', evidence: 'push' },
+      data: {
+        newObjectId: '3f9a2c1',
+        evidence: 'push',
+        forkOrigin: { status: 'found', base: '3f9a2c1', on: ['refs/heads/main'], via: 'tip' },
+      },
       url: source,
     },
     {

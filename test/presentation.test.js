@@ -12,6 +12,7 @@ import {
 } from '../src/ui/format.js';
 import { renderRepositories as renderRepositoriesHtml } from '../src/ui/repositories.js';
 import { renderFeed as renderPagedFeedHtml, renderDetail as renderDetailHtml } from '../src/ui/feed.js';
+import { forkText, treeLegend } from '../src/ui/activity-tree.js';
 import { createStore } from '../server/store.js';
 
 const renderRepositories = (...args) => String(renderRepositoriesHtml(...args));
@@ -361,12 +362,12 @@ test('All activity draws a branch tree with the fork evidence in the row text; N
   assert.equal((all.match(/<svg class="tree" aria-hidden="true"/g) || []).length, 2);
   assert.match(all, /<path class="lane-\d assumed" d="M5 18C5 9 15 9 15 0"\/>/);
   assert.match(all, /<circle class="lane-\d hole" cx="15" cy="0" r="3.75"\/>/);
-  assert.match(all, /Branched from main, assumed from PR 7/);
+  assert.match(all, /PR 7 targets main, origin not checked/);
   assert.match(all, /class="help tree-legend"/);
   assert.match(all, /A line can pass rows of other branches\./);
   const updates = renderFeed(state, view);
   assert.equal((updates.match(/<li class="row /g) || []).length, 2);
-  assert.doesNotMatch(updates, /with-tree|class="tree"|tree-legend|Branched from/);
+  assert.doesNotMatch(updates, /with-tree|class="tree"|tree-legend|origin not checked/);
 });
 
 test('a CI run on a pull request ref names the source branch and the pull request once the PR is known', () => {
@@ -383,4 +384,35 @@ test('a CI run on a pull request ref names the source branch and the pull reques
   const out = renderFeed(state, view);
   assert.match(out, /<span class="subref">[^<]* \/ feature\/a · PR 7<\/span>/);
   assert.match(out, /<span class="subref">[^<]* \/ refs\/pull\/8\/merge<\/span>/);
+});
+
+test('each fork origin has its own row text, and only an unchecked PR target is dotted', () => {
+  const base = 'd'.repeat(40);
+  assert.deepEqual(
+    [
+      { evidence: 'tip', parent: 'main' },
+      { evidence: 'recorded', parent: 'feature/a', base },
+      { evidence: 'contained', parent: 'main', base },
+      { evidence: 'pr', parent: 'main', pullRequestId: 7 },
+      { evidence: 'ambiguous', parent: null, base, branches: ['main', 'release'] },
+      { evidence: 'refuted', parent: null, base, pullRequestId: 7, target: 'release/x' },
+      { evidence: 'unplaced', parent: null, base },
+      { evidence: 'orphan', parent: null },
+      { evidence: 'merge', parent: null },
+    ].map(forkText),
+    [
+      'Started at a revision seen on main',
+      'Started at ddddddd, the tip of feature/a',
+      'Started at ddddddd, already on main',
+      'PR 7 targets main, origin not checked',
+      'Started at ddddddd, on main and release',
+      'PR 7 targets release/x, which did not hold ddddddd',
+      'Started at ddddddd, on no recorded branch',
+      'Started with no earlier commit',
+      'Started with a merge commit',
+    ],
+  );
+  assert.equal(forkText(null), '');
+  assert.doesNotMatch(String(treeLegend), /assumed from the pull request target</);
+  assert.match(String(treeLegend), /Pull request target, origin not checked/);
 });
