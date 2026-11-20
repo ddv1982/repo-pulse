@@ -248,7 +248,7 @@ test('row status washes are independent of unseen flags and failure classificati
   const markup = renderFeed(state, view);
   assert.match(markup, /class="kind crit"[^>]*>.*Branch deleted/);
   assert.match(markup, /class="row new tone-crit" data-event-id="deleted"/);
-  assert.match(markup, /class="row crit tone-crit" data-event-id="failed"/);
+  assert.match(markup, /class="row crit new tone-crit" data-event-id="failed"/);
   assert.match(renderDetail(state.events[0], state), /status-chip crit/);
 });
 
@@ -383,7 +383,7 @@ test('All activity draws a branch tree with the fork evidence in the row text; N
   assert.match(all, /<circle class="lane-\d hole" cx="15" cy="0" r="3.75"\/>/);
   assert.match(all, /PR 7 targets main, origin not checked/);
   assert.match(all, /class="help tree-legend"/);
-  assert.match(all, /A line can pass rows of other branches\./);
+  assert.match(all, /Lines can pass rows of other branches\./);
   const updates = renderFeed(state, view);
   assert.equal((updates.match(/<li class="row /g) || []).length, 2);
   assert.doesNotMatch(updates, /with-tree|class="tree"|tree-legend|origin not checked/);
@@ -433,5 +433,34 @@ test('each fork origin has its own row text, and only an unchecked PR target is 
   );
   assert.equal(forkText(null), '');
   assert.doesNotMatch(String(treeLegend), /assumed from the pull request target</);
-  assert.match(String(treeLegend), /Pull request target, origin not checked/);
+  assert.match(String(treeLegend), /PR target, origin not checked/);
+});
+
+test('a grouped row counts its unread updates beside the title only when there is more than one', () => {
+  const state = fixture();
+  const ref = { name: 'refs/heads/topic', oldObjectId: 'a'.repeat(40), newObjectId: '0'.repeat(40) };
+  const base = { repoId: 'r', branch: 'topic', time: '2026-11-17T10:00:00Z' };
+  state.events = [
+    { ...base, id: 'paired-push', kind: 'push', title: 'Cleanup push', data: { pushId: 10001, refUpdates: [ref], commits: [] } },
+    { ...base, id: 'paired-deletion', kind: 'branch-deleted', title: 'Branch deleted', data: { pushId: 10001, ...ref } },
+  ];
+  const markup = renderFeed(state, view);
+  assert.equal(markup.toString().match(/<li /g)?.length, 1);
+  assert.match(markup, /<span class="pill u new-count">2 new<\/span>/);
+  state.events = [state.events[0]];
+  assert.doesNotMatch(renderFeed(state, view), /new-count/);
+});
+
+test('a CI row without a known trigger shows no summary line, and the detail page still names the gap', () => {
+  const state = fixture();
+  const base = { repoId: 'r', kind: 'build', title: 'CI', time: '2026-11-17T10:00:00Z' };
+  state.events = [
+    { ...base, id: 'omitted', data: { buildId: 1, status: 'completed', result: 'succeeded' } },
+    { ...base, id: 'none', data: { buildId: 2, status: 'completed', result: 'succeeded', reason: 'none' } },
+    { ...base, id: 'manual', data: { buildId: 3, status: 'completed', result: 'succeeded', reason: 'manual' } },
+  ];
+  const markup = String(renderFeed(state, view));
+  assert.doesNotMatch(markup, /Not supplied/);
+  assert.match(markup, /<div class="event">Triggered manually/);
+  assert.match(String(renderDetail(state.events[1], state)), /<dt>Trigger<\/dt><dd>Not supplied<\/dd>/);
 });

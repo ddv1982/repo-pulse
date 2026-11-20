@@ -69,6 +69,53 @@ async function setup(t, demo = true) {
   };
 }
 
+test('the row Seen toggle keeps keyboard focus and shows state without a status column', async t => {
+  const { page, runtime } = await setup(t);
+  await page.goto(`${page.url().split('#')[0]}#activity/new`);
+  const rows = page.locator('li[data-event-id]');
+  const [first, second] = await rows.evaluateAll(elements => elements.slice(0, 2).map(element => element.getAttribute('data-event-id')));
+  await expect(page.locator('.counts')).toHaveCount(0);
+  const toggle = page.locator(`li[data-event-id="${first}"] .seen-toggle`);
+  await expect(toggle).toHaveText('Seen');
+  await expect(toggle).toHaveAttribute('aria-pressed', 'false');
+  await expect(page.locator(`li[data-event-id="${first}"]`)).toHaveClass(/\bnew\b/);
+  await toggle.focus();
+  await page.keyboard.press('Enter');
+  await expect(page.locator(`li[data-event-id="${first}"]`)).toHaveCount(0);
+  // The row left New updates, so focus moves to the next row's toggle rather than the page body.
+  await expect(page.locator(`li[data-event-id="${second}"] .seen-toggle`)).toBeFocused();
+
+  await page.goto(`${page.url().split('#')[0]}#activity/all`);
+  const seen = page.locator(`li[data-event-id="${first}"] .seen-toggle`);
+  await expect(seen).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator(`li[data-event-id="${first}"]`)).not.toHaveClass(/\bnew\b/);
+  await seen.focus();
+  await page.keyboard.press('Enter');
+  await expect(seen).toHaveAttribute('aria-pressed', 'false');
+  await expect(seen).toBeFocused();
+
+  // A kind without its own tint (a draft PR) still gets the unread wash, and loses it once seen.
+  runtime.store.insertEvents([
+    {
+      id: 'live-draft',
+      repoId: 'demo-orders',
+      kind: 'pr',
+      branch: 'feature/draft',
+      title: 'Draft work',
+      time: new Date().toISOString(),
+      data: { status: 'active', isDraft: true },
+    },
+  ]);
+  await page.reload();
+  const draft = page.locator('li[data-event-id="live-draft"]');
+  await expect(draft).toHaveClass(/\btone-neutral\b/);
+  const wash = () => draft.evaluate(element => getComputedStyle(element).backgroundImage);
+  assert.notEqual(await wash(), 'none');
+  await draft.locator('.seen-toggle').click();
+  await expect(draft.locator('.seen-toggle')).toHaveAttribute('aria-pressed', 'true');
+  assert.equal(await wash(), 'none');
+});
+
 test('approved light/dark/System UI and responsive routes work without remote traffic', async t => {
   const { page } = await setup(t);
   await expect(page.getByText('Demo mode · fictional repositories and people')).toBeVisible();
@@ -728,7 +775,7 @@ test('build transitions group into one item and exact acknowledgement leaves a l
   await expect(page.locator('[data-summary-kind="CI runs"]')).toContainText('1 running');
   await expect(page.locator('.cell .val.zero')).toHaveCount(3);
   await expect(page.locator('li.row .kind')).toHaveText('Running');
-  await expect(page.locator('li.row .feed-title .title')).toHaveText('Orders CI · 20261117.6');
+  await expect(page.locator('li.row .feed-title .title')).toHaveText('Orders CI · 20261117.6 2 new');
   await page.locator('.trail > summary').click();
   await expect(page.locator('.trail li')).toHaveCount(2);
   await page.route(
@@ -952,7 +999,8 @@ test('one Activity group offers clearly distinct New updates and All activity wi
   if ((await importedHistory.getAttribute('open')) === null) await importedHistory.locator('summary').click();
   await expect(page.locator('[data-event-id="imported-push"]')).toBeVisible();
   await expect(page.getByRole('region', { name: 'Activity summary' })).toContainText('1 new item');
-  await expect(page.getByRole('region', { name: 'Activity summary' })).toContainText('Showing 3 of 3 items');
+  // Every matching item is loaded, so the summary does not repeat the count.
+  await expect(page.getByRole('region', { name: 'Activity summary' })).not.toContainText('Showing');
   await page.getByRole('link', { name: 'New updates', exact: true }).click();
   await expect(page).toHaveURL(/#activity\/new$/);
   await expect(page.locator('li.row')).toHaveCount(1);
@@ -1063,6 +1111,7 @@ test('semantic status colors match rows, imported history, details and trails in
           id: row.dataset.eventId,
           tone,
           hasWash: getComputedStyle(row).backgroundImage !== 'none',
+          washed: row.classList.contains('new') || row.classList.contains('crit'),
           ratio: (Math.max(first, second) + 0.05) / (Math.min(first, second) + 0.05),
           matchesToken: JSON.stringify(foreground) === JSON.stringify(rgba(tokens.getPropertyValue(names[tone]))),
         };
@@ -1070,7 +1119,8 @@ test('semantic status colors match rows, imported history, details and trails in
     });
     for (const result of contrast) {
       assert.equal(result.matchesToken, true, `${theme} ${result.id} token`);
-      assert.equal(result.hasWash, result.tone !== 'neutral');
+      // The wash marks unread rows and failed runs; seen rows stay plain.
+      assert.equal(result.hasWash, result.washed, `${theme} ${result.id} wash`);
       assert.ok(result.ratio >= 4.5, `${theme} ${result.id} contrast ${result.ratio}`);
     }
     const trail = page.locator('[data-event-id="canceled-transition"] .trail');

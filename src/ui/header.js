@@ -60,7 +60,7 @@ export function renderHeader(state, ui) {
       ${pill}
       <div class="hg header-actions">
         <div class="seg monitor-group" role="group" aria-label="Monitoring">
-          <label class="header-auto" for="header-auto-desktop">${switchInput('desktop')}<span>Auto checks</span></label>
+          <label class="header-auto" for="header-auto-desktop">${switchInput('desktop')}<span>Automatic checks</span></label>
           ${refresh('desktop')}
         </div>
         <details class="header-overflow">

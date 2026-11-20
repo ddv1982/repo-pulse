@@ -276,18 +276,24 @@ p {
   margin: 0 0 16px;
   border: 1px solid;
   font-size: 14px;
+  /* The tint is an image layer so dark mode can put the card colour beneath it. */
+  background-image: linear-gradient(var(--banner-tint, transparent), var(--banner-tint, transparent));
 }
 .banner.warn {
-  background: color-mix(in oklab, var(--warning-solid) 10%, transparent);
+  --banner-tint: color-mix(in oklab, var(--warning-solid) 10%, transparent);
   border-color: color-mix(in oklab, var(--warning-solid) 25%, transparent);
 }
 .banner.crit {
-  background: color-mix(in oklab, var(--critical-solid) 10%, transparent);
+  --banner-tint: color-mix(in oklab, var(--critical-solid) 10%, transparent);
   border-color: color-mix(in oklab, var(--critical-solid) 20%, transparent);
 }
 .banner.info {
-  background: color-mix(in oklab, var(--primary) 8%, transparent);
+  --banner-tint: color-mix(in oklab, var(--primary) 8%, transparent);
   border-color: color-mix(in oklab, var(--primary) 20%, transparent);
+}
+/* Stars behind a translucent banner read as stray punctuation, so dark banners sit on the card colour. */
+:root.dark .banner {
+  background-color: var(--card);
 }
 .banner strong {
   display: block;

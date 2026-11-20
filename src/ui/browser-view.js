@@ -19,6 +19,31 @@ export function replacementFocus(id) {
   return null;
 }
 
+/**
+ * Focus the control that had focus, or a neighbour of a Seen toggle whose row left. A neighbour can sit off screen,
+ * so focusing it may scroll; the same control stays where it was.
+ * @param {string} id @param {string[]} neighbours
+ */
+function restoreFocus(id, neighbours) {
+  const same = replacementFocus(id);
+  const neighbour = same ? null : neighbours.map(other => document.getElementById(other)).find(element => element instanceof HTMLElement);
+  const replacement = same ?? neighbour ?? null;
+  replacement?.focus({ preventScroll: !neighbour });
+  return replacement;
+}
+
+/**
+ * A row's Seen toggle can leave with its row (New updates). Its neighbours, nearest first and following rows before
+ * earlier ones, take focus in that case.
+ * @param {HTMLElement} element
+ */
+function seenToggleNeighbours(element) {
+  if (!element.matches('.seen-toggle')) return [];
+  const toggles = [...(element.closest('ul.rows')?.querySelectorAll('.seen-toggle') ?? [])];
+  const index = toggles.indexOf(element);
+  return [...toggles.slice(index + 1), ...toggles.slice(0, index).reverse()].map(toggle => toggle.id);
+}
+
 /** @param {Element} element */
 function focusedControlId(element) {
   return element.id || element.closest('.saved-filter-menu, .saved-filter-actions')?.querySelector('[aria-expanded]')?.id || '';
@@ -58,6 +83,7 @@ export function createBrowserView({ page, header, demo, syncLive, picker, toolba
     const groups = restored?.groups || captureGroups();
     const focused = document.activeElement;
     const focusId = focused && page.contains(focused) ? focusedControlId(focused) : '';
+    const neighbours = focused instanceof HTMLElement && page.contains(focused) ? seenToggleNeighbours(focused) : [];
     /** @type {[number | null, number | null] | null} */
     const selection =
       focused instanceof HTMLInputElement && focused.type === 'search' ? [focused.selectionStart, focused.selectionEnd] : null;
@@ -93,8 +119,7 @@ export function createBrowserView({ page, header, demo, syncLive, picker, toolba
         ?.toggleAttribute('open', open);
     }
     if (focusId) {
-      const replacement = replacementFocus(focusId);
-      replacement?.focus({ preventScroll: true });
+      const replacement = restoreFocus(focusId, neighbours);
       if (selection && replacement instanceof HTMLInputElement) replacement.setSelectionRange(...selection);
     }
     onPageRendered();

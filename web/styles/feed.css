@@ -227,6 +227,19 @@ details > summary::-webkit-details-marker {
 summary.ghead {
   color: var(--muted-foreground);
 }
+summary.ghead::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  margin: 0 2px 0 1px;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: rotate(-45deg);
+  transition: transform 0.15s;
+}
+details[open] > summary.ghead::before {
+  transform: rotate(45deg);
+}
 summary.ghead:hover {
   color: var(--foreground);
 }
@@ -278,6 +291,21 @@ ol.rows {
 }
 .row.tone-neutral {
   background-image: none;
+}
+/* The wash marks unread rows (tinted by kind) and failed CI runs; seen rows stay plain. */
+.row:not(.new, .crit) {
+  background-image: none;
+}
+.row.new.tone-neutral {
+  background-image: linear-gradient(90deg, var(--primary-wash), transparent 36%);
+}
+.row.new .title {
+  font-weight: 600;
+}
+.new-count {
+  margin-left: 4px;
+  vertical-align: 1px;
+  font-size: 11px;
 }
 .kind {
   display: inline-flex;
@@ -360,20 +388,6 @@ ol.rows {
 .event .mono {
   font-size: 12px;
 }
-.counts {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12px;
-  color: var(--muted-foreground);
-  white-space: nowrap;
-  font-variant-numeric: tabular-nums;
-  min-height: 24px;
-}
-.counts b {
-  color: var(--info);
-  font-weight: 600;
-}
 .rowact {
   display: flex;
   align-items: center;
@@ -386,6 +400,21 @@ ol.rows {
 }
 .rowact .ghost {
   padding-inline: 5px;
+}
+.seen-toggle {
+  gap: 5px;
+}
+.seen-box {
+  flex: none;
+}
+.seen-toggle[aria-pressed='false'] .seen-check {
+  display: none;
+}
+.seen-toggle[aria-pressed='true'] {
+  color: var(--muted-foreground);
+}
+.seen-toggle[aria-pressed='true'] .seen-box {
+  color: var(--ok);
 }
 .foot {
   padding: 10px 16px;
@@ -401,6 +430,10 @@ ol.rows {
   flex-wrap: wrap;
   gap: 6px;
   align-items: center;
+}
+.feed .feed-actions {
+  border-top: 0;
+  border-bottom: 1px solid var(--border);
 }
 .trail {
   margin-top: 6px;
@@ -602,11 +635,6 @@ ol.rows {
   .rowact {
     grid-column: 3;
   }
-  .counts {
-    grid-column: 3;
-    grid-row: 2;
-    justify-self: end;
-  }
 }
 @media (min-width: 1024px) {
   .cells {
@@ -620,7 +648,7 @@ ol.rows {
   }
   .row {
     display: grid;
-    grid-template-columns: var(--kind-width, 9rem) minmax(0, 1.3fr) minmax(0, 1.7fr) 6.5rem 9rem;
+    grid-template-columns: var(--kind-width, 9rem) minmax(0, 1.3fr) minmax(0, 1.7fr) 8.5rem;
     gap: 12px;
     align-items: start;
     padding: 10px 12px;
@@ -632,13 +660,8 @@ ol.rows {
     grid-column: 3;
     grid-row: 1;
   }
-  .counts {
-    grid-column: 4;
-    grid-row: 1;
-    justify-content: flex-end;
-  }
   .rowact {
-    grid-column: 5;
+    grid-column: 4;
     grid-row: 1;
   }
 }
@@ -681,21 +704,20 @@ ol.rows {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: 4px 6px;
+    gap: 4px 16px;
     margin: 0;
     padding: 8px 12px;
     border-bottom: 1px solid var(--border);
   }
+  .tree-key-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    white-space: nowrap;
+  }
   .tree-key {
     width: 22px;
     height: 12px;
-    margin-left: 10px;
-  }
-  .tree-key:first-child {
-    margin-left: 0;
-  }
-  .tree-note {
-    margin-left: 10px;
   }
   .tree-key.ring {
     width: 14px;
