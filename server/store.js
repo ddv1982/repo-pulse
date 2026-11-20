@@ -315,14 +315,21 @@ export function createStore(path = ':memory:') {
       () => {
         // Branch creations stored before fork checks existed get one, if a sync recorded them: live, or imported by
         // the first sync's 7-day window. An explicit history import stays unchecked, as it does when it runs.
+        // A history import can store rows inside that window too, and they cannot be told apart, so a repository that
+        // ran one keeps all its imported rows unchecked.
         const insert = q('INSERT OR IGNORE INTO jobs(id,repo_id,type,next_at,data) VALUES(?,?,?,?,?)');
-        const rows = q(`${selectEvents} WHERE json_extract(e.data,'$.kind')='branch-created'
-          AND json_extract(n.data,'$.forkOrigin') IS NULL`).all();
+        const histories = new Set(
+          q("SELECT DISTINCT repo_id FROM jobs WHERE type='backfill'")
+            .all()
+            .map(row => String(row.repo_id)),
+        );
+        const rows = q(`${selectEvents} WHERE json_extract(e.data,'$.kind')='branch-created'`).all();
         for (const row of rows) {
           const event = hydrate(row);
-          const job = forkJob(event);
+          const job = event.data?.forkOrigin ? null : forkJob(event);
           if (!job) continue;
           if (event.imported) {
+            if (histories.has(event.repoId)) continue;
             const baseline = Date.parse(String(getSetting(`baseline:${event.repoId}`, '')));
             if (!(Date.parse(event.time) >= baseline - FIRST_SYNC_MS)) continue;
           }

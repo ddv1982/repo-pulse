@@ -22,6 +22,9 @@ most rows, and decide the two other follow-ups from data. Follows [FORK-EVIDENCE
 - Backfill: do, including the first sync's import window. A push missing before that window leaves the parent with no
   recorded tip, so the claim fails safe ("no branch match found") instead of going stale. History import stays
   excluded: its older pushes arrive after its newer ones, and its volume is unbounded.
+- A repository that ran an explicit history import keeps all its stored imported rows unchecked: a first sync that
+  started late leaves a gap inside the 7-day window that the history import fills, and those rows cannot be told
+  apart from first-sync rows.
 - New repositories and "Start from scratch" queue checks for their first-sync import too, so stored rows and new rows
   follow one rule (`!state.historical` instead of `!event.imported`).
 - No new pacing. The backlog is about 250 reads, once, in the same one-call background turns history import already

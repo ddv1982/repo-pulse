@@ -313,3 +313,38 @@ test('upgrading queues a fork check once for each stored branch creation a sync 
   store.close();
   rmSync(folder, { recursive: true });
 });
+
+test('upgrading leaves imported branch creations unchecked in a repository that ran a history import', () => {
+  const folder = mkdtempSync(join(tmpdir(), 'pulse-store-'));
+  const path = join(folder, 'state.sqlite');
+  const created = (id, extra = {}) =>
+    event(id, {
+      kind: 'branch-created',
+      time: '2026-11-16T10:00:00Z',
+      ...extra,
+      data: { evidence: 'push', name: `refs/heads/${id}`, newObjectId: 'c'.repeat(40), pushId: 7 },
+    });
+  let store = createStore(path);
+  store.saveRepo(repo);
+  store.setSetting('baseline:one', '2026-11-17T10:00:00.000Z');
+  store.insertEvents([
+    created('live'),
+    created('imported', { imported: true }),
+    {
+      ...created('stored-result'),
+      data: { ...created('x').data, name: 'refs/heads/stored-result', forkOrigin: { status: 'orphan' } },
+    },
+  ]);
+  store.saveJob({ id: 'backfill:one', type: 'backfill', repoId: 'one', status: 'completed', nextAt: '2026-11-17T10:00:00.000Z' });
+  store.close();
+  const raw = new DatabaseSync(path);
+  raw.exec('PRAGMA user_version = 14;');
+  raw.close();
+  store = createStore(path);
+  assert.deepEqual(
+    store.listJobs({ type: 'fork' }).map(job => job.eventId),
+    ['live'],
+  );
+  store.close();
+  rmSync(folder, { recursive: true });
+});
