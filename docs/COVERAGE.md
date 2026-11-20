@@ -44,6 +44,10 @@ Evidence saved before deeper analysis stopped also enumerated ref ranges, becaus
   ("History rewritten"), and an old tip Azure no longer has, or a read that keeps failing, leaves it
   unknown. Imported pushes, from the first sync or a history import, are not checked. Unequal tips
   alone are never called a rewrite, and a rewrite does not identify the command that caused it. Tag pushes become tag rows; a tag-only push is not shown as a push.
+- Azure records each refresh of a pull request's merge preview as a push of `refs/pull/N/merge`. A push that
+  moves only such refs is not shown or counted, because it is not repository work. Service pushes without a
+  branch that were saved before this rule are hidden. The same rows pushed by a person stay, shown as
+  "Repository push", because their saved record does not say which ref moved.
 - A snapshot discovery and a later push record can both describe the same branch. They remain
   separate observations when the app cannot prove a shared branch lifetime/source identity.
 - The branch tree in **All activity** is drawn from the rows on the page, not from commit history. A lane
@@ -52,7 +56,11 @@ Evidence saved before deeper analysis stopped also enumerated ref ranges, becaus
   which does not prove that branch was its parent. A dotted fork is an assumption taken from the target
   of a pull request from that branch. Neither says at which commit the branch left its parent, and a
   branch first found in a refs snapshot never gets a solid fork. No fork line means the origin is
-  unknown. A completed pull request draws a merge from its own source and target refs. Filters, paging and
+  unknown. A completed pull request draws a merge from its own source and target refs. A CI run on a pull
+  request ref (`refs/pull/N/merge`) is placed on the source branch of that pull request, read from the
+  stored pull request records, and its row names that branch and the pull request. A branch with a single
+  row on the page keeps a grey dot, so a merge that restarts validation for many open pull requests shows
+  as many separate dots. A line can pass rows of other branches. Filters, paging and
   the four-lane limit can remove links, so a missing line never shows that branches are unrelated.
   **New updates** has no tree because it lists new branches first.
 - A branch created and deleted entirely between readable observations may be missed. Loss of ref

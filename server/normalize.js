@@ -30,6 +30,7 @@ import { mergeUpdates } from './merge-evidence.js';
  */
 
 const ZERO = /^0+$/;
+const PULL_REF = /^refs\/pull\//;
 /** @param {unknown} value */
 const fingerprint = value => createHash('sha256').update(JSON.stringify(value)).digest('hex').slice(0, 24);
 /** @param {string} name */
@@ -207,6 +208,8 @@ export function createNormalizer({ store, now = Date.now }) {
       }
       // A tag-only push has no branch work to show; its tag rows carry it.
       if (tags.length && !branches.length) return;
+      // Azure records each refresh of a pull request's merge preview as a push of refs/pull/N/merge. It is not repository work.
+      if (updates.length && updates.every((/** @type {AzureRecord} */ ref) => PULL_REF.test(ref.name || ''))) return;
       add('push', source, {
         title: `${actor} pushed${branches.length ? ` to ${branches.map(r => branchName(r.name)).join(', ')}` : ''}`,
         branch: branchName(branches[0]?.name),

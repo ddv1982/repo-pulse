@@ -13,7 +13,7 @@
 | [server/repositories.js](../server/repositories.js) and [server/checkout-git.js](../server/checkout-git.js) | Checkout discovery, Git runner and safety checks, status and cache, and the shared write lock |
 | [server/checkout-activity-switch.js](../server/checkout-activity-switch.js) and [server/checkout-switch-refs.js](../server/checkout-switch-refs.js) | Activity branch switches, tracking-ref transactions, and rewrite recovery |
 | [server/checkout-update.js](../server/checkout-update.js) and [server/checkout-branches.js](../server/checkout-branches.js) | Check, Pull, and PR branch follow-up workflows |
-| [src/activity-tree.js](../src/activity-tree.js) and [src/ui/activity-tree.js](../src/ui/activity-tree.js) | The branch tree of All activity: lanes, fork and merge links from the rendered rows, and the SVG cell of each row |
+| [src/activity-tree.js](../src/activity-tree.js) and [src/ui/activity-tree.js](../src/ui/activity-tree.js) | The branch tree of All activity: lanes, fork and merge links from the rendered rows, and the SVG cell of each row. [server/activity-query.js](../server/activity-query.js) attaches the stored pull request to CI runs on a pull request ref |
 | [src/web.js](../src/web.js) and [src/ui/](../src/ui/) | Browser wiring, view rendering, refresh coordination, navigation, and exact seen actions |
 | [web/app.css](../web/app.css), [web/styles/](../web/styles/) and [web/theme.js](../web/theme.js) | Modular CSS tokens, layouts, screen styles, light-mode glass, and System, Light, and Dark controls |
 

@@ -192,6 +192,12 @@ function pushedTagSummary({ change, oldObjectId = '', newObjectId = '' }) {
   return change === 'moved' ? `${oldObjectId.slice(0, 8)} → ${newObjectId.slice(0, 8)}` : `Points at ${newObjectId.slice(0, 8)}`;
 }
 
+/** The branch a row names. A CI run on a pull request ref names the PR's source branch when the stored PR is attached. @param {ActivityEvent} event */
+export function activityRef(event) {
+  const pr = event.kind === 'build' ? event.data?.pullRequest : undefined;
+  return pr?.sourceRefName ? `${branchName(pr.sourceRefName)} · PR ${pr.id}` : branchName(event.branch);
+}
+
 /** @param {ActivityEvent} event */
 function refUpdateSummary(event) {
   const refs = event.data?.refUpdates;

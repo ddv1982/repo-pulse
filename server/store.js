@@ -3,7 +3,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { chmodSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { activityKey, lifecycleKey, supportingPushKey } from '../src/activity.js';
-import { activityStatusId, activityEvidenceId, activitySearchText } from '../src/activity-text.js';
+import { activityStatusId, activityEvidenceId, activitySearchText, azureDevOpsService } from '../src/activity-text.js';
 import { createActivityQuery } from './activity-query.js';
 import { localPrLink, mergeUpdates } from './merge-evidence.js';
 
@@ -294,6 +294,17 @@ export function createStore(path = ':memory:') {
         // Index named searchable fields instead of stringifying entire event payloads into search_text.
         for (const row of q(selectEvents).iterate()) indexLabels(hydrate(row));
         q("INSERT OR REPLACE INTO settings(key,data) VALUES('compactPending','true')").run();
+      },
+    ],
+    [
+      14,
+      () => {
+        // Sync used to save Azure's merge preview updates (refs/pull/N/merge) as service pushes without a branch, and
+        // no longer does. The saved ones leave the activity index, so no view lists or counts them. The events stay.
+        q(`DELETE FROM activity_members WHERE kind='push' AND event_id IN (SELECT id FROM events
+          WHERE json_extract(data,'$.actor')=? AND COALESCE(json_extract(data,'$.branch'),'')=''
+          AND COALESCE(json_array_length(data,'$.data.refUpdates'),0)=0)`).run(azureDevOpsService);
+        bumpActivity();
       },
     ],
   ];

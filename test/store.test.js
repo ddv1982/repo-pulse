@@ -234,3 +234,36 @@ test('a reset whose compaction fails still clears the data and compacts on the n
   store.close();
   rmSync(folder, { recursive: true });
 });
+
+test('upgrading hides saved service pushes that name no branch, and keeps the same push by a person', () => {
+  const folder = mkdtempSync(join(tmpdir(), 'pulse-store-'));
+  const path = join(folder, 'state.sqlite');
+  const service = 'Microsoft.VisualStudio.Services.TFS';
+  let store = createStore(path);
+  store.saveRepo(repo);
+  store.insertEvents([
+    event('preview', { actor: service, branch: '', data: { pushId: 1, refUpdates: [] } }),
+    event('person', { actor: 'Ada', branch: '', data: { pushId: 2, refUpdates: [] } }),
+    event('service-branch', { actor: service, branch: 'main', data: { pushId: 3, refUpdates: [{ name: 'refs/heads/main' }] } }),
+  ]);
+  const shown = () => {
+    const page = store.queryActivity({ view: 'new' });
+    return { ids: page.items.map(item => item.id).sort(), total: page.total, newItems: page.newItems, pushes: page.counts.push };
+  };
+  assert.equal(shown().total, 3);
+  store.close();
+  const raw = new DatabaseSync(path);
+  raw.exec('PRAGMA user_version = 13;');
+  raw.close();
+  store = createStore(path);
+  assert.deepEqual(shown(), { ids: ['person', 'service-branch'], total: 2, newItems: 2, pushes: 2 });
+  assert.deepEqual(
+    store
+      .queryActivity({ view: 'all' })
+      .items.map(item => item.id)
+      .sort(),
+    ['person', 'service-branch'],
+  );
+  store.close();
+  rmSync(folder, { recursive: true });
+});

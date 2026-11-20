@@ -694,6 +694,9 @@ ol.rows {
   .tree-key:first-child {
     margin-left: 0;
   }
+  .tree-note {
+    margin-left: 10px;
+  }
   .tree-key.ring {
     width: 14px;
   }

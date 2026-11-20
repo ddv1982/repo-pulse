@@ -363,7 +363,24 @@ test('All activity draws a branch tree with the fork evidence in the row text; N
   assert.match(all, /<circle class="lane-\d hole" cx="15" cy="0" r="3.75"\/>/);
   assert.match(all, /Branched from main, assumed from PR 7/);
   assert.match(all, /class="help tree-legend"/);
+  assert.match(all, /A line can pass rows of other branches\./);
   const updates = renderFeed(state, view);
   assert.equal((updates.match(/<li class="row /g) || []).length, 2);
   assert.doesNotMatch(updates, /with-tree|class="tree"|tree-legend|Branched from/);
+});
+
+test('a CI run on a pull request ref names the source branch and the pull request once the PR is known', () => {
+  const state = fixture();
+  const run = { repoId: 'r', kind: 'build', branch: 'refs/pull/7/merge', seen: false, imported: false, time: '2026-11-17T10:02:00Z' };
+  state.events = [
+    {
+      ...run,
+      id: 'known',
+      data: { buildId: 1, pullRequest: { id: 7, sourceRefName: 'refs/heads/feature/a', targetRefName: 'refs/heads/main' } },
+    },
+    { ...run, id: 'unknown', branch: 'refs/pull/8/merge', data: { buildId: 2 } },
+  ];
+  const out = renderFeed(state, view);
+  assert.match(out, /<span class="subref">[^<]* \/ feature\/a · PR 7<\/span>/);
+  assert.match(out, /<span class="subref">[^<]* \/ refs\/pull\/8\/merge<\/span>/);
 });

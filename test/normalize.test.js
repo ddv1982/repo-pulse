@@ -223,3 +223,55 @@ test('reconcileRefs records baseline silently and reports later branch and tag a
     store.close();
   }
 });
+
+test('a push that only moves pull request refs is Azure bookkeeping and makes no push row', () => {
+  const { store, normalize } = makeFixture();
+  const service = { displayName: 'Microsoft.VisualStudio.Services.TFS' };
+  try {
+    const { events, entities } = normalize(
+      repo,
+      'pushes',
+      [
+        // The shape Azure returns when it refreshes or creates the merge preview of a pull request.
+        {
+          pushId: 201,
+          date: '2026-11-18T11:30:00Z',
+          pushedBy: service,
+          refUpdates: [{ name: 'refs/pull/11/merge', oldObjectId: OLD, newObjectId: NEW }],
+        },
+        {
+          pushId: 202,
+          date: '2026-11-18T11:31:00Z',
+          pushedBy: service,
+          refUpdates: [{ name: 'refs/pull/12/merge', oldObjectId: ZERO, newObjectId: NEW }],
+        },
+        { pushId: 203, date: '2026-11-18T11:32:00Z', pushedBy: service, refUpdates: [] },
+        {
+          pushId: 204,
+          date: '2026-11-18T11:33:00Z',
+          pushedBy: { displayName: 'Ada' },
+          refUpdates: [
+            { name: 'refs/pull/7/merge', oldObjectId: OLD, newObjectId: ZERO },
+            { name: 'refs/heads/main', oldObjectId: OLD, newObjectId: NEW },
+          ],
+        },
+      ],
+      { initialized: true },
+    );
+    assert.deepEqual(
+      events.map(event => [event.kind, event.data.pushId, event.branch]),
+      [
+        ['push', 203, ''],
+        ['push', 204, 'main'],
+      ],
+      'a push without any ref update, and one that also moves a branch, are kept',
+    );
+    assert.deepEqual(
+      entities.filter(entity => entity.type === 'push').map(entity => entity.id),
+      ['201', '202', '203', '204'],
+      'every push is remembered',
+    );
+  } finally {
+    store.close();
+  }
+});
