@@ -434,8 +434,11 @@ const actions = {
       '',
       async name => {
         const preset = await request('/api/activity-filters', { method: 'POST', body: { name, filters } });
-        ui.savedFilterId = preset.id;
         await load({ force: true });
+        if (isActivity(ui.route) && refresh.state.savedFilters?.some(filter => filter.id === preset.id)) {
+          ui.savedFilterId = preset.id;
+          renderPage();
+        }
         toast(`Filter “${preset.name}” saved.`);
       },
       `${summary}${ui.search ? ` · Search “${ui.search}”` : ''}`,

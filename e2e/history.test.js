@@ -980,6 +980,41 @@ test('saved filters stay available on mobile, apply on keyboard selection, and s
   await expect(search).toHaveValue('Orders');
 });
 
+test('saving selects the new filter after an older state response arrives', async t => {
+  const { runtime, page } = await demo(t);
+  await page.goto(runtime.url + '/#activity/new');
+  await page.getByRole('button', { name: 'Save filter…' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Save Activity filter' });
+  await dialog.getByRole('textbox', { name: 'Filter name' }).fill('Fresh preset');
+  const captured = Promise.withResolvers();
+  const release = Promise.withResolvers();
+  await page.route(
+    '**/api/state',
+    async route => {
+      const response = await route.fetch();
+      captured.resolve();
+      await release.promise;
+      await route.fulfill({ response });
+    },
+    { times: 1 },
+  );
+  try {
+    await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+    await captured.promise;
+    const saved = page.waitForResponse(
+      response => response.request().method() === 'POST' && response.url().endsWith('/api/activity-filters'),
+    );
+    await dialog.getByRole('button', { name: 'Save', exact: true }).click();
+    assert.ok((await saved).ok());
+    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    release.resolve();
+    await expect(page.locator('#saved-filter-toggle')).toHaveAccessibleName('Saved filter: Fresh preset');
+    await expect(page.getByRole('button', { name: 'More saved filter actions' })).toBeVisible();
+  } finally {
+    release.resolve();
+  }
+});
+
 test('closing a saved-filter menu delivers a deferred Activity response and deletes keep newer selections', async t => {
   const { runtime, page } = await demo(t);
   const filters = search => ({ search, people: '', kind: '', repoIds: null, view: 'new' });
