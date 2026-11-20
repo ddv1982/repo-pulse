@@ -1434,8 +1434,8 @@ test('a pull request detail lists its reviewers and their votes in words', async
   const { page } = await setup(t);
   await page.locator('[data-event-id="demo-pr-1"] .feed-title').click();
   const facts = page.locator('.detail-facts');
-  await expect(facts).toContainText('Lars de Wit (required): approved');
-  await expect(facts).toContainText('Sam Ortega: waiting for author');
+  await expect(facts).toContainText('Redacted 3 (required): approved');
+  await expect(facts).toContainText('Redacted 1: waiting for author');
   await expect(facts).toContainText('Billing reviewers (required): no vote');
 });
 

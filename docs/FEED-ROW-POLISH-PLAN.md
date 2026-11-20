@@ -94,12 +94,12 @@ change that makes it pass.
 Requested during implementation so the README screenshots show no
 person-like names.
 
-- [ ] In `server/demo.js`, replace each person with `Redacted N`, one number
+- [x] In `server/demo.js`, replace each person with `Redacted N`, one number
       per person used consistently in actors, reviewer votes, `closedBy` and
       titles: Sam Ortega → Redacted 1, Priya Nair → Redacted 2,
       Lars de Wit → Redacted 3, Demo developer → Redacted 4.
-- [ ] Update the e2e assertions that name them (`e2e/ui.test.js:1437-1438`).
-- [ ] Run `npm test` and `npm run test:ui`; grep confirms no old names remain
+- [x] Update the e2e assertions that name them (`e2e/ui.test.js:1437-1438`).
+- [x] Run `npm test` and `npm run test:ui`; grep confirms no old names remain
       in `server/demo.js` and `e2e/`.
 
 ## Phase 6: screenshots
