@@ -23,5 +23,7 @@ error) after fixing what it left open, with proof for each change.
   SHM files are 600 like the database and read-only opens work while open and after close; no CSP violations on every
   view; tree lanes read from `data-tree-lanes`; the 3 to 5 minute copy matches `intervalMs` 180000 and the 300000
   quiet cadence; the CLI allowlist simplification is equivalent because `command` is `args.slice(0, 3).join(' ')`.
-- [ ] S5 Full checks pass locally; the new Windows CI job passes on the PR (dropped with a reason if it cannot).
+- [x] S5 Full checks pass locally. The Windows CI job is dropped: the store test asserts POSIX file mode 0600, which
+  Windows cannot report, and five test files depend on POSIX modes, chmod or symlinks. A Windows-clean suite is
+  separate work.
 - [x] S6 README screenshots regenerated for the 3 to 5 minute footer.

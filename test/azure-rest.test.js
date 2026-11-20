@@ -466,25 +466,22 @@ test('an absurd Retry-After is capped at ten minutes and an unreadable one is ig
   }
 });
 
-test('oversized REST responses are rejected by Content-Length and by streamed byte count', async () => {
+test('REST responses over 16 MiB are rejected by Content-Length and by streamed byte count, and a UTF-8 BOM still parses', async () => {
   const cliExecutor = async () => JSON.stringify({ accessToken: TOKEN, expires_on: 4102444800 });
-  const declaredTooLarge = createRestExecutor({
-    cliExecutor,
-    maxResponseBytes: 64,
-    fetch: async () => new Response('{"value":[]}', { status: 200, headers: { 'content-length': '128' } }),
-  });
+  const read = response =>
+    createRestExecutor({ cliExecutor, fetch: async () => response })(invoke('git', 'refs', ['project=P', 'repositoryId=r']), {
+      signal: new AbortController().signal,
+      timeoutMs: 5000,
+    });
+  const tooLarge = error => error.code === 'INVALID_RESPONSE' && /unexpectedly large/.test(error.message);
   await assert.rejects(
-    declaredTooLarge(invoke('git', 'refs', ['project=P', 'repositoryId=r']), { signal: new AbortController().signal, timeoutMs: 5000 }),
-    error => error.code === 'INVALID_RESPONSE',
+    read(new Response('{"value":[]}', { status: 200, headers: { 'content-length': String(17 * 1024 * 1024) } })),
+    tooLarge,
   );
-
-  const streamedTooLarge = createRestExecutor({
-    cliExecutor,
-    maxResponseBytes: 64,
-    fetch: async () => new Response(JSON.stringify({ value: 'x'.repeat(200) }), { status: 200 }),
-  });
-  await assert.rejects(
-    streamedTooLarge(invoke('git', 'refs', ['project=P', 'repositoryId=r']), { signal: new AbortController().signal, timeoutMs: 5000 }),
-    error => error.code === 'INVALID_RESPONSE',
-  );
+  // One reused 1 MiB chunk streamed 17 times, with no Content-Length.
+  const chunk = new Uint8Array(1024 * 1024).fill(0x20);
+  let sent = 0;
+  const stream = new ReadableStream({ pull: controller => (sent++ < 17 ? controller.enqueue(chunk) : controller.close()) });
+  await assert.rejects(read(new Response(stream, { status: 200 })), tooLarge);
+  assert.deepEqual(await read(new Response('\uFEFF{"value":[]}', { status: 200 })), { value: [] });
 });

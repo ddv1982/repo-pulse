@@ -145,16 +145,17 @@ async function readJsonBody(response, maxBytes) {
   } finally {
     reader.releaseLock();
   }
-  return JSON.parse(Buffer.concat(chunks, total).toString('utf8'));
+  // TextDecoder drops a UTF-8 BOM, as Response.json() did.
+  return JSON.parse(new TextDecoder().decode(Buffer.concat(chunks, total)));
 }
 
 /**
  * Executor for createAzureCli that sends `devops invoke` reads over HTTPS with one Azure CLI token
  * instead of starting az for each read. Other commands still run through az. The token stays in this
  * closure: it is never returned, logged or put in an error, and run() still refuses to request one.
- * @param {{ cliExecutor: Executor, fetch?: typeof globalThis.fetch, now?: () => number, maxResponseBytes?: number }} options
+ * @param {{ cliExecutor: Executor, fetch?: typeof globalThis.fetch, now?: () => number }} options
  */
-export function createRestExecutor({ cliExecutor, fetch = globalThis.fetch, now = Date.now, maxResponseBytes = MAX_RESPONSE_BYTES }) {
+export function createRestExecutor({ cliExecutor, fetch = globalThis.fetch, now = Date.now }) {
   /** @type {CachedToken | undefined} */
   let token,
     /** @type {Promise<string> | undefined} */
@@ -257,7 +258,7 @@ export function createRestExecutor({ cliExecutor, fetch = globalThis.fetch, now 
     }
     let data;
     try {
-      data = await readJsonBody(response, maxResponseBytes);
+      data = await readJsonBody(response, MAX_RESPONSE_BYTES);
     } catch (error) {
       if (/** @type {{ code?: unknown }} */ (error)?.code === 'INVALID_RESPONSE') throw error;
       if (error instanceof SyntaxError) throw cliError('INVALID_RESPONSE', 'Azure DevOps returned an invalid JSON response.');
