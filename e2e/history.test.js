@@ -513,6 +513,8 @@ test('an open Activity view picks up a seen action in another tab and later merg
 test('seen feedback waits for its refresh when a background poll is in flight', async t => {
   const { runtime, page } = await demo(t);
   await page.goto(runtime.url + '/#activity/new');
+  // Hold the poll only once the page shows what it will mark.
+  await expect(page.getByRole('button', { name: /^Mark all seen/ })).toBeVisible();
   const started = Promise.withResolvers();
   const release = Promise.withResolvers();
   let holdFirst = true;
