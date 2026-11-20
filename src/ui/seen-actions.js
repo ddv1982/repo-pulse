@@ -91,23 +91,11 @@ export function createSeenActions({ page, request, reload, toast }) {
   return {
     acknowledge,
     shownUnseenIds: () => shownUnseenIds(page),
-    updateShownCount() {
-      const button = page.querySelector('[data-action="ack-shown"]');
-      if (!(button instanceof HTMLButtonElement)) return;
-      const count = shownUnseenIds(page).length;
-      button.textContent = `Mark shown seen (${count})`;
-      button.disabled = count === 0;
-    },
     /** @type {Record<string, Action>} */
     actions: {
       'ack-item': element => {
         const ids = eventIds(element);
         if (ids.length) return acknowledge(ids, element.dataset.markSeen === 'true');
-      },
-      'ack-shown': () => {
-        const ids = shownUnseenIds(page);
-        if (!ids.length) return;
-        return acknowledge(ids, true);
       },
       'undo-ack': async () => {
         if (undoIds.length) await acknowledge(undoIds, false, { undo: true });

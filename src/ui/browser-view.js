@@ -62,9 +62,9 @@ function focusedControlId(element) {
 /**
  * `syncLive` sits outside the header so re-rendering the header never replaces it.
  * @param {{ page: HTMLElement, header: HTMLElement, demo: HTMLElement, syncLive: HTMLElement, picker: { mount: (element: HTMLElement | null) => void },
- *   toolbarMenus: Record<string, { mount: (element: HTMLElement | null) => void }>, onPageRendered: () => void }} options
+ *   toolbarMenus: Record<string, { mount: (element: HTMLElement | null) => void }> }} options
  */
-export function createBrowserView({ page, header, demo, syncLive, picker, toolbarMenus, onPageRendered }) {
+export function createBrowserView({ page, header, demo, syncLive, picker, toolbarMenus }) {
   const groupElements = () => [...page.querySelectorAll('details[data-group]')].filter(element => element instanceof HTMLDetailsElement);
   /** @param {string} selector */
   const shown = selector => {
@@ -122,7 +122,6 @@ export function createBrowserView({ page, header, demo, syncLive, picker, toolba
       const replacement = restoreFocus(focusId, neighbours);
       if (selection && replacement instanceof HTMLInputElement) replacement.setSelectionRange(...selection);
     }
-    onPageRendered();
     // web/theme.js defines repoPulseTheme on window before the modules load; the optional call covers its absence.
     /** @type {ThemedWindow} */ (window).repoPulseTheme?.apply();
     if (checkoutFocus) {
