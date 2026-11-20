@@ -98,6 +98,31 @@ test('the push that created a branch may sort below its row: the fork is describ
   assert.deepEqual([tree.rows[1].node.down, tree.rows[2].node.up], [true, true]);
 });
 
+test('one push that creates two branches keeps each creation with that push', () => {
+  const samePush = { pushId: 5 };
+  const both = push('feature/a', zero, sha('c'), { data: { ...samePush, refUpdates: [] } });
+  const tree = buildActivityTree([
+    pr(7, 'feature/a'),
+    created('feature/a', sha('c'), samePush),
+    created('feature/b', sha('d'), samePush),
+    both,
+  ]);
+  assert.deepEqual([tree.rows[1].forkFrom, tree.rows[3].forkFrom.evidence], [null, 'pr']);
+  assert.deepEqual([tree.rows[1].node.down, tree.rows[3].node.up], [true, true]);
+});
+
+test('a branch found earlier in a snapshot counts as a sighting of its tip', () => {
+  const found = event('branch-created', 'release', { data: { name: 'refs/heads/release', objectId: sha('x'), evidence: 'snapshot' } });
+  const tree = buildActivityTree([created('hotfix/a', sha('x')), found]);
+  assert.deepEqual(tree.rows[0].fork, { evidence: 'tip', parent: 'release' });
+});
+
+test('a recreated branch does not take its fork from a pull request of the deleted one, or of a later one', () => {
+  const tree = buildActivityTree([pr(9, 'feature/a'), created('feature/a'), created('feature/a'), pr(7, 'feature/a')]);
+  assert.equal(tree.rows[1].fork.pullRequestId, 9);
+  assert.equal(tree.rows[2].fork, null);
+});
+
 test('older rows under a reused branch name belong to an earlier branch and stay apart', () => {
   const tree = buildActivityTree([pr(7, 'feature/a'), created('feature/a'), push('feature/a')]);
   assert.equal(tree.rows[1].forkFrom.evidence, 'pr');

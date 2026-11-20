@@ -54,23 +54,27 @@ function pullRequest(item) {
   if (id === undefined) return undefined;
   const branch = branchName(item.data?.sourceRefName) || item.branch || '';
   const fork = item.data?.fork;
-  return { id, source: fork && branch ? `${fork.repository ?? 'fork'}:${branch}` : branch, target: branchName(item.data?.targetRefName) };
+  const source = fork && branch ? `${fork.project ?? ''}/${fork.repository ?? 'fork'}:${branch}` : branch;
+  return { id, source, target: branchName(item.data?.targetRefName) };
 }
 
-/** The newest row of each pull request, by id and by source branch. @param {ActivityEvent[]} items */
+/** Pull requests by id, newest row first, and every PR row of each source branch in list order. @param {ActivityEvent[]} items */
 function pullRequests(items) {
   /** @type {Map<string, PullRequest>} */
   const byId = new Map();
-  /** @type {Map<string, PullRequest>} */
+  /** @type {Map<string, { row: number, pr: PullRequest }[]>} */
   const bySource = new Map();
-  for (const item of items) {
+  items.forEach((item, row) => {
     const pr = pullRequest(item);
-    if (!pr) continue;
+    if (!pr) return;
     const id = laneKey(item.repoId, String(pr.id));
     if (!byId.has(id)) byId.set(id, pr);
+    if (!pr.source || !pr.target) return;
     const source = laneKey(item.repoId, pr.source);
-    if (pr.source && pr.target && !bySource.has(source)) bySource.set(source, pr);
-  }
+    const rows = bySource.get(source);
+    if (rows) rows.push({ row, pr });
+    else bySource.set(source, [{ row, pr }]);
+  });
   return { byId, bySource };
 }
 
@@ -99,7 +103,8 @@ function tipSightings(items) {
         add(item, row, update.oldObjectId, update.name);
       }
     if (item.kind === 'pr') add(item, row, item.data?.mergeCommit, item.data?.targetRefName);
-    add(item, row, createdAt(item), item.data?.name);
+    // A snapshot row records the tip the branch had when it was found.
+    if (item.kind === 'branch-created') add(item, row, createdAt(item) || item.data?.objectId, item.data?.name);
   });
   return sightings;
 }
@@ -194,33 +199,42 @@ export function buildActivityTree(items, { maxLanes = MAX_LANES, maxGap = MAX_GA
   const rowKeys = items.map((item, row) => mark(item.repoId, rowBranch(item, prs.byId), row));
 
   /**
-   * The oldest row of a new branch. The push that created a branch is a row of its own and may sort just below it.
+   * The oldest row of a new branch. The push that created a branch is a row of its own and may sort below it, after
+   * the other rows of the same push.
    * @param {ActivityEvent} item @param {number} row
    */
   const startRow = (item, row) => {
     const pushId = item.data?.pushId;
-    const below = items[row + 1];
-    const samePush = pushId !== undefined && below?.kind === 'push' && below.data?.pushId === pushId && rowKeys[row + 1] === rowKeys[row];
-    return samePush ? row + 1 : row;
+    let start = row;
+    for (let below = row + 1; pushId !== undefined && items[below]?.data?.pushId === pushId; below++)
+      if (items[below].kind === 'push' && rowKeys[below] === rowKeys[row]) start = below;
+    return start;
   };
-  /** @param {ActivityEvent} item @param {string} branch @param {number} start @returns {TreeFork | null} */
-  const forkOrigin = (item, branch, start) => {
+  /**
+   * `after` is the row where the same name was created again, or -1: a pull request above it belongs to that later branch.
+   * @param {ActivityEvent} item @param {string} branch @param {number} row @param {number} start @param {number} after
+   * @returns {TreeFork | null}
+   */
+  const forkOrigin = (item, branch, row, start, after) => {
     const tip = createdAt(item).toLowerCase();
     const seen = sightings.get(laneKey(item.repoId, tip))?.find(sighting => sighting.row > start && sighting.branch !== branch);
     if (seen) return { evidence: 'tip', parent: seen.branch };
-    const pr = prs.bySource.get(laneKey(item.repoId, branch));
+    const pr = prs.bySource.get(laneKey(item.repoId, branch))?.findLast(entry => entry.row > after && entry.row < row)?.pr;
     return pr && pr.target !== branch ? { evidence: 'pr', parent: pr.target, pullRequestId: pr.id } : null;
   };
   /** @type {(TreeFork | null)[]} */
   const forks = items.map(() => null);
   /** The fork curve sits on the oldest row of the branch: row index to the fork and the parent it joins. @type {Map<number, { fork: TreeFork, key: string }>} */
   const forkJoins = new Map();
+  /** @type {Map<string, number>} */
+  const createdAbove = new Map();
   items.forEach((item, row) => {
     const entry = branches.get(rowKeys[row]);
     if (item.kind !== 'branch-created' || !entry?.branch) return;
     const start = startRow(item, row);
     entry.starts.add(start);
-    const fork = forkOrigin(item, entry.branch, start);
+    const fork = forkOrigin(item, entry.branch, row, start, createdAbove.get(rowKeys[row]) ?? -1);
+    createdAbove.set(rowKeys[row], row);
     forks[row] = fork;
     if (fork) forkJoins.set(start, { fork, key: mark(item.repoId, fork.parent, start) });
   });
