@@ -90,8 +90,8 @@ Each phase starts with a test seen failing and ends with `npm test`, `npm run ch
 
 ### Phase 4: docs
 
-- [ ] Update the switch text in `README.md` and `docs/COVERAGE.md`, and refresh the screenshots if the Repositories
-      card changed. Check: read back.
+- [x] Update the switch text in `README.md` and `docs/COVERAGE.md`, and refresh the screenshots if the Repositories
+      card changed. Check: read back. The screenshots show demo Activity, which has no checkout, so they did not change.
 
 ## Out of scope
 

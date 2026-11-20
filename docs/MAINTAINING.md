@@ -11,7 +11,7 @@
 | [server/store.js](../server/store.js) and [server/merge-evidence.js](../server/merge-evidence.js) | SQLite events, migrations, atomic checkpoints, reset, and linking pushes to completed PRs by tip |
 | [server/activity-query.js](../server/activity-query.js) | Scoped Activity rows, stable filter IDs, counts, and paging |
 | [server/repositories.js](../server/repositories.js) and [server/checkout-git.js](../server/checkout-git.js) | Checkout discovery, Git runner and safety checks, status and cache, and the shared write lock |
-| [server/checkout-activity-switch.js](../server/checkout-activity-switch.js) and [server/checkout-switch-refs.js](../server/checkout-switch-refs.js) | Activity branch switches, tracking-ref transactions, and rewrite recovery |
+| [server/checkout-activity-switch.js](../server/checkout-activity-switch.js) and [server/checkout-switch-refs.js](../server/checkout-switch-refs.js) | Branch switches from Activity and Repositories, tracking-ref transactions, and rewrite recovery |
 | [server/checkout-update.js](../server/checkout-update.js) and [server/checkout-branches.js](../server/checkout-branches.js) | Check, Pull, and PR branch follow-up workflows |
 | [src/activity-tree.js](../src/activity-tree.js) and [src/ui/activity-tree.js](../src/ui/activity-tree.js) | The branch tree of All activity: lanes, fork and merge links from the rendered rows, and the SVG cell of each row. [server/activity-query.js](../server/activity-query.js) attaches the stored pull request to CI runs on a pull request ref |
 | [src/web.js](../src/web.js) and [src/ui/](../src/ui/) | Browser wiring, view rendering, refresh coordination, navigation, and exact seen actions |
@@ -29,7 +29,7 @@ Use the shared `.btn`, `.control`, `.ghost`, and `.search` classes. Choose one s
 
 ## Local Git actions
 
-Activity branch switches verify the destination ref, its fetch mapping, and the linked Git directory. Tracking-ref updates check the expected old value, and Repo Pulse checks the type of each ref while Git holds its transaction lock. For a confirmed rewrite, Repo Pulse writes and verifies recovery refs under `refs/repo-pulse/upstream-rewrites/` before updating the tracker. Later checks can use those refs to detect the rewrite on other local branches tracking the same upstream, including branches in linked worktrees. Git handles the worktree switch separately.
+Branch switches verify the destination ref, its fetch mapping, and the linked Git directory. Tracking-ref updates check the expected old value, and Repo Pulse checks the type of each ref while Git holds its transaction lock. For a confirmed rewrite, Repo Pulse writes and verifies recovery refs under `refs/repo-pulse/upstream-rewrites/` before updating the tracker. Later checks can use those refs to detect the rewrite on other local branches tracking the same upstream, including branches in linked worktrees. Git handles the worktree switch separately.
 
 Pull checks the checkout, upstream and fetched tip before running `git merge --ff-only --no-squash`, then verifies HEAD. A terminal branch change between the final check and Git's merge can still race with the update.
 
