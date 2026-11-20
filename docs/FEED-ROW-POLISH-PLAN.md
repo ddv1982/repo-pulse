@@ -104,9 +104,9 @@ person-like names.
 
 ## Phase 6: screenshots
 
-- [ ] Regenerate `docs/screenshots/activity-dark.png` and
+- [x] Regenerate `docs/screenshots/activity-dark.png` and
       `activity-light.png` from `npm run demo`.
-- [ ] Update README.md wherever it describes the row layout or the
+- [x] Update README.md wherever it describes the row layout or the
       repository / branch line.
 
 ## Out of scope
