@@ -666,8 +666,8 @@ ol.rows {
   }
 }
 
-/* Branch tree in the status column of All activity. src/ui/activity-tree.js draws one cell per row, with y = 0 on
-   the status label. Below 640px the status has no column of its own, so rows keep their dot. */
+/* Branch tree of All activity, drawn in the left padding of each row's type label. src/ui/activity-tree.js draws one
+   cell per row, with y = 0 on the type label. Below 640px there is no tree, so rows keep their dot. */
 .tree,
 .tree-legend {
   display: none;

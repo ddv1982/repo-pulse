@@ -6,7 +6,7 @@ import { emptyHtml, html } from './format.js';
 /** @typedef {import('../activity-tree.js').TreeLine} TreeLine */
 /** @typedef {import('../activity-tree.js').TreeFork} TreeFork */
 
-// Geometry in CSS pixels. web/styles/feed.css places y = 0 on the row's status label and sizes a lane as PITCH wide.
+// Geometry in CSS pixels. web/styles/feed.css places y = 0 on the row's type label and sizes a lane as PITCH wide.
 const PITCH = 10;
 const JOIN = 18;
 const ABOVE = -40;

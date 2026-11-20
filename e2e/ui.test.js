@@ -1590,7 +1590,7 @@ test('Start from scratch in Settings confirms, empties the feed and shows Syncin
   await expect(page.locator('[data-event-id="one:push:1"]')).toHaveCount(1, { timeout: 15000 });
 });
 
-test('All activity shows the branch tree in the status column, and narrow screens and New updates keep the dot', async t => {
+test('All activity shows the branch tree beside the type label, and narrow screens and New updates keep the dot', async t => {
   const { page } = await setup(t);
   await page.getByRole('link', { name: 'All activity', exact: true }).click();
   const rows = page.locator('.with-tree .row');
