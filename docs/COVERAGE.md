@@ -52,7 +52,7 @@ Evidence saved before deeper analysis stopped also enumerated ref ranges, becaus
   separate observations when the app cannot prove a shared branch lifetime/source identity.
 - The branch tree in **All activity** is drawn from the rows on the page, plus the checked fork origin of each
   new branch. A lane joins nearby rows of one branch and ends when the branch is quiet for more than 12 rows.
-- A branch created by a live push is checked in the background, during the automatic-check turns when no
+- A branch created by a push, live or from the first sync's 7-day import, is checked in the background, during the automatic-check turns when no
   rewrite check is due, and waits while the repository's push stream is still paging through a window. The
   check reads commits from the created tip back past the ones that push brought,
   one read per commit and at most 8, to find the commit the branch started at. A solid fork means that
@@ -63,7 +63,7 @@ Evidence saved before deeper analysis stopped also enumerated ref ranges, becaus
   which branch the author started from, and a recorded tip can be stale when pushes are missing from the
   store. Several matching branches, a pull request target that did not hold the commit, no matching
   branch, an orphan branch or a first commit that is a merge draw no fork and say so in the row text.
-- Branches the check did not cover (imported history, rows saved before the check existed, snapshot
+- Branches the check did not cover (an explicit history import, snapshot
   discoveries, and checks that failed before finding the start commit) keep the unchecked evidence: a solid fork when an older row on the
   page shows the created revision as another branch's tip, otherwise a dotted fork to the target of a pull
   request from the branch, labelled "origin not checked". No fork line means the origin is unknown. A

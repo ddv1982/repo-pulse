@@ -219,13 +219,28 @@ test('an orphan branch, a merge commit and a long walk end without a base', asyn
   long.store.close();
 });
 
-test('imported branch creations are never checked', async () => {
+test('a branch creation from the first sync import is checked like a live one', async () => {
   const { store, reads, run } = setup({
-    pushes: [push(10, [move('feature', ZERO, B)], new Date(BASE - 60000).toISOString())],
+    pushes: [
+      push(10, [move('feature', ZERO, B)], new Date(BASE - 60000).toISOString()),
+      push(5, [move('main', A, B)], new Date(BASE - 120000).toISOString()),
+    ],
     graph: { [B]: { parents: [A], pushId: 5 } },
   });
   await run();
   assert.equal(store.getEvent('one:branch-created:10:refs/heads/feature').imported, true);
+  assert.deepEqual(reads, [B]);
+  assert.deepEqual(origin(store, 10, 'feature'), { status: 'found', base: B, on: ['refs/heads/main'], via: 'tip' });
+  store.close();
+});
+
+test('a history import queues no fork check', async () => {
+  const { store, reads, run, offered, backfill } = setup();
+  await run();
+  offered.pushes = [push(18, [move('feature', ZERO, B)], new Date(BASE - 2 * 86400000).toISOString())];
+  backfill.start(repo.id, 30);
+  await run(20);
+  assert.equal(store.getEvent('one:branch-created:18:refs/heads/feature').imported, true);
   assert.deepEqual(reads, []);
   assert.deepEqual(store.listJobs({ type: 'fork' }), []);
   store.close();

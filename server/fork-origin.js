@@ -25,6 +25,31 @@ export const MAX_CHECKS = 3;
 const iso = ms => new Date(ms).toISOString();
 
 /**
+ * The check for one push branch creation, or null when the row cannot be checked (no full ref or created tip).
+ * @param {{ id: string, repoId: string, kind: string, observedAt: string, data?: { evidence?: string, name?: string,
+ *   newObjectId?: string, pushId?: number | string } }} event
+ * @returns {ForkJob | null}
+ */
+export function forkJob(event) {
+  const { evidence, name, newObjectId, pushId } = event.data ?? {};
+  if (event.kind !== 'branch-created' || evidence !== 'push' || typeof name !== 'string') return null;
+  if (typeof newObjectId !== 'string' || !/^[0-9a-f]{40}$/i.test(newObjectId) || /^0+$/.test(newObjectId)) return null;
+  if (!Number.isSafeInteger(Number(pushId)) || Number(pushId) <= 0) return null;
+  return {
+    id: `fork:${event.id}`,
+    type: 'fork',
+    repoId: event.repoId,
+    eventId: event.id,
+    ref: name,
+    pushId: Number(pushId),
+    at: newObjectId.toLowerCase(),
+    reads: 0,
+    attempts: 0,
+    nextAt: event.observedAt,
+  };
+}
+
+/**
  * Each tick runs at most one Azure call for one due job.
  * @param {{ store: ForkStore, provider: Pick<AzureProvider, 'commit'|'droppedCommits'>, now?: () => number }} options
  */

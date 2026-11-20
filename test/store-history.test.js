@@ -615,7 +615,7 @@ test('v9 migration drops the old Pull journal and keeps repositories and events'
   }
   const check = new DatabaseSync(path);
   assert.equal(check.prepare("SELECT name FROM sqlite_master WHERE name='pull_operations'").get(), undefined);
-  assert.equal(check.prepare('PRAGMA user_version').get().user_version, 14);
+  assert.equal(check.prepare('PRAGMA user_version').get().user_version, 15);
   check.close();
   rmSync(dir, { recursive: true });
 });
@@ -635,13 +635,13 @@ test('a fresh database is created with its final activity columns', () => {
       { name: 'evidence_id', notnull: 1, dflt_value: "''" },
     ],
   );
-  assert.equal(check.prepare('PRAGMA user_version').get().user_version, 14);
+  assert.equal(check.prepare('PRAGMA user_version').get().user_version, 15);
   check.close();
   rmSync(dir, { recursive: true });
 });
 
 test('every older database version and a fresh database end at the latest version, and a newer one is refused', () => {
-  const latest = 14;
+  const latest = 15;
   const dir = mkdtempSync(join(tmpdir(), 'pulse-versions-'));
   const versionOf = path => {
     const db = new DatabaseSync(path);
