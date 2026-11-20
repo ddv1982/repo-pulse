@@ -328,6 +328,21 @@ test('a checked origin with several branches, none, an orphan or a merge draws n
   );
 });
 
+test('a match while another candidate went unanswered names the branch without drawing a fork', () => {
+  const tree = buildActivityTree([
+    checked('feature/c', {
+      status: 'found',
+      base: sha('d'),
+      on: ['refs/heads/main'],
+      via: 'contained',
+      notOn: [],
+      unanswered: ['refs/heads/x'],
+    }),
+  ]);
+  assert.deepEqual(tree.rows[0].fork, { evidence: 'ambiguous', parent: null, base: sha('d'), branches: ['main'] });
+  assert.equal(tree.rows[0].forkFrom, null);
+});
+
 test('a check that failed leaves the unchecked evidence in place', () => {
   const tree = buildActivityTree([pr(7, 'feature/a'), checked('feature/a', { status: 'unknown' })]);
   assert.deepEqual(tree.rows[1].fork, { evidence: 'pr', parent: 'main', pullRequestId: 7 });

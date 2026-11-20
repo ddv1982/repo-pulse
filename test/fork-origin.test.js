@@ -296,7 +296,49 @@ test('a failed ancestry read keeps the base and the candidates already ruled out
     contains: (_base, tip) => (tip === D ? notFound() : false),
   });
   await run(16);
-  assert.deepEqual(origin(store, 10, 'feature'), { status: 'none', base: C, notOn: ['refs/heads/release/x'] });
+  assert.deepEqual(origin(store, 10, 'feature'), {
+    status: 'none',
+    base: C,
+    notOn: ['refs/heads/release/x'],
+    unanswered: ['refs/heads/main'],
+  });
+  store.close();
+});
+
+test('a candidate whose read fails is skipped, and the others are still checked', async () => {
+  const { store, checks, run } = setup({
+    pushes: [push(10, [move('feature', ZERO, E)]), push(8, [move('main', C, D)]), push(7, [move('release/x', ZERO, F)])],
+    prs: [pr(1, 'feature', 'release/x'), pr(2, 'other', 'main'), pr(3, 'more', 'main')],
+    graph: { [E]: { parents: [C], pushId: 10 }, [C]: { parents: [A], pushId: 4 } },
+    contains: (_base, tip) => (tip === F ? notFound() : tip === D),
+  });
+  await run(16);
+  assert.deepEqual(checks, [
+    [C, F],
+    [C, D],
+  ]);
+  assert.deepEqual(origin(store, 10, 'feature'), {
+    status: 'found',
+    base: C,
+    on: ['refs/heads/main'],
+    via: 'contained',
+    notOn: [],
+    unanswered: ['refs/heads/release/x'],
+  });
+  store.close();
+});
+
+test('a push window that starts after the creation does not hold the check back', async () => {
+  const { store, reads, check, sync } = setup({
+    pages: [[push(10, [move('feature', ZERO, B)]), push(5, [move('main', A, B)])], []],
+    graph: { [B]: { parents: [A], pushId: 5 } },
+  });
+  while (!store.getEvent('one:push:5')) await sync.tick();
+  const state = store.getStreams().find(entry => entry.stream === 'pushes');
+  const since = new Date(Date.parse(LIVE) + 60000).toISOString();
+  store.saveStream({ ...state, window: { since, until: since } });
+  assert.equal(await check.tick(), true);
+  assert.deepEqual(reads, [B]);
   store.close();
 });
 

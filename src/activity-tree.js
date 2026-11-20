@@ -133,8 +133,10 @@ function checkedFork(origin, pr) {
   const base = origin.base ?? '';
   if (origin.status === 'found') {
     const branches = (origin.on ?? []).map(ref => branchName(ref));
-    if (branches.length === 1) return { evidence: origin.via === 'contained' ? 'contained' : 'recorded', parent: branches[0], base };
-    if (branches.length > 1) return { evidence: 'ambiguous', parent: null, base, branches };
+    // A candidate that went unanswered could also hold the base, so one match beside it draws no fork either.
+    if (branches.length === 1 && !origin.unanswered?.length)
+      return { evidence: origin.via === 'contained' ? 'contained' : 'recorded', parent: branches[0], base };
+    if (branches.length) return { evidence: 'ambiguous', parent: null, base, branches };
   }
   if (pr && (origin.notOn ?? []).some(ref => branchName(ref) === pr.target))
     return { evidence: 'refuted', parent: null, base, pullRequestId: pr.id, target: pr.target };

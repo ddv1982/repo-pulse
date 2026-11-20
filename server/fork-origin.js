@@ -8,7 +8,7 @@
  * still to test with the tip each had before the creating push.
  * @typedef {{ id: string, type: 'fork', repoId: string, eventId: string, ref: string, pushId: number, at: string,
  *   reads: number, attempts: number, nextAt: string, base?: string, checks?: { ref: string, tip: string }[],
- *   on?: string[], notOn?: string[] }} ForkJob
+ *   on?: string[], notOn?: string[], unanswered?: string[] }} ForkJob
  */
 /**
  * @typedef {Pick<ReturnType<typeof import('./store.js').createStore>,
@@ -63,42 +63,51 @@ export function createForkOriginCheck({ store, provider, now = Date.now }) {
       if (job.reads + 1 >= MAX_READS) return { status: 'unknown' };
       return { ...job, at: commit.parents[0], reads: job.reads + 1 };
     }
-    const [check, ...rest] = job.checks ?? [];
     // Nothing the base reaches is missing from the candidate's tip, so the candidate already held the base.
-    const page = await provider.droppedCommits(repo, job.base, check.tip);
-    const on = [...(job.on ?? [])],
-      notOn = [...(job.notOn ?? [])];
-    (page.items.length ? notOn : on).push(check.ref);
-    if (rest.length) return { ...job, checks: rest, on, notOn };
-    return settle({ ...job, on, notOn });
+    const page = await provider.droppedCommits(repo, job.base, (job.checks ?? [])[0].tip);
+    return answer(job, page.items.length ? 'notOn' : 'on');
   }
 
-  /** The claim the finished checks support. A failed check keeps the base and the candidates already answered. @param {ForkJob} job @returns {ForkOrigin} */
-  function settle(job) {
+  /**
+   * Files the current candidate under its answer and moves to the next one, or settles once none is left. A candidate
+   * whose read failed is `unanswered`, so a single match next to it is not called the only one.
+   * @param {ForkJob} job @param {'on' | 'notOn' | 'unanswered'} list @returns {ForkJob | ForkOrigin}
+   */
+  function answer(job, list) {
+    const [check, ...rest] = job.checks ?? [];
+    const next = { ...job, checks: rest, [list]: [...(job[list] ?? []), check.ref] };
+    if (rest.length) return next;
     const base = /** @type {string} */ (job.base),
-      on = job.on ?? [],
-      notOn = job.notOn ?? [];
-    return on.length ? { status: 'found', base, on, via: 'contained', notOn } : { status: 'none', base, notOn };
+      { on = [], notOn = [], unanswered = [] } = next;
+    const extra = unanswered.length ? { unanswered } : {};
+    return on.length ? { status: 'found', base, on, via: 'contained', notOn, ...extra } : { status: 'none', base, notOn, ...extra };
   }
 
   /** @returns {Promise<boolean>} whether a check ran */
   async function tick() {
-    // Tips are matched against stored pushes, so a repository whose push stream is still paging through a window waits.
-    const reading = new Set(
+    // Tips are matched against stored pushes. While a push window is still paging, a creation inside it may have older
+    // pushes still to come, so a check that has not matched tips yet waits.
+    /** @type {Map<string, number>} */
+    const reading = new Map(
       store
         .getStreams()
-        .filter(state => state.stream === 'pushes' && state.window)
-        .map(state => state.repoId),
+        .flatMap(state => (state.stream === 'pushes' && state.window ? [[state.repoId, Date.parse(state.window.since)]] : [])),
     );
+    /** @param {ForkJob} job */
+    const waits = job => {
+      if (job.base || !reading.has(job.repoId)) return false;
+      const time = Date.parse(store.getEvent(job.eventId)?.time ?? '');
+      return !(time < /** @type {number} */ (reading.get(job.repoId)));
+    };
     const repos = new Map(
       store
         .listRepos()
-        .filter(repo => !repo.disabled && !reading.has(repo.id))
+        .filter(repo => !repo.disabled)
         .map(repo => [repo.id, repo]),
     );
     // Rows of type 'fork' are only written by server/normalize.js and this check, as a ForkJob.
     const jobs = /** @type {ForkJob[]} */ (/** @type {unknown} */ (store.listJobs({ type: 'fork', dueBefore: iso(now()) })));
-    const job = jobs.find(item => repos.has(item.repoId) && !((deferred.get(item.id)?.at ?? 0) > now()));
+    const job = jobs.find(item => repos.has(item.repoId) && !((deferred.get(item.id)?.at ?? 0) > now()) && !waits(item));
     const repo = job && repos.get(job.repoId);
     if (!job || !repo) return false;
     /** @type {ForkJob | ForkOrigin | undefined} */
@@ -118,7 +127,7 @@ export function createForkOriginCheck({ store, provider, now = Date.now }) {
           }
           return true;
         }
-        next = job.base ? settle(job) : { status: 'unknown' };
+        next = job.base ? answer(job, 'unanswered') : { status: 'unknown' };
       }
     if ('type' in next) {
       // A later step is due at once; a failed write repeats this step on a later tick.

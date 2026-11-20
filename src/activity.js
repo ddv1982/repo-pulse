@@ -31,9 +31,10 @@
  * base (`via: 'tip'`), or, failing that, the checked candidates whose tip then contained it (`via: 'contained'`).
  * `none`: the base is known but no recorded tip or checked candidate held it; `notOn` lists the candidates checked.
  * `orphan`: the branch history has no earlier commit. `merge`: its first pushed commit has several parents.
- * `unknown`: the check failed or the creating push brought too many commits to walk.
+ * `unknown`: the check failed or the creating push brought too many commits to walk. `unanswered` lists candidates
+ * whose read failed, so a match beside them is not the only one.
  * @typedef {{ status: 'found' | 'none' | 'orphan' | 'merge' | 'unknown', base?: string, on?: string[],
- *   via?: 'tip' | 'contained', notOn?: string[] }} ForkOrigin
+ *   via?: 'tip' | 'contained', notOn?: string[], unanswered?: string[] }} ForkOrigin
  */
 /**
  * Provider fields of an event, plus enrichment. Each kind fills its own subset (see server/normalize.js).
