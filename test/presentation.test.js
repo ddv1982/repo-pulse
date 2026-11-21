@@ -15,6 +15,7 @@ import { renderFeed as renderPagedFeedHtml, renderDetail as renderDetailHtml } f
 import { forkText, treeLegend } from '../src/ui/activity-tree.js';
 import { scopeName } from '../src/ui/header.js';
 import { createStore } from '../server/store.js';
+import { parse, one, all, row, text, srText } from './fixtures/dom.js';
 
 const renderRepositories = (...args) => String(renderRepositoriesHtml(...args));
 const renderPagedFeed = (...args) => String(renderPagedFeedHtml(...args));
@@ -133,16 +134,22 @@ function activityPage(state, ui) {
 }
 
 const renderFeed = (state, ui) => renderPagedFeed({ ...state, activity: activityPage(state, ui) }, ui);
+/** The event IDs of the rendered rows, in order. */
+const rowIds = markup => all(parse(markup), '.row').map(element => element.getAttribute('data-event-id'));
+/** An element's classes, sorted, so a test can state them exactly without depending on their order. */
+const classes = element => [...element.classList].sort();
 
 test('one running build counts as one item and two updates; zero summary values stay neutral', () => {
   const state = fixture();
   const markup = renderFeed(state, view);
-  assert.match(markup, /1 new item/);
-  assert.match(markup, /2 updates/);
-  assert.match(markup, /1 running/);
-  assert.equal((markup.match(/class="val zero"/g) || []).length, 3);
-  assert.equal((markup.match(/<li class="row /g) || []).length, 1);
-  assert.doesNotMatch(markup, /notStarted|inProgress|class="bar"|0 match your watch rules/);
+  const doc = parse(markup);
+  assert.match(text(doc), /1 new item/);
+  assert.match(text(doc), /2 updates/);
+  assert.match(text(doc), /1 running/);
+  assert.equal(all(doc, '.val.zero').length, 3);
+  assert.equal(all(doc, '.row').length, 1);
+  assert.equal(all(doc, '.bar').length, 0);
+  assert.doesNotMatch(markup, /notStarted|inProgress|0 match your watch rules/);
 });
 
 test('search filtering never folds hidden raw updates into displayed acknowledgement IDs', () => {
@@ -156,14 +163,16 @@ test('search filtering never folds hidden raw updates into displayed acknowledge
 test('detail has readable labels, exact group IDs and abbreviated copyable commit', () => {
   const state = fixture();
   const markup = renderDetail(state.events[1], state, null, { returnRoute: 'activity', label: 'Back to Activity' });
-  assert.match(markup, /Back to Activity/);
-  assert.match(markup, /Triggered manually/);
-  assert.match(markup, /title="abc123def456">abc123de/);
-  assert.match(markup, /Copy full commit ID/);
+  const doc = parse(markup);
+  assert.match(text(doc), /Back to Activity/);
+  assert.match(text(doc), /Triggered manually/);
+  assert.equal(text(one(doc, 'code[title="abc123def456"]')), 'abc123de');
+  assert.equal(text(one(doc, '[data-action="copy-commit"]')), 'Copy');
+  assert.equal(one(doc, '[data-action="copy-commit"]').getAttribute('aria-label'), 'Copy full commit ID');
   assert.doesNotMatch(markup, /sourceVersion|inProgress/);
-  assert.match(markup, /Update history/);
-  assert.match(markup, /queued/);
-  assert.match(markup, /running/);
+  assert.match(text(doc), /Update history/);
+  // Marking the detail seen acts on exactly the grouped updates.
+  assert.deepEqual(JSON.parse(one(doc, '[data-action="ack-item"]').getAttribute('data-event-ids')).sort(), ['queued', 'running']);
 });
 
 test('a completed pull request detail offers a switch to the branch it merged into', () => {
@@ -179,10 +188,10 @@ test('a completed pull request detail offers a switch to the branch it merged in
   };
   state.events = [pr];
   state.repos = [{ id: 'on', name: 'Orders', localPath: '/src/orders' }];
-  assert.match(renderDetail(pr, state, null), /data-action="switch-activity-branch">Switch to main…</);
-  const onMain = renderDetail(pr, state, null, { checkouts: { on: { branch: 'main' } } });
-  assert.match(onMain, />View in Repositories</);
-  assert.doesNotMatch(renderDetail(pr, { ...state, demo: true }, null), /Switch to/);
+  assert.equal(text(one(parse(renderDetail(pr, state, null)), '[data-action="switch-activity-branch"]')), 'Switch to main…');
+  const onMain = parse(renderDetail(pr, state, null, { checkouts: { on: { branch: 'main' } } }));
+  assert.equal(text(one(onMain, '#activity-branch-action')), 'View in Repositories');
+  assert.doesNotMatch(text(parse(renderDetail(pr, { ...state, demo: true }, null))), /Switch to/);
 });
 
 test('Activity shows ordinary pushes, hotfixes, and new branches in source-time order', () => {
@@ -193,10 +202,9 @@ test('Activity shows ordinary pushes, hotfixes, and new branches in source-time 
     { ...event, id: 'priority', branch: 'hotfix/fix', title: 'Priority push', time: '2026-11-17T10:01:00Z' },
     { ...event, id: 'branch', kind: 'branch-created', branch: 'feature/newest', title: 'New branch', time: '2026-11-17T10:03:00Z' },
   ];
-  const ids = markup => [...markup.matchAll(/<li class="row[^"]*" data-event-id="([^"]+)"/g)].map(match => match[1]);
-  assert.deepEqual(ids(renderFeed(state, view)), ['branch', 'ordinary', 'priority']);
-  assert.deepEqual(ids(renderFeed(state, { ...view, route: 'activity', unseenOnly: false })), ['branch', 'ordinary', 'priority']);
-  assert.doesNotMatch(renderFeed(state, view), /Prioritized|Muted|Show muted/);
+  assert.deepEqual(rowIds(renderFeed(state, view)), ['branch', 'ordinary', 'priority']);
+  assert.deepEqual(rowIds(renderFeed(state, { ...view, route: 'activity', unseenOnly: false })), ['branch', 'ordinary', 'priority']);
+  assert.doesNotMatch(text(parse(renderFeed(state, view))), /Prioritized|Muted|Show muted/);
 });
 
 test('build source run labels survive grouping in feed and detail, with numeric ID only as fallback', () => {
@@ -209,8 +217,9 @@ test('build source run labels survive grouping in feed and detail, with numeric 
   const event = state.events[1];
   assert.equal(activityTitle(event), 'Orders CI · 20261117.6');
   assert.equal(activityTitle({ ...event, title: '' }), 'Orders CI · #700');
-  assert.match(renderFeed(state, view), /Orders CI · 20261117\.6/);
-  assert.match(renderDetail(event, state), /<h1>Orders CI · 20261117\.6<\/h1>/);
+  // The title is followed by the row's unread count.
+  assert.match(text(one(parse(renderFeed(state, view)), '.title')), /^Orders CI · 20261117\.6 2 new$/);
+  assert.equal(text(one(parse(renderDetail(event, state)), 'h1')), 'Orders CI · 20261117.6');
 });
 
 test('all activity states use the shared semantic palette independent of imported/seen state', () => {
@@ -246,11 +255,13 @@ test('row status washes are independent of unseen flags and failure classificati
     { id: 'deleted', repoId: 'r', kind: 'branch-deleted', title: 'Deleted', branch: 'hotfix/old', data: { evidence: 'push' } },
     { id: 'failed', repoId: 'r', kind: 'build', title: 'CI', data: { buildId: 42, status: 'completed', result: 'failed' } },
   ];
-  const markup = renderFeed(state, view);
-  assert.match(markup, /class="kind crit"[^>]*>.*Branch deleted/);
-  assert.match(markup, /class="row new tone-crit" data-event-id="deleted"/);
-  assert.match(markup, /class="row crit new tone-crit" data-event-id="failed"/);
-  assert.match(renderDetail(state.events[0], state), /status-chip crit/);
+  const doc = parse(renderFeed(state, view));
+  const label = one(row(doc, 'deleted'), '.kind');
+  assert.ok(label.classList.contains('crit'));
+  assert.equal(text(label), 'Branch deleted');
+  assert.deepEqual(classes(row(doc, 'deleted')), ['new', 'row', 'tone-crit']);
+  assert.deepEqual(classes(row(doc, 'failed')), ['crit', 'new', 'row', 'tone-crit']);
+  assert.equal(all(parse(renderDetail(state.events[0], state)), '.status-chip.crit').length, 1);
 });
 
 test('completed PRs show Merged and target direction, while successful preview merges stay Open', () => {
@@ -307,12 +318,14 @@ test('a branch row from a push does not repeat its label in the event column; a 
     { ...base, id: 'deleted', kind: 'branch-deleted', branch: 'b', title: 'Branch deleted', data: { evidence: 'push' } },
     { ...base, id: 'listed', kind: 'branch-created', branch: 'c', title: 'Branch first seen · c', data: { evidence: 'refs' } },
   ];
-  const out = String(renderFeed(state, view));
-  const event = (/** @type {string} */ id) =>
-    out.match(new RegExp(`data-event-id="${id}"[^]*?<div class="event">([^]*?)<div class="rowact">`))?.[1] ?? '';
-  assert.match(event('created'), /^<div class="help event-meta">Pushed by/);
-  assert.match(event('deleted'), /^<div class="help event-meta">Pushed by/);
-  assert.match(event('listed'), /^<div class="event-main"><span>First seen remotely; creation time not supplied<\/span>/);
+  const doc = parse(renderFeed(state, view));
+  const first = (/** @type {string} */ id) => one(row(doc, id), '.event').firstElementChild;
+  for (const id of ['created', 'deleted']) {
+    assert.ok(first(id).classList.contains('event-meta'), id);
+    assert.match(text(first(id)), /^Pushed by Ana · /, id);
+  }
+  assert.ok(first('listed').classList.contains('event-main'));
+  assert.equal(text(first('listed')), 'First seen remotely; creation time not supplied');
 });
 
 test('a fork PR names its fork in the summary', () => {
@@ -401,20 +414,28 @@ test('All activity draws a branch tree with the fork evidence in the row text; N
       data: { name: 'refs/heads/feature/a', evidence: 'refs' },
     },
   ];
-  const all = renderFeed(state, { ...view, route: 'activity' });
-  assert.match(all, /<ul class="rows with-tree" data-tree-lanes="2">/);
-  assert.equal((all.match(/<svg class="tree" aria-hidden="true"/g) || []).length, 2);
-  assert.match(all, /<path class="lane-\d assumed" d="M5 18C5 9 15 9 15 0"\/>/);
-  assert.match(all, /<circle class="lane-\d hole" cx="15" cy="0" r="3.75"\/>/);
-  assert.match(
-    all,
-    /<div class="help event-origin"><svg aria-hidden="true"[^]*?<\/svg><span>PR 7 targets main, origin not checked<\/span><\/div>/,
+  const doc = parse(renderFeed(state, { ...view, route: 'activity' }));
+  assert.equal(one(doc, 'ul.rows.with-tree').getAttribute('data-tree-lanes'), '2');
+  const cells = all(doc, 'svg.tree');
+  assert.equal(cells.length, 2);
+  assert.ok(cells.every(cell => cell.getAttribute('aria-hidden') === 'true'));
+  const assumed = one(doc, 'svg.tree path.assumed');
+  assert.ok(classes(assumed).some(name => /^lane-\d$/.test(name)));
+  assert.equal(assumed.getAttribute('d'), 'M5 18C5 9 15 9 15 0');
+  const ring = one(doc, 'svg.tree circle.hole');
+  assert.ok(classes(ring).some(name => /^lane-\d$/.test(name)));
+  assert.deepEqual(
+    ['cx', 'cy', 'r'].map(name => ring.getAttribute(name)),
+    ['15', '0', '3.75'],
   );
-  assert.match(all, /class="help tree-legend"/);
-  assert.match(all, /Lines can pass rows of other branches\./);
-  const updates = renderFeed(state, view);
-  assert.equal((updates.match(/<li class="row /g) || []).length, 2);
-  assert.doesNotMatch(updates, /with-tree|class="tree"|tree-legend|origin not checked/);
+  const origin = one(row(doc, 'branch'), '.event-origin');
+  assert.equal(text(origin), 'PR 7 targets main, origin not checked');
+  assert.equal(one(origin, 'svg').getAttribute('aria-hidden'), 'true');
+  assert.match(text(one(doc, '.tree-legend')), /Lines can pass rows of other branches\./);
+  const updates = parse(renderFeed(state, view));
+  assert.equal(all(updates, '.row').length, 2);
+  assert.equal(all(updates, '.with-tree, .tree, .tree-legend').length, 0);
+  assert.doesNotMatch(text(updates), /origin not checked/);
 });
 
 test('a CI run on a pull request ref names the source branch and the pull request once the PR is known', () => {
@@ -428,32 +449,39 @@ test('a CI run on a pull request ref names the source branch and the pull reques
     },
     { ...run, id: 'unknown', branch: 'refs/pull/8/merge', data: { buildId: 2 } },
   ];
-  const out = String(renderFeed(state, view));
-  const branch = (/** @type {string} */ name) =>
-    new RegExp(
-      `<span class="ref-branch" title="${name}"><svg aria-hidden="true"[^]*?</svg><span class="sr"> · branch </span><span class="ref-name">${name}</span></span>`,
-    );
-  assert.match(out, branch('feature/a'));
-  assert.match(out, /<span class="chip ref-pr"><span class="sr"> · <\/span>PR 7<\/span>/);
+  const doc = parse(renderFeed(state, view));
+  /** The row's branch token: its full name on hover, a hidden icon, and a screen-reader label before the name. */
+  const branch = (/** @type {string} */ id, /** @type {string} */ name) => {
+    const token = one(row(doc, id), '.ref-branch');
+    assert.equal(token.getAttribute('title'), name, id);
+    assert.equal(one(token, 'svg').getAttribute('aria-hidden'), 'true', id);
+    assert.equal(srText(one(token, '.sr')), '· branch', id);
+    assert.equal(text(one(token, '.ref-name')), name, id);
+    return token;
+  };
+  const token = branch('known', 'feature/a');
+  const chip = one(row(doc, 'known'), '.chip.ref-pr');
+  assert.equal(text(chip), 'PR 7');
+  assert.equal(srText(chip), '· PR 7');
   // Branch and PR sit in one group that does not wrap, so the chip never ends up on a line of its own.
-  assert.match(
-    out,
-    /<span class="ref-target"><span class="ref-branch" title="feature\/a">[^]*?<span class="chip ref-pr">[^]*?PR 7<\/span><\/span><\/span><\/button>/,
-  );
-  assert.match(out, branch('refs/pull/8/merge'));
-  assert.equal(out.match(/ref-pr/g)?.length, 1);
+  const group = one(row(doc, 'known'), '.feed-title .ref-target');
+  assert.deepEqual([group.firstElementChild, group.lastElementChild], [token, chip]);
+  branch('unknown', 'refs/pull/8/merge');
+  assert.equal(all(doc, '.ref-pr').length, 1);
   // No separators are drawn between tokens; spacing does that job.
-  assert.doesNotMatch(out, /<span class="subref">[^]*? \/ [^]*?<\/button>/);
+  for (const line of all(doc, '.subref')) assert.ok(!text(line).includes(' / '), text(line));
 });
 
 test('a row names its repository only when more than one repository is shown', () => {
   const state = fixture();
-  const subref = (/** @type {unknown} */ out) => String(out).match(/<span class="subref">.*?<\/span><\/button>/)?.[0] ?? '';
-  assert.doesNotMatch(subref(renderFeed(state, view)), /Orders/);
+  const subref = (/** @type {unknown} */ out) => one(parse(out), '.feed-title .subref');
+  assert.doesNotMatch(srText(subref(renderFeed(state, view))), /Orders/);
   state.repos.push({ id: 'other', name: 'Billing' });
-  assert.match(subref(renderFeed(state, view)), /<span class="ref-repo"><span class="sr"> · repository <\/span>Orders<\/span>/);
+  const repo = one(subref(renderFeed(state, view)), '.ref-repo');
+  assert.equal(text(repo), 'Orders');
+  assert.equal(srText(repo), '· repository Orders');
   // The selected scope decides, not which repositories happen to have rows on the page.
-  assert.doesNotMatch(subref(renderFeed(state, { ...view, repoIds: ['r'] })), /Orders/);
+  assert.doesNotMatch(srText(subref(renderFeed(state, { ...view, repoIds: ['r'] }))), /Orders/);
 });
 
 test('a branch row shows its branch as the token under a title that no longer names it or the actor', () => {
@@ -470,10 +498,8 @@ test('a branch row shows its branch as the token under a title that no longer na
     { ...base, id: 'pr', kind: 'pr', branch: 'main', title: 'PR 3 · Fix main menu', data: { id: 3 } },
     { ...base, id: 'build', kind: 'build', branch: 'main', title: 'main CI · 1', data: { buildId: 1 } },
   ];
-  const out = String(renderFeed(state, view));
-  const subject = (/** @type {string} */ id) => out.match(new RegExp(`data-event-id="${id}"[^]*?</button>`))?.[0] ?? '';
-  const title = (/** @type {string} */ id) => subject(id).match(/<span class="title">([^<]*)/)?.[1] ?? '';
-  for (const [id, text, name] of [
+  const doc = parse(renderFeed(state, view));
+  for (const [id, title, name] of [
     ['push', 'Pushed', 'feature/a'],
     ['counted', '2 commits pushed', 'fix/b'],
     ['created', 'New branch', 'feature/b'],
@@ -484,11 +510,11 @@ test('a branch row shows its branch as the token under a title that no longer na
     ['pr', 'PR 3 · Fix main menu', 'main'],
     ['build', 'main CI · 1', 'main'],
   ]) {
-    assert.equal(title(id), text, id);
-    assert.match(subject(id), new RegExp(`<span class="ref-name">${name}</span>`), id);
+    assert.equal(text(one(row(doc, id), '.title')), title, id);
+    assert.equal(text(one(row(doc, id), '.feed-title .ref-name')), name, id);
   }
   // The Seen button keeps the full title, so its accessible name still says which branch.
-  assert.match(out, /aria-label="Seen: Ana pushed to feature\/a"/);
+  assert.equal(one(row(doc, 'push'), '.seen-toggle').getAttribute('aria-label'), 'Seen: Ana pushed to feature/a');
 });
 
 test('a push that names several branches keeps its title and shows no single branch token', () => {
@@ -507,10 +533,13 @@ test('a push that names several branches keeps its title and shows no single bra
       data: {},
     },
   ];
-  const out = String(renderFeed(state, view));
-  assert.match(out, /<span class="title">Pushed to feature\/a, feature\/b/);
-  assert.doesNotMatch(out, /class="subref"/);
-  assert.match(out, /<div class="help event-meta">Pushed by <span class="actor">Ana<\/span> · <time/);
+  const doc = parse(renderFeed(state, view));
+  assert.equal(text(one(doc, '.title')), 'Pushed to feature/a, feature/b');
+  assert.equal(all(doc, '.subref').length, 0);
+  const meta = one(doc, '.event-meta');
+  assert.match(text(meta), /^Pushed by Ana · /);
+  assert.equal(text(one(meta, '.actor')), 'Ana');
+  assert.equal(all(meta, 'time').length, 1);
 });
 
 test('the event column puts what happened first, then who and when, each actor with its role', () => {
@@ -532,19 +561,28 @@ test('the event column puts what happened first, then who and when, each actor w
     { ...base, id: 'linked', kind: 'push', branch: 'main', title: 'Cleanup push', actor: 'Ed', summary: 'Merge', data: {} },
     { ...base, id: 'unknown', kind: 'tag', branch: 'v1', title: 'Tag moved · v1', actor: 'Unknown', data: {} },
   ];
-  const out = String(renderFeed(state, view));
-  const event = (/** @type {string} */ id) =>
-    out.match(new RegExp(`data-event-id="${id}"[^]*?<div class="event">([^]*?)<div class="rowact">`))?.[1] ?? '';
-  const meta = (/** @type {string} */ id) => event(id).match(/<div class="help event-meta">([^]*?)<\/div>/)?.[1] ?? '';
-  assert.match(event('pr'), /^<div class="event-main"><span>Target: main<\/span><\/div><div class="help event-meta">/);
-  assert.match(meta('pr'), /^Created by <span class="actor">Ana<\/span> · <time datetime="2026-11-17T10:00:00Z" title="[^"]*2026[^"]*">/);
-  assert.match(meta('build'), /^Requested by <span class="actor">Bo<\/span> · <time/);
-  assert.match(meta('created'), /^Pushed by <span class="actor">Cy<\/span> · <time/);
-  assert.match(meta('linked'), /^Pushed by <span class="actor">Ed<\/span> · <time/);
+  const doc = parse(renderFeed(state, view));
+  /** The meta line says role, actor and a machine-readable time, in that order. */
+  const meta = (/** @type {string} */ id, /** @type {string} */ role, /** @type {string} */ actor) => {
+    const line = one(row(doc, id), '.event-meta');
+    assert.match(text(line), new RegExp(`^${role}${actor} · \\S`), id);
+    assert.equal(text(one(line, '.actor')), actor, id);
+    const time = one(line, 'time');
+    assert.equal(time.getAttribute('datetime'), '2026-11-17T10:00:00Z', id);
+    assert.match(time.getAttribute('title') ?? '', /2026/, id);
+  };
+  const event = one(row(doc, 'pr'), '.event');
+  assert.equal(text(event.firstElementChild), 'Target: main');
+  assert.ok(event.firstElementChild.classList.contains('event-main'));
+  assert.ok(event.firstElementChild.nextElementSibling.classList.contains('event-meta'));
+  meta('pr', 'Created by ', 'Ana');
+  meta('build', 'Requested by ', 'Bo');
+  meta('created', 'Pushed by ', 'Cy');
+  meta('linked', 'Pushed by ', 'Ed');
   // The row title drops the pusher's name, so the meta line names them like every other row.
-  assert.match(meta('named'), /^Pushed by <span class="actor">Di<\/span> · <time/);
+  meta('named', 'Pushed by ', 'Di');
   // An unknown actor has no role to name.
-  assert.match(meta('unknown'), /^<span class="actor">Unknown<\/span> · <time/);
+  meta('unknown', '', 'Unknown');
 });
 
 test('a PR row lists each vote change on its own and names a fork source on the origin line', () => {
@@ -578,16 +616,26 @@ test('a PR row lists each vote change on its own and names a fork source on the 
     },
     { ...base, id: 'target', data: { id: 4, status: 'active', targetRefName: 'refs/heads/main', fork } },
   ];
-  const out = String(renderFeed(state, view));
-  const event = (/** @type {string} */ id) =>
-    out.match(new RegExp(`data-event-id="${id}"[^]*?<div class="event">([^]*?)<div class="rowact">`))?.[1] ?? '';
-  assert.match(
-    event('votes'),
-    /^<div class="event-main"><span class="status-text ok"><span class="status-dot" aria-hidden="true"><\/span>Bo: approved<\/span><span class="status-text warn"><span class="status-dot" aria-hidden="true"><\/span>Cy: waiting for author<\/span><span class="status-text neutral"><span class="status-dot" aria-hidden="true"><\/span>Di: vote reset<\/span><\/div>/,
+  const doc = parse(renderFeed(state, view));
+  const first = (/** @type {string} */ id) => one(row(doc, id), '.event').firstElementChild;
+  assert.ok(first('votes').classList.contains('event-main'));
+  const votes = all(first('votes'), '.status-text');
+  assert.deepEqual(
+    votes.map(vote => [classes(vote).filter(name => name !== 'status-text'), text(vote)]),
+    [
+      [['ok'], 'Bo: approved'],
+      [['warn'], 'Cy: waiting for author'],
+      [['neutral'], 'Di: vote reset'],
+    ],
   );
-  assert.match(event('target'), /^<div class="event-main"><span>Target: main<\/span><\/div>/);
-  for (const id of ['votes', 'target'])
-    assert.match(event(id), /<div class="help event-origin"><svg[^]*?<\/svg><span>From fork One-fork in Q<\/span><\/div>/, id);
+  assert.ok(votes.every(vote => one(vote, '.status-dot').getAttribute('aria-hidden') === 'true'));
+  assert.ok(first('target').classList.contains('event-main'));
+  assert.equal(text(first('target')), 'Target: main');
+  for (const id of ['votes', 'target']) {
+    const origin = one(row(doc, id), '.event-origin');
+    assert.equal(text(origin), 'From fork One-fork in Q', id);
+    assert.equal(all(origin, 'svg').length, 1, id);
+  }
   // Search and the detail page keep the single summary sentence.
   assert.equal(activitySummary(state.events[1]), 'From fork One-fork in Q · Target: main');
 });
@@ -619,8 +667,8 @@ test('each fork origin has its own row text, and only an unchecked PR target is 
     ],
   );
   assert.equal(forkText(null), '');
-  assert.doesNotMatch(String(treeLegend), /assumed from the pull request target</);
-  assert.match(String(treeLegend), /PR target, origin not checked/);
+  assert.doesNotMatch(text(parse(treeLegend)), /assumed from the pull request target/);
+  assert.match(text(parse(treeLegend)), /PR target, origin not checked/);
 });
 
 test('a grouped row counts its unread updates beside the title only when there is more than one', () => {
@@ -631,11 +679,13 @@ test('a grouped row counts its unread updates beside the title only when there i
     { ...base, id: 'paired-push', kind: 'push', title: 'Cleanup push', data: { pushId: 10001, refUpdates: [ref], commits: [] } },
     { ...base, id: 'paired-deletion', kind: 'branch-deleted', title: 'Branch deleted', data: { pushId: 10001, ...ref } },
   ];
-  const markup = renderFeed(state, view);
-  assert.equal(markup.toString().match(/<li /g)?.length, 1);
-  assert.match(markup, /<span class="pill u new-count">2 new<\/span>/);
+  const doc = parse(renderFeed(state, view));
+  assert.equal(all(doc, '.row').length, 1);
+  const count = one(one(doc, '.row'), '.title .new-count');
+  assert.equal(text(count), '2 new');
+  assert.deepEqual(classes(count), ['new-count', 'pill', 'u']);
   state.events = [state.events[0]];
-  assert.doesNotMatch(renderFeed(state, view), /new-count/);
+  assert.equal(all(parse(renderFeed(state, view)), '.new-count').length, 0);
 });
 
 test('a CI row without a known trigger shows no summary line, and the detail page still names the gap', () => {
@@ -647,11 +697,15 @@ test('a CI row without a known trigger shows no summary line, and the detail pag
     { ...base, id: 'manual', data: { buildId: 3, status: 'completed', result: 'succeeded', reason: 'manual' } },
   ];
   const markup = String(renderFeed(state, view));
+  const doc = parse(markup);
   assert.doesNotMatch(markup, /Not supplied/);
-  assert.match(markup, /<div class="event"><div class="event-main"><span>Triggered manually<\/span><\/div>/);
+  const first = (/** @type {string} */ id) => one(row(doc, id), '.event').firstElementChild;
+  assert.ok(first('manual').classList.contains('event-main'));
+  assert.equal(text(first('manual')), 'Triggered manually');
   // With no summary, who and when is the column's first line.
-  assert.match(markup, /<div class="event"><div class="help event-meta">/);
-  assert.match(String(renderDetail(state.events[1], state)), /<dt>Trigger<\/dt><dd>Not supplied<\/dd>/);
+  for (const id of ['omitted', 'none']) assert.ok(first(id).classList.contains('event-meta'), id);
+  const trigger = all(parse(renderDetail(state.events[1], state)), 'dt').find(term => text(term) === 'Trigger');
+  assert.equal(text(trigger.nextElementSibling), 'Not supplied');
 });
 
 test('the summary counts every unread item in scope, not only the loaded rows', () => {
@@ -667,16 +721,22 @@ test('the summary counts every unread item in scope, not only the loaded rows', 
     store.insertEvents([...state.events, ...extra]);
     const activity = store.queryActivity({ view: 'all', limit: 2 });
     const markup = renderPagedFeed({ ...state, events: [...state.events, ...extra], activity }, { ...view, route: 'activity' });
-    const summary = markup.slice(markup.indexOf('Activity summary'), markup.indexOf('</section>'));
-    assert.match(summary, /<b class="">7 new items<\/b> · 8 updates/);
-    assert.match(summary, /Showing 2 of 7 items/);
-    assert.match(summary, /data-summary-kind="Pushes"><div class="label">Pushes<\/div><div class="val t-info">5</);
-    assert.match(
-      summary,
-      /data-summary-kind="Branches"><div class="label">Branches<\/div><div class="val t-info">1<\/div><div class="sub">1 new</,
-    );
+    const summary = one(parse(markup), '[aria-label="Activity summary"]');
+    const headline = one(summary, '.headline b');
+    assert.equal(text(headline), '7 new items');
+    assert.ok(!headline.classList.contains('zero'));
+    assert.match(text(one(summary, '.headline')), /^7 new items · 8 updates/);
+    assert.match(text(summary), /Showing 2 of 7 items/);
+    /** A count cell: its label, value and tone, and the line under it if any. */
+    const cell = (/** @type {string} */ kind) => {
+      const element = one(summary, `[data-summary-kind="${kind}"]`);
+      const value = one(element, '.val');
+      return [text(one(element, '.label')), text(value), classes(value), all(element, '.sub').map(text)];
+    };
+    assert.deepEqual(cell('Pushes'), ['Pushes', '5', ['t-info', 'val'], []]);
+    assert.deepEqual(cell('Branches'), ['Branches', '1', ['t-info', 'val'], ['1 new']]);
     // The CI row is not loaded, so its status line would describe nothing on screen.
-    assert.match(summary, /data-summary-kind="CI runs"><div class="label">CI runs<\/div><div class="val t-info">1<\/div><\/div>/);
+    assert.deepEqual(cell('CI runs'), ['CI runs', '1', ['t-info', 'val'], []]);
   } finally {
     store.close();
   }

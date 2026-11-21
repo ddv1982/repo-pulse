@@ -17,10 +17,10 @@ For each file: record which code each test protects, apply scripted mutations to
 
 - [x] `test/merge-ui.test.js` migrated, mutations shown failing before and after.
 - [x] `test/sync-status-ui.test.js` migrated, mutations shown failing before and after.
-- [ ] `test/presentation.test.js` migrated, mutations shown failing before and after.
-- [ ] Lint guard enabled for all three files.
+- [x] `test/presentation.test.js` migrated, mutations shown failing before and after.
+- [x] Lint guard enabled for all three files.
 
 ## Step 3: finish
 
-- [ ] Full gate: `npm run check`, `check:types`, `lint`, `test`, `test:ui`.
-- [ ] Re-read this plan; list anything unchecked.
+- [x] Full gate: `npm run check`, `check:types`, `lint`, `test`, `test:ui`.
+- [x] Re-read this plan; list anything unchecked.
