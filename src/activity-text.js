@@ -150,7 +150,7 @@ export function activityTitle(event) {
     }
   }
   const run = event.data?.buildId || event.data?.id;
-  if (event.kind === 'build' && run) return event.title || `${event.data?.definition?.name || 'CI run'} · #${run}`;
+  if (event.kind === 'build' && run) return event.data?.definition?.name || event.title || 'CI run';
   return event.title || branchName(event.branch);
 }
 

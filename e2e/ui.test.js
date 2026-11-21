@@ -1123,7 +1123,7 @@ test('build transitions group into one item and exact acknowledgement leaves a l
   await expect(page.locator('[data-summary-kind="CI runs"]')).toContainText('1 running');
   await expect(page.locator('.cell .val.zero')).toHaveCount(3);
   await expect(page.locator('li.row .kind')).toHaveText('Running');
-  await expect(page.locator('li.row .feed-title .title')).toHaveText('Orders CI · 20261117.6 2 new');
+  await expect(page.locator('li.row .feed-title .title')).toHaveText('Orders CI 2 new');
   await page.locator('.trail > summary').click();
   await expect(page.locator('.trail li')).toHaveCount(2);
   await page.route(
@@ -1225,7 +1225,7 @@ test('detail reload and back restore Activity filters, open trail and source row
   await page.locator('li.row .feed-title').click();
   await expect(page.getByRole('link', { name: '← Back to All activity', exact: true })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Update history' })).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'Orders CI · 20261117.6', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Orders CI', exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Copy full commit ID' })).toBeVisible();
   await page.reload();
   await page.getByRole('link', { name: '← Back to All activity', exact: true }).click();
