@@ -5,7 +5,7 @@ import { renderRepositories as renderRepositoriesHtml } from '../src/ui/reposito
 import { renderFeed as renderFeedHtml } from '../src/ui/feed.js';
 import { renderSettings as renderSettingsHtml } from '../src/ui/settings.js';
 import { syncLabel } from '../src/ui/health.js';
-import { parse, one, all, text } from './fixtures/dom.js';
+import { parse, one, all, text, srText } from './fixtures/dom.js';
 
 const renderHeader = (...args) => String(renderHeaderHtml(...args));
 const renderRepositories = (...args) => String(renderRepositoriesHtml(...args));
@@ -72,12 +72,12 @@ test('the header shows one sync status pill per state in place of the last Azure
     const shown = pill(doc);
     assert.match(shown?.text ?? '', label, status.state);
     assert.equal(shown?.tone, tone, status.state);
-    // Not in the text, nor in a tooltip such as the refresh button's title, however the markup spells it.
-    const tooltips = all(doc, '[title], [data-idle-title]').flatMap(element => [
-      element.getAttribute('title') ?? '',
-      element.getAttribute('data-idle-title') ?? '',
-    ]);
-    assert.doesNotMatch([text(doc), ...tooltips].join(' ').replace(/\s+/g, ' '), /Last Azure check|No Azure check/);
+    // Not in what is shown or read aloud, nor in any one label or tooltip, however the markup spells it.
+    const said = [srText(doc)];
+    for (const element of all(doc, '[aria-label], [title], [data-idle-title]')) {
+      for (const name of ['aria-label', 'title', 'data-idle-title']) said.push(element.getAttribute(name) ?? '');
+    }
+    for (const value of said) assert.doesNotMatch(value.replace(/\s+/g, ' '), /Last Azure check|No Azure check/, value);
     assert.ok(all(doc, '[role="switch"][aria-label="Automatic checks"]').length, 'the automatic checks switch');
     assert.ok(all(doc, '[data-action="refresh"]').length, 'the refresh button');
     if (status.state === 'problem') {
