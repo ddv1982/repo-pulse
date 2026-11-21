@@ -216,7 +216,7 @@ test('Activity shows ordinary pushes, hotfixes, and new branches in source-time 
   assert.doesNotMatch(text(parse(renderFeed(state, view))), /Prioritized|Muted|Show muted/);
 });
 
-test('build source run labels survive grouping in feed and detail, with numeric ID only as fallback', () => {
+test('a CI run shows its pipeline name in feed and detail, also for a stored row whose title still carries the build number', () => {
   const state = fixture();
   state.events = state.events.map(event => ({
     ...event,
@@ -224,11 +224,16 @@ test('build source run labels survive grouping in feed and detail, with numeric 
     data: { ...event.data, buildId: 700, definition: { name: 'Orders CI' } },
   }));
   const event = state.events[1];
-  assert.equal(activityTitle(event), 'Orders CI · 20261117.6');
-  assert.equal(activityTitle({ ...event, title: '' }), 'Orders CI · #700');
+  assert.equal(activityTitle(event), 'Orders CI');
+  assert.equal(activityTitle({ ...event, title: '' }), 'Orders CI');
+  assert.equal(activityTitle({ ...event, title: 'Orders CI', data: { buildId: 700 } }), 'Orders CI');
+  assert.equal(activityTitle({ ...event, title: '', data: { buildId: 700 } }), 'CI run');
   // The title is followed by the row's unread count.
-  assert.match(text(one(parse(renderFeed(state, view)), '.title')), /^Orders CI · 20261117\.6 2 new$/);
-  assert.equal(text(one(parse(renderDetail(event, state)), 'h1')), 'Orders CI · 20261117.6');
+  assert.match(text(one(parse(renderFeed(state, view)), '.title')), /^Orders CI 2 new$/);
+  assert.equal(text(one(parse(renderDetail(event, state)), 'h1')), 'Orders CI');
+  // Search still finds the row by its pipeline name.
+  assert.equal(activityPage(state, { ...view, search: 'Orders CI' }).items.length, 1);
+  assert.equal(activityPage(state, { ...view, search: 'Billing CI' }).items.length, 0);
 });
 
 test('all activity states use the shared semantic palette independent of imported/seen state', () => {

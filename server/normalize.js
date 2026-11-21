@@ -277,7 +277,7 @@ export function createNormalizer({ store, now = Date.now }) {
       const { changed, sourceId, entity } = snapshot(repo, 'build', key, buildState(item), historical);
       if (changed) {
         add('build', sourceId, {
-          title: `${item.definition?.name || 'Pipeline'} · ${item.buildNumber || key}`,
+          title: item.definition?.name || 'Pipeline',
           branch: branchName(item.sourceBranch),
           actor: actorName(item.requestedFor || item.requestedBy),
           time: item.finishTime || item.startTime || item.queueTime || iso(now()),

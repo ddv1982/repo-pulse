@@ -152,7 +152,7 @@ test('normalize fingerprints PRs and builds, filters foreign repos, and tracks r
     );
     assert.equal(build.events.length, 1);
     assert.equal(build.events[0].kind, 'build');
-    assert.equal(build.events[0].title, 'CI · 20261118.1');
+    assert.equal(build.events[0].title, 'CI');
     store.commitPage({
       repoId: repo.id,
       stream: 'builds',
