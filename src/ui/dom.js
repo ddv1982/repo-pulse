@@ -27,10 +27,7 @@ export function required(selector, Type = /** @type {new () => T} */ (/** @type 
 export function setHtml(element, markup) {
   const template = element.ownerDocument.createElement('template');
   template.innerHTML = SafeHtml.unwrap(markup);
-  Idiomorph.morph(element, template.content, {
-    morphStyle: 'innerHTML',
-    // What a person is typing wins over the value the render started from. Only the focused field's value is kept;
-    // ignoreActiveValue would also leave that field's children and other attributes stale.
-    callbacks: { beforeAttributeUpdated: (name, node) => !(name === 'value' && node === node.ownerDocument.activeElement) },
-  });
+  // A focused field's value is not protected: every input rendered here writes what is typed into state on each input
+  // event, so the markup already carries it, and a value that differs is one the app chose, such as a cleared picker.
+  Idiomorph.morph(element, template.content, { morphStyle: 'innerHTML' });
 }

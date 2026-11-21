@@ -765,6 +765,24 @@ test('folder picker supports keyboard close, browsing, parent navigation and saf
   assert.equal(calls.resolve, 0);
 });
 
+test('the focused picker search shows the text the picker resets it to', async t => {
+  const { page } = await setupPicker(t);
+  let search = page.getByRole('combobox', { name: 'Search local repositories' });
+  await search.fill('zzz');
+  await search.press('Escape');
+  await expect(search).toHaveAttribute('aria-expanded', 'false');
+  await search.press('Escape');
+  await expect(search).toBeFocused();
+  await expect(search).toHaveValue('');
+  await page.getByRole('button', { name: 'Change folder', exact: true }).click();
+  search = page.getByRole('combobox', { name: 'Find a folder' });
+  await search.fill('/workspace/projects');
+  await search.press('Enter');
+  await expect(page.locator('.picker-crumbs [aria-current]')).toHaveText('projects');
+  await expect(search).toBeFocused();
+  await expect(search).toHaveValue('');
+});
+
 test('picker keeps a search typed during initial loading and retains failed selections on partial add', async t => {
   const { page, store } = await setupPicker(t);
   let release;
