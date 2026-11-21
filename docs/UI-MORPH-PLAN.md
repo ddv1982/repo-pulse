@@ -59,11 +59,11 @@ Out of scope throughout: template rewrites, lit or Preact, splitting `src/web.js
 
 ## Phase 2: delete what replacement made necessary
 
-- [ ] Drop the `page.contains(focused) && focused !== document.body` clause from `refreshTarget`; the two row-focus tests from phase 0 pass.
-- [ ] Remove same-element focus, caret and selection restore in `renderPage` (`browser-view.js:82-146`), one mechanism per commit, each removal backed by a test that fails if replacement were back.
-- [ ] Remove header focus restore in `render` (`browser-view.js:170-180`) if the header test still passes.
-- [ ] Remove `restoringFocus` in `src/ui/repository-picker.js` and the focus restore in `checkout.js:62-72` under the same rule.
-- [ ] Full check green; record `renderPage` complexity before and after.
+- [x] Drop the `page.contains(focused) && focused !== document.body` clause from `refreshTarget`; the two row-focus tests from phase 0 pass.
+- [x] Remove same-element focus, caret and selection restore in `renderPage` (`browser-view.js:82-146`), one mechanism per commit, each removal backed by a test that fails if replacement were back. Removed: the search caret and selection restore (backward-selection test). Kept under the kill rule: `restoreFocus`, because it also moves focus when a control disappears and dropping only its same-element case needs a new condition; the `<details data-group>` open state, which the markup does not carry (phase 3 territory).
+- [x] Remove header focus restore in `render` (`browser-view.js:170-180`) if the header test still passes. New header test, seen failing with `innerHTML` put back. The overflow menu's open state is kept: the markup does not carry it.
+- [x] Remove `restoringFocus` in `src/ui/repository-picker.js` and the focus restore in `checkout.js:62-72` under the same rule. Picker restore removed (two picker tests fail with `innerHTML` put back). `checkout.js` kept: like `restoreFocus`, it is the fallback when the focused checkout control disappears.
+- [x] Full check green (74 e2e, 453 unit); complexity before and after: `renderPage` 27 to 23, header `render` 10 to 6, picker `render` 29 to 25.
 - Kill per item: if a deletion needs a new special case to stay green, keep that code.
 
 ## Phase 3: move open state into `ui` (gated on phase 2)
