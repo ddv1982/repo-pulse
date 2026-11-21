@@ -84,9 +84,6 @@ export function createBrowserView({ page, header, demo, syncLive, picker, toolba
     const focused = document.activeElement;
     const focusId = focused && page.contains(focused) ? focusedControlId(focused) : '';
     const neighbours = focused instanceof HTMLElement && page.contains(focused) ? seenToggleNeighbours(focused) : [];
-    /** @type {[number | null, number | null] | null} */
-    const selection =
-      focused instanceof HTMLInputElement && focused.type === 'search' ? [focused.selectionStart, focused.selectionEnd] : null;
     if (ui.route === 'repositories') setHtml(page, renderRepositories(state, ui, checkouts));
     else if (ui.route === 'settings') setHtml(page, renderSettings(state, ui.connection));
     else if (ui.route === 'event' && state.detailLoading && !state.events.some(event => event.id === ui.eventId))
@@ -118,10 +115,7 @@ export function createBrowserView({ page, header, demo, syncLive, picker, toolba
         .find(element => element.dataset.group === name)
         ?.toggleAttribute('open', open);
     }
-    if (focusId) {
-      const replacement = restoreFocus(focusId, neighbours);
-      if (selection && replacement instanceof HTMLInputElement) replacement.setSelectionRange(...selection);
-    }
+    if (focusId) restoreFocus(focusId, neighbours);
     // web/theme.js defines repoPulseTheme on window before the modules load; the optional call covers its absence.
     /** @type {ThemedWindow} */ (window).repoPulseTheme?.apply();
     if (checkoutFocus) {

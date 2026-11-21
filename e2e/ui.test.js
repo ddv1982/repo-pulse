@@ -372,7 +372,7 @@ test('incoming activity updates the feed in place: the search box and an existin
   );
 });
 
-test('a backward selection in the focused search box survives incoming activity', { todo: 'phase 2' }, async t => {
+test('a backward selection in the focused search box survives incoming activity', async t => {
   const { page, runtime } = await setup(t);
   const search = page.getByRole('searchbox', { name: 'Search activity' });
   await search.fill('hotfix/');
