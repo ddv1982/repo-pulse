@@ -80,7 +80,13 @@ test('a disabled repository row offers only enabling or removing it', () => {
   assert.equal(all(disabled, '[checked]').length, 0);
   assert.equal(text(one(disabled, '.chip.name')), 'Disabled');
   assert.equal(one(disabled, '[data-action="remove-repo"]').getAttribute('data-id'), 'off');
-  // A disabled repository offers nothing else, in its text or its attributes.
+  // A disabled repository offers only its switch and Remove watch: no details, checkout state, update check or sync.
+  assert.deepEqual(
+    all(disabled, 'button, input, select, summary, a, details').map(
+      control => control.getAttribute('data-action') ?? control.getAttribute('role'),
+    ),
+    ['switch', 'remove-repo'],
+  );
   assert.doesNotMatch(disabled.outerHTML, /Details for|checkout-state|Check for updates|Sync older/);
 });
 
@@ -459,7 +465,8 @@ test('a CI run on a pull request ref names the source branch and the pull reques
     assert.equal(token.getAttribute('title'), name, id);
     assert.equal(one(token, 'svg').getAttribute('aria-hidden'), 'true', id);
     assert.equal(text(one(token, '.ref-name')), name, id);
-    // The cue comes before the name, so a screen reader says what the name is first.
+    // The cue is for screen readers only, and comes before the name so it says what the name is first.
+    assert.equal(text(token), name, id);
     assert.equal(srText(token), `· branch ${name}`, id);
     return token;
   };

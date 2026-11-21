@@ -68,13 +68,16 @@ const headerView = { repoIds: null, route: 'activity', activityRoute: 'catchup' 
 
 test('the header shows one sync status pill per state in place of the last Azure check', () => {
   for (const [status, label, tone] of states) {
-    const markup = renderHeader(page({ ...status, repoId: 'r' }), headerView);
-    const doc = parse(markup);
+    const doc = parse(renderHeader(page({ ...status, repoId: 'r' }), headerView));
     const shown = pill(doc);
     assert.match(shown?.text ?? '', label, status.state);
     assert.equal(shown?.tone, tone, status.state);
-    // Not in the text, nor in a tooltip such as the refresh button's title.
-    assert.doesNotMatch(markup, /Last Azure check|No Azure check/);
+    // Not in the text, nor in a tooltip such as the refresh button's title, however the markup spells it.
+    const tooltips = all(doc, '[title], [data-idle-title]').flatMap(element => [
+      element.getAttribute('title') ?? '',
+      element.getAttribute('data-idle-title') ?? '',
+    ]);
+    assert.doesNotMatch([text(doc), ...tooltips].join(' ').replace(/\s+/g, ' '), /Last Azure check|No Azure check/);
     assert.ok(all(doc, '[role="switch"][aria-label="Automatic checks"]').length, 'the automatic checks switch');
     assert.ok(all(doc, '[data-action="refresh"]').length, 'the refresh button');
     if (status.state === 'problem') {
