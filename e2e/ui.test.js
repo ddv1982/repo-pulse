@@ -343,7 +343,7 @@ for (const [name, selector] of [
   ['title', '.feed-title'],
   ['Seen toggle', '.seen-toggle'],
 ]) {
-  test(`incoming activity renders while a row's ${name} has keyboard focus, and focus stays on it`, { todo: 'phase 2' }, async t => {
+  test(`incoming activity renders while a row's ${name} has keyboard focus, and focus stays on it`, async t => {
     const { page, runtime } = await setup(t);
     const row = page.locator('li[data-event-id]').nth(1);
     const id = await row.getAttribute('data-event-id');

@@ -155,10 +155,7 @@ export function createBrowserView({ page, header, demo, syncLive, picker, toolba
       ['kind-toggle', 'saved-filter-toggle', 'saved-filter-actions-toggle'].includes(focused?.id ?? '') ||
       (focused?.id && focused.matches('.settings-card *, .repo-entry *, .repo-add > summary'));
     const preserve =
-      interacting ||
-      shown('#kind-panel') ||
-      (!refreshable &&
-        (['INPUT', 'SELECT', 'TEXTAREA'].includes(focused?.tagName ?? '') || (page.contains(focused) && focused !== document.body)));
+      interacting || shown('#kind-panel') || (!refreshable && ['INPUT', 'SELECT', 'TEXTAREA'].includes(focused?.tagName ?? ''));
     return preserve ? null : 'full';
   }
 
