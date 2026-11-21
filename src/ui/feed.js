@@ -45,7 +45,7 @@ export function filterControls(ui, state) {
   return html`<div class="activity-filter-bar">
     <button class="btn filters-toggle" id="activity-filters-toggle" data-action="toggle-activity-filters" type="button"
       aria-expanded="${open}" aria-controls="activity-filters">Filters${active ? ` · ${active}` : ''}</button>
-    ${renderSavedFilters(presets, ui.savedFilterId, modified)}
+    ${renderSavedFilters(presets, ui.savedFilterId, modified, ui.openMenu)}
     <div class="filters-box" id="activity-filters" ${open ? emptyHtml : html`hidden`}>
       <div class="toolbar"><input id="feed-search" class="search" type="search" aria-label="Search activity" aria-describedby="feed-search-help" placeholder="Search branch, commit, person or repository…" value="${ui.search}">
         ${renderTypeFilter(ui.kind, state.activity.filterOptions, state.activity.loading, ui.openMenu === 'kind-panel')}

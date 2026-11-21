@@ -31,7 +31,6 @@ let pendingConfirmation;
 /** @type {HTMLElement | SVGElement | null} */
 let dialogOpener;
 let busy = false;
-let deferredSavedFilterRender = false;
 /** @type {{ metadata?: string, activity?: PageState['activity'], events?: PageState['events'] }} */
 let lastRendered = {};
 /** @type {ReturnType<typeof setTimeout> | undefined} */
@@ -76,7 +75,6 @@ const picker = createRepositoryPicker({
 });
 const typeFilter = createTypeFilter({
   state: ui,
-  onClose: flushSavedFilterRender,
   onChange: value => {
     // Every type option carries data-kind, so the fallback never applies.
     ui.kind = value ?? '';
@@ -88,7 +86,6 @@ const savedFilterPicker = createToolbarMenu({
   panelId: 'saved-filter-panel',
   itemSelector: '[data-preset]',
   state: ui,
-  onClose: flushSavedFilterRender,
   onSelect: option => {
     const preset = refresh.state.savedFilters?.find(filter => filter.id === option.dataset.preset);
     if (preset) applySavedFilter(preset);
@@ -100,7 +97,6 @@ const savedFilterActions = createToolbarMenu({
   panelId: 'saved-filter-actions-panel',
   itemSelector: '[data-filter-action]',
   state: ui,
-  onClose: flushSavedFilterRender,
   onSelect: option => {
     void withAction(() => actions[option.dataset.filterAction ?? '']?.(option));
   },
@@ -126,10 +122,6 @@ const seen = createSeenActions({
   toast,
   async reload() {
     const outcome = await load({ force: true });
-    if (outcome.type !== 'superseded' && deferredSavedFilterRender) {
-      deferredSavedFilterRender = false;
-      renderPage();
-    }
     if (outcome.type === 'failed') throw new Error(`Could not refresh seen status. ${outcome.error.message}`);
   },
 });
@@ -179,36 +171,25 @@ function currentView() {
   return () => location.hash === hash && navigation.view().generation === generation;
 }
 
+/** The header, and with it the scope panel, renders only after the first state load. @param {boolean} open */
+function showScopePanel(open) {
+  ui.openMenu = open ? 'repo-panel' : '';
+  const panel = document.querySelector('#repo-panel');
+  if (panel instanceof HTMLElement) panel.hidden = !open;
+  document.querySelector('#repo-toggle')?.setAttribute('aria-expanded', String(open));
+}
+
 function renderPage() {
   view.renderPage(refresh.state, ui, renderOptions());
 }
 
 function render() {
-  deferredSavedFilterRender = false;
   view.render(refresh.state, ui, renderOptions());
   if (ui.route === 'repositories') void connection.check();
 }
 
-const savedFilterMenuOpen = () => savedFilterPicker.expanded || savedFilterActions.expanded;
-
-function flushSavedFilterRender() {
-  if (!deferredSavedFilterRender) return;
-  // Let the click or Tab finish before replacing its target or restoring focus.
-  requestAnimationFrame(() => {
-    if (!deferredSavedFilterRender || savedFilterMenuOpen() || typeFilter.expanded) return;
-    if (view.refreshTarget(true, false) === 'page') {
-      deferredSavedFilterRender = false;
-      renderPage();
-    } else render();
-  });
-}
-
 /** @param {boolean} force */
 function refreshTarget(force) {
-  if (savedFilterMenuOpen() || (deferredSavedFilterRender && typeFilter.expanded)) {
-    deferredSavedFilterRender = true;
-    return null;
-  }
   return view.refreshTarget(
     force,
     busy || dialog.open || historyImport.open || filterName.open || branchPicker.open || (ui.route === 'repositories' && picker.active()),
@@ -627,16 +608,10 @@ document.addEventListener('click', event => {
     return;
   }
   if (target.closest('#repo-toggle')) {
-    const panel = required('#repo-panel');
-    panel.hidden = !panel.hidden;
-    required('#repo-toggle').setAttribute('aria-expanded', String(!panel.hidden));
+    showScopePanel(ui.openMenu !== 'repo-panel');
     return;
   }
-  const panel = document.querySelector('#repo-panel');
-  if (panel instanceof HTMLElement && !panel.hidden && !target.closest('#repo-panel')) {
-    panel.hidden = true;
-    required('#repo-toggle').setAttribute('aria-expanded', 'false');
-  }
+  if (ui.openMenu === 'repo-panel' && !target.closest('#repo-panel')) showScopePanel(false);
   const element = target.closest('[data-action]');
   const action = element instanceof HTMLElement ? element.dataset.action : undefined;
   if (element instanceof HTMLElement && action && actions[action]) {
@@ -721,13 +696,9 @@ document.addEventListener('keydown', event => {
     required('summary', HTMLElement, monitoring).focus();
     return;
   }
-  // The header, and with it the scope panel, renders only after the first state load.
-  const panel = document.querySelector('#repo-panel');
-  if (event.key === 'Escape' && panel instanceof HTMLElement && panel.hidden === false) {
-    panel.hidden = true;
-    const toggle = required('#repo-toggle');
-    toggle.setAttribute('aria-expanded', 'false');
-    toggle.focus();
+  if (event.key === 'Escape' && ui.openMenu === 'repo-panel') {
+    showScopePanel(false);
+    required('#repo-toggle').focus();
   }
   if (
     event.key === '/' &&
@@ -735,7 +706,8 @@ document.addEventListener('keydown', event => {
     !historyImport.open &&
     !filterName.open &&
     !branchPicker.open &&
-    !savedFilterMenuOpen() &&
+    !savedFilterPicker.expanded &&
+    !savedFilterActions.expanded &&
     !['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement?.tagName ?? '')
   ) {
     event.preventDefault();
@@ -770,6 +742,8 @@ document.addEventListener('visibilitychange', () => {
   if (!document.hidden) void load();
 });
 window.matchMedia('(min-width:640px)').addEventListener('change', () => {
+  // The filter bar changes layout, so an open menu closes and focus returns to its toggle.
+  ui.openMenu = '';
   if (['catchup', 'activity'].includes(ui.route)) renderPage();
 });
 navigation.initialize();

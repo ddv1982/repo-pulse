@@ -400,6 +400,24 @@ test('incoming activity renders while the Activity type menu is open, and the me
   await expect(toggle).toBeFocused();
 });
 
+test('incoming activity renders while the repository scope panel is open, and the panel stays open with focus inside', async t => {
+  const { page, runtime } = await setup(t);
+  const toggle = page.locator('#repo-toggle');
+  await toggle.click();
+  const panel = page.getByRole('group', { name: 'Repositories shown' });
+  await expect(panel).toBeVisible();
+  const orders = page.locator('[data-scope-repo="demo-orders"]');
+  await orders.focus();
+  const incoming = await postDemoEvent(runtime);
+  await expect(page.locator(`[data-event-id="${incoming.id}"]`)).toBeVisible({ timeout: 12000 });
+  await expect(panel).toBeVisible();
+  await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+  await expect(orders).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(panel).toBeHidden();
+  await expect(toggle).toBeFocused();
+});
+
 test('a backward selection in the focused search box survives incoming activity', async t => {
   const { page, runtime } = await setup(t);
   const search = page.getByRole('searchbox', { name: 'Search activity' });

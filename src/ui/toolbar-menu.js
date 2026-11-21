@@ -5,10 +5,9 @@ import { required } from './dom.js';
 /**
  * The open menu is kept in `state.openMenu` (its panel ID), so a render draws it open and incoming activity can render
  * while a person is choosing.
- * @param {{ toggleId: string, panelId: string, itemSelector: string, state: { openMenu?: string }, onSelect: (item: HTMLElement) => void,
- *   onClose?: () => void }} config
+ * @param {{ toggleId: string, panelId: string, itemSelector: string, state: { openMenu?: string }, onSelect: (item: HTMLElement) => void }} config
  */
-export function createToolbarMenu({ toggleId, panelId, itemSelector, state, onSelect, onClose }) {
+export function createToolbarMenu({ toggleId, panelId, itemSelector, state, onSelect }) {
   /** @type {HTMLElement | null | undefined} */
   let root;
   let pointerDown = false;
@@ -26,7 +25,6 @@ export function createToolbarMenu({ toggleId, panelId, itemSelector, state, onSe
     current.panel.hidden = true;
     current.toggle.setAttribute('aria-expanded', 'false');
     if (restore) current.toggle.focus({ preventScroll: true });
-    onClose?.();
   }
   /** @param {HTMLElement} panel @param {HTMLElement | undefined} option */
   function focusOption(panel, option) {

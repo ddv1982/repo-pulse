@@ -66,11 +66,6 @@ function focusedControlId(element) {
  */
 export function createBrowserView({ page, header, demo, syncLive, picker, toolbarMenus }) {
   const groupElements = () => [...page.querySelectorAll('details[data-group]')].filter(element => element instanceof HTMLDetailsElement);
-  /** @param {string} selector */
-  const shown = selector => {
-    const element = document.querySelector(selector);
-    return element instanceof HTMLElement && !element.hidden;
-  };
 
   /** @returns {[string, boolean][]} */
   function captureGroups() {
@@ -141,13 +136,14 @@ export function createBrowserView({ page, header, demo, syncLive, picker, toolba
 
   /** @param {boolean} force @param {boolean} interacting @returns {'page' | 'full' | null} */
   function refreshTarget(force, interacting) {
-    if (shown('#repo-panel')) return force ? 'page' : null;
     if (force) return 'full';
+    // A focused form control holds a choice the markup may not carry yet, such as a ticked commit, unless its state lives
+    // in ui (search, repository scope) or the settings it renders from.
     const focused = document.activeElement;
     const refreshable =
       focused?.id === 'feed-search' ||
-      ['kind-toggle', 'saved-filter-toggle', 'saved-filter-actions-toggle'].includes(focused?.id ?? '') ||
-      (focused?.id && focused.matches('.settings-card *, .repo-entry *, .repo-add > summary'));
+      focused?.matches('[data-scope-repo]') ||
+      (focused?.id && focused.matches('.settings-card *, .repo-entry *'));
     const preserve = interacting || (!refreshable && ['INPUT', 'SELECT', 'TEXTAREA'].includes(focused?.tagName ?? ''));
     return preserve ? null : 'full';
   }

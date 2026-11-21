@@ -1164,7 +1164,7 @@ test('saving selects the new filter after an older state response arrives', asyn
   }
 });
 
-test('closing a saved-filter menu delivers a deferred Activity response and deletes keep newer selections', async t => {
+test('an Activity response renders while a saved-filter menu stays open, and deletes keep newer selections', async t => {
   const { runtime, page } = await demo(t);
   const filters = search => ({ search, people: '', kind: '', repoIds: null, view: 'new' });
   runtime.store.setSetting('savedActivityFilters', [
@@ -1194,8 +1194,11 @@ test('closing a saved-filter menu delivers a deferred Activity response and dele
       const completed = page.waitForResponse(response => matches(response.url()), { timeout: 5000 });
       release.resolve();
       await completed;
-      await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
-      await expect(activity.getByText('Loading activity…')).toBeVisible();
+      // The response renders at once; the menu stays open with focus inside it.
+      await expect(emptyFeed).toBeVisible();
+      await expect(menu).toHaveAttribute('aria-expanded', 'true');
+      await expect(page.locator(`#${await menu.getAttribute('aria-controls')}`)).toBeVisible();
+      assert.equal(await menu.evaluate(element => element.closest('.menu').contains(document.activeElement)), true);
     } finally {
       release.resolve();
       delayed = undefined;
