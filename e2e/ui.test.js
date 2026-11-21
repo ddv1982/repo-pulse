@@ -521,6 +521,12 @@ test('a focused Activity type option keeps its type when a new type appears ahea
   await renderInBackground(page);
   await expect(panel.getByRole('option', { name: 'Tag', exact: true })).toBeVisible();
   await expect(push).toBeFocused();
+  // When the focused type leaves the list, focus goes back to the menu toggle.
+  await panel.getByRole('option', { name: 'Tag', exact: true }).focus();
+  runtime.store.acknowledge(['live-tag']);
+  await renderInBackground(page);
+  await expect(panel.getByRole('option', { name: 'Tag', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: /^Activity type:/ })).toBeFocused();
 });
 
 test('a focused imported row keeps focus when a newer imported row renders above it', async t => {
