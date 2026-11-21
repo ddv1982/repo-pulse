@@ -372,6 +372,17 @@ test('incoming activity updates the feed in place: the search box and an existin
   );
 });
 
+test('a header control keeps keyboard focus while incoming activity renders the whole view', async t => {
+  const { page, runtime } = await setup(t);
+  const refresh = page.locator('#header-refresh-desktop');
+  await refresh.focus();
+  await refresh.evaluate(element => (element.marker = 'header'));
+  const incoming = await postDemoEvent(runtime);
+  await expect(page.locator(`[data-event-id="${incoming.id}"]`)).toBeVisible({ timeout: 12000 });
+  await expect(refresh).toBeFocused();
+  assert.equal(await refresh.evaluate(element => element.marker), 'header');
+});
+
 test('a backward selection in the focused search box survives incoming activity', async t => {
   const { page, runtime } = await setup(t);
   const search = page.getByRole('searchbox', { name: 'Search activity' });

@@ -159,8 +159,6 @@ export function createBrowserView({ page, header, demo, syncLive, picker, toolba
     renderPage,
     /** @param {PageState} state @param {BrowserUi} ui @param {RenderOptions} options */
     render(state, ui, options) {
-      const active = document.activeElement;
-      const focusedId = active && header.contains(active) ? active.id : '';
       const menu = header.querySelector('.header-overflow');
       const menuOpen = menu instanceof HTMLDetailsElement && menu.open;
       setHtml(header, renderHeader(state, ui));
@@ -168,7 +166,6 @@ export function createBrowserView({ page, header, demo, syncLive, picker, toolba
       // Writing the same text again would replace the text node and could repeat the announcement.
       if (syncLive.textContent !== sentence) syncLive.textContent = sentence;
       if (menuOpen) required('.header-overflow', HTMLDetailsElement, header).open = true;
-      if (focusedId) document.getElementById(focusedId)?.focus({ preventScroll: true });
       // As in renderPage: theme.js runs first, and the optional call covers its absence.
       /** @type {ThemedWindow} */ (window).repoPulseTheme?.apply();
       renderPage(state, ui, options);
