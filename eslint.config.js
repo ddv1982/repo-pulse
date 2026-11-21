@@ -25,7 +25,7 @@ export default [
         'error',
         {
           selector:
-            'Literal[regex.pattern=/class=|<\\\\?\\/?(?:div|span|li|ul|a|svg|path|circle|h1|h2|time|button|code|details|summary|section)\\b/]',
+            'Literal[regex.pattern=/class="|\\b(?:href|title|role|id|aria-[a-z-]+|data-[a-z-]+)="|<\\\\?\\/?(?:a|b|p|dd|dt|dl|h[1-6]|ul|ol|li|div|span|strong|time|code|svg|path|circle|line|section|details|summary|button|label|input)\\b/]',
           message: 'Check rendered UI with test/fixtures/dom.js (text, one, row) instead of a regular expression over its HTML.',
         },
       ],

@@ -29,16 +29,20 @@ const states = [
   [{ state: 'paused' }, /^Paused$/, 'neutral'],
 ];
 const tones = ['ok', 'info', 'warn', 'crit', 'neutral'];
-/** A sync pill's tone, text and element: the first pill in the markup or element. */
+/** The one tone an element carries; several read as their joined names, so a test comparing tones fails. */
+const toneOf = element => tones.filter(tone => element.classList.contains(tone)).join('+');
+/** A sync pill's tone, text and element: the first pill in the markup or element. It keeps the chip styling. */
 const pill = from => {
   const element = (typeof from === 'string' ? parse(from) : from).querySelector('.sync-pill');
-  return element ? { element, tone: tones.find(tone => element.classList.contains(tone)), text: text(element) } : undefined;
+  if (!element) return undefined;
+  assert.ok(element.classList.contains('chip') && element.classList.contains('status-chip'), 'the pill is styled as a status chip');
+  return { element, tone: toneOf(element), text: text(element) };
 };
 /** The status banners of a page: tone, bold title and the text after it. */
 const banners = markup =>
   all(parse(markup), '.banner').map(element => {
     const title = text(one(element, 'strong'));
-    return { element, tone: tones.find(tone => element.classList.contains(tone)), title, text: text(element).slice(title.length).trim() };
+    return { element, tone: toneOf(element), title, text: text(element).slice(title.length).trim() };
   });
 /** The summary headline when nothing is new. */
 const zero = markup => text(one(parse(markup), 'b.zero'));
@@ -64,11 +68,13 @@ const headerView = { repoIds: null, route: 'activity', activityRoute: 'catchup' 
 
 test('the header shows one sync status pill per state in place of the last Azure check', () => {
   for (const [status, label, tone] of states) {
-    const doc = parse(renderHeader(page({ ...status, repoId: 'r' }), headerView));
+    const markup = renderHeader(page({ ...status, repoId: 'r' }), headerView);
+    const doc = parse(markup);
     const shown = pill(doc);
     assert.match(shown?.text ?? '', label, status.state);
     assert.equal(shown?.tone, tone, status.state);
-    assert.doesNotMatch(text(doc), /Last Azure check|No Azure check/);
+    // Not in the text, nor in a tooltip such as the refresh button's title.
+    assert.doesNotMatch(markup, /Last Azure check|No Azure check/);
     assert.ok(all(doc, '[role="switch"][aria-label="Automatic checks"]').length, 'the automatic checks switch');
     assert.ok(all(doc, '[data-action="refresh"]').length, 'the refresh button');
     if (status.state === 'problem') {

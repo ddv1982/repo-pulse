@@ -69,16 +69,19 @@ test('a disabled repository row offers only enabling or removing it', () => {
     syncStatus: { overall: { state: 'syncing', repoId: 'on' }, repos: { on: { state: 'syncing' } } },
     streams: [{ repoId: 'on', stream: 'refs', initialized: true, error: 'Read refused' }],
   };
-  const markup = renderRepositories(state, {});
-  const [enabled, disabled] = markup.split('<article').slice(1);
-  assert.match(markup, /2 watched · 1 disabled/);
-  assert.match(enabled, /role="switch"[^>]*data-repo-toggle[^>]*data-id="on"[^>]*checked/);
-  assert.match(enabled, /Details for Orders/);
-  assert.match(disabled, /role="switch"[^>]*data-repo-toggle[^>]*data-id="off"/);
-  assert.doesNotMatch(disabled, /checked/);
-  assert.match(disabled, />Disabled</);
-  assert.match(disabled, /data-action="remove-repo"/);
-  assert.doesNotMatch(disabled, /Details for|checkout-state|Check for updates|Sync older/);
+  const doc = parse(renderRepositories(state, {}));
+  assert.match(text(doc), /2 watched · 1 disabled/);
+  const [enabled, disabled] = all(doc, 'article');
+  const toggle = (/** @type {Element} */ article) => one(article, 'input[role="switch"][data-repo-toggle]');
+  assert.equal(toggle(enabled).getAttribute('data-id'), 'on');
+  assert.ok(toggle(enabled).hasAttribute('checked'));
+  assert.equal(one(enabled, 'summary').getAttribute('aria-label'), 'Details for Orders');
+  assert.equal(toggle(disabled).getAttribute('data-id'), 'off');
+  assert.equal(all(disabled, '[checked]').length, 0);
+  assert.equal(text(one(disabled, '.chip.name')), 'Disabled');
+  assert.equal(one(disabled, '[data-action="remove-repo"]').getAttribute('data-id'), 'off');
+  // A disabled repository offers nothing else, in its text or its attributes.
+  assert.doesNotMatch(disabled.outerHTML, /Details for|checkout-state|Check for updates|Sync older/);
 });
 
 const view = { repoIds: null, route: 'catchup', kind: '', search: '' };
@@ -321,7 +324,7 @@ test('a branch row from a push does not repeat its label in the event column; a 
   const doc = parse(renderFeed(state, view));
   const first = (/** @type {string} */ id) => one(row(doc, id), '.event').firstElementChild;
   for (const id of ['created', 'deleted']) {
-    assert.ok(first(id).classList.contains('event-meta'), id);
+    assert.ok(first(id).matches('.help.event-meta'), id);
     assert.match(text(first(id)), /^Pushed by Ana · /, id);
   }
   assert.ok(first('listed').classList.contains('event-main'));
@@ -455,8 +458,9 @@ test('a CI run on a pull request ref names the source branch and the pull reques
     const token = one(row(doc, id), '.ref-branch');
     assert.equal(token.getAttribute('title'), name, id);
     assert.equal(one(token, 'svg').getAttribute('aria-hidden'), 'true', id);
-    assert.equal(srText(one(token, '.sr')), '· branch', id);
     assert.equal(text(one(token, '.ref-name')), name, id);
+    // The cue comes before the name, so a screen reader says what the name is first.
+    assert.equal(srText(token), `· branch ${name}`, id);
     return token;
   };
   const token = branch('known', 'feature/a');
@@ -536,7 +540,7 @@ test('a push that names several branches keeps its title and shows no single bra
   const doc = parse(renderFeed(state, view));
   assert.equal(text(one(doc, '.title')), 'Pushed to feature/a, feature/b');
   assert.equal(all(doc, '.subref').length, 0);
-  const meta = one(doc, '.event-meta');
+  const meta = one(doc, '.help.event-meta');
   assert.match(text(meta), /^Pushed by Ana · /);
   assert.equal(text(one(meta, '.actor')), 'Ana');
   assert.equal(all(meta, 'time').length, 1);
@@ -564,7 +568,7 @@ test('the event column puts what happened first, then who and when, each actor w
   const doc = parse(renderFeed(state, view));
   /** The meta line says role, actor and a machine-readable time, in that order. */
   const meta = (/** @type {string} */ id, /** @type {string} */ role, /** @type {string} */ actor) => {
-    const line = one(row(doc, id), '.event-meta');
+    const line = one(row(doc, id), '.help.event-meta');
     assert.match(text(line), new RegExp(`^${role}${actor} · \\S`), id);
     assert.equal(text(one(line, '.actor')), actor, id);
     const time = one(line, 'time');
@@ -574,7 +578,7 @@ test('the event column puts what happened first, then who and when, each actor w
   const event = one(row(doc, 'pr'), '.event');
   assert.equal(text(event.firstElementChild), 'Target: main');
   assert.ok(event.firstElementChild.classList.contains('event-main'));
-  assert.ok(event.firstElementChild.nextElementSibling.classList.contains('event-meta'));
+  assert.ok(event.firstElementChild.nextElementSibling.matches('.help.event-meta'));
   meta('pr', 'Created by ', 'Ana');
   meta('build', 'Requested by ', 'Bo');
   meta('created', 'Pushed by ', 'Cy');
@@ -703,7 +707,7 @@ test('a CI row without a known trigger shows no summary line, and the detail pag
   assert.ok(first('manual').classList.contains('event-main'));
   assert.equal(text(first('manual')), 'Triggered manually');
   // With no summary, who and when is the column's first line.
-  for (const id of ['omitted', 'none']) assert.ok(first(id).classList.contains('event-meta'), id);
+  for (const id of ['omitted', 'none']) assert.ok(first(id).matches('.help.event-meta'), id);
   const trigger = all(parse(renderDetail(state.events[1], state)), 'dt').find(term => text(term) === 'Trigger');
   assert.equal(text(trigger.nextElementSibling), 'Not supplied');
 });
@@ -727,16 +731,14 @@ test('the summary counts every unread item in scope, not only the loaded rows', 
     assert.ok(!headline.classList.contains('zero'));
     assert.match(text(one(summary, '.headline')), /^7 new items · 8 updates/);
     assert.match(text(summary), /Showing 2 of 7 items/);
-    /** A count cell: its label, value and tone, and the line under it if any. */
-    const cell = (/** @type {string} */ kind) => {
-      const element = one(summary, `[data-summary-kind="${kind}"]`);
-      const value = one(element, '.val');
-      return [text(one(element, '.label')), text(value), classes(value), all(element, '.sub').map(text)];
-    };
-    assert.deepEqual(cell('Pushes'), ['Pushes', '5', ['t-info', 'val'], []]);
-    assert.deepEqual(cell('Branches'), ['Branches', '1', ['t-info', 'val'], ['1 new']]);
+    /** A count cell's parts in reading order: label, value with its tone, and the line under it if any. */
+    const cell = (/** @type {string} */ kind) =>
+      [...one(summary, `[data-summary-kind="${kind}"]`).children].map(part => [classes(part), text(part)]);
+    const label = (/** @type {string} */ name) => [['label'], name];
+    assert.deepEqual(cell('Pushes'), [label('Pushes'), [['t-info', 'val'], '5']]);
+    assert.deepEqual(cell('Branches'), [label('Branches'), [['t-info', 'val'], '1'], [['sub'], '1 new']]);
     // The CI row is not loaded, so its status line would describe nothing on screen.
-    assert.deepEqual(cell('CI runs'), ['CI runs', '1', ['t-info', 'val'], []]);
+    assert.deepEqual(cell('CI runs'), [label('CI runs'), [['t-info', 'val'], '1']]);
   } finally {
     store.close();
   }

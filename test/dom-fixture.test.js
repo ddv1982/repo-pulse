@@ -12,6 +12,9 @@ test('the DOM test helper reads visible and screen-reader text and finds element
   assert.throws(() => one(doc, '.row'), /expected one \.row, found 2/);
   assert.throws(() => row(doc, 'missing'), /found 0/);
   assert.equal(text(doc), 'New branchmainx');
+  // Text a reader cannot see stays out, even when the element asked for is itself screen-reader-only.
+  assert.equal(text(one(doc, '.sr')), '');
+  assert.equal(srText(one(doc, '.sr')), '· branch');
   // The copy leaves the rendered markup untouched.
   assert.equal(all(doc, '.sr').length, 1);
 });

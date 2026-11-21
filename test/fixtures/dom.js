@@ -28,6 +28,7 @@ const squash = value => value.replace(/\s+/g, ' ').trim();
 
 /** Visible text: whitespace collapsed, screen-reader-only `.sr` text left out. @param {Element | Document} element */
 export function text(element) {
+  if (element.closest?.('.sr')) return '';
   const copy = /** @type {Element} */ ((element.body ?? element).cloneNode(true));
   for (const hidden of copy.querySelectorAll('.sr')) hidden.remove();
   return squash(copy.textContent ?? '');

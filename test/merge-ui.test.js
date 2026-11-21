@@ -47,7 +47,9 @@ test('the rewrite check result shows on the row and in the detail without a merg
   const rewritten = { mergeEvidence: { rewrite: [{ ref: 'refs/heads/main', status: 'rewrite', dropped: 2, more: true }] } };
   const badge = parse(mergeEvidenceBadge({ kind: 'push', data: rewritten }));
   assert.equal(all(badge, '.status-chip').length, 1);
-  assert.equal(text(one(badge, '.status-chip.warn')), 'History rewritten · 2+ commits dropped');
+  const chip = one(badge, '.status-chip');
+  assert.equal(text(chip), 'History rewritten · 2+ commits dropped');
+  assert.deepEqual([...chip.classList].sort(), ['chip', 'status-chip', 'warn']);
   const detail = parse(renderMergeEvidence(rewritten));
   assert.equal(text(one(detail, 'li')), 'main · history rewritten, 2+ commits dropped from the old tip');
   assert.doesNotMatch(text(detail), /Evidence incomplete|No completed PR association/);
