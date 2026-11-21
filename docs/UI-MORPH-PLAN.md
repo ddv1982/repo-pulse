@@ -81,6 +81,6 @@ Out of scope throughout: template rewrites, lit or Preact, splitting `src/web.js
 
 ## Phase 5: docs
 
-- [ ] `PLAN.md` constraint line updated for the vendored file; vendoring and update rule in `docs/MAINTAINING.md`.
-- [ ] README and `docs/screenshots` checked against the result; update only what changed visibly.
+- [x] `PLAN.md` constraint line updated for the vendored file; vendoring and update rule in `docs/MAINTAINING.md`, plus a short "Render into the live page" section.
+- [x] README and `docs/screenshots` checked against the result; update only what changed visibly. All activity in demo mode rendered on main and on this branch with a fixed clock: light screenshots byte-identical, dark ones differ in 19 pixels by at most 8 of 255 (antialiasing). No README or screenshot change.
 - [ ] Remove this plan file.

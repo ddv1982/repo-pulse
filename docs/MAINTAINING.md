@@ -17,7 +17,7 @@
 | [src/web.js](../src/web.js) and [src/ui/](../src/ui/) | Browser wiring, view rendering, refresh coordination, navigation, and exact seen actions |
 | [web/app.css](../web/app.css), [web/styles/](../web/styles/) and [web/theme.js](../web/theme.js) | Modular CSS tokens, layouts, screen styles, light-mode glass, and System, Light, and Dark controls |
 
-The app uses Node 26, built-in SQLite, plain JavaScript, and CSS. It has no runtime npm dependencies or build step. Live and demo databases are separate and ignored by Git. `PORT` fixes the loopback port; by default each start gets a free port from the OS. `REPO_PULSE_NO_BROWSER=1` stops `npm start` from opening the browser. `REPO_PULSE_DATA_DIR` changes the storage directory. Use one Azure CLI account context for each local data directory.
+The app uses Node 26, built-in SQLite, plain JavaScript, and CSS. It has no runtime npm dependencies or build step; the only third-party code is one vendored browser file (see [Vendored browser code](#vendored-browser-code)). Live and demo databases are separate and ignored by Git. `PORT` fixes the loopback port; by default each start gets a free port from the OS. `REPO_PULSE_NO_BROWSER=1` stops `npm start` from opening the browser. `REPO_PULSE_DATA_DIR` changes the storage directory. Use one Azure CLI account context for each local data directory.
 
 Keep Azure reads in the shared queue. `devops invoke` reads go over HTTPS with an Azure DevOps token from `az account get-access-token`, which is renewed five minutes before it expires and after a 401. The token stays inside `azure-rest.js`: it is never returned, logged or put in an error, and `run()` still refuses token commands. Other commands, such as `repos show` and the local CLI checks, still start `az`. A repository connection check also makes one REST read, so it fails the way activity reads would; an organization-only check uses `az` only. A `Retry-After` header pauses the whole queue (see `retryAfter` in `azure-cli.js`). Explicit Git operations must act on the linked checkout and its verified upstream. Store raw events and checkpoints together. Enrichment can add evidence to a record without changing its ID or seen state.
 
@@ -32,6 +32,14 @@ Use the shared `.btn`, `.control`, `.ghost`, and `.search` classes. Choose one s
 Branch switches verify the destination ref, its fetch mapping, and the linked Git directory. Tracking-ref updates check the expected old value, and Repo Pulse checks the type of each ref while Git holds its transaction lock. For a confirmed rewrite, Repo Pulse writes and verifies recovery refs under `refs/repo-pulse/upstream-rewrites/` before updating the tracker. Later checks can use those refs to detect the rewrite on other local branches tracking the same upstream, including branches in linked worktrees. Git handles the worktree switch separately.
 
 Pull checks the checkout, upstream and fetched tip before running `git merge --ff-only --no-squash`, then verifies HEAD. A terminal branch change between the final check and Git's merge can still race with the update.
+
+## Render into the live page
+
+`setHtml` in [src/ui/dom.js](../src/ui/dom.js) is the only `innerHTML` sink. It parses `SafeHtml` into a template and merges it into the element with idiomorph, so a node that still matches keeps its focus, caret, text selection and listeners. Do not add code that saves and restores focus or selection around a render; if a render loses them, find the markup that stopped matching. State a person changes on the page belongs in `ui` and the markup renders from it, as `ui.openMenu` does for the toolbar menus and the repository scope panel. A control whose state the markup does not carry, such as a ticked commit checkbox, is still protected by `refreshTarget` in [src/ui/browser-view.js](../src/ui/browser-view.js).
+
+## Vendored browser code
+
+[web/vendor/](../web/vendor/) holds browser modules copied byte for byte from a published release, with their licence and type declarations. [test/vendor.test.js](../test/vendor.test.js) pins each file's sha256 and names the release it came from. ESLint, Prettier and `tsc` skip the folder. To update idiomorph, take `package/dist/idiomorph.esm.js` and `idiomorph.d.ts` (saved as `idiomorph.esm.d.ts`) from `npm pack idiomorph@<version>`, change the version and hash in the test in the same commit, and run every check, including `npm run test:ui`.
 
 ## Keep functions small
 
