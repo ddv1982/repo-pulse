@@ -47,7 +47,7 @@ export function renderHeader(state, ui) {
   const repoOptions = state.repos.length
     ? state.repos.map(
         repo =>
-          html`<label class="opt"><input type="checkbox" data-scope-repo="${repo.id}" ${ui.repoIds === null || ui.repoIds.includes(repo.id) ? html`checked` : emptyHtml}><b>${repo.name}</b><small>${repo.project}</small></label>`,
+          html`<label class="opt"><input type="checkbox" id="scope-${repo.id}" data-scope-repo="${repo.id}" ${ui.repoIds === null || ui.repoIds.includes(repo.id) ? html`checked` : emptyHtml}><b>${repo.name}</b><small>${repo.project}</small></label>`,
       )
     : html`<p class="help menu-empty">Add repositories to begin watching.</p>`;
   return html`<div class="hg header-brand"><a class="brand" href="#activity/new">Repo Pulse</a><div class="menu"><button class="control" id="repo-toggle" type="button" aria-expanded="${ui.openMenu === 'repo-panel'}" aria-controls="repo-panel" aria-label="${scopeName(state, ui)}" title="Changing visible repositories marks nothing seen">${scopeLabel(state, ui)}</button><div class="menu-panel" id="repo-panel" role="group" aria-label="Repositories shown" ${ui.openMenu === 'repo-panel' ? emptyHtml : html`hidden`}>${repoOptions}<div class="mfoot"><span>Scope changes mark nothing seen.</span><button class="ghost sm" type="button" data-action="all-repos">All</button><button class="ghost sm" type="button" data-action="no-repos">None</button></div></div></div></div>

@@ -110,7 +110,9 @@ export function createBrowserView({ page, header, demo, syncLive, picker, toolba
         .find(element => element.dataset.group === name)
         ?.toggleAttribute('open', open);
     }
-    if (focusId) restoreFocus(focusId, neighbours);
+    // A control that survived the render keeps focus; one that left, or that the render hid (a closed menu's option),
+    // needs a replacement.
+    if (focusId && (document.activeElement !== focused || !focused?.checkVisibility())) restoreFocus(focusId, neighbours);
     // web/theme.js defines repoPulseTheme on window before the modules load; the optional call covers its absence.
     /** @type {ThemedWindow} */ (window).repoPulseTheme?.apply();
     if (checkoutFocus) {
@@ -134,7 +136,7 @@ export function createBrowserView({ page, header, demo, syncLive, picker, toolba
     }
   }
 
-  /** @param {boolean} force @param {boolean} interacting @returns {'page' | 'full' | null} */
+  /** @param {boolean} force @param {boolean} interacting @returns {'full' | null} */
   function refreshTarget(force, interacting) {
     if (force) return 'full';
     // A focused form control holds a choice the markup may not carry yet, such as a ticked commit, unless its state lives
@@ -144,7 +146,9 @@ export function createBrowserView({ page, header, demo, syncLive, picker, toolba
       focused?.id === 'feed-search' ||
       focused?.matches('[data-scope-repo]') ||
       (focused?.id && focused.matches('.settings-card *, .repo-entry *'));
-    const preserve = interacting || (!refreshable && ['INPUT', 'SELECT', 'TEXTAREA'].includes(focused?.tagName ?? ''));
+    // Ticked commits are not in the markup, so a render would clear them while a person is choosing what to carry.
+    const choosingCommits = Boolean(page.querySelector('.checkout-commits:focus-within input:checked'));
+    const preserve = interacting || choosingCommits || (!refreshable && ['INPUT', 'SELECT', 'TEXTAREA'].includes(focused?.tagName ?? ''));
     return preserve ? null : 'full';
   }
 

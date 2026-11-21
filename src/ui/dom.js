@@ -29,5 +29,10 @@ export function setHtml(element, markup) {
   template.innerHTML = SafeHtml.unwrap(markup);
   // A focused field's value is not protected: every input rendered here writes what is typed into state on each input
   // event, so the markup already carries it, and a value that differs is one the app chose, such as a cleared picker.
-  Idiomorph.morph(element, template.content, { morphStyle: 'innerHTML' });
+  // An element marked data-owned is filled by its own component (the repository picker), so an outer render leaves its
+  // children alone instead of emptying them until the component renders again.
+  Idiomorph.morph(element, template.content, {
+    morphStyle: 'innerHTML',
+    callbacks: { beforeNodeMorphed: node => !(node !== element && node instanceof Element && node.hasAttribute('data-owned')) },
+  });
 }

@@ -173,7 +173,9 @@ function currentView() {
 
 /** The header, and with it the scope panel, renders only after the first state load. @param {boolean} open */
 function showScopePanel(open) {
-  ui.openMenu = open ? 'repo-panel' : '';
+  if (open) ui.openMenu = 'repo-panel';
+  // A toolbar menu opened by the same click has already taken ui.openMenu.
+  else if (ui.openMenu === 'repo-panel') ui.openMenu = '';
   const panel = document.querySelector('#repo-panel');
   if (panel instanceof HTMLElement) panel.hidden = !open;
   document.querySelector('#repo-toggle')?.setAttribute('aria-expanded', String(open));
@@ -218,7 +220,6 @@ const refresh = createRefreshController({
     const { activity, events } = refresh.state;
     if (force || metadata !== lastRendered.metadata || activity !== lastRendered.activity || events !== lastRendered.events) {
       const target = refreshTarget(force);
-      if (target === 'page') renderPage();
       if (target === 'full') {
         render();
         lastRendered = { metadata, activity, events };
@@ -611,7 +612,7 @@ document.addEventListener('click', event => {
     showScopePanel(ui.openMenu !== 'repo-panel');
     return;
   }
-  if (ui.openMenu === 'repo-panel' && !target.closest('#repo-panel')) showScopePanel(false);
+  if (document.querySelector('#repo-panel:not([hidden])') && !target.closest('#repo-panel')) showScopePanel(false);
   const element = target.closest('[data-action]');
   const action = element instanceof HTMLElement ? element.dataset.action : undefined;
   if (element instanceof HTMLElement && action && actions[action]) {
@@ -742,8 +743,8 @@ document.addEventListener('visibilitychange', () => {
   if (!document.hidden) void load();
 });
 window.matchMedia('(min-width:640px)').addEventListener('change', () => {
-  // The filter bar changes layout, so an open menu closes and focus returns to its toggle.
-  ui.openMenu = '';
+  // The filter bar changes layout, so an open toolbar menu closes and focus returns to its toggle.
+  if (ui.openMenu !== 'repo-panel') ui.openMenu = '';
   if (['catchup', 'activity'].includes(ui.route)) renderPage();
 });
 navigation.initialize();

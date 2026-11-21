@@ -418,6 +418,125 @@ test('incoming activity renders while the repository scope panel is open, and th
   await expect(toggle).toBeFocused();
 });
 
+// A background render keeps focus on the same item, never on a neighbour that took its place in the markup.
+async function renderInBackground(page) {
+  const polled = page.waitForResponse(response => response.url().includes('/api/state') && response.ok());
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+  await polled;
+}
+
+test('a focused saved-filter option keeps focus while incoming activity renders', async t => {
+  const { page, runtime } = await setup(t);
+  const filters = search => ({ search, people: '', kind: '', repoIds: null, view: 'new' });
+  runtime.store.setSetting('savedActivityFilters', [
+    { id: 'first', name: 'First preset', filters: filters('first') },
+    { id: 'second', name: 'Second preset', filters: filters('second') },
+  ]);
+  await page.reload();
+  await page.locator('#saved-filter-toggle').press('ArrowDown');
+  await page.keyboard.press('End');
+  const second = page.getByRole('option', { name: /Second preset/ });
+  await expect(second).toBeFocused();
+  const incoming = await postDemoEvent(runtime);
+  await expect(page.locator(`[data-event-id="${incoming.id}"]`)).toBeVisible({ timeout: 12000 });
+  await expect(second).toBeFocused();
+});
+
+test('a focused Activity type option keeps its type when a new type appears ahead of it', async t => {
+  const { page, runtime } = await setup(t);
+  await page.getByRole('button', { name: /^Activity type:/ }).press('ArrowDown');
+  const panel = page.getByRole('listbox', { name: 'Activity type' });
+  const push = panel.getByRole('option', { name: 'Push', exact: true });
+  await push.focus();
+  runtime.store.insertEvents([
+    {
+      id: 'live-tag',
+      repoId: 'demo-orders',
+      kind: 'tag',
+      title: 'Tag moved · v9',
+      branch: 'v9',
+      time: new Date().toISOString(),
+      data: { change: 'moved', name: 'refs/tags/v9' },
+    },
+  ]);
+  await renderInBackground(page);
+  await expect(panel.getByRole('option', { name: 'Tag', exact: true })).toBeVisible();
+  await expect(push).toBeFocused();
+});
+
+test('a focused imported row keeps focus when a newer imported row renders above it', async t => {
+  const { page, runtime } = await setup(t);
+  await page.goto(`${page.url().split('#')[0]}#activity/all`);
+  await page.locator('summary', { hasText: 'Imported history' }).click();
+  const title = page
+    .locator('li[data-event-id] .feed-title')
+    .filter({ has: page.locator('xpath=ancestor::details[@data-group="Imported history"]') })
+    .first();
+  const id = await title.getAttribute('data-id');
+  await title.focus();
+  runtime.store.insertEvents([
+    {
+      id: 'imported-newer',
+      repoId: 'demo-orders',
+      kind: 'push',
+      title: 'Newer import',
+      branch: 'feature/newer-import',
+      time: new Date().toISOString(),
+      imported: true,
+      seen: true,
+      data: { pushId: 77001 },
+    },
+  ]);
+  await renderInBackground(page);
+  await expect(page.locator('[data-event-id="imported-newer"]')).toBeVisible();
+  await expect(page.locator(`.feed-title[data-id="${id}"]`)).toBeFocused();
+});
+
+test('a focused scope checkbox stays on its repository when an earlier repository leaves the list', async t => {
+  const { page, runtime } = await setup(t);
+  await page.locator('#repo-toggle').click();
+  const billing = page.locator('[data-scope-repo="demo-billing"]');
+  await billing.focus();
+  const [first] = runtime.store.listRepos();
+  assert.notEqual(first.id, 'demo-billing');
+  runtime.store.saveRepo({ ...first, disabled: true });
+  await renderInBackground(page);
+  await expect(page.locator(`[data-scope-repo="${first.id}"]`)).toHaveCount(0);
+  await expect(billing).toBeFocused();
+});
+
+test('opening a toolbar menu closes the scope panel, and the scope panel survives a breakpoint change', async t => {
+  const { page } = await setup(t);
+  const scope = page.getByRole('group', { name: 'Repositories shown' });
+  await page.locator('#repo-toggle').click();
+  await expect(scope).toBeVisible();
+  await page.getByRole('button', { name: /^Activity type:/ }).click();
+  await expect(page.getByRole('listbox', { name: 'Activity type' })).toBeVisible();
+  await expect(scope).toBeHidden();
+  await page.keyboard.press('Escape');
+  await page.locator('#repo-toggle').click();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(scope).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(scope).toBeHidden();
+});
+
+test('ticked commits survive incoming activity while focus is among them', async t => {
+  const { page, runtime } = await setup(t);
+  // The carry fieldset needs a rewritten Git checkout; a copy of its markup is enough to exercise the refresh guard.
+  await page.evaluate(() => {
+    const fieldset = Object.assign(document.createElement('fieldset'), { className: 'checkout-commits' });
+    fieldset.innerHTML =
+      '<input type="checkbox" name="checkout-commit" value="a" checked><button type="button">Carry selected commits</button>';
+    document.getElementById('page').append(fieldset);
+    fieldset.querySelector('button').focus();
+  });
+  await postDemoEvent(runtime);
+  await renderInBackground(page);
+  await expect(page.locator('.checkout-commits input')).toBeChecked();
+  await expect(page.getByRole('button', { name: 'Carry selected commits' })).toBeFocused();
+});
+
 test('a backward selection in the focused search box survives incoming activity', async t => {
   const { page, runtime } = await setup(t);
   const search = page.getByRole('searchbox', { name: 'Search activity' });
@@ -525,6 +644,26 @@ async function setupPicker(t, { existing = true } = {}) {
   if (existing) await page.locator('#add-repositories').click();
   return { page, store, calls };
 }
+
+test('a background render leaves the repository picker in place, so its focused toggle keeps focus', async t => {
+  const { page, store } = await setupPicker(t);
+  const search = page.getByRole('combobox', { name: 'Search local repositories' });
+  await search.press('Escape');
+  await expect(search).toHaveAttribute('aria-expanded', 'false');
+  const toggle = page.getByRole('button', { name: 'Open repository picker' });
+  await toggle.focus();
+  await page.evaluate(() => {
+    Object.assign(document.getElementById('checkout-search'), { marker: 'picker' });
+    document.querySelector('#page h1').setAttribute('data-before-refresh', '');
+  });
+  store.saveRepo({ ...store.getRepo('existing'), name: 'existing-renamed' });
+  const polled = page.waitForResponse(response => response.url().includes('/api/state') && response.ok());
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+  await polled;
+  await expect(page.locator('#page [data-before-refresh]')).toHaveCount(0);
+  await expect(toggle).toBeFocused();
+  assert.equal(await page.evaluate(() => document.getElementById('checkout-search').marker), 'picker');
+});
 
 test('a New branch detail reviews a rewritten tracking ref before switching, then opens the checkout for pull', async t => {
   const { source, local, repo, checkoutGit, commit, original } = checkoutFixture(t);
