@@ -5,6 +5,7 @@ import {
   renderHistoryButton as renderHistoryButtonHtml,
   renderHistoryProgress as renderHistoryProgressHtml,
 } from '../src/ui/history-import.js';
+import { parse, one, all, text } from './fixtures/dom.js';
 
 const renderMergeEvidence = (...args) => String(renderMergeEvidenceHtml(...args));
 const mergeEvidenceBadge = (...args) => String(mergeEvidenceBadgeHtml(...args));
@@ -19,38 +20,43 @@ test('saved graph evidence stays readable in the detail without a row badge, and
     prs: [],
     limitations: ['Source branch unknown'],
   };
-  const html = renderMergeEvidence({ mergeEvidence: evidence });
-  assert.match(html, /<h2>Push evidence<\/h2>/);
-  assert.match(html, /Merge commit found/);
-  assert.match(html, /2 parents/);
-  assert.match(html, /does not prove a push was made outside a PR/);
-  assert.doesNotMatch(html, /Merged by|Direct merge/);
+  const doc = parse(renderMergeEvidence({ mergeEvidence: evidence }));
+  assert.equal(text(one(doc, 'h2')), 'Push evidence');
+  assert.equal(text(one(doc, '.status-chip.info')), 'Merge commit found');
+  assert.match(text(doc), /aaaaaaaa · 2 parents · main/);
+  assert.match(text(doc), /does not prove a push was made outside a PR/);
+  assert.doesNotMatch(text(doc), /Merged by|Direct merge/);
   assert.equal(mergeEvidenceBadge({ kind: 'push', data: { mergeEvidence: evidence } }), '', 'the Merge commit badge is retired');
   assert.equal(mergeEvidenceBadge({ kind: 'pr', data: { mergeEvidence: evidence } }), '');
   const linked = renderMergeEvidence({
     mergeEvidence: { ...evidence, prs: [{ pullRequestId: 1, targetRefName: 'refs/heads/main', closedBy: { displayName: '<unsafe>' } }] },
   });
-  assert.match(linked, /Related PR evidence/);
-  assert.match(mergeEvidenceBadge({ kind: 'push', data: { mergeEvidence: { prs: [{ pullRequestId: 1 }] } } }), /Related PR evidence/);
+  assert.equal(text(one(parse(linked), '.status-chip')), 'Related PR evidence');
+  assert.equal(
+    text(one(parse(mergeEvidenceBadge({ kind: 'push', data: { mergeEvidence: { prs: [{ pullRequestId: 1 }] } } })), '.status-chip.ok')),
+    'Related PR evidence',
+  );
+  // The closer's name is text, not markup.
+  assert.match(text(parse(linked)), /PR closed by <unsafe>/);
   assert.match(linked, /PR closed by &lt;unsafe&gt;/);
-  assert.match(renderMergeEvidence({ mergeEvidence: { status: 'not-applicable', commits: [], prs: [] } }), /Branch lifecycle only/);
+  const lifecycle = parse(renderMergeEvidence({ mergeEvidence: { status: 'not-applicable', commits: [], prs: [] } }));
+  assert.equal(text(one(lifecycle, '.status-chip')), 'Branch lifecycle only');
 });
 
 test('the rewrite check result shows on the row and in the detail without a merge verdict', () => {
   const rewritten = { mergeEvidence: { rewrite: [{ ref: 'refs/heads/main', status: 'rewrite', dropped: 2, more: true }] } };
-  assert.equal(
-    mergeEvidenceBadge({ kind: 'push', data: rewritten }),
-    '<span class="chip status-chip warn">History rewritten · 2+ commits dropped</span>',
-  );
-  const html = renderMergeEvidence(rewritten);
-  assert.match(html, /main · history rewritten, 2\+ commits dropped from the old tip/);
-  assert.doesNotMatch(html, /Evidence incomplete|No completed PR association/);
+  const badge = parse(mergeEvidenceBadge({ kind: 'push', data: rewritten }));
+  assert.equal(all(badge, '.status-chip').length, 1);
+  assert.equal(text(one(badge, '.status-chip.warn')), 'History rewritten · 2+ commits dropped');
+  const detail = parse(renderMergeEvidence(rewritten));
+  assert.equal(text(one(detail, 'li')), 'main · history rewritten, 2+ commits dropped from the old tip');
+  assert.doesNotMatch(text(detail), /Evidence incomplete|No completed PR association/);
   const fastForward = { mergeEvidence: { rewrite: [{ ref: 'refs/heads/main', status: 'fast-forward' }] } };
   assert.equal(mergeEvidenceBadge({ kind: 'push', data: fastForward }), '');
-  assert.match(renderMergeEvidence(fastForward), /main · fast-forward, no history dropped/);
+  assert.equal(text(one(parse(renderMergeEvidence(fastForward)), 'li')), 'main · fast-forward, no history dropped');
   const unknown = { mergeEvidence: { rewrite: [{ ref: 'refs/heads/main', status: 'unknown' }] } };
   assert.equal(mergeEvidenceBadge({ kind: 'push', data: unknown }), '');
-  assert.match(renderMergeEvidence(unknown), /main · old tip could not be read; rewrite not established/);
+  assert.equal(text(one(parse(renderMergeEvidence(unknown)), 'li')), 'main · old tip could not be read; rewrite not established');
 });
 
 test('a push without merge evidence shows nothing about analysis', () => {
@@ -61,9 +67,11 @@ test('a push without merge evidence shows nothing about analysis', () => {
 test('the repository import row shows retry and pause without exposing a second start', () => {
   const repo = { id: 'r', name: 'Repo' };
   const job = { status: 'retrying', pages: 2, error: { message: '<Read denied>' } };
-  const markup = renderHistoryProgress(repo, job);
-  assert.match(markup, /History sync retrying/);
-  assert.match(markup, /&lt;Read denied&gt;/);
-  assert.match(renderHistoryButton(repo, job), /disabled>Sync older activity/);
-  assert.doesNotMatch(renderHistoryButton(repo, { status: 'completed' }), /disabled/);
+  const progress = parse(renderHistoryProgress(repo, job));
+  assert.match(text(progress), /History sync retrying/);
+  assert.match(text(progress), /<Read denied>/);
+  const busy = one(parse(renderHistoryButton(repo, job)), 'button[data-action="open-history-import"]');
+  assert.equal(text(busy), 'Sync older activity…');
+  assert.ok(busy.hasAttribute('disabled'), 'a running import offers no second start');
+  assert.ok(!one(parse(renderHistoryButton(repo, { status: 'completed' })), 'button').hasAttribute('disabled'));
 });
