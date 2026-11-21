@@ -149,8 +149,8 @@ export function createBrowserView({ page, header, demo, syncLive, picker, toolba
       focused?.id === 'feed-search' ||
       focused?.matches('[data-scope-repo]') ||
       (focused?.id && focused.matches('.settings-card *, .repo-entry *'));
-    // Ticked commits are not in the markup, so a render would clear them while a person is choosing what to carry.
-    const choosingCommits = Boolean(page.querySelector('.checkout-commits:focus-within input:checked'));
+    // Ticked commits are not in the markup, so a render would clear them before they are carried.
+    const choosingCommits = Boolean(page.querySelector('.checkout-commits input:checked'));
     const preserve = interacting || choosingCommits || (!refreshable && ['INPUT', 'SELECT', 'TEXTAREA'].includes(focused?.tagName ?? ''));
     return preserve ? null : 'full';
   }

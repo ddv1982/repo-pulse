@@ -576,20 +576,21 @@ test('opening a toolbar menu closes the scope panel, and the scope panel survive
   await expect(scope).toBeHidden();
 });
 
-test('ticked commits survive incoming activity while focus is among them', async t => {
+test('ticked commits survive incoming activity while focus is elsewhere on the page', async t => {
   const { page, runtime } = await setup(t);
   // The carry fieldset needs a rewritten Git checkout; a copy of its markup is enough to exercise the refresh guard.
   await page.evaluate(() => {
     const fieldset = Object.assign(document.createElement('fieldset'), { className: 'checkout-commits' });
     fieldset.innerHTML =
       '<input type="checkbox" name="checkout-commit" value="a" checked><button type="button">Carry selected commits</button>';
-    document.getElementById('page').append(fieldset);
-    fieldset.querySelector('button').focus();
+    const other = Object.assign(document.createElement('button'), { type: 'button', textContent: 'Remove old local branch…' });
+    document.getElementById('page').append(fieldset, other);
+    other.focus();
   });
   await postDemoEvent(runtime);
   await renderInBackground(page);
   await expect(page.locator('.checkout-commits input')).toBeChecked();
-  await expect(page.getByRole('button', { name: 'Carry selected commits' })).toBeFocused();
+  await expect(page.getByRole('button', { name: 'Remove old local branch…' })).toBeFocused();
 });
 
 test('a backward selection in the focused search box survives incoming activity', async t => {
