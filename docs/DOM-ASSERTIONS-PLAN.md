@@ -16,7 +16,7 @@ Scope: the three test files that render UI: `test/merge-ui.test.js`, `test/sync-
 For each file: record which code each test protects, apply scripted mutations to that code, and show the old and new tests both fail on each mutation; keep or raise the assertion count per test.
 
 - [x] `test/merge-ui.test.js` migrated, mutations shown failing before and after.
-- [ ] `test/sync-status-ui.test.js` migrated, mutations shown failing before and after.
+- [x] `test/sync-status-ui.test.js` migrated, mutations shown failing before and after.
 - [ ] `test/presentation.test.js` migrated, mutations shown failing before and after.
 - [ ] Lint guard enabled for all three files.
 

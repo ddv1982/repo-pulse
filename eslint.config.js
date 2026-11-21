@@ -19,7 +19,7 @@ export default [
   // UI tests read rendered markup through test/fixtures/dom.js, so a markup change only breaks a test when what a person
   // sees changes. A regular expression over the HTML would pin its exact shape again. See docs/MAINTAINING.md.
   {
-    files: ['test/merge-ui.test.js'],
+    files: ['test/merge-ui.test.js', 'test/sync-status-ui.test.js'],
     rules: {
       'no-restricted-syntax': [
         'error',
