@@ -491,6 +491,14 @@ test('a focused CI row keeps focus when a status update changes which event repr
   await renderInBackground(page);
   await expect(page.locator('li[data-event-id="ci-running"]')).toHaveCount(1);
   assert.equal(await page.evaluate(() => document.activeElement?.closest('li')?.dataset.groupKey), group);
+  await page.locator('li[data-event-id="ci-running"] .seen-toggle').focus();
+  runtime.store.insertEvents([build('ci-done', 'completed', -1)]);
+  await renderInBackground(page);
+  await expect(page.locator('li[data-event-id="ci-done"]')).toHaveCount(1);
+  assert.deepEqual(
+    await page.evaluate(() => [document.activeElement?.closest('li')?.dataset.groupKey, document.activeElement?.matches('.seen-toggle')]),
+    [group, true],
+  );
 });
 
 test('a focused Activity type option keeps its type when a new type appears ahead of it', async t => {
