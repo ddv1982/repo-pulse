@@ -1646,6 +1646,26 @@ test('on desktop every row lines up its ref line with its meta line, and its sum
         targetRefName: 'refs/heads/main',
       },
     },
+    {
+      id: 'long-branch-ci',
+      repoId: 'demo-orders',
+      kind: 'build',
+      title: 'orders-api PR validation · 20261120.87',
+      branch: 'refs/pull/21432/merge',
+      actor: 'Ana',
+      time: new Date().toISOString(),
+      data: {
+        buildId: 9001,
+        reason: 'pullRequest',
+        status: 'completed',
+        result: 'succeeded',
+        pullRequest: {
+          id: 21432,
+          sourceRefName: 'refs/heads/feature/DAT-11441-tag-gap-scope-and-product-and-more-words',
+          targetRefName: 'refs/heads/main',
+        },
+      },
+    },
   ]);
   await page.reload();
   await page.getByRole('link', { name: 'All activity', exact: true }).click();
@@ -1689,7 +1709,8 @@ test('on desktop every row lines up its ref line with its meta line, and its sum
   const checked = rows.filter(row => row.refs.length);
   assert.ok(checked.length >= 10, `enough rows to measure: ${checked.length}`);
   const off = checked.filter(
-    row => (row.summary !== undefined && Math.abs(row.title - row.summary) > 1) || row.refs.some(y => Math.abs(y - row.meta) > 1),
+    // A ref line that wraps keeps its first line level with the meta line.
+    row => (row.summary !== undefined && Math.abs(row.title - row.summary) > 1) || Math.abs(Math.min(...row.refs) - row.meta) > 1,
   );
   assert.deepEqual(
     off.map(
@@ -1698,6 +1719,19 @@ test('on desktop every row lines up its ref line with its meta line, and its sum
     ),
     [],
   );
+  // At the narrowest desktop width a long branch is cut short and its PR chip stays inside the title column.
+  await page.setViewportSize({ width: 1024, height: 900 });
+  const ciRow = page.locator('[data-event-id="long-branch-ci"]');
+  await expect
+    .poll(
+      async () => {
+        const [subject, chip] = await Promise.all([ciRow.locator('.subject').boundingBox(), ciRow.locator('.ref-pr').boundingBox()]);
+        return subject && chip ? chip.x + chip.width - (subject.x + subject.width) : Infinity;
+      },
+      { message: 'PR chip right edge past the title column' },
+    )
+    .toBeLessThanOrEqual(0);
+  expect(await ciRow.locator('.ref-branch').evaluate(branch => branch.scrollWidth > branch.clientWidth)).toBe(true);
   // On a phone the type label shares its line with the taller Seen control, so it centres on it.
   await page.setViewportSize({ width: 390, height: 900 });
   const centre = box => box.y + box.height / 2;
