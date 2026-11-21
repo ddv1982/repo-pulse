@@ -38,6 +38,12 @@ export function createToolbarMenu({ toggleId, panelId, itemSelector, state, onSe
   function open() {
     const current = menu();
     if (!current || current.toggle.getAttribute('aria-disabled') === 'true') return;
+    // One menu is open at a time; another panel, such as the repository scope, closes as this one opens.
+    const previous = state.openMenu && state.openMenu !== panelId ? document.getElementById(state.openMenu) : null;
+    if (previous) {
+      previous.hidden = true;
+      document.querySelector(`[aria-controls="${previous.id}"]`)?.setAttribute('aria-expanded', 'false');
+    }
     state.openMenu = panelId;
     current.panel.hidden = false;
     current.toggle.setAttribute('aria-expanded', 'true');

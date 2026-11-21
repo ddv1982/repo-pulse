@@ -46,7 +46,7 @@ export function renderSavedFilters(filters, selectedId, modified, openMenu = '')
       <span class="sr" id="saved-filter-help">Choosing a saved filter also restores its Activity tab and repository scope.</span>
       <div class="menu-panel type-panel saved-filter-panel" id="saved-filter-panel" role="listbox" aria-label="Saved filters" ${panel('saved-filter-panel')}>
         ${filters.map(
-          filter => html`<button class="type-option" type="button" role="option" aria-selected="${filter.id === selected?.id}"
+          filter => html`<button class="type-option" type="button" role="option" id="saved-filter-option-${filter.id}" aria-selected="${filter.id === selected?.id}"
           data-preset="${filter.id}" tabindex="-1"><span class="type-check" aria-hidden="true">${filter.id === selected?.id ? '✓' : ''}</span><span>${filter.name}<small class="help">${filter.filters.view === 'all' ? 'All activity' : 'New updates'}</small></span></button>`,
         )}
       </div>

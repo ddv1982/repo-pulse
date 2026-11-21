@@ -12,8 +12,10 @@ export function replacementFocus(id) {
   const current = document.getElementById(id);
   if (current instanceof HTMLButtonElement && current.disabled && current.matches('[data-action="open-history-import"]'))
     return document.getElementById(`history-${current.dataset.id}`);
-  if (current) return current;
+  // A control the render hid, such as an option of a menu that closed, cannot take focus back.
+  if (current?.checkVisibility()) return current;
   if (id === 'clear-filters') return document.getElementById('feed-search');
+  if (id.startsWith('saved-filter-option-')) return document.getElementById('saved-filter-toggle');
   if (['saved-filter-toggle', 'saved-filter-actions-toggle', 'update-filter', 'save-filter'].includes(id))
     return document.getElementById('saved-filter-toggle') ?? document.getElementById('save-filter');
   return null;

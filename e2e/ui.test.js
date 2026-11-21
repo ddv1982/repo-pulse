@@ -442,6 +442,52 @@ test('a focused saved-filter option keeps focus while incoming activity renders'
   await expect(second).toBeFocused();
 });
 
+test('a focused saved-filter option stays on its preset when another preset is deleted, and falls back to the toggle', async t => {
+  const { page, runtime } = await setup(t);
+  const filters = search => ({ search, people: '', kind: '', repoIds: null, view: 'new' });
+  const preset = (id, name) => ({ id, name, filters: filters(id) });
+  runtime.store.setSetting('savedActivityFilters', [
+    preset('first', 'First preset'),
+    preset('second', 'Second preset'),
+    preset('third', 'Third preset'),
+  ]);
+  await page.reload();
+  const toggle = page.locator('#saved-filter-toggle');
+  await toggle.press('ArrowDown');
+  const second = page.getByRole('option', { name: /Second preset/ });
+  await second.focus();
+  runtime.store.setSetting('savedActivityFilters', [preset('second', 'Second preset'), preset('third', 'Third preset')]);
+  await renderInBackground(page);
+  await expect(page.getByRole('option', { name: /First preset/ })).toHaveCount(0);
+  await expect(second).toBeFocused();
+  runtime.store.setSetting('savedActivityFilters', [preset('third', 'Third preset')]);
+  await renderInBackground(page);
+  await expect(second).toHaveCount(0);
+  await expect(toggle).toBeFocused();
+});
+
+test('a focused CI row keeps focus when a status update changes which event represents it', async t => {
+  const { page, runtime } = await setup(t);
+  const build = (id, status, minutesAgo) => ({
+    id,
+    repoId: 'demo-orders',
+    kind: 'build',
+    title: 'Orders CI',
+    branch: 'main',
+    time: new Date(Date.now() - minutesAgo * 60000).toISOString(),
+    data: { buildId: 9100, status },
+  });
+  runtime.store.insertEvents([build('ci-queued', 'notStarted', 1)]);
+  await renderInBackground(page);
+  const row = page.locator('li[data-event-id="ci-queued"]');
+  const group = await row.getAttribute('data-group-key');
+  await row.locator('.feed-title').focus();
+  runtime.store.insertEvents([build('ci-running', 'inProgress', 0)]);
+  await renderInBackground(page);
+  await expect(page.locator('li[data-event-id="ci-running"]')).toHaveCount(1);
+  assert.equal(await page.evaluate(() => document.activeElement?.closest('li')?.dataset.groupKey), group);
+});
+
 test('a focused Activity type option keeps its type when a new type appears ahead of it', async t => {
   const { page, runtime } = await setup(t);
   await page.getByRole('button', { name: /^Activity type:/ }).press('ArrowDown');
@@ -512,6 +558,10 @@ test('opening a toolbar menu closes the scope panel, and the scope panel survive
   await expect(scope).toBeVisible();
   await page.getByRole('button', { name: /^Activity type:/ }).click();
   await expect(page.getByRole('listbox', { name: 'Activity type' })).toBeVisible();
+  await expect(scope).toBeHidden();
+  await page.keyboard.press('Escape');
+  await page.locator('#repo-toggle').click();
+  await page.getByRole('button', { name: /^Activity type:/ }).press('ArrowDown');
   await expect(scope).toBeHidden();
   await page.keyboard.press('Escape');
   await page.locator('#repo-toggle').click();
