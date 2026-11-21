@@ -58,7 +58,6 @@ export function createRepositoryPicker({ request, getRepos, onAdded }) {
     active = 0;
   let loading = false,
     adding = false,
-    restoringFocus = false,
     error = '',
     message = '',
     generation = 0;
@@ -204,9 +203,6 @@ export function createRepositoryPicker({ request, getRepos, onAdded }) {
   }
   function render() {
     if (!host?.isConnected) return;
-    const current = document.activeElement;
-    const focused = current instanceof HTMLInputElement && host.contains(current) && current.id === 'checkout-search';
-    const selection = focused ? { start: current.selectionStart, end: current.selectionEnd } : null;
     const list = options();
     active = Math.max(0, Math.min(active, list.length - 1));
     const label = mode === 'folders' ? 'Find a folder' : 'Search local repositories';
@@ -219,13 +215,6 @@ export function createRepositoryPicker({ request, getRepos, onAdded }) {
       ${footerMarkup()}
       <p class="help" role="status" aria-live="polite">${message || (!loading && open ? `${list.length} matches. ${selected.size} selected.` : '')}</p>`,
     );
-    if (selection) {
-      const input = required('#checkout-search', HTMLInputElement, host);
-      restoringFocus = true;
-      input.focus({ preventScroll: true });
-      input.setSelectionRange(selection.start, selection.end);
-      restoringFocus = false;
-    }
   }
   /** @param {number} index */
   async function choose(index) {
@@ -351,7 +340,7 @@ export function createRepositoryPicker({ request, getRepos, onAdded }) {
         if (event.target instanceof Element && event.target.closest('[data-picker-option]')) event.preventDefault();
       };
       host.addEventListener('focusin', event => {
-        if (!restoringFocus && event.target instanceof Element && event.target.id === 'checkout-search' && !open) {
+        if (event.target instanceof Element && event.target.id === 'checkout-search' && !open) {
           open = true;
           render();
           if (!data && !loading) void readFolder(remembered);
