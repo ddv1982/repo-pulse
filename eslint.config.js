@@ -1,7 +1,7 @@
 import globals from 'globals';
 
 export default [
-  { ignores: ['.repo-pulse/**', 'test-results/**', 'playwright-report/**', 'playwright/.cache/**', 'coverage/**'] },
+  { ignores: ['web/vendor/**', '.repo-pulse/**', 'test-results/**', 'playwright-report/**', 'playwright/.cache/**', 'coverage/**'] },
   {
     files: ['**/*.{js,cjs}'],
     languageOptions: { globals: globals.nodeBuiltin },

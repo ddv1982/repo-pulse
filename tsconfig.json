@@ -8,5 +8,6 @@
     "target": "ES2024",
     "types": ["node"]
   },
-  "include": ["server.js", "server/**/*.js", "src/**/*.js", "web/**/*.js"]
+  "include": ["server.js", "server/**/*.js", "src/**/*.js", "web/**/*.js"],
+  "exclude": ["web/vendor/**"]
 }

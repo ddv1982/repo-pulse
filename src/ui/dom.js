@@ -1,3 +1,4 @@
+import { Idiomorph } from '../../web/vendor/idiomorph.esm.js';
 import { SafeHtml } from './format.js';
 
 /**
@@ -18,9 +19,18 @@ export function required(selector, Type = /** @type {new () => T} */ (/** @type 
 
 /**
  * Writes trusted SafeHtml to an element. This is the single innerHTML sink in browser code.
+ * The markup is parsed into an inert template and merged into the live children (idiomorph), so nodes that still match
+ * keep their identity, focus, caret, text selection and listeners instead of being replaced on every render.
  * @param {Element} element
  * @param {SafeHtml} markup
  */
 export function setHtml(element, markup) {
-  element.innerHTML = SafeHtml.unwrap(markup);
+  const template = element.ownerDocument.createElement('template');
+  template.innerHTML = SafeHtml.unwrap(markup);
+  Idiomorph.morph(element, template.content, {
+    morphStyle: 'innerHTML',
+    // What a person is typing wins over the value the render started from. Only the focused field's value is kept;
+    // ignoreActiveValue would also leave that field's children and other attributes stale.
+    callbacks: { beforeAttributeUpdated: (name, node) => !(name === 'value' && node === node.ownerDocument.activeElement) },
+  });
 }

@@ -330,6 +330,81 @@ test('focused search keeps its value and selection while incoming matching activ
   assert.deepEqual(await search.evaluate(input => [input.selectionStart, input.selectionEnd]), [2, 5]);
 });
 
+async function postDemoEvent(runtime) {
+  const response = await fetch(runtime.url + '/api/demo/event', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: '{}',
+  });
+  return response.json();
+}
+
+for (const [name, selector] of [
+  ['title', '.feed-title'],
+  ['Seen toggle', '.seen-toggle'],
+]) {
+  test(`incoming activity renders while a row's ${name} has keyboard focus, and focus stays on it`, { todo: 'phase 2' }, async t => {
+    const { page, runtime } = await setup(t);
+    const row = page.locator('li[data-event-id]').nth(1);
+    const id = await row.getAttribute('data-event-id');
+    await row.locator(selector).focus();
+    const incoming = await postDemoEvent(runtime);
+    await expect(page.locator(`[data-event-id="${incoming.id}"]`)).toBeVisible({ timeout: 12000 });
+    await expect(page.locator(`li[data-event-id="${id}"] ${selector}`)).toBeFocused();
+  });
+}
+
+test('incoming activity updates the feed in place: the search box and an existing row stay the same nodes', async t => {
+  const { page, runtime } = await setup(t);
+  const id = await page.locator('li[data-event-id]').first().getAttribute('data-event-id');
+  await page.evaluate(id => {
+    Object.assign(document.getElementById('feed-search'), { marker: 'search' });
+    Object.assign(document.querySelector(`li[data-event-id="${id}"]`), { marker: 'row' });
+  }, id);
+  const incoming = await postDemoEvent(runtime);
+  await expect(page.locator(`[data-event-id="${incoming.id}"]`)).toBeVisible({ timeout: 12000 });
+  assert.deepEqual(
+    await page.evaluate(
+      id => [document.getElementById('feed-search').marker, document.querySelector(`li[data-event-id="${id}"]`).marker],
+      id,
+    ),
+    ['search', 'row'],
+  );
+});
+
+test('a backward selection in the focused search box survives incoming activity', { todo: 'phase 2' }, async t => {
+  const { page, runtime } = await setup(t);
+  const search = page.getByRole('searchbox', { name: 'Search activity' });
+  await search.fill('hotfix/');
+  await search.evaluate(input => input.setSelectionRange(2, 5, 'backward'));
+  const incoming = await postDemoEvent(runtime);
+  await expect(page.locator(`[data-event-id="${incoming.id}"]`)).toBeVisible({ timeout: 12000 });
+  await expect(search).toBeFocused();
+  await expect(search).toHaveValue('hotfix/');
+  assert.deepEqual(await search.evaluate(input => [input.selectionStart, input.selectionEnd, input.selectionDirection]), [
+    2,
+    5,
+    'backward',
+  ]);
+});
+
+test('text selected inside a row stays selected while incoming activity renders', async t => {
+  const { page, runtime } = await setup(t);
+  const title = page.locator('li[data-event-id] .feed-title .title').first();
+  const selected = await title.evaluate(element => {
+    const range = document.createRange();
+    range.selectNodeContents(element);
+    const selection = getSelection();
+    selection.removeAllRanges();
+    selection.addRange(range);
+    return selection.toString();
+  });
+  assert.ok(selected.length > 0);
+  const incoming = await postDemoEvent(runtime);
+  await expect(page.locator(`[data-event-id="${incoming.id}"]`)).toBeVisible({ timeout: 12000 });
+  assert.equal(await page.evaluate(() => getSelection().toString()), selected);
+});
+
 async function setupPicker(t, { existing = true } = {}) {
   const store = createStore();
   const organization = 'https://dev.azure.com/example',
@@ -1352,10 +1427,11 @@ test('one persistent live region outside the header announces only changed sync 
   await expect(live).toHaveAttribute('role', 'status');
   await expect(live).toHaveAttribute('aria-live', 'polite');
   await expect(page.locator('#header #sync-live')).toHaveCount(0);
+  // A header render rewrites the pill from markup, which drops an attribute the markup never has.
   const refreshed = async () => {
-    await page.evaluate(() => (window.oldPill = document.querySelector('#header .sync-pill')));
+    await page.evaluate(() => document.querySelector('#header .sync-pill').setAttribute('data-before-refresh', ''));
     await page.locator('#header-refresh-desktop').click();
-    await expect.poll(() => page.evaluate(() => !document.contains(window.oldPill))).toBe(true);
+    await expect(page.locator('#header [data-before-refresh]')).toHaveCount(0);
   };
   await page.evaluate(() => (window.syncText = document.getElementById('sync-live').firstChild));
   await refreshed();
