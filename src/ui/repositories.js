@@ -21,7 +21,7 @@ export function renderRepositories(state, ui, checkouts = {}) {
     <details class="repo-add" data-group="add-repositories" ${state.watched.length ? emptyHtml : html`open`}>
       <summary class="btn sm" id="add-repositories" aria-label="Add repositories">Add repositories</summary>
       <div class="card repo-add-body">
-        <div id="repository-picker" class="card-pad"></div>
+        <div id="repository-picker" class="card-pad" data-owned></div>
         <div id="connection-status" class="card-pad">${connectionResult(ui.connection?.results.get(''))}</div>
       </div>
     </details>

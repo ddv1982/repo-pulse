@@ -12,6 +12,7 @@ import { join } from 'node:path';
 import { groupActivity } from '../src/activity.js';
 import { SafeHtml, html as safeHtml, joinHtml } from '../src/ui/format.js';
 import { setHtml } from '../src/ui/dom.js';
+import { parse } from './fixtures/dom.js';
 import { renderFeed, renderDetail } from '../src/ui/feed.js';
 import { renderRepositories } from '../src/ui/repositories.js';
 import { renderSettings } from '../src/ui/settings.js';
@@ -638,7 +639,7 @@ test('every probed field is expected by a view, so the escaping test covers it',
   );
 });
 
-test('html auto-escapes plain values, composes SafeHtml, and setHtml refuses plain strings', () => {
+test('html auto-escapes plain values, composes SafeHtml, and setHtml refuses plain strings', t => {
   const untrusted = '<img src=x onerror=alert(1)>';
   const nested = safeHtml`<b>${untrusted}</b>`;
   const rendered = safeHtml`<div data-flag="${false}" data-on="${true}">${[nested, null, undefined, ' & "quotes"']}</div>`;
@@ -654,12 +655,25 @@ test('html auto-escapes plain values, composes SafeHtml, and setHtml refuses pla
   const hijackedArray = Object.assign(['<b>raw</b>'], { map: () => ({ join: () => '<b>hijacked</b>' }) });
   assert.equal(String(safeHtml`<div>${hijackedArray}</div>`), '<div>&lt;b&gt;raw&lt;/b&gt;</div>');
   assert.equal(String(joinHtml(hijackedArray, safeHtml`<br>`)), '&lt;b&gt;raw&lt;/b&gt;');
-  const fakeElement = /** @type {any} */ ({ innerHTML: '' });
-  setHtml(fakeElement, rendered);
-  assert.equal(fakeElement.innerHTML, String(rendered));
-  assert.throws(() => setHtml(fakeElement, /** @type {any} */ ('<b>plain</b>')), TypeError);
-  assert.throws(() => setHtml(fakeElement, /** @type {any} */ ({ toString: () => '<b>spoof</b>' })), TypeError);
-  assert.throws(() => setHtml(fakeElement, /** @type {any} */ (lookalike)), TypeError);
+  const document = parse('<main><div data-flag="true">old</div></main>');
+  // idiomorph reads the browser globals document, Node, Element and Document, which Node.js lacks.
+  const { Node, Element, Document } = /** @type {any} */ (document.defaultView);
+  Object.assign(globalThis, { document, Node, Element, Document });
+  t.after(() => {
+    for (const name of ['document', 'Node', 'Element', 'Document']) delete (/** @type {any} */ (globalThis)[name]);
+  });
+  const element = document.querySelector('main');
+  const kept = element.firstElementChild;
+  setHtml(element, rendered);
+  assert.equal(element.firstElementChild, kept, 'setHtml updates the matching element in place');
+  // The attributes are updated in place, so compare what the markup means rather than its serialized order.
+  assert.deepEqual({ ...kept.dataset }, { flag: 'false', on: 'true' });
+  assert.equal(kept.textContent, '<img src=x onerror=alert(1)> & "quotes"');
+  assert.equal(element.querySelector('img'), null);
+  assert.throws(() => setHtml(element, /** @type {any} */ ('<b>plain</b>')), TypeError);
+  assert.throws(() => setHtml(element, /** @type {any} */ ({ toString: () => '<b>spoof</b>' })), TypeError);
+  assert.throws(() => setHtml(element, /** @type {any} */ (lookalike)), TypeError);
+  assert.equal(kept.textContent, '<img src=x onerror=alert(1)> & "quotes"', 'a refused value leaves the element unchanged');
 });
 
 test('setHtml in src/ui/dom.js is the only innerHTML sink across browser source files', () => {

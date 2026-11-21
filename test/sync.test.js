@@ -644,7 +644,7 @@ test('a failing scheduled tick is contained and polling continues', async () => 
   for (const state of store.getStreams()) store.saveStream({ ...state, nextAt: '2099-01-01T00:00:00Z' });
   sync.start();
   // Windows timers fire in coarser steps, so wait for the turns rather than a fixed time.
-  for (const deadline = Date.now() + 5000; turns < 2 && Date.now() < deadline; ) await new Promise(resolve => setTimeout(resolve, 10));
+  for (const deadline = Date.now() + 5000; turns < 2 && Date.now() < deadline;) await new Promise(resolve => setTimeout(resolve, 10));
   await sync.stop();
   process.off('unhandledRejection', onUnhandled);
   assert.deepEqual(unhandled, []);

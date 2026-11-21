@@ -126,9 +126,9 @@ export function matchesPushResult(data, pr) {
   const result = pr.mergeCommit?.toLowerCase();
   return Boolean(
     result &&
-      pr.targetRefName &&
-      pr.relationship === 'result-introduced' &&
-      data?.refUpdates?.some(ref => ref.name === pr.targetRefName && ref.newObjectId?.toLowerCase() === result),
+    pr.targetRefName &&
+    pr.relationship === 'result-introduced' &&
+    data?.refUpdates?.some(ref => ref.name === pr.targetRefName && ref.newObjectId?.toLowerCase() === result),
   );
 }
 

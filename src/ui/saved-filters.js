@@ -30,8 +30,10 @@ export function isSavedFilterModified(saved, current, watched) {
   return JSON.stringify(normalized(saved)) !== JSON.stringify(normalized(current));
 }
 
-/** @param {SavedActivityFilter[]} filters @param {string} selectedId @param {boolean} modified */
-export function renderSavedFilters(filters, selectedId, modified) {
+/** @param {SavedActivityFilter[]} filters @param {string} selectedId @param {boolean} modified @param {string} [openMenu] */
+export function renderSavedFilters(filters, selectedId, modified, openMenu = '') {
+  /** @param {string} id */
+  const panel = id => (openMenu === id ? emptyHtml : html`hidden`);
   const selected = filters.find(filter => filter.id === selectedId);
   const title = selected?.name ?? 'Saved filters';
   const label = selected ? `Saved filter: ${title}${modified ? ', modified' : ''}` : title;
@@ -40,11 +42,11 @@ export function renderSavedFilters(filters, selectedId, modified) {
       filters.length
         ? html`<div class="menu saved-filter-menu">
       <button class="control saved-filter-toggle" id="saved-filter-toggle" type="button" aria-haspopup="listbox"
-        aria-expanded="false" aria-controls="saved-filter-panel" aria-describedby="saved-filter-help" aria-label="${label}" title="${title}"><span>${title}</span>${modified ? html`<small>Modified</small>` : emptyHtml} ▾</button>
+        aria-expanded="${openMenu === 'saved-filter-panel'}" aria-controls="saved-filter-panel" aria-describedby="saved-filter-help" aria-label="${label}" title="${title}"><span>${title}</span>${modified ? html`<small>Modified</small>` : emptyHtml} ▾</button>
       <span class="sr" id="saved-filter-help">Choosing a saved filter also restores its Activity tab and repository scope.</span>
-      <div class="menu-panel type-panel saved-filter-panel" id="saved-filter-panel" role="listbox" aria-label="Saved filters" hidden>
+      <div class="menu-panel type-panel saved-filter-panel" id="saved-filter-panel" role="listbox" aria-label="Saved filters" ${panel('saved-filter-panel')}>
         ${filters.map(
-          filter => html`<button class="type-option" type="button" role="option" aria-selected="${filter.id === selected?.id}"
+          filter => html`<button class="type-option" type="button" role="option" id="saved-filter-option-${filter.id}" aria-selected="${filter.id === selected?.id}"
           data-preset="${filter.id}" tabindex="-1"><span class="type-check" aria-hidden="true">${filter.id === selected?.id ? '✓' : ''}</span><span>${filter.name}<small class="help">${filter.filters.view === 'all' ? 'All activity' : 'New updates'}</small></span></button>`,
         )}
       </div>
@@ -57,8 +59,8 @@ export function renderSavedFilters(filters, selectedId, modified) {
         : html`${modified ? html`<button id="update-filter" class="btn saved-filter-update" type="button" data-action="update-filter" title="Update “${title}”">Update “${title}”</button>` : emptyHtml}
         <div class="menu saved-filter-actions">
           <button id="saved-filter-actions-toggle" class="btn" type="button" aria-label="More saved filter actions"
-            aria-haspopup="menu" aria-expanded="false" aria-controls="saved-filter-actions-panel">More ▾</button>
-          <div class="menu-panel type-panel saved-filter-actions-panel" id="saved-filter-actions-panel" role="menu" aria-label="Saved filter actions" hidden>
+            aria-haspopup="menu" aria-expanded="${openMenu === 'saved-filter-actions-panel'}" aria-controls="saved-filter-actions-panel">More ▾</button>
+          <div class="menu-panel type-panel saved-filter-actions-panel" id="saved-filter-actions-panel" role="menu" aria-label="Saved filter actions" ${panel('saved-filter-actions-panel')}>
             ${modified ? filterAction('restore-filter', 'Restore saved version') : emptyHtml}
             ${filterAction('save-filter', 'Save as new…')}
             ${filterAction('rename-filter', 'Rename…')}

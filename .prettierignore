@@ -5,3 +5,4 @@ playwright-report/
 package-lock.json
 *.md
 docs/
+web/vendor/

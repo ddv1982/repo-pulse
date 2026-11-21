@@ -12,8 +12,12 @@ export function replacementFocus(id) {
   const current = document.getElementById(id);
   if (current instanceof HTMLButtonElement && current.disabled && current.matches('[data-action="open-history-import"]'))
     return document.getElementById(`history-${current.dataset.id}`);
-  if (current) return current;
+  // A control the render hid, such as an option of a menu that closed, cannot take focus back.
+  if (current?.checkVisibility()) return current;
   if (id === 'clear-filters') return document.getElementById('feed-search');
+  if (id.startsWith('kind-option-')) return document.getElementById('kind-toggle');
+  if (id.startsWith('saved-filter-option-'))
+    return document.getElementById('saved-filter-toggle') ?? document.getElementById('save-filter');
   if (['saved-filter-toggle', 'saved-filter-actions-toggle', 'update-filter', 'save-filter'].includes(id))
     return document.getElementById('saved-filter-toggle') ?? document.getElementById('save-filter');
   return null;
@@ -52,7 +56,7 @@ function focusedControlId(element) {
 /** @typedef {import('./refresh.js').PageState} PageState */
 /** @typedef {import('./navigation.js').ResultsContext} ResultsContext */
 /** web.js owns this object: navigation state plus the connection panel state and the refresh flag the header reads. */
-/** @typedef {import('./navigation.js').NavigationState & { connection: import('./connection.js').ConnectionState, refreshing?: boolean }} BrowserUi */
+/** @typedef {import('./navigation.js').NavigationState & { connection: import('./connection.js').ConnectionState, refreshing?: boolean, openMenu?: string }} BrowserUi */
 /**
  * @typedef {{ restored: ResultsContext | null, returnRoute: string, matchingIds?: string[], commits: import('./activity-detail.js').LoadedView | undefined,
  *   checkouts: Record<string, import('./checkout.js').CheckoutSnapshot>, checkoutFocus?: string|null, isCurrent: () => boolean }} RenderOptions
@@ -66,11 +70,6 @@ function focusedControlId(element) {
  */
 export function createBrowserView({ page, header, demo, syncLive, picker, toolbarMenus }) {
   const groupElements = () => [...page.querySelectorAll('details[data-group]')].filter(element => element instanceof HTMLDetailsElement);
-  /** @param {string} selector */
-  const shown = selector => {
-    const element = document.querySelector(selector);
-    return element instanceof HTMLElement && !element.hidden;
-  };
 
   /** @returns {[string, boolean][]} */
   function captureGroups() {
@@ -84,9 +83,6 @@ export function createBrowserView({ page, header, demo, syncLive, picker, toolba
     const focused = document.activeElement;
     const focusId = focused && page.contains(focused) ? focusedControlId(focused) : '';
     const neighbours = focused instanceof HTMLElement && page.contains(focused) ? seenToggleNeighbours(focused) : [];
-    /** @type {[number | null, number | null] | null} */
-    const selection =
-      focused instanceof HTMLInputElement && focused.type === 'search' ? [focused.selectionStart, focused.selectionEnd] : null;
     if (ui.route === 'repositories') setHtml(page, renderRepositories(state, ui, checkouts));
     else if (ui.route === 'settings') setHtml(page, renderSettings(state, ui.connection));
     else if (ui.route === 'event' && state.detailLoading && !state.events.some(event => event.id === ui.eventId))
@@ -118,10 +114,9 @@ export function createBrowserView({ page, header, demo, syncLive, picker, toolba
         .find(element => element.dataset.group === name)
         ?.toggleAttribute('open', open);
     }
-    if (focusId) {
-      const replacement = restoreFocus(focusId, neighbours);
-      if (selection && replacement instanceof HTMLInputElement) replacement.setSelectionRange(...selection);
-    }
+    // A control that survived the render keeps focus; one that left, or that the render hid (a closed menu's option),
+    // needs a replacement.
+    if (focusId && (document.activeElement !== focused || !focused?.checkVisibility())) restoreFocus(focusId, neighbours);
     // web/theme.js defines repoPulseTheme on window before the modules load; the optional call covers its absence.
     /** @type {ThemedWindow} */ (window).repoPulseTheme?.apply();
     if (checkoutFocus) {
@@ -145,20 +140,19 @@ export function createBrowserView({ page, header, demo, syncLive, picker, toolba
     }
   }
 
-  /** @param {boolean} force @param {boolean} interacting @returns {'page' | 'full' | null} */
+  /** @param {boolean} force @param {boolean} interacting @returns {'full' | null} */
   function refreshTarget(force, interacting) {
-    if (shown('#repo-panel')) return force ? 'page' : null;
     if (force) return 'full';
+    // A focused form control holds a choice the markup may not carry yet, such as a ticked commit, unless its state lives
+    // in ui (search, repository scope) or the settings it renders from.
     const focused = document.activeElement;
     const refreshable =
       focused?.id === 'feed-search' ||
-      ['kind-toggle', 'saved-filter-toggle', 'saved-filter-actions-toggle'].includes(focused?.id ?? '') ||
-      (focused?.id && focused.matches('.settings-card *, .repo-entry *, .repo-add > summary'));
-    const preserve =
-      interacting ||
-      shown('#kind-panel') ||
-      (!refreshable &&
-        (['INPUT', 'SELECT', 'TEXTAREA'].includes(focused?.tagName ?? '') || (page.contains(focused) && focused !== document.body)));
+      focused?.matches('[data-scope-repo]') ||
+      (focused?.id && focused.matches('.settings-card *, .repo-entry *'));
+    // Ticked commits are not in the markup, so a render would clear them before they are carried.
+    const choosingCommits = Boolean(page.querySelector('.checkout-commits input:checked'));
+    const preserve = interacting || choosingCommits || (!refreshable && ['INPUT', 'SELECT', 'TEXTAREA'].includes(focused?.tagName ?? ''));
     return preserve ? null : 'full';
   }
 
@@ -168,8 +162,6 @@ export function createBrowserView({ page, header, demo, syncLive, picker, toolba
     renderPage,
     /** @param {PageState} state @param {BrowserUi} ui @param {RenderOptions} options */
     render(state, ui, options) {
-      const active = document.activeElement;
-      const focusedId = active && header.contains(active) ? active.id : '';
       const menu = header.querySelector('.header-overflow');
       const menuOpen = menu instanceof HTMLDetailsElement && menu.open;
       setHtml(header, renderHeader(state, ui));
@@ -177,7 +169,6 @@ export function createBrowserView({ page, header, demo, syncLive, picker, toolba
       // Writing the same text again would replace the text node and could repeat the announcement.
       if (syncLive.textContent !== sentence) syncLive.textContent = sentence;
       if (menuOpen) required('.header-overflow', HTMLDetailsElement, header).open = true;
-      if (focusedId) document.getElementById(focusedId)?.focus({ preventScroll: true });
       // As in renderPage: theme.js runs first, and the optional call covers its absence.
       /** @type {ThemedWindow} */ (window).repoPulseTheme?.apply();
       renderPage(state, ui, options);
