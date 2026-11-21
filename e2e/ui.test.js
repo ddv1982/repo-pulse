@@ -464,6 +464,11 @@ test('a focused saved-filter option stays on its preset when another preset is d
   await renderInBackground(page);
   await expect(second).toHaveCount(0);
   await expect(toggle).toBeFocused();
+  await toggle.press('ArrowDown');
+  await page.getByRole('option', { name: /Third preset/ }).focus();
+  runtime.store.setSetting('savedActivityFilters', []);
+  await renderInBackground(page);
+  await expect(page.getByRole('button', { name: 'Save filter…' })).toBeFocused();
 });
 
 test('a focused CI row keeps focus when a status update changes which event represents it', async t => {
