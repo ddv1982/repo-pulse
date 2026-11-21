@@ -52,7 +52,7 @@ function focusedControlId(element) {
 /** @typedef {import('./refresh.js').PageState} PageState */
 /** @typedef {import('./navigation.js').ResultsContext} ResultsContext */
 /** web.js owns this object: navigation state plus the connection panel state and the refresh flag the header reads. */
-/** @typedef {import('./navigation.js').NavigationState & { connection: import('./connection.js').ConnectionState, refreshing?: boolean }} BrowserUi */
+/** @typedef {import('./navigation.js').NavigationState & { connection: import('./connection.js').ConnectionState, refreshing?: boolean, openMenu?: string }} BrowserUi */
 /**
  * @typedef {{ restored: ResultsContext | null, returnRoute: string, matchingIds?: string[], commits: import('./activity-detail.js').LoadedView | undefined,
  *   checkouts: Record<string, import('./checkout.js').CheckoutSnapshot>, checkoutFocus?: string|null, isCurrent: () => boolean }} RenderOptions
@@ -148,8 +148,7 @@ export function createBrowserView({ page, header, demo, syncLive, picker, toolba
       focused?.id === 'feed-search' ||
       ['kind-toggle', 'saved-filter-toggle', 'saved-filter-actions-toggle'].includes(focused?.id ?? '') ||
       (focused?.id && focused.matches('.settings-card *, .repo-entry *, .repo-add > summary'));
-    const preserve =
-      interacting || shown('#kind-panel') || (!refreshable && ['INPUT', 'SELECT', 'TEXTAREA'].includes(focused?.tagName ?? ''));
+    const preserve = interacting || (!refreshable && ['INPUT', 'SELECT', 'TEXTAREA'].includes(focused?.tagName ?? ''));
     return preserve ? null : 'full';
   }
 

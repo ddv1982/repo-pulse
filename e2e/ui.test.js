@@ -383,6 +383,23 @@ test('a header control keeps keyboard focus while incoming activity renders the 
   assert.equal(await refresh.evaluate(element => element.marker), 'header');
 });
 
+test('incoming activity renders while the Activity type menu is open, and the menu stays open with focus inside', async t => {
+  const { page, runtime } = await setup(t);
+  const toggle = page.getByRole('button', { name: /^Activity type:/ });
+  await toggle.press('ArrowDown');
+  const panel = page.getByRole('listbox', { name: 'Activity type' });
+  const all = panel.getByRole('option', { name: 'All types', exact: true });
+  await expect(all).toBeFocused();
+  const incoming = await postDemoEvent(runtime);
+  await expect(page.locator(`[data-event-id="${incoming.id}"]`)).toBeVisible({ timeout: 12000 });
+  await expect(panel).toBeVisible();
+  await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+  await expect(all).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(panel).toBeHidden();
+  await expect(toggle).toBeFocused();
+});
+
 test('a backward selection in the focused search box survives incoming activity', async t => {
   const { page, runtime } = await setup(t);
   const search = page.getByRole('searchbox', { name: 'Search activity' });

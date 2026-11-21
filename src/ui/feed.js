@@ -31,7 +31,8 @@ export { renderDetail } from './activity-detail.js';
 
 /** @typedef {import('./refresh.js').PageState} PageState */
 /** @typedef {import('../activity.js').ActivityItem} ActivityItem */
-/** @typedef {Pick<import('./navigation.js').NavigationState, 'route' | 'repoIds' | 'search' | 'kind' | 'filtersOpen'>} FeedView */
+/** `openMenu` is the panel ID of the open toolbar menu, if any. */
+/** @typedef {Pick<import('./navigation.js').NavigationState, 'route' | 'repoIds' | 'search' | 'kind' | 'filtersOpen'> & { openMenu?: string }} FeedView */
 
 /** @param {FeedView & {savedFilterId: string}} ui @param {PageState} state */
 export function filterControls(ui, state) {
@@ -47,7 +48,7 @@ export function filterControls(ui, state) {
     ${renderSavedFilters(presets, ui.savedFilterId, modified)}
     <div class="filters-box" id="activity-filters" ${open ? emptyHtml : html`hidden`}>
       <div class="toolbar"><input id="feed-search" class="search" type="search" aria-label="Search activity" aria-describedby="feed-search-help" placeholder="Search branch, commit, person or repository…" value="${ui.search}">
-        ${renderTypeFilter(ui.kind, state.activity.filterOptions, state.activity.loading)}
+        ${renderTypeFilter(ui.kind, state.activity.filterOptions, state.activity.loading, ui.openMenu === 'kind-panel')}
         ${active ? html`<button class="btn" id="clear-filters" type="button" data-action="clear-filters">Clear search and type</button>` : emptyHtml}
       </div><p class="help" id="feed-search-help">Commas match any term · <code>people:Ali, Jo</code> searches names only</p>
     </div>

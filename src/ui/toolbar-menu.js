@@ -3,9 +3,12 @@
 import { required } from './dom.js';
 
 /**
- * @param {{ toggleId: string, panelId: string, itemSelector: string, onSelect: (item: HTMLElement) => void, onClose?: () => void }} config
+ * The open menu is kept in `state.openMenu` (its panel ID), so a render draws it open and incoming activity can render
+ * while a person is choosing.
+ * @param {{ toggleId: string, panelId: string, itemSelector: string, state: { openMenu?: string }, onSelect: (item: HTMLElement) => void,
+ *   onClose?: () => void }} config
  */
-export function createToolbarMenu({ toggleId, panelId, itemSelector, onSelect, onClose }) {
+export function createToolbarMenu({ toggleId, panelId, itemSelector, state, onSelect, onClose }) {
   /** @type {HTMLElement | null | undefined} */
   let root;
   let pointerDown = false;
@@ -18,6 +21,7 @@ export function createToolbarMenu({ toggleId, panelId, itemSelector, onSelect, o
   const options = host => [...host.querySelectorAll(itemSelector)].filter(option => option instanceof HTMLElement);
   function close(restore = false) {
     const current = menu();
+    if (state.openMenu === panelId) state.openMenu = '';
     if (!current || current.panel.hidden) return;
     current.panel.hidden = true;
     current.toggle.setAttribute('aria-expanded', 'false');
@@ -36,6 +40,7 @@ export function createToolbarMenu({ toggleId, panelId, itemSelector, onSelect, o
   function open() {
     const current = menu();
     if (!current || current.toggle.getAttribute('aria-disabled') === 'true') return;
+    state.openMenu = panelId;
     current.panel.hidden = false;
     current.toggle.setAttribute('aria-expanded', 'true');
     const selected = current.root.querySelector('[aria-selected="true"]');
@@ -69,6 +74,8 @@ export function createToolbarMenu({ toggleId, panelId, itemSelector, onSelect, o
     /** @param {HTMLElement | null} element */
     mount(element) {
       root = element;
+      // A menu that left the page, such as on another route, is not open when it comes back.
+      if (!root && state.openMenu === panelId) state.openMenu = '';
       if (!root) return;
       root.onclick = event => {
         const target = event.target;

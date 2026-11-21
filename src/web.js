@@ -60,6 +60,7 @@ const ui = {
   savedFilterId: '',
   kind: '',
   filtersOpen: undefined,
+  openMenu: '',
   activityRoute: 'catchup',
   connection: connection.state,
 };
@@ -74,6 +75,7 @@ const picker = createRepositoryPicker({
   },
 });
 const typeFilter = createTypeFilter({
+  state: ui,
   onClose: flushSavedFilterRender,
   onChange: value => {
     // Every type option carries data-kind, so the fallback never applies.
@@ -85,6 +87,7 @@ const savedFilterPicker = createToolbarMenu({
   toggleId: 'saved-filter-toggle',
   panelId: 'saved-filter-panel',
   itemSelector: '[data-preset]',
+  state: ui,
   onClose: flushSavedFilterRender,
   onSelect: option => {
     const preset = refresh.state.savedFilters?.find(filter => filter.id === option.dataset.preset);
@@ -96,6 +99,7 @@ const savedFilterActions = createToolbarMenu({
   toggleId: 'saved-filter-actions-toggle',
   panelId: 'saved-filter-actions-panel',
   itemSelector: '[data-filter-action]',
+  state: ui,
   onClose: flushSavedFilterRender,
   onSelect: option => {
     void withAction(() => actions[option.dataset.filterAction ?? '']?.(option));
