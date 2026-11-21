@@ -37,6 +37,16 @@ Pull checks the checkout, upstream and fetched tip before running `git merge --f
 
 `npm run lint` fails when a function's cyclomatic complexity exceeds 30. When a change pushes a function over, split it into named steps or a small table of handlers, as `server/normalize.js` does, rather than raising the limit.
 
+## Test what the page shows
+
+UI unit tests render markup and read it through [test/fixtures/dom.js](../test/fixtures/dom.js), so a test breaks when what a person sees changes, not when the HTML is rearranged.
+
+- Check text on the element that should hold it: `text(one(row(doc, 'listed'), '.event-main'))`. `text` leaves out screen-reader-only `.sr` text; `srText` includes it.
+- Check that something is there, or not, with a selector: `one(doc, '[data-action="remove-repo"]')`, `all(row, '.event-origin').length`. `data-action` attributes are what the click handlers use, so they are fair to select on.
+- Match exact markup only where the markup is the point: escaping in `test/escaping.test.js`, and safety attributes such as `href` and `title`, read with `getAttribute`.
+
+`npm run lint` rejects regular expressions over HTML (such as `/class="row/` or `/<div/`) in these test files.
+
 ## Run checks
 
 ```sh
