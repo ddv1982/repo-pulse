@@ -1598,7 +1598,9 @@ test('All activity shows the branch tree beside the type label, and narrow scree
   await expect(rows.first()).toBeVisible();
   await expect(page.locator('.with-tree svg.tree')).toHaveCount(await rows.count());
   const hotfix = page.locator('[data-event-id="demo-branch-1"]');
-  await expect(hotfix).toContainText('Started at 3f9a2c1, the tip of main');
+  // A new branch has nothing else to say first, so where it started is its top line, above who and when.
+  await expect(hotfix.locator('.event-main')).toHaveText('Started at 3f9a2c1, the tip of main');
+  await expect(hotfix.locator('.event-origin')).toHaveCount(0);
   await expect(hotfix.locator('svg.tree path')).toHaveCount(1);
   await expect(hotfix.locator('svg.tree path.assumed')).toHaveCount(0);
   await expect(page.locator('[data-event-id="demo-branch-3"]')).toContainText('PR 1175 targets main, origin not checked');
@@ -1623,4 +1625,124 @@ test('All activity shows the branch tree beside the type label, and narrow scree
   await page.getByRole('link', { name: 'New updates', exact: true }).click();
   await expect(page.locator('[data-event-id="demo-branch-1"]')).toBeVisible();
   await expect(page.locator('svg.tree')).toHaveCount(0);
+});
+
+test('on desktop every row lines up its ref line with its meta line, and its summary with its title', async t => {
+  const { page, runtime } = await setup(t);
+  // A pull request title long enough to wrap at 1280px.
+  runtime.store.insertEvents([
+    {
+      id: 'long-title-pr',
+      repoId: 'demo-orders',
+      kind: 'pr',
+      title: 'PR 21431 · DAT-9861: the 12 animal seeds load into seed_standards, bridge views in animal and refined bull',
+      branch: 'refs/heads/feature/DAT-9861_animal_seeds_standards',
+      actor: 'Ana',
+      time: new Date().toISOString(),
+      data: {
+        pullRequestId: 21431,
+        status: 'active',
+        sourceRefName: 'refs/heads/feature/DAT-9861_animal_seeds_standards',
+        targetRefName: 'refs/heads/main',
+      },
+    },
+    {
+      id: 'long-branch-ci',
+      repoId: 'demo-orders',
+      kind: 'build',
+      title: 'orders-api PR validation · 20261120.87',
+      branch: 'refs/pull/21432/merge',
+      actor: 'Ana',
+      time: new Date().toISOString(),
+      data: {
+        buildId: 9001,
+        reason: 'pullRequest',
+        status: 'completed',
+        result: 'succeeded',
+        pullRequest: {
+          id: 21432,
+          sourceRefName: 'refs/heads/feature/DAT-11441-tag-gap-scope-and-product-and-more-words',
+          targetRefName: 'refs/heads/main',
+        },
+      },
+    },
+  ]);
+  await page.reload();
+  await page.getByRole('link', { name: 'All activity', exact: true }).click();
+  const longTitle = page.locator('[data-event-id="long-title-pr"] .feed-title .title');
+  await expect(longTitle).toBeVisible();
+  // The page re-renders as it polls, so box reads retry until a rendered row answers.
+  await expect.poll(async () => (await longTitle.boundingBox())?.height ?? 0, { message: 'the long title wraps' }).toBeGreaterThan(30);
+  await expect(page.locator('.with-tree .row').first()).toBeVisible();
+  const rows = await page.locator('.with-tree .row').evaluateAll(items =>
+    items
+      .filter(row => row.checkVisibility())
+      .map(row => {
+        // The baseline of an element's first visible text: a zero-size inline box placed before that text sits on it.
+        const baseline = selector => {
+          const element = row.querySelector(selector);
+          if (!element) return undefined;
+          const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT, {
+            acceptNode: node =>
+              node.textContent.trim() && !node.parentElement.closest('.sr') ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP,
+          });
+          const text = walker.nextNode();
+          const wrap = document.createElement('span');
+          const probe = document.createElement('span');
+          probe.style.cssText = 'display: inline-block; width: 0; height: 0';
+          text.replaceWith(wrap);
+          wrap.append(probe, text);
+          const y = probe.getBoundingClientRect().top;
+          wrap.replaceWith(text);
+          return y;
+        };
+        return {
+          id: row.dataset.eventId,
+          title: baseline('.feed-title .title'),
+          summary: baseline('.event-main'),
+          refs: ['.ref-repo', '.ref-name', '.ref-pr'].map(baseline).filter(y => y !== undefined),
+          meta: baseline('.event-meta'),
+        };
+      }),
+  );
+  // A wrapped title, a wrapped summary or a row without a summary still keeps both second lines level.
+  const checked = rows.filter(row => row.refs.length);
+  assert.ok(checked.length >= 10, `enough rows to measure: ${checked.length}`);
+  const off = checked.filter(
+    // A ref line that wraps keeps its first line level with the meta line.
+    row => (row.summary !== undefined && Math.abs(row.title - row.summary) > 1) || Math.abs(Math.min(...row.refs) - row.meta) > 1,
+  );
+  assert.deepEqual(
+    off.map(
+      row =>
+        `${row.id}: title-summary ${((row.summary ?? row.title) - row.title).toFixed(1)}, ref-meta ${row.refs.map(y => (y - row.meta).toFixed(1)).join(' ')}`,
+    ),
+    [],
+  );
+  // At the narrowest desktop width a long branch is cut short and its PR chip stays inside the title column.
+  await page.setViewportSize({ width: 1024, height: 900 });
+  const ciRow = page.locator('[data-event-id="long-branch-ci"]');
+  await expect
+    .poll(
+      async () => {
+        const [subject, chip] = await Promise.all([ciRow.locator('.subject').boundingBox(), ciRow.locator('.ref-pr').boundingBox()]);
+        return subject && chip ? chip.x + chip.width - (subject.x + subject.width) : Infinity;
+      },
+      { message: 'PR chip right edge past the title column' },
+    )
+    .toBeLessThanOrEqual(0);
+  expect(await ciRow.locator('.ref-branch').evaluate(branch => branch.scrollWidth > branch.clientWidth)).toBe(true);
+  // On a phone the type label shares its line with the taller Seen control, so it centres on it.
+  await page.setViewportSize({ width: 390, height: 900 });
+  const centre = box => box.y + box.height / 2;
+  const first = page.locator('.rows .row').first();
+  await expect
+    .poll(
+      async () => {
+        const [label, seen] = await Promise.all([first.locator('.kind').boundingBox(), first.locator('.seen-toggle').boundingBox()]);
+        return label && seen ? Math.abs(centre(label) - centre(seen)) : Infinity;
+      },
+      { message: 'label centres on Seen' },
+    )
+    .toBeLessThanOrEqual(1);
 });

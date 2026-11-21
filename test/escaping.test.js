@@ -365,7 +365,7 @@ const shortCommit = id => `<code title="${html(id)}">${html(id.slice(0, 8))}</co
 const eventIds = (ids, next) => `data-event-ids="${html(JSON.stringify(ids))}"${next}`;
 /** @param {string[]} ids */
 const idsField = ids => `eventIds ${ids.map(fieldOf).join(', ')}`;
-const summary = `New branch at ${html(String(newBranchPush.data?.refUpdates?.[0].newObjectId).slice(0, 7))}`;
+const summary = `Tip at ${html(String(newBranchPush.data?.refUpdates?.[0].newObjectId).slice(0, 7))}`;
 const evidence = push.data?.mergeEvidence ?? {};
 
 /** @type {Record<string, View>} */

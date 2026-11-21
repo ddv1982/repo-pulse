@@ -87,9 +87,14 @@ function renderEvent(record, origin) {
       : rowSummary(record);
   const badge = mergeEvidenceBadge(record);
   const origins = [pr ? prForkSource(pr.fork) : '', origin].filter(Boolean);
-  return html`<div class="event">${summary || badge !== emptyHtml ? html`<div class="event-main">${typeof summary === 'string' ? (summary ? html`<span>${summary}</span>` : emptyHtml) : summary}${badge}</div>` : emptyHtml}${renderMeta(record)}${origins.map(
-    text => html`<div class="help event-origin">${icons.branch}<span>${text}</span></div>`,
-  )}${renderTrail(record)}</div>`;
+  // A row with nothing else to say first, such as a new branch, leads with where it started.
+  const lead = summary || origins.length === 0 ? summary : origins.shift();
+  const trail = renderTrail(record);
+  return html`<div class="event">${lead || badge !== emptyHtml ? html`<div class="event-main">${typeof lead === 'string' ? (lead ? html`<span>${lead}</span>` : emptyHtml) : lead}${badge}</div>` : emptyHtml}${renderMeta(record)}${
+    origins.length || trail !== emptyHtml
+      ? html`<div class="event-notes">${origins.map(text => html`<div class="help event-origin">${icons.branch}<span>${text}</span></div>`)}${trail}</div>`
+      : emptyHtml
+  }</div>`;
 }
 
 /** A reviewer vote's tone; the words carry the meaning, the color repeats it. @param {number} vote */

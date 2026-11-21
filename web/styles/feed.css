@@ -314,7 +314,7 @@ ol.rows {
   font-size: 12px;
   font-weight: 500;
   white-space: nowrap;
-  min-height: 24px;
+  min-height: 20px;
 }
 .kind .d {
   width: 6px;
@@ -361,6 +361,7 @@ ol.rows {
   padding: 0;
   text-align: left;
   cursor: pointer;
+  display: block;
   width: 100%;
 }
 .feed-title:hover,
@@ -386,11 +387,11 @@ ol.rows {
   overflow-wrap: normal;
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
-  gap: 2px 10px;
+  align-items: baseline;
+  gap: 0 10px;
   margin-top: 2px;
   font-size: 12px;
-  line-height: 18px;
+  line-height: 20px;
   color: var(--muted-foreground);
 }
 .ref-repo,
@@ -406,33 +407,32 @@ ol.rows {
 }
 .ref-target {
   display: inline-flex;
-  align-items: center;
+  align-items: baseline;
   gap: 10px;
   min-width: 0;
   max-width: 100%;
 }
 .ref-branch {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  overflow: hidden;
-}
-.ref-branch svg {
-  flex: none;
-  width: 12px;
-  height: 12px;
-}
-.ref-name {
-  min-width: 0;
+  /* A sans line box holds the monospace name, so the line keeps the 20px height and baseline of the meta line. */
+  display: inline-block;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.ref-branch svg {
+  width: 12px;
+  height: 12px;
+  margin-right: 4px;
+  vertical-align: middle;
+}
+.ref-name {
   font-family: var(--font-mono);
+  line-height: 1;
 }
 .chip.ref-pr {
   flex: none;
   padding: 0 6px;
-  font-size: 11px;
+  font-size: 12px;
   line-height: 16px;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
@@ -448,11 +448,19 @@ ol.rows {
 }
 /* What happened, then who and when, then where the branch started: each on its own line. */
 .event-main {
+  color: var(--foreground-soft);
+  overflow-wrap: anywhere;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 4px 8px;
   line-height: 20px;
+}
+.event > .event-meta {
+  margin-top: 2px;
+}
+.event-main .chip {
+  padding-block: 0;
 }
 .event > .help:first-child {
   margin-top: 0;
@@ -463,9 +471,10 @@ ol.rows {
 }
 .event-meta .actor {
   font-weight: 500;
-  color: color-mix(in oklab, var(--foreground) 80%, var(--muted-foreground));
+  color: var(--foreground-soft);
 }
 .event-origin {
+  overflow-wrap: anywhere;
   display: flex;
   align-items: flex-start;
   gap: 5px;
@@ -528,6 +537,10 @@ ol.rows {
   margin-top: 6px;
   font-size: 12px;
   color: var(--muted-foreground);
+}
+/* In a row the trail follows the meta line by the row's 2px line gap. */
+.event-notes .trail {
+  margin-top: 2px;
 }
 .trail summary {
   cursor: pointer;
@@ -642,6 +655,10 @@ ol.rows {
 }
 
 @media (max-width: 639px) {
+  /* The phone's row controls are taller than the label, so the label centres on them. */
+  .row > .kind {
+    align-self: center;
+  }
   .type-menu {
     position: relative;
   }
@@ -723,6 +740,8 @@ ol.rows {
   }
   .rowact {
     grid-column: 3;
+    /* The controls are taller than a line of text, so they hang centred on the title's first line. */
+    margin-block: calc((20px - var(--control-height-sm)) / 2);
   }
 }
 @media (min-width: 1024px) {
@@ -737,7 +756,7 @@ ol.rows {
   }
   .row {
     display: grid;
-    grid-template-columns: var(--kind-width, 9rem) minmax(0, 1.3fr) minmax(0, 1.7fr) 8.5rem;
+    grid-template-columns: var(--kind-width, 9rem) minmax(0, 1fr) minmax(0, 1fr) 8.5rem;
     gap: 12px;
     align-items: start;
     padding: 10px 12px;
@@ -745,9 +764,44 @@ ol.rows {
   .subject {
     grid-column: 2;
   }
-  .event {
-    grid-column: 3;
+  /* The title column and the event column share the row's line tracks: what happened, then where and who, then
+     notes. A wrapped title or summary grows its track for both columns, so the second lines stay level. */
+  .row {
+    grid-template-rows: auto auto auto;
+    row-gap: 0;
+  }
+  .subject,
+  .feed-title {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: subgrid;
+    grid-row: 1 / span 2;
+    align-items: start;
+  }
+  .feed-title .title {
     grid-row: 1;
+  }
+  .feed-title .subref {
+    grid-row: 2;
+  }
+  .event {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: subgrid;
+    grid-column: 3;
+    grid-row: 1 / span 3;
+    align-items: start;
+  }
+  .event-main {
+    grid-row: 1;
+  }
+  .event > .event-meta,
+  .event > .event-meta:first-child {
+    grid-row: 2;
+    margin-top: 2px;
+  }
+  .event-notes {
+    grid-row: 3;
   }
   .rowact {
     grid-column: 4;
@@ -765,7 +819,7 @@ ol.rows {
   .rows.with-tree {
     --tree-lanes: 1;
     --tree-width: calc(var(--tree-lanes) * 10px);
-    --tree-label-y: 25px;
+    --tree-label-y: 23px;
     --kind-width: calc(9rem + var(--tree-width) - 8px);
   }
   .rows.with-tree[data-tree-lanes='0'] {
@@ -833,7 +887,7 @@ ol.rows {
 }
 @media (min-width: 1024px) {
   .rows.with-tree {
-    --tree-label-y: 23px;
+    --tree-label-y: 21px;
   }
 }
 .tree line,

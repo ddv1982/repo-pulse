@@ -219,7 +219,7 @@ function refUpdateSummary(event) {
     return 'Branch details unavailable';
   }
   if (refs?.length === 1 && /^0+$/.test(refs[0].newObjectId || '')) return 'Remote branch deleted';
-  if (refs?.length === 1 && /^0+$/.test(refs[0].oldObjectId || '')) return `New branch at ${(refs[0].newObjectId || '').slice(0, 7)}`;
+  if (refs?.length === 1 && /^0+$/.test(refs[0].oldObjectId || '')) return `Tip at ${(refs[0].newObjectId || '').slice(0, 7)}`;
   return event.summary || '';
 }
 
