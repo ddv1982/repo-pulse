@@ -68,15 +68,15 @@ Out of scope throughout: template rewrites, lit or Preact, splitting `src/web.js
 
 ## Phase 3: move open state into `ui` (gated on phase 2)
 
-- [ ] e2e: open each menu or `<details>`, trigger an incoming event; assert it stays open with focus inside. Seen failing once its guard is removed.
-- [ ] Type filter, saved filters and scope panel rendered from `ui` state, one menu per commit.
-- [ ] Delete `deferredSavedFilterRender` and the `interacting` guard list in `src/web.js`.
-- [ ] Full check green.
+- [x] e2e: open each menu or `<details>`, trigger an incoming event; assert it stays open with focus inside. Seen failing once its guard is removed. Type menu and scope panel tests are new in `e2e/ui.test.js`; the saved-filter deferral test in `e2e/history.test.js` now asserts the response renders with the menu open (seen failing on main).
+- [x] Type filter, saved filters and scope panel rendered from `ui` state, one menu per commit. One new field, `ui.openMenu`. Saved filters and scope panel share a `web.js` hunk, so they landed in one commit. Crossing the mobile breakpoint clears `ui.openMenu` to keep the old close-on-resize behaviour.
+- [x] Delete `deferredSavedFilterRender` and the `interacting` guard list in `src/web.js`. `deferredSavedFilterRender`, its flush and `onClose` are deleted. Kept: the `interacting` list, which guards modal dialogs, in-flight actions and the repository picker, whose host the page markup leaves empty, so none of it is menu state.
+- [x] Full check green (76 e2e, 453 unit).
 - Kill: if three or more new flags appear, stop and reconsider lit-html for that region only.
 
 ## Phase 4: dependencies (added on request, 2026-11-21)
 
-- [ ] `npm outdated` and `npm view` show every devDependency at its latest version except prettier (3.6.2, latest 3.10.1); upgrade it, run `npm run format` if its output changed, and run the full check.
+- [x] `npm outdated` and `npm view` show every devDependency at its latest version except prettier (3.6.2, latest 3.10.1); upgrade it, run `npm run format` if its output changed, and run the full check. 3.10.1 re-indents boolean chains in 4 files; `npm outdated` is now empty.
 - [ ] CI actions pinned to the latest release SHAs: `actions/checkout` v4.4.0 to v7.0.1 (`3d3c42e5`), `actions/setup-node` v4.4.0 to v7.1.0 (`949feb24`); both CI jobs green on the PR.
 
 ## Phase 5: docs
