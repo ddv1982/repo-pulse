@@ -15,12 +15,12 @@ export const isCommit = (/** @type {unknown} */ value) =>
 function hasSameRepoResult(repo, pr) {
   return Boolean(
     typeof repo.azureId === 'string' &&
-      repo.azureId &&
-      typeof pr.sourceId === 'string' &&
-      pr.sourceId.toLowerCase() === repo.azureId.toLowerCase() &&
-      typeof pr.targetId === 'string' &&
-      pr.targetId.toLowerCase() === repo.azureId.toLowerCase() &&
-      isCommit(pr.result),
+    repo.azureId &&
+    typeof pr.sourceId === 'string' &&
+    pr.sourceId.toLowerCase() === repo.azureId.toLowerCase() &&
+    typeof pr.targetId === 'string' &&
+    pr.targetId.toLowerCase() === repo.azureId.toLowerCase() &&
+    isCommit(pr.result),
   );
 }
 

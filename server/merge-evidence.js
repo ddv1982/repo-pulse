@@ -14,10 +14,10 @@ export function mergeUpdates(event) {
     ref =>
       Boolean(
         ref.oldObjectId &&
-          ref.newObjectId &&
-          ref.oldObjectId !== ref.newObjectId &&
-          !ZERO.test(ref.oldObjectId) &&
-          !ZERO.test(ref.newObjectId),
+        ref.newObjectId &&
+        ref.oldObjectId !== ref.newObjectId &&
+        !ZERO.test(ref.oldObjectId) &&
+        !ZERO.test(ref.newObjectId),
       ),
   );
 }
