@@ -73,6 +73,8 @@ export function createStore(path = ':memory:') {
   if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
   const db = new DatabaseSync(path);
   if (path !== ':memory:') chmodSync(path, 0o600);
+  // Another process reading or writing the file, such as a probe script, makes a write wait briefly instead of failing.
+  db.exec('PRAGMA busy_timeout = 5000');
   /** @type {Map<string, import('node:sqlite').StatementSync>} */
   const statements = new Map();
   /** Prepares and caches static SQL statements for the lifetime of this connection. @param {string} sql */

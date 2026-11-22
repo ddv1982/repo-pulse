@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { createStore } from '../server/store.js';
 import { SEARCH_INDEX_VERSION } from '../src/activity-text.js';
 import { DatabaseSync } from 'node:sqlite';
+import { spawn } from 'node:child_process';
 const repo = {
   id: 'one',
   name: 'One',
@@ -304,6 +305,34 @@ test('upgrading copies the database first and keeps only the latest copy; a fres
   assert.equal(copy.prepare('PRAGMA user_version').get().user_version, 13);
   assert.equal(copy.prepare("SELECT COUNT(*) AS n FROM activity_members WHERE event_id='preview'").get().n, 1);
   copy.close();
+  rmSync(folder, { recursive: true });
+});
+
+test('a write waits for another process that briefly holds the write lock instead of failing at once', async () => {
+  const folder = mkdtempSync(join(tmpdir(), 'pulse-store-'));
+  const path = join(folder, 'state.sqlite');
+  const store = createStore(path);
+  // node:sqlite blocks its thread while waiting, so the lock is held and released by another process.
+  const holder = spawn(
+    process.execPath,
+    [
+      '-e',
+      `const { DatabaseSync } = require('node:sqlite');
+       const db = new DatabaseSync(process.argv[1]);
+       db.exec('BEGIN IMMEDIATE');
+       process.stdout.write('locked');
+       setTimeout(() => { db.exec('COMMIT'); db.close(); }, 300);`,
+      path,
+    ],
+    { stdio: ['ignore', 'pipe', 'inherit'] },
+  );
+  await new Promise(resolve => holder.stdout.once('data', resolve));
+  const started = Date.now();
+  store.setSetting('waited', true);
+  assert.ok(Date.now() - started >= 100, 'the write waited for the lock');
+  assert.equal(store.getSetting('waited', false), true);
+  await new Promise(resolve => holder.once('exit', resolve));
+  store.close();
   rmSync(folder, { recursive: true });
 });
 
