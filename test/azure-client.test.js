@@ -71,7 +71,7 @@ test('refs use continuation token and build cache isolates repositories while co
   assert.equal(active.items[0].id, 1);
   assert(!calls.at(-1).some(value => value.startsWith('minTime=')));
   assert(calls.at(-1).includes('repositoryId=repo1'));
-  assert.deepEqual(await client.buildsById(repo, [123]), [{ id: 1 }]);
+  assert.deepEqual(await client.buildsById(repo, [123]), { items: [{ id: 1 }], nextCursor: { token: 'page2' } });
   assert(calls.at(-1).includes('buildIds=123'));
 });
 

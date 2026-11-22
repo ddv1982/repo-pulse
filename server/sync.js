@@ -286,16 +286,18 @@ export function createSync({
         .filter(entry => entry.data.status !== 'completed' && !activeIds?.includes(entry.id))
         .slice(0, 20);
       if (missing.length) {
-        const found = await provider.buildsById(
+        const { items: found, nextCursor } = await provider.buildsById(
           repo,
           missing.map(entry => entry.id),
         );
         items = [...items, ...found];
         // Azure omits a build it no longer has (removed by retention, see docs/probe-results.md), so stop asking for it.
         // The fingerprint stays, so no event is made for it and a later sighting still compares against its last state.
-        gone = missing
-          .filter(entry => !found.some(item => String(item?.id) === entry.id))
-          .map(entry => ({ type: 'build', id: entry.id, data: { ...entry.data, status: 'completed' } }));
+        // With more pages to read, an omitted build may only be on a later one, so none is given up this turn.
+        if (!nextCursor)
+          gone = missing
+            .filter(entry => !found.some(item => String(item?.id) === entry.id))
+            .map(entry => ({ type: 'build', id: entry.id, data: { ...entry.data, status: 'completed' } }));
       }
     }
     if (complete && state.stream === 'prs' && provider.pullRequest) {

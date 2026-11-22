@@ -343,12 +343,12 @@ export function createAzureClient({ cli, now = Date.now } = {}) {
       }
       return pageOf(response, { skip, mode });
     },
-    /** @param {AzureRepo} repo @param {string[]} ids @returns {Promise<AzureRecord[]>} */
+    /** A next cursor means Azure has more of the requested builds than this page holds. @param {AzureRepo} repo @param {string[]} ids @returns {Promise<AzurePage>} */
     async buildsById(repo, ids) {
       if (!Array.isArray(ids) || ids.length > 100 || ids.some(id => !/^\d+$/.test(String(id)))) throw new Error('Invalid build IDs');
-      if (!ids.length) return [];
+      if (!ids.length) return { items: [], nextCursor: null };
       const raw = await invoke(repo, 'build', 'builds', { buildIds: ids.join(',') }, {}, true);
-      return pageOf(raw, { skip: 0, mode: 'token' }).items;
+      return pageOf(raw, { skip: 0, mode: 'token' });
     },
     /** @param {AzureRepo} repo @param {string} source @returns {Promise<CheckoutPull[]>} */
     async completedCheckoutPulls(repo, source) {
