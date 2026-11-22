@@ -317,7 +317,8 @@ test('a write waits for another process that briefly holds the write lock instea
   const folder = mkdtempSync(join(tmpdir(), 'pulse-store-'));
   const path = join(folder, 'state.sqlite');
   const store = createStore(path);
-  // node:sqlite blocks its thread while waiting, so the lock is held and released by another process.
+  // node:sqlite blocks its thread while waiting, so the lock is held and released by another process. It writes a
+  // marker inside its locked transaction and commits only after it has said the lock is held.
   const holder = spawn(
     process.execPath,
     [
@@ -325,18 +326,28 @@ test('a write waits for another process that briefly holds the write lock instea
       `const { DatabaseSync } = require('node:sqlite');
        const db = new DatabaseSync(process.argv[1]);
        db.exec('BEGIN IMMEDIATE');
+       db.exec("INSERT INTO settings(key,data) VALUES('holder','true')");
        process.stdout.write('locked');
        setTimeout(() => { db.exec('COMMIT'); db.close(); }, 300);`,
       path,
     ],
     { stdio: ['ignore', 'pipe', 'inherit'] },
   );
-  await new Promise(resolve => holder.stdout.once('data', resolve));
-  const started = Date.now();
+  const exited = new Promise((resolve, reject) => {
+    holder.once('error', reject);
+    holder.once('exit', code => (code === 0 ? resolve(undefined) : reject(new Error(`lock holder exited with ${code}`))));
+  });
+  await Promise.race([
+    new Promise(resolve => holder.stdout.once('data', resolve)),
+    exited.then(() => {
+      throw new Error('lock holder exited before taking the lock');
+    }),
+  ]);
+  // The lock is held now; without a busy timeout this throws "database is locked".
   store.setSetting('waited', true);
-  assert.ok(Date.now() - started >= 100, 'the write waited for the lock');
+  assert.equal(store.getSetting('holder', false), true, 'the write returned only after the holder committed');
   assert.equal(store.getSetting('waited', false), true);
-  await new Promise(resolve => holder.once('exit', resolve));
+  await exited;
   store.close();
   rmSync(folder, { recursive: true });
 });
