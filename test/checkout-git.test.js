@@ -443,6 +443,24 @@ test('a nested repository committed without .gitmodules is read like a submodule
   assert.match(refused.diagnostic?.message ?? '', /filter\.probe\.clean/);
 });
 
+test('a branch switch just before Pull merges is reported as unclear instead of as an update', async t => {
+  const { repo, local, remote, original, advance } = checkoutFixture(t);
+  const tip = advance();
+  const checkoutGit = createCheckoutGit({
+    matchesRemote: url => url === remote,
+    run: async (path, args, options) => {
+      // A terminal switch after the final check, to a branch already at the upstream tip.
+      if (args.includes('merge') && args.includes('--ff-only')) git(local, 'switch', '--quiet', 'other');
+      return runGit(path, args, options);
+    },
+  });
+  const { checkout } = await checkoutGit.update(repo, 'check', await checkoutGit.status(repo));
+  git(local, 'branch', 'other', 'origin/main');
+  await assert.rejects(checkoutGit.update(repo, 'pull', checkout), /no longer on main, so it is unclear which branch moved/);
+  assert.equal(git(local, 'rev-parse', 'main'), original, 'main did not move');
+  assert.equal(git(local, 'rev-parse', 'other'), tip, 'other did not move');
+});
+
 test('a Pull that adds a gitlink over a nested checkout checks that checkout before reading status', async t => {
   const fixture = checkoutFixture(t);
   const { repo, checkoutGit, local, source, commit, root = join(local, '..') } = fixture;

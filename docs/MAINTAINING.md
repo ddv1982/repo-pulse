@@ -31,7 +31,7 @@ Use the shared `.btn`, `.control`, `.ghost`, and `.search` classes. Choose one s
 
 Branch switches verify the destination ref, its fetch mapping, and the linked Git directory. Tracking-ref updates check the expected old value, and Repo Pulse checks the type of each ref while Git holds its transaction lock. For a confirmed rewrite, Repo Pulse writes and verifies recovery refs under `refs/repo-pulse/upstream-rewrites/` before updating the tracker. Later checks can use those refs to detect the rewrite on other local branches tracking the same upstream, including branches in linked worktrees. Git handles the worktree switch separately.
 
-Pull checks the checkout, upstream and fetched tip before running `git merge --ff-only --no-squash`, then verifies HEAD. A terminal branch change between the final check and Git's merge can still race with the update.
+Pull checks the checkout, upstream and fetched tip before running `git merge --ff-only --no-squash`, then verifies that the checkout is still on the same branch and that HEAD is the fetched tip. A terminal branch change between the final check and Git's merge can still make Git fast-forward the other branch instead. Pull cannot tell which branch moved, so it reports the outcome as unclear rather than as an update.
 
 ## Render into the live page
 
