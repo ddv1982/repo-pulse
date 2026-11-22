@@ -8,10 +8,10 @@ Sources of each item are marked: **O** Opus, **N** Neon, **S** Sol. "Reproduced"
 
 A stalled stream makes the feed quietly incomplete, which would spoil the usage evidence phase 4 collects. So this comes first.
 
-- [ ] 1.1 A cached active PR that Azure no longer returns must not stall the `prs` stream. Today `provider.pullRequest` throws (`server/azure-client.js:398-414`), the page never commits, and the same first three PRs are retried every turn (`server/sync.js:275-283`). Fix: leave that one PR unresolved, commit its readable siblings, and rotate the lookups so later PRs get a turn. Check: a test in `test/sync.test.js` that fails first. (S reproduced, N read)
-- [ ] 1.2 A failed read must not discard a newer refresh request. Today the failure handler saves the older state and clears the pending request (`server/sync.js:335-340`). Check: a test that fails first, with automatic checks off. (S reproduced)
-- [ ] 1.3 Auth and other whole-stream failures still surface as a problem after 1.1. Check: existing failure tests stay green plus one assertion for an auth error during the per-PR lookup. (S)
-- [ ] 1.4 Probe what Azure returns from `buildsById` for a build removed by retention. Only if it is omitted and the build is re-queried forever (`server/sync.js:267-273`): mark it terminal. Check: probe result recorded in `docs/probe-results.md`; a failing-first test if a fix is needed. (N, unverified against Azure)
+- [x] 1.1 A cached active PR that Azure no longer returns must not stall the `prs` stream. Today `provider.pullRequest` throws (`server/azure-client.js:398-414`), the page never commits, and the same first three PRs are retried every turn (`server/sync.js:275-283`). Fix: leave that one PR unresolved, commit its readable siblings, and rotate the lookups so later PRs get a turn. Check: a test in `test/sync.test.js` that fails first. (S reproduced, N read)
+- [x] 1.2 A failed read must not discard a newer refresh request. Today the failure handler saves the older state and clears the pending request (`server/sync.js:335-340`). Check: a test that fails first, with automatic checks off. (S reproduced)
+- [x] 1.3 Auth and other whole-stream failures still surface as a problem after 1.1. Check: existing failure tests stay green plus one assertion for an auth error during the per-PR lookup. (S)
+- [x] 1.4 Probe what Azure returns from `buildsById` for a build removed by retention. Only if it is omitted and the build is re-queried forever (`server/sync.js:267-273`): mark it terminal. Check: probe result recorded in `docs/probe-results.md`; a failing-first test if a fix is needed. (N, unverified against Azure)
 
 ## Phase 2: Protect data and local work
 
