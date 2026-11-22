@@ -798,6 +798,24 @@ test('carry applies only selected follow-up commits and leaves both original bra
   assert.deepEqual(git(local, 'diff', '--name-only', 'release', 'HEAD').split('\n'), ['second.txt']);
 });
 
+test('carry turns off submodule recursion for its worktree and cherry-pick, as Pull does', async t => {
+  const calls = [];
+  const run = async (path, args, options) => {
+    calls.push(args);
+    return runGit(path, args, options);
+  };
+  const { local, second, switchTarget, act } = await setup(t, { followup: true, run });
+  git(local, 'config', 'submodule.recurse', 'true');
+  const { checkout } = await switchTarget();
+  await act(checkout, 'review');
+  await act(checkout, 'carry', { commits: [second] });
+  const configs = args => args.flatMap((arg, index) => (args[index - 1] === '-c' ? [arg] : []));
+  const worktree = calls.find(args => args.includes('worktree') && args.includes('add'));
+  const pick = calls.find(args => args.includes('cherry-pick'));
+  assert.ok(configs(worktree).includes('submodule.recurse=false'), `worktree add: ${worktree.join(' ')}`);
+  assert.ok(configs(pick).includes('submodule.recurse=false'), `cherry-pick: ${pick.join(' ')}`);
+});
+
 test('carry conflicts remain in a separate worktree for native Git continue or abort', async t => {
   const { local, second, tip, switchTarget, act } = await setup(t, { followup: true, conflict: true });
   const { checkout } = await switchTarget();
