@@ -176,6 +176,7 @@ export function branchFollowups({ run, hooks, followups, statusAt, updateAt, rea
       return { message: result.updated ? `Switched to ${name} and updated it.` : `Switched to ${name}. It already matches upstream.` };
     } catch (error) {
       const reason = error instanceof Error && 'status' in error && error.status === 409 ? ` ${error.message}` : '';
+      if (reason && error instanceof Error && 'unclear' in error) return { message: `Switched to ${name}.${reason}` };
       return { message: partial + reason };
     }
   }

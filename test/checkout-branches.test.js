@@ -651,6 +651,20 @@ test('switch updates a locally current squash PR target and old branch removal i
   assert.equal(git(local, 'branch', '--show-current'), 'release');
 });
 
+test('a branch switch just before the target update merges is reported as unclear, not as blocked', async t => {
+  const run = async (path, args, options) => {
+    // A terminal switch after the final check, to a new branch already at the upstream tip.
+    if (args.includes('merge') && args.includes('--ff-only')) git(path, 'switch', '--quiet', '-c', 'other', args.at(-1));
+    return runGit(path, args, options);
+  };
+  const { switchTarget } = await setup(t, { run });
+  const { message } = await switchTarget();
+  assert.equal(
+    message,
+    'Switched to release. The checkout is no longer on release, so it is unclear which branch moved. Review the checkout in Git.',
+  );
+});
+
 test('switch refuses dirty source and a target occupied after the check', async t => {
   const { local, pr, switchTarget } = await setup(t);
   writeFileSync(join(local, 'topic.txt'), 'dirty');
