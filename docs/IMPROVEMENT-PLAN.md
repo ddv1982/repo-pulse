@@ -15,18 +15,22 @@ A stalled stream makes the feed quietly incomplete, which would spoil the usage 
 
 ## Phase 2: Protect data and local work
 
-- [ ] 2.1 Copy the database before running migrations. When `user_version` is behind, run `VACUUM INTO` a `pre-v<N>` file first and keep only the last one. Migrations 12 and 14 delete rows, and a logically wrong migration still commits (`server/store.js:296-322`). Check: a test that migrates an older fixture and opens the copy; then one run on a copy of the real database. (O)
-- [ ] 2.2 Rebuild search text when the indexed terms change. Search text is computed once at insert (`server/store.js:115-139`), so a wording change leaves old rows stale. Fix: a search index version constant; rerun the existing reindex loop when it changes. Check: a failing-first test where an old row matches a new term after restart. (O, N agrees on the cause)
-- [ ] 2.3 Pass `submodule.recurse=false` to `worktree add` and `cherry-pick` in carry (`server/checkout-branches.js:288,295`), as Pull already does (`server/checkout-update.js:108`). Check: a test with `submodule.recurse=true` set. (N read, confirmed)
-- [ ] 2.4 Pull: after the fast-forward, verify the branch as well as the commit, and report an unclear outcome as unclear (`server/checkout-update.js:124,210-230`). This narrows the race `docs/MAINTAINING.md:34` already documents; it does not close it. Check: a disposable-checkout test that switches branch before the final check and asserts neither branch moved. (S; O would leave the Git layer alone)
-- [ ] 2.5 Set a SQLite busy timeout so a second process reading the database does not make a write fail at once (`server/store.js:68`). Low value in WAL mode; do it only because it is one line. Check: a test where a write waits instead of throwing. (N)
+- [x] 2.1 Copy the database before running migrations. When `user_version` is behind, run `VACUUM INTO` a `pre-v<N>` file first and keep only the last one. Migrations 12 and 14 delete rows, and a logically wrong migration still commits (`server/store.js:296-322`). Check: a test that migrates an older fixture and opens the copy; then one run on a copy of the real database. (O)
+- [x] 2.2 Rebuild search text when the indexed terms change. Search text is computed once at insert (`server/store.js:115-139`), so a wording change leaves old rows stale. Fix: a search index version constant; rerun the existing reindex loop when it changes. Check: a failing-first test where an old row matches a new term after restart. (O, N agrees on the cause)
+- [x] 2.3 Pass `submodule.recurse=false` to `worktree add` and `cherry-pick` in carry (`server/checkout-branches.js:288,295`), as Pull already does (`server/checkout-update.js:108`). Check: a test with `submodule.recurse=true` set. (N read, confirmed)
+- [x] 2.4 Pull: after the fast-forward, verify the branch as well as the commit, and report an unclear outcome as unclear (`server/checkout-update.js:124,210-230`). This narrows the race `docs/MAINTAINING.md:34` already documents; it does not close it. Check: a disposable-checkout test that switches branch before the final check and asserts neither branch moved. (S; O would leave the Git layer alone)
+- [x] 2.5 Set a SQLite busy timeout so a second process reading the database does not make a write fail at once (`server/store.js:68`). Low value in WAL mode; do it only because it is one line. Check: a test where a write waits instead of throwing. (N)
 
 ## Phase 3: Working agreement
+
+The rule is written in `docs/MAINTAINING.md` ("Match review to risk"). The boxes stay open until the next PRs show it applied.
 
 - [ ] 3.1 Write a two-tier review rule into `docs/MAINTAINING.md`: copy, CSS and layout changes get CI plus one review; changes to `server/checkout-*.js`, `server/store.js` migrations, `server/sync.js` and `server/azure-*.js` keep the full cross-model loop. Check: the next three copy or layout PRs took one review round. (O, N, S)
 - [ ] 3.2 For a wording or default change, agree one representative row and any search trade-off before coding. Check: the PR description states the agreed row. (S)
 
 ## Phase 4: Use, then decide
+
+Started 2026-11-23 with [usage-log.md](usage-log.md) and its first size reading. The boxes stay open until the two weeks have passed.
 
 - [ ] 4.1 Two weeks of daily use. Fix bugs found in use; no new polish. Keep `docs/usage-log.md` with one dated line per friction point. Check: the log exists and covers ten working days. (O, N, S)
 - [ ] 4.2 Record database size at the start, after one week and after two weeks (10.1 MB for 1,982 events on 2026-11-21). Check: three readings in the log. (O)

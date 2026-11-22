@@ -67,6 +67,12 @@ npm run test:ui
 
 CI runs the first four on Linux and Windows, and the browser tests on Linux only. Browser tests use Chromium. Run `npx playwright install chromium` if needed, or set `CHROME` to a local executable. Tests use isolated databases and temporary Git repositories. They verify workflows and failure cases without proving live Azure permissions. See [coverage and limits](COVERAGE.md) for the distinction.
 
+## Match review to risk
+
+Copy, CSS and layout changes get the checks above plus one review round. Changes to `server/checkout-*.js`, migrations in `server/store.js`, `server/sync.js` and `server/azure-*.js` keep the full cross-model review, because a mistake there can move a local branch, lose stored rows or stall the feed.
+
+Before changing wording or a default, agree one representative row with the owner, and any search the change gives up, and state both in the PR description. When search terms change, raise `SEARCH_INDEX_VERSION` in `src/activity-text.js` so stored rows are reindexed.
+
 ## Check local load
 
 Run `node scripts/measure-activity.js` for synthetic local HTTP and SQLite timings. Add `--large` to include 75,000 events with both pushes and grouped builds. The script includes serialization and JSON parsing. It does not measure Azure or browser rendering.
