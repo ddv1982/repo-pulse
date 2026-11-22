@@ -270,13 +270,25 @@ export function createSync({
       ? [...(state.activeIds || []), ...page.items.map(item => String(item.id || item.pullRequestId))]
       : undefined;
     let items = page.items;
+    /** @type {Entity[]} */
+    let gone = [];
     if (complete && state.stream === 'activeBuilds' && provider.buildsById) {
       const missing = store
         .listEntities(repo.id, 'build')
         .filter(entry => entry.data.status !== 'completed' && !activeIds?.includes(entry.id))
-        .slice(0, 20)
-        .map(entry => entry.id);
-      if (missing.length) items = [...items, ...(await provider.buildsById(repo, missing))];
+        .slice(0, 20);
+      if (missing.length) {
+        const found = await provider.buildsById(
+          repo,
+          missing.map(entry => entry.id),
+        );
+        items = [...items, ...found];
+        // Azure omits a build it no longer has (removed by retention, see docs/probe-results.md), so stop asking for it.
+        // The fingerprint stays, so no event is made for it and a later sighting still compares against its last state.
+        gone = missing
+          .filter(entry => !found.some(item => String(item?.id) === entry.id))
+          .map(entry => ({ type: 'build', id: entry.id, data: { ...entry.data, status: 'completed' } }));
+      }
     }
     if (complete && state.stream === 'prs' && provider.pullRequest) {
       const missing = store
@@ -298,7 +310,7 @@ export function createSync({
         }
       }
     }
-    return { page, complete, activeIds, items };
+    return { page, complete, activeIds, items, gone };
   }
   /**
    * @param {WatchedRepo} repo @param {StreamState} state @param {StartedStream} working
@@ -319,6 +331,7 @@ export function createSync({
   function commitRead(repo, state, working, read) {
     const { page, complete, activeIds } = read;
     const { output, pendingItems } = pageBatch(repo, state, working, read);
+    output.entities = [...output.entities, ...read.gone];
     // A refresh requested after this window opened must survive the commit of a page read before it.
     const latest = store.getStreams().find(entry => entry.repoId === repo.id && entry.stream === state.stream) || state;
     const quietCycles = output.events.some(event => !event.imported) ? 0 : (state.quietCycles || 0) + 1;

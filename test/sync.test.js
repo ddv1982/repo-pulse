@@ -238,6 +238,41 @@ test('old active build is refreshed by ID after disappearing from active results
   store.close();
 });
 
+test('an active build that Azure omits when asked for by ID is not asked for again', async () => {
+  const build = {
+    id: 42,
+    repository: { id: 'a' },
+    status: 'inProgress',
+    queueTime: '2026-11-01T00:00:00Z',
+    sourceBranch: 'refs/heads/main',
+    sourceVersion: 'a',
+  };
+  let active = true;
+  const asked = [];
+  const provider = {
+    async read() {
+      return { items: active ? [build] : [], nextCursor: null };
+    },
+    // Azure answers a build removed by retention with an empty list (docs/probe-results.md).
+    async buildsById(_r, ids) {
+      asked.push(ids);
+      return [];
+    },
+  };
+  const { store, sync, advance } = setup(provider, ['activeBuilds']);
+  await sync.tick();
+  active = false;
+  advance();
+  await sync.tick();
+  const stream = () => store.getStreams().find(state => state.stream === 'activeBuilds');
+  assert.equal(stream().error, null);
+  store.saveStream({ ...stream(), nextAt: new Date(BASE + 2000).toISOString() });
+  await sync.tick();
+  assert.deepEqual(asked, [['42']], 'the omitted build is asked for once');
+  assert.equal(store.listEvents().length, 1, 'no event is invented for it');
+  store.close();
+});
+
 test('PR reactivation creates a fresh event even when its state matches an earlier snapshot', async () => {
   let status = 'active';
   const provider = {
