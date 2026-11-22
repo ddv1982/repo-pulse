@@ -1,7 +1,7 @@
 // @ts-check
 import { DatabaseSync } from 'node:sqlite';
-import { chmodSync, mkdirSync } from 'node:fs';
-import { dirname } from 'node:path';
+import { chmodSync, mkdirSync, readdirSync, rmSync } from 'node:fs';
+import { basename, dirname, join } from 'node:path';
 import { activityKey, lifecycleKey, supportingPushKey } from '../src/activity.js';
 import { activityStatusId, activityEvidenceId, activitySearchText, azureDevOpsService } from '../src/activity-text.js';
 import { createActivityQuery } from './activity-query.js';
@@ -351,6 +351,25 @@ export function createStore(path = ':memory:') {
   if (version > migrations[migrations.length - 1][0]) {
     db.close();
     throw new Error('This database was created by a newer Repo Pulse version.');
+  }
+  // Some migrations delete rows and commit even when their logic is wrong, so a database with data is copied first.
+  // Only the copy from the latest upgrade is kept.
+  if (path !== ':memory:' && version < migrations[migrations.length - 1][0] && q('SELECT 1 FROM sqlite_master LIMIT 1').get()) {
+    const name = `${basename(path)}.pre-v${version}`;
+    const copy = join(dirname(path), name);
+    try {
+      rmSync(copy, { force: true });
+      db.prepare('VACUUM INTO ?').run(copy);
+      chmodSync(copy, 0o600);
+    } catch (error) {
+      db.close();
+      // Upgrading without the copy would leave nothing to recover rows a faulty migration deletes.
+      throw new Error(
+        `Could not copy the database before upgrading it, so it was left unchanged. Free disk space and start again. (${String(/** @type {Error} */ (error)?.message || error)})`,
+      );
+    }
+    for (const entry of readdirSync(dirname(path)))
+      if (entry.startsWith(`${basename(path)}.pre-v`) && entry !== name) rmSync(join(dirname(path), entry), { force: true });
   }
   db.exec('PRAGMA foreign_keys = ON');
   if (path !== ':memory:') db.exec('PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL;');

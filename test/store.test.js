@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, rmSync, statSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createStore } from '../server/store.js';
@@ -267,6 +267,59 @@ test('upgrading hides saved service pushes that name no branch, and keeps the sa
     ['person', 'service-branch'],
   );
   store.close();
+  rmSync(folder, { recursive: true });
+});
+
+test('upgrading copies the database first and keeps only the latest copy; a fresh or current database gets none', () => {
+  const folder = mkdtempSync(join(tmpdir(), 'pulse-store-'));
+  const path = join(folder, 'state.sqlite');
+  const service = 'Microsoft.VisualStudio.Services.TFS';
+  const copies = () => readdirSync(folder).filter(name => name.includes('.pre-v'));
+  let store = createStore(path);
+  assert.deepEqual(copies(), [], 'a new database is not copied');
+  store.saveRepo(repo);
+  store.insertEvents([event('preview', { actor: service, branch: '', data: { pushId: 1, refUpdates: [] } })]);
+  store.close();
+  createStore(path).close();
+  assert.deepEqual(copies(), [], 'a current database is not copied');
+  const downgrade = version => {
+    const raw = new DatabaseSync(path);
+    raw.exec(`PRAGMA user_version = ${version};`);
+    raw.close();
+  };
+  downgrade(12);
+  createStore(path).close();
+  assert.deepEqual(copies(), ['state.sqlite.pre-v12']);
+  // Migration 13 left the row; 14 is the step that deletes it.
+  const db = new DatabaseSync(path);
+  db.exec("INSERT INTO activity_members(event_id,group_key,kind,search_text,observed,time) VALUES('preview','g','push','',0,0)");
+  db.exec('PRAGMA user_version = 13;');
+  db.close();
+  store = createStore(path);
+  assert.equal(store.queryActivity({ view: 'all' }).total, 0, 'migration 14 removed the row');
+  store.close();
+  assert.deepEqual(copies(), ['state.sqlite.pre-v13'], 'only the latest copy stays');
+  const copy = new DatabaseSync(join(folder, 'state.sqlite.pre-v13'), { readOnly: true });
+  assert.equal(copy.prepare('PRAGMA user_version').get().user_version, 13);
+  assert.equal(copy.prepare("SELECT COUNT(*) AS n FROM activity_members WHERE event_id='preview'").get().n, 1);
+  copy.close();
+  rmSync(folder, { recursive: true });
+});
+
+test('a database that cannot be copied before upgrading is not upgraded', () => {
+  const folder = mkdtempSync(join(tmpdir(), 'pulse-store-'));
+  const path = join(folder, 'state.sqlite');
+  createStore(path).close();
+  const raw = new DatabaseSync(path);
+  raw.exec('PRAGMA user_version = 13;');
+  raw.close();
+  // A directory where the copy belongs makes VACUUM INTO fail, as a full disk would.
+  mkdirSync(`${path}.pre-v13`);
+  writeFileSync(join(`${path}.pre-v13`, 'keep'), '');
+  assert.throws(() => createStore(path), /copy/i);
+  const check = new DatabaseSync(path, { readOnly: true });
+  assert.equal(check.prepare('PRAGMA user_version').get().user_version, 13, 'the database is left as it was');
+  check.close();
   rmSync(folder, { recursive: true });
 });
 
