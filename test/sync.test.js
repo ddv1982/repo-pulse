@@ -14,6 +14,7 @@ const repo = {
   webUrl: 'https://dev.azure.com/org/P/_git/One',
 };
 const BASE = Date.parse('2026-11-17T10:00:00Z');
+const DAY = 86400000;
 function setup(provider, streams = ['pushes']) {
   const store = createStore();
   store.saveRepo(repo);
@@ -820,6 +821,48 @@ test('a refresh requested during a read that then fails is still answered while 
   time += 31 * 60000;
   await sync.tick();
   assert.equal(calls, 2, 'no further read without another request');
+  store.close();
+});
+
+test('a first sync whose read fails after a newer refresh keeps its lower bound', async () => {
+  const store = createStore();
+  store.saveRepo(repo);
+  store.setSetting('refreshEnabled', false);
+  let time = BASE,
+    fail;
+  const sinces = [];
+  const sync = createSync({
+    store,
+    now: () => time,
+    intervalMs: 1000,
+    provider: {
+      read(_repo, _stream, { since }) {
+        sinces.push(since);
+        if (sinces.length === 1) return Promise.resolve({ items: [], nextCursor: { skip: 1 } });
+        if (sinces.length > 2) return Promise.resolve({ items: [], nextCursor: null });
+        return new Promise((_done, reject) => {
+          fail = () => reject(Object.assign(new Error('offline'), { code: 'UNAVAILABLE' }));
+        });
+      },
+    },
+  });
+  const onlyPushes = () => {
+    for (const state of store.getStreams()) if (state.stream !== 'pushes') store.saveStream({ ...state, manual: false });
+  };
+  sync.refresh([repo.id]);
+  onlyPushes();
+  await sync.tick();
+  time += DAY;
+  const reading = sync.tick();
+  await new Promise(setImmediate);
+  sync.refresh([repo.id]);
+  onlyPushes();
+  fail();
+  await reading;
+  time += 31 * 60000;
+  await sync.tick();
+  assert.equal(sinces.length, 3);
+  assert.equal(sinces[2], sinces[0], 'the retry starts where the first sync started');
   store.close();
 });
 
