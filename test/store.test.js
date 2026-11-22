@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, statSync, writ
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createStore } from '../server/store.js';
+import { SEARCH_INDEX_VERSION } from '../src/activity-text.js';
 import { DatabaseSync } from 'node:sqlite';
 const repo = {
   id: 'one',
@@ -203,7 +204,7 @@ test('starting from scratch clears activity, checkpoints, jobs and baselines but
       .prepare('SELECT key FROM settings ORDER BY key')
       .all()
       .map(row => row.key),
-    ['activityRevision', 'checkout-followup:one', 'checkout:one', 'refreshEnabled', 'refreshResumedAt'],
+    ['activityRevision', 'checkout-followup:one', 'checkout:one', 'refreshEnabled', 'refreshResumedAt', 'searchIndexVersion'],
   );
   assert.equal(Number(store.activityRevision()), revision + 1, 'the page reloads its activity');
   assert.ok(diskSize() < before / 4, `compacted from ${before} to ${diskSize()} bytes`);
@@ -303,6 +304,32 @@ test('upgrading copies the database first and keeps only the latest copy; a fres
   assert.equal(copy.prepare('PRAGMA user_version').get().user_version, 13);
   assert.equal(copy.prepare("SELECT COUNT(*) AS n FROM activity_members WHERE event_id='preview'").get().n, 1);
   copy.close();
+  rmSync(folder, { recursive: true });
+});
+
+test('rows indexed under older search terms are rebuilt once when the search index version changes', () => {
+  const folder = mkdtempSync(join(tmpdir(), 'pulse-store-'));
+  const path = join(folder, 'state.sqlite');
+  let store = createStore(path);
+  assert.equal(store.getSetting('searchIndexVersion', null), SEARCH_INDEX_VERSION, 'a new database records the current version');
+  store.saveRepo(repo);
+  store.insertEvents([event('row', { title: 'Nightly deploy' })]);
+  store.close();
+  const stale = version => {
+    const raw = new DatabaseSync(path);
+    raw.exec("UPDATE activity_members SET search_text='old terms'");
+    raw.prepare("UPDATE settings SET data=? WHERE key='searchIndexVersion'").run(JSON.stringify(version));
+    raw.close();
+  };
+  stale(SEARCH_INDEX_VERSION);
+  store = createStore(path);
+  assert.equal(store.queryActivity({ search: 'Nightly' }).total, 0, 'an unchanged version does not reindex');
+  store.close();
+  stale(SEARCH_INDEX_VERSION - 1);
+  store = createStore(path);
+  assert.equal(store.queryActivity({ search: 'Nightly' }).total, 1, 'the old row matches the current terms');
+  assert.equal(store.getSetting('searchIndexVersion', null), SEARCH_INDEX_VERSION);
+  store.close();
   rmSync(folder, { recursive: true });
 });
 

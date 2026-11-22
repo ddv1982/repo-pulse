@@ -3,7 +3,13 @@ import { DatabaseSync } from 'node:sqlite';
 import { chmodSync, mkdirSync, readdirSync, rmSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import { activityKey, lifecycleKey, supportingPushKey } from '../src/activity.js';
-import { activityStatusId, activityEvidenceId, activitySearchText, azureDevOpsService } from '../src/activity-text.js';
+import {
+  activityStatusId,
+  activityEvidenceId,
+  activitySearchText,
+  azureDevOpsService,
+  SEARCH_INDEX_VERSION,
+} from '../src/activity-text.js';
 import { createActivityQuery } from './activity-query.js';
 import { localPrLink, mergeUpdates } from './merge-evidence.js';
 import { forkJob } from './fork-origin.js';
@@ -427,6 +433,12 @@ export function createStore(path = ':memory:') {
       if (version >= target) continue;
       run();
       db.exec(`PRAGMA user_version = ${target}`);
+    }
+    // Search text is computed when a row is saved, so rows saved under older terms are rebuilt as migration 13 did.
+    // A new database has no rows to rebuild.
+    if (getSetting('searchIndexVersion', null) !== SEARCH_INDEX_VERSION) {
+      if (version > 0) for (const row of q(selectEvents).iterate()) indexLabels(hydrate(row));
+      setSetting('searchIndexVersion', SEARCH_INDEX_VERSION);
     }
   });
   // Returns the space deleted data held to the file system. VACUUM cannot run inside a transaction, and a failure

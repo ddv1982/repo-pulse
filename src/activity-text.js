@@ -330,6 +330,9 @@ function addDataSearchTerms(terms, data) {
   addEvidenceSearchTerms(terms, data.mergeEvidence);
 }
 
+/** Raise this when activitySearchText changes which terms it indexes, so the store rebuilds search text saved before. */
+export const SEARCH_INDEX_VERSION = 1;
+
 /** @param {ActivityEvent} event */
 export function activitySearchText(event) {
   /** @type {Set<string>} */
