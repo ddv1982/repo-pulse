@@ -307,7 +307,7 @@ const cachedPr = (id, status = 'active') => ({
 test('a cached active PR that Azure can no longer read does not stall the prs stream or its later siblings', async () => {
   let listed = [1, 2, 3, 4, 5].map(id => cachedPr(id));
   const lookups = [];
-  const unreadable = { 1: 'NOT_FOUND', 2: 'INVALID_RESPONSE' };
+  const unreadable = { 1: 'NOT_FOUND', 2: 'WRONG_REPOSITORY' };
   const provider = {
     async read() {
       return { items: listed, nextCursor: null };
@@ -335,29 +335,31 @@ test('a cached active PR that Azure can no longer read does not stall the prs st
   store.close();
 });
 
-test('an auth error during a per-PR lookup still fails the prs page', async () => {
-  let listed = [cachedPr(1), cachedPr(2)];
-  const provider = {
-    async read() {
-      return { items: listed, nextCursor: null };
-    },
-    async pullRequest(_repo, id) {
-      if (id === '2') throw Object.assign(new Error('sign in'), { code: 'AUTH_REQUIRED' });
-      return cachedPr(Number(id), 'completed');
-    },
-  };
-  const { store, sync, advance } = setup(provider, ['prs']);
-  await sync.tick();
-  const before = store.getStreams().find(state => state.stream === 'prs').lastSuccess;
-  listed = [];
-  advance();
-  await sync.tick();
-  const prs = store.getStreams().find(state => state.stream === 'prs');
-  assert.equal(prs.error.code, 'AUTH_REQUIRED');
-  assert.equal(prs.lastSuccess, before, 'the page does not commit');
-  assert.equal(store.getEntity(repo.id, 'pr', '1').status, 'active', 'no sibling commits from a failed page');
-  store.close();
-});
+for (const code of ['AUTH_REQUIRED', 'INVALID_RESPONSE']) {
+  test(`a ${code} error during a per-PR lookup still fails the prs page`, async () => {
+    let listed = [cachedPr(1), cachedPr(2)];
+    const provider = {
+      async read() {
+        return { items: listed, nextCursor: null };
+      },
+      async pullRequest(_repo, id) {
+        if (id === '2') throw Object.assign(new Error('failed'), { code });
+        return cachedPr(Number(id), 'completed');
+      },
+    };
+    const { store, sync, advance } = setup(provider, ['prs']);
+    await sync.tick();
+    const before = store.getStreams().find(state => state.stream === 'prs').lastSuccess;
+    listed = [];
+    advance();
+    await sync.tick();
+    const prs = store.getStreams().find(state => state.stream === 'prs');
+    assert.equal(prs.error?.code, code);
+    assert.equal(prs.lastSuccess, before, 'the page does not commit');
+    assert.equal(store.getEntity(repo.id, 'pr', '1').status, 'active', 'no sibling commits from a failed page');
+    store.close();
+  });
+}
 
 test('disabled repositories and disabled refresh never call Azure; concurrent ticks coalesce', async () => {
   let release;

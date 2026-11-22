@@ -306,7 +306,7 @@ export function createSync({
           items = [...items, await provider.pullRequest(repo, id)];
         } catch (error) {
           // Only "this PR cannot be read" (deleted, or now in another repository) is left for a later turn.
-          if (!['NOT_FOUND', 'INVALID_RESPONSE'].includes(/** @type {{ code?: string }} */ (error)?.code || '')) throw error;
+          if (!['NOT_FOUND', 'WRONG_REPOSITORY'].includes(/** @type {{ code?: string }} */ (error)?.code || '')) throw error;
         }
       }
     }
