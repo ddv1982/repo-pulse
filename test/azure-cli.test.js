@@ -145,6 +145,15 @@ test('CLI errors are classified from Azure output, not from the command argument
   const forbidden = failing('ERROR: TF401027: You need the Git Read permission');
   await assert.rejects(forbidden.run(args), { code: 'FORBIDDEN' });
   forbidden.close();
+  // Azure error numbers such as TF401180 contain 401 or 404 without being HTTP statuses.
+  for (const [stderr, code] of [
+    ['ERROR: TF401180: The requested pull request was not found.', 'NOT_FOUND'],
+    ['ERROR: Operation returned a 401 (Unauthorized) status code.', 'AUTH_REQUIRED'],
+  ]) {
+    const cli = failing(stderr);
+    await assert.rejects(cli.run(args), { code }, stderr);
+    cli.close();
+  }
 });
 
 test('closing the CLI reports running reads as closed, not timed out', async () => {

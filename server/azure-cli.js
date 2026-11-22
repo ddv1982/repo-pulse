@@ -44,17 +44,18 @@ export function classifyCliError(error) {
   // Reads are aborted only by close(); the timeout option kills the process instead.
   if (error?.name === 'AbortError') return cliError('CLOSED', 'Azure CLI queue is closed.');
   if (error?.killed || error?.code === 'ETIMEDOUT') return cliError('TIMEOUT', 'Azure CLI timed out. Cached activity is retained.');
-  if (/429|too many requests|rate.limit|TF400733/i.test(text))
+  // Status numbers match as whole words: Azure error numbers such as TF401180 contain 401 without being a status.
+  if (/\b429\b|too many requests|rate.limit|TF400733/i.test(text))
     return cliError('THROTTLED', 'Azure DevOps asked us to slow down. Retrying later.');
-  if (/403|forbidden|TF401027|permission|not authorized/i.test(text))
+  if (/\b403\b|forbidden|TF401027|permission|not authorized/i.test(text))
     return cliError('FORBIDDEN', 'Azure DevOps refused this read. Check the CLI identity and repository permissions.');
-  if (/401|az login|authentication|unauthorized|AADSTS|token.*expired|sign.in/i.test(text))
+  if (/\b401\b|az login|authentication|unauthorized|AADSTS|token.*expired|sign.in/i.test(text))
     return cliError('AUTH_REQUIRED', 'Azure CLI sign-in is unavailable or expired. Reconnect in your terminal, then retry.');
-  if (/404|not found|TF401019/i.test(text))
+  if (/\b404\b|not found|TF401019|TF401180/i.test(text))
     return cliError('NOT_FOUND', 'The requested Azure DevOps resource was not found or is not accessible.');
   if (/extension|unrecognized arguments|not in the.*command group|misspelled/i.test(text))
     return cliError('CLI_SETUP', 'Azure CLI or its azure-devops extension does not support this read. Check the installation.');
-  if (/5\d\d|connection|network|resolve|timeout|SSL|certificate|proxy|unreachable/i.test(text))
+  if (/\b5\d\d\b|connection|network|resolve|timeout|SSL|certificate|proxy|unreachable/i.test(text))
     return cliError('UNAVAILABLE', 'Azure DevOps could not be reached. Check your connection or VPN.');
   return cliError('CLI_ERROR', 'Azure CLI could not complete this read. Check access and try again.');
 }
