@@ -824,6 +824,46 @@ test('a refresh requested during a read that then fails is still answered while 
   store.close();
 });
 
+test('a refresh made with automatic checks on still runs if checks are turned off before the older read fails', async () => {
+  const store = createStore();
+  store.saveRepo(repo);
+  let time = BASE,
+    fail,
+    calls = 0;
+  const sync = createSync({
+    store,
+    now: () => time,
+    intervalMs: 1000,
+    provider: {
+      read() {
+        if (++calls > 1) return Promise.resolve({ items: [], nextCursor: null });
+        return new Promise((_done, reject) => {
+          fail = () => reject(Object.assign(new Error('offline'), { code: 'UNAVAILABLE' }));
+        });
+      },
+    },
+  });
+  sync.refresh([repo.id]);
+  for (const state of store.getStreams()) if (state.stream !== 'pushes') store.saveStream({ ...state, nextAt: '2099-01-01T00:00:00Z' });
+  const reading = sync.tick();
+  await new Promise(setImmediate);
+  time += 40000;
+  assert.equal(sync.refresh([repo.id]).scheduled, true);
+  for (const state of store.getStreams()) if (state.stream !== 'pushes') store.saveStream({ ...state, nextAt: '2099-01-01T00:00:00Z' });
+  store.setSetting('refreshEnabled', false);
+  fail();
+  await reading;
+  time += 31 * 60000;
+  await sync.tick();
+  assert.equal(calls, 2, 'the request still gets its read');
+  assert.equal(
+    sync.status().inProgress.some(entry => entry.stream === 'pushes'),
+    false,
+    'and is no longer in progress',
+  );
+  store.close();
+});
+
 test('a first sync whose read fails after a newer refresh keeps its lower bound', async () => {
   const store = createStore();
   store.saveRepo(repo);

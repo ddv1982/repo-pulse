@@ -118,7 +118,7 @@ function completePage(state, latest, { at, delayMs, quietCycles }) {
 /**
  * Records a failed read and backs off. A manual request ends with its failure; retrying
  * is left to the user while automatic checks are off. A refresh requested after the window
- * opened keeps its manual flag, and the retry restarts at page one of a window that keeps the
+ * opened stays due as a manual request, and the retry restarts at page one of a window that keeps the
  * old lower bound and ends at this failure, after the request.
  * @param {StartedStream} state @param {StreamState} latest @param {number} at @param {unknown} error @param {number} intervalMs
  * @returns {StreamState}
@@ -143,7 +143,8 @@ function failPage(state, latest, at, error, intervalMs) {
     pendingItems: undefined,
     activeIds: undefined,
   };
-  return { ...failed, ...restarted, refreshGeneration: latest.refreshGeneration, manual: latest.manual };
+  // Marked manual so the request still runs if automatic checks were turned off after it was made.
+  return { ...failed, ...restarted, refreshGeneration: latest.refreshGeneration, manual: true };
 }
 
 /**
