@@ -261,6 +261,38 @@ test('PR reactivation creates a fresh event even when its state matches an earli
   store.close();
 });
 
+const cachedPr = (id, status = 'active') => ({
+  pullRequestId: id,
+  title: `PR ${id}`,
+  status,
+  creationDate: '2026-11-16T10:00:00Z',
+  sourceRefName: `refs/heads/feature/${id}`,
+});
+
+test('an auth error during a per-PR lookup still fails the prs page', async () => {
+  let listed = [cachedPr(1), cachedPr(2)];
+  const provider = {
+    async read() {
+      return { items: listed, nextCursor: null };
+    },
+    async pullRequest(_repo, id) {
+      if (id === '2') throw Object.assign(new Error('sign in'), { code: 'AUTH_REQUIRED' });
+      return cachedPr(Number(id), 'completed');
+    },
+  };
+  const { store, sync, advance } = setup(provider, ['prs']);
+  await sync.tick();
+  const before = store.getStreams().find(state => state.stream === 'prs').lastSuccess;
+  listed = [];
+  advance();
+  await sync.tick();
+  const prs = store.getStreams().find(state => state.stream === 'prs');
+  assert.equal(prs.error.code, 'AUTH_REQUIRED');
+  assert.equal(prs.lastSuccess, before, 'the page does not commit');
+  assert.equal(store.getEntity(repo.id, 'pr', '1').status, 'active', 'no sibling commits from a failed page');
+  store.close();
+});
+
 test('disabled repositories and disabled refresh never call Azure; concurrent ticks coalesce', async () => {
   let release;
   let calls = 0;
