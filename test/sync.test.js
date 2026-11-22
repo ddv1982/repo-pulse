@@ -744,6 +744,48 @@ test('a failed manual refresh is not retried while automatic checks are off', as
   store.close();
 });
 
+test('a refresh requested during a read that then fails is still answered while automatic checks are off', async () => {
+  const store = createStore();
+  store.saveRepo(repo);
+  store.setSetting('refreshEnabled', false);
+  let time = BASE,
+    fail,
+    calls = 0;
+  const sync = createSync({
+    store,
+    now: () => time,
+    intervalMs: 1000,
+    provider: {
+      read() {
+        if (++calls > 1) return Promise.reject(Object.assign(new Error('offline'), { code: 'UNAVAILABLE' }));
+        return new Promise((_done, reject) => {
+          fail = () => reject(Object.assign(new Error('offline'), { code: 'UNAVAILABLE' }));
+        });
+      },
+    },
+  });
+  sync.refresh([repo.id]);
+  for (const state of store.getStreams()) if (state.stream !== 'pushes') store.saveStream({ ...state, manual: false });
+  const reading = sync.tick();
+  await new Promise(setImmediate);
+  time += 40000;
+  assert.equal(sync.refresh([repo.id]).scheduled, true);
+  for (const state of store.getStreams()) if (state.stream !== 'pushes') store.saveStream({ ...state, manual: false });
+  fail();
+  await reading;
+  const pending = () => sync.status().inProgress.some(entry => entry.stream === 'pushes');
+  assert.equal(store.getStreams().find(state => state.stream === 'pushes').error.code, 'UNAVAILABLE', 'the failure stays visible');
+  assert.equal(pending(), true, 'the newer request is still pending');
+  time += 31 * 60000;
+  await sync.tick();
+  assert.equal(calls, 2, 'the newer request gets its own read');
+  assert.equal(pending(), false, 'its failure answers it');
+  time += 31 * 60000;
+  await sync.tick();
+  assert.equal(calls, 2, 'no further read without another request');
+  store.close();
+});
+
 for (const automatic of [true, false]) {
   test(`a refresh requested during a read stays due after that page commits (automatic checks ${automatic ? 'on' : 'off'})`, async () => {
     const store = createStore();

@@ -117,22 +117,26 @@ function completePage(state, latest, { at, delayMs, quietCycles }) {
 
 /**
  * Records a failed read and backs off. A manual request ends with its failure; retrying
- * is left to the user while automatic checks are off.
- * @param {StartedStream} state @param {number} at @param {unknown} error @param {number} intervalMs
+ * is left to the user while automatic checks are off. A refresh requested after the window
+ * opened keeps its manual flag and drops the window, so its retry reads a window opened after it.
+ * @param {StartedStream} state @param {StreamState} latest @param {number} at @param {unknown} error @param {number} intervalMs
  * @returns {StreamState}
  */
-function failPage(state, at, error, intervalMs) {
+function failPage(state, latest, at, error, intervalMs) {
   const failures = (state.failures || 0) + 1;
   const delay = Math.min(30 * 60000, intervalMs * 2 ** Math.min(failures - 1, 4));
   // Caught values are untyped; provider errors carry a user-facing message only when they have a code.
   const { code, message } = /** @type {{ code?: string, message: string }} */ (error);
-  return {
+  const failed = {
     ...state,
     manual: false,
     failures,
     error: { code: code || 'SYNC_FAILED', message: code ? message : 'Could not refresh this Azure activity stream.' },
     nextAt: iso(at + delay),
   };
+  if ((latest.refreshGeneration || 0) <= state.windowGeneration) return failed;
+  const dropped = { window: undefined, windowGeneration: undefined, cursor: undefined, pendingItems: undefined, activeIds: undefined };
+  return { ...failed, ...dropped, refreshGeneration: latest.refreshGeneration, manual: latest.manual };
 }
 
 /**
@@ -346,8 +350,11 @@ export function createSync({
       commitRead(repo, state, working, read);
     } catch (error) {
       if (!store.listRepos().some(entry => entry.id === repo.id)) return;
-      store.saveStream(failPage(working, now(), error, intervalMs));
-      requested.delete(`${repo.id}:${state.stream}`);
+      // A refresh requested while this read was in flight is not answered by its failure.
+      const latest = store.getStreams().find(entry => entry.repoId === repo.id && entry.stream === state.stream) || state;
+      store.saveStream(failPage(working, latest, now(), error, intervalMs));
+      const key = `${repo.id}:${state.stream}`;
+      if ((requested.get(key)?.generation ?? 0) <= working.windowGeneration) requested.delete(key);
       counters.errors++;
     } finally {
       reading = null;
