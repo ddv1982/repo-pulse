@@ -187,6 +187,8 @@ export function createSync({
   /** @type {Partial<Record<BackgroundKind|'live', string>>} */
   const lastTurn = {};
   const counters = { pages: 0, errors: 0 };
+  /** The last cached active PR looked up by ID, per repository, so missing PRs take turns. @type {Map<string, string>} */
+  const prLookedUp = new Map();
 
   function ensureStreams() {
     const current = store.getStreams();
@@ -276,10 +278,20 @@ export function createSync({
       const missing = store
         .listEntities(repo.id, 'pr')
         .filter(entry => entry.data.status === 'active' && !activeIds?.includes(entry.id))
-        .slice(0, 3);
-      for (const entry of missing) {
+        .map(entry => entry.id)
+        .sort((a, b) => Number(a) - Number(b));
+      // Lookups resume after the last ID checked, so PRs that stay unreadable cannot hold every turn.
+      const after = missing.findIndex(id => Number(id) > Number(prLookedUp.get(repo.id) ?? -1));
+      const turn = [...missing.slice(Math.max(after, 0)), ...missing.slice(0, Math.max(after, 0))].slice(0, 3);
+      for (const id of turn) {
         if (!watching(repo)) return null;
-        items = [...items, await provider.pullRequest(repo, entry.id)];
+        prLookedUp.set(repo.id, id);
+        try {
+          items = [...items, await provider.pullRequest(repo, id)];
+        } catch (error) {
+          // Only "this PR cannot be read" (deleted, or now in another repository) is left for a later turn.
+          if (!['NOT_FOUND', 'INVALID_RESPONSE'].includes(/** @type {{ code?: string }} */ (error)?.code || '')) throw error;
+        }
       }
     }
     return { page, complete, activeIds, items };
@@ -409,6 +421,7 @@ export function createSync({
       } finally {
         requested.clear();
         refreshedAt.clear();
+        prLookedUp.clear();
         lastKey = undefined;
         liveTurns = 0;
         resetting = false;

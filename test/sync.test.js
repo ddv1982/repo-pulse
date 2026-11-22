@@ -269,6 +269,37 @@ const cachedPr = (id, status = 'active') => ({
   sourceRefName: `refs/heads/feature/${id}`,
 });
 
+test('a cached active PR that Azure can no longer read does not stall the prs stream or its later siblings', async () => {
+  let listed = [1, 2, 3, 4, 5].map(id => cachedPr(id));
+  const lookups = [];
+  const unreadable = { 1: 'NOT_FOUND', 2: 'INVALID_RESPONSE' };
+  const provider = {
+    async read() {
+      return { items: listed, nextCursor: null };
+    },
+    async pullRequest(_repo, id) {
+      lookups.push(id);
+      if (unreadable[id]) throw Object.assign(new Error('unreadable'), { code: unreadable[id] });
+      return cachedPr(Number(id), 'completed');
+    },
+  };
+  const { store, sync, advance } = setup(provider, ['prs']);
+  await sync.tick();
+  listed = [];
+  advance();
+  await sync.tick();
+  const prs = () => store.getStreams().find(state => state.stream === 'prs');
+  assert.equal(prs().error, null, 'one unreadable PR does not fail the page');
+  assert.equal(prs().lastSuccess, new Date(BASE + 2000).toISOString(), 'the listing commits');
+  assert.equal(store.getEntity(repo.id, 'pr', '3').status, 'completed', 'a readable sibling commits');
+  assert.equal(store.getEntity(repo.id, 'pr', '1').status, 'active', 'an unreadable PR is left as it was');
+  store.saveStream({ ...prs(), nextAt: new Date(BASE + 2000).toISOString() });
+  await sync.tick();
+  assert.deepEqual(lookups, ['1', '2', '3', '4', '5', '1'], 'later PRs get a turn instead of the same first three');
+  assert.equal(store.getEntity(repo.id, 'pr', '5').status, 'completed');
+  store.close();
+});
+
 test('an auth error during a per-PR lookup still fails the prs page', async () => {
   let listed = [cachedPr(1), cachedPr(2)];
   const provider = {
