@@ -1,9 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createStore } from '../server/store.js';
+import { copyBeforeUpgrade, createStore } from '../server/store.js';
 import { SEARCH_INDEX_VERSION } from '../src/activity-text.js';
 import { DatabaseSync } from 'node:sqlite';
 import { spawn } from 'node:child_process';
@@ -364,6 +364,31 @@ test('rows indexed under older search terms are rebuilt once when the search ind
   assert.equal(store.queryActivity({ search: 'Nightly' }).total, 1, 'the old row matches the current terms');
   assert.equal(store.getSetting('searchIndexVersion', null), SEARCH_INDEX_VERSION);
   store.close();
+  rmSync(folder, { recursive: true });
+});
+
+test('an opener whose database another opener already upgraded keeps the copy that one made', () => {
+  const folder = mkdtempSync(join(tmpdir(), 'pulse-store-'));
+  const path = join(folder, 'state.sqlite');
+  const copy = `${path}.pre-v14`;
+  createStore(path).close();
+  // Another opener copied the v14 file and then upgraded it to v15 after this opener read version 14.
+  writeFileSync(copy, 'the copy the other opener made');
+  const db = new DatabaseSync(path);
+  copyBeforeUpgrade(db, path, 14);
+  assert.equal(readFileSync(copy, 'utf8'), 'the copy the other opener made', 'a v15 database is not saved as pre-v14');
+  assert.deepEqual(
+    readdirSync(folder).filter(name => name.includes('.tmp-')),
+    [],
+    'no temporary copy is left',
+  );
+  // At the version it read, the copy is replaced.
+  db.exec('PRAGMA user_version = 14');
+  copyBeforeUpgrade(db, path, 14);
+  db.close();
+  const check = new DatabaseSync(copy, { readOnly: true });
+  assert.equal(check.prepare('PRAGMA user_version').get().user_version, 14);
+  check.close();
   rmSync(folder, { recursive: true });
 });
 

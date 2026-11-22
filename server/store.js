@@ -1,6 +1,6 @@
 // @ts-check
 import { DatabaseSync } from 'node:sqlite';
-import { chmodSync, mkdirSync, readdirSync, rmSync } from 'node:fs';
+import { chmodSync, mkdirSync, readdirSync, renameSync, rmSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import { activityKey, lifecycleKey, supportingPushKey } from '../src/activity.js';
 import {
@@ -68,6 +68,34 @@ const FIRST_SYNC_MS = 7 * 86400000;
 const badRequest = message => Object.assign(new Error(message), { code: 'BAD_REQUEST' });
 /** @param {string} value */
 const stamp = value => (Number.isFinite(Date.parse(value)) ? Date.parse(value) : 0);
+/**
+ * Writes a copy of a database about to be upgraded from `version` next to it, as `<name>.pre-v<version>`, and removes
+ * older copies. The copy goes to a temporary name first: if another opener upgraded the file since `version` was read,
+ * the copy is not at `version`, so it is dropped and the copy that opener made stays.
+ * @param {DatabaseSync} db @param {string} path @param {number} version
+ */
+export function copyBeforeUpgrade(db, path, version) {
+  const name = `${basename(path)}.pre-v${version}`;
+  const copy = join(dirname(path), name);
+  const temporary = `${copy}.tmp-${process.pid}`;
+  try {
+    rmSync(temporary, { force: true });
+    db.prepare('VACUUM INTO ?').run(temporary);
+    const check = new DatabaseSync(temporary, { readOnly: true });
+    const copied = /** @type {{ user_version: number }} */ (check.prepare('PRAGMA user_version').get()).user_version;
+    check.close();
+    if (copied !== version) return;
+    chmodSync(temporary, 0o600);
+    renameSync(temporary, copy);
+  } finally {
+    rmSync(temporary, { force: true });
+  }
+  const prefix = `${basename(path)}.pre-v`;
+  for (const entry of readdirSync(dirname(path)))
+    if (entry.startsWith(prefix) && /^\d+$/.test(entry.slice(prefix.length)) && entry !== name)
+      rmSync(join(dirname(path), entry), { force: true });
+}
+
 /** SQLite owns durable events, cursor transactions and indexed view-only activity membership. */
 export function createStore(path = ':memory:') {
   if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
@@ -363,12 +391,8 @@ export function createStore(path = ':memory:') {
   // Some migrations delete rows and commit even when their logic is wrong, so a database with data is copied first.
   // Only the copy from the latest upgrade is kept.
   if (path !== ':memory:' && version < migrations[migrations.length - 1][0] && q('SELECT 1 FROM sqlite_master LIMIT 1').get()) {
-    const name = `${basename(path)}.pre-v${version}`;
-    const copy = join(dirname(path), name);
     try {
-      rmSync(copy, { force: true });
-      db.prepare('VACUUM INTO ?').run(copy);
-      chmodSync(copy, 0o600);
+      copyBeforeUpgrade(db, path, version);
     } catch (error) {
       db.close();
       // Upgrading without the copy would leave nothing to recover rows a faulty migration deletes.
@@ -376,10 +400,6 @@ export function createStore(path = ':memory:') {
         `Could not copy the database before upgrading it, so it was left unchanged. Free disk space and start again. (${String(/** @type {Error} */ (error)?.message || error)})`,
       );
     }
-    const prefix = `${basename(path)}.pre-v`;
-    for (const entry of readdirSync(dirname(path)))
-      if (entry.startsWith(prefix) && /^\d+$/.test(entry.slice(prefix.length)) && entry !== name)
-        rmSync(join(dirname(path), entry), { force: true });
   }
   db.exec('PRAGMA foreign_keys = ON');
   if (path !== ':memory:') db.exec('PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL;');
