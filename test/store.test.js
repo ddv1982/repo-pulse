@@ -305,6 +305,11 @@ test('upgrading copies the database first and keeps only the latest copy; a fres
   assert.equal(copy.prepare('PRAGMA user_version').get().user_version, 13);
   assert.equal(copy.prepare("SELECT COUNT(*) AS n FROM activity_members WHERE event_id='preview'").get().n, 1);
   copy.close();
+  // A file someone named after a copy is not one of ours.
+  writeFileSync(join(folder, 'state.sqlite.pre-v12.keep'), 'mine');
+  downgrade(14);
+  createStore(path).close();
+  assert.deepEqual(copies().sort(), ['state.sqlite.pre-v12.keep', 'state.sqlite.pre-v14'], 'other files with the prefix stay');
   rmSync(folder, { recursive: true });
 });
 

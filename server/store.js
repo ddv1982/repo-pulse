@@ -376,8 +376,10 @@ export function createStore(path = ':memory:') {
         `Could not copy the database before upgrading it, so it was left unchanged. Free disk space and start again. (${String(/** @type {Error} */ (error)?.message || error)})`,
       );
     }
+    const prefix = `${basename(path)}.pre-v`;
     for (const entry of readdirSync(dirname(path)))
-      if (entry.startsWith(`${basename(path)}.pre-v`) && entry !== name) rmSync(join(dirname(path), entry), { force: true });
+      if (entry.startsWith(prefix) && /^\d+$/.test(entry.slice(prefix.length)) && entry !== name)
+        rmSync(join(dirname(path), entry), { force: true });
   }
   db.exec('PRAGMA foreign_keys = ON');
   if (path !== ':memory:') db.exec('PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL;');
