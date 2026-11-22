@@ -133,6 +133,10 @@ test('active PR reads are explicitly repo-scoped and exact PR reconciliation use
   await assert.rejects(foreign.pullRequest(repo, 123), { code: 'WRONG_REPOSITORY' });
   const malformed = createAzureClient({ cli: { run: async () => ({ repository: { id: 'repo1' } }) } });
   await assert.rejects(malformed.pullRequest(repo, 123), { code: 'INVALID_RESPONSE' });
+  const noRepository = createAzureClient({ cli: { run: async () => ({ pullRequestId: 123 }) } });
+  await assert.rejects(noRepository.pullRequest(repo, 123), { code: 'INVALID_RESPONSE' });
+  const otherId = createAzureClient({ cli: { run: async () => ({ pullRequestId: 124, repository: { id: 'repo1' } }) } });
+  await assert.rejects(otherId.pullRequest(repo, 123), { code: 'INVALID_RESPONSE' });
 });
 
 test('connection detection reuses local CLI sign-in without acquiring credentials or requiring setup', async () => {
