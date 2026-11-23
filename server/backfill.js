@@ -1,19 +1,11 @@
 // @ts-check
 
 /** @typedef {import('../src/activity.js').ActivityEvent} ActivityEvent */
-/** @typedef {'pushes'|'closedPrs'|'builds'} HistoryStream */
-/** @typedef {{ since: string, until: string }} HistoryWindow */
+/** @typedef {import('../src/contract.js').HistoryStream} HistoryStream */
+/** @typedef {import('../src/contract.js').HistoryWindow} HistoryWindow */
 /** @typedef {import('./azure-client.js').AzureRepo & { id: string, disabled?: boolean }} WatchedRepo */
-/** @typedef {{ code: string, message: string }} JobError */
 /** @typedef {import('./azure-client.js').AzurePage} SourcePage */
-/**
- * @typedef {{ id: string, type: 'backfill', repoId: string, days: number|'all',
- *   status: 'pending'|'running'|'retrying'|'completed', startedAt: string, nextAt: string,
- *   rangeStart: string, rangeEnd: string, stream: HistoryStream, cursor: SourcePage['nextCursor'],
- *   window: HistoryWindow|null, pages: number, records: number, windowsCompleted: number,
- *   failures: number, error: JobError|null, note: string, lastAttempt?: string,
- *   lastProgressAt?: string, coverageStart?: string, completedAt?: string }} HistoryJob
- */
+/** @typedef {import('../src/contract.js').HistoryJob} HistoryJob */
 /** @typedef {{ type: string, id: string, data: unknown }} Entity */
 /** @typedef {{ events?: ActivityEvent[], entities?: Entity[] }} HistoryBatch */
 /**
@@ -50,7 +42,7 @@ export function createBackfill({ store, provider, normalize, now = Date.now }) {
   /** @type {string|undefined} */
   let lastId;
   const jobs = () => store.listJobs({ type: 'backfill' });
-  /** @param {string} repoId @param {number|'all'} [days] */
+  /** @param {string} repoId @param {number|'all'} [days] @returns {HistoryJob} */
   function start(repoId, days = 30) {
     const repo = store.listRepos().find(item => item.id === repoId);
     if (!repo) throw failure('Repository is not watched.', 404);

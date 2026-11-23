@@ -1,17 +1,17 @@
 // @ts-check
 
-/** @typedef {import('../server.js').StateResponse} StateResponse */
-/** @typedef {import('../server.js').ActivityResponse} ActivityResponse */
-/** @typedef {import('../server.js').EventResponse} EventResponse */
-/** @typedef {import('../server.js').CheckoutsResponse} CheckoutsResponse */
-/** @typedef {import('../server.js').CheckoutUpdateResponse} CheckoutUpdateResponse */
-/** @typedef {import('../server.js').ConnectionResponse} ConnectionResponse */
-/** @typedef {import('../server.js').PushCommitsResponse} PushCommitsResponse */
-/** @typedef {import('../server.js').PrReviewResponse} PrReviewResponse */
-/** @typedef {import('../server.js').ErrorResponse} ErrorResponse */
-/** @typedef {import('../server.js').OkResponse} OkResponse */
-/** @typedef {import('../server.js').DiscoverResponse} DiscoverResponse */
-/** @typedef {import('../server.js').FoldersResponse} FoldersResponse */
+/** @typedef {import('./contract.js').StateResponse} StateResponse */
+/** @typedef {import('./contract.js').ActivityResponse} ActivityResponse */
+/** @typedef {import('./contract.js').EventResponse} EventResponse */
+/** @typedef {import('./contract.js').CheckoutsResponse} CheckoutsResponse */
+/** @typedef {import('./contract.js').CheckoutUpdateResponse} CheckoutUpdateResponse */
+/** @typedef {import('./contract.js').ConnectionResponse} ConnectionResponse */
+/** @typedef {import('./contract.js').PushCommitsResponse} PushCommitsResponse */
+/** @typedef {import('./contract.js').PrReviewResponse} PrReviewResponse */
+/** @typedef {import('./contract.js').ErrorResponse} ErrorResponse */
+/** @typedef {import('./contract.js').OkResponse} OkResponse */
+/** @typedef {import('./contract.js').DiscoverResponse} DiscoverResponse */
+/** @typedef {import('./contract.js').FoldersResponse} FoldersResponse */
 
 /**
  * The response body for a request path, matched on the path's shape. More specific shapes come first.
@@ -19,24 +19,24 @@
  * @typedef {P extends '/api/state' ? StateResponse
  *   : P extends '/api/activity' | `/api/activity?${string}` ? ActivityResponse
  *   : P extends `/api/activity/unseen?${string}` ? {ids: string[]}
- *   : P extends '/api/activity-filters' ? import('../server/saved-activity-filters.js').SavedActivityFilter
- *   : P extends `/api/activity-filters/${string}` ? import('../server/saved-activity-filters.js').SavedActivityFilter | OkResponse
+ *   : P extends '/api/activity-filters' ? import('./contract.js').SavedActivityFilter
+ *   : P extends `/api/activity-filters/${string}` ? import('./contract.js').SavedActivityFilter | OkResponse
  *   : P extends `/api/events/${string}` ? EventResponse
  *   : P extends '/api/checkouts' ? CheckoutsResponse
- *   : P extends `/api/repos/${string}/checkout/branches` ? import('../server.js').CheckoutBranchesResponse
- *   : P extends `/api/repos/${string}/checkout/status` ? import('../server.js').CheckoutStatusResponse
+ *   : P extends `/api/repos/${string}/checkout/branches` ? import('./contract.js').CheckoutBranchesResponse
+ *   : P extends `/api/repos/${string}/checkout/status` ? import('./contract.js').CheckoutStatusResponse
  *   : P extends `/api/repos/${string}/checkout` ? CheckoutUpdateResponse
- *   : P extends '/api/repos' ? import('../server.js').Repository
+ *   : P extends '/api/repos' ? import('./contract.js').Repository
  *   : P extends `/api/repos/${string}` ? OkResponse
  *   : P extends '/api/connection' | `/api/connection?${string}` ? ConnectionResponse
  *   : P extends `/api/push/${string}/${string}/commits` | `/api/push/${string}/${string}/commits?${string}` ? PushCommitsResponse
  *   : P extends `/api/pr/${string}/${string}/review` ? PrReviewResponse
- *   : P extends '/api/backfill' ? import('../server.js').BackfillResponse
- *   : P extends '/api/refresh' ? import('../server.js').RefreshResponse
- *   : P extends '/api/reset' ? import('../server.js').ResetResponse
+ *   : P extends '/api/backfill' ? import('./contract.js').BackfillResponse
+ *   : P extends '/api/refresh' ? import('./contract.js').RefreshResponse
+ *   : P extends '/api/reset' ? import('./contract.js').ResetResponse
  *   : P extends '/api/discover' ? DiscoverResponse
  *   : P extends '/api/folders' ? FoldersResponse
- *   : P extends '/api/demo/event' ? import('../server.js').DemoEventResponse
+ *   : P extends '/api/demo/event' ? import('./contract.js').DemoEventResponse
  *   : P extends '/api/ack' ? OkResponse & {changedIds: string[]}
  *   : P extends '/api/settings' ? OkResponse
  *   : unknown} ResponseFor

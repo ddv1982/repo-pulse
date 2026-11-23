@@ -4,8 +4,8 @@ import { randomUUID } from 'node:crypto';
 import { canonicalActivityFilter } from '../src/activity-text.js';
 import { parsePeople } from './activity-people.js';
 
-/** @typedef {{ search: string, people: string, kind: string, repoIds: string[] | null, view: 'new' | 'all' }} ActivityFilters */
-/** @typedef {{ id: string, name: string, filters: ActivityFilters }} SavedActivityFilter */
+/** @typedef {import('../src/contract.js').ActivityFilters} ActivityFilters */
+/** @typedef {import('../src/contract.js').SavedActivityFilter} SavedActivityFilter */
 
 const setting = 'savedActivityFilters';
 /** @param {string} message @param {number} [status] */

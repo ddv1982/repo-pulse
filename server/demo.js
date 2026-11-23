@@ -271,7 +271,7 @@ export function seedDemo(store) {
   store.setSetting('demoSeeded', true);
 }
 
-/** @param {Store} store */
+/** @param {Store} store @returns {ActivityEvent} */
 export function addDemoEvent(store) {
   const counter = Number(store.getSetting('demoCounter', 0)) + 1;
   store.setSetting('demoCounter', counter);

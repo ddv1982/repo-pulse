@@ -3,7 +3,7 @@
 import { emptyHtml, html } from './format.js';
 import { required, setHtml } from './dom.js';
 
-/** @typedef {import('../../server.js').CheckoutBranchesResponse['branches'][number]} CheckoutBranch */
+/** @typedef {import('../contract.js').CheckoutBranchesResponse['branches'][number]} CheckoutBranch */
 /** @typedef {{ id: string, name: string, localPath?: string }} PickerRepo */
 
 /**

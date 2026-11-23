@@ -5,7 +5,7 @@ import { canonicalActivityFilter } from '../activity-text.js';
 import { splitActivitySearch } from './activity-search.js';
 import { emptyHtml, html } from './format.js';
 
-/** @typedef {import('../../server/saved-activity-filters.js').SavedActivityFilter} SavedActivityFilter */
+/** @typedef {import('../contract.js').SavedActivityFilter} SavedActivityFilter */
 
 /** @typedef {SavedActivityFilter['filters']} ActivityFilters */
 

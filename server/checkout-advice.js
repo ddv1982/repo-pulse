@@ -5,8 +5,7 @@ import { branchName, safeAzureUrl } from '../src/events.js';
 /** @typedef {import('./checkout-git.js').LinkedRepo} LinkedRepo */
 /** @typedef {import('./checkout-git.js').GitRunner} GitRunner */
 /** @typedef {{ id: number, source: string, target: string, sourceId?: string, targetId?: string, head?: string, result?: string, strategy?: string, url?: string }} CheckoutPull */
-/** @typedef {{ branch: string, id: number, url?: string, strategy?: string, verified: boolean, targetVerified?: boolean,
- *   receipt?: { target: string, result: string, sourceHead?: string }, destination?: 'local'|'remote-only'|'other-worktree'|'different-upstream'|'unknown' }} PullAdvice */
+/** @typedef {import('../src/contract.js').PullAdvice} PullAdvice */
 /** @typedef {(repo: LinkedRepo, source: string, head: string) => Promise<CheckoutPull[]>} FindCheckoutPulls */
 export const isCommit = (/** @type {unknown} */ value) =>
   typeof value === 'string' && /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i.test(value) && !/^0+$/.test(value);

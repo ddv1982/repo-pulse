@@ -17,21 +17,18 @@ import { archivedSwitchRewrite, readDirectCommit } from './checkout-switch-refs.
 /**
  * Checkouts belong to watched repositories, so their Azure identity is always present.
  * @typedef {import('./store.js').Repository} LinkedRepo
- * @typedef {{ branch: string|null, head: string|null, upstream: string|null, ahead: number|null, behind: number|null, dirty: boolean }} GitStatus
- * @typedef {{ branch: string, head: string, upstream: string|null, identity: string }} CheckoutSelection
- * @typedef {CheckoutSelection & { switchIdentity: string }} SwitchIntent
- * @typedef {CheckoutSelection & { upstream: string }} CheckoutIntent
- * @typedef {GitStatus & { identity: string, switchIdentity: string|null, lastBranchCheck?: { at: string, matchesFetchedTip: boolean } }} CheckoutReading
+ * @typedef {import('../src/contract.js').GitStatus} GitStatus
+ * @typedef {import('../src/contract.js').CheckoutSelection} CheckoutSelection
+ * @typedef {import('../src/contract.js').SwitchIntent} SwitchIntent
+ * @typedef {import('../src/contract.js').CheckoutIntent} CheckoutIntent
+ * @typedef {import('../src/contract.js').CheckoutReading} CheckoutReading
  * @typedef {{ remote: string, source: string, tracking: string, url: string }} Upstream
- * @typedef {{ token: string, upstream: string, previous: string|null, tip: string, ahead: number, behind: number }} ActivitySwitchReview
- * @typedef {'in-progress'|'detached'|'unborn'|'dirty'|'no-upstream'|'different-remote'|'upstream-missing'|'upstream-rewritten'|'fetch-failed'|'unknown'|'diverged'|'ahead'|'current'} BlockedState
+ * @typedef {import('../src/contract.js').ActivitySwitchReview} ActivitySwitchReview
+ * @typedef {import('../src/contract.js').BlockedState} BlockedState
  * @typedef {(path: string, repo: LinkedRepo) => Promise<{ snapshot: ActiveCheckout, target: Upstream|null, gitDirectory: string|null }>} ReadCheckoutStatus
- * @typedef {CheckoutIntent & CheckoutReading & { state: 'behind', canCheck: true, canPull: true }} PullableCheckout
- * @typedef {CheckoutReading & { state: BlockedState, canCheck: boolean, canPull: false, diagnostic?: import('./checkout-observations.js').CheckoutDiagnostic }} BlockedCheckout
- * @typedef {PullableCheckout | BlockedCheckout} ActiveCheckout
- * @typedef {ActiveCheckout & { followup?: import('./checkout-branches.js').FollowupSummary }} DecoratedCheckout
- *   A checkout with an open branch follow-up names it, so the page can offer to review or remove the old branch.
- * @typedef {DecoratedCheckout | { state: 'unavailable'|'not-linked', diagnostic?: import('./checkout-observations.js').CheckoutDiagnostic }} CheckoutStatus
+ * @typedef {import('../src/contract.js').ActiveCheckout} ActiveCheckout
+ * @typedef {import('../src/contract.js').DecoratedCheckout} DecoratedCheckout
+ * @typedef {import('../src/contract.js').CheckoutStatus} CheckoutStatus
  * @typedef {(path: string, args: string[], options?: { guard?: NodeJS.ProcessEnv, input?: string, prepare?: () => Promise<void>, maxBuffer?: number }) => Promise<string>} GitRunner
  */
 
@@ -619,7 +616,10 @@ export function createCheckoutGit({
     ]);
   }
 
-  /** @param {LinkedRepo} repo @param {'check'|'pull'} operation @param {CheckoutIntent} expected */
+  /**
+   * @param {LinkedRepo} repo @param {'check'|'pull'} operation @param {CheckoutIntent} expected
+   * @returns {Promise<import('../src/contract.js').CheckoutUpdateResult>}
+   */
   function update(repo, operation, expected) {
     return exclusively(repo, async path => {
       const result = await updateAt(path, repo, operation, expected);
@@ -627,7 +627,10 @@ export function createCheckoutGit({
     });
   }
 
-  /** @param {LinkedRepo} repo @param {import('./checkout-branches.js').BranchAction} action @param {CheckoutIntent} expected */
+  /**
+   * @param {LinkedRepo} repo @param {import('./checkout-branches.js').BranchAction} action @param {CheckoutIntent} expected
+   * @returns {Promise<import('../src/contract.js').BranchActionResult>}
+   */
   function branchAction(repo, action, expected) {
     return exclusively(repo, async path => {
       const current = await statusAt(path, repo);
@@ -646,6 +649,7 @@ export function createCheckoutGit({
 
   /** @param {LinkedRepo} repo @param {string} name @param {SwitchIntent} expected
    * @param {{ eventId?: string, confirmation?: string }} [options]
+   * @returns {Promise<import('../src/contract.js').ActivitySwitchResult>}
    */
   function switchToActivityBranch(repo, name, expected, { eventId, confirmation } = {}) {
     return exclusively(repo, path => switchAt(path, repo, name, expected, { eventId, confirmation }));

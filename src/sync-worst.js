@@ -1,6 +1,6 @@
 // @ts-check
 
-/** @typedef {import('../server/sync-status.js').SyncStatus} SyncStatus */
+/** @typedef {import('./contract.js').SyncStatus} SyncStatus */
 
 /** @type {Record<SyncStatus['state'], number>} */
 const RANK = { synced: 0, paused: 1, syncing: 2, delayed: 3, problem: 4 };

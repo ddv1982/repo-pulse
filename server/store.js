@@ -20,12 +20,9 @@ import { forkJob } from './fork-origin.js';
 /** @typedef {import('../src/activity.js').EventData} EventData */
 /** @typedef {import('./sync.js').StreamState} StreamState */
 /** @typedef {import('./sync.js').StreamName} StreamName */
-/** The JSON in `events.data`. Insertion always fills `time` and `observedAt`; `data` keeps provider fields beyond EventData. */
-/** @typedef {ActivityEvent & { observedAt: string, data?: EventData & Record<string, unknown> }} StoredEvent */
-/** An event as the store returns it: the read flags come from their columns and enrichment is merged into `data`. */
-/** @typedef {StoredEvent & { seen: boolean, imported: boolean }} HydratedEvent */
-/** Every watched repository was resolved through Azure (or is a demo fixture), so its Azure identity is always present. */
-/** @typedef {import('./azure-client.js').AzureRepo & { id: string, name: string, disabled?: boolean, localPath?: string }} Repository */
+/** @typedef {import('../src/contract.js').StoredEvent} StoredEvent */
+/** @typedef {import('../src/contract.js').HydratedEvent} HydratedEvent */
+/** @typedef {import('../src/contract.js').Repository} Repository */
 /** Jobs share the indexed columns; every other field belongs to the job type. */
 /** @typedef {{ id: string, type: string, repoId: string, nextAt?: string, status?: string, eventId?: string, [field: string]: unknown }} Job */
 /** Settings hold any JSON value, written with JSON.stringify. */

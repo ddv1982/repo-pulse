@@ -13,15 +13,14 @@ import { isSymbolicRef, worktreeUsesBranch } from './checkout-delete-guard.cjs';
 /** @typedef {import('./checkout-git.js').Upstream} Upstream */
 /** @typedef {import('./checkout-advice.js').PullAdvice} PullAdvice */
 /** @typedef {{ snapshot: ActiveCheckout, target: Upstream|null }} Reading */
-/** @typedef {{ id: string, path: string, source: string, sourceHead: string, targetRef: string,
- *   result: string, recordedSource?: string, targetIdentity?: string, archive?: string, workspace?: string }} Followup */
-/** The part of a follow-up plan a checkout status shows. @typedef {Pick<Followup, 'id' | 'source' | 'workspace'>} FollowupSummary */
+/** @typedef {import('../src/contract.js').FollowupSummary} FollowupSummary */
+/** @typedef {FollowupSummary & { path: string, sourceHead: string, targetRef: string,
+ *   result: string, recordedSource?: string, targetIdentity?: string, archive?: string }} Followup */
 /** @typedef {{ get: (id: string) => Followup|undefined, save: (id: string, plan: Followup) => void }} Followups */
 /** @typedef {{ operation: 'switch-update', prId: number, result: string } |
  *   { operation: 'review'|'remove', planId: string } |
  *   { operation: 'carry', planId: string, commits: string[] }} BranchAction */
-/** @typedef {{ kind: 'included'|'local-followup'|'unknown'|'changed'|'occupied',
- *   commits?: { id: string, subject: string }[], branch?: string, canRemove?: boolean }} Review */
+/** @typedef {import('../src/contract.js').Review} Review */
 
 /** @param {string} message */
 export const branchProblem = message => Object.assign(new Error(message), { status: 409 });
