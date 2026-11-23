@@ -19,7 +19,7 @@
     "check": "node scripts/check.ts",
     "pretest:ui": "npm run build:web",
     "test:ui": "node --test \"e2e/*.test.ts\"",
-    "check:types": "tsc -p tsconfig.web.json --noEmit && tsc -p tsconfig.json && tsc -p tsconfig.test.json",
+    "check:types": "tsc -p tsconfig.web.json --noEmit && tsc -p tsconfig.json && tsc -p tsconfig.test.json && tsc -p tsconfig.hook.json",
     "lint": "oxlint --deny-warnings . && prettier --check .",
     "format": "prettier --write ."
   },

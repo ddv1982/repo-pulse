@@ -4,5 +4,5 @@
     "lib": ["ES2024"],
     "types": ["node"]
   },
-  "include": ["server.js", "server.ts", "server/**/*.js", "server/**/*.ts", "scripts/**/*.ts"]
+  "include": ["server.ts", "server/**/*.ts", "scripts/**/*.ts"]
 }
