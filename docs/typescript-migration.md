@@ -105,7 +105,7 @@ Scope depends on **D2**.
 
 ## Phase 6: e2e (3 files, about 3,700 lines)
 
-- [x] `e2e/*.test.ts`; `test:ui` runs `node --test "e2e/*.test.ts"`; 85 Chromium tests pass. Until Phase 5 brings `tsconfig.test.json` to 0, `tsconfig.e2e.json` checks `e2e/` in `check:types` with `checkJs` off for the `test/fixtures/` files it imports
+- [x] `e2e/*.test.ts`; `test:ui` runs `node --test "e2e/*.test.ts"`; 85 Chromium tests pass; `tsconfig.test.json` checks `e2e/` with the unit tests, and the browser tests share the typed helpers in `test/fixtures/`
 
 ## Phase 7: close-out
 
