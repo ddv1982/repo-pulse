@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parse, one, all, row, text, srText } from './fixtures/dom.js';
+import { parse, one, all, row, text, srText } from './fixtures/dom.ts';
 
 test('the DOM test helper reads visible and screen-reader text and finds elements by selector', () => {
   const doc = parse(`<ul><li class="row" data-event-id="a"><span class="title">New

@@ -6,7 +6,7 @@ import { createSync } from '../server/sync.ts';
 import { seedDemo } from '../server/demo.ts';
 import { createBackfill } from '../server/backfill.ts';
 import { createApp } from '../server.ts';
-import { TEST_KEY, keyedFetch } from './fixtures/access.js';
+import { TEST_KEY, keyedFetch } from './fixtures/access.ts';
 
 const fetch = keyedFetch();
 const repo = {

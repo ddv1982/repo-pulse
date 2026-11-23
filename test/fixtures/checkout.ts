@@ -2,6 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import type { TestContext } from 'node:test';
 import { createCheckoutGit } from '../../server/checkout-git.ts';
 
 // Fixture repositories and the checkout code under test commit; a clean machine or CI runner has no Git identity.
@@ -14,11 +15,11 @@ for (const [key, value] of Object.entries({
   process.env[key] ??= value;
 }
 
-export function git(path, ...args) {
+export function git(path: string, ...args: string[]) {
   return execFileSync('git', ['-C', path, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
 }
 
-export function checkoutFixture(t) {
+export function checkoutFixture(t: TestContext) {
   // The app canonicalises checkout paths; on Windows that expands 8.3 short names in the temp folder.
   const root = realpathSync.native(mkdtempSync(join(tmpdir(), 'pulse-checkout-')));
   t.after(() => rmSync(root, { recursive: true, force: true }));
@@ -27,7 +28,7 @@ export function checkoutFixture(t) {
   const local = join(root, 'local');
   git(root, 'init', '--bare', '--initial-branch=main', remote);
   git(root, 'clone', '--no-local', remote, source);
-  const commit = (path, file, contents) => {
+  const commit = (path: string, file: string, contents: string) => {
     writeFileSync(join(path, file), contents);
     git(path, 'add', '--', file);
     git(path, '-c', 'user.email=test@example.test', '-c', 'user.name=Test', 'commit', '-m', contents);
@@ -46,7 +47,7 @@ export function checkoutFixture(t) {
   return { remote, source, local, original, advance, commit, repo, checkoutGit };
 }
 
-export function squashFixture(t) {
+export function squashFixture(t: TestContext) {
   const fixture = checkoutFixture(t);
   const { source, remote, local, commit } = fixture;
   git(source, 'switch', '-c', 'topic');

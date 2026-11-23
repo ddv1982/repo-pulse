@@ -13,7 +13,7 @@ import { chromium, expect } from '@playwright/test';
 import { startApp, createApp } from '../server.ts';
 import { createStore } from '../server/store.ts';
 import { createSync } from '../server/sync.ts';
-import { TEST_KEY, rememberKey } from '../test/fixtures/access.js';
+import { TEST_KEY, rememberKey } from '../test/fixtures/access.ts';
 
 /** @typedef {import('../server.ts').FoldersResponse} FoldersResponse */
 /** @typedef {import('../server.ts').DiscoverResponse} DiscoverResponse */

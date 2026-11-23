@@ -7,8 +7,9 @@
 // 2. points every relative specifier that resolves to a renamed file at the .ts name, in every tracked JS and TS
 //    file: `from '...'`, `import '...'`, `import('...')` and JSDoc `import('...')` types;
 // 3. turns JSDoc into TypeScript in the renamed files with TypeScript 6.0.3's language service (TypeScript 7 has no
-//    JavaScript API): the `convertTypedefToType` and `annotateWithTypeFromJSDoc` fixes (working around two defects of
-//    the former and four of the latter, see typedefEdits, arrowEdits, templateEdits, optionalEdits and bindingEdits),
+//    JavaScript API): the `convertTypedefToType` and `annotateWithTypeFromJSDoc` fixes (working around three defects of
+//    the former and four of the latter, see typedefEdits, proseEdits, arrowEdits, templateEdits, optionalEdits and
+//    bindingEdits),
 //    then JSDoc casts, nested ones included (`/** @type {T} */ (x)` and `@satisfies`), which TypeScript ignores in a
 //    .ts file, become `as` and `satisfies`, keeping `(a ?? b)` parenthesized so the whole expression is cast;
 // 4. exports the top-level type aliases and interfaces, as JSDoc typedefs were;
@@ -133,6 +134,89 @@ function typedefEdits(file) {
   walk(source, node => {
     for (const doc of node.jsDoc?.slice(0, -1) ?? [])
       if (doc.tags?.some(ts.isJSDocTypedefTag)) edits.push({ span: { start: doc.end, length: 0 }, newText: ';' });
+  });
+  return edits;
+}
+
+/**
+ * The descriptions that convertTypedefToType drops: the prose after a typedef's name (`@typedef {T} Name Prose`,
+ * continuation lines included) and after each `@property {T} name` of an object typedef, by typedef name.
+ * @param {string} file
+ */
+function typedefProse(file) {
+  /** @type {Map<string, { prose: string, properties: Map<string, string> }>} */
+  const prose = new Map();
+  walk(parse(file), node => {
+    for (const doc of node.jsDoc ?? [])
+      for (const tag of doc.tags ?? []) {
+        if (!ts.isJSDocTypedefTag(tag) || !tag.name || !ts.isIdentifier(tag.name)) continue;
+        /** @type {Map<string, string>} */
+        const properties = new Map();
+        for (const property of tag.typeExpression?.jsDocPropertyTags ?? []) {
+          const text = ts.getTextOfJSDocComment(property.comment)?.trim();
+          if (text && ts.isIdentifier(property.name)) properties.set(property.name.text, text);
+        }
+        prose.set(tag.name.text, { prose: ts.getTextOfJSDocComment(tag.comment)?.trim() ?? '', properties });
+      }
+  });
+  return prose;
+}
+
+/**
+ * Puts the descriptions typedefProse collected back as JSDoc: a typedef's prose at the end of the comment above its
+ * type, or in a new comment, and a property's prose in a comment above its member.
+ * @param {string} file
+ * @param {Map<string, { prose: string, properties: Map<string, string> }>} prose
+ */
+function proseEdits(file, prose) {
+  const source = parse(file);
+  /** @type {{ span: { start: number, length: number }, newText: string }[]} */
+  const edits = [];
+  /** @param {any} node */
+  const indentOf = node => {
+    const start = node.getStart(source);
+    return source.text.slice(source.text.lastIndexOf('\n', start - 1) + 1, start);
+  };
+  /** @param {string} text @param {string} indent */
+  const comment = (text, indent) => {
+    const lines = text.split('\n').map(line => line.trim());
+    return lines.length === 1
+      ? `/** ${lines[0]} */`
+      : `/**\n${lines.map(line => `${indent} * ${line}`.trimEnd()).join('\n')}\n${indent} */`;
+  };
+  walk(source, node => {
+    if (!ts.isTypeAliasDeclaration(node) && !ts.isInterfaceDeclaration(node)) return;
+    const found = prose.get(node.name.text);
+    if (!found) return;
+    const indent = indentOf(node);
+    const doc = node.jsDoc?.at(-1);
+    // Only the description lines the preceding comment does not already hold, so a repeated first line keeps the rest.
+    const missing = found.prose ? found.prose.split('\n').filter(line => !doc?.getText(source).includes(line.trim())) : [];
+    if (missing.length) {
+      if (!doc)
+        edits.push({ span: { start: node.getStart(source), length: 0 }, newText: `${comment(missing.join('\n'), indent)}\n${indent}` });
+      else {
+        // Append as a last paragraph of the existing comment, before its `*/`.
+        const end = doc.end - 2;
+        const lines = missing.map(line => `${indent} * ${line.trim()}`.trimEnd());
+        let head = source.text.slice(doc.getStart(source), end).replace(/\s*\*?\s*$/, '');
+        // A one-line comment becomes a block: its text moves to a line of its own.
+        if (!head.includes('\n')) head = head.replace(/^\/\*\*\s*/, `/**\n${indent} * `);
+        edits.push({
+          span: { start: doc.getStart(source), length: doc.end - doc.getStart(source) },
+          newText: `${head}\n${lines.join('\n')}\n${indent} */`,
+        });
+      }
+    }
+    if (!found.properties.size) return;
+    const members = ts.isInterfaceDeclaration(node) ? node.members : ts.isTypeLiteralNode(node.type) ? node.type.members : [];
+    for (const member of members) {
+      const text = member.name && ts.isIdentifier(member.name) ? found.properties.get(member.name.text) : undefined;
+      if (text && !member.jsDoc?.length) {
+        const memberIndent = indentOf(member);
+        edits.push({ span: { start: member.getStart(source), length: 0 }, newText: `${comment(text, memberIndent)}\n${memberIndent}` });
+      }
+    }
   });
   return edits;
 }
@@ -327,10 +411,12 @@ const tidyComments = text =>
 for (const file of targets) {
   apply(file, arrowEdits(file));
   apply(file, typedefEdits(file));
+  const prose = typedefProse(file);
   for (const fix of ['convertTypedefToType', 'annotateWithTypeFromJSDoc']) {
     const { changes } = service.getCombinedCodeFix({ type: 'file', fileName: file }, fix, ts.getDefaultFormatCodeSettings(), {});
     for (const change of changes) apply(change.fileName, change.textChanges);
   }
+  apply(file, proseEdits(file, prose));
   apply(file, templateEdits(file));
   apply(file, optionalEdits(file));
   apply(file, bindingEdits(file));

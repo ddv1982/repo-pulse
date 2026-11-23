@@ -6,14 +6,18 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
-import { formatDoctorReport, runDoctor } from '../scripts/doctor.ts';
+import { formatDoctorReport, runDoctor, type CommandRunner } from '../scripts/doctor.ts';
+import type { Thrown } from './fixtures/typed.ts';
+
+/** The rejection of a command execFile ran, with what it printed. */
+type ExecFailure = Thrown & { stdout?: string };
 
 const execFileAsync = promisify(execFile);
 const DOCTOR_SCRIPT = resolve(fileURLToPath(new URL('../scripts/doctor.ts', import.meta.url)));
 const defaultAz = async () => ({ file: 'az', prefix: [], env: {} });
 
 test('runDoctor passes when Node 26+, Git, Azure CLI, azure-devops extension, and cached account are ready', async () => {
-  const calls = [];
+  const calls: string[][] = [];
   const report = await runDoctor({
     nodeVersion: '26.13.1',
     resolveAz: defaultAz,
@@ -54,7 +58,7 @@ test('runDoctor passes when Node 26+, Git, Azure CLI, azure-devops extension, an
 });
 
 test('runDoctor reports old Node, missing Git, and missing Azure CLI while skipping downstream az checks', async () => {
-  const calls = [];
+  const calls: string[][] = [];
   const report = await runDoctor({
     nodeVersion: '22.14.0',
     resolveAz: defaultAz,
@@ -84,7 +88,7 @@ test('runDoctor reports old Node, missing Git, and missing Azure CLI while skipp
 });
 
 test('runDoctor forwards Windows pip-style launcher executable, prefix, env overrides, and cwd to all Azure calls', async () => {
-  const azCalls = [];
+  const azCalls: { file: string; args: string[]; options: Parameters<CommandRunner>[2] }[] = [];
   const inheritedSentinel = process.env.PATH;
   const report = await runDoctor({
     nodeVersion: '26.0.0',
@@ -233,11 +237,11 @@ test('doctor CLI runs on direct invocation and stays silent when imported', asyn
   const dir = mkdtempSync(join(tmpdir(), 'rp-doctor-'));
   const isolatedEnv = { ...process.env, PATH: dir };
   try {
-    let failed;
+    let failed: ExecFailure | undefined;
     try {
       await execFileAsync(process.execPath, [DOCTOR_SCRIPT], { env: isolatedEnv, encoding: 'utf8' });
     } catch (error) {
-      failed = error;
+      failed = error as ExecFailure;
     }
     assert.ok(failed, 'doctor CLI should exit non-zero when git and az are missing');
     assert.equal(failed.code, 1);
@@ -272,11 +276,11 @@ test('doctor CLI runs when invoked through a symlink', async t => {
       throw error;
     }
 
-    let failed;
+    let failed: ExecFailure | undefined;
     try {
       await execFileAsync(process.execPath, [link], { env: isolatedEnv, encoding: 'utf8' });
     } catch (error) {
-      failed = error;
+      failed = error as ExecFailure;
     }
     assert.ok(failed, 'symlinked doctor CLI should exit non-zero when git and az are missing');
     assert.equal(failed.code, 1);

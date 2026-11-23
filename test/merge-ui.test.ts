@@ -5,15 +5,20 @@ import {
   renderHistoryButton as renderHistoryButtonHtml,
   renderHistoryProgress as renderHistoryProgressHtml,
 } from '../src/ui/history-import.ts';
-import { parse, one, all, text } from './fixtures/dom.js';
+import type { ActivityEvent, EventData, MergeEvidenceData } from '../src/activity.ts';
+import type { HistoryJob, JobError } from '../src/contract.ts';
+import { parse, one, all, text } from './fixtures/dom.ts';
+import { stub } from './fixtures/typed.ts';
 
-const renderMergeEvidence = (...args) => String(renderMergeEvidenceHtml(...args));
-const mergeEvidenceBadge = (...args) => String(mergeEvidenceBadgeHtml(...args));
-const renderHistoryButton = (...args) => String(renderHistoryButtonHtml(...args));
-const renderHistoryProgress = (...args) => String(renderHistoryProgressHtml(...args));
+const renderMergeEvidence = (...args: Parameters<typeof renderMergeEvidenceHtml>) => String(renderMergeEvidenceHtml(...args));
+const mergeEvidenceBadge = (event: Partial<ActivityEvent>) => String(mergeEvidenceBadgeHtml(stub<ActivityEvent>(event)));
+const renderHistoryButton = (repo: { id: string }, job: Partial<HistoryJob>) =>
+  String(renderHistoryButtonHtml(repo, stub<HistoryJob>(job)));
+const renderHistoryProgress = (repo: { id: string }, job: Partial<HistoryJob>) =>
+  String(renderHistoryProgressHtml(repo, stub<HistoryJob>(job)));
 
 test('saved graph evidence stays readable in the detail without a row badge, and no direct merge is invented', () => {
-  const evidence = {
+  const evidence: MergeEvidenceData = {
     status: 'complete',
     checkedAt: '2026-11-17T10:00:00Z',
     commits: [{ commitId: 'a'.repeat(40), parents: ['b', 'c'], branches: ['refs/heads/main'] }],
@@ -44,7 +49,7 @@ test('saved graph evidence stays readable in the detail without a row badge, and
 });
 
 test('the rewrite check result shows on the row and in the detail without a merge verdict', () => {
-  const rewritten = { mergeEvidence: { rewrite: [{ ref: 'refs/heads/main', status: 'rewrite', dropped: 2, more: true }] } };
+  const rewritten: EventData = { mergeEvidence: { rewrite: [{ ref: 'refs/heads/main', status: 'rewrite', dropped: 2, more: true }] } };
   const badge = parse(mergeEvidenceBadge({ kind: 'push', data: rewritten }));
   assert.equal(all(badge, '.status-chip').length, 1);
   const chip = one(badge, '.status-chip');
@@ -53,10 +58,10 @@ test('the rewrite check result shows on the row and in the detail without a merg
   const detail = parse(renderMergeEvidence(rewritten));
   assert.equal(text(one(detail, 'li')), 'main · history rewritten, 2+ commits dropped from the old tip');
   assert.doesNotMatch(text(detail), /Evidence incomplete|No completed PR association/);
-  const fastForward = { mergeEvidence: { rewrite: [{ ref: 'refs/heads/main', status: 'fast-forward' }] } };
+  const fastForward: EventData = { mergeEvidence: { rewrite: [{ ref: 'refs/heads/main', status: 'fast-forward' }] } };
   assert.equal(mergeEvidenceBadge({ kind: 'push', data: fastForward }), '');
   assert.equal(text(one(parse(renderMergeEvidence(fastForward)), 'li')), 'main · fast-forward, no history dropped');
-  const unknown = { mergeEvidence: { rewrite: [{ ref: 'refs/heads/main', status: 'unknown' }] } };
+  const unknown: EventData = { mergeEvidence: { rewrite: [{ ref: 'refs/heads/main', status: 'unknown' }] } };
   assert.equal(mergeEvidenceBadge({ kind: 'push', data: unknown }), '');
   assert.equal(text(one(parse(renderMergeEvidence(unknown)), 'li')), 'main · old tip could not be read; rewrite not established');
 });
@@ -68,7 +73,7 @@ test('a push without merge evidence shows nothing about analysis', () => {
 
 test('the repository import row shows retry and pause without exposing a second start', () => {
   const repo = { id: 'r', name: 'Repo' };
-  const job = { status: 'retrying', pages: 2, error: { message: '<Read denied>' } };
+  const job: Partial<HistoryJob> = { status: 'retrying', pages: 2, error: stub<JobError>({ message: '<Read denied>' }) };
   const progress = parse(renderHistoryProgress(repo, job));
   assert.match(text(progress), /History sync retrying/);
   assert.match(text(progress), /<Read denied>/);

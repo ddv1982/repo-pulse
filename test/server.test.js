@@ -8,7 +8,7 @@ import { createStore } from '../server/store.ts';
 import { createApp, startApp } from '../server.ts';
 import { seedDemo } from '../server/demo.ts';
 import { createAzureClient } from '../server/azure-client.ts';
-import { TEST_KEY, keyedFetch } from './fixtures/access.js';
+import { TEST_KEY, keyedFetch } from './fixtures/access.ts';
 
 const fetch = keyedFetch();
 

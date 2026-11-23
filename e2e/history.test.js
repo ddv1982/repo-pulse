@@ -7,7 +7,7 @@ import { join } from 'node:path';
 import { chromium, expect } from '@playwright/test';
 import { startApp, createApp } from '../server.ts';
 import { createStore } from '../server/store.ts';
-import { TEST_KEY, rememberKey } from '../test/fixtures/access.js';
+import { TEST_KEY, rememberKey } from '../test/fixtures/access.ts';
 
 async function executable() {
   if (process.env.CHROME) return process.env.CHROME;
@@ -547,7 +547,7 @@ test('seen feedback waits for its refresh when a background poll is in flight', 
 });
 
 test('Repositories shows the checkout, checks on demand, and pulls only after confirmation', async t => {
-  const { checkoutFixture, git } = await import('../test/fixtures/checkout.js');
+  const { checkoutFixture, git } = await import('../test/fixtures/checkout.ts');
   const fixture = checkoutFixture(t);
   const store = createStore();
   store.saveRepo(fixture.repo);
@@ -758,7 +758,7 @@ test('New updates filters a grouped run by the status it shows and acknowledges 
 });
 
 test('verified PR follow-up switches, reviews and removes the old branch from Repositories', async t => {
-  const { squashFixture, git } = await import('../test/fixtures/checkout.js');
+  const { squashFixture, git } = await import('../test/fixtures/checkout.ts');
   const { repo, pr, local, remote } = squashFixture(t);
   const { createCheckoutGit } = await import('../server/checkout-git.ts');
   const oldBranch = 'feature/poc_while_rewriting_delphi_sql_and_testing_the_updated_checkout';

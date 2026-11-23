@@ -2,24 +2,53 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   buildState,
-  activityLabel,
-  activityTone,
-  activityTitle,
+  activityLabel as activityLabelOf,
+  activityTone as activityToneOf,
+  activityTitle as activityTitleOf,
   triggerLabel,
   streamLabel,
-  activitySummary,
+  activitySummary as activitySummaryOf,
   labels,
 } from '../src/ui/format.ts';
 import { renderRepositories as renderRepositoriesHtml } from '../src/ui/repositories.ts';
 import { renderFeed as renderPagedFeedHtml, renderDetail as renderDetailHtml } from '../src/ui/feed.ts';
 import { forkText, treeLegend } from '../src/ui/activity-tree.ts';
+import type { TreeFork } from '../src/activity-tree.ts';
 import { scopeName } from '../src/ui/header.ts';
 import { createStore } from '../server/store.ts';
-import { parse, one, all, row, text, srText } from './fixtures/dom.js';
+import type { ActivityEvent, ActivityKind, EventData, EvidencePr } from '../src/activity.ts';
+import type { Repository, StreamError, StreamState } from '../src/contract.ts';
+import type { CheckoutSnapshot } from '../src/ui/checkout.ts';
+import type { PageState } from '../src/ui/refresh.ts';
+import { parse, one, all, row, text, srText } from './fixtures/dom.ts';
+import { present, stub } from './fixtures/typed.ts';
 
-const renderRepositories = (...args) => String(renderRepositoriesHtml(...args));
-const renderPagedFeed = (...args) => String(renderPagedFeedHtml(...args));
-const renderDetail = (...args) => String(renderDetailHtml(...args));
+// The tests give the views and labels only the fields they read: an event of a kind with its data, a page state
+// without the parts a view leaves alone.
+type Event = Partial<ActivityEvent>;
+type State = Partial<PageState>;
+type FeedUi = Parameters<typeof renderPagedFeedHtml>[1];
+type DetailOptions = Parameters<typeof renderDetailHtml>[3];
+/** A stream whose error is a plain string, a shape streamError() also reads. */
+const stringError = (stream: Partial<StreamState>, error: string) =>
+  stub<StreamState>({ ...stream, error: error as unknown as StreamError });
+const activityLabel = (event: Event) => activityLabelOf(stub<ActivityEvent>(event));
+const activityTone = (event: Event) => activityToneOf(stub<ActivityEvent>(event));
+const activityTitle = (event: Event) => activityTitleOf(stub<ActivityEvent>(event));
+const activitySummary = (event: Event) => activitySummaryOf(stub<ActivityEvent>(event));
+const renderRepositories = (state: State, ...rest: Parameters<typeof renderRepositoriesHtml> extends [unknown, ...infer R] ? R : never) =>
+  String(renderRepositoriesHtml(stub<PageState>(state), ...rest));
+const renderPagedFeed = (state: State, ui: Partial<FeedUi>) => String(renderPagedFeedHtml(stub<PageState>(state), stub<FeedUi>(ui)));
+// The detail only tests commits for truthiness, so a test's null stands for "not loaded" as undefined does.
+const renderDetail = (
+  event: Event,
+  state: State,
+  commits?: Parameters<typeof renderDetailHtml>[2] | null,
+  options?: Partial<DetailOptions>,
+) =>
+  String(
+    renderDetailHtml(stub<ActivityEvent>(event), stub<PageState>(state), commits ?? undefined, options && stub<DetailOptions>(options)),
+  );
 
 test('CI presentation maps real statuses and results without calling a running retry failed', () => {
   assert.deepEqual(buildState({ data: { status: 'notStarted' } }), { label: 'Queued', tone: 'info' });
@@ -33,23 +62,23 @@ test('CI presentation maps real statuses and results without calling a running r
 });
 
 test('missing branch observations are never presented as confirmed deletions', () => {
-  const event = { kind: 'branch-deleted', data: { evidence: 'snapshot' } };
+  const event: Event = { kind: 'branch-deleted', data: { evidence: 'snapshot' } };
   assert.equal(activityLabel(event), 'No longer listed');
   assert.match(activitySummary(event), /deletion not confirmed/);
   assert.equal(activityLabel({ ...event, data: { evidence: 'push' } }), 'Branch deleted');
-  const deleted = { ...event, title: 'Branch missing', branch: 'hotfix/old', data: { evidence: 'push' } };
+  const deleted: Event = { ...event, title: 'Branch missing', branch: 'hotfix/old', data: { evidence: 'push' } };
   assert.equal(activityTitle(deleted), 'Branch deleted · hotfix/old');
   assert.equal(labels['branch-deleted'], 'Branch deleted');
 });
 
 test('repository details keep failure text and one timestamp without routine source labels', () => {
-  const state = {
-    watched: [{ id: 'r', name: 'Orders' }],
+  const state: State = {
+    watched: [stub<Repository>({ id: 'r', name: 'Orders' })],
     settings: { refreshEnabled: false },
     syncStatus: { overall: { state: 'paused', repoId: 'r' }, repos: { r: { state: 'paused' } } },
     streams: [
-      { repoId: 'r', stream: 'refs', initialized: true, lastSuccess: '2026-11-01T10:00:00Z' },
-      { repoId: 'r', stream: 'prs', initialized: true, nextAt: '2026-11-01T10:00:00Z', error: 'Read refused' },
+      stub<StreamState>({ repoId: 'r', stream: 'refs', initialized: true, lastSuccess: '2026-11-01T10:00:00Z' }),
+      stringError({ repoId: 'r', stream: 'prs', initialized: true, nextAt: '2026-11-01T10:00:00Z' }, 'Read refused'),
     ],
   };
   const markup = renderRepositories(state, {});
@@ -60,19 +89,19 @@ test('repository details keep failure text and one timestamp without routine sou
 });
 
 test('a disabled repository row offers only enabling or removing it', () => {
-  const state = {
+  const state: State = {
     watched: [
-      { id: 'on', name: 'Orders', project: 'Shop', localPath: '/src/orders' },
-      { id: 'off', name: 'Billing', project: 'Shop', localPath: '/src/billing', disabled: true },
+      stub<Repository>({ id: 'on', name: 'Orders', project: 'Shop', localPath: '/src/orders' }),
+      stub<Repository>({ id: 'off', name: 'Billing', project: 'Shop', localPath: '/src/billing', disabled: true }),
     ],
     settings: {},
     syncStatus: { overall: { state: 'syncing', repoId: 'on' }, repos: { on: { state: 'syncing' } } },
-    streams: [{ repoId: 'on', stream: 'refs', initialized: true, error: 'Read refused' }],
+    streams: [stringError({ repoId: 'on', stream: 'refs', initialized: true }, 'Read refused')],
   };
   const doc = parse(renderRepositories(state, {}));
   assert.match(text(doc), /2 watched · 1 disabled/);
   const [enabled, disabled] = all(doc, 'article');
-  const toggle = (/** @type {Element} */ article) => one(article, 'input[role="switch"][data-repo-toggle]');
+  const toggle = (article: Element) => one(article, 'input[role="switch"][data-repo-toggle]');
   assert.equal(toggle(enabled).getAttribute('data-id'), 'on');
   assert.ok(toggle(enabled).hasAttribute('checked'));
   assert.equal(one(enabled, 'summary').getAttribute('aria-label'), 'Details for Orders');
@@ -90,8 +119,10 @@ test('a disabled repository row offers only enabling or removing it', () => {
   assert.doesNotMatch(disabled.outerHTML, /Details for|checkout-state|Check for updates|Sync older/);
 });
 
-const view = { repoIds: null, route: 'catchup', kind: '', search: '' };
-function fixture() {
+const view: Partial<FeedUi> = { repoIds: null, route: 'catchup', kind: '', search: '' };
+/** The page state the feed and detail tests build on: the watched repositories and their stored events. */
+type Fixture = State & { repos: Repository[]; events: ActivityEvent[] };
+function fixture(): Fixture {
   const event = {
     repoId: 'r',
     kind: 'build',
@@ -101,9 +132,9 @@ function fixture() {
     seen: false,
     imported: false,
     data: { buildId: 42, sourceVersion: 'abc123def456', reason: 'manual' },
-  };
+  } satisfies Event;
   return {
-    repos: [{ id: 'r', name: 'Orders' }],
+    repos: [stub<Repository>({ id: 'r', name: 'Orders' })],
     settings: {},
     syncStatus: { overall: { state: 'synced', repoId: 'r' }, repos: { r: { state: 'synced' } } },
     streams: [],
@@ -126,7 +157,7 @@ function fixture() {
   };
 }
 
-function activityPage(state, ui) {
+function activityPage(state: Fixture, ui: Partial<FeedUi>) {
   const store = createStore();
   try {
     for (const repo of state.repos) store.saveRepo(repo);
@@ -142,11 +173,11 @@ function activityPage(state, ui) {
   }
 }
 
-const renderFeed = (state, ui) => renderPagedFeed({ ...state, activity: activityPage(state, ui) }, ui);
+const renderFeed = (state: Fixture, ui: Partial<FeedUi>) => renderPagedFeed({ ...state, activity: activityPage(state, ui) }, ui);
 /** The event IDs of the rendered rows, in order. */
-const rowIds = markup => all(parse(markup), '.row').map(element => element.getAttribute('data-event-id'));
+const rowIds = (markup: string) => all(parse(markup), '.row').map(element => element.getAttribute('data-event-id'));
 /** An element's classes, sorted, so a test can state them exactly without depending on their order. */
-const classes = element => [...element.classList].sort();
+const classes = (element: Element) => [...element.classList].sort();
 
 test('one running build counts as one item and two updates; zero summary values stay neutral', () => {
   const state = fixture();
@@ -181,12 +212,12 @@ test('detail has readable labels, exact group IDs and abbreviated copyable commi
   assert.doesNotMatch(markup, /sourceVersion|inProgress/);
   assert.match(text(doc), /Update history/);
   // Marking the detail seen acts on exactly the grouped updates.
-  assert.deepEqual(JSON.parse(one(doc, '[data-action="ack-item"]').getAttribute('data-event-ids')).sort(), ['queued', 'running']);
+  assert.deepEqual(JSON.parse(present(one(doc, '[data-action="ack-item"]').getAttribute('data-event-ids'))).sort(), ['queued', 'running']);
 });
 
 test('a completed pull request detail offers a switch to the branch it merged into', () => {
   const state = fixture();
-  const pr = {
+  const pr: ActivityEvent = {
     id: 'merged',
     repoId: 'on',
     kind: 'pr',
@@ -196,23 +227,23 @@ test('a completed pull request detail offers a switch to the branch it merged in
     data: { pullRequestId: 7, status: 'completed', sourceRefName: 'refs/heads/feature/topic', targetRefName: 'refs/heads/main' },
   };
   state.events = [pr];
-  state.repos = [{ id: 'on', name: 'Orders', localPath: '/src/orders' }];
+  state.repos = [stub<Repository>({ id: 'on', name: 'Orders', localPath: '/src/orders' })];
   assert.equal(text(one(parse(renderDetail(pr, state, null)), '[data-action="switch-activity-branch"]')), 'Switch to main…');
-  const onMain = parse(renderDetail(pr, state, null, { checkouts: { on: { branch: 'main' } } }));
+  const onMain = parse(renderDetail(pr, state, null, { checkouts: { on: stub<CheckoutSnapshot>({ branch: 'main' }) } }));
   assert.equal(text(one(onMain, '#activity-branch-action')), 'View in Repositories');
   assert.doesNotMatch(text(parse(renderDetail(pr, { ...state, demo: true }, null))), /Switch to/);
 });
 
 test('Activity shows ordinary pushes, hotfixes, and new branches in source-time order', () => {
   const state = fixture();
-  const event = { repoId: 'r', kind: 'push', seen: false, imported: false, summary: 'Branch updated' };
+  const event = { repoId: 'r', kind: 'push', seen: false, imported: false, summary: 'Branch updated' } satisfies Event;
   state.events = [
     { ...event, id: 'ordinary', branch: 'feature/new', title: 'Ordinary push', time: '2026-11-17T10:02:00Z' },
     { ...event, id: 'priority', branch: 'hotfix/fix', title: 'Priority push', time: '2026-11-17T10:01:00Z' },
     { ...event, id: 'branch', kind: 'branch-created', branch: 'feature/newest', title: 'New branch', time: '2026-11-17T10:03:00Z' },
   ];
   assert.deepEqual(rowIds(renderFeed(state, view)), ['branch', 'ordinary', 'priority']);
-  assert.deepEqual(rowIds(renderFeed(state, { ...view, route: 'activity', unseenOnly: false })), ['branch', 'ordinary', 'priority']);
+  assert.deepEqual(rowIds(renderFeed(state, { ...view, route: 'activity' })), ['branch', 'ordinary', 'priority']);
   assert.doesNotMatch(text(parse(renderFeed(state, view))), /Prioritized|Muted|Show muted/);
 });
 
@@ -237,7 +268,7 @@ test('a CI run shows its pipeline name in feed and detail, also for a stored row
 });
 
 test('all activity states use the shared semantic palette independent of imported/seen state', () => {
-  const cases = [
+  const cases: [ActivityKind, EventData, string][] = [
     ['build', { status: 'completed', result: 'failed' }, 'crit'],
     ['branch-deleted', { evidence: 'push' }, 'crit'],
     ['branch-deleted', { evidence: 'snapshot' }, 'warn'],
@@ -266,8 +297,21 @@ test('all activity states use the shared semantic palette independent of importe
 test('row status washes are independent of unseen flags and failure classification', () => {
   const state = fixture();
   state.events = [
-    { id: 'deleted', repoId: 'r', kind: 'branch-deleted', title: 'Deleted', branch: 'hotfix/old', data: { evidence: 'push' } },
-    { id: 'failed', repoId: 'r', kind: 'build', title: 'CI', data: { buildId: 42, status: 'completed', result: 'failed' } },
+    stub<ActivityEvent>({
+      id: 'deleted',
+      repoId: 'r',
+      kind: 'branch-deleted',
+      title: 'Deleted',
+      branch: 'hotfix/old',
+      data: { evidence: 'push' },
+    }),
+    stub<ActivityEvent>({
+      id: 'failed',
+      repoId: 'r',
+      kind: 'build',
+      title: 'CI',
+      data: { buildId: 42, status: 'completed', result: 'failed' },
+    }),
   ];
   const doc = parse(renderFeed(state, view));
   const label = one(row(doc, 'deleted'), '.kind');
@@ -286,7 +330,7 @@ test('completed PRs show Merged and target direction, while successful preview m
     mergeStatus: 'succeeded',
     lastMergeCommit: { commitId: 'preview' },
   };
-  const preview = { kind: 'pr', data };
+  const preview: Event = { kind: 'pr', data };
   assert.equal(activityLabel(preview), 'Open PR');
   assert.equal(activitySummary(preview), 'Target: main');
   assert.equal(activityTone(preview), 'info');
@@ -298,7 +342,15 @@ test('completed PRs show Merged and target direction, while successful preview m
 });
 
 test('tag rows say what happened to the tag and never claim a commit for a pushed tag object', () => {
-  const tag = (data, extra = {}) => ({ id: 't', repoId: 'r', kind: 'tag', time: '2026-11-17T10:00:00Z', branch: 'v1', data, ...extra });
+  const tag = (data: EventData, extra: Event = {}): Event => ({
+    id: 't',
+    repoId: 'r',
+    kind: 'tag',
+    time: '2026-11-17T10:00:00Z',
+    branch: 'v1',
+    data,
+    ...extra,
+  });
   const zero = '0'.repeat(40);
   const created = tag({ change: 'created', evidence: 'push', oldObjectId: zero, newObjectId: 'a'.repeat(40) });
   const moved = tag({ change: 'moved', evidence: 'push', oldObjectId: 'a'.repeat(40), newObjectId: 'b'.repeat(40) });
@@ -317,7 +369,7 @@ test('tag rows say what happened to the tag and never claim a commit for a pushe
 });
 
 test('a push that creates a branch names its tip, not a new branch or a start, in the short commit length the server stores', () => {
-  const push = {
+  const push: Event = {
     kind: 'push',
     data: { refUpdates: [{ name: 'refs/heads/feature/a', oldObjectId: '0'.repeat(40), newObjectId: '54a2ad26'.padEnd(40, 'c') }] },
   };
@@ -333,7 +385,7 @@ test('a branch row from a push does not repeat its label in the event column; a 
     { ...base, id: 'listed', kind: 'branch-created', branch: 'c', title: 'Branch first seen · c', data: { evidence: 'refs' } },
   ];
   const doc = parse(renderFeed(state, view));
-  const first = (/** @type {string} */ id) => one(row(doc, id), '.event').firstElementChild;
+  const first = (id: string) => present(one(row(doc, id), '.event').firstElementChild);
   for (const id of ['created', 'deleted']) {
     assert.ok(first(id).matches('.help.event-meta'), id);
     assert.match(text(first(id)), /^Pushed by Ana · /, id);
@@ -343,7 +395,7 @@ test('a branch row from a push does not repeat its label in the event column; a 
 });
 
 test('a fork PR names its fork in the summary', () => {
-  const pr = {
+  const pr: Event = {
     id: 'p',
     repoId: 'r',
     kind: 'pr',
@@ -358,7 +410,7 @@ test('a fork PR names its fork in the summary', () => {
 });
 
 test('vote changes on an open PR read as words, and a closed PR keeps its merge summary', () => {
-  const pr = { id: 'p', repoId: 'r', kind: 'pr', time: '2026-11-17T10:00:00Z' };
+  const pr: Event = { id: 'p', repoId: 'r', kind: 'pr', time: '2026-11-17T10:00:00Z' };
   const data = {
     status: 'active',
     targetRefName: 'refs/heads/main',
@@ -373,7 +425,7 @@ test('vote changes on an open PR read as words, and a closed PR keeps its merge 
 });
 
 test('a vote change on a fork PR still names the fork', () => {
-  const pr = { id: 'p', repoId: 'r', kind: 'pr', time: '2026-11-17T10:00:00Z' };
+  const pr: Event = { id: 'p', repoId: 'r', kind: 'pr', time: '2026-11-17T10:00:00Z' };
   const data = {
     status: 'active',
     targetRefName: 'refs/heads/main',
@@ -386,14 +438,19 @@ test('a vote change on a fork PR still names the fork', () => {
 test('push headlines name a single matching PR result without inferring the cause of the push', () => {
   const title = 'Microsoft.VisualStudio.Services.TFS pushed to main';
   const result = 'a'.repeat(40);
-  const push = {
+  const push: Event = {
     kind: 'push',
     actor: 'Microsoft.VisualStudio.Services.TFS',
     title,
     data: { refUpdates: [{ name: 'refs/heads/main', newObjectId: result }] },
   };
-  const pr = { pullRequestId: 12, relationship: 'result-introduced', targetRefName: 'refs/heads/main', mergeCommit: result.toUpperCase() };
-  const linked = (...prs) => ({ ...push, data: { ...push.data, mergeEvidence: { prs } } });
+  const pr: EvidencePr = {
+    pullRequestId: 12,
+    relationship: 'result-introduced',
+    targetRefName: 'refs/heads/main',
+    mergeCommit: result.toUpperCase(),
+  };
+  const linked = (...prs: EvidencePr[]) => ({ ...push, data: { ...push.data, mergeEvidence: { prs } } });
   assert.equal(activityTitle(linked(pr)), 'Merge of PR 12 pushed to main');
   assert.equal(activityTitle(linked({ ...pr, targetRefName: 'refs/heads/other' })), 'Azure DevOps service pushed to main');
   assert.equal(activityTitle(linked({ ...pr, relationship: 'constituent-related' })), 'Azure DevOps service pushed to main');
@@ -454,7 +511,14 @@ test('All activity draws a branch tree with the fork evidence in the row text; N
 
 test('a CI run on a pull request ref names the source branch and the pull request once the PR is known', () => {
   const state = fixture();
-  const run = { repoId: 'r', kind: 'build', branch: 'refs/pull/7/merge', seen: false, imported: false, time: '2026-11-17T10:02:00Z' };
+  const run = {
+    repoId: 'r',
+    kind: 'build',
+    branch: 'refs/pull/7/merge',
+    seen: false,
+    imported: false,
+    time: '2026-11-17T10:02:00Z',
+  } satisfies Event;
   state.events = [
     {
       ...run,
@@ -465,7 +529,7 @@ test('a CI run on a pull request ref names the source branch and the pull reques
   ];
   const doc = parse(renderFeed(state, view));
   /** The row's branch token: its full name on hover, a hidden icon, and a screen-reader label before the name. */
-  const branch = (/** @type {string} */ id, /** @type {string} */ name) => {
+  const branch = (id: string, name: string) => {
     const token = one(row(doc, id), '.ref-branch');
     assert.equal(token.getAttribute('title'), name, id);
     assert.equal(one(token, 'svg').getAttribute('aria-hidden'), 'true', id);
@@ -490,9 +554,9 @@ test('a CI run on a pull request ref names the source branch and the pull reques
 
 test('a row names its repository only when more than one repository is shown', () => {
   const state = fixture();
-  const subref = (/** @type {unknown} */ out) => one(parse(out), '.feed-title .subref');
+  const subref = (out: unknown) => one(parse(out), '.feed-title .subref');
   assert.doesNotMatch(srText(subref(renderFeed(state, view))), /Orders/);
-  state.repos.push({ id: 'other', name: 'Billing' });
+  state.repos.push(stub<Repository>({ id: 'other', name: 'Billing' }));
   const repo = one(subref(renderFeed(state, view)), '.ref-repo');
   assert.equal(text(repo), 'Orders');
   assert.equal(srText(repo), '· repository Orders');
@@ -579,7 +643,7 @@ test('the event column puts what happened first, then who and when, each actor w
   ];
   const doc = parse(renderFeed(state, view));
   /** The meta line says role, actor and a machine-readable time, in that order. */
-  const meta = (/** @type {string} */ id, /** @type {string} */ role, /** @type {string} */ actor) => {
+  const meta = (id: string, role: string, actor: string) => {
     const line = one(row(doc, id), '.help.event-meta');
     assert.match(text(line), new RegExp(`^${role}${actor} · \\S`), id);
     assert.equal(text(one(line, '.actor')), actor, id);
@@ -588,9 +652,9 @@ test('the event column puts what happened first, then who and when, each actor w
     assert.match(time.getAttribute('title') ?? '', /2026/, id);
   };
   const event = one(row(doc, 'pr'), '.event');
-  assert.equal(text(event.firstElementChild), 'Target: main');
-  assert.ok(event.firstElementChild.classList.contains('event-main'));
-  assert.ok(event.firstElementChild.nextElementSibling.matches('.help.event-meta'));
+  assert.equal(text(present(event.firstElementChild)), 'Target: main');
+  assert.ok(present(event.firstElementChild).classList.contains('event-main'));
+  assert.ok(present(present(event.firstElementChild).nextElementSibling).matches('.help.event-meta'));
   meta('pr', 'Created by ', 'Ana');
   meta('build', 'Requested by ', 'Bo');
   meta('created', 'Pushed by ', 'Cy');
@@ -612,7 +676,7 @@ test('a PR row lists each vote change on its own and names a fork source on the 
     seen: false,
     imported: false,
     time: '2026-11-17T10:00:00Z',
-  };
+  } satisfies Event;
   const fork = { repository: 'One-fork', project: 'Q' };
   state.events = [
     {
@@ -633,7 +697,7 @@ test('a PR row lists each vote change on its own and names a fork source on the 
     { ...base, id: 'target', data: { id: 4, status: 'active', targetRefName: 'refs/heads/main', fork } },
   ];
   const doc = parse(renderFeed(state, view));
-  const first = (/** @type {string} */ id) => one(row(doc, id), '.event').firstElementChild;
+  const first = (id: string) => present(one(row(doc, id), '.event').firstElementChild);
   assert.ok(first('votes').classList.contains('event-main'));
   const votes = all(first('votes'), '.status-text');
   assert.deepEqual(
@@ -659,17 +723,19 @@ test('a PR row lists each vote change on its own and names a fork source on the 
 test('each fork origin has its own row text, and only an unchecked PR target is dotted', () => {
   const base = 'd'.repeat(40);
   assert.deepEqual(
-    [
-      { evidence: 'tip', parent: 'main' },
-      { evidence: 'recorded', parent: 'feature/a', base },
-      { evidence: 'contained', parent: 'main', base },
-      { evidence: 'pr', parent: 'main', pullRequestId: 7 },
-      { evidence: 'ambiguous', parent: null, base, branches: ['main', 'release'] },
-      { evidence: 'refuted', parent: null, base, pullRequestId: 7, target: 'release/x' },
-      { evidence: 'unplaced', parent: null, base },
-      { evidence: 'orphan', parent: null },
-      { evidence: 'merge', parent: null },
-    ].map(forkText),
+    (
+      [
+        { evidence: 'tip', parent: 'main' },
+        { evidence: 'recorded', parent: 'feature/a', base },
+        { evidence: 'contained', parent: 'main', base },
+        { evidence: 'pr', parent: 'main', pullRequestId: 7 },
+        { evidence: 'ambiguous', parent: null, base, branches: ['main', 'release'] },
+        { evidence: 'refuted', parent: null, base, pullRequestId: 7, target: 'release/x' },
+        { evidence: 'unplaced', parent: null, base },
+        { evidence: 'orphan', parent: null },
+        { evidence: 'merge', parent: null },
+      ] satisfies TreeFork[]
+    ).map(forkText),
     [
       'Started at a revision seen on main',
       'Started at ddddddd, the tip of feature/a',
@@ -706,7 +772,7 @@ test('a grouped row counts its unread updates beside the title only when there i
 
 test('a CI row without a known trigger shows no summary line, and the detail page still names the gap', () => {
   const state = fixture();
-  const base = { repoId: 'r', kind: 'build', title: 'CI', time: '2026-11-17T10:00:00Z' };
+  const base = { repoId: 'r', kind: 'build', title: 'CI', time: '2026-11-17T10:00:00Z' } satisfies Event;
   state.events = [
     { ...base, id: 'omitted', data: { buildId: 1, status: 'completed', result: 'succeeded' } },
     { ...base, id: 'none', data: { buildId: 2, status: 'completed', result: 'succeeded', reason: 'none' } },
@@ -715,20 +781,27 @@ test('a CI row without a known trigger shows no summary line, and the detail pag
   const markup = String(renderFeed(state, view));
   const doc = parse(markup);
   assert.doesNotMatch(markup, /Not supplied/);
-  const first = (/** @type {string} */ id) => one(row(doc, id), '.event').firstElementChild;
+  const first = (id: string) => present(one(row(doc, id), '.event').firstElementChild);
   assert.ok(first('manual').classList.contains('event-main'));
   assert.equal(text(first('manual')), 'Triggered manually');
   // With no summary, who and when is the column's first line.
   for (const id of ['omitted', 'none']) assert.ok(first(id).matches('.help.event-meta'), id);
-  const trigger = all(parse(renderDetail(state.events[1], state)), 'dt').find(term => text(term) === 'Trigger');
-  assert.equal(text(trigger.nextElementSibling), 'Not supplied');
+  const trigger = present(all(parse(renderDetail(state.events[1], state)), 'dt').find(term => text(term) === 'Trigger'));
+  assert.equal(text(present(trigger.nextElementSibling)), 'Not supplied');
 });
 
 test('the summary counts every unread item in scope, not only the loaded rows', () => {
   const state = fixture();
-  const at = minute => `2026-11-20T10:${String(minute).padStart(2, '0')}:00Z`;
-  const extra = [
-    ...[0, 1, 2, 3, 4].map(i => ({ id: `p${i}`, repoId: 'r', kind: 'push', title: `Push ${i}`, branch: `f/${i}`, time: at(i) })),
+  const at = (minute: number) => `2026-11-20T10:${String(minute).padStart(2, '0')}:00Z`;
+  const extra: ActivityEvent[] = [
+    ...[0, 1, 2, 3, 4].map((i): ActivityEvent => ({
+      id: `p${i}`,
+      repoId: 'r',
+      kind: 'push',
+      title: `Push ${i}`,
+      branch: `f/${i}`,
+      time: at(i),
+    })),
     { id: 'b1', repoId: 'r', kind: 'branch-created', title: 'New branch', branch: 'f/new', time: at(5) },
   ];
   const store = createStore();
@@ -744,9 +817,8 @@ test('the summary counts every unread item in scope, not only the loaded rows', 
     assert.match(text(one(summary, '.headline')), /^7 new items · 8 updates/);
     assert.match(text(summary), /Showing 2 of 7 items/);
     /** A count cell's parts in reading order: label, value with its tone, and the line under it if any. */
-    const cell = (/** @type {string} */ kind) =>
-      [...one(summary, `[data-summary-kind="${kind}"]`).children].map(part => [classes(part), text(part)]);
-    const label = (/** @type {string} */ name) => [['label'], name];
+    const cell = (kind: string) => [...one(summary, `[data-summary-kind="${kind}"]`).children].map(part => [classes(part), text(part)]);
+    const label = (name: string) => [['label'], name];
     assert.deepEqual(cell('Pushes'), [label('Pushes'), [['t-info', 'val'], '5']]);
     assert.deepEqual(cell('Branches'), [label('Branches'), [['t-info', 'val'], '1'], [['sub'], '1 new']]);
     // The CI row is not loaded, so its status line would describe nothing on screen.
@@ -757,7 +829,7 @@ test('the summary counts every unread item in scope, not only the loaded rows', 
 });
 
 test('the scope reads 1 repository when only one exists, and All N repositories when there are more', () => {
-  const repos = [{ id: 'a' }, { id: 'b' }];
+  const repos = [stub<Repository>({ id: 'a' }), stub<Repository>({ id: 'b' })];
   assert.equal(scopeName({ repos: repos.slice(0, 1) }, { repoIds: null }), '1 repository');
   assert.equal(scopeName({ repos }, { repoIds: null }), 'All 2 repositories');
   assert.equal(scopeName({ repos }, { repoIds: ['a'] }), '1 repository shown');

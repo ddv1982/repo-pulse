@@ -4,6 +4,7 @@ import { mkdtemp, mkdir, writeFile, rm, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { parseRemote, normalizeOrganization, repositoryKey, discoverRepositories, hasRemoteCredentials } from '../server/repositories.ts';
+import type { Thrown } from './fixtures/typed.ts';
 
 test('Azure remote formats normalize to a credential-free canonical identity', () => {
   const forms = [
@@ -44,7 +45,7 @@ test('unapproved hosts, path injection and organization credentials are rejected
   assert.equal(parseRemote('https://O%72g@dev.azure.com/%4Frg/Project/_git/Repo').organization, 'https://dev.azure.com/org');
   assert.throws(
     () => parseRemote('https://%E0%A4%A@dev.azure.com/Org/Project/_git/Repo'),
-    error => error.code === 'INVALID_REPOSITORY',
+    (error: Thrown) => error.code === 'INVALID_REPOSITORY',
   );
   assert.equal(hasRemoteCredentials('https://user:secret@example.test/repo.git'), true);
   assert.equal(hasRemoteCredentials('https://Org@dev.azure.com/Org/Project/_git/Repo'), false);
@@ -54,11 +55,11 @@ test('unapproved hosts, path injection and organization credentials are rejected
   ])
     assert.throws(
       () => parseRemote(input),
-      error => error.code !== 'REMOTE_PASSWORD',
+      (error: Thrown) => error.code !== 'REMOTE_PASSWORD',
     );
   assert.throws(
     () => parseRemote('https://user:secret@github.com/org/repo'),
-    error => error.code !== 'REMOTE_PASSWORD',
+    (error: Thrown) => error.code !== 'REMOTE_PASSWORD',
   );
   assert.throws(() => normalizeOrganization('https://secret@dev.azure.com/org'));
 });

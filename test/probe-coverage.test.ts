@@ -47,9 +47,11 @@ test('probe summaries replace policy and thread type names Azure did not define 
     },
     repo,
   );
+  assert.ok('policyTypes' in policies && 'statuses' in policies);
   assert.deepEqual(policies.policyTypes, ['Build', 'Minimum number of reviewers', 'other']);
   assert.deepEqual(policies.statuses, ['approved', 'other', 'queued']);
   const threads = summarize('PR threads', { value: [{ properties: { CodeReviewThreadType: { $value: 'Secret-team-type' } } }] }, repo);
+  assert.ok('threadTypes' in threads);
   assert.deepEqual(threads.threadTypes, ['other']);
   assert.doesNotMatch(JSON.stringify([policies, threads]), /payments|Secret/);
 });
@@ -124,6 +126,7 @@ test('creation push summaries say where the pushed commits leave the push, witho
     { value: [{ reason: 'create', commonRefCommit: { commitId: a } }, { reason: 'secret' }] },
     repo,
   );
+  assert.ok('reasons' in iterations && 'withCommonRefCommit' in iterations);
   assert.deepEqual(iterations.reasons, ['create', 'other']);
   assert.equal(iterations.withCommonRefCommit, 1);
 });
