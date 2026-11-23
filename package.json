@@ -14,15 +14,15 @@
     "check": "node scripts/check.js",
     "test:ui": "node --test e2e/*.test.js",
     "check:types": "tsc --project tsconfig.json",
-    "lint": "eslint . --max-warnings=0 && prettier --check .",
+    "lint": "oxlint --deny-warnings . && prettier --check .",
     "format": "prettier --write ."
   },
   "devDependencies": {
     "@playwright/test": "^1.65.1",
     "@types/node": "26.6.6",
-    "eslint": "10.15.0",
-    "globals": "17.14.0",
     "linkedom": "0.18.15",
+    "oxlint": "1.95.0",
+    "oxlint-plugin-eslint": "1.95.0",
     "prettier": "3.10.1",
     "typescript": "7.0.2"
   }
