@@ -74,8 +74,8 @@ at compile time. Moving from A to B later only touches `staticFile` and the buil
 
 ## Phase 3: browser and shared code (`src/`, `web/theme`, 37 files, about 5,500 lines)
 
-- [ ] 3a: `src/contract`, `events`, `sync-worst`, `activity*`, `api`, `ui/format`, `ui/dom` to `.ts`; update importers in `server/`, `src/` and `test/` in the same PR
-- [ ] 3a: type `SafeHtml`, `html(strings: TemplateStringsArray, ...values)` and `setHtml(element, markup: SafeHtml)`; keep the private-field brand, construction token and sole sink; add a `@ts-expect-error` type test showing a raw string, a plain array and a lookalike object are rejected
+- [x] 3a: `src/contract`, `events`, `sync-worst`, `activity*`, `api`, `ui/format`, `ui/dom` to `.ts`; update importers in `server/`, `src/` and `test/` in the same PR
+- [x] 3a: type `SafeHtml`, `html(strings: TemplateStringsArray, ...values)` and `setHtml(element, markup: SafeHtml)`; keep the private-field brand, construction token and sole sink; add a `@ts-expect-error` type test showing a raw string, a plain array and a lookalike object are rejected
 - [ ] 3b: remaining `src/ui/*`, `src/web` and `web/theme` to `.ts`; check by hand that the stored theme applies on first paint with no flash, and that `dist/web/theme.js` has no `export`
 - [ ] Idiomorph keeps its vendored bytes and `.d.ts` (`test/vendor.test.js` hash unchanged)
 - [ ] No `.js` left under `src/`; full CI green in each PR
