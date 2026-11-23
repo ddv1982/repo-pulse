@@ -8,7 +8,7 @@
 //    file: `from '...'`, `import '...'`, `import('...')` and JSDoc `import('...')` types;
 // 3. turns JSDoc into TypeScript in the renamed files with TypeScript 6.0.3's language service (TypeScript 7 has no
 //    JavaScript API): the `convertTypedefToType` and `annotateWithTypeFromJSDoc` fixes (working around two of the
-//    latter's defects, see arrowEdits and templateEdits), then JSDoc casts (`/** @type {T} */ (x)` and
+//    latter's defects, see arrowEdits, templateEdits and optionalEdits), then JSDoc casts (`/** @type {T} */ (x)` and
 //    `@satisfies`), which TypeScript ignores in a .ts file, become `as` and `satisfies`;
 // 4. exports the top-level type aliases and interfaces, as JSDoc typedefs were, and formats the files with Prettier.
 // Review the diff and run `npm run check:types` afterwards; the fixes leave the old JSDoc comments in place.
@@ -52,7 +52,8 @@ if (!packageDir) throw new Error('Could not find typescript@6.0.3 through npx.')
 /** @type {any} TypeScript 6's API; the project's own TypeScript 7 has no types for it. */
 const ts = createRequire(import.meta.url)(packageDir);
 
-const targets = [...renamed.values()];
+// TypeScript reports file names with forward slashes, also on Windows.
+const targets = [...renamed.values()].map(file => file.replaceAll('\\', '/'));
 /** @type {Map<string, { text: string, version: number }>} */
 const sources = new Map(targets.map(file => [file, { text: readFileSync(file, 'utf8'), version: 0 }]));
 const { options } = ts.convertCompilerOptionsFromJson(JSON.parse(readFileSync('tsconfig.base.json', 'utf8')).compilerOptions, '.');
@@ -107,7 +108,7 @@ function arrowEdits(file) {
   walk(source, node => {
     if (!ts.isArrowFunction(node) || node.parameters.length !== 1) return;
     const [parameter] = node.parameters;
-    if (source.text[parameter.getStart(source) - 1] === '(') return;
+    if (node.getChildren(source).some(/** @param {any} child */ child => child.kind === ts.SyntaxKind.OpenParenToken)) return;
     edits.push(
       { span: { start: parameter.getStart(source), length: 0 }, newText: '(' },
       { span: { start: parameter.end, length: 0 }, newText: ')' },
@@ -135,6 +136,19 @@ function templateEdits(file) {
   return edits;
 }
 
+/** Restores the `?` of optional `@param {T} [name]` parameters, which annotateWithTypeFromJSDoc drops. @param {string} file */
+function optionalEdits(file) {
+  const source = parse(file);
+  /** @type {{ span: { start: number, length: number }, newText: string }[]} */
+  const edits = [];
+  walk(source, node => {
+    if (!ts.isParameter(node) || node.questionToken || node.initializer || node.dotDotDotToken || !ts.isIdentifier(node.name)) return;
+    if (ts.getJSDocParameterTags(node).some(/** @param {any} tag */ tag => tag.isBracketed))
+      edits.push({ span: { start: node.name.end, length: 0 }, newText: '?' });
+  });
+  return edits;
+}
+
 /** Each outermost JSDoc cast in the file as an edit; nested casts are left for the next pass. @param {string} file */
 function castEdits(file) {
   const source = parse(file);
@@ -154,9 +168,23 @@ function castEdits(file) {
   return edits;
 }
 
-/** Puts `export` before each top-level type alias and interface that lacks it. @param {string} file */
+/**
+ * Puts `export` before each top-level type alias and interface that lacks it, in modules only: an export would turn a
+ * classic script such as web/theme into a module.
+ * @param {string} file
+ */
 function exportEdits(file) {
   const source = parse(file);
+  if (
+    !source.statements.some(
+      /** @param {any} node */ node =>
+        ts.isImportDeclaration(node) ||
+        ts.isExportDeclaration(node) ||
+        ts.isExportAssignment(node) ||
+        node.modifiers?.some(/** @param {any} modifier */ modifier => modifier.kind === ts.SyntaxKind.ExportKeyword),
+    )
+  )
+    return [];
   return source.statements
     .filter(
       /** @param {any} node */ node =>
@@ -173,6 +201,7 @@ for (const file of targets) {
     for (const change of changes) apply(change.fileName, change.textChanges);
   }
   apply(file, templateEdits(file));
+  apply(file, optionalEdits(file));
   for (let edits = castEdits(file); edits.length; edits = castEdits(file)) apply(file, edits);
   apply(file, exportEdits(file));
   writeFileSync(file, /** @type {any} */ (sources.get(file)).text);
