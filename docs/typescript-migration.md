@@ -83,7 +83,7 @@ at compile time. Moving from A to B later only touches `staticFile` and the buil
 ## Phase 4: server and scripts (about 8,200 lines)
 
 - [x] 4a: lower-risk `server/*` modules, `server.ts`, `scripts/*.ts`; `start`, `demo`, `doctor` point at `.ts`; add `scripts/**` to the node config and fix the 93 strict errors it surfaces
-- [ ] 4b: `server/store`, `sync`, `azure-*` and `checkout-*` to `.ts`, with the full cross-model review `docs/MAINTAINING.md:72` requires for these paths
+- [x] 4b: `server/store`, `sync`, `azure-*` and `checkout-*` to `.ts`, with the full cross-model review `docs/MAINTAINING.md:72` requires for these paths (GPT-6.2 Sol, Claude Opus 5.5 9/10, Gemini 4 Neon 9.5/10: all approved)
 - [x] `server/checkout-delete-guard.cjs` stays CommonJS JavaScript: it is copied as an extensionless Git hook, and Node cannot strip types there (verified)
 - [x] Audit `new URL(..., import.meta.url)` and dynamic imports for `.js` paths
 - [ ] Full CI green on both OSes; `npm start`, `npm run demo` and `npm run doctor` run
