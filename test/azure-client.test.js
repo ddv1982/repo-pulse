@@ -71,7 +71,7 @@ test('refs use continuation token and build cache isolates repositories while co
   assert.equal(active.items[0].id, 1);
   assert(!calls.at(-1).some(value => value.startsWith('minTime=')));
   assert(calls.at(-1).includes('repositoryId=repo1'));
-  assert.deepEqual(await client.buildsById(repo, [123]), [{ id: 1 }]);
+  assert.deepEqual(await client.buildsById(repo, [123]), { items: [{ id: 1 }], nextCursor: { token: 'page2' } });
   assert(calls.at(-1).includes('buildIds=123'));
 });
 
@@ -130,7 +130,25 @@ test('active PR reads are explicitly repo-scoped and exact PR reconciliation use
   assert.equal((await client.pullRequest(repo, 123)).pullRequestId, 123);
   assert.deepEqual(calls[1].slice(0, 3), ['repos', 'pr', 'show']);
   const foreign = createAzureClient({ cli: { run: async () => ({ pullRequestId: 123, repository: { id: 'different' } }) } });
-  await assert.rejects(foreign.pullRequest(repo, 123), { code: 'INVALID_RESPONSE' });
+  await assert.rejects(foreign.pullRequest(repo, 123), { code: 'WRONG_REPOSITORY' });
+  const malformed = createAzureClient({ cli: { run: async () => ({ repository: { id: 'repo1' } }) } });
+  await assert.rejects(malformed.pullRequest(repo, 123), { code: 'INVALID_RESPONSE' });
+  const noRepository = createAzureClient({ cli: { run: async () => ({ pullRequestId: 123 }) } });
+  await assert.rejects(noRepository.pullRequest(repo, 123), { code: 'INVALID_RESPONSE' });
+  const otherId = createAzureClient({ cli: { run: async () => ({ pullRequestId: 124, repository: { id: 'repo1' } }) } });
+  await assert.rejects(otherId.pullRequest(repo, 123), { code: 'INVALID_RESPONSE' });
+  // Azure GUIDs differ in case between APIs, as elsewhere in the app.
+  const upper = createAzureClient({ cli: { run: async () => ({ pullRequestId: 123, repository: { id: 'REPO1' } }) } });
+  assert.equal((await upper.pullRequest(repo, 123)).pullRequestId, 123);
+  for (const payload of [
+    { pullRequestId: [123], repository: { id: 'repo1' } },
+    { pullRequestId: 123, repository: { id: 7 } },
+    { pullRequestId: 123, repository: { id: { id: 'repo1' } } },
+    { pullRequestId: 123, repository: { id: '  ' } },
+  ]) {
+    const odd = createAzureClient({ cli: { run: async () => payload } });
+    await assert.rejects(odd.pullRequest(repo, 123), { code: 'INVALID_RESPONSE' }, JSON.stringify(payload));
+  }
 });
 
 test('connection detection reuses local CLI sign-in without acquiring credentials or requiring setup', async () => {

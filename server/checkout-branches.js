@@ -176,6 +176,7 @@ export function branchFollowups({ run, hooks, followups, statusAt, updateAt, rea
       return { message: result.updated ? `Switched to ${name} and updated it.` : `Switched to ${name}. It already matches upstream.` };
     } catch (error) {
       const reason = error instanceof Error && 'status' in error && error.status === 409 ? ` ${error.message}` : '';
+      if (reason && error instanceof Error && 'unclear' in error) return { message: `Switched to ${name}.${reason}` };
       return { message: partial + reason };
     }
   }
@@ -285,7 +286,19 @@ export function branchFollowups({ run, hooks, followups, statusAt, updateAt, rea
     const branch = details.branch;
     const workspace = await mkdtemp(join(dirname(path), '.repo-pulse-follow-up-'));
     try {
-      await run(path, ['-c', `core.hooksPath=${hooks}`, 'worktree', 'add', '--no-track', '-b', branch, workspace, snapshot.head]);
+      await run(path, [
+        '-c',
+        `core.hooksPath=${hooks}`,
+        '-c',
+        'submodule.recurse=false',
+        'worktree',
+        'add',
+        '--no-track',
+        '-b',
+        branch,
+        workspace,
+        snapshot.head,
+      ]);
     } catch {
       await rmdir(workspace).catch(() => {});
       throw branchProblem('Git could not create the follow-up worktree. Check the checkout and branch name in Git.');
@@ -297,6 +310,8 @@ export function branchFollowups({ run, hooks, followups, statusAt, updateAt, rea
         `core.hooksPath=${hooks}`,
         '-c',
         'rerere.enabled=false',
+        '-c',
+        'submodule.recurse=false',
         'cherry-pick',
         '--no-gpg-sign',
         ...commits.map(commit => commit.id),

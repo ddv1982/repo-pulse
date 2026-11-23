@@ -31,7 +31,7 @@ Use the shared `.btn`, `.control`, `.ghost`, and `.search` classes. Choose one s
 
 Branch switches verify the destination ref, its fetch mapping, and the linked Git directory. Tracking-ref updates check the expected old value, and Repo Pulse checks the type of each ref while Git holds its transaction lock. For a confirmed rewrite, Repo Pulse writes and verifies recovery refs under `refs/repo-pulse/upstream-rewrites/` before updating the tracker. Later checks can use those refs to detect the rewrite on other local branches tracking the same upstream, including branches in linked worktrees. Git handles the worktree switch separately.
 
-Pull checks the checkout, upstream and fetched tip before running `git merge --ff-only --no-squash`, then verifies HEAD. A terminal branch change between the final check and Git's merge can still race with the update.
+Pull checks the checkout, upstream and fetched tip before running `git merge --ff-only --no-squash`, then verifies that the checkout is still on the same branch and that HEAD is the fetched tip. A terminal branch change between the final check and Git's merge can still make Git fast-forward the other branch instead. Pull cannot tell which branch moved, so it reports the outcome as unclear rather than as an update.
 
 ## Render into the live page
 
@@ -66,6 +66,12 @@ npm run test:ui
 ```
 
 CI runs the first four on Linux and Windows, and the browser tests on Linux only. Browser tests use Chromium. Run `npx playwright install chromium` if needed, or set `CHROME` to a local executable. Tests use isolated databases and temporary Git repositories. They verify workflows and failure cases without proving live Azure permissions. See [coverage and limits](COVERAGE.md) for the distinction.
+
+## Match review to risk
+
+Copy, CSS and layout changes get the checks above plus one review round. Changes to `server/checkout-*.js`, migrations in `server/store.js`, `server/sync.js` and `server/azure-*.js` keep the full cross-model review, because a mistake there can move a local branch, lose stored rows or stall the feed.
+
+Before changing wording or a default, agree one representative row with the owner, and any search the change gives up, and state both in the PR description. When search terms change, raise `SEARCH_INDEX_VERSION` in `src/activity-text.js` so stored rows are reindexed.
 
 ## Check local load
 

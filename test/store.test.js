@@ -1,10 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, rmSync, statSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createStore } from '../server/store.js';
+import { copyBeforeUpgrade, createStore } from '../server/store.js';
+import { SEARCH_INDEX_VERSION } from '../src/activity-text.js';
 import { DatabaseSync } from 'node:sqlite';
+import { spawn } from 'node:child_process';
 const repo = {
   id: 'one',
   name: 'One',
@@ -203,7 +205,7 @@ test('starting from scratch clears activity, checkpoints, jobs and baselines but
       .prepare('SELECT key FROM settings ORDER BY key')
       .all()
       .map(row => row.key),
-    ['activityRevision', 'checkout-followup:one', 'checkout:one', 'refreshEnabled', 'refreshResumedAt'],
+    ['activityRevision', 'checkout-followup:one', 'checkout:one', 'refreshEnabled', 'refreshResumedAt', 'searchIndexVersion'],
   );
   assert.equal(Number(store.activityRevision()), revision + 1, 'the page reloads its activity');
   assert.ok(diskSize() < before / 4, `compacted from ${before} to ${diskSize()} bytes`);
@@ -267,6 +269,154 @@ test('upgrading hides saved service pushes that name no branch, and keeps the sa
     ['person', 'service-branch'],
   );
   store.close();
+  rmSync(folder, { recursive: true });
+});
+
+test('upgrading copies the database first and keeps only the latest copy; a fresh or current database gets none', () => {
+  const folder = mkdtempSync(join(tmpdir(), 'pulse-store-'));
+  const path = join(folder, 'state.sqlite');
+  const service = 'Microsoft.VisualStudio.Services.TFS';
+  const copies = () => readdirSync(folder).filter(name => name.includes('.pre-v'));
+  let store = createStore(path);
+  assert.deepEqual(copies(), [], 'a new database is not copied');
+  store.saveRepo(repo);
+  store.insertEvents([event('preview', { actor: service, branch: '', data: { pushId: 1, refUpdates: [] } })]);
+  store.close();
+  createStore(path).close();
+  assert.deepEqual(copies(), [], 'a current database is not copied');
+  const downgrade = version => {
+    const raw = new DatabaseSync(path);
+    raw.exec(`PRAGMA user_version = ${version};`);
+    raw.close();
+  };
+  downgrade(12);
+  createStore(path).close();
+  assert.deepEqual(copies(), ['state.sqlite.pre-v12']);
+  // Migration 13 left the row; 14 is the step that deletes it.
+  const db = new DatabaseSync(path);
+  db.exec("INSERT INTO activity_members(event_id,group_key,kind,search_text,observed,time) VALUES('preview','g','push','',0,0)");
+  db.exec('PRAGMA user_version = 13;');
+  db.close();
+  store = createStore(path);
+  assert.equal(store.queryActivity({ view: 'all' }).total, 0, 'migration 14 removed the row');
+  store.close();
+  assert.deepEqual(copies(), ['state.sqlite.pre-v13'], 'only the latest copy stays');
+  const copy = new DatabaseSync(join(folder, 'state.sqlite.pre-v13'), { readOnly: true });
+  assert.equal(copy.prepare('PRAGMA user_version').get().user_version, 13);
+  assert.equal(copy.prepare("SELECT COUNT(*) AS n FROM activity_members WHERE event_id='preview'").get().n, 1);
+  copy.close();
+  // A file someone named after a copy is not one of ours.
+  writeFileSync(join(folder, 'state.sqlite.pre-v12.keep'), 'mine');
+  downgrade(14);
+  createStore(path).close();
+  assert.deepEqual(copies().sort(), ['state.sqlite.pre-v12.keep', 'state.sqlite.pre-v14'], 'other files with the prefix stay');
+  rmSync(folder, { recursive: true });
+});
+
+test('a write waits for another process that briefly holds the write lock instead of failing at once', async () => {
+  const folder = mkdtempSync(join(tmpdir(), 'pulse-store-'));
+  const path = join(folder, 'state.sqlite');
+  const store = createStore(path);
+  // node:sqlite blocks its thread while waiting, so the lock is held and released by another process. It writes a
+  // marker inside its locked transaction and commits only after it has said the lock is held.
+  const holder = spawn(
+    process.execPath,
+    [
+      '-e',
+      `const { DatabaseSync } = require('node:sqlite');
+       const db = new DatabaseSync(process.argv[1]);
+       db.exec('BEGIN IMMEDIATE');
+       db.exec("INSERT INTO settings(key,data) VALUES('holder','true')");
+       process.stdout.write('locked');
+       setTimeout(() => { db.exec('COMMIT'); db.close(); }, 300);`,
+      path,
+    ],
+    { stdio: ['ignore', 'pipe', 'inherit'] },
+  );
+  const exited = new Promise((resolve, reject) => {
+    holder.once('error', reject);
+    holder.once('exit', code => (code === 0 ? resolve(undefined) : reject(new Error(`lock holder exited with ${code}`))));
+  });
+  await Promise.race([
+    new Promise(resolve => holder.stdout.once('data', resolve)),
+    exited.then(() => {
+      throw new Error('lock holder exited before taking the lock');
+    }),
+  ]);
+  // The lock is held now; without a busy timeout this throws "database is locked".
+  store.setSetting('waited', true);
+  assert.equal(store.getSetting('holder', false), true, 'the write returned only after the holder committed');
+  assert.equal(store.getSetting('waited', false), true);
+  await exited;
+  store.close();
+  rmSync(folder, { recursive: true });
+});
+
+test('rows indexed under older search terms are rebuilt once when the search index version changes', () => {
+  const folder = mkdtempSync(join(tmpdir(), 'pulse-store-'));
+  const path = join(folder, 'state.sqlite');
+  let store = createStore(path);
+  assert.equal(store.getSetting('searchIndexVersion', null), SEARCH_INDEX_VERSION, 'a new database records the current version');
+  store.saveRepo(repo);
+  store.insertEvents([event('row', { title: 'Nightly deploy' })]);
+  store.close();
+  const stale = version => {
+    const raw = new DatabaseSync(path);
+    raw.exec("UPDATE activity_members SET search_text='old terms'");
+    raw.prepare("UPDATE settings SET data=? WHERE key='searchIndexVersion'").run(JSON.stringify(version));
+    raw.close();
+  };
+  stale(SEARCH_INDEX_VERSION);
+  store = createStore(path);
+  assert.equal(store.queryActivity({ search: 'Nightly' }).total, 0, 'an unchanged version does not reindex');
+  store.close();
+  stale(SEARCH_INDEX_VERSION - 1);
+  store = createStore(path);
+  assert.equal(store.queryActivity({ search: 'Nightly' }).total, 1, 'the old row matches the current terms');
+  assert.equal(store.getSetting('searchIndexVersion', null), SEARCH_INDEX_VERSION);
+  store.close();
+  rmSync(folder, { recursive: true });
+});
+
+test('an opener whose database another opener already upgraded keeps the copy that one made', () => {
+  const folder = mkdtempSync(join(tmpdir(), 'pulse-store-'));
+  const path = join(folder, 'state.sqlite');
+  const copy = `${path}.pre-v14`;
+  createStore(path).close();
+  // Another opener copied the v14 file and then upgraded it to v15 after this opener read version 14.
+  writeFileSync(copy, 'the copy the other opener made');
+  const db = new DatabaseSync(path);
+  copyBeforeUpgrade(db, path, 14);
+  assert.equal(readFileSync(copy, 'utf8'), 'the copy the other opener made', 'a v15 database is not saved as pre-v14');
+  assert.deepEqual(
+    readdirSync(folder).filter(name => name.includes('.tmp-')),
+    [],
+    'no temporary copy is left',
+  );
+  // At the version it read, the copy is replaced.
+  db.exec('PRAGMA user_version = 14');
+  copyBeforeUpgrade(db, path, 14);
+  db.close();
+  const check = new DatabaseSync(copy, { readOnly: true });
+  assert.equal(check.prepare('PRAGMA user_version').get().user_version, 14);
+  check.close();
+  rmSync(folder, { recursive: true });
+});
+
+test('a database that cannot be copied before upgrading is not upgraded', () => {
+  const folder = mkdtempSync(join(tmpdir(), 'pulse-store-'));
+  const path = join(folder, 'state.sqlite');
+  createStore(path).close();
+  const raw = new DatabaseSync(path);
+  raw.exec('PRAGMA user_version = 13;');
+  raw.close();
+  // A directory where the copy belongs makes VACUUM INTO fail, as a full disk would.
+  mkdirSync(`${path}.pre-v13`);
+  writeFileSync(join(`${path}.pre-v13`, 'keep'), '');
+  assert.throws(() => createStore(path), /copy/i);
+  const check = new DatabaseSync(path, { readOnly: true });
+  assert.equal(check.prepare('PRAGMA user_version').get().user_version, 13, 'the database is left as it was');
+  check.close();
   rmSync(folder, { recursive: true });
 });
 

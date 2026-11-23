@@ -18,3 +18,15 @@ Recorded 2026-11-20 by `scripts/probe-coverage.js` for 1 watched repositories. G
 | 1 | created commit | 200 | 115 | `{"fields":["_links","author","comment","commitId","committer","parents","push","remoteUrl","treeId","url"],"parents":1,"pushFields":["date","pushId","pushedBy"]}` |
 | 1 | creation push commits | 200 | 51 | `{"items":3,"fields":["_links","author","comment","commentTruncated","commitId","committer","remoteUrl","url"],"withParents":0,"outsideParents":0,"tipFirst":false,"newestFirst":false}` |
 | 1 | created commit | 200 | 56 | `{"fields":["_links","author","comment","commitId","committer","parents","push","remoteUrl","treeId","url"],"parents":1,"pushFields":["date","pushId","pushedBy"]}` |
+
+## Builds by ID for a build Azure no longer has
+
+Recorded 2026-11-23 by hand through the app's own `buildsById` for a watched repository. GET requests only. Build ID 1 stands in for a build removed by retention; the real ID is the newest completed build in the local cache.
+
+| Repository | Read | HTTP | Facts |
+| --- | --- | --- | --- |
+| 1 | builds by ID, missing ID only | 200 | `{"items":0}`: the missing ID is omitted, no error |
+| 1 | builds by ID, real ID only | 200 | `{"items":1,"statuses":["completed"]}` |
+| 1 | builds by ID, missing and real ID | 200 | `{"items":1}`: only the real build is returned |
+
+This file is rewritten by `scripts/probe-coverage.js`, which does not repeat this probe.

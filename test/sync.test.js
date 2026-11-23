@@ -14,6 +14,7 @@ const repo = {
   webUrl: 'https://dev.azure.com/org/P/_git/One',
 };
 const BASE = Date.parse('2026-11-17T10:00:00Z');
+const DAY = 86400000;
 function setup(provider, streams = ['pushes']) {
   const store = createStore();
   store.saveRepo(repo);
@@ -225,7 +226,7 @@ test('old active build is refreshed by ID after disappearing from active results
     },
     async buildsById(_r, ids) {
       assert.deepEqual(ids, ['42']);
-      return [{ ...build, status: 'completed', result: 'failed', finishTime: '2026-11-17T10:01:00Z' }];
+      return { items: [{ ...build, status: 'completed', result: 'failed', finishTime: '2026-11-17T10:01:00Z' }], nextCursor: null };
     },
   };
   const { store, sync, advance } = setup(provider, ['activeBuilds']);
@@ -237,6 +238,43 @@ test('old active build is refreshed by ID after disappearing from active results
   assert.equal(store.listEvents().find(e => e.data.result === 'failed').seen, false);
   store.close();
 });
+
+for (const nextCursor of [null, { token: 'more' }]) {
+  test(`an active build that Azure omits when asked for by ID is asked again only if the answer had more pages (${nextCursor ? 'more' : 'none'})`, async () => {
+    const build = {
+      id: 42,
+      repository: { id: 'a' },
+      status: 'inProgress',
+      queueTime: '2026-11-01T00:00:00Z',
+      sourceBranch: 'refs/heads/main',
+      sourceVersion: 'a',
+    };
+    let active = true;
+    const asked = [];
+    const provider = {
+      async read() {
+        return { items: active ? [build] : [], nextCursor: null };
+      },
+      // Azure answers a build removed by retention with an empty list (docs/probe-results.md).
+      async buildsById(_r, ids) {
+        asked.push(ids);
+        return { items: [], nextCursor };
+      },
+    };
+    const { store, sync, advance } = setup(provider, ['activeBuilds']);
+    await sync.tick();
+    active = false;
+    advance();
+    await sync.tick();
+    const stream = () => store.getStreams().find(state => state.stream === 'activeBuilds');
+    assert.equal(stream().error, null);
+    store.saveStream({ ...stream(), nextAt: new Date(BASE + 2000).toISOString() });
+    await sync.tick();
+    assert.deepEqual(asked, nextCursor ? [['42'], ['42']] : [['42']], 'an omission on the only page ends the lookups');
+    assert.equal(store.listEvents().length, 1, 'no event is invented for it');
+    store.close();
+  });
+}
 
 test('PR reactivation creates a fresh event even when its state matches an earlier snapshot', async () => {
   let status = 'active';
@@ -260,6 +298,71 @@ test('PR reactivation creates a fresh event even when its state matches an earli
   assert.equal(store.listEvents({ unseen: true }).length, 2);
   store.close();
 });
+
+const cachedPr = (id, status = 'active') => ({
+  pullRequestId: id,
+  title: `PR ${id}`,
+  status,
+  creationDate: '2026-11-16T10:00:00Z',
+  sourceRefName: `refs/heads/feature/${id}`,
+});
+
+test('a cached active PR that Azure can no longer read does not stall the prs stream or its later siblings', async () => {
+  let listed = [1, 2, 3, 4, 5].map(id => cachedPr(id));
+  const lookups = [];
+  const unreadable = { 1: 'NOT_FOUND', 2: 'WRONG_REPOSITORY' };
+  const provider = {
+    async read() {
+      return { items: listed, nextCursor: null };
+    },
+    async pullRequest(_repo, id) {
+      lookups.push(id);
+      if (unreadable[id]) throw Object.assign(new Error('unreadable'), { code: unreadable[id] });
+      return cachedPr(Number(id), 'completed');
+    },
+  };
+  const { store, sync, advance } = setup(provider, ['prs']);
+  await sync.tick();
+  listed = [];
+  advance();
+  await sync.tick();
+  const prs = () => store.getStreams().find(state => state.stream === 'prs');
+  assert.equal(prs().error, null, 'one unreadable PR does not fail the page');
+  assert.equal(prs().lastSuccess, new Date(BASE + 2000).toISOString(), 'the listing commits');
+  assert.equal(store.getEntity(repo.id, 'pr', '3').status, 'completed', 'a readable sibling commits');
+  assert.equal(store.getEntity(repo.id, 'pr', '1').status, 'active', 'an unreadable PR is left as it was');
+  store.saveStream({ ...prs(), nextAt: new Date(BASE + 2000).toISOString() });
+  await sync.tick();
+  assert.deepEqual(lookups, ['1', '2', '3', '4', '5', '1'], 'later PRs get a turn instead of the same first three');
+  assert.equal(store.getEntity(repo.id, 'pr', '5').status, 'completed');
+  store.close();
+});
+
+for (const code of ['AUTH_REQUIRED', 'INVALID_RESPONSE']) {
+  test(`a ${code} error during a per-PR lookup still fails the prs page`, async () => {
+    let listed = [cachedPr(1), cachedPr(2)];
+    const provider = {
+      async read() {
+        return { items: listed, nextCursor: null };
+      },
+      async pullRequest(_repo, id) {
+        if (id === '2') throw Object.assign(new Error('failed'), { code });
+        return cachedPr(Number(id), 'completed');
+      },
+    };
+    const { store, sync, advance } = setup(provider, ['prs']);
+    await sync.tick();
+    const before = store.getStreams().find(state => state.stream === 'prs').lastSuccess;
+    listed = [];
+    advance();
+    await sync.tick();
+    const prs = store.getStreams().find(state => state.stream === 'prs');
+    assert.equal(prs.error?.code, code);
+    assert.equal(prs.lastSuccess, before, 'the page does not commit');
+    assert.equal(store.getEntity(repo.id, 'pr', '1').status, 'active', 'no sibling commits from a failed page');
+    store.close();
+  });
+}
 
 test('disabled repositories and disabled refresh never call Azure; concurrent ticks coalesce', async () => {
   let release;
@@ -382,7 +485,7 @@ test('pausing during a read prevents follow-up reconciliation and never acknowle
     },
     async buildsById() {
       reconciled++;
-      return [];
+      return { items: [], nextCursor: null };
     },
   };
   const { store, sync } = setup(provider, ['activeBuilds']);
@@ -678,6 +781,130 @@ test('a failed manual refresh is not retried while automatic checks are off', as
   time += 31 * 60000;
   await sync.tick();
   assert.equal(calls, 1, 'no Azure call without another refresh request');
+  store.close();
+});
+
+test('a refresh requested during a read that then fails is still answered while automatic checks are off', async () => {
+  const store = createStore();
+  store.saveRepo(repo);
+  store.setSetting('refreshEnabled', false);
+  let time = BASE,
+    fail,
+    calls = 0;
+  const sync = createSync({
+    store,
+    now: () => time,
+    intervalMs: 1000,
+    provider: {
+      read() {
+        if (++calls > 1) return Promise.reject(Object.assign(new Error('offline'), { code: 'UNAVAILABLE' }));
+        return new Promise((_done, reject) => {
+          fail = () => reject(Object.assign(new Error('offline'), { code: 'UNAVAILABLE' }));
+        });
+      },
+    },
+  });
+  sync.refresh([repo.id]);
+  for (const state of store.getStreams()) if (state.stream !== 'pushes') store.saveStream({ ...state, manual: false });
+  const reading = sync.tick();
+  await new Promise(setImmediate);
+  time += 40000;
+  assert.equal(sync.refresh([repo.id]).scheduled, true);
+  for (const state of store.getStreams()) if (state.stream !== 'pushes') store.saveStream({ ...state, manual: false });
+  fail();
+  await reading;
+  const pending = () => sync.status().inProgress.some(entry => entry.stream === 'pushes');
+  assert.equal(store.getStreams().find(state => state.stream === 'pushes').error.code, 'UNAVAILABLE', 'the failure stays visible');
+  assert.equal(pending(), true, 'the newer request is still pending');
+  time += 31 * 60000;
+  await sync.tick();
+  assert.equal(calls, 2, 'the newer request gets its own read');
+  assert.equal(pending(), false, 'its failure answers it');
+  time += 31 * 60000;
+  await sync.tick();
+  assert.equal(calls, 2, 'no further read without another request');
+  store.close();
+});
+
+test('a refresh made with automatic checks on still runs if checks are turned off before the older read fails', async () => {
+  const store = createStore();
+  store.saveRepo(repo);
+  let time = BASE,
+    fail,
+    calls = 0;
+  const sync = createSync({
+    store,
+    now: () => time,
+    intervalMs: 1000,
+    provider: {
+      read() {
+        if (++calls > 1) return Promise.resolve({ items: [], nextCursor: null });
+        return new Promise((_done, reject) => {
+          fail = () => reject(Object.assign(new Error('offline'), { code: 'UNAVAILABLE' }));
+        });
+      },
+    },
+  });
+  sync.refresh([repo.id]);
+  for (const state of store.getStreams()) if (state.stream !== 'pushes') store.saveStream({ ...state, nextAt: '2099-01-01T00:00:00Z' });
+  const reading = sync.tick();
+  await new Promise(setImmediate);
+  time += 40000;
+  assert.equal(sync.refresh([repo.id]).scheduled, true);
+  for (const state of store.getStreams()) if (state.stream !== 'pushes') store.saveStream({ ...state, nextAt: '2099-01-01T00:00:00Z' });
+  store.setSetting('refreshEnabled', false);
+  fail();
+  await reading;
+  time += 31 * 60000;
+  await sync.tick();
+  assert.equal(calls, 2, 'the request still gets its read');
+  assert.equal(
+    sync.status().inProgress.some(entry => entry.stream === 'pushes'),
+    false,
+    'and is no longer in progress',
+  );
+  store.close();
+});
+
+test('a first sync whose read fails after a newer refresh keeps its lower bound', async () => {
+  const store = createStore();
+  store.saveRepo(repo);
+  store.setSetting('refreshEnabled', false);
+  let time = BASE,
+    fail;
+  const sinces = [];
+  const sync = createSync({
+    store,
+    now: () => time,
+    intervalMs: 1000,
+    provider: {
+      read(_repo, _stream, { since }) {
+        sinces.push(since);
+        if (sinces.length === 1) return Promise.resolve({ items: [], nextCursor: { skip: 1 } });
+        if (sinces.length > 2) return Promise.resolve({ items: [], nextCursor: null });
+        return new Promise((_done, reject) => {
+          fail = () => reject(Object.assign(new Error('offline'), { code: 'UNAVAILABLE' }));
+        });
+      },
+    },
+  });
+  const onlyPushes = () => {
+    for (const state of store.getStreams()) if (state.stream !== 'pushes') store.saveStream({ ...state, manual: false });
+  };
+  sync.refresh([repo.id]);
+  onlyPushes();
+  await sync.tick();
+  time += DAY;
+  const reading = sync.tick();
+  await new Promise(setImmediate);
+  sync.refresh([repo.id]);
+  onlyPushes();
+  fail();
+  await reading;
+  time += 31 * 60000;
+  await sync.tick();
+  assert.equal(sinces.length, 3);
+  assert.equal(sinces[2], sinces[0], 'the retry starts where the first sync started');
   store.close();
 });
 

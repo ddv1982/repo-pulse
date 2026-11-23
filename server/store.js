@@ -1,9 +1,15 @@
 // @ts-check
 import { DatabaseSync } from 'node:sqlite';
-import { chmodSync, mkdirSync } from 'node:fs';
-import { dirname } from 'node:path';
+import { chmodSync, mkdirSync, readdirSync, renameSync, rmSync } from 'node:fs';
+import { basename, dirname, join } from 'node:path';
 import { activityKey, lifecycleKey, supportingPushKey } from '../src/activity.js';
-import { activityStatusId, activityEvidenceId, activitySearchText, azureDevOpsService } from '../src/activity-text.js';
+import {
+  activityStatusId,
+  activityEvidenceId,
+  activitySearchText,
+  azureDevOpsService,
+  SEARCH_INDEX_VERSION,
+} from '../src/activity-text.js';
 import { createActivityQuery } from './activity-query.js';
 import { localPrLink, mergeUpdates } from './merge-evidence.js';
 import { forkJob } from './fork-origin.js';
@@ -62,11 +68,41 @@ const FIRST_SYNC_MS = 7 * 86400000;
 const badRequest = message => Object.assign(new Error(message), { code: 'BAD_REQUEST' });
 /** @param {string} value */
 const stamp = value => (Number.isFinite(Date.parse(value)) ? Date.parse(value) : 0);
+/**
+ * Writes a copy of a database about to be upgraded from `version` next to it, as `<name>.pre-v<version>`, and removes
+ * older copies. The copy goes to a temporary name first: if another opener upgraded the file since `version` was read,
+ * the copy is not at `version`, so it is dropped and the copy that opener made stays.
+ * @param {DatabaseSync} db @param {string} path @param {number} version
+ */
+export function copyBeforeUpgrade(db, path, version) {
+  const name = `${basename(path)}.pre-v${version}`;
+  const copy = join(dirname(path), name);
+  const temporary = `${copy}.tmp-${process.pid}`;
+  try {
+    rmSync(temporary, { force: true });
+    db.prepare('VACUUM INTO ?').run(temporary);
+    const check = new DatabaseSync(temporary, { readOnly: true });
+    const copied = /** @type {{ user_version: number }} */ (check.prepare('PRAGMA user_version').get()).user_version;
+    check.close();
+    if (copied !== version) return;
+    chmodSync(temporary, 0o600);
+    renameSync(temporary, copy);
+  } finally {
+    rmSync(temporary, { force: true });
+  }
+  const prefix = `${basename(path)}.pre-v`;
+  for (const entry of readdirSync(dirname(path)))
+    if (entry.startsWith(prefix) && /^\d+$/.test(entry.slice(prefix.length)) && entry !== name)
+      rmSync(join(dirname(path), entry), { force: true });
+}
+
 /** SQLite owns durable events, cursor transactions and indexed view-only activity membership. */
 export function createStore(path = ':memory:') {
   if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
   const db = new DatabaseSync(path);
   if (path !== ':memory:') chmodSync(path, 0o600);
+  // Another process reading or writing the file, such as a probe script, makes a write wait briefly instead of failing.
+  db.exec('PRAGMA busy_timeout = 5000');
   /** @type {Map<string, import('node:sqlite').StatementSync>} */
   const statements = new Map();
   /** Prepares and caches static SQL statements for the lifetime of this connection. @param {string} sql */
@@ -352,6 +388,19 @@ export function createStore(path = ':memory:') {
     db.close();
     throw new Error('This database was created by a newer Repo Pulse version.');
   }
+  // Some migrations delete rows and commit even when their logic is wrong, so a database with data is copied first.
+  // Only the copy from the latest upgrade is kept.
+  if (path !== ':memory:' && version < migrations[migrations.length - 1][0] && q('SELECT 1 FROM sqlite_master LIMIT 1').get()) {
+    try {
+      copyBeforeUpgrade(db, path, version);
+    } catch (error) {
+      db.close();
+      // Upgrading without the copy would leave nothing to recover rows a faulty migration deletes.
+      throw new Error(
+        `Could not copy the database before upgrading it, so it was left unchanged. Free disk space and start again. (${String(/** @type {Error} */ (error)?.message || error)})`,
+      );
+    }
+  }
   db.exec('PRAGMA foreign_keys = ON');
   if (path !== ':memory:') db.exec('PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL;');
   transaction(() => {
@@ -408,6 +457,12 @@ export function createStore(path = ':memory:') {
       if (version >= target) continue;
       run();
       db.exec(`PRAGMA user_version = ${target}`);
+    }
+    // Search text is computed when a row is saved, so rows saved under older terms are rebuilt as migration 13 did.
+    // A new database has no rows to rebuild.
+    if (getSetting('searchIndexVersion', null) !== SEARCH_INDEX_VERSION) {
+      if (version > 0) for (const row of q(selectEvents).iterate()) indexLabels(hydrate(row));
+      setSetting('searchIndexVersion', SEARCH_INDEX_VERSION);
     }
   });
   // Returns the space deleted data held to the file system. VACUUM cannot run inside a transaction, and a failure

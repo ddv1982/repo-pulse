@@ -117,22 +117,34 @@ function completePage(state, latest, { at, delayMs, quietCycles }) {
 
 /**
  * Records a failed read and backs off. A manual request ends with its failure; retrying
- * is left to the user while automatic checks are off.
- * @param {StartedStream} state @param {number} at @param {unknown} error @param {number} intervalMs
+ * is left to the user while automatic checks are off. A refresh requested after the window
+ * opened stays due as a manual request, and the retry restarts at page one of a window that keeps the
+ * old lower bound and ends at this failure, after the request.
+ * @param {StartedStream} state @param {StreamState} latest @param {number} at @param {unknown} error @param {number} intervalMs
  * @returns {StreamState}
  */
-function failPage(state, at, error, intervalMs) {
+function failPage(state, latest, at, error, intervalMs) {
   const failures = (state.failures || 0) + 1;
   const delay = Math.min(30 * 60000, intervalMs * 2 ** Math.min(failures - 1, 4));
   // Caught values are untyped; provider errors carry a user-facing message only when they have a code.
   const { code, message } = /** @type {{ code?: string, message: string }} */ (error);
-  return {
+  const failed = {
     ...state,
     manual: false,
     failures,
     error: { code: code || 'SYNC_FAILED', message: code ? message : 'Could not refresh this Azure activity stream.' },
     nextAt: iso(at + delay),
   };
+  if ((latest.refreshGeneration || 0) <= state.windowGeneration) return failed;
+  const restarted = {
+    window: { since: state.window.since, until: iso(at) },
+    windowGeneration: latest.refreshGeneration || 0,
+    cursor: undefined,
+    pendingItems: undefined,
+    activeIds: undefined,
+  };
+  // Marked manual so the request still runs if automatic checks were turned off after it was made.
+  return { ...failed, ...restarted, refreshGeneration: latest.refreshGeneration, manual: true };
 }
 
 /**
@@ -187,6 +199,8 @@ export function createSync({
   /** @type {Partial<Record<BackgroundKind|'live', string>>} */
   const lastTurn = {};
   const counters = { pages: 0, errors: 0 };
+  /** The last cached active PR looked up by ID, per repository, so missing PRs take turns. @type {Map<string, string>} */
+  const prLookedUp = new Map();
 
   function ensureStreams() {
     const current = store.getStreams();
@@ -264,25 +278,49 @@ export function createSync({
       ? [...(state.activeIds || []), ...page.items.map(item => String(item.id || item.pullRequestId))]
       : undefined;
     let items = page.items;
+    /** @type {Entity[]} */
+    let gone = [];
     if (complete && state.stream === 'activeBuilds' && provider.buildsById) {
       const missing = store
         .listEntities(repo.id, 'build')
         .filter(entry => entry.data.status !== 'completed' && !activeIds?.includes(entry.id))
-        .slice(0, 20)
-        .map(entry => entry.id);
-      if (missing.length) items = [...items, ...(await provider.buildsById(repo, missing))];
+        .slice(0, 20);
+      if (missing.length) {
+        const { items: found, nextCursor } = await provider.buildsById(
+          repo,
+          missing.map(entry => entry.id),
+        );
+        items = [...items, ...found];
+        // Azure omits a build it no longer has (removed by retention, see docs/probe-results.md), so stop asking for it.
+        // The fingerprint stays, so no event is made for it and a later sighting still compares against its last state.
+        // With more pages to read, an omitted build may only be on a later one, so none is given up this turn.
+        if (!nextCursor)
+          gone = missing
+            .filter(entry => !found.some(item => String(item?.id) === entry.id))
+            .map(entry => ({ type: 'build', id: entry.id, data: { ...entry.data, status: 'completed' } }));
+      }
     }
     if (complete && state.stream === 'prs' && provider.pullRequest) {
       const missing = store
         .listEntities(repo.id, 'pr')
         .filter(entry => entry.data.status === 'active' && !activeIds?.includes(entry.id))
-        .slice(0, 3);
-      for (const entry of missing) {
+        .map(entry => entry.id)
+        .sort((a, b) => Number(a) - Number(b));
+      // Lookups resume after the last ID checked, so PRs that stay unreadable cannot hold every turn.
+      const after = missing.findIndex(id => Number(id) > Number(prLookedUp.get(repo.id) ?? -1));
+      const turn = [...missing.slice(Math.max(after, 0)), ...missing.slice(0, Math.max(after, 0))].slice(0, 3);
+      for (const id of turn) {
         if (!watching(repo)) return null;
-        items = [...items, await provider.pullRequest(repo, entry.id)];
+        prLookedUp.set(repo.id, id);
+        try {
+          items = [...items, await provider.pullRequest(repo, id)];
+        } catch (error) {
+          // Only "this PR cannot be read" (deleted, or now in another repository) is left for a later turn.
+          if (!['NOT_FOUND', 'WRONG_REPOSITORY'].includes(/** @type {{ code?: string }} */ (error)?.code || '')) throw error;
+        }
       }
     }
-    return { page, complete, activeIds, items };
+    return { page, complete, activeIds, items, gone };
   }
   /**
    * @param {WatchedRepo} repo @param {StreamState} state @param {StartedStream} working
@@ -303,6 +341,7 @@ export function createSync({
   function commitRead(repo, state, working, read) {
     const { page, complete, activeIds } = read;
     const { output, pendingItems } = pageBatch(repo, state, working, read);
+    output.entities = [...output.entities, ...read.gone];
     // A refresh requested after this window opened must survive the commit of a page read before it.
     const latest = store.getStreams().find(entry => entry.repoId === repo.id && entry.stream === state.stream) || state;
     const quietCycles = output.events.some(event => !event.imported) ? 0 : (state.quietCycles || 0) + 1;
@@ -334,8 +373,11 @@ export function createSync({
       commitRead(repo, state, working, read);
     } catch (error) {
       if (!store.listRepos().some(entry => entry.id === repo.id)) return;
-      store.saveStream(failPage(working, now(), error, intervalMs));
-      requested.delete(`${repo.id}:${state.stream}`);
+      // A refresh requested while this read was in flight is not answered by its failure.
+      const latest = store.getStreams().find(entry => entry.repoId === repo.id && entry.stream === state.stream) || state;
+      store.saveStream(failPage(working, latest, now(), error, intervalMs));
+      const key = `${repo.id}:${state.stream}`;
+      if ((requested.get(key)?.generation ?? 0) <= working.windowGeneration) requested.delete(key);
       counters.errors++;
     } finally {
       reading = null;
@@ -409,6 +451,7 @@ export function createSync({
       } finally {
         requested.clear();
         refreshedAt.clear();
+        prLookedUp.clear();
         lastKey = undefined;
         liveTurns = 0;
         resetting = false;

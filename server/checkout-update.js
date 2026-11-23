@@ -121,6 +121,15 @@ export function createCheckoutUpdater({
         'Pull stopped before the branch was updated. Git could not preserve the local checkout. Review overlapping changes in Git and try again.',
       );
     }
+    // A terminal switch after the final check makes Git merge into the other branch, or into none if that one is
+    // already at the tip. Either way the name of the branch that moved, if any, is unknown.
+    const current = (await run(path, ['symbolic-ref', '--quiet', 'HEAD']).catch(() => '')).trim();
+    // `unclear` tells callers not to describe this as a blocked update.
+    if (current !== `refs/heads/${branch}`)
+      throw Object.assign(
+        problem(`The checkout is no longer on ${branch}, so it is unclear which branch moved. Review the checkout in Git.`),
+        { unclear: true },
+      );
     if ((await run(path, ['rev-parse', 'HEAD'])).trim() !== tip)
       throw problem('Git did not move the branch to the upstream commit. Review the checkout in Git.');
   }
