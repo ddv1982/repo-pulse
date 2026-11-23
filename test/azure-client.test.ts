@@ -79,7 +79,9 @@ test('refs use continuation token and build cache isolates repositories while co
   assert.equal(active.items[0].id, 1);
   assert(!present(calls.at(-1)).some(value => value.startsWith('minTime=')));
   assert(present(calls.at(-1)).includes('repositoryId=repo1'));
-  assert.deepEqual(await client.buildsById(repo, ['123']), { items: [{ id: 1 }], nextCursor: { token: 'page2' } });
+  // Numeric ids still reach the query as before; the type says string, so the number needs a cast.
+  const numericIds = [123] as unknown as string[];
+  assert.deepEqual(await client.buildsById(repo, numericIds), { items: [{ id: 1 }], nextCursor: { token: 'page2' } });
   assert(present(calls.at(-1)).includes('buildIds=123'));
 });
 

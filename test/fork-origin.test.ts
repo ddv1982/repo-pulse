@@ -118,8 +118,13 @@ function setup({
     },
   };
 }
-const origin = (store: Store, pushId: number, name: string) =>
-  store.getEvent(`one:branch-created:${pushId}:refs/heads/${name}`)?.data?.forkOrigin;
+/** The event's fork origin; an event without its data payload fails the test, as reading through it did before. */
+const origin = (store: Store, pushId: number, name: string) => {
+  const event = store.getEvent(`one:branch-created:${pushId}:refs/heads/${name}`);
+  if (!event) return undefined;
+  assert.ok(event.data, 'the branch event keeps its data');
+  return event.data.forkOrigin;
+};
 
 test('a branch created at the latest recorded tip of another branch is settled with one commit read', async () => {
   const { store, reads, checks, run } = setup({
