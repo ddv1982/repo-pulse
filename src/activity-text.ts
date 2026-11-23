@@ -3,7 +3,7 @@ import { branchName } from './events.ts';
 export type ActivityEvent = import('./activity.ts').ActivityEvent;
 export type ActivityTone = 'info' | 'ok' | 'crit' | 'warn' | 'neutral';
 
-const statusLabels: Record<string, string> = {
+const statusLabels = {
   'new-branch': 'New branch',
   'branch-deleted': 'Branch deleted',
   unlisted: 'No longer listed',
@@ -26,7 +26,10 @@ const statusLabels: Record<string, string> = {
   skipped: 'Skipped',
   unknown: 'Unknown',
   activity: 'Activity',
-};
+} satisfies Record<string, string>;
+type StatusId = keyof typeof statusLabels;
+/** The same table, for a status ID read from a filter, which may name no status. */
+const statusLabelsById: Record<string, string> = statusLabels;
 const evidenceLabels: Record<string, string> = { 'pr-linked': 'PR evidence' };
 const statusIds = new Map(Object.entries(statusLabels).map(([id, label]) => [label, id]));
 const evidenceIds = new Map(Object.entries(evidenceLabels).map(([id, label]) => [label, id]));
@@ -43,7 +46,7 @@ export const labels = {
   build: 'CI run',
 };
 
-const buildStates: Record<string, [string, ActivityTone]> = {
+const buildStates: Record<string, [StatusId, ActivityTone]> = {
   notStarted: ['queued', 'info'],
   postponed: ['queued', 'info'],
   inProgress: ['running', 'info'],
@@ -59,7 +62,8 @@ const buildStates: Record<string, [string, ActivityTone]> = {
 function buildPresentation(event: Pick<ActivityEvent, 'data'>) {
   const { status, result } = event.data || {};
   const key = status === 'completed' || !status ? result || status : status;
-  return key && Object.hasOwn(buildStates, key) ? buildStates[key] : (['unknown', 'neutral'] as const);
+  const state = key && Object.hasOwn(buildStates, key) ? buildStates[key] : undefined;
+  return state ?? (['unknown', 'neutral'] as const);
 }
 
 export function buildState(event: Pick<ActivityEvent, 'data'>) {
@@ -124,9 +128,9 @@ export function activityTitle(event: ActivityEvent) {
   if (event.kind === 'branch-deleted') return `${activityLabel(event)}${event.branch ? ` · ${branchName(event.branch)}` : ''}`;
   if (event.kind === 'push') {
     const prs = matchingPushResults(event.data);
-    const pr = prs?.[0];
+    const [pr] = prs;
     const id = pr?.pullRequestId ?? pr?.id;
-    if (prs.length === 1 && id) {
+    if (pr && prs.length === 1 && id) {
       return `Merge of PR ${id} pushed to ${branchName(pr.targetRefName)}`;
     }
     if (event.actor === azureDevOpsService && event.title?.startsWith(`${azureDevOpsService} pushed`)) {
@@ -203,8 +207,9 @@ function refUpdateSummary(event: ActivityEvent) {
   if (event.kind === 'push' && event.actor === azureDevOpsService && !refs?.length && !event.branch) {
     return 'Branch details unavailable';
   }
-  if (refs?.length === 1 && /^0+$/.test(refs[0].newObjectId || '')) return 'Remote branch deleted';
-  if (refs?.length === 1 && /^0+$/.test(refs[0].oldObjectId || '')) return `Tip at ${(refs[0].newObjectId || '').slice(0, 7)}`;
+  const only = refs?.length === 1 ? refs[0] : undefined;
+  if (only && /^0+$/.test(only.newObjectId || '')) return 'Remote branch deleted';
+  if (only && /^0+$/.test(only.oldObjectId || '')) return `Tip at ${(only.newObjectId || '').slice(0, 7)}`;
   return event.summary || '';
 }
 
@@ -353,7 +358,7 @@ export function canonicalActivityFilter(value: string) {
 export function activityFilterLabel(value: string) {
   const filter = parseActivityFilter(value);
   if (filter.type === 'all') return 'All types';
-  if (filter.type === 'status') return statusLabels[filter.id] || filter.id;
+  if (filter.type === 'status') return statusLabelsById[filter.id] || filter.id;
   if (filter.type === 'evidence') return evidenceLabels[filter.id] || filter.id;
   // Widening only: labels is a string table, and an unknown id falls back to the id itself.
   return (labels as Record<string, string>)[filter.id] || filter.id;

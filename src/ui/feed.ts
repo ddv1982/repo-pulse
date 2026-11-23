@@ -194,11 +194,14 @@ function group(
  * All activity: both groups carry a branch tree. They share one width so their columns line up.
  */
 function historyGroups(records: ActivityItem[], state: PageState, hasQuery: boolean, showRepo: boolean) {
-  const lists = [records.filter(record => !record.imported), records.filter(record => record.imported)];
-  const trees = lists.map(list => buildActivityTree(list));
-  const width = Math.max(...trees.map(tree => tree.width));
-  const [recorded, imported] = trees.map(tree => ({ ...tree, width }));
-  return html`${group('Activity', lists[0], state, { tree: recorded, showRepo })}${group('Imported history', lists[1], state, { open: hasQuery, description: 'Captured before monitoring started', tree: imported, showRepo })}`;
+  const recordedItems = records.filter(record => !record.imported);
+  const importedItems = records.filter(record => record.imported);
+  const recordedTree = buildActivityTree(recordedItems);
+  const importedTree = buildActivityTree(importedItems);
+  const width = Math.max(recordedTree.width, importedTree.width);
+  const recorded = { ...recordedTree, width };
+  const imported = { ...importedTree, width };
+  return html`${group('Activity', recordedItems, state, { tree: recorded, showRepo })}${group('Imported history', importedItems, state, { open: hasQuery, description: 'Captured before monitoring started', tree: imported, showRepo })}`;
 }
 
 /**
@@ -238,7 +241,10 @@ export function renderFeed(state: PageState, ui: FeedView & { savedFilterId: str
   const overall = state.syncStatus.overall;
   const attention =
     worstStatus(
-      shown.flatMap(repo => (state.syncStatus.repos[repo.id] ? [{ ...state.syncStatus.repos[repo.id], repoId: repo.id }] : [])),
+      shown.flatMap(repo => {
+        const status = state.syncStatus.repos[repo.id];
+        return status ? [{ ...status, repoId: repo.id }] : [];
+      }),
     ) ??
     // A problem that belongs to no repository, such as a failed reset with none enabled, still needs the banner.
     (overall.state === 'problem' && !('repoId' in overall) ? { ...overall, repoId: '' } : undefined);

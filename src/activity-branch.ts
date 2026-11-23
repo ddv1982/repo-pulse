@@ -24,6 +24,7 @@ export function activityBranch(event: import('./activity.ts').ActivityEvent) {
   const updates = data?.refUpdates ?? [];
   const moved = updates.filter(update => LIVE.test(update.newObjectId ?? '') && !/^0+$/.test(update.newObjectId ?? ''));
   const deleted = updates.filter(update => /^0+$/.test(update.newObjectId ?? ''));
-  if (moved.length !== 1 || moved.length + deleted.length !== updates.length) return null;
-  return headName(moved[0].name);
+  const [only] = moved;
+  if (!only || moved.length !== 1 || moved.length + deleted.length !== updates.length) return null;
+  return headName(only.name);
 }

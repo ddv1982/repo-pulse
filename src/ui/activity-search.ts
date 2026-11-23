@@ -1,10 +1,10 @@
 const peopleMarker = /(?:^| \| )people:/i;
 
 export function splitActivitySearch(value: string) {
-  const quoted = /^("(?:[^"\\]|\\.)*")(?: \| people:(.*))?$/i.exec(value);
-  if (quoted) {
+  const [, literal, people] = /^("(?:[^"\\]|\\.)*")(?: \| people:(.*))?$/i.exec(value) ?? [];
+  if (literal !== undefined) {
     try {
-      return { search: JSON.parse(quoted[1]) as string, people: quoted[2]?.trim() || '' };
+      return { search: JSON.parse(literal) as string, people: people?.trim() || '' };
     } catch {
       // Incomplete or invalid quotes remain ordinary text while typing.
     }
