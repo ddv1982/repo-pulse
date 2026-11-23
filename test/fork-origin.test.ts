@@ -4,6 +4,12 @@ import { createStore } from '../server/store.ts';
 import { createSync } from '../server/sync.ts';
 import { createBackfill } from '../server/backfill.ts';
 import { createForkOriginCheck, MAX_READS } from '../server/fork-origin.ts';
+import type { AzureProvider } from '../server/azure-client.ts';
+import { present, stub } from './fixtures/typed.ts';
+
+type Store = ReturnType<typeof createStore>;
+/** What a commit read answers: the commit's parents and the push that brought it. */
+type Commit = Awaited<ReturnType<AzureProvider['commit']>>;
 
 const repo = {
   id: 'one',
@@ -17,9 +23,14 @@ const BASE = Date.parse('2026-11-17T10:00:00Z');
 const LIVE = '2026-11-17T10:00:01Z';
 const [A, B, C, D, E, F] = ['a', 'b', 'c', 'd', 'e', 'f'].map(char => char.repeat(40));
 const ZERO = '0'.repeat(40);
-const move = (name, oldObjectId, newObjectId) => ({ name: `refs/heads/${name}`, oldObjectId, newObjectId });
-const push = (id, refUpdates, date = LIVE) => ({ pushId: id, date, pushedBy: { displayName: 'A' }, refUpdates });
-const pr = (id, source, target) => ({
+const move = (name: string, oldObjectId: string, newObjectId: string) => ({ name: `refs/heads/${name}`, oldObjectId, newObjectId });
+const push = (id: number, refUpdates: ReturnType<typeof move>[], date = LIVE) => ({
+  pushId: id,
+  date,
+  pushedBy: { displayName: 'A' },
+  refUpdates,
+});
+const pr = (id: number, source: string, target: string) => ({
   pullRequestId: id,
   status: 'active',
   title: `PR ${id}`,
@@ -29,21 +40,38 @@ const pr = (id, source, target) => ({
   createdBy: { displayName: 'A' },
   creationDate: '2026-11-17T09:59:00Z',
 });
-const page = count => ({ items: Array.from({ length: count }, (_, i) => ({ commitId: String(i).repeat(40) })), nextCursor: null });
+const page = (count: number) => ({
+  items: Array.from({ length: count }, (_, i) => ({ commitId: String(i).repeat(40) })),
+  nextCursor: null,
+});
 const notFound = () => Object.assign(new Error('gone'), { code: 'NOT_FOUND' });
 
 /**
  * A live sync of pushes and PRs, with the fork origin check as its background work.
  * `graph` maps a commit to its parents and the push that brought it; `contains(base, tip)` answers ancestry checks.
  */
-function setup({ pushes = [], prs = [], graph = {}, contains = () => false, commit, pages } = {}) {
+function setup({
+  pushes = [],
+  prs = [],
+  graph = {},
+  contains = () => false,
+  commit,
+  pages,
+}: {
+  pushes?: object[];
+  prs?: object[];
+  graph?: Record<string, Commit>;
+  contains?: (base: string, tip: string) => boolean | Error;
+  commit?: (id: string) => Commit;
+  pages?: object[][];
+} = {}) {
   const store = createStore();
   store.saveRepo(repo);
   let time = BASE;
-  const reads = [];
-  const checks = [];
-  const offered = { pushes, prs };
-  const provider = {
+  const reads: string[] = [];
+  const checks: [string, string][] = [];
+  const offered: Record<string, object[]> = { pushes, prs };
+  const provider = stub<AzureProvider>({
     read: async (_repo, stream, { cursor } = {}) =>
       stream === 'pushes' && pages
         ? { items: pages[cursor?.skip ? 1 : 0], nextCursor: cursor?.skip ? null : { skip: 100 } }
@@ -60,9 +88,9 @@ function setup({ pushes = [], prs = [], graph = {}, contains = () => false, comm
       if (held instanceof Error) throw held;
       return page(held ? 0 : 2);
     },
-  };
+  });
   const check = createForkOriginCheck({ store, provider, now: () => time });
-  let backfill;
+  let backfill: ReturnType<typeof createBackfill> | undefined;
   const sync = createSync({
     store,
     provider,
@@ -82,7 +110,7 @@ function setup({ pushes = [], prs = [], graph = {}, contains = () => false, comm
     backfill,
     check,
     sync,
-    advance(ms) {
+    advance(ms: number) {
       time += ms;
     },
     async run(turns = 12) {
@@ -90,7 +118,8 @@ function setup({ pushes = [], prs = [], graph = {}, contains = () => false, comm
     },
   };
 }
-const origin = (store, pushId, name) => store.getEvent(`one:branch-created:${pushId}:refs/heads/${name}`)?.data.forkOrigin;
+const origin = (store: Store, pushId: number, name: string) =>
+  store.getEvent(`one:branch-created:${pushId}:refs/heads/${name}`)?.data?.forkOrigin;
 
 test('a branch created at the latest recorded tip of another branch is settled with one commit read', async () => {
   const { store, reads, checks, run } = setup({
@@ -228,7 +257,7 @@ test('a branch creation from the first sync import is checked like a live one', 
     graph: { [B]: { parents: [A], pushId: 5 } },
   });
   await run();
-  assert.equal(store.getEvent('one:branch-created:10:refs/heads/feature').imported, true);
+  assert.equal(store.getEvent('one:branch-created:10:refs/heads/feature')?.imported, true);
   assert.deepEqual(reads, [B]);
   assert.deepEqual(origin(store, 10, 'feature'), { status: 'found', base: B, on: ['refs/heads/main'], via: 'tip' });
   store.close();
@@ -240,7 +269,7 @@ test('a history import queues no fork check', async () => {
   offered.pushes = [push(18, [move('feature', ZERO, B)], new Date(BASE - 2 * 86400000).toISOString())];
   backfill.start(repo.id, 30);
   await run(20);
-  assert.equal(store.getEvent('one:branch-created:18:refs/heads/feature').imported, true);
+  assert.equal(store.getEvent('one:branch-created:18:refs/heads/feature')?.imported, true);
   assert.deepEqual(reads, []);
   assert.deepEqual(store.listJobs({ type: 'fork' }), []);
   store.close();
@@ -351,7 +380,7 @@ test('a push window that starts after the creation does not hold the check back'
   while (!store.getEvent('one:push:5')) await sync.tick();
   const state = store.getStreams().find(entry => entry.stream === 'pushes');
   const since = new Date(Date.parse(LIVE) + 60000).toISOString();
-  store.saveStream({ ...state, window: { since, until: since } });
+  store.saveStream({ ...present(state), window: { since, until: since } });
   assert.equal(await check.tick(), true);
   assert.deepEqual(reads, [B]);
   store.close();

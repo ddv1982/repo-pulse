@@ -7,6 +7,12 @@ import { copyBeforeUpgrade, createStore } from '../server/store.ts';
 import { SEARCH_INDEX_VERSION } from '../src/activity-text.ts';
 import { DatabaseSync } from 'node:sqlite';
 import { spawn } from 'node:child_process';
+import type { ActivityEvent, EventData } from '../src/activity.ts';
+import type { SettingValue } from '../server/store.ts';
+import type { StreamState } from '../src/contract.ts';
+import { dataOf, fieldsOf, present, stub } from './fixtures/typed.ts';
+
+type Store = ReturnType<typeof createStore>;
 const repo = {
   id: 'one',
   name: 'One',
@@ -15,7 +21,14 @@ const repo = {
   project: 'P',
   webUrl: 'https://dev.azure.com/org/P/_git/One',
 };
-const event = (id, extra = {}) => ({ id, repoId: 'one', kind: 'push', title: id, time: '2026-11-17T10:00:00Z', ...extra });
+const event = (id: string, extra: Partial<ActivityEvent> = {}): ActivityEvent => ({
+  id,
+  repoId: 'one',
+  kind: 'push',
+  title: id,
+  time: '2026-11-17T10:00:00Z',
+  ...extra,
+});
 
 test('durable exact acknowledgement does not consume hidden or incoming events', () => {
   const folder = mkdtempSync(join(tmpdir(), 'pulse-store-'));
@@ -34,7 +47,7 @@ test('durable exact acknowledgement does not consume hidden or incoming events',
       .sort(),
     ['hidden', 'incoming'],
   );
-  assert.equal(store.listEvents().find(e => e.id === 'history').seen, true);
+  assert.equal(store.listEvents().find(e => e.id === 'history')?.seen, true);
   store.acknowledge(['shown'], false);
   assert.equal(store.listEvents({ unseen: true }).length, 3);
   // Windows reports no POSIX permission bits.
@@ -50,14 +63,14 @@ test('page transaction rolls back events and checkpoint together', () => {
     store.commitPage({
       repoId: 'one',
       stream: 'pushes',
-      state: { cursor: 2 },
+      state: stub<StreamState>({ cursor: { skip: 2 } }),
       events: [event('good'), event('bad', { repoId: 'missing' })],
     }),
   );
   assert.equal(store.listEvents().length, 0);
   assert.equal(store.getStreams().length, 0);
-  store.commitPage({ repoId: 'one', stream: 'pushes', state: { cursor: 2 }, events: [event('good')] });
-  assert.equal(store.getStreams()[0].cursor, 2);
+  store.commitPage({ repoId: 'one', stream: 'pushes', state: stub<StreamState>({ cursor: { skip: 2 } }), events: [event('good')] });
+  assert.deepEqual(store.getStreams()[0].cursor, { skip: 2 });
   store.close();
 });
 
@@ -76,9 +89,9 @@ test('repository removal cascades only its local data', () => {
 });
 
 const tip = 'd'.repeat(40);
-const moved = (id, repoId = 'one', name = 'refs/heads/main', newObjectId = tip) =>
+const moved = (id: string, repoId = 'one', name = 'refs/heads/main', newObjectId = tip) =>
   event(id, { repoId, data: { pushId: id, refUpdates: [{ name, oldObjectId: 'e'.repeat(40), newObjectId }] } });
-const completedPr = (id, extra = {}) => ({
+const completedPr = (id: string, extra: Partial<ActivityEvent> = {}): ActivityEvent => ({
   id,
   repoId: 'one',
   kind: 'pr',
@@ -87,7 +100,7 @@ const completedPr = (id, extra = {}) => ({
   ...extra,
   data: { pullRequestId: id, status: 'completed', targetRefName: 'refs/heads/main', mergeCommit: tip, ...extra.data },
 });
-const linked = (store, id) => (store.getEvent(id).data.mergeEvidence?.prs || []).map(pr => pr.pullRequestId);
+const linked = (store: Store, id: string) => (dataOf(store.getEvent(id)).mergeEvidence?.prs || []).map(pr => pr.pullRequestId);
 
 test('a completed PR links only a push in its repository that moved its target ref to its merge commit', () => {
   const store = createStore();
@@ -101,7 +114,7 @@ test('a completed PR links only a push in its repository that moved its target r
   ]);
   assert.deepEqual(linked(store, 'push'), []);
   assert.deepEqual(linked(store, 'elsewhere'), []);
-  assert.equal(store.getEvent('push').data.mergeEvidence, undefined, 'no evidence is claimed from an absent match');
+  assert.equal(dataOf(store.getEvent('push')).mergeEvidence, undefined, 'no evidence is claimed from an absent match');
   store.insertEvents([completedPr('match')]);
   assert.deepEqual(linked(store, 'push'), ['match']);
   assert.deepEqual(linked(store, 'elsewhere'), [], 'the same merge commit in another repository is not linked');
@@ -135,7 +148,7 @@ test('the tip match upgrades a saved weaker link to the same PR and keeps its de
   store.enrichEvent('push', { mergeEvidence: { status: 'complete', prs: [weaker] } });
   store.insertEvents([completedPr('pr')]);
   assert.deepEqual(
-    store.getEvent('push').data.mergeEvidence.prs.map(pr => [pr.pullRequestId, pr.relationship, pr.title, pr.mergeCommit]),
+    dataOf(store.getEvent('push')).mergeEvidence?.prs?.map(pr => [pr.pullRequestId, pr.relationship, fieldsOf(pr).title, pr.mergeCommit]),
     [['pr', 'result-introduced', 'Kept', tip]],
   );
   store.close();
@@ -148,7 +161,7 @@ test('a saved complete analysis proving the push did not introduce the merge com
   const weaker = { pullRequestId: 'old', targetRefName: 'refs/heads/main', relationship: 'constituent-related' };
   store.enrichEvent('reset', { mergeEvidence: { status: 'complete', introducedCommitIds: [], prs: [weaker] } });
   store.insertEvents([completedPr('old')]);
-  assert.equal(store.getEvent('reset').data.mergeEvidence.prs[0].relationship, 'constituent-related');
+  assert.equal(dataOf(store.getEvent('reset')).mergeEvidence?.prs?.[0].relationship, 'constituent-related');
   store.close();
 });
 
@@ -172,15 +185,15 @@ test('starting from scratch clears activity, checkpoints, jobs and baselines but
   });
   store.saveJob({ id: 'backfill:one', type: 'backfill', repoId: 'one', status: 'pending' });
   store.enrichEvent('push-0', { mergeEvidence: { status: 'complete' } });
-  for (const [key, value] of [
+  const settings: [string, SettingValue][] = [
     ['baseline:one', '2026-11-01T00:00:00.000Z'],
     ['baseline:two', '2026-11-01T00:00:00.000Z'],
     ['checkout:one', { head: 'abc' }],
     ['checkout-followup:one', { source: 'refs/heads/feature' }],
     ['refreshEnabled', false],
     ['refreshResumedAt', 123],
-  ])
-    store.setSetting(key, value);
+  ];
+  for (const [key, value] of settings) store.setSetting(key, value);
   const revision = Number(store.activityRevision());
   const diskSize = () => statSync(path).size + (existsSync(`${path}-wal`) ? statSync(`${path}-wal`).size : 0);
   const before = diskSize();
@@ -188,7 +201,7 @@ test('starting from scratch clears activity, checkpoints, jobs and baselines but
   store.resetActivity();
 
   const db = new DatabaseSync(path, { readOnly: true });
-  const count = table => db.prepare(`SELECT count(*) AS n FROM ${table}`).get().n;
+  const count = (table: string) => present(db.prepare(`SELECT count(*) AS n FROM ${table}`).get()).n;
   assert.deepEqual(
     Object.fromEntries(['events', 'activity_members', 'enrichment', 'push_tips', 'entities', 'streams', 'jobs'].map(t => [t, count(t)])),
     { events: 0, activity_members: 0, enrichment: 0, push_tips: 0, entities: 0, streams: 0, jobs: 0 },
@@ -252,7 +265,7 @@ test('upgrading hides saved service pushes that name no branch, and keeps the sa
   ]);
   const shown = () => {
     const page = store.queryActivity({ view: 'new' });
-    return { ids: page.items.map(item => item.id).sort(), total: page.total, newItems: page.newItems, pushes: page.counts.push };
+    return { ids: page.items.map(item => item.id).sort(), total: page.total, newItems: page.newItems, pushes: page.counts?.push };
   };
   assert.equal(shown().total, 3);
   store.close();
@@ -284,7 +297,7 @@ test('upgrading copies the database first and keeps only the latest copy; a fres
   store.close();
   createStore(path).close();
   assert.deepEqual(copies(), [], 'a current database is not copied');
-  const downgrade = version => {
+  const downgrade = (version: number) => {
     const raw = new DatabaseSync(path);
     raw.exec(`PRAGMA user_version = ${version};`);
     raw.close();
@@ -302,8 +315,8 @@ test('upgrading copies the database first and keeps only the latest copy; a fres
   store.close();
   assert.deepEqual(copies(), ['state.sqlite.pre-v13'], 'only the latest copy stays');
   const copy = new DatabaseSync(join(folder, 'state.sqlite.pre-v13'), { readOnly: true });
-  assert.equal(copy.prepare('PRAGMA user_version').get().user_version, 13);
-  assert.equal(copy.prepare("SELECT COUNT(*) AS n FROM activity_members WHERE event_id='preview'").get().n, 1);
+  assert.equal(present(copy.prepare('PRAGMA user_version').get()).user_version, 13);
+  assert.equal(present(copy.prepare("SELECT COUNT(*) AS n FROM activity_members WHERE event_id='preview'").get()).n, 1);
   copy.close();
   // A file someone named after a copy is not one of ours.
   writeFileSync(join(folder, 'state.sqlite.pre-v12.keep'), 'mine');
@@ -360,7 +373,7 @@ test('rows indexed under older search terms are rebuilt once when the search ind
   store.saveRepo(repo);
   store.insertEvents([event('row', { title: 'Nightly deploy' })]);
   store.close();
-  const stale = version => {
+  const stale = (version: number) => {
     const raw = new DatabaseSync(path);
     raw.exec("UPDATE activity_members SET search_text='old terms'");
     raw.prepare("UPDATE settings SET data=? WHERE key='searchIndexVersion'").run(JSON.stringify(version));
@@ -398,7 +411,7 @@ test('an opener whose database another opener already upgraded keeps the copy th
   copyBeforeUpgrade(db, path, 14);
   db.close();
   const check = new DatabaseSync(copy, { readOnly: true });
-  assert.equal(check.prepare('PRAGMA user_version').get().user_version, 14);
+  assert.equal(present(check.prepare('PRAGMA user_version').get()).user_version, 14);
   check.close();
   rmSync(folder, { recursive: true });
 });
@@ -415,7 +428,7 @@ test('a database that cannot be copied before upgrading is not upgraded', () => 
   writeFileSync(join(`${path}.pre-v13`, 'keep'), '');
   assert.throws(() => createStore(path), /copy/i);
   const check = new DatabaseSync(path, { readOnly: true });
-  assert.equal(check.prepare('PRAGMA user_version').get().user_version, 13, 'the database is left as it was');
+  assert.equal(present(check.prepare('PRAGMA user_version').get()).user_version, 13, 'the database is left as it was');
   check.close();
   rmSync(folder, { recursive: true });
 });
@@ -424,7 +437,7 @@ test('upgrading queues a fork check once for each stored branch creation a sync 
   const folder = mkdtempSync(join(tmpdir(), 'pulse-store-'));
   const path = join(folder, 'state.sqlite');
   const tip = 'c'.repeat(40);
-  const created = (id, extra = {}, data = {}) =>
+  const created = (id: string, extra: Partial<ActivityEvent> = {}, data: EventData = {}) =>
     event(id, {
       kind: 'branch-created',
       time: '2026-11-16T10:00:00Z',
@@ -469,7 +482,7 @@ test('upgrading queues a fork check once for each stored branch creation a sync 
 test('upgrading leaves imported branch creations unchecked in a repository that ran a history import', () => {
   const folder = mkdtempSync(join(tmpdir(), 'pulse-store-'));
   const path = join(folder, 'state.sqlite');
-  const created = (id, extra = {}) =>
+  const created = (id: string, extra: Partial<ActivityEvent> = {}) =>
     event(id, {
       kind: 'branch-created',
       time: '2026-11-16T10:00:00Z',
@@ -508,7 +521,7 @@ test('file-backed stores use WAL mode and index push and pull request lookups', 
   store.saveRepo(repo);
   store.insertEvents([event('e1', { kind: 'push', data: { pushId: 1 } })]);
   const raw = new DatabaseSync(path);
-  assert.equal(raw.prepare('PRAGMA journal_mode').get().journal_mode, 'wal');
+  assert.equal(present(raw.prepare('PRAGMA journal_mode').get()).journal_mode, 'wal');
   const indexes = new Set(
     raw
       .prepare("SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='events'")

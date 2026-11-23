@@ -2,10 +2,12 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createAzureCli } from '../server/azure-cli.ts';
 import { createRestExecutor, AZURE_DEVOPS_RESOURCE } from '../server/azure-rest.ts';
+import { portOf } from './fixtures/access.ts';
+import { fakeTimer, present, stub, type Thrown } from './fixtures/typed.ts';
 
 const ORG = 'https://dev.azure.com/example';
 const TOKEN = 'secret-token-value';
-const invoke = (area, resource, route, query = []) => [
+const invoke = (area: string, resource: string, route: string[], query: string[] = []) => [
   'devops',
   'invoke',
   '--organization',
@@ -25,6 +27,18 @@ const invoke = (area, resource, route, query = []) => [
   ...(query.length ? ['--query-parameters', ...query] : []),
 ];
 
+/** The request options the executor sends: its headers are a plain object. */
+type SentInit = RequestInit & { headers: Record<string, string> };
+
+/** What the fake fetch answers: a JSON body with a status and headers, a Response of its own, or a thrown error. */
+type FakeResponse = {
+  status?: number;
+  body?: unknown;
+  headers?: Record<string, string>;
+  raw?: Response | Promise<Response>;
+  error?: unknown;
+};
+
 function harness({
   responses = [],
   expiresIn = 3600,
@@ -32,11 +46,18 @@ function harness({
   tokenOutput,
   tokenDelay = false,
   setTimer,
+}: {
+  responses?: FakeResponse[] | ((init: SentInit) => FakeResponse);
+  expiresIn?: number;
+  start?: number;
+  tokenOutput?: (call: number) => unknown;
+  tokenDelay?: boolean;
+  setTimer?: (callback: () => void, ms: number) => NodeJS.Timeout;
 } = {}) {
   let time = start;
-  const requests = [],
-    cliCalls = [];
-  const cliExecutor = async args => {
+  const requests: { url: string; init: SentInit }[] = [],
+    cliCalls: string[][] = [];
+  const cliExecutor = async (args: string[]) => {
     cliCalls.push(args);
     if (args[0] === 'account' && args[1] === 'get-access-token') {
       if (tokenDelay) await new Promise(setImmediate);
@@ -50,7 +71,9 @@ function harness({
     }
     return JSON.stringify({ via: 'cli', args });
   };
-  const fetch = async (url, init) => {
+  const fetch = async (url: string | URL | Request, options?: RequestInit) => {
+    // The executor always passes its options, with the headers as a plain object.
+    const init = options as SentInit;
     requests.push({ url: String(url), init });
     const next = (typeof responses === 'function' ? responses(init) : responses.shift()) || { status: 200, body: { count: 0, value: [] } };
     if (next.error) throw next.error;
@@ -63,7 +86,7 @@ function harness({
     cli,
     requests,
     cliCalls,
-    advance(ms) {
+    advance(ms: number) {
       time += ms;
     },
   };
@@ -118,7 +141,7 @@ test('the token is reused until shortly before it expires and replaced after a 4
   assert.equal(cliCalls.length, 2, 'a token within five minutes of expiry is renewed');
   await read();
   assert.equal(cliCalls.length, 3, 'a rejected token is renewed once and the read retried');
-  assert.equal(requests.at(-1).init.headers.authorization, `Bearer ${TOKEN}-3`);
+  assert.equal(present(requests.at(-1)).init.headers.authorization, `Bearer ${TOKEN}-3`);
   cli.close();
 });
 
@@ -137,7 +160,7 @@ test('other CLI commands still run through az, and writes and token requests are
 });
 
 test('HTTP and network failures are classified without exposing the token', async () => {
-  const cases = [
+  const cases: [FakeResponse, string][] = [
     [{ status: 429 }, 'THROTTLED'],
     [{ status: 403 }, 'FORBIDDEN'],
     [{ status: 404 }, 'NOT_FOUND'],
@@ -205,7 +228,7 @@ test('concurrent 401s for one token share a single renewal', async () => {
 });
 
 test('response body failures keep their timeout and invalid-response classification', async () => {
-  const body = json => ({ raw: { ok: true, status: 200, headers: new Headers(), json } });
+  const body = (json: () => Promise<unknown>) => ({ raw: stub<Response>({ ok: true, status: 200, headers: new Headers(), json }) });
   const timeout = Object.assign(new Error('body stalled'), { name: 'TimeoutError' });
   for (const [response, code] of [
     [
@@ -220,7 +243,7 @@ test('response body failures keep their timeout and invalid-response classificat
       }),
       'INVALID_RESPONSE',
     ],
-  ]) {
+  ] satisfies [FakeResponse, string][]) {
     const { cli } = harness({ responses: [response] });
     await assert.rejects(cli.run(invoke('git', 'pushes', ['project=P', 'repositoryId=r'])), { code });
     cli.close();
@@ -246,8 +269,8 @@ test('a replacement token rejected on the retry is not sent again', async () => 
 });
 
 test('discarded error responses have their bodies cancelled', async () => {
-  const cancelled = [];
-  const failing = status => ({
+  const cancelled: number[] = [];
+  const failing = (status: number) => ({
     raw: new Response(
       new ReadableStream({
         cancel() {
@@ -272,7 +295,7 @@ for (const scheme of ['http://', ''])
       hits++;
       socket.end('HTTP/1.1 502 Bad Gateway\r\n\r\n');
     });
-    await new Promise(done => proxy.listen(0, '127.0.0.1', done));
+    await new Promise<void>(done => proxy.listen(0, '127.0.0.1', done));
     const moduleUrl = new URL('../server/azure-rest.ts', import.meta.url).href;
     const script = `import tls from 'node:tls'; import { useSystemNetworkSettings } from ${JSON.stringify(moduleUrl)};
     const before = tls.getCACertificates('default').length;
@@ -281,21 +304,21 @@ for (const scheme of ['http://', ''])
     const system = tls.getCACertificates('system').every(cert => after.has(cert));
     await fetch('https://dev.azure.com/', { signal: AbortSignal.timeout(5000) }).catch(() => {});
     console.log(JSON.stringify({ system, grew: after.size >= before }));`;
-    const stdout = await new Promise((resolve, reject) =>
+    const stdout = await new Promise<string>((resolve, reject) =>
       execFile(
         process.execPath,
         ['--input-type=module', '-e', script],
         {
           env: {
             ...Object.fromEntries(Object.entries(process.env).filter(([key]) => !/^(https?|no|all)_proxy$/i.test(key))),
-            HTTPS_PROXY: `${scheme}127.0.0.1:${proxy.address().port}`,
+            HTTPS_PROXY: `${scheme}127.0.0.1:${portOf(proxy)}`,
           },
           timeout: 10000,
         },
         (error, out) => (error ? reject(error) : resolve(out)),
       ),
     ).finally(() => proxy.close());
-    assert.deepEqual(JSON.parse(stdout.trim().split('\n').at(-1)), { system: true, grew: true });
+    assert.deepEqual(JSON.parse(present(stdout.trim().split('\n').at(-1))), { system: true, grew: true });
     assert.equal(hits, 1, 'the REST request went through the proxy');
   });
 
@@ -315,13 +338,21 @@ test('PR thread and policy evaluation reads use their own routes and the policy 
 });
 
 /** A harness whose queue timers are recorded instead of run, so a pause can be stepped through on the fake clock. */
-function pausing(responses) {
-  const timers = [];
-  const h = harness({ responses, setTimer: (callback, ms) => timers.push({ callback, ms }) });
+function pausing(responses: FakeResponse[]) {
+  const timers: { callback: () => void; ms: number }[] = [];
+  const h = harness({
+    responses,
+    setTimer: (callback, ms) => {
+      timers.push({ callback, ms });
+      return fakeTimer();
+    },
+  });
   return { ...h, timers };
 }
+/** Why a settled read failed, or undefined when it did not. */
+const reasonOf = (result: PromiseSettledResult<unknown>): Thrown | undefined => (result.status === 'rejected' ? result.reason : undefined);
 const flush = () => new Promise(resolve => setImmediate(resolve));
-const refs = repo => invoke('git', 'refs', ['project=P', `repositoryId=${repo}`]);
+const refs = (repo: string) => invoke('git', 'refs', ['project=P', `repositoryId=${repo}`]);
 
 test('a 200 with Retry-After returns its data and starts no other call until the wait has passed', async () => {
   const { cli, requests, timers, advance } = pausing([{ status: 200, body: { value: [1] }, headers: { 'retry-after': '30' } }]);
@@ -331,13 +362,13 @@ test('a 200 with Retry-After returns its data and starts no other call until the
   const next = cli.run(refs('b'));
   await flush();
   assert.equal(requests.length, 1);
-  assert.equal(timers.at(-1).ms, 30000);
+  assert.equal(timers.at(-1)?.ms, 30000);
   advance(29999);
-  timers.at(-1).callback();
+  present(timers.at(-1)).callback();
   await flush();
   assert.equal(requests.length, 1, 'still paused one millisecond before the end');
   advance(1);
-  timers.at(-1).callback();
+  present(timers.at(-1)).callback();
   await next;
   assert.equal(requests.length, 2);
   assert.equal(cli.diagnostics().throttledUntil, null);
@@ -350,7 +381,7 @@ test('a 429 with Retry-After is a throttled read and pauses the queue the same w
   cli.run(refs('b')).catch(() => {});
   await flush();
   assert.equal(requests.length, 1);
-  assert.equal(timers.at(-1).ms, 30000);
+  assert.equal(timers.at(-1)?.ms, 30000);
   cli.close();
 });
 
@@ -360,7 +391,7 @@ test('Retry-After as an HTTP date pauses until that moment', async () => {
   await cli.run(refs('a'));
   cli.run(refs('b')).catch(() => {});
   await flush();
-  assert.equal(timers.at(-1).ms, 45000);
+  assert.equal(timers.at(-1)?.ms, 45000);
   cli.close();
 });
 
@@ -368,21 +399,24 @@ test('a 401 that arrives while a Retry-After pause is active is not retried unti
   const { cli, requests } = pausing([{ status: 200, headers: { 'retry-after': '30' } }, { status: 401 }, { status: 200 }]);
   const [first, second] = await Promise.allSettled([cli.run(refs('a')), cli.run(refs('b'))]);
   assert.equal(first.status, 'fulfilled');
-  assert.equal(second.reason?.code, 'THROTTLED');
+  assert.equal(reasonOf(second)?.code, 'THROTTLED');
   assert.equal(requests.length, 2, 'no token-refresh retry is sent during the pause');
   cli.close();
 });
 
 test('a pause that starts while a rejected token is renewed still stops the retry', async () => {
   let releaseFirst = () => {};
-  const firstResponse = new Promise(resolve => {
+  const firstResponse = new Promise<Response>(resolve => {
     releaseFirst = () => resolve(new Response('{}', { status: 200, headers: { 'retry-after': '30' } }));
   });
   let calls = 0;
-  const timers = [];
+  const timers: { callback: () => void; ms: number }[] = [];
   const h = harness({
     responses: () => (++calls === 1 ? { raw: firstResponse } : calls === 2 ? { status: 401 } : { status: 200 }),
-    setTimer: (callback, ms) => timers.push({ callback, ms }),
+    setTimer: (callback, ms) => {
+      timers.push({ callback, ms });
+      return fakeTimer();
+    },
     tokenOutput: n =>
       n === 1
         ? undefined
@@ -394,21 +428,21 @@ test('a pause that starts while a rejected token is renewed still stops the retr
   });
   const [first, second] = await Promise.allSettled([h.cli.run(refs('a')), h.cli.run(refs('b'))]);
   assert.equal(first.status, 'fulfilled');
-  assert.equal(second.reason?.code, 'THROTTLED');
+  assert.equal(reasonOf(second)?.code, 'THROTTLED');
   assert.equal(h.requests.length, 2, 'the retry is not sent once the pause has started');
   h.cli.close();
 });
 
 test('a pause that starts while a first token is fetched stops the first send too', async () => {
   let releaseFirst = () => {};
-  const firstResponse = new Promise(resolve => {
+  const firstResponse = new Promise<Response>(resolve => {
     releaseFirst = () => resolve(new Response('{}', { status: 200, headers: { 'retry-after': '30' } }));
   });
   let calls = 0;
   let tokens = 0;
   const h = harness({
     responses: () => (++calls === 1 ? { raw: firstResponse } : { status: 200 }),
-    setTimer: () => {},
+    setTimer: () => fakeTimer(),
     expiresIn: 1,
     tokenOutput: () =>
       ++tokens === 1
@@ -424,7 +458,7 @@ test('a pause that starts while a first token is fetched stops the first send to
   h.advance(5 * 60000);
   const [a, b] = await Promise.allSettled([first, h.cli.run(refs('b'))]);
   assert.equal(a.status, 'fulfilled');
-  assert.equal(b.reason?.code, 'THROTTLED');
+  assert.equal(reasonOf(b)?.code, 'THROTTLED');
   assert.equal(h.requests.length, 1, 'the second read is not sent once the pause has started');
   h.cli.close();
 });
@@ -453,7 +487,7 @@ test('an absurd Retry-After is capped at ten minutes and an unreadable one is ig
   await capped.cli.run(refs('a'));
   capped.cli.run(refs('b')).catch(() => {});
   await flush();
-  assert.equal(capped.timers.at(-1).ms, 10 * 60000);
+  assert.equal(capped.timers.at(-1)?.ms, 10 * 60000);
   capped.cli.close();
 
   for (const value of ['soon', '-5', '1.5', '']) {
@@ -468,12 +502,12 @@ test('an absurd Retry-After is capped at ten minutes and an unreadable one is ig
 
 test('REST responses over 16 MiB are rejected by Content-Length and by streamed byte count, and a UTF-8 BOM still parses', async () => {
   const cliExecutor = async () => JSON.stringify({ accessToken: TOKEN, expires_on: 4102444800 });
-  const read = response =>
+  const read = (response: Response) =>
     createRestExecutor({ cliExecutor, fetch: async () => response })(invoke('git', 'refs', ['project=P', 'repositoryId=r']), {
       signal: new AbortController().signal,
       timeoutMs: 5000,
     });
-  const tooLarge = error => error.code === 'INVALID_RESPONSE' && /unexpectedly large/.test(error.message);
+  const tooLarge = (error: Thrown) => error.code === 'INVALID_RESPONSE' && /unexpectedly large/.test(error.message);
   await assert.rejects(
     read(new Response('{"value":[]}', { status: 200, headers: { 'content-length': String(17 * 1024 * 1024) } })),
     tooLarge,

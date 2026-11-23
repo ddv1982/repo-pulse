@@ -2,20 +2,24 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createStore } from '../server/store.ts';
 import { createSync } from '../server/sync.ts';
-import { syncStatus } from '../server/sync-status.ts';
+import { syncStatus, type SyncStatusInput } from '../server/sync-status.ts';
+import type { AzureStream, OverallSyncStatus, StreamError, StreamState } from '../src/contract.ts';
+import { present } from './fixtures/typed.ts';
 
 const NOW = Date.parse('2026-11-19T12:00:00Z');
 const MINUTE = 60000;
-/** @param {number} minutes */
-/** @param {number} ms */
-const iso = ms => new Date(ms).toISOString();
-const ago = minutes => new Date(NOW - minutes * MINUTE).toISOString();
-const STREAMS = ['pushes', 'refs', 'prs', 'closedPrs', 'builds', 'activeBuilds'];
-const forbidden = { code: 'FORBIDDEN', message: 'Azure DevOps refused this read. Check the CLI identity and repository permissions.' };
+const iso = (ms: number) => new Date(ms).toISOString();
+const ago = (minutes: number) => new Date(NOW - minutes * MINUTE).toISOString();
+const STREAMS: AzureStream[] = ['pushes', 'refs', 'prs', 'closedPrs', 'builds', 'activeBuilds'];
+const forbidden: StreamError = {
+  code: 'FORBIDDEN',
+  message: 'Azure DevOps refused this read. Check the CLI identity and repository permissions.',
+};
 
 /** Healthy streams for a repository; `changes` maps a stream name to the fields it overrides. */
-function streams(repoId, changes = {}) {
-  return STREAMS.map(stream => ({
+type StreamChanges = Partial<Record<AzureStream, Partial<StreamState>>>;
+function streams(repoId: string, changes: StreamChanges = {}) {
+  return STREAMS.map((stream): StreamState => ({
     repoId,
     stream,
     initialized: true,
@@ -29,7 +33,10 @@ function streams(repoId, changes = {}) {
   }));
 }
 
-function status({ a = {}, b = {}, ...rest } = {}) {
+/** The repository a status names, if it names one. */
+const repoOf = (overall: OverallSyncStatus) => ('repoId' in overall ? overall.repoId : undefined);
+
+function status({ a = {}, b = {}, ...rest }: { a?: StreamChanges; b?: StreamChanges } & Partial<SyncStatusInput> = {}) {
   return syncStatus({
     repos: [{ id: 'a' }, { id: 'b' }],
     streams: [...streams('a', a), ...streams('b', b)],
@@ -63,7 +70,7 @@ test('automatic checks off pause every repository unless a manual refresh is out
 
 test('with automatic checks off a running history import is not paused: it syncs, or waits on Azure throttling', () => {
   const settings = { refreshEnabled: false, refreshResumedAt: null };
-  const jobs = [{ repoId: 'a', status: 'running' }];
+  const jobs: SyncStatusInput['jobs'] = [{ repoId: 'a', status: 'running' }];
   const importing = status({ settings, jobs });
   assert.equal(importing.repos.a.state, 'syncing');
   assert.equal(importing.repos.b.state, 'paused');
@@ -74,7 +81,7 @@ test('with automatic checks off a running history import is not paused: it syncs
 });
 
 test('an access, sign-in or missing CLI error is a problem at once and says in plain words what to do', () => {
-  for (const [error, stream, reason] of [
+  const cases: [StreamError, AzureStream, string][] = [
     [forbidden, 'builds', "Your Azure account has no access to this repository's builds."],
     [forbidden, 'closedPrs', "Your Azure account has no access to this repository's pull requests."],
     [forbidden, 'refs', "Your Azure account has no access to this repository's branches."],
@@ -94,12 +101,13 @@ test('an access, sign-in or missing CLI error is a problem at once and says in p
       'builds',
       'Azure CLI or its azure-devops extension does not support this read. Check the installation.',
     ],
-  ]) {
+  ];
+  for (const [error, stream, reason] of cases) {
     const result = status({ a: { [stream]: { error, failures: 1, pending: true } } });
     assert.deepEqual(result.repos.a, { state: 'problem', reason, stream, since: ago(1) });
     assert.deepEqual(result.repos.b, { state: 'synced', since: ago(1), lastCheck: ago(1) }, 'another repository is not marked');
     assert.equal(result.overall.state, 'problem');
-    assert.equal(result.overall.repoId, 'a');
+    assert.equal(repoOf(result.overall), 'a');
   }
   const history = status({ jobs: [{ repoId: 'a', status: 'running', stream: 'builds', error: forbidden, failures: 1 }] });
   assert.deepEqual(history.repos.a, {
@@ -123,7 +131,7 @@ test('overall Synced shows the newest check across repositories, not that of the
 test('long delays are stated in hours from 120 minutes and in days from 48 hours', () => {
   const settings = { refreshEnabled: true, refreshResumedAt: null };
   const startedAt = NOW - 10 * 24 * 60 * MINUTE;
-  const behind = minutes => status({ settings, startedAt, a: { pushes: { lastSuccess: ago(minutes) } } }).repos.a.reason;
+  const behind = (minutes: number) => status({ settings, startedAt, a: { pushes: { lastSuccess: ago(minutes) } } }).repos.a.reason;
   assert.equal(behind(119), 'about 119 minutes behind');
   assert.equal(behind(119.5), 'about 120 minutes behind');
   assert.equal(behind(47.5 * 60), 'about 48 hours behind');
@@ -205,9 +213,9 @@ test('problem beats delayed beats syncing, within a repository and overall', () 
   assert.equal(status({ a: { pushes: stale, refs: { initialized: false } } }).repos.a.state, 'delayed');
 
   const problemAndDelay = status({ a: { pushes: stale }, b: { builds: { error: forbidden, failures: 2 } } });
-  assert.deepEqual([problemAndDelay.overall.state, problemAndDelay.overall.repoId], ['problem', 'b']);
+  assert.deepEqual([problemAndDelay.overall.state, repoOf(problemAndDelay.overall)], ['problem', 'b']);
   const delayAndSync = status({ a: { pushes: { cursor: { skip: 1 } } }, b: { pushes: stale } });
-  assert.deepEqual([delayAndSync.overall.state, delayAndSync.overall.repoId], ['delayed', 'b']);
+  assert.deepEqual([delayAndSync.overall.state, repoOf(delayAndSync.overall)], ['delayed', 'b']);
 });
 
 test('overall delay reports the repository furthest behind', () => {
@@ -300,10 +308,10 @@ test('through createSync: first import syncs, a refused stream is a problem, and
     state: 'problem',
     reason: "Your Azure account has no access to this repository's builds.",
     stream: 'builds',
-    since: store.getStreams().find(s => s.stream === 'builds').lastSuccess,
+    since: present(store.getStreams().find(s => s.stream === 'builds')).lastSuccess,
   });
   assert.equal(
-    store.getStreams().find(s => s.stream === 'builds').error.message,
+    present(store.getStreams().find(s => s.stream === 'builds')).error?.message,
     forbidden.message,
     'the stream keeps the technical message',
   );
@@ -339,8 +347,7 @@ function blockedSync() {
     webUrl: 'https://dev.azure.com/o/P/_git/One',
   });
   let time = NOW;
-  /** @type {(() => void)[]} */
-  const waiting = [];
+  const waiting: (() => void)[] = [];
   const sync = createSync({
     store,
     now: () => time,
@@ -371,7 +378,7 @@ function blockedSync() {
       time += 100;
     }
   }
-  const advance = (/** @type {number} */ ms) => {
+  const advance = (ms: number) => {
     time += ms;
   };
   return { store, sync, current, readAll, waiting, advance };

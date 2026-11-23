@@ -5,8 +5,11 @@ import { createStore } from '../server/store.ts';
 import { createSync } from '../server/sync.ts';
 import { seedDemo } from '../server/demo.ts';
 import { createBackfill } from '../server/backfill.ts';
-import { createApp } from '../server.ts';
-import { TEST_KEY, keyedFetch } from './fixtures/access.ts';
+import type { TestContext } from 'node:test';
+import { createApp, type AppProvider, type AppSync, type StateResponse } from '../server.ts';
+import type { AzureProvider } from '../server/azure-client.ts';
+import { TEST_KEY, keyedFetch, portOf } from './fixtures/access.ts';
+import { stub } from './fixtures/typed.ts';
 
 const fetch = keyedFetch();
 const repo = {
@@ -17,7 +20,7 @@ const repo = {
   project: 'P',
   webUrl: 'https://dev.azure.com/org/P/_git/One',
 };
-const push = id => ({
+const push = (id: number) => ({
   pushId: id,
   date: '2026-11-18T10:00:00Z',
   pushedBy: { displayName: 'A' },
@@ -25,25 +28,25 @@ const push = id => ({
 });
 
 /** A live app over a real sync whose pushes stream offers `offered.pushes`; `hold` makes reads wait for `release`. */
-async function live(t, { pollMs } = {}) {
+async function live(t: TestContext, { pollMs }: { pollMs?: number } = {}) {
   const store = createStore();
   store.saveRepo(repo);
   store.setSetting('checkout:one', { head: 'abc' });
-  const reads = [];
-  const offered = { pushes: [push(1)] };
+  const reads: string[] = [];
+  const offered: Record<string, object[]> = { pushes: [push(1)] };
   const control = { hold: false, release: () => {} };
-  const provider = {
+  const provider = stub<AzureProvider>({
     async read(_repo, stream) {
       reads.push(stream);
       const items = offered[stream] || [];
-      if (control.hold) await new Promise(resolve => (control.release = resolve));
+      if (control.hold) await new Promise<void>(resolve => (control.release = resolve));
       return { items, nextCursor: null };
     },
-  };
+  });
   const sync = createSync({ store, provider, pollMs });
   const backfill = createBackfill({ store, provider, normalize: sync.normalize });
   const app = createApp({ store, provider, sync, backfill, accessKey: TEST_KEY });
-  await new Promise(resolve => app.listen(0, '127.0.0.1', resolve));
+  await new Promise<void>(resolve => app.listen(0, '127.0.0.1', resolve));
   t.after(async () => {
     control.hold = false;
     control.release();
@@ -51,9 +54,9 @@ async function live(t, { pollMs } = {}) {
     await new Promise(resolve => app.close(resolve));
     store.close();
   });
-  const url = `http://127.0.0.1:${app.address().port}`;
+  const url = `http://127.0.0.1:${portOf(app)}`;
   const reset = (send = fetch) => send(url + '/api/reset', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
-  const state = async () => (await fetch(url + '/api/state')).json();
+  const state = async (): Promise<StateResponse> => (await fetch(url + '/api/state')).json();
   const importHistory = () =>
     fetch(url + '/api/backfill', {
       method: 'POST',
@@ -92,7 +95,7 @@ async function live(t, { pollMs } = {}) {
       method: 'POST',
       headers: { 'content-type': 'application/json', 'content-length': Buffer.byteLength(payload), 'x-repo-pulse-key': TEST_KEY },
     });
-    const response = new Promise((resolve, reject) => {
+    const response = new Promise<{ status: number | undefined; body: unknown }>((resolve, reject) => {
       req.on('error', reject);
       req.on('response', res => {
         let text = '';
@@ -110,7 +113,8 @@ async function live(t, { pollMs } = {}) {
 }
 
 /** Resolves to 'waiting' when `promise` has not settled within `ms`. */
-const within = (promise, ms = 300) => Promise.race([promise, new Promise(resolve => setTimeout(() => resolve('waiting'), ms))]);
+const within = <T>(promise: Promise<T>, ms = 300) =>
+  Promise.race([promise, new Promise<'waiting'>(resolve => setTimeout(() => resolve('waiting'), ms))]);
 
 test('POST /api/reset needs the access key, clears activity and starts a first import that reads Azure again', async t => {
   const { store, reads, reset, state, drain, settled } = await live(t);
@@ -148,7 +152,8 @@ test('a reset during a page in flight answers at once, reports syncing, and leav
   offered.pushes = [push(2)];
   const { page } = await holdPage();
   const response = await within(reset());
-  assert.notEqual(response, 'waiting', 'the reset answers while the page is still waiting on Azure');
+  // assert.ok rather than notEqual, so the type narrows to the response.
+  assert.ok(response !== 'waiting', 'the reset answers while the page is still waiting on Azure');
   assert.equal(response.status, 202);
   assert.deepEqual(await response.json(), { started: true });
   const during = (await state()).syncStatus;
@@ -176,8 +181,8 @@ test('overlapping resets share the one in progress and clear once', async t => {
   await page;
   await settled();
   await new Promise(resolve => setTimeout(resolve, 50));
-  assert.notEqual(first, 'waiting');
-  assert.notEqual(second, 'waiting');
+  assert.ok(first !== 'waiting');
+  assert.ok(second !== 'waiting');
   assert.deepEqual([first.status, second.status], [202, 202]);
   assert.equal(clears, 1, 'the second request joins the first reset');
 });
@@ -230,8 +235,8 @@ test('a failed reset shows a problem on every repository until a later reset suc
     await new Promise(resolve => setTimeout(resolve, 10));
   }
   const problem = { state: 'problem', reason: 'Starting from scratch failed. Try again.' };
-  assert.deepEqual(status.repos, { one: problem });
-  assert.deepEqual(status.overall, { ...problem, repoId: 'one' });
+  assert.deepEqual(status?.repos, { one: problem });
+  assert.deepEqual(status?.overall, { ...problem, repoId: 'one' });
   assert.equal(store.listEvents().length, 1, 'the failed reset kept the stored activity');
 
   store.resetActivity = resetActivity;
@@ -272,15 +277,15 @@ test('a running scheduler resumes after a reset and imports again without a manu
 test('demo mode refuses a reset and keeps its data', async t => {
   const store = createStore();
   seedDemo(store);
-  const sync = { refresh: () => ({ demo: true }), status: () => ({ demo: true, running: false }) };
-  const app = createApp({ store, provider: {}, sync, demo: true, accessKey: TEST_KEY });
-  await new Promise(resolve => app.listen(0, '127.0.0.1', resolve));
+  const sync: AppSync = { refresh: () => ({ demo: true }), status: () => ({ demo: true, running: false }) };
+  const app = createApp({ store, provider: stub<AppProvider>({}), sync, demo: true, accessKey: TEST_KEY });
+  await new Promise<void>(resolve => app.listen(0, '127.0.0.1', resolve));
   t.after(async () => {
     await new Promise(resolve => app.close(resolve));
     store.close();
   });
   const before = store.listEvents().length;
-  const response = await fetch(`http://127.0.0.1:${app.address().port}/api/reset`, {
+  const response = await fetch(`http://127.0.0.1:${portOf(app)}/api/reset`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: '{}',

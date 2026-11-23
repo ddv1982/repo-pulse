@@ -9,8 +9,11 @@ import { createSync } from '../server/sync.ts';
 import { createBackfill } from '../server/backfill.ts';
 import { createRewriteCheck } from '../server/rewrite-check.ts';
 import { mergeEvidenceBadge as mergeEvidenceBadgeHtml } from '../src/ui/merge-evidence.ts';
+import type { AzurePage, AzureProvider } from '../server/azure-client.ts';
+import type { ActivityEvent, RewriteResult } from '../src/activity.ts';
+import { present, stub } from './fixtures/typed.ts';
 
-const mergeEvidenceBadge = (...args) => String(mergeEvidenceBadgeHtml(...args));
+const mergeEvidenceBadge = (...args: Parameters<typeof mergeEvidenceBadgeHtml>) => String(mergeEvidenceBadgeHtml(...args));
 
 const repo = {
   id: 'one',
@@ -24,32 +27,40 @@ const BASE = Date.parse('2026-11-17T10:00:00Z');
 const LIVE = '2026-11-17T10:00:01Z';
 const [A, B, C, D, E] = ['a', 'b', 'c', 'd', 'e'].map(char => char.repeat(40));
 const ZERO = '0'.repeat(40);
-/** @param {string} name @param {string} oldObjectId @param {string} newObjectId */
-const move = (name, oldObjectId, newObjectId) => ({ name: `refs/heads/${name}`, oldObjectId, newObjectId });
-const push = (id, refUpdates, date = LIVE) => ({ pushId: id, date, pushedBy: { displayName: 'A' }, refUpdates });
-const commits = count => ({ items: Array.from({ length: count }, (_, i) => ({ commitId: String(i).repeat(40) })), nextCursor: null });
-const byRef = list => [...(list || [])].sort((a, b) => a.ref.localeCompare(b.ref));
+const move = (name: string, oldObjectId: string, newObjectId: string) => ({ name: `refs/heads/${name}`, oldObjectId, newObjectId });
+const push = (id: number, refUpdates: ReturnType<typeof move>[], date = LIVE) => ({
+  pushId: id,
+  date,
+  pushedBy: { displayName: 'A' },
+  refUpdates,
+});
+const commits = (count: number): AzurePage => ({
+  items: Array.from({ length: count }, (_, i) => ({ commitId: String(i).repeat(40) })),
+  nextCursor: null,
+});
+const byRef = (list: RewriteResult[] | undefined) => [...(list || [])].sort((a, b) => a.ref.localeCompare(b.ref));
 
 /**
  * A live sync whose only due stream is pushes, with the rewrite check as its background work.
- * @param {{ pushes?: object[], dropped?: (from: string, to: string) => Promise<object> }} options
  */
-function setup({ pushes = [], dropped = async () => commits(0) } = {}) {
+function setup({
+  pushes = [],
+  dropped = async () => commits(0),
+}: { pushes?: object[]; dropped?: (from: string, to: string) => Promise<AzurePage> } = {}) {
   const store = createStore();
   store.saveRepo(repo);
   let time = BASE;
-  const calls = [];
-  const offered = { pushes };
-  const provider = {
+  const calls: [string, string][] = [];
+  const offered: Record<string, object[]> = { pushes };
+  const provider = stub<AzureProvider>({
     read: async (_repo, stream) => ({ items: offered[stream] || [], nextCursor: null }),
     async droppedCommits(_repo, from, to) {
       calls.push([from, to]);
       return dropped(from, to);
     },
-  };
+  });
   const check = createRewriteCheck({ store, provider, now: () => time });
-  /** @type {ReturnType<typeof createBackfill> | undefined} */
-  let backfill;
+  let backfill: ReturnType<typeof createBackfill> | undefined;
   const sync = createSync({
     store,
     provider,
@@ -66,7 +77,7 @@ function setup({ pushes = [], dropped = async () => commits(0) } = {}) {
     calls,
     offered,
     backfill,
-    advance(ms) {
+    advance(ms: number) {
       time += ms;
     },
     async run(turns = 6) {
@@ -89,8 +100,8 @@ test('a live force-push checks each moved branch with one call and shows History
     ],
     'one call per moved branch; created and deleted branches are not checked',
   );
-  const event = store.getEvent('one:push:10');
-  assert.deepEqual(byRef(event.data.mergeEvidence.rewrite), [
+  const event = present(store.getEvent('one:push:10'));
+  assert.deepEqual(byRef(event.data?.mergeEvidence?.rewrite), [
     { ref: 'refs/heads/feature', status: 'fast-forward' },
     { ref: 'refs/heads/main', status: 'rewrite', dropped: 2 },
   ]);
@@ -103,8 +114,8 @@ test('a live fast-forward push makes one call and shows no badge', async () => {
   const { store, calls, run } = setup({ pushes: [push(11, [move('main', A, B)])] });
   await run();
   assert.deepEqual(calls, [[A, B]]);
-  const event = store.getEvent('one:push:11');
-  assert.deepEqual(event.data.mergeEvidence.rewrite, [{ ref: 'refs/heads/main', status: 'fast-forward' }]);
+  const event = present(store.getEvent('one:push:11'));
+  assert.deepEqual(event.data?.mergeEvidence?.rewrite, [{ ref: 'refs/heads/main', status: 'fast-forward' }]);
   assert.equal(mergeEvidenceBadge(event), '');
   store.close();
 });
@@ -114,11 +125,11 @@ test('imported pushes are never checked, from the first sync or from a history i
     pushes: [push(12, [move('main', A, B)], new Date(BASE - 60000).toISOString())],
   });
   await run();
-  assert.equal(store.getEvent('one:push:12').imported, true);
+  assert.equal(store.getEvent('one:push:12')?.imported, true);
   offered.pushes = [push(18, [move('main', C, D)], new Date(BASE - 2 * 86400000).toISOString())];
   backfill.start(repo.id, 30);
   await run(20);
-  assert.equal(store.getEvent('one:push:18').imported, true);
+  assert.equal(store.getEvent('one:push:18')?.imported, true);
   assert.deepEqual(calls, []);
   assert.deepEqual(store.listJobs({ type: 'rewrite' }), []);
   store.close();
@@ -133,8 +144,8 @@ test('an old tip Azure no longer has leaves the check unknown after one call', a
   });
   await run();
   assert.equal(calls.length, 1);
-  const event = store.getEvent('one:push:13');
-  assert.deepEqual(event.data.mergeEvidence.rewrite, [{ ref: 'refs/heads/main', status: 'unknown' }]);
+  const event = present(store.getEvent('one:push:13'));
+  assert.deepEqual(event.data?.mergeEvidence?.rewrite, [{ ref: 'refs/heads/main', status: 'unknown' }]);
   assert.equal(mergeEvidenceBadge(event), '');
   assert.deepEqual(store.listJobs({ type: 'rewrite' }), []);
   store.close();
@@ -151,19 +162,19 @@ test('a failing check backs off, retries and gives up as unknown', async () => {
   assert.equal(calls.length, 1, 'no retry before the back-off ends');
   const [job] = store.listJobs({ type: 'rewrite' });
   assert.equal(job.attempts, 1);
-  assert.equal(store.getEvent('one:push:14').data.mergeEvidence, undefined, 'nothing is saved while retrying');
+  assert.equal(present(present(store.getEvent('one:push:14')).data).mergeEvidence, undefined, 'nothing is saved while retrying');
   for (let i = 0; i < 40; i++) {
     advance(30000);
     await run(2);
   }
   assert.equal(calls.length, 4);
-  assert.deepEqual(store.getEvent('one:push:14').data.mergeEvidence.rewrite, [{ ref: 'refs/heads/main', status: 'unknown' }]);
+  assert.deepEqual(store.getEvent('one:push:14')?.data?.mergeEvidence?.rewrite, [{ ref: 'refs/heads/main', status: 'unknown' }]);
   assert.deepEqual(store.listJobs({ type: 'rewrite' }), []);
   store.close();
 });
 
 test('a PR link on the same push survives the rewrite result, in either order', async () => {
-  const pr = (id, target, mergeCommit) => ({
+  const pr = (id: number, target: string, mergeCommit: string): ActivityEvent => ({
     id: `one:pr:${id}`,
     repoId: repo.id,
     kind: 'pr',
@@ -173,23 +184,23 @@ test('a PR link on the same push survives the rewrite result, in either order', 
   const { store, run, offered, advance } = setup({ pushes: [push(15, [move('main', A, B)])], dropped: async () => commits(1) });
   store.insertEvents([pr(7, 'main', B)]);
   await run();
-  const first = store.getEvent('one:push:15');
+  const first = present(store.getEvent('one:push:15'));
   assert.deepEqual(
-    first.data.mergeEvidence.prs.map(item => item.pullRequestId),
+    first.data?.mergeEvidence?.prs?.map(item => item.pullRequestId),
     [7],
   );
-  assert.deepEqual(first.data.mergeEvidence.rewrite, [{ ref: 'refs/heads/main', status: 'rewrite', dropped: 1 }]);
+  assert.deepEqual(first.data?.mergeEvidence?.rewrite, [{ ref: 'refs/heads/main', status: 'rewrite', dropped: 1 }]);
   assert.match(mergeEvidenceBadge(first), /Completed PR linked.*History rewritten · 1 commit dropped/);
   offered.pushes = [push(16, [move('release', C, D)])];
   advance(60000);
   await run();
   store.insertEvents([pr(8, 'release', D)]);
-  const second = store.getEvent('one:push:16');
+  const second = present(store.getEvent('one:push:16'));
   assert.deepEqual(
-    second.data.mergeEvidence.prs.map(item => item.pullRequestId),
+    second.data?.mergeEvidence?.prs?.map(item => item.pullRequestId),
     [8],
   );
-  assert.deepEqual(second.data.mergeEvidence.rewrite, [{ ref: 'refs/heads/release', status: 'rewrite', dropped: 1 }]);
+  assert.deepEqual(second.data?.mergeEvidence?.rewrite, [{ ref: 'refs/heads/release', status: 'rewrite', dropped: 1 }]);
   store.close();
 });
 
@@ -231,7 +242,7 @@ test('a check whose result cannot be stored keeps its job and saves no evidence'
   raw.close();
   const check = createRewriteCheck({ store, provider: { droppedCommits: async () => commits(1) }, now: () => BASE });
   await check.tick();
-  assert.equal(store.getEvent('one:push:20').data.mergeEvidence, undefined, 'evidence and job removal commit together');
+  assert.equal(present(present(store.getEvent('one:push:20')).data).mergeEvidence, undefined, 'evidence and job removal commit together');
   assert.equal(store.listJobs({ type: 'rewrite' }).length, 1);
   store.close();
   rmSync(folder, { recursive: true });
@@ -252,7 +263,7 @@ test('closing the app during the last attempt leaves the check to resume on rest
   assert.equal(calls.length, 4);
   const [job] = store.listJobs({ type: 'rewrite' });
   assert.equal(job?.attempts, 3, 'shutdown does not use up an attempt');
-  assert.equal(store.getEvent('one:push:21').data.mergeEvidence, undefined);
+  assert.equal(present(present(store.getEvent('one:push:21')).data).mergeEvidence, undefined);
   store.close();
 });
 
@@ -283,7 +294,7 @@ test('a failed save waits instead of taking every turn, and a proven rewrite is 
   raw.close();
   time += 2 * 60000;
   assert.equal(await check.tick(), true);
-  assert.equal(store.getEvent('one:push:21').data.mergeEvidence.rewrite[0].status, 'rewrite');
+  assert.equal(store.getEvent('one:push:21')?.data?.mergeEvidence?.rewrite?.[0].status, 'rewrite');
   assert.equal(calls, 1, 'the saved Azure answer is written, not asked for again');
   assert.equal(store.listJobs({ type: 'rewrite' }).length, 0);
   store.close();
