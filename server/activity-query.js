@@ -1,14 +1,14 @@
 // @ts-check
 
 import { foldSearchText, matchesPeople, parsePeople } from './activity-people.js';
-import { projectActivity } from '../src/activity.js';
-import { activityFilterLabel, labels, parseActivityFilter } from '../src/activity-text.js';
+import { projectActivity } from '../src/activity.ts';
+import { activityFilterLabel, labels, parseActivityFilter } from '../src/activity-text.ts';
 
 /** @typedef {import('node:sqlite').SQLInputValue} SqlValue */
 /** @typedef {Record<string, import('node:sqlite').SQLOutputValue>} SqlRow */
-/** @typedef {import('../src/activity.js').ActivityEvent} ActivityEvent */
-/** @typedef {import('../src/activity.js').ActivityRequest} ActivityRequest */
-/** @typedef {import('../src/activity.js').ActivityPage} ActivityPage */
+/** @typedef {import('../src/activity.ts').ActivityEvent} ActivityEvent */
+/** @typedef {import('../src/activity.ts').ActivityRequest} ActivityRequest */
+/** @typedef {import('../src/activity.ts').ActivityPage} ActivityPage */
 /** @typedef {{ key: string, time: number, observed: number, representative: string }} Group */
 /** @typedef {{ kind: string, status: string, evidence: string }} FilterRow */
 /** @typedef {{ kind: string, count: number, newItems: number, newUpdates: number }} CountRow */

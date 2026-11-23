@@ -1,11 +1,11 @@
-import { request } from './api.js';
+import { request } from './api.ts';
 import { joinActivitySearch } from './ui/activity-search.js';
-import { activityFilterLabel } from './activity-text.js';
+import { activityFilterLabel } from './activity-text.ts';
 import { createCheckoutActions } from './ui/checkout-actions.js';
-import { activityBranch } from './activity-branch.js';
+import { activityBranch } from './activity-branch.ts';
 import { createCheckoutPanel } from './ui/checkout.js';
 import { connectionResult, createConnectionController } from './ui/connection.js';
-import { emptyHtml, html } from './ui/format.js';
+import { emptyHtml, html } from './ui/format.ts';
 import { createRepositoryPicker } from './ui/repository-picker.js';
 import { createNavigation, activityHref, isActivity } from './ui/navigation.js';
 import { createTypeFilter } from './ui/type-filter.js';
@@ -17,7 +17,7 @@ import { createToolbarMenu } from './ui/toolbar-menu.js';
 import { scopeName } from './ui/header.js';
 import { createHistoryImport } from './ui/history-import.js';
 import { createBranchPicker } from './ui/branch-picker.js';
-import { required, setHtml } from './ui/dom.js';
+import { required, setHtml } from './ui/dom.ts';
 
 /** @typedef {import('./ui/refresh.js').PageState} PageState */
 /** @typedef {import('./ui/checkout-actions.js').Action} Action */

@@ -1,20 +1,20 @@
 // @ts-check
 import { normalizeOrganization, parseRemote, repositoryKey } from './repositories.js';
-import { safeAzureUrl } from '../src/events.js';
+import { safeAzureUrl } from '../src/events.ts';
 import { cliError } from './azure-cli.js';
 
-/** @typedef {import('../src/contract.js').AzureRecord} AzureRecord */
-/** @typedef {import('../src/contract.js').AzureRepo} AzureRepo */
-/** @typedef {import('../src/contract.js').AzureStream} AzureStream */
-/** @typedef {import('../src/contract.js').PageCursor} PageCursor */
+/** @typedef {import('../src/contract.ts').AzureRecord} AzureRecord */
+/** @typedef {import('../src/contract.ts').AzureRepo} AzureRepo */
+/** @typedef {import('../src/contract.ts').AzureStream} AzureStream */
+/** @typedef {import('../src/contract.ts').PageCursor} PageCursor */
 /** `restarted` marks a first page read in place of the saved cursor's page. @typedef {{ items: AzureRecord[], nextCursor: PageCursor | null, restarted?: boolean }} AzurePage */
 /** @typedef {{ since?: string, until?: string, cursor?: PageCursor | null }} ReadOptions */
 /**
  * @typedef {{ id: number, source: string, target: string, sourceId: string, targetId: string,
  *   head?: string, result?: string, strategy?: string, url: string }} CheckoutPull
  */
-/** @typedef {import('../src/contract.js').AccessCheck} AccessCheck */
-/** @typedef {import('../src/contract.js').ConnectionStatus} ConnectionStatus */
+/** @typedef {import('../src/contract.ts').AccessCheck} AccessCheck */
+/** @typedef {import('../src/contract.ts').ConnectionStatus} ConnectionStatus */
 /**
  * @typedef {{ id: string, organization: string, project: string, projectId: string, azureId: string,
  *   name: string, webUrl: string, disabled: false }} ResolvedRepository
@@ -24,7 +24,7 @@ import { cliError } from './azure-cli.js';
 /** @typedef {{ run: (args: string[]) => Promise<AzureRecord> }} AzureClientCli */
 /** The provider contract. Sync and backfill type their provider as the subset of it they call. */
 /** @typedef {ReturnType<typeof createAzureClient>} AzureProvider */
-/** @typedef {import('../src/contract.js').PullRequestReview} PullRequestReview */
+/** @typedef {import('../src/contract.ts').PullRequestReview} PullRequestReview */
 const RESOLVED = new Set(['fixed', 'wontFix', 'closed', 'byDesign']);
 /** @param {unknown} threads @param {unknown} evaluations @returns {PullRequestReview} */
 export function reviewOf(threads, evaluations) {

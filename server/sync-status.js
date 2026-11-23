@@ -1,11 +1,11 @@
 // @ts-check
 
-import { worstStatus } from '../src/sync-worst.js';
+import { worstStatus } from '../src/sync-worst.ts';
 
 /** @typedef {import('./sync.js').StreamState} StreamState */
-/** @typedef {import('../src/contract.js').SyncState} SyncState */
-/** @typedef {import('../src/contract.js').SyncStatus} SyncStatus */
-/** @typedef {import('../src/contract.js').OverallSyncStatus} OverallSyncStatus */
+/** @typedef {import('../src/contract.ts').SyncState} SyncState */
+/** @typedef {import('../src/contract.ts').SyncStatus} SyncStatus */
+/** @typedef {import('../src/contract.ts').OverallSyncStatus} OverallSyncStatus */
 /**
  * @typedef {{
  *   repos: { id: string, disabled?: boolean }[],
@@ -73,7 +73,7 @@ const time = value => Date.parse(value ?? '');
 /**
  * One status per enabled repository, first matching rule wins; overall is the worst of them.
  * @param {SyncStatusInput} input
- * @returns {import('../src/contract.js').SyncStatusReport}
+ * @returns {import('../src/contract.ts').SyncStatusReport}
  */
 export function syncStatus({
   repos,

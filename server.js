@@ -20,7 +20,7 @@ import { createForkOriginCheck } from './server/fork-origin.js';
 import { createCheckoutLookup } from './server/checkout-advice.js';
 import { isBranchAction } from './server/checkout-branches.js';
 import { createCheckoutGit, isCheckoutIntent, isSwitchIntent } from './server/checkout-git.js';
-import { activityBranch } from './src/activity-branch.js';
+import { activityBranch } from './src/activity-branch.ts';
 import { browseFolders } from './server/folders.js';
 import { canOpenBrowser, openBrowser } from './server/open-browser.js';
 
@@ -30,7 +30,7 @@ import { canOpenBrowser, openBrowser } from './server/open-browser.js';
 /** @typedef {import('./server/azure-client.js').AzureProvider} AzureProvider */
 /** Live mode passes the Azure client; demo mode passes demoProvider, which answers only the routes demo serves. */
 /** @typedef {AzureProvider | typeof demoProvider} AppProvider */
-/** @typedef {import('./src/contract.js').DemoSyncStatus} DemoSyncStatus */
+/** @typedef {import('./src/contract.ts').DemoSyncStatus} DemoSyncStatus */
 /** Demo mode passes a stub, so the app relies only on the two calls both share with createSync, and reset in live mode. */
 /**
  * @typedef {{
@@ -61,26 +61,26 @@ import { canOpenBrowser, openBrowser } from './server/open-browser.js';
 
 // The JSON each route answers with is defined in src/contract.js, which src/api.js maps request paths to, so the
 // browser modules that read a response are checked against what the handler below produces.
-/** @typedef {import('./src/contract.js').Repository} Repository */
-/** @typedef {import('./src/contract.js').SessionResponse} SessionResponse */
-/** @typedef {import('./src/contract.js').ErrorResponse} ErrorResponse */
-/** @typedef {import('./src/contract.js').OkResponse} OkResponse */
-/** @typedef {import('./src/contract.js').StateResponse} StateResponse */
-/** @typedef {import('./src/contract.js').ActivityResponse} ActivityResponse */
-/** @typedef {import('./src/contract.js').EventResponse} EventResponse */
-/** @typedef {import('./src/contract.js').CheckoutsResponse} CheckoutsResponse */
-/** @typedef {import('./src/contract.js').CheckoutStatusResponse} CheckoutStatusResponse */
-/** @typedef {import('./src/contract.js').CheckoutBranchesResponse} CheckoutBranchesResponse */
-/** @typedef {import('./src/contract.js').CheckoutUpdateResponse} CheckoutUpdateResponse */
-/** @typedef {import('./src/contract.js').ConnectionResponse} ConnectionResponse */
-/** @typedef {import('./src/contract.js').PushCommitsResponse} PushCommitsResponse */
-/** @typedef {import('./src/contract.js').PrReviewResponse} PrReviewResponse */
-/** @typedef {import('./src/contract.js').BackfillResponse} BackfillResponse */
-/** @typedef {import('./src/contract.js').RefreshResponse} RefreshResponse */
-/** @typedef {import('./src/contract.js').ResetResponse} ResetResponse */
-/** @typedef {import('./src/contract.js').DiscoverResponse} DiscoverResponse */
-/** @typedef {import('./src/contract.js').FoldersResponse} FoldersResponse */
-/** @typedef {import('./src/contract.js').DemoEventResponse} DemoEventResponse */
+/** @typedef {import('./src/contract.ts').Repository} Repository */
+/** @typedef {import('./src/contract.ts').SessionResponse} SessionResponse */
+/** @typedef {import('./src/contract.ts').ErrorResponse} ErrorResponse */
+/** @typedef {import('./src/contract.ts').OkResponse} OkResponse */
+/** @typedef {import('./src/contract.ts').StateResponse} StateResponse */
+/** @typedef {import('./src/contract.ts').ActivityResponse} ActivityResponse */
+/** @typedef {import('./src/contract.ts').EventResponse} EventResponse */
+/** @typedef {import('./src/contract.ts').CheckoutsResponse} CheckoutsResponse */
+/** @typedef {import('./src/contract.ts').CheckoutStatusResponse} CheckoutStatusResponse */
+/** @typedef {import('./src/contract.ts').CheckoutBranchesResponse} CheckoutBranchesResponse */
+/** @typedef {import('./src/contract.ts').CheckoutUpdateResponse} CheckoutUpdateResponse */
+/** @typedef {import('./src/contract.ts').ConnectionResponse} ConnectionResponse */
+/** @typedef {import('./src/contract.ts').PushCommitsResponse} PushCommitsResponse */
+/** @typedef {import('./src/contract.ts').PrReviewResponse} PrReviewResponse */
+/** @typedef {import('./src/contract.ts').BackfillResponse} BackfillResponse */
+/** @typedef {import('./src/contract.ts').RefreshResponse} RefreshResponse */
+/** @typedef {import('./src/contract.ts').ResetResponse} ResetResponse */
+/** @typedef {import('./src/contract.ts').DiscoverResponse} DiscoverResponse */
+/** @typedef {import('./src/contract.ts').FoldersResponse} FoldersResponse */
+/** @typedef {import('./src/contract.ts').DemoEventResponse} DemoEventResponse */
 
 const ROOT = dirname(fileURLToPath(import.meta.url));
 /** @type {Record<string, string>} */

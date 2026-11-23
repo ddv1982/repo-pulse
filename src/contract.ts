@@ -1,0 +1,311 @@
+// The JSON the server sends and the browser reads. Nothing here imports server code, so browser modules can type
+// their responses without pulling Node modules into their program. Server modules alias these types, and the
+// handlers in server.js check each response against its type with `@satisfies`.
+
+export type ActivityEvent = import('./activity.ts').ActivityEvent;
+export type EventData = import('./activity.ts').EventData;
+
+// Azure
+
+/** Raw Azure DevOps JSON. Its shape is checked by the code that reads it, not by the compiler. */
+export type AzureRecord = any;
+/** The repository fields the client reads. Watched repositories carry more. */
+export type AzureRepo = { organization: string; project: string; projectId?: string; azureId: string; webUrl: string };
+export type AzureStream = 'pushes' | 'refs' | 'prs' | 'closedPrs' | 'builds' | 'activeBuilds';
+/**
+ * Where the next page starts: `skip` for offset-paged reads, `token` for continuation reads.
+ * Build reads also keep their coarse window in `from` and `to`.
+ */
+export type PageCursor = { skip?: number; token?: string; from?: string; to?: string; allRefs?: boolean };
+export type AccessCheck = { status: 'ok' | 'failed'; checkedAt: string; code?: string; message?: string };
+export type ConnectionStatus = {
+  available: boolean;
+  identity: null;
+  identityVerified: boolean;
+  message: string;
+  code?: string;
+  version?: string;
+  extension?: string;
+  signedIn?: boolean;
+  account?: { name: string };
+  access?: AccessCheck;
+  capabilities?: { organizationRead: boolean };
+};
+/**
+ * What a PR detail shows on request: counts of people's discussion threads and each policy's result.
+ * Vote, reviewer and ref-update threads are Azure's own records of other events, so they are not counted.
+ */
+export type PullRequestReview = {
+  threads: { open: number; resolved: number };
+  policies: { name: string; status: string; blocking: boolean }[];
+};
+export type CliLastError = { code: string | undefined; message: string | undefined };
+/**
+ * The Azure CLI queue's counters, read for Copy diagnostics.
+ */
+export type CliDiagnostics = {
+  startsLastMinute: number;
+  totalStarts: number;
+  pending: number;
+  running: number;
+  limitPerMinute: number;
+  concurrency: number;
+  upstreamRequests: null;
+  lastError: CliLastError | null;
+  throttledUntil: string | null;
+};
+
+// Store
+
+/** The JSON in `events.data`. Insertion always fills `time` and `observedAt`; `data` keeps provider fields beyond EventData. */
+export type StoredEvent = ActivityEvent & { observedAt: string; data?: EventData & Record<string, unknown> };
+/** An event as the store returns it: the read flags come from their columns and enrichment is merged into `data`. */
+export type HydratedEvent = StoredEvent & { seen: boolean; imported: boolean };
+/** Every watched repository was resolved through Azure (or is a demo fixture), so its Azure identity is always present. */
+export type Repository = AzureRepo & { id: string; name: string; disabled?: boolean; localPath?: string };
+
+// Sync
+
+export type StreamWindow = { since: string; until: string };
+export type StreamError = { code: string; message: string };
+/**
+ * Persisted per repository and stream. Optional fields are absent before the first read
+ * or after a completed read, which keeps only the fields `completePage` writes. Demo seeds
+ * leave `error` out entirely.
+ */
+export type StreamState = {
+  repoId: string;
+  stream: AzureStream;
+  initialized: boolean;
+  nextAt: string;
+  error?: StreamError | null;
+  lastAttempt?: string;
+  lastSuccess?: string;
+  pending?: boolean;
+  failures?: number;
+  quietCycles?: number;
+  window?: StreamWindow;
+  windowGeneration?: number;
+  refreshGeneration?: number;
+  manual?: boolean;
+  cursor?: PageCursor | null;
+  pendingItems?: AzureRecord[];
+  activeIds?: string[];
+};
+/**
+ * The sync loop's counters, read for Copy diagnostics. `lastTurn` holds when each kind of turn last ran.
+ */
+export type SyncEngineStatus = {
+  running: boolean;
+  stopped: boolean;
+  pages: number;
+  errors: number;
+  streams: number;
+  lastTurn: { history?: string; live?: string; rewrite?: string };
+  lag: { overdueStreams: number; maxDelayMs: number };
+  inProgress: { repoId: string; stream: AzureStream }[];
+};
+export type DemoSyncStatus = { demo: true; running: false };
+export type RefreshStatus = { scheduled: boolean; cooldown?: boolean };
+export type SyncState = 'paused' | 'problem' | 'delayed' | 'syncing' | 'synced';
+/**
+ * `since` is the oldest last success across the repository's streams, absent until every stream has read once.
+ */
+export type SyncStatus = { state: SyncState; reason?: string; since?: string; lastCheck?: string; stream?: AzureStream | 'history' };
+export type OverallSyncStatus = (SyncStatus & { repoId: string }) | { state: 'empty' } | { state: 'problem'; reason: string };
+export type SyncStatusReport = { overall: OverallSyncStatus; repos: Record<string, SyncStatus> };
+
+// History import
+
+export type HistoryStream = 'pushes' | 'closedPrs' | 'builds';
+export type HistoryWindow = { since: string; until: string };
+export type JobError = { code: string; message: string };
+export type HistoryJob = {
+  id: string;
+  type: 'backfill';
+  repoId: string;
+  days: number | 'all';
+  status: 'pending' | 'running' | 'retrying' | 'completed';
+  startedAt: string;
+  nextAt: string;
+  rangeStart: string;
+  rangeEnd: string;
+  stream: HistoryStream;
+  cursor: PageCursor | null;
+  window: HistoryWindow | null;
+  pages: number;
+  records: number;
+  windowsCompleted: number;
+  failures: number;
+  error: JobError | null;
+  note: string;
+  lastAttempt?: string;
+  lastProgressAt?: string;
+  coverageStart?: string;
+  completedAt?: string;
+};
+
+// Saved filters
+
+export type ActivityFilters = { search: string; people: string; kind: string; repoIds: string[] | null; view: 'new' | 'all' };
+export type SavedActivityFilter = { id: string; name: string; filters: ActivityFilters };
+
+// Repository discovery
+
+/** A Git remote keeps the parsed Azure identity, but `name` is the remote's name and `repoName` the Azure repository. */
+export type DiscoveredRemote = { organization: string; project: string; name: string; repoName: string; url: string };
+export type DiscoveredCheckout = { localPath: string; remotes: DiscoveredRemote[] };
+export type Discovery = { repositories: DiscoveredCheckout[]; warnings: string[] };
+export type FolderLink = { name: string; path: string };
+
+// Checkouts
+
+export type PullAdvice = {
+  branch: string;
+  id: number;
+  url?: string;
+  strategy?: string;
+  verified: boolean;
+  targetVerified?: boolean;
+  receipt?: { target: string; result: string; sourceHead?: string };
+  destination?: 'local' | 'remote-only' | 'other-worktree' | 'different-upstream' | 'unknown';
+};
+export type Rewrite = { previous: string; tip: string; verified: boolean; commits: { side: 'old' | 'new'; id: string; subject: string }[] };
+export type CheckoutDiagnostic = { title?: string; message?: string; suggestion: string; advice?: PullAdvice; comparison?: Rewrite };
+/** The part of a follow-up plan a checkout status shows. */
+export type FollowupSummary = { id: string; source: string; workspace?: string };
+export type Review = {
+  kind: 'included' | 'local-followup' | 'unknown' | 'changed' | 'occupied';
+  commits?: { id: string; subject: string }[];
+  branch?: string;
+  canRemove?: boolean;
+};
+export type GitStatus = {
+  branch: string | null;
+  head: string | null;
+  upstream: string | null;
+  ahead: number | null;
+  behind: number | null;
+  dirty: boolean;
+};
+
+export type CheckoutSelection = { branch: string; head: string; upstream: string | null; identity: string };
+
+export type SwitchIntent = CheckoutSelection & { switchIdentity: string };
+
+export type CheckoutIntent = CheckoutSelection & { upstream: string };
+
+export type CheckoutReading = GitStatus & {
+  identity: string;
+  switchIdentity: string | null;
+  lastBranchCheck?: { at: string; matchesFetchedTip: boolean };
+};
+
+export type ActivitySwitchReview = { token: string; upstream: string; previous: string | null; tip: string; ahead: number; behind: number };
+
+export type BlockedState =
+  | 'in-progress'
+  | 'detached'
+  | 'unborn'
+  | 'dirty'
+  | 'no-upstream'
+  | 'different-remote'
+  | 'upstream-missing'
+  | 'upstream-rewritten'
+  | 'fetch-failed'
+  | 'unknown'
+  | 'diverged'
+  | 'ahead'
+  | 'current';
+
+export type PullableCheckout = CheckoutIntent & CheckoutReading & { state: 'behind'; canCheck: true; canPull: true };
+
+export type BlockedCheckout = CheckoutReading & { state: BlockedState; canCheck: boolean; canPull: false; diagnostic?: CheckoutDiagnostic };
+
+export type ActiveCheckout = PullableCheckout | BlockedCheckout;
+
+/** A checkout with an open branch follow-up names it, so the page can offer to review or remove the old branch. */
+export type DecoratedCheckout = ActiveCheckout & { followup?: FollowupSummary };
+
+export type CheckoutStatus = DecoratedCheckout | { state: 'unavailable' | 'not-linked'; diagnostic?: CheckoutDiagnostic };
+/** A check or pull, with the checkout read after it. */
+export type CheckoutUpdateResult = { checkout: CheckoutStatus; updated: boolean };
+/**
+ * A branch action, with the checkout read after it: a message, a review of the branch, or a next step.
+ */
+export type BranchActionResult =
+  | { checkout: CheckoutStatus; message: string }
+  | { checkout: CheckoutStatus; review: Review; message?: undefined; nextStep?: undefined }
+  | { checkout: CheckoutStatus; message: string; nextStep: string; review?: undefined };
+/**
+ * A switch to an activity's branch: switched (with a notice), refused (with a message), or waiting for the reader to
+ * confirm the review.
+ */
+export type ActivitySwitchResult =
+  | { checkout: DecoratedCheckout; notice: string | undefined; message?: undefined }
+  | { checkout: CheckoutStatus; message: string; notice?: undefined }
+  | { checkout: CheckoutStatus; switchReview?: undefined }
+  | { checkout: CheckoutStatus; switchReview: ActivitySwitchReview };
+
+// Responses, one per route
+
+export type ErrorResponse = { message: string; code?: string };
+export type OkResponse = { ok: true };
+/** POST /api/session: the key, given once for the launch token. */
+export type SessionResponse = { key: string };
+/**
+ * GET /api/state. The settings are only ever written by POST /api/settings.
+ */
+export type StateResponse = {
+  repos: Repository[];
+  streams: StreamState[];
+  diagnostics: Partial<CliDiagnostics> & { sync: SyncEngineStatus | DemoSyncStatus };
+  jobs: HistoryJob[];
+  activityRevision: string;
+  savedFilters: SavedActivityFilter[];
+  settings: { refreshEnabled: boolean; refreshResumedAt: number | null };
+  syncStatus: SyncStatusReport;
+  demo: boolean;
+};
+/** GET /api/activity, built by server/activity-query.js. */
+export type ActivityResponse = import('./activity.ts').ActivityPage;
+/** GET /api/events/:id: the event and every event grouped with it. */
+export type EventResponse = { event: HydratedEvent; events: HydratedEvent[] };
+/** GET /api/checkouts: status per enabled repository id, empty in demo mode. */
+export type CheckoutsResponse = Record<string, CheckoutStatus>;
+/** GET /api/repos/:id/checkout/status. */
+export type CheckoutStatusResponse = CheckoutStatus;
+/** GET /api/repos/:id/checkout/branches. */
+export type CheckoutBranchesResponse = { branches: { name: string; local: boolean }[] };
+/** POST /api/repos/:id/checkout. */
+export type CheckoutUpdateResponse = CheckoutUpdateResult | BranchActionResult | ActivitySwitchResult;
+/** GET /api/connection. */
+export type ConnectionResponse = ConnectionStatus;
+export type PushCommit = { commitId: string; comment?: string };
+/** GET /api/push/:repo/:id/commits. */
+export type PushCommitsResponse = { items: PushCommit[]; nextCursor: unknown; message?: string };
+/** GET /api/pr/:repo/:id/review. */
+export type PrReviewResponse = PullRequestReview & { message?: string };
+/** POST /api/backfill. */
+export type BackfillResponse = HistoryJob;
+/** POST /api/refresh. */
+export type RefreshResponse = { ok: true; status: RefreshStatus | { demo: true } };
+/** POST /api/reset. */
+export type ResetResponse = { started: true };
+/** POST /api/discover. */
+export type DiscoverResponse = Discovery;
+/**
+ * POST /api/folders: one folder's subfolders and the checkouts found in it.
+ */
+export type FoldersResponse = {
+  path: string;
+  parent: string | null;
+  breadcrumbs: FolderLink[];
+  folders: FolderLink[];
+  repositories: DiscoveredCheckout[];
+  warnings: string[];
+};
+/** POST /api/demo/event. */
+export type DemoEventResponse = ActivityEvent;
+
+export {};

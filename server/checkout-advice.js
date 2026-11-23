@@ -1,11 +1,11 @@
 // @ts-check
 
-import { branchName, safeAzureUrl } from '../src/events.js';
+import { branchName, safeAzureUrl } from '../src/events.ts';
 
 /** @typedef {import('./checkout-git.js').LinkedRepo} LinkedRepo */
 /** @typedef {import('./checkout-git.js').GitRunner} GitRunner */
 /** @typedef {{ id: number, source: string, target: string, sourceId?: string, targetId?: string, head?: string, result?: string, strategy?: string, url?: string }} CheckoutPull */
-/** @typedef {import('../src/contract.js').PullAdvice} PullAdvice */
+/** @typedef {import('../src/contract.ts').PullAdvice} PullAdvice */
 /** @typedef {(repo: LinkedRepo, source: string, head: string) => Promise<CheckoutPull[]>} FindCheckoutPulls */
 export const isCommit = (/** @type {unknown} */ value) =>
   typeof value === 'string' && /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i.test(value) && !/^0+$/.test(value);

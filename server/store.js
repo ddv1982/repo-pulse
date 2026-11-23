@@ -2,27 +2,27 @@
 import { DatabaseSync } from 'node:sqlite';
 import { chmodSync, mkdirSync, readdirSync, renameSync, rmSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
-import { activityKey, lifecycleKey, supportingPushKey } from '../src/activity.js';
+import { activityKey, lifecycleKey, supportingPushKey } from '../src/activity.ts';
 import {
   activityStatusId,
   activityEvidenceId,
   activitySearchText,
   azureDevOpsService,
   SEARCH_INDEX_VERSION,
-} from '../src/activity-text.js';
+} from '../src/activity-text.ts';
 import { createActivityQuery } from './activity-query.js';
 import { localPrLink, mergeUpdates } from './merge-evidence.js';
 import { forkJob } from './fork-origin.js';
 
 /** @typedef {import('node:sqlite').SQLOutputValue} SqlValue */
 /** @typedef {Record<string, SqlValue>} SqlRow */
-/** @typedef {import('../src/activity.js').ActivityEvent} ActivityEvent */
-/** @typedef {import('../src/activity.js').EventData} EventData */
+/** @typedef {import('../src/activity.ts').ActivityEvent} ActivityEvent */
+/** @typedef {import('../src/activity.ts').EventData} EventData */
 /** @typedef {import('./sync.js').StreamState} StreamState */
 /** @typedef {import('./sync.js').StreamName} StreamName */
-/** @typedef {import('../src/contract.js').StoredEvent} StoredEvent */
-/** @typedef {import('../src/contract.js').HydratedEvent} HydratedEvent */
-/** @typedef {import('../src/contract.js').Repository} Repository */
+/** @typedef {import('../src/contract.ts').StoredEvent} StoredEvent */
+/** @typedef {import('../src/contract.ts').HydratedEvent} HydratedEvent */
+/** @typedef {import('../src/contract.ts').Repository} Repository */
 /** Jobs share the indexed columns; every other field belongs to the job type. */
 /** @typedef {{ id: string, type: string, repoId: string, nextAt?: string, status?: string, eventId?: string, [field: string]: unknown }} Job */
 /** Settings hold any JSON value, written with JSON.stringify. */
@@ -206,7 +206,7 @@ export function createStore(path = ':memory:') {
   function linkPush(id) {
     const push = hydrate(q(`${selectEvents} WHERE e.id=?`).get(id));
     if (!push) return;
-    const evidence = /** @type {import('../src/activity.js').MergeEvidenceData} */ (push.data?.mergeEvidence || {});
+    const evidence = /** @type {import('../src/activity.ts').MergeEvidenceData} */ (push.data?.mergeEvidence || {});
     const prs = [...(evidence.prs || [])];
     // Saved complete analysis that proves which commits the push introduced outranks tip identity: a branch reset back
     // to an old merge commit matches the tip without introducing it.
@@ -726,13 +726,13 @@ export function createStore(path = ':memory:') {
     /**
      * Replaces the result for this ref and removes the job in one write, so a finished check is never run again.
      * A missing event (its repository was removed) only removes the job.
-     * @param {{ eventId: string, jobId: string, rewrite: import('../src/activity.js').RewriteResult }} result
+     * @param {{ eventId: string, jobId: string, rewrite: import('../src/activity.ts').RewriteResult }} result
      */
     saveRewriteResult({ eventId, jobId, rewrite }) {
       transaction(() => {
         const event = hydrate(q(`${selectEvents} WHERE e.id=?`).get(eventId));
         if (event) {
-          const evidence = /** @type {import('../src/activity.js').MergeEvidenceData} */ (event.data?.mergeEvidence || {});
+          const evidence = /** @type {import('../src/activity.ts').MergeEvidenceData} */ (event.data?.mergeEvidence || {});
           const results = [...(evidence.rewrite || []).filter(item => item.ref !== rewrite.ref), rewrite];
           enrichEvent(eventId, { mergeEvidence: { ...evidence, rewrite: results } });
         }
@@ -742,7 +742,7 @@ export function createStore(path = ':memory:') {
     /**
      * Replaces the fork origin of a branch creation and removes its job in one write. A missing event (its repository
      * was removed) only removes the job.
-     * @param {{ eventId: string, jobId: string, forkOrigin: import('../src/activity.js').ForkOrigin }} result
+     * @param {{ eventId: string, jobId: string, forkOrigin: import('../src/activity.ts').ForkOrigin }} result
      */
     saveForkResult({ eventId, jobId, forkOrigin }) {
       transaction(() => {

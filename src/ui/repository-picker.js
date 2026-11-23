@@ -1,15 +1,15 @@
-import { emptyHtml, html } from './format.js';
-import { required, setHtml } from './dom.js';
+import { emptyHtml, html } from './format.ts';
+import { required, setHtml } from './dom.ts';
 
-/** @typedef {import('../contract.js').FoldersResponse} FoldersResponse */
-/** @typedef {import('../contract.js').Repository} Repository */
-/** @typedef {import('../contract.js').DiscoveredRemote} DiscoveredRemote */
+/** @typedef {import('../contract.ts').FoldersResponse} FoldersResponse */
+/** @typedef {import('../contract.ts').Repository} Repository */
+/** @typedef {import('../contract.ts').DiscoveredRemote} DiscoveredRemote */
 /** A subfolder row, or the row that leads up to the parent folder. @typedef {FoldersResponse['folders'][number] & { up?: boolean }} FolderOption */
 /** One remote of a local checkout: a checkout with several remotes gets one row per remote. @typedef {{ localPath: string, remote: DiscoveredRemote, multiple: boolean }} CheckoutItem */
 /** Whether the listed checkouts span several organizations or projects, so rows must name them. @typedef {{ organizations: boolean, projects: boolean }} Mixed */
 /**
  * @typedef {object} PickerHost
- * @property {typeof import('../api.js').request} request
+ * @property {typeof import('../api.ts').request} request
  * @property {() => Repository[]} getRepos The watched repositories; their checkouts are shown as already watched.
  * @property {(count: number) => unknown} onAdded Called after at least one repository was added.
  */

@@ -1,11 +1,11 @@
 // @ts-check
 
-import { html } from './format.js';
+import { html } from './format.ts';
 
 /** theme.js defines this before any module loads. */
 /** @typedef {Window & { repoPulseTheme?: { get: () => string } }} ThemedWindow */
 
-/** @param {import('./format.js').SafeHtml} content */
+/** @param {import('./format.ts').SafeHtml} content */
 const svg = content =>
   html`<svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">${content}</svg>`;
 export const icons = {

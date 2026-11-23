@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildActivityTree } from '../src/activity-tree.js';
+import { buildActivityTree } from '../src/activity-tree.ts';
 
 const sha = letter => letter.repeat(40);
 const zero = '0'.repeat(40);

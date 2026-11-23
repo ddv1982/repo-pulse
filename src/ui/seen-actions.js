@@ -37,7 +37,7 @@ function shownUnseenIds(page) {
 /**
  * @param {{
  *   page: HTMLElement,
- *   request: typeof import('../api.js').request,
+ *   request: typeof import('../api.ts').request,
  *   reload: () => Promise<unknown>,
  *   toast: (message: string, options?: { undo?: boolean }) => void,
  * }} options

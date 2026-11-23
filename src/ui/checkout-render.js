@@ -1,9 +1,9 @@
 // @ts-check
 
-import { azureLink, emptyHtml, html, joinHtml } from './format.js';
+import { azureLink, emptyHtml, html, joinHtml } from './format.ts';
 
 /** @typedef {import('./checkout.js').CheckoutSnapshot} CheckoutSnapshot */
-/** @typedef {import('../contract.js').CheckoutDiagnostic} CheckoutDiagnostic */
+/** @typedef {import('../contract.ts').CheckoutDiagnostic} CheckoutDiagnostic */
 
 /** @type {Record<string, string | undefined>} */
 const statusLabels = {

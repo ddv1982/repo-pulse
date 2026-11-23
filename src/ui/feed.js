@@ -12,25 +12,25 @@ import {
   activityTitle,
   activitySummary,
   buildState,
-} from './format.js';
+} from './format.ts';
 import { syncRepoName } from './health.js';
-import { worstStatus } from '../sync-worst.js';
+import { worstStatus } from '../sync-worst.ts';
 import { emptyActivityMessage, renderSummary } from './activity-summary.js';
 import { icons } from './icons.js';
 import { renderTrail } from './activity-trail.js';
 import { activityHref } from './navigation.js';
 import { renderTypeFilter } from './type-filter.js';
 import { activityScopeQuery } from './activity-data.js';
-import { activityFilterLabel, activityRef, prForkSource, prTarget, prVoteChanges } from '../activity-text.js';
+import { activityFilterLabel, activityRef, prForkSource, prTarget, prVoteChanges } from '../activity-text.ts';
 import { scopeName } from './header.js';
 import { currentActivityFilters, isSavedFilterModified, renderSavedFilters } from './saved-filters.js';
 import { mergeEvidenceBadge } from './merge-evidence.js';
-import { buildActivityTree } from '../activity-tree.js';
+import { buildActivityTree } from '../activity-tree.ts';
 import { forkText, renderTreeCell, treeLegend } from './activity-tree.js';
 export { renderDetail } from './activity-detail.js';
 
 /** @typedef {import('./refresh.js').PageState} PageState */
-/** @typedef {import('../activity.js').ActivityItem} ActivityItem */
+/** @typedef {import('../activity.ts').ActivityItem} ActivityItem */
 /** `openMenu` is the panel ID of the open toolbar menu, if any. */
 /** @typedef {Pick<import('./navigation.js').NavigationState, 'route' | 'repoIds' | 'search' | 'kind' | 'filtersOpen'> & { openMenu?: string }} FeedView */
 
@@ -55,7 +55,7 @@ export function filterControls(ui, state) {
   </div>`;
 }
 
-/** What the named person did, per kind. A branch or tag event comes from a push. @type {Record<import('../activity.js').ActivityKind, string>} */
+/** What the named person did, per kind. A branch or tag event comes from a push. @type {Record<import('../activity.ts').ActivityKind, string>} */
 const actorRoles = {
   pr: 'Created by',
   build: 'Requested by',
@@ -159,7 +159,7 @@ function renderRefLine(record, title, repoName) {
 }
 
 /**
- * @param {ActivityItem} record @param {PageState} state @param {import('../activity-tree.js').TreeRow | undefined} tree
+ * @param {ActivityItem} record @param {PageState} state @param {import('../activity-tree.ts').TreeRow | undefined} tree
  * @param {boolean} showRepo whether more than one repository is in view, so the row has to say which one it belongs to
  */
 function row(record, state, tree, showRepo) {
@@ -179,7 +179,7 @@ function row(record, state, tree, showRepo) {
     <div class="rowact">${azureLink(record.url)}${record.imported ? emptyHtml : html`<button class="ghost sm seen-toggle" type="button" id="seen-${record.groupKey}" data-action="ack-item" data-id="${record.id}" data-mark-seen="${record.unseen}" data-event-ids="${ackIds}" aria-pressed="${!record.unseen}" aria-label="Seen: ${fullTitle}">${icons.seenBox}Seen</button>`}</div></li>`;
 }
 
-/** @param {string} title @param {ActivityItem[]} records @param {PageState} state @param {{ open?: boolean, description?: string, tree?: import('../activity-tree.js').ActivityTree, showRepo: boolean }} options */
+/** @param {string} title @param {ActivityItem[]} records @param {PageState} state @param {{ open?: boolean, description?: string, tree?: import('../activity-tree.ts').ActivityTree, showRepo: boolean }} options */
 function group(title, records, state, { open = true, description = '', tree, showRepo }) {
   if (!records.length) return emptyHtml;
   return html`<section class="group"><details data-group="${title}" ${open ? html`open` : emptyHtml}><summary class="ghead">${title} <span class="pill u">${records.length}</span><span class="note">${description}</span></summary><ul class="rows${tree ? ' with-tree' : ''}" ${tree ? html`data-tree-lanes="${tree.width}"` : emptyHtml}>${records.map((record, index) => row(record, state, tree?.rows[index], showRepo))}</ul></details></section>`;

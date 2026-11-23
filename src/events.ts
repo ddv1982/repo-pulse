@@ -1,13 +1,10 @@
-/** @param {unknown} ref */
-export function branchName(ref) {
+export function branchName(ref: unknown) {
   return String(ref || '').replace(/^refs\/heads\//, '');
 }
-/** @param {{ displayName?: string, name?: string } | null | undefined} identity */
-export function actorName(identity) {
+export function actorName(identity: { displayName?: string; name?: string } | null | undefined) {
   return identity?.displayName || identity?.name || 'Unknown';
 }
-/** @param {unknown} url */
-export function safeAzureUrl(url, fallback = '') {
+export function safeAzureUrl(url: unknown, fallback = '') {
   try {
     const parsed = new URL(String(url));
     if (

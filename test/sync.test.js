@@ -4,7 +4,7 @@ import { createStore } from '../server/store.js';
 import { createHash } from 'node:crypto';
 import { createSync } from '../server/sync.js';
 import { createBackfill } from '../server/backfill.js';
-import { activityMergeBadge } from '../src/activity-text.js';
+import { activityMergeBadge } from '../src/activity-text.ts';
 const repo = {
   id: 'one',
   name: 'One',

@@ -1,12 +1,12 @@
 // @ts-check
 
 import { checkAge, renderCheckout } from './checkout-render.js';
-import { setHtml } from './dom.js';
+import { setHtml } from './dom.ts';
 
-/** @typedef {import('../contract.js').CheckoutStatus} CheckoutStatus */
-/** @typedef {import('../contract.js').BlockedCheckout} BlockedCheckout */
-/** @typedef {import('../contract.js').Review} Review */
-/** @typedef {import('../contract.js').FollowupSummary} FollowupSummary */
+/** @typedef {import('../contract.ts').CheckoutStatus} CheckoutStatus */
+/** @typedef {import('../contract.ts').BlockedCheckout} BlockedCheckout */
+/** @typedef {import('../contract.ts').Review} Review */
+/** @typedef {import('../contract.ts').FollowupSummary} FollowupSummary */
 /**
  * One repository's checkout as this page reads it. Every /api/checkouts entry fits: the server adds `followup`
  * when a branch follow-up is open, and the page keeps the `review` and `nextStep` a branch action returned.
@@ -14,10 +14,10 @@ import { setHtml } from './dom.js';
  *   review?: Review, nextStep?: string } & Partial<Omit<BlockedCheckout, 'state' | 'canPull'>>} CheckoutSnapshot
  */
 /** @typedef {{ checkout: CheckoutSnapshot, updated?: boolean, message?: string, notice?: string,
- *   switchReview?: import('../contract.js').ActivitySwitchReview, review?: Review, nextStep?: string }} CheckoutUpdate */
+ *   switchReview?: import('../contract.ts').ActivitySwitchReview, review?: Review, nextStep?: string }} CheckoutUpdate */
 /** @typedef {'check' | 'pull' | 'switch-activity' | 'switch-branch' | 'switch-update' | 'review' | 'remove' | 'carry'} CheckoutOperation */
 
-/** @param {{ page: HTMLElement, request: typeof import('../api.js').request, isVisible: () => boolean }} options */
+/** @param {{ page: HTMLElement, request: typeof import('../api.ts').request, isVisible: () => boolean }} options */
 export function createCheckoutPanel({ page, request, isVisible }) {
   /** @type {Record<string, CheckoutSnapshot>} */
   let snapshots = {};

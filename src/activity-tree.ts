@@ -1,8 +1,6 @@
-// @ts-check
+import { branchName } from './events.ts';
 
-import { branchName } from './events.js';
-
-/** @typedef {import('./activity.js').ActivityEvent} ActivityEvent */
+export type ActivityEvent = import('./activity.ts').ActivityEvent;
 /**
  * How a fork origin is known. Unchecked, from the rows on the page: `tip`, the new branch started at a revision an
  * older row shows on another branch; `pr`, a pull request from the branch names a target, which is an assumption.
@@ -10,30 +8,53 @@ import { branchName } from './events.js';
  * latest recorded tip of one other branch; `contained`, one checked candidate already held the base. The checked
  * outcomes with no parent draw nothing: `ambiguous` (several branches held the base), `refuted` (the PR target did
  * not hold it), `unplaced` (no recorded or checked branch held it), `orphan` and `merge`.
- * @typedef {'tip' | 'pr' | 'recorded' | 'contained' | 'ambiguous' | 'refuted' | 'unplaced' | 'orphan' | 'merge'} ForkEvidence
  */
-/** @typedef {{ slot: number, color: number }} TreeLane A drawn lane. `color` indexes the lane palette; -1 is neutral. */
-/** @typedef {TreeLane & { up: boolean, down: boolean }} TreeLine A lane in one row, and whether it runs on above and below. */
-/** @typedef {TreeLine & { shape: 'dot' | 'ring' | 'merge', overflow: boolean }} TreeNode */
+export type ForkEvidence = 'tip' | 'pr' | 'recorded' | 'contained' | 'ambiguous' | 'refuted' | 'unplaced' | 'orphan' | 'merge';
+/** A drawn lane. `color` indexes the lane palette; -1 is neutral. */
+export type TreeLane = { slot: number; color: number };
+/** A lane in one row, and whether it runs on above and below. */
+export type TreeLine = TreeLane & { up: boolean; down: boolean };
+export type TreeNode = TreeLine & { shape: 'dot' | 'ring' | 'merge'; overflow: boolean };
 /**
  * The origin of a new branch. Only a fork with a `parent` is drawn. `branches` names the branches of an ambiguous base.
- * @typedef {{ evidence: ForkEvidence, parent: string | null, base?: string, branches?: string[],
- *   pullRequestId?: number | string, target?: string }} TreeFork
  */
+export type TreeFork = {
+  evidence: ForkEvidence;
+  parent: string | null;
+  base?: string;
+  branches?: string[];
+  pullRequestId?: number | string;
+  target?: string;
+};
 /**
  * One feed row. `through` lists the lanes that only pass by. `fork` describes the origin on the row that reports a
  * new branch. `forkFrom` and `mergeFrom` are the other lane of a drawn fork or merge, and are null when either lane
  * did not fit. The fork is drawn on the oldest row of the branch, which can be the push that created it.
- * @typedef {{ node: TreeNode, through: TreeLane[], fork: TreeFork | null,
- *   forkFrom: (TreeLine & { evidence: ForkEvidence }) | null, mergeFrom: TreeLine | null }} TreeRow
  */
-/** @typedef {{ width: number, rows: TreeRow[] }} ActivityTree `width` counts lane positions, the overflow position included. */
-/** @typedef {{ id: number | string, source: string, target: string }} PullRequest */
+export type TreeRow = {
+  node: TreeNode;
+  through: TreeLane[];
+  fork: TreeFork | null;
+  forkFrom: (TreeLine & { evidence: ForkEvidence }) | null;
+  mergeFrom: TreeLine | null;
+};
+/** `width` counts lane positions, the overflow position included. */
+export type ActivityTree = { width: number; rows: TreeRow[] };
+export type PullRequest = { id: number | string; source: string; target: string };
 /**
  * One stretch of a branch. `top` and `bottom` are row indexes, newest first. `target` marks a lane that others fork
  * from or merge into, `forked` one that starts with a fork.
- * @typedef {{ key: string, top: number, bottom: number, branch: string, target: boolean, forked: boolean, slot: number, color: number }} Lane
  */
+export type Lane = {
+  key: string;
+  top: number;
+  bottom: number;
+  branch: string;
+  target: boolean;
+  forked: boolean;
+  slot: number;
+  color: number;
+};
 
 export const MAX_LANES = 4;
 export const LANE_COLORS = 6;
@@ -42,11 +63,9 @@ export const MAX_GAP = 12;
 const PR_REF = /^refs\/pull\/(\d+)\//;
 const ZERO = /^0+$/;
 
-/** @param {string} repoId @param {string} branch */
-const laneKey = (repoId, branch) => `${repoId}\n${branch}`;
+const laneKey = (repoId: string, branch: string) => `${repoId}\n${branch}`;
 
-/** @param {string} text */
-function hash(text) {
+function hash(text: string) {
   let value = 0;
   for (let i = 0; i < text.length; i++) value = (value * 31 + text.charCodeAt(i)) >>> 0;
   return value;
@@ -54,28 +73,29 @@ function hash(text) {
 
 /**
  * The refs of a pull request. A PR from a fork keeps its source apart from the branches of this repository.
- * @param {number | string} id @param {string | undefined} sourceRef @param {string | undefined} targetRef
- * @param {{ repository?: string, project?: string } | undefined} fork @returns {PullRequest}
  */
-function pullRequestRefs(id, sourceRef, targetRef, fork) {
+function pullRequestRefs(
+  id: number | string,
+  sourceRef: string | undefined,
+  targetRef: string | undefined,
+  fork: { repository?: string; project?: string } | undefined,
+): PullRequest {
   const branch = branchName(sourceRef);
   const source = fork && branch ? `${fork.project ?? ''}/${fork.repository ?? 'fork'}:${branch}` : branch;
   return { id, source, target: branchName(targetRef) };
 }
 
-/** The refs one pull request row names. @param {ActivityEvent} item @returns {PullRequest | undefined} */
-function pullRequest(item) {
+/** The refs one pull request row names. */
+function pullRequest(item: ActivityEvent): PullRequest | undefined {
   const id = item.kind === 'pr' ? item.data?.pullRequestId : undefined;
   if (id === undefined) return undefined;
   return pullRequestRefs(id, item.data?.sourceRefName || item.branch, item.data?.targetRefName, item.data?.fork);
 }
 
-/** Pull requests by id, newest row first, and every PR row of each source branch in list order. @param {ActivityEvent[]} items */
-function pullRequests(items) {
-  /** @type {Map<string, PullRequest>} */
-  const byId = new Map();
-  /** @type {Map<string, { row: number, pr: PullRequest }[]>} */
-  const bySource = new Map();
+/** Pull requests by id, newest row first, and every PR row of each source branch in list order. */
+function pullRequests(items: ActivityEvent[]) {
+  const byId: Map<string, PullRequest> = new Map();
+  const bySource: Map<string, { row: number; pr: PullRequest }[]> = new Map();
   items.forEach((item, row) => {
     const pr = pullRequest(item);
     if (!pr) return;
@@ -90,18 +110,16 @@ function pullRequests(items) {
   return { byId, bySource };
 }
 
-/** The revision a push created a branch at. A snapshot only reports the tip at discovery, which says nothing of the start. @param {ActivityEvent} item */
-function createdAt(item) {
+/** The revision a push created a branch at. A snapshot only reports the tip at discovery, which says nothing of the start. */
+function createdAt(item: ActivityEvent) {
   const { evidence, oldObjectId, newObjectId } = item.data ?? {};
   return item.kind === 'branch-created' && evidence === 'push' && (!oldObjectId || ZERO.test(oldObjectId)) ? (newObjectId ?? '') : '';
 }
 
-/** Where each revision was seen as a branch tip: `repo, sha` to the rows and branches. @param {ActivityEvent[]} items */
-function tipSightings(items) {
-  /** @type {Map<string, { row: number, branch: string }[]>} */
-  const sightings = new Map();
-  /** @param {ActivityEvent} item @param {number} row @param {string | undefined} sha @param {string | undefined} ref */
-  const add = (item, row, sha, ref) => {
+/** Where each revision was seen as a branch tip: `repo, sha` to the rows and branches. */
+function tipSightings(items: ActivityEvent[]) {
+  const sightings: Map<string, { row: number; branch: string }[]> = new Map();
+  const add = (item: ActivityEvent, row: number, sha: string | undefined, ref: string | undefined) => {
     if (!sha || ZERO.test(sha) || !ref?.startsWith('refs/heads/')) return;
     const key = laneKey(item.repoId, sha.toLowerCase());
     const seen = sightings.get(key);
@@ -124,10 +142,8 @@ function tipSightings(items) {
 /**
  * The origin server/fork-origin.js stored, or undefined when there is none or the check failed, so the unchecked
  * evidence applies. A checked origin never falls back to the pull request target.
- * @param {import('./activity.js').ForkOrigin | undefined} origin @param {PullRequest | undefined} pr
- * @returns {TreeFork | null | undefined}
  */
-function checkedFork(origin, pr) {
+function checkedFork(origin: import('./activity.ts').ForkOrigin | undefined, pr: PullRequest | undefined): TreeFork | null | undefined {
   if (!origin || origin.status === 'unknown') return undefined;
   if (origin.status === 'orphan' || origin.status === 'merge') return { evidence: origin.status, parent: null };
   const base = origin.base ?? '';
@@ -143,8 +159,8 @@ function checkedFork(origin, pr) {
   return { evidence: 'unplaced', parent: null, base };
 }
 
-/** The branch a row sits on, or '' for a row that belongs to no branch. @param {ActivityEvent} item @param {Map<string, PullRequest>} prs */
-function rowBranch(item, prs) {
+/** The branch a row sits on, or '' for a row that belongs to no branch. */
+function rowBranch(item: ActivityEvent, prs: Map<string, PullRequest>) {
   if (item.kind === 'tag') return '';
   const pr = pullRequest(item);
   if (pr) return (item.data?.status === 'completed' && pr.target) || pr.source;
@@ -157,8 +173,7 @@ function rowBranch(item, prs) {
   return attached || prs.get(laneKey(item.repoId, prRef[1]))?.source || `refs/pull/${prRef[1]}`;
 }
 
-/** @param {ActivityEvent} item @returns {TreeNode['shape']} */
-function nodeShape(item) {
+function nodeShape(item: ActivityEvent): TreeNode['shape'] {
   if (item.kind !== 'pr') return 'dot';
   return item.data?.status === 'completed' ? 'merge' : item.data?.status === 'active' ? 'ring' : 'dot';
 }
@@ -166,12 +181,10 @@ function nodeShape(item) {
 /**
  * Gives each lane a position and a colour. Lanes that others fork from or merge into go first, so a trunk stays on
  * the left. A lane that overlaps `maxLanes` others keeps slot -1.
- * @param {Lane[]} lanes @param {number} maxLanes
  */
-function placeLanes(lanes, maxLanes) {
+function placeLanes(lanes: Lane[], maxLanes: number) {
   const ordered = [...lanes].sort((a, b) => Number(b.target) - Number(a.target) || a.top - b.top);
-  /** @type {Lane[]} */
-  const placed = [];
+  const placed: Lane[] = [];
   for (const lane of ordered) {
     const beside = placed.filter(other => other.bottom >= lane.top && other.top <= lane.bottom);
     // A single row with nothing attached stays neutral: colour is for lanes a reader can follow.
@@ -192,17 +205,13 @@ function placeLanes(lanes, maxLanes) {
  * Splits the rows of each branch into lanes. A branch that is quiet for more than `maxGap` rows gives its lane
  * back, so long-lived branches do not hold a position through pages of unrelated activity. A lane also ends at the
  * row where a push created the branch: older rows under the same name belong to an earlier branch.
- * @param {Map<string, { branch: string, rows: Set<number>, starts: Set<number> }>} branches @param {number} maxGap
  */
-function splitLanes(branches, maxGap) {
-  /** @type {Map<string, Map<number, Lane>>} */
-  const byRow = new Map();
-  /** @type {Lane[]} */
-  const lanes = [];
+function splitLanes(branches: Map<string, { branch: string; rows: Set<number>; starts: Set<number> }>, maxGap: number) {
+  const byRow: Map<string, Map<number, Lane>> = new Map();
+  const lanes: Lane[] = [];
   for (const [key, { branch, rows, starts }] of branches) {
     const index = new Map();
-    /** @type {Lane | undefined} */
-    let lane;
+    let lane: Lane | undefined;
     for (const row of [...rows].sort((a, b) => a - b)) {
       if (!lane || row - lane.bottom - 1 > maxGap || starts.has(lane.bottom)) {
         lane = { key, top: row, bottom: row, branch, target: false, forked: false, slot: -1, color: -1 };
@@ -219,15 +228,15 @@ function splitLanes(branches, maxGap) {
 /**
  * A branch lane graph for one rendered list of Activity rows, newest first. It describes only what the list shows:
  * a lane runs between nearby rows that sit on a branch or refer to it.
- * @param {ActivityEvent[]} items @param {{ maxLanes?: number, maxGap?: number }} [limits] @returns {ActivityTree}
  */
-export function buildActivityTree(items, { maxLanes = MAX_LANES, maxGap = MAX_GAP } = {}) {
+export function buildActivityTree(
+  items: ActivityEvent[],
+  { maxLanes = MAX_LANES, maxGap = MAX_GAP }: { maxLanes?: number; maxGap?: number } = {},
+): ActivityTree {
   const prs = pullRequests(items);
   const sightings = tipSightings(items);
-  /** @type {Map<string, { branch: string, rows: Set<number>, starts: Set<number> }>} */
-  const branches = new Map();
-  /** @param {string} repoId @param {string} branch @param {number} row */
-  const mark = (repoId, branch, row) => {
+  const branches: Map<string, { branch: string; rows: Set<number>; starts: Set<number> }> = new Map();
+  const mark = (repoId: string, branch: string, row: number) => {
     const key = branch ? laneKey(repoId, branch) : laneKey(repoId, `\n${row}`);
     const entry = branches.get(key) ?? { branch, rows: new Set(), starts: new Set() };
     branches.set(key, entry);
@@ -239,9 +248,8 @@ export function buildActivityTree(items, { maxLanes = MAX_LANES, maxGap = MAX_GA
   /**
    * The oldest row of a new branch. The push that created a branch is a row of its own and may sort below it, after
    * the other rows of the same push.
-   * @param {ActivityEvent} item @param {number} row
    */
-  const startRow = (item, row) => {
+  const startRow = (item: ActivityEvent, row: number) => {
     const pushId = item.data?.pushId;
     let start = row;
     for (let below = row + 1; pushId !== undefined && items[below]?.data?.pushId === pushId; below++)
@@ -250,10 +258,8 @@ export function buildActivityTree(items, { maxLanes = MAX_LANES, maxGap = MAX_GA
   };
   /**
    * `after` is the row where the same name was created again, or -1: a pull request above it belongs to that later branch.
-   * @param {ActivityEvent} item @param {string} branch @param {number} row @param {number} start @param {number} after
-   * @returns {TreeFork | null}
    */
-  const forkOrigin = (item, branch, row, start, after) => {
+  const forkOrigin = (item: ActivityEvent, branch: string, row: number, start: number, after: number): TreeFork | null => {
     const tip = createdAt(item).toLowerCase();
     const requests = prs.bySource.get(laneKey(item.repoId, branch)) ?? [];
     // A push dates the branch, so its pull request has every row above. A snapshot only dates the discovery.
@@ -265,12 +271,10 @@ export function buildActivityTree(items, { maxLanes = MAX_LANES, maxGap = MAX_GA
     if (seen) return { evidence: 'tip', parent: seen.branch };
     return pr && pr.target !== branch ? { evidence: 'pr', parent: pr.target, pullRequestId: pr.id } : null;
   };
-  /** @type {(TreeFork | null)[]} */
-  const forks = items.map(() => null);
-  /** The fork curve sits on the oldest row of the branch: row index to the fork and the parent it joins. @type {Map<number, { fork: TreeFork, key: string }>} */
-  const forkJoins = new Map();
-  /** @type {Map<string, number>} */
-  const createdAbove = new Map();
+  const forks: (TreeFork | null)[] = items.map(() => null);
+  /** The fork curve sits on the oldest row of the branch: row index to the fork and the parent it joins. */
+  const forkJoins: Map<number, { fork: TreeFork; key: string }> = new Map();
+  const createdAbove: Map<string, number> = new Map();
   items.forEach((item, row) => {
     const entry = branches.get(rowKeys[row]);
     if (item.kind !== 'branch-created' || !entry?.branch) return;
@@ -288,22 +292,19 @@ export function buildActivityTree(items, { maxLanes = MAX_LANES, maxGap = MAX_GA
   });
 
   const { lanes, byRow } = splitLanes(branches, maxGap);
-  /** @param {string | null | undefined} key @param {number} row */
-  const laneOf = (key, row) => (key ? byRow.get(key)?.get(row) : undefined);
+  const laneOf = (key: string | null | undefined, row: number) => (key ? byRow.get(key)?.get(row) : undefined);
   items.forEach((_, row) => {
-    const own = /** @type {Lane} */ (laneOf(rowKeys[row], row));
+    const own = laneOf(rowKeys[row], row) as Lane;
     const parent = laneOf(forkJoins.get(row)?.key, row);
     if (parent) [parent.target, own.forked] = [true, true];
     if (merges[row]) own.target = true;
   });
   const drawn = placeLanes(lanes, maxLanes);
   const width = drawn.reduce((most, lane) => Math.max(most, lane.slot + 1), 0);
-  /** @param {Lane} lane @param {number} row @returns {TreeLine} */
-  const line = (lane, row) => ({ slot: lane.slot, color: lane.color, up: lane.top < row, down: lane.bottom > row });
-  /** @param {Lane | undefined} lane */
-  const fits = lane => (lane && lane.slot >= 0 ? lane : null);
+  const line = (lane: Lane, row: number): TreeLine => ({ slot: lane.slot, color: lane.color, up: lane.top < row, down: lane.bottom > row });
+  const fits = (lane: Lane | undefined) => (lane && lane.slot >= 0 ? lane : null);
   const rows = items.map((item, row) => {
-    const own = /** @type {Lane} */ (laneOf(rowKeys[row], row));
+    const own = laneOf(rowKeys[row], row) as Lane;
     const join = forkJoins.get(row);
     const forkLane = fits(own) && fits(laneOf(join?.key, row));
     const mergeLane = fits(own) && fits(laneOf(merges[row], row));

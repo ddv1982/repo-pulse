@@ -1,8 +1,8 @@
 // @ts-check
 
 import { renderMergeEvidence } from './merge-evidence.js';
-import { groupActivity, isUnseen } from '../activity.js';
-import { activityBranch } from '../activity-branch.js';
+import { groupActivity, isUnseen } from '../activity.ts';
+import { activityBranch } from '../activity-branch.ts';
 import {
   emptyHtml,
   html,
@@ -18,19 +18,19 @@ import {
   activitySummary,
   triggerLabel,
   voteLabel,
-} from './format.js';
+} from './format.ts';
 import { renderTrail } from './activity-trail.js';
 import { activityHref, repositoryHref } from './navigation.js';
 
-/** @typedef {import('../activity.js').ActivityEvent} ActivityEvent */
-/** @typedef {import('../activity.js').ActivityItem} ActivityItem */
-/** @typedef {import('../activity.js').EventData} EventData */
-/** @typedef {import('../api.js').StateResponse['repos'][number]} Repo */
+/** @typedef {import('../activity.ts').ActivityEvent} ActivityEvent */
+/** @typedef {import('../activity.ts').ActivityItem} ActivityItem */
+/** @typedef {import('../activity.ts').EventData} EventData */
+/** @typedef {import('../api.ts').StateResponse['repos'][number]} Repo */
 /** @typedef {number | string | undefined} PushId */
-/** @typedef {import('./format.js').HtmlValue} HtmlValue */
+/** @typedef {import('./format.ts').HtmlValue} HtmlValue */
 /** What the detail page shows after "Load push commits": the response, or the error the request threw. */
-/** @typedef {import('../api.js').PushCommitsResponse | { error: string }} CommitsView */
-/** What a PR detail shows after "Load discussion and policies". @typedef {import('../api.js').PrReviewResponse | { error: string }} ReviewView */
+/** @typedef {import('../api.ts').PushCommitsResponse | { error: string }} CommitsView */
+/** What a PR detail shows after "Load discussion and policies". @typedef {import('../api.ts').PrReviewResponse | { error: string }} ReviewView */
 /** Data a detail page loaded on request: push commits for a push, review data for a PR. @typedef {CommitsView | ReviewView} LoadedView */
 /** @typedef {{ events: ActivityEvent[], repos: Repo[], demo?: boolean }} DetailState */
 

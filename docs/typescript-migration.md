@@ -68,14 +68,14 @@ at compile time. Moving from A to B later only touches `staticFile` and the buil
 - [x] `test/server.test.js`: JS content type for the built routes, unchanged CSS and vendor routes, 404 for `.ts` source and for server code (line 103 retargeted so it stays meaningful); fails when `dist/` is missing, naming `npm run build:web` (the server itself answers 404)
 - [x] `test/escaping.test.js:677`: the sole-`innerHTML`-sink test scans `.js` and `.ts`; seed an `innerHTML` in a `.ts` file and watch it fail (otherwise it passes vacuously after the rename)
 - [x] `scripts/check.js`: skip `.ts` and `dist/` (`node --check` rejects type syntax on Node 26, verified; its `.js` filter already skipped `.ts`)
-- [x] Commit the conversion codemod as a temporary script (rename, `.ts` import paths, TypeScript's `annotateWithTypeFromJSDoc`/`convertTypedefToType` via `npx typescript@6.0.3` once, export only top-level aliases). It also turns JSDoc casts into `as`/`satisfies` (TypeScript ignores them in `.ts`) and works around two defects in 6.0.3's annotate fix: a lone arrow parameter's type written as the return type, and dropped `@template` constraints
+- [x] Commit the conversion codemod as a temporary script (rename, `.ts` import paths, TypeScript's `annotateWithTypeFromJSDoc`/`convertTypedefToType` via `npx typescript@6.0.3` once, export only top-level aliases). It also turns JSDoc casts into `as`/`satisfies` (TypeScript ignores them in `.ts`) and works around the defects in TypeScript 6.0.3's fixes that the conversions hit (see the script's header)
 - [x] Update `PLAN.md:30`, `docs/MAINTAINING.md:20` and the README with the new constraint wording
-- [ ] Full CI green; `npm run demo` loads from `dist/`
+- [x] Full CI green; `npm run demo` loads from `dist/`
 
 ## Phase 3: browser and shared code (`src/`, `web/theme`, 37 files, about 5,500 lines)
 
-- [ ] 3a: `src/contract`, `events`, `sync-worst`, `activity*`, `api`, `ui/format`, `ui/dom` to `.ts`; update importers in `server/`, `src/` and `test/` in the same PR
-- [ ] 3a: type `SafeHtml`, `html(strings: TemplateStringsArray, ...values)` and `setHtml(element, markup: SafeHtml)`; keep the private-field brand, construction token and sole sink; add a `@ts-expect-error` type test showing a raw string, a plain array and a lookalike object are rejected
+- [x] 3a: `src/contract`, `events`, `sync-worst`, `activity*`, `api`, `ui/format`, `ui/dom` to `.ts`; update importers in `server/`, `src/` and `test/` in the same PR
+- [x] 3a: type `SafeHtml`, `html(strings: TemplateStringsArray, ...values)` and `setHtml(element, markup: SafeHtml)`; keep the private-field brand, construction token and sole sink; add a `@ts-expect-error` type test showing a raw string, a plain array and a lookalike object are rejected
 - [ ] 3b: remaining `src/ui/*`, `src/web` and `web/theme` to `.ts`; check by hand that the stored theme applies on first paint with no flash, and that `dist/web/theme.js` has no `export`
 - [ ] Idiomorph keeps its vendored bytes and `.d.ts` (`test/vendor.test.js` hash unchanged)
 - [ ] No `.js` left under `src/`; full CI green in each PR

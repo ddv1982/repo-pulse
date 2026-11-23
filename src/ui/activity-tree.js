@@ -1,10 +1,10 @@
 // @ts-check
 
-import { emptyHtml, html } from './format.js';
+import { emptyHtml, html } from './format.ts';
 
-/** @typedef {import('../activity-tree.js').TreeRow} TreeRow */
-/** @typedef {import('../activity-tree.js').TreeLine} TreeLine */
-/** @typedef {import('../activity-tree.js').TreeFork} TreeFork */
+/** @typedef {import('../activity-tree.ts').TreeRow} TreeRow */
+/** @typedef {import('../activity-tree.ts').TreeLine} TreeLine */
+/** @typedef {import('../activity-tree.ts').TreeFork} TreeFork */
 
 // Geometry in CSS pixels. web/styles/feed.css places y = 0 on the row's type label and sizes a lane as PITCH wide.
 const PITCH = 10;

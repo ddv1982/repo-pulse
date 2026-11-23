@@ -1,17 +1,15 @@
-import { branchName } from './events.js';
+import { branchName } from './events.ts';
 
 const LIVE = /^[a-f0-9]{40}$/i;
 
-/** @param {unknown} ref */
-const headName = ref => (typeof ref === 'string' && ref.startsWith('refs/heads/') && ref.length > 11 ? branchName(ref) : null);
+const headName = (ref: unknown) => (typeof ref === 'string' && ref.startsWith('refs/heads/') && ref.length > 11 ? branchName(ref) : null);
 
 /**
  * The one branch an activity leaves to switch to, or null when it names none or several. A completed pull request
  * leaves its target, an active one whose row shows it comes from this repository its source. A push that also deletes branches still names the
  * one branch it moved.
- * @param {import('./activity.js').ActivityEvent} event
  */
-export function activityBranch(event) {
+export function activityBranch(event: import('./activity.ts').ActivityEvent) {
   const { kind, data } = event;
   if (kind === 'branch-created') return headName(data?.name);
   if (kind === 'build') return headName(data?.sourceBranch);

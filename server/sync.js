@@ -14,8 +14,8 @@ import { createNormalizer } from './normalize.js';
 /** @typedef {import('./normalize.js').RewriteJob} RewriteJob */
 /** @typedef {import('./normalize.js').SyncBatch} SyncBatch */
 /** The time range one read covers. It stays fixed across the pages of that read. */
-/** @typedef {import('../src/contract.js').StreamWindow} StreamWindow */
-/** @typedef {import('../src/contract.js').StreamState} StreamState */
+/** @typedef {import('../src/contract.ts').StreamWindow} StreamWindow */
+/** @typedef {import('../src/contract.ts').StreamState} StreamState */
 /** A stream while a read is in flight: the window and the refresh generation it answers are fixed. */
 /** @typedef {StreamState & { window: StreamWindow, windowGeneration: number, lastAttempt: string, pending: true }} StartedStream */
 /**
@@ -31,8 +31,8 @@ import { createNormalizer } from './normalize.js';
  * }} SyncStore
  */
 /** GET /api/state reports this as `diagnostics.sync`. */
-/** @typedef {import('../src/contract.js').SyncEngineStatus} SyncStatus */
-/** @typedef {import('../src/contract.js').RefreshStatus} RefreshStatus */
+/** @typedef {import('../src/contract.ts').SyncEngineStatus} SyncStatus */
+/** @typedef {import('../src/contract.ts').RefreshStatus} RefreshStatus */
 /** Sync needs `read`; the active-build and PR follow-ups run only when the provider offers them. */
 /** @typedef {Pick<AzureProvider, 'read'> & Partial<Pick<AzureProvider, 'buildsById'|'pullRequest'>>} SyncProvider */
 /** @typedef {'rewrite'|'history'} BackgroundKind */

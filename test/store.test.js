@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, 
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { copyBeforeUpgrade, createStore } from '../server/store.js';
-import { SEARCH_INDEX_VERSION } from '../src/activity-text.js';
+import { SEARCH_INDEX_VERSION } from '../src/activity-text.ts';
 import { DatabaseSync } from 'node:sqlite';
 import { spawn } from 'node:child_process';
 const repo = {

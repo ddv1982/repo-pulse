@@ -1,11 +1,11 @@
 // @ts-check
 
-/** @typedef {import('../src/activity.js').ActivityEvent} ActivityEvent */
-/** @typedef {import('../src/contract.js').HistoryStream} HistoryStream */
-/** @typedef {import('../src/contract.js').HistoryWindow} HistoryWindow */
+/** @typedef {import('../src/activity.ts').ActivityEvent} ActivityEvent */
+/** @typedef {import('../src/contract.ts').HistoryStream} HistoryStream */
+/** @typedef {import('../src/contract.ts').HistoryWindow} HistoryWindow */
 /** @typedef {import('./azure-client.js').AzureRepo & { id: string, disabled?: boolean }} WatchedRepo */
 /** @typedef {import('./azure-client.js').AzurePage} SourcePage */
-/** @typedef {import('../src/contract.js').HistoryJob} HistoryJob */
+/** @typedef {import('../src/contract.ts').HistoryJob} HistoryJob */
 /** @typedef {{ type: string, id: string, data: unknown }} Entity */
 /** @typedef {{ events?: ActivityEvent[], entities?: Entity[] }} HistoryBatch */
 /**

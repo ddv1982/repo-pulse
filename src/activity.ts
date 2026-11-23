@@ -1,30 +1,51 @@
-// @ts-check
-
-/** @typedef {'branch-created' | 'branch-deleted' | 'tag' | 'push' | 'pr' | 'build'} ActivityKind */
-/** @typedef {{name?: string, oldObjectId?: string, newObjectId?: string}} RefUpdate */
+export type ActivityKind = 'branch-created' | 'branch-deleted' | 'tag' | 'push' | 'pr' | 'build';
+export type RefUpdate = { name?: string; oldObjectId?: string; newObjectId?: string };
 /**
  * A completed PR in push merge evidence (server/merge-evidence.js localPrLink). `id` and an object `closedBy` come from older rows.
- * @typedef {{ pullRequestId?: number|string, id?: number|string, url?: string, sourceRefName?: string, targetRefName?: string,
- *   closedBy?: string | { displayName?: string }, mergeStrategy?: string, mergeCommit?: string, relationship?: string }} EvidencePr
  */
-/** @typedef {{ commitId?: string, parents?: string[], branches?: (string|undefined)[] }} EvidenceCommit */
+export type EvidencePr = {
+  pullRequestId?: number | string;
+  id?: number | string;
+  url?: string;
+  sourceRefName?: string;
+  targetRefName?: string;
+  closedBy?: string | { displayName?: string };
+  mergeStrategy?: string;
+  mergeCommit?: string;
+  relationship?: string;
+};
+export type EvidenceCommit = { commitId?: string; parents?: string[]; branches?: (string | undefined)[] };
 /**
  * A moved branch's range, saved by the earlier merge analysis.
- * @typedef {{ name?: string, oldObjectId?: string, newObjectId?: string, commitIds?: string[], complete?: boolean,
- *   update?: { status?: string, dropped?: number, more?: boolean } }} EvidenceRange
  */
+export type EvidenceRange = {
+  name?: string;
+  oldObjectId?: string;
+  newObjectId?: string;
+  commitIds?: string[];
+  complete?: boolean;
+  update?: { status?: string; dropped?: number; more?: boolean };
+};
 /**
  * One moved branch of a live push, checked by server/rewrite-check.js. `dropped` counts the commits the old tip reaches
  * and the new tip does not, up to one page; `more` says the page was full.
- * @typedef {{ ref: string, status: 'fast-forward' | 'rewrite' | 'unknown', dropped?: number, more?: boolean }} RewriteResult
  */
+export type RewriteResult = { ref: string; status: 'fast-forward' | 'rewrite' | 'unknown'; dropped?: number; more?: boolean };
 /**
  * Merge evidence on a push: PR links matched by tip, rewrite checks, plus what the earlier merge analysis saved
  * (status, commits, ranges, limitations). Nothing writes those older fields any more.
- * @typedef {{ status?: string, checkedAt?: string, limitations?: string[], error?: string | { message?: string },
- *   prs?: EvidencePr[], commits?: EvidenceCommit[], refRanges?: EvidenceRange[],
- *   introducedCommitIds?: string[], rewrite?: RewriteResult[] }} MergeEvidenceData
  */
+export type MergeEvidenceData = {
+  status?: string;
+  checkedAt?: string;
+  limitations?: string[];
+  error?: string | { message?: string };
+  prs?: EvidencePr[];
+  commits?: EvidenceCommit[];
+  refRanges?: EvidenceRange[];
+  introducedCommitIds?: string[];
+  rewrite?: RewriteResult[];
+};
 /**
  * Where a live branch creation started, checked by server/fork-origin.js. `base` is the first commit of the branch that
  * the creating push did not bring. `found`: `on` lists the branches whose latest recorded tip before that push was the
@@ -33,45 +54,106 @@
  * `orphan`: the branch history has no earlier commit. `merge`: its first pushed commit has several parents.
  * `unknown`: the check failed or the creating push brought too many commits to walk. `unanswered` lists candidates
  * whose read failed, so a match beside them is not the only one.
- * @typedef {{ status: 'found' | 'none' | 'orphan' | 'merge' | 'unknown', base?: string, on?: string[],
- *   via?: 'tip' | 'contained', notOn?: string[], unanswered?: string[] }} ForkOrigin
  */
+export type ForkOrigin = {
+  status: 'found' | 'none' | 'orphan' | 'merge' | 'unknown';
+  base?: string;
+  on?: string[];
+  via?: 'tip' | 'contained';
+  notOn?: string[];
+  unanswered?: string[];
+};
 /**
  * Provider fields of an event, plus enrichment. Each kind fills its own subset (see server/normalize.js).
- * @typedef {RefUpdate & { id?: number|string, buildId?: number|string, pushId?: number|string,
- *   status?: string, result?: string, reason?: string, isDraft?: boolean, evidence?: string,
- *   targetRefName?: string, refUpdates?: RefUpdate[], commits?: unknown[],
- *   definition?: {name?: string}, mergeEvidence?: MergeEvidenceData, forkOrigin?: ForkOrigin,
- *   pullRequestId?: number|string, sourceRefName?: string, sourceCommit?: string, targetCommit?: string,
- *   mergeCommit?: string, mergeStrategy?: string, closedBy?: string, sourceVersion?: string, sourceBranch?: string,
- *   commitId?: string, push?: { pushId?: number|string },
- *   change?: 'created' | 'moved' | 'deleted', objectId?: string, peeledObjectId?: string,
- *   fork?: { repository?: string, project?: string }, sourceRepositoryId?: string, targetRepositoryId?: string,
- *   pullRequest?: { id: number|string, sourceRefName?: string, targetRefName?: string, fork?: { repository?: string, project?: string } },
- *   reviewers?: { name: string, vote: number, required?: boolean }[], voteChanges?: { name: string, vote: number }[] }} EventData
  */
-/**
- * @typedef {{ id: string, repoId: string, kind: ActivityKind, time: string, observedAt?: string,
- *   title?: string, actor?: string, branch?: string, summary?: string, url?: string,
- *   seen?: boolean, imported?: boolean, data?: EventData }} ActivityEvent
- */
-/** @typedef {ActivityEvent & {groupKey: string, events: ActivityEvent[], eventIds: string[], unseenIds: string[], unseen: boolean}} ActivityItem */
+export type EventData = RefUpdate & {
+  id?: number | string;
+  buildId?: number | string;
+  pushId?: number | string;
+  status?: string;
+  result?: string;
+  reason?: string;
+  isDraft?: boolean;
+  evidence?: string;
+  targetRefName?: string;
+  refUpdates?: RefUpdate[];
+  commits?: unknown[];
+  definition?: { name?: string };
+  mergeEvidence?: MergeEvidenceData;
+  forkOrigin?: ForkOrigin;
+  pullRequestId?: number | string;
+  sourceRefName?: string;
+  sourceCommit?: string;
+  targetCommit?: string;
+  mergeCommit?: string;
+  mergeStrategy?: string;
+  closedBy?: string;
+  sourceVersion?: string;
+  sourceBranch?: string;
+  commitId?: string;
+  push?: { pushId?: number | string };
+  change?: 'created' | 'moved' | 'deleted';
+  objectId?: string;
+  peeledObjectId?: string;
+  fork?: { repository?: string; project?: string };
+  sourceRepositoryId?: string;
+  targetRepositoryId?: string;
+  pullRequest?: { id: number | string; sourceRefName?: string; targetRefName?: string; fork?: { repository?: string; project?: string } };
+  reviewers?: { name: string; vote: number; required?: boolean }[];
+  voteChanges?: { name: string; vote: number }[];
+};
+export type ActivityEvent = {
+  id: string;
+  repoId: string;
+  kind: ActivityKind;
+  time: string;
+  observedAt?: string;
+  title?: string;
+  actor?: string;
+  branch?: string;
+  summary?: string;
+  url?: string;
+  seen?: boolean;
+  imported?: boolean;
+  data?: EventData;
+};
+export type ActivityItem = ActivityEvent & {
+  groupKey: string;
+  events: ActivityEvent[];
+  eventIds: string[];
+  unseenIds: string[];
+  unseen: boolean;
+};
 
-/** @typedef {{ repoIds?: string[], view?: 'new'|'all', kind?: string, search?: string, people?: string, limit?: number, cursor?: string }} ActivityRequest */
-/** @typedef {{ items: ActivityItem[], nextCursor: string|null, total: number, newItems: number, newUpdates: number, filterOptions?: string[], counts?: Record<string,number>, newCounts?: Record<string,number>, asOf?: number }} ActivityPage */
+export type ActivityRequest = {
+  repoIds?: string[];
+  view?: 'new' | 'all';
+  kind?: string;
+  search?: string;
+  people?: string;
+  limit?: number;
+  cursor?: string;
+};
+export type ActivityPage = {
+  items: ActivityItem[];
+  nextCursor: string | null;
+  total: number;
+  newItems: number;
+  newUpdates: number;
+  filterOptions?: string[];
+  counts?: Record<string, number>;
+  newCounts?: Record<string, number>;
+  asOf?: number;
+};
 
-/** @param {Pick<ActivityEvent, 'seen' | 'imported'>} event */
-export const isUnseen = event => !event.seen && !event.imported;
-/** @param {string | undefined} value */
-const timestamp = value => Date.parse(value ?? '') || 0;
-/** @param {string | number | undefined} value */
-const sourceId = value => {
+export const isUnseen = (event: Pick<ActivityEvent, 'seen' | 'imported'>) => !event.seen && !event.imported;
+const timestamp = (value: string | undefined) => Date.parse(value ?? '') || 0;
+const sourceId = (value: string | number | undefined) => {
   const id = Number(value);
   return /^\d+$/.test(String(value)) && Number.isSafeInteger(id) && id > 0 ? String(id) : null;
 };
 
-/** @param {ActivityEvent} a @param {ActivityEvent} b */
-function newestFirst(a, b) {
+function newestFirst(a: ActivityEvent, b: ActivityEvent) {
   return (
     timestamp(b.observedAt) - timestamp(a.observedAt) ||
     timestamp(b.time) - timestamp(a.time) ||
@@ -79,20 +161,17 @@ function newestFirst(a, b) {
   );
 }
 
-/** @param {ActivityEvent} event */
-export function lifecycleKey(event) {
+export function lifecycleKey(event: ActivityEvent) {
   if (!['branch-created', 'branch-deleted'].includes(event.kind)) return null;
   const { pushId, name, oldObjectId, newObjectId } = event.data || {};
   const id = sourceId(pushId);
   if (!id || !name?.startsWith('refs/heads/') || typeof oldObjectId !== 'string' || typeof newObjectId !== 'string') return null;
-  /** @param {string} value */
-  const zero = value => /^0+$/.test(value);
+  const zero = (value: string) => /^0+$/.test(value);
   if (event.kind === 'branch-created' ? !zero(oldObjectId) || zero(newObjectId) : !zero(newObjectId) || zero(oldObjectId)) return null;
   return JSON.stringify(['branch', event.repoId, id, name, event.kind, oldObjectId, newObjectId]);
 }
 
-/** @param {ActivityEvent} event */
-export function supportingPushKey(event) {
+export function supportingPushKey(event: ActivityEvent) {
   const data = event.data;
   if (
     event.kind !== 'push' ||
@@ -110,22 +189,17 @@ export function supportingPushKey(event) {
   return lifecycleKey({ ...event, kind, data: { ...ref, pushId: data.pushId } });
 }
 
-/** @param {ActivityEvent} event */
-export function activityKey(event) {
+export function activityKey(event: ActivityEvent) {
   const build = event.kind === 'build' ? sourceId(event.data?.buildId || event.data?.id) : null;
   return build
     ? JSON.stringify(['build', event.repoId, build])
     : lifecycleKey(event) || JSON.stringify(['event', event.repoId, event.kind, event.id]);
 }
 
-/** View-only grouping. Raw events and their exact acknowledgement flags remain untouched.
- * @param {ActivityEvent[]} events
- * @returns {ActivityItem[]}
- */
-export function groupActivity(events) {
+/** View-only grouping. Raw events and their exact acknowledgement flags remain untouched. */
+export function groupActivity(events: ActivityEvent[]): ActivityItem[] {
   const lifecycle = new Set(events.map(lifecycleKey).filter(Boolean));
-  /** @type {Map<string, ActivityEvent[]>} */
-  const groups = new Map();
+  const groups: Map<string, ActivityEvent[]> = new Map();
   for (const event of events) {
     const push = supportingPushKey(event);
     const groupKey = push && lifecycle.has(push) ? push : activityKey(event);
@@ -138,13 +212,7 @@ export function groupActivity(events) {
     .sort((a, b) => newestFirst(a.events[0], b.events[0]));
 }
 
-/**
- * @param {string} groupKey
- * @param {ActivityEvent[]} items
- * @param {string} [representativeId]
- * @returns {ActivityItem | undefined}
- */
-export function projectActivity(groupKey, items, representativeId) {
+export function projectActivity(groupKey: string, items: ActivityEvent[], representativeId?: string): ActivityItem | undefined {
   const ordered = [...items].sort(newestFirst);
   // A deletion is the primary fact when its supporting push is folded into the group.
   const representative = representativeId

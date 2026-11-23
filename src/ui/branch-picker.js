@@ -1,9 +1,9 @@
 // @ts-check
 
-import { emptyHtml, html } from './format.js';
-import { required, setHtml } from './dom.js';
+import { emptyHtml, html } from './format.ts';
+import { required, setHtml } from './dom.ts';
 
-/** @typedef {import('../contract.js').CheckoutBranchesResponse['branches'][number]} CheckoutBranch */
+/** @typedef {import('../contract.ts').CheckoutBranchesResponse['branches'][number]} CheckoutBranch */
 /** @typedef {{ id: string, name: string, localPath?: string }} PickerRepo */
 
 /**

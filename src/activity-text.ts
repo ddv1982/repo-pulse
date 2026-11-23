@@ -1,12 +1,9 @@
-// @ts-check
+import { branchName } from './events.ts';
 
-import { branchName } from './events.js';
+export type ActivityEvent = import('./activity.ts').ActivityEvent;
+export type ActivityTone = 'info' | 'ok' | 'crit' | 'warn' | 'neutral';
 
-/** @typedef {import('./activity.js').ActivityEvent} ActivityEvent */
-/** @typedef {'info'|'ok'|'crit'|'warn'|'neutral'} ActivityTone */
-
-/** @type {Record<string, string>} */
-const statusLabels = {
+const statusLabels: Record<string, string> = {
   'new-branch': 'New branch',
   'branch-deleted': 'Branch deleted',
   unlisted: 'No longer listed',
@@ -30,8 +27,7 @@ const statusLabels = {
   unknown: 'Unknown',
   activity: 'Activity',
 };
-/** @type {Record<string, string>} */
-const evidenceLabels = { 'pr-linked': 'PR evidence' };
+const evidenceLabels: Record<string, string> = { 'pr-linked': 'PR evidence' };
 const statusIds = new Map(Object.entries(statusLabels).map(([id, label]) => [label, id]));
 const evidenceIds = new Map(Object.entries(evidenceLabels).map(([id, label]) => [label, id]));
 // Keep old filter links and persisted search text compatible with the broader display label.
@@ -47,8 +43,7 @@ export const labels = {
   build: 'CI run',
 };
 
-/** @type {Record<string, [string, ActivityTone]>} */
-const buildStates = {
+const buildStates: Record<string, [string, ActivityTone]> = {
   notStarted: ['queued', 'info'],
   postponed: ['queued', 'info'],
   inProgress: ['running', 'info'],
@@ -61,21 +56,18 @@ const buildStates = {
   skipped: ['skipped', 'neutral'],
 };
 
-/** @param {Pick<ActivityEvent, 'data'>} event */
-function buildPresentation(event) {
+function buildPresentation(event: Pick<ActivityEvent, 'data'>) {
   const { status, result } = event.data || {};
   const key = status === 'completed' || !status ? result || status : status;
-  return key && Object.hasOwn(buildStates, key) ? buildStates[key] : /** @type {const} */ (['unknown', 'neutral']);
+  return key && Object.hasOwn(buildStates, key) ? buildStates[key] : (['unknown', 'neutral'] as const);
 }
 
-/** @param {Pick<ActivityEvent, 'data'>} event */
-export function buildState(event) {
+export function buildState(event: Pick<ActivityEvent, 'data'>) {
   const [id, tone] = buildPresentation(event);
   return { label: statusLabels[id], tone };
 }
 
-/** @param {ActivityEvent} event */
-export function activityStatusId(event) {
+export function activityStatusId(event: ActivityEvent) {
   if (event.kind === 'build') return buildPresentation(event)[0];
   if (event.kind === 'branch-created') return 'new-branch';
   if (event.kind === 'branch-deleted') return ['snapshot', 'refs'].includes(event.data?.evidence ?? '') ? 'unlisted' : 'branch-deleted';
@@ -91,12 +83,10 @@ export function activityStatusId(event) {
   return event.kind === 'push' ? 'push' : 'activity';
 }
 
-/** @param {ActivityEvent} event */
-export const activityLabel = event => statusLabels[activityStatusId(event)];
+export const activityLabel = (event: ActivityEvent) => statusLabels[activityStatusId(event)];
 
 /** One status palette for live rows, imported history, detail chips and update trails. */
-/** @param {ActivityEvent} event @returns {ActivityTone} */
-export function activityTone(event) {
+export function activityTone(event: ActivityEvent): ActivityTone {
   if (event.kind === 'build') return buildState(event).tone;
   if (event.kind === 'branch-created') return 'info';
   if (event.kind === 'push') return 'info';
@@ -113,16 +103,11 @@ export function activityTone(event) {
 
 export const azureDevOpsService = 'Microsoft.VisualStudio.Services.TFS';
 
-/** @param {ActivityEvent} event */
-export function activityActor(event) {
+export function activityActor(event: ActivityEvent) {
   return event.kind === 'push' && event.actor === azureDevOpsService ? 'Azure DevOps service' : event.actor;
 }
 
-/**
- * @param {ActivityEvent['data']} data
- * @param {import('./activity.js').EvidencePr} pr
- */
-export function matchesPushResult(data, pr) {
+export function matchesPushResult(data: ActivityEvent['data'], pr: import('./activity.ts').EvidencePr) {
   const result = pr.mergeCommit?.toLowerCase();
   return Boolean(
     result &&
@@ -132,11 +117,10 @@ export function matchesPushResult(data, pr) {
   );
 }
 
-/** @param {ActivityEvent['data']} data */
-export const matchingPushResults = data => (data?.mergeEvidence?.prs || []).filter(pr => matchesPushResult(data, pr));
+export const matchingPushResults = (data: ActivityEvent['data']) =>
+  (data?.mergeEvidence?.prs || []).filter(pr => matchesPushResult(data, pr));
 
-/** @param {ActivityEvent} event */
-export function activityTitle(event) {
+export function activityTitle(event: ActivityEvent) {
   if (event.kind === 'branch-deleted') return `${activityLabel(event)}${event.branch ? ` · ${branchName(event.branch)}` : ''}`;
   if (event.kind === 'push') {
     const prs = matchingPushResults(event.data);
@@ -154,10 +138,8 @@ export function activityTitle(event) {
   return event.title || branchName(event.branch);
 }
 
-/** @param {string | undefined} value */
-export function triggerLabel(value) {
-  /** @type {Record<string, string>} */
-  const descriptions = {
+export function triggerLabel(value: string | undefined) {
+  const descriptions: Record<string, string> = {
     manual: 'Triggered manually',
     individualCI: 'Triggered by a push',
     batchedCI: 'Triggered by grouped pushes',
@@ -170,34 +152,39 @@ export function triggerLabel(value) {
   return descriptions[value ?? ''] || 'Not supplied';
 }
 
-/** @type {Record<string, string>} */
-const votes = { 10: 'approved', 5: 'approved with suggestions', 0: 'no vote', '-5': 'waiting for author', '-10': 'rejected' };
-/** Azure's reviewer vote in words, so it never depends on color. @param {number} vote */
-export const voteLabel = vote => votes[vote] || 'unknown vote';
+const votes: Record<string, string> = {
+  10: 'approved',
+  5: 'approved with suggestions',
+  0: 'no vote',
+  '-5': 'waiting for author',
+  '-10': 'rejected',
+};
+/** Azure's reviewer vote in words, so it never depends on color. */
+export const voteLabel = (vote: number) => votes[vote] || 'unknown vote';
 
-/** Where a PR's source branch lives when it comes from a fork. @param {{ repository?: string, project?: string } | undefined} fork */
-export const prForkSource = fork =>
+/** Where a PR's source branch lives when it comes from a fork. */
+export const prForkSource = (fork: { repository?: string; project?: string } | undefined) =>
   fork ? `From fork ${fork.repository || 'of unknown name'}${fork.project ? ` in ${fork.project}` : ''}` : '';
 
-/** The vote changes that are an open PR's news, each in words. @param {NonNullable<ActivityEvent['data']>} data */
-export const prVoteChanges = data =>
+/** The vote changes that are an open PR's news, each in words. */
+export const prVoteChanges = (data: NonNullable<ActivityEvent['data']>) =>
   (data.status === 'active' ? data.voteChanges || [] : []).map(change => ({
     vote: change.vote,
     text: `${change.name}: ${change.vote ? voteLabel(change.vote) : 'vote reset'}`,
   }));
 
-/** Where the PR goes. @param {NonNullable<ActivityEvent['data']>} data */
-export const prTarget = data => `${data.status === 'completed' ? 'Merged into' : 'Target:'} ${branchName(data.targetRefName)}`;
+/** Where the PR goes. */
+export const prTarget = (data: NonNullable<ActivityEvent['data']>) =>
+  `${data.status === 'completed' ? 'Merged into' : 'Target:'} ${branchName(data.targetRefName)}`;
 
-/** A vote change on an open PR is the news; otherwise the summary names where the PR goes. @param {NonNullable<ActivityEvent['data']>} data */
-function prSummary(data) {
+/** A vote change on an open PR is the news; otherwise the summary names where the PR goes. */
+function prSummary(data: NonNullable<ActivityEvent['data']>) {
   const changes = prVoteChanges(data);
   const source = prForkSource(data.fork);
   return `${source ? `${source} · ` : ''}${changes.length ? changes.map(change => change.text).join(' · ') : prTarget(data)}`;
 }
 
-/** @param {NonNullable<ActivityEvent['data']>} data */
-function pushedTagSummary({ change, oldObjectId = '', newObjectId = '' }) {
+function pushedTagSummary({ change, oldObjectId = '', newObjectId = '' }: NonNullable<ActivityEvent['data']>) {
   if (change === 'deleted') return 'Remote tag deleted';
   return change === 'moved' ? `${oldObjectId.slice(0, 7)} → ${newObjectId.slice(0, 7)}` : `Points at ${newObjectId.slice(0, 7)}`;
 }
@@ -205,15 +192,13 @@ function pushedTagSummary({ change, oldObjectId = '', newObjectId = '' }) {
 /**
  * The branch a row names, and its pull request when it has one. A CI run on a pull request ref names the PR's source
  * branch and the PR when the stored PR is attached.
- * @param {ActivityEvent} event @returns {{ branch: string, pullRequestId?: number | string }}
  */
-export function activityRef(event) {
+export function activityRef(event: ActivityEvent): { branch: string; pullRequestId?: number | string } {
   const pr = event.kind === 'build' ? event.data?.pullRequest : undefined;
   return pr?.sourceRefName ? { branch: branchName(pr.sourceRefName), pullRequestId: pr.id } : { branch: branchName(event.branch) };
 }
 
-/** @param {ActivityEvent} event */
-function refUpdateSummary(event) {
+function refUpdateSummary(event: ActivityEvent) {
   const refs = event.data?.refUpdates;
   if (event.kind === 'push' && event.actor === azureDevOpsService && !refs?.length && !event.branch) {
     return 'Branch details unavailable';
@@ -223,8 +208,7 @@ function refUpdateSummary(event) {
   return event.summary || '';
 }
 
-/** @param {ActivityEvent} event */
-export function activitySummary(event) {
+export function activitySummary(event: ActivityEvent) {
   if (event.kind === 'build') return triggerLabel(event.data?.reason);
   if (event.kind === 'pr' && event.data && (event.data.targetRefName || event.data.voteChanges?.length)) return prSummary(event.data);
   const listed = ['snapshot', 'refs'].includes(event.data?.evidence ?? '');
@@ -234,25 +218,21 @@ export function activitySummary(event) {
   return refUpdateSummary(event);
 }
 
-/** @typedef {{kind?: string, data?: { mergeEvidence?: { prs?: unknown[] } } }} EvidencedEvent */
-/** @param {EvidencedEvent} event */
-export function activityEvidenceId(event) {
+export type EvidencedEvent = { kind?: string; data?: { mergeEvidence?: { prs?: unknown[] } } };
+export function activityEvidenceId(event: EvidencedEvent) {
   if (event.kind !== 'push') return '';
   return event.data?.mergeEvidence?.prs?.length ? 'pr-linked' : '';
 }
 
-/** @param {EvidencedEvent} event */
-export const activityMergeBadge = event => evidenceLabels[activityEvidenceId(event)] || '';
+export const activityMergeBadge = (event: EvidencedEvent) => evidenceLabels[activityEvidenceId(event)] || '';
 
-/** @param {Set<string>} terms @param {unknown} value */
-function addSearchTerm(terms, value) {
+function addSearchTerm(terms: Set<string>, value: unknown) {
   if (typeof value !== 'string' && typeof value !== 'number') return;
   const text = String(value).trim().toLowerCase();
   if (text && !/^0+$/.test(text)) terms.add(text);
 }
 
-/** @param {Set<string>} terms @param {import('./activity.js').MergeEvidenceData | undefined} evidence */
-function addEvidenceSearchTerms(terms, evidence) {
+function addEvidenceSearchTerms(terms: Set<string>, evidence: import('./activity.ts').MergeEvidenceData | undefined) {
   if (!evidence) return;
   for (const pr of evidence.prs || []) {
     addSearchTerm(terms, pr.pullRequestId ?? pr.id);
@@ -282,8 +262,7 @@ function addEvidenceSearchTerms(terms, evidence) {
   }
 }
 
-/** @param {Set<string>} terms @param {import('./activity.js').EventData | undefined} data */
-function addDataSearchTerms(terms, data) {
+function addDataSearchTerms(terms: Set<string>, data: import('./activity.ts').EventData | undefined) {
   if (!data) return;
   for (const value of [
     data.pushId,
@@ -323,7 +302,7 @@ function addDataSearchTerms(terms, data) {
   }
   for (const commit of data.commits || []) {
     if (!commit || typeof commit !== 'object') continue;
-    const entry = /** @type {{ commitId?: unknown, comment?: unknown }} */ (commit);
+    const entry = commit as { commitId?: unknown; comment?: unknown };
     addSearchTerm(terms, entry.commitId);
     addSearchTerm(terms, entry.comment);
   }
@@ -333,10 +312,8 @@ function addDataSearchTerms(terms, data) {
 /** Raise this when activitySearchText changes which terms it indexes, so the store rebuilds search text saved before. */
 export const SEARCH_INDEX_VERSION = 1;
 
-/** @param {ActivityEvent} event */
-export function activitySearchText(event) {
-  /** @type {Set<string>} */
-  const terms = new Set();
+export function activitySearchText(event: ActivityEvent) {
+  const terms: Set<string> = new Set();
   for (const value of [
     event.title,
     event.branch,
@@ -351,10 +328,9 @@ export function activitySearchText(event) {
   return [...terms].join(' ');
 }
 
-/** @typedef {{ type: 'all' } | { type: 'kind' | 'status' | 'evidence', id: string }} ActivityFilter */
+export type ActivityFilter = { type: 'all' } | { type: 'kind' | 'status' | 'evidence'; id: string };
 
-/** @param {string} value @returns {ActivityFilter} */
-export function parseActivityFilter(value) {
+export function parseActivityFilter(value: string): ActivityFilter {
   if (!value) return { type: 'all' };
   if (value.startsWith('status:')) {
     const id = value.slice(7);
@@ -368,19 +344,17 @@ export function parseActivityFilter(value) {
   return { type: 'kind', id: value };
 }
 
-/** @param {string} value */
-export function canonicalActivityFilter(value) {
+export function canonicalActivityFilter(value: string) {
   const filter = parseActivityFilter(value);
   if (filter.type === 'all') return '';
   return filter.type === 'kind' ? filter.id : `${filter.type}:${filter.id}`;
 }
 
-/** @param {string} value */
-export function activityFilterLabel(value) {
+export function activityFilterLabel(value: string) {
   const filter = parseActivityFilter(value);
   if (filter.type === 'all') return 'All types';
   if (filter.type === 'status') return statusLabels[filter.id] || filter.id;
   if (filter.type === 'evidence') return evidenceLabels[filter.id] || filter.id;
   // Widening only: labels is a string table, and an unknown id falls back to the id itself.
-  return /** @type {Record<string, string>} */ (labels)[filter.id] || filter.id;
+  return (labels as Record<string, string>)[filter.id] || filter.id;
 }

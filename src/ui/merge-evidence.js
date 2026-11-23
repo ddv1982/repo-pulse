@@ -1,10 +1,10 @@
 // @ts-check
 
-import { activityMergeBadge, matchesPushResult, matchingPushResults } from '../activity-text.js';
-import { emptyHtml, html, dateTime, branchName, azureLink } from './format.js';
+import { activityMergeBadge, matchesPushResult, matchingPushResults } from '../activity-text.ts';
+import { emptyHtml, html, dateTime, branchName, azureLink } from './format.ts';
 
-/** @typedef {import('../activity.js').EventData} EventData */
-/** @typedef {import('../activity.js').EvidencePr} EvidencePr */
+/** @typedef {import('../activity.ts').EventData} EventData */
+/** @typedef {import('../activity.ts').EvidencePr} EvidencePr */
 
 /** Evidence is supplemental metadata, never an inferred actor or merge operation. @param {EventData} [data] */
 export function renderMergeEvidence(data = {}) {
@@ -45,7 +45,7 @@ const checkedUpdates = data => [
 /** Branch updates whose old tip the new tip no longer reaches. @param {EventData} [data] */
 const rewrites = data => checkedUpdates(data).filter(range => range.update.status === 'rewrite');
 
-/** @param {import('../activity.js').ActivityEvent} event */
+/** @param {import('../activity.ts').ActivityEvent} event */
 export function mergeEvidenceBadge(event) {
   const label = activityMergeBadge(event);
   const rewritten = event.kind === 'push' ? rewrites(event.data) : [];

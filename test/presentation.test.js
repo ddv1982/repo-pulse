@@ -9,7 +9,7 @@ import {
   streamLabel,
   activitySummary,
   labels,
-} from '../src/ui/format.js';
+} from '../src/ui/format.ts';
 import { renderRepositories as renderRepositoriesHtml } from '../src/ui/repositories.js';
 import { renderFeed as renderPagedFeedHtml, renderDetail as renderDetailHtml } from '../src/ui/feed.js';
 import { forkText, treeLegend } from '../src/ui/activity-tree.js';
