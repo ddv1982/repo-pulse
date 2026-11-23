@@ -70,7 +70,7 @@ at compile time. Moving from A to B later only touches `staticFile` and the buil
 - [x] `scripts/check.js`: skip `.ts` and `dist/` (`node --check` rejects type syntax on Node 26, verified; its `.js` filter already skipped `.ts`)
 - [x] Commit the conversion codemod as a temporary script (rename, `.ts` import paths, TypeScript's `annotateWithTypeFromJSDoc`/`convertTypedefToType` via `npx typescript@6.0.3` once, export only top-level aliases). It also turns JSDoc casts into `as`/`satisfies` (TypeScript ignores them in `.ts`) and works around two defects in 6.0.3's annotate fix: a lone arrow parameter's type written as the return type, and dropped `@template` constraints
 - [x] Update `PLAN.md:30`, `docs/MAINTAINING.md:20` and the README with the new constraint wording
-- [ ] Full CI green; `npm run demo` loads from `dist/`
+- [x] Full CI green; `npm run demo` loads from `dist/`
 
 ## Phase 3: browser and shared code (`src/`, `web/theme`, 37 files, about 5,500 lines)
 
