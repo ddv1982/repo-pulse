@@ -53,7 +53,8 @@ test('manual refresh drains its paginated work once while automatic checks stay 
     store,
     now: () => time,
     provider: {
-      async read(current, stream, { cursor } = {}) {
+      async read(current, stream, given) {
+        const { cursor } = present(given);
         calls++;
         assert.equal(watchedIdOf(current), repo.id);
         return { items: [], nextCursor: stream === 'pushes' && !cursor ? { skip: 1 } : null };
@@ -87,7 +88,8 @@ test('newest-first push history cannot resurrect a deleted ref across pages or s
   const creation = { ...push(10), refUpdates: [{ name, oldObjectId: '0'.repeat(40), newObjectId: 'b'.repeat(40) }] };
   let acrossPages = false;
   const provider: SyncProvider = {
-    async read(_repo, stream, { cursor } = {}) {
+    async read(_repo, stream, given) {
+      const { cursor } = present(given);
       if (stream === 'refs') return { items: [], nextCursor: null };
       if (!acrossPages) return { items: [deletion, creation], nextCursor: null };
       return { items: cursor ? [{ ...creation, pushId: 30 }] : [{ ...deletion, pushId: 40 }], nextCursor: cursor ? null : { skip: 1 } };
@@ -146,7 +148,8 @@ test('quiet streams and a background server reduce cadence without per-branch re
 test('failed page preserves cursor across sync restart, completed window deduplicates overlap', async () => {
   let calls = 0;
   const provider: SyncProvider = {
-    async read(_repo, _stream, options = {}) {
+    async read(_repo, _stream, given) {
+      const options = present(given);
       calls++;
       if (!options.cursor) return { items: [push(1, '2026-11-16T10:00:00Z')], nextCursor: { skip: 1 } };
       if (calls === 2) throw Object.assign(new Error('Network unavailable'), { code: 'NETWORK' });
@@ -172,7 +175,8 @@ test('failed page preserves cursor across sync restart, completed window dedupli
 test('ref baseline emits nothing and only full snapshots expose newly discovered branches', async () => {
   let stage = 0;
   const provider: SyncProvider = {
-    async read(_r, _s, { cursor } = {}) {
+    async read(_r, _s, given) {
+      const { cursor } = present(given);
       if (!stage) return { items: [{ name: 'refs/heads/main', objectId: 'a' }], nextCursor: null };
       return cursor
         ? { items: [{ name: 'refs/heads/hotfix/new', objectId: 'b' }], nextCursor: null }
@@ -434,7 +438,8 @@ test('editing an old active PR after baseline is unseen using observation time',
 test('pagination receives a fixed window and yields between pages to another repository', async () => {
   const calls: ({ id: string | undefined; stream: string } & ReadOptions)[] = [];
   const provider: SyncProvider = {
-    async read(repo, stream, options = {}) {
+    async read(repo, stream, given) {
+      const options = present(given);
       calls.push({ id: watchedIdOf(repo), stream, ...options });
       return { items: [], nextCursor: options.cursor ? null : { skip: 1 } };
     },
@@ -890,7 +895,8 @@ test('a first sync whose read fails after a newer refresh keeps its lower bound'
     now: () => time,
     intervalMs: 1000,
     provider: {
-      read(_repo, _stream, { since } = {}) {
+      read(_repo, _stream, given) {
+        const { since } = present(given);
         sinces.push(since);
         if (sinces.length === 1) return Promise.resolve({ items: [], nextCursor: { skip: 1 } });
         if (sinces.length > 2) return Promise.resolve({ items: [], nextCursor: null });
@@ -1289,7 +1295,8 @@ test('a refs snapshot saved before tags restarts and still notices a branch dele
   let cursorSeen;
   const { store, sync } = setup(
     {
-      async read(_repo, _stream, { cursor } = {}) {
+      async read(_repo, _stream, given) {
+        const { cursor } = present(given);
         cursorSeen = cursor;
         return { items: [{ name: 'refs/heads/main', objectId: 'a' }], nextCursor: null, restarted: true };
       },
