@@ -139,15 +139,16 @@
 /**
  * A branch action, with the checkout read after it: a message, a review of the branch, or a next step.
  * @typedef {{ checkout: CheckoutStatus, message: string }
- *   | { checkout: CheckoutStatus, review: Review }
- *   | { checkout: CheckoutStatus, message: string, nextStep: string }} BranchActionResult
+ *   | { checkout: CheckoutStatus, review: Review, message?: undefined, nextStep?: undefined }
+ *   | { checkout: CheckoutStatus, message: string, nextStep: string, review?: undefined }} BranchActionResult
  */
 /**
  * A switch to an activity's branch: switched (with a notice), refused (with a message), or waiting for the reader to
  * confirm the review.
- * @typedef {{ checkout: DecoratedCheckout, notice: string | undefined }
- *   | { checkout: CheckoutStatus, message: string }
- *   | { checkout: CheckoutStatus, switchReview?: ActivitySwitchReview }} ActivitySwitchResult
+ * @typedef {{ checkout: DecoratedCheckout, notice: string | undefined, message?: undefined }
+ *   | { checkout: CheckoutStatus, message: string, notice?: undefined }
+ *   | { checkout: CheckoutStatus, switchReview?: undefined }
+ *   | { checkout: CheckoutStatus, switchReview: ActivitySwitchReview }} ActivitySwitchResult
  */
 
 // Responses, one per route
