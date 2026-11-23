@@ -14,7 +14,7 @@ export function stub<T>(members: Partial<T>): T {
 }
 
 /**
- * src/api.js `request` answered by the test, with partial responses and sometimes synchronously: its callers await
+ * src/api.ts `request` answered by the test, with partial responses and sometimes synchronously: its callers await
  * the answer either way, and an answer stays synchronous so a test's timing does not change.
  */
 export function fakeRequest(answer: (path: string) => unknown) {

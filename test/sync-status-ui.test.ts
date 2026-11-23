@@ -18,7 +18,7 @@ type FeedUi = Parameters<typeof renderFeedHtml>[1];
 const renderFeed = (state: PageState, view: Partial<FeedUi>) => String(renderFeedHtml(state, stub<FeedUi>(view)));
 const renderSettings = (...args: Parameters<typeof renderSettingsHtml>) => String(renderSettingsHtml(...args));
 
-// themeSwitch() in the header reads the theme that web/theme.js puts on window.
+// themeSwitch() in the header reads the theme that web/theme.ts puts on window.
 Object.assign(globalThis, { window: globalThis });
 
 const today = new Date();

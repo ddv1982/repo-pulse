@@ -1,7 +1,7 @@
 // The repository picker, toasts and the error banner write Azure and Git text to innerHTML in the browser, so they
 // are checked in a real page. Every such value holds a probe: markup that reaches innerHTML unescaped creates <x-…>
 // elements whose `a` attribute names the field, and each value must read back as text exactly as the server sent it.
-// test/escaping.test.js covers the views rendered to strings.
+// test/escaping.test.ts covers the views rendered to strings.
 
 import test from 'node:test';
 import assert from 'node:assert/strict';

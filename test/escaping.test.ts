@@ -2,7 +2,7 @@
 // markup without escape() leaves a raw `<x-` in the output, also when the view cut it short or serialized it first.
 // Each view lists the fields it shows escaped, and pins the escaped form of every value it cuts or serializes at the
 // place it renders it, so removing escape() at that sink fails even when the full value appears escaped elsewhere.
-// The repository picker, toasts and the error banner write to the DOM directly; e2e/escaping.test.js covers them.
+// The repository picker, toasts and the error banner write to the DOM directly; e2e/escaping.test.ts covers them.
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -30,7 +30,7 @@ export type CommitsView = import('../src/ui/activity-detail.ts').CommitsView;
 export type Sink = { field: string; html: string };
 export type View = { render: () => (string | SafeHtml)[]; shows: string[]; sinks: Sink[] };
 
-// themeSwitch() in the header reads the theme that web/theme.js puts on window.
+// themeSwitch() in the header reads the theme that web/theme.ts puts on window.
 Object.assign(globalThis, { window: globalThis });
 
 const probe = (field: string) => `<x-probe a="${field}">`;
