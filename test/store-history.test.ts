@@ -953,7 +953,7 @@ test('a compaction blocked by an open reader stays pending and finishes on the n
     DELETE FROM entities; INSERT INTO settings(key,data) VALUES('compactPending','true');`);
   raw.close();
   const before = statSync(path).size;
-  // A read-only snapshot, such as scripts/probe-coverage.js, blocks the checkpoint that returns the space.
+  // A read-only snapshot, such as scripts/probe-coverage.ts, blocks the checkpoint that returns the space.
   const reader = new DatabaseSync(path, { readOnly: true });
   reader.exec('BEGIN');
   reader.prepare('SELECT COUNT(*) FROM settings').get();

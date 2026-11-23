@@ -6,6 +6,5 @@
     // linkedom 0.18.15's declarations conflict with the DOM lib; this skips checking .d.ts files, not the tests.
     "skipLibCheck": true
   },
-  // Only TypeScript: the tests and e2e files still in JavaScript join the program when they are converted.
   "include": ["test/**/*.ts", "e2e/**/*.ts"]
 }

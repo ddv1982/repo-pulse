@@ -8,7 +8,7 @@ const { promisify } = require('node:util');
 
 const exec = promisify(execFile);
 
-/** @typedef {(path: string, args: string[]) => Promise<string>} RunGit */
+/** @typedef {import('./checkout-delete-guard.d.cts').RunGit} RunGit */
 
 /** @param {RunGit} run @param {string} path @param {string} ref */
 async function worktreeUsesBranch(run, path, ref) {
@@ -42,6 +42,8 @@ async function isSymbolicRef(run, path, ref) {
   }
 }
 exports.isSymbolicRef = isSymbolicRef;
+// tsconfig.hook.json fails when an export is missing or no longer matches checkout-delete-guard.d.cts.
+/** @satisfies {typeof import('./checkout-delete-guard.d.cts')} */ (module.exports);
 
 if (require.main === module && process.argv[2] === 'prepared') {
   // Git has both refs locked while this hook checks their types and the worktrees.

@@ -19,15 +19,15 @@ Repo Pulse records tag changes, checks live branch moves for history rewrites, k
 - **Database retention.** Measure database growth over two weeks before deciding whether to expire old activity. Any retention rule should preserve unread activity, open PR and build state, and branch baselines.
 - **Packaging and shared setup.** Gather feedback from two weeks of daily use and a few testers trying demo and live mode before deciding whether to package Repo Pulse for others.
 - **Fork origin for snapshot-discovered branches (optional).** Use PR iterations `commonRefCommit` or merge bases, shown as text only ("shares history with P from `abc1234`"), never a fork line.
-- **Local clones as an ancestry accelerator (optional).** Use local objects for zero-call ancestry checks only when they are present, with the existing `checkout-git.js` guards. Never fetch.
+- **Local clones as an ancestry accelerator (optional).** Use local objects for zero-call ancestry checks only when they are present, with the existing `checkout-git.ts` guards. Never fetch.
 - **Fork re-check when a late pull request arrives.** Skipped after measuring on 2026-11-20: 81 of 93 push creations have a PR, often stored after the creation (up to 25 hours later), and in 81 of 81 its target was already the repository's most common PR target, which the check already takes as a candidate. Revisit when a repository's PRs often target another branch.
 - **Read the repository's default branch for the fork check.** Skipped after measuring on 2026-11-20: the most common PR target was `main` in 4 of 4 repositories. Revisit for a repository with no stored PRs.
 
 ## Constraints
 
 - Watch whole repositories by default. Filters affect the Activity view and opening an item never marks it seen.
-- Keep one Azure request queue with a budget of 60 calls/min and four calls in flight. The queue also handles CLI-backed prerequisite checks. Reads expressed as `devops invoke` use REST with an Azure CLI token. Measure with `scripts/measure-budget.js` before changing the polling model.
-- Keep zero runtime npm dependencies and no bundler: plain Node 26 ES modules, `node:sqlite`, strict JSDoc type checking, `SafeHtml` templates, and native `@import` CSS modules. The one exception is browser code copied unchanged into `web/vendor/` (idiomorph, which merges each render into the page); see `docs/MAINTAINING.md`. Browser TypeScript is compiled with `tsc` to `dist/` (`npm run build:web`, which runs automatically before `npm start`, `npm run demo` and the tests).
+- Keep one Azure request queue with a budget of 60 calls/min and four calls in flight. The queue also handles CLI-backed prerequisite checks. Reads expressed as `devops invoke` use REST with an Azure CLI token. Measure with `scripts/measure-budget.ts` before changing the polling model.
+- Keep zero runtime npm dependencies and no bundler: Node 26 running TypeScript ES modules directly, `node:sqlite`, strict TypeScript checking (strict JSDoc checking for the one CommonJS Git hook), `SafeHtml` templates, and native `@import` CSS modules. The one exception is browser code copied unchanged into `web/vendor/` (idiomorph, which merges each render into the page); see `docs/MAINTAINING.md`. Browser TypeScript is compiled with `tsc` to `dist/` (`npm run build:web`, which runs automatically before `npm start`, `npm run demo` and the tests).
 - Keep status labels readable without color. Preserve keyboard focus, visibility, and scroll across refreshes.
 - A successful build or merged PR does not establish deployment. Partial evidence should stay visible as partial evidence.
 - Service hooks, audit ingestion, notifications, and packaging can wait for a demonstrated need.
