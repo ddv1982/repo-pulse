@@ -224,6 +224,7 @@ export type BlockedCheckout = CheckoutReading & { state: BlockedState; canCheck:
 
 export type ActiveCheckout = PullableCheckout | BlockedCheckout;
 
+/** A checkout with an open branch follow-up names it, so the page can offer to review or remove the old branch. */
 export type DecoratedCheckout = ActiveCheckout & { followup?: FollowupSummary };
 
 export type CheckoutStatus = DecoratedCheckout | { state: 'unavailable' | 'not-linked'; diagnostic?: CheckoutDiagnostic };

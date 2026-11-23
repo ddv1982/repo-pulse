@@ -10,7 +10,9 @@ export type ActivityEvent = import('./activity.ts').ActivityEvent;
  * not hold it), `unplaced` (no recorded or checked branch held it), `orphan` and `merge`.
  */
 export type ForkEvidence = 'tip' | 'pr' | 'recorded' | 'contained' | 'ambiguous' | 'refuted' | 'unplaced' | 'orphan' | 'merge';
+/** A drawn lane. `color` indexes the lane palette; -1 is neutral. */
 export type TreeLane = { slot: number; color: number };
+/** A lane in one row, and whether it runs on above and below. */
 export type TreeLine = TreeLane & { up: boolean; down: boolean };
 export type TreeNode = TreeLine & { shape: 'dot' | 'ring' | 'merge'; overflow: boolean };
 /**
@@ -36,6 +38,7 @@ export type TreeRow = {
   forkFrom: (TreeLine & { evidence: ForkEvidence }) | null;
   mergeFrom: TreeLine | null;
 };
+/** `width` counts lane positions, the overflow position included. */
 export type ActivityTree = { width: number; rows: TreeRow[] };
 export type PullRequest = { id: number | string; source: string; target: string };
 /**
