@@ -39,7 +39,7 @@ Pull checks the checkout, upstream and fetched tip before running `git merge --f
 
 ## Vendored browser code
 
-[web/vendor/](../web/vendor/) holds browser modules copied byte for byte from a published release, with their licence and type declarations. [test/vendor.test.js](../test/vendor.test.js) pins each file's sha256 and names the release it came from. ESLint, Prettier and `tsc` skip the folder. To update idiomorph, take `package/dist/idiomorph.esm.js` and `idiomorph.d.ts` (saved as `idiomorph.esm.d.ts`) from `npm pack idiomorph@<version>`, change the version and hash in the test in the same commit, and run every check, including `npm run test:ui`.
+[web/vendor/](../web/vendor/) holds browser modules copied byte for byte from a published release, with their licence and type declarations. [test/vendor.test.js](../test/vendor.test.js) pins each file's sha256 and names the release it came from. Oxlint, Prettier and `tsc` skip the folder. To update idiomorph, take `package/dist/idiomorph.esm.js` and `idiomorph.d.ts` (saved as `idiomorph.esm.d.ts`) from `npm pack idiomorph@<version>`, change the version and hash in the test in the same commit, and run every check, including `npm run test:ui`.
 
 ## Keep functions small
 
