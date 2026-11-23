@@ -78,7 +78,7 @@ at compile time. Moving from A to B later only touches `staticFile` and the buil
 - [x] 3a: type `SafeHtml`, `html(strings: TemplateStringsArray, ...values)` and `setHtml(element, markup: SafeHtml)`; keep the private-field brand, construction token and sole sink; add a `@ts-expect-error` type test showing a raw string, a plain array and a lookalike object are rejected
 - [x] 3b: remaining `src/ui/*`, `src/web` and `web/theme` to `.ts`; check by hand that the stored theme applies on first paint with no flash, and that `dist/web/theme.js` has no `export`
 - [x] Idiomorph keeps its vendored bytes and `.d.ts` (`test/vendor.test.js` hash unchanged)
-- [ ] No `.js` left under `src/`; full CI green in each PR
+- [x] No `.js` left under `src/`; full CI green in each PR
 
 ## Phase 4: server and scripts (about 8,200 lines)
 
