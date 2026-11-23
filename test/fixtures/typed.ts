@@ -4,7 +4,10 @@
 import assert from 'node:assert/strict';
 import type { request } from '../../src/api.ts';
 
-/** A T built from the members a test supplies. A member left out is undefined, so the test fails if it is used. */
+/**
+ * A T built from the members a test supplies, like the object literal it replaces. Calling a member left out throws;
+ * reading one gives undefined, which the code under test may treat as absent.
+ */
 export function stub<T>(members: Partial<T>): T {
   return members as T;
 }

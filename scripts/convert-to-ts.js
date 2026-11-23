@@ -190,12 +190,15 @@ function proseEdits(file, prose) {
     if (!found) return;
     const indent = indentOf(node);
     const doc = node.jsDoc?.at(-1);
-    if (found.prose && !doc?.getText(source).includes(found.prose.split('\n')[0].trim())) {
-      if (!doc) edits.push({ span: { start: node.getStart(source), length: 0 }, newText: `${comment(found.prose, indent)}\n${indent}` });
+    // Only the description lines the preceding comment does not already hold, so a repeated first line keeps the rest.
+    const missing = found.prose ? found.prose.split('\n').filter(line => !doc?.getText(source).includes(line.trim())) : [];
+    if (missing.length) {
+      if (!doc)
+        edits.push({ span: { start: node.getStart(source), length: 0 }, newText: `${comment(missing.join('\n'), indent)}\n${indent}` });
       else {
         // Append as a last paragraph of the existing comment, before its `*/`.
         const end = doc.end - 2;
-        const lines = found.prose.split('\n').map(line => `${indent} * ${line.trim()}`.trimEnd());
+        const lines = missing.map(line => `${indent} * ${line.trim()}`.trimEnd());
         let head = source.text.slice(doc.getStart(source), end).replace(/\s*\*?\s*$/, '');
         // A one-line comment becomes a block: its text moves to a line of its own.
         if (!head.includes('\n')) head = head.replace(/^\/\*\*\s*/, `/**\n${indent} * `);
