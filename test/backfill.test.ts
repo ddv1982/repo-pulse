@@ -6,15 +6,28 @@ import { tmpdir } from 'node:os';
 import { createStore } from '../server/store.ts';
 import { createSync } from '../server/sync.ts';
 import { createBackfill } from '../server/backfill.ts';
+import type { AzurePage, AzureProvider, ReadOptions } from '../server/azure-client.ts';
+import type { ActivityEvent } from '../src/activity.ts';
+import type { AzureStream, Repository, StreamState } from '../src/contract.ts';
+import { fieldsOf, present, stub } from './fixtures/typed.ts';
+
+type Provider = Pick<AzureProvider, 'read'>;
+type Normalize = Parameters<typeof createBackfill>[0]['normalize'];
+/** What a fake provider was asked to read. */
+type ReadCall = { stream: AzureStream } & ReadOptions;
 
 const BASE = Date.parse('2026-11-17T10:00:00Z');
 const DAY = 86400000;
-const repo = { id: 'one', name: 'One', azureId: 'a' };
-const iso = value => new Date(value).toISOString();
-function normalizer(repo, stream, items, state) {
+const repo = stub<Repository>({ id: 'one', name: 'One', azureId: 'a' });
+const iso = (value: number) => new Date(value).toISOString();
+/** A record the fake providers below return. */
+type Item = { id: number; date: string };
+const normalizer: Normalize = (repo, stream, records, state) => {
   assert.equal(state.historical, true);
+  // The records are the items the test's fake provider returned.
+  const items = records as Item[];
   return {
-    events: items.map(item => ({
+    events: items.map((item): ActivityEvent => ({
       id: `${repo.id}:${stream}:${item.id}`,
       repoId: repo.id,
       kind: stream === 'pushes' ? 'push' : stream === 'builds' ? 'build' : 'pr',
@@ -25,12 +38,15 @@ function normalizer(repo, stream, items, state) {
       data: { pushId: item.id },
     })),
     entities: items.flatMap(item => [
-      { type: stream === 'pushes' ? 'push' : 'build', id: item.id, data: { date: item.date, status: 'historical' } },
+      { type: stream === 'pushes' ? 'push' : 'build', id: String(item.id), data: { date: item.date, status: 'historical' } },
       { type: 'ref', id: 'refs/heads/main', data: { objectId: 'old' } },
     ]),
   };
-}
-function setup(provider, { now = () => BASE, path, normalize = normalizer } = {}) {
+};
+function setup(
+  provider: Provider,
+  { now = () => BASE, path, normalize = normalizer }: { now?: () => number; path?: string; normalize?: Normalize } = {},
+) {
   const store = createStore(path);
   if (!store.listRepos().length) store.saveRepo(repo);
   store.setSetting(`baseline:${repo.id}`, iso(BASE));
@@ -39,16 +55,18 @@ function setup(provider, { now = () => BASE, path, normalize = normalizer } = {}
 }
 
 test('historical imports mark only new history read without changing live state', async () => {
-  const calls = [];
-  const provider = {
-    async read(_repo, stream, options) {
+  const calls: ReadCall[] = [];
+  const provider: Provider = {
+    async read(_repo, stream, options = {}) {
       calls.push({ stream, ...options });
       return { items: [{ id: stream === 'pushes' ? 1 : stream === 'closedPrs' ? 2 : 3, date: iso(BASE - DAY) }], nextCursor: null };
     },
   };
   const { store, backfill } = setup(provider);
   store.insertEvents([{ id: 'live', repoId: repo.id, kind: 'push', time: iso(BASE + 1000), seen: false }]);
-  store.saveStream({ repoId: repo.id, stream: 'pushes', initialized: true, lastSuccess: iso(BASE), cursor: { skip: 100 } });
+  store.saveStream(
+    stub<StreamState>({ repoId: repo.id, stream: 'pushes', initialized: true, lastSuccess: iso(BASE), cursor: { skip: 100 } }),
+  );
   store.commitPage({
     repoId: repo.id,
     entities: [
@@ -72,11 +90,11 @@ test('historical imports mark only new history read without changing live state'
       .filter(event => event.id !== 'live')
       .every(event => event.imported && event.seen),
   );
-  assert.equal(store.listEvents().find(event => event.id === 'live').seen, false);
+  assert.equal(present(store.listEvents().find(event => event.id === 'live')).seen, false);
   assert.deepEqual(store.getStreams(), streams);
-  assert.equal(store.getEntity(repo.id, 'build', 3).status, 'inProgress');
-  assert.equal(store.getEntity(repo.id, 'ref', 'refs/heads/main').objectId, 'current');
-  assert.equal(store.getEntity(repo.id, 'push', 1).date, iso(BASE - DAY));
+  assert.equal(fieldsOf(store.getEntity(repo.id, 'build', 3)).status, 'inProgress');
+  assert.equal(fieldsOf(store.getEntity(repo.id, 'ref', 'refs/heads/main')).objectId, 'current');
+  assert.equal(fieldsOf(store.getEntity(repo.id, 'push', 1)).date, iso(BASE - DAY));
   store.close();
 });
 
@@ -86,9 +104,9 @@ test('failed pages retain durable fixed windows and cursors across restart and r
   const path = join(directory, 'test.sqlite');
   let time = BASE,
     fail = true;
-  const calls = [];
-  const provider = {
-    async read(_repo, stream, options) {
+  const calls: ReadCall[] = [];
+  const provider: Provider = {
+    async read(_repo, stream, options = {}) {
       calls.push({ stream, ...options });
       if (options.cursor && fail) throw Object.assign(new Error('Connection unavailable'), { code: 'UNAVAILABLE' });
       return { items: [{ id: options.cursor ? 2 : 1, date: iso(BASE - DAY) }], nextCursor: options.cursor ? null : { skip: 100 } };
@@ -118,9 +136,9 @@ test('failed pages retain durable fixed windows and cursors across restart and r
 
 test('a page cut off by closing the queue is not a failed attempt and resumes without back-off', async () => {
   let closed = true;
-  const calls = [];
-  const provider = {
-    async read(_repo, stream, options) {
+  const calls: ReadCall[] = [];
+  const provider: Provider = {
+    async read(_repo, stream, options = {}) {
       calls.push({ stream, ...options });
       if (closed) throw Object.assign(new Error('Azure CLI queue is closed.'), { code: 'CLOSED' });
       return { items: [], nextCursor: null };
@@ -142,10 +160,10 @@ test('a page cut off by closing the queue is not a failed attempt and resumes wi
 
 test('all available history uses explicit 2010 boundary and keeps scanning older empty windows', async () => {
   const time = Date.parse('2010-02-05T00:00:00Z');
-  const calls = [];
+  const calls: ReadCall[] = [];
   const { store, backfill } = setup(
     {
-      async read(_repo, stream, options) {
+      async read(_repo, stream, options = {}) {
         calls.push({ stream, ...options });
         return { items: [], nextCursor: null };
       },
@@ -166,12 +184,12 @@ test('all available history uses explicit 2010 boundary and keeps scanning older
 });
 
 test('pause, removal and concurrent tick calls cannot duplicate work or resurrect jobs', async () => {
-  let release,
+  let release: (() => void) | undefined,
     reads = 0;
   const { store, backfill } = setup({
     read() {
       reads++;
-      return new Promise(resolve => {
+      return new Promise<AzurePage>(resolve => {
         release = () => resolve({ items: [{ id: 1, date: iso(BASE - DAY) }], nextCursor: null });
       });
     },
@@ -186,12 +204,14 @@ test('pause, removal and concurrent tick calls cannot duplicate work or resurrec
   assert.equal(first, same);
   assert.equal(reads, 1);
   store.saveRepo({ ...repo, disabled: true });
+  assert.ok(release);
   release();
   await first;
   assert.equal(store.listEvents().length, 0);
   store.saveRepo({ ...repo, disabled: false });
   const second = backfill.tick();
   store.removeRepo(repo.id);
+  assert.ok(release);
   release();
   await second;
   assert.equal(store.listJobs().length, 0);
@@ -215,7 +235,7 @@ test('provider windows widened for builds cannot mark post-monitoring live chang
   backfill.start(repo.id);
   await backfill.tick();
   assert.deepEqual(
-    store.listEvents().map(event => event.data.pushId),
+    store.listEvents().map(event => event.data?.pushId),
     [1],
   );
   assert.deepEqual(
@@ -244,7 +264,7 @@ test('transaction failure keeps the page resumable and validation rejects ambigu
   // Fail inside the actual transaction after its event inserts, before the job checkpoint.
   const original = store.commitPage;
   store.commitPage = page => {
-    original({ ...page, jobs: [...page.jobs, { id: 'invalid', repoId: 'not-watched', type: 'merge' }] });
+    original({ ...page, jobs: [...present(page.jobs), { id: 'invalid', repoId: 'not-watched', type: 'merge' }] });
   };
   await backfill.tick();
   assert.equal(store.listEvents().length, 0);
@@ -273,8 +293,8 @@ test('a build queued before an internal window boundary and completed after it r
     sourceBranch: 'refs/heads/main',
     definition: { name: 'CI' },
   };
-  const provider = {
-    async read(_repo, stream, options) {
+  const provider: Provider = {
+    async read(_repo, stream, options = {}) {
       return { items: stream === 'builds' && options.until === boundary ? [build] : [], nextCursor: null };
     },
   };
@@ -285,7 +305,7 @@ test('a build queued before an internal window boundary and completed after it r
   assert.equal(backfill.status()[0].status, 'completed');
   const events = store.listEvents();
   assert.equal(events.length, 1);
-  assert.equal(events[0].data.buildId, 99);
+  assert.equal(events[0].data?.buildId, 99);
   assert.equal(events[0].time, build.finishTime);
   assert.equal(events[0].imported, true);
   assert.equal(events[0].seen, true);

@@ -1,11 +1,19 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createAzureClient, reviewOf } from '../server/azure-client.ts';
-const repo = { id: 'local1', organization: 'https://dev.azure.com/example', project: 'Project', projectId: 'project1', azureId: 'repo1' };
+import type { Repository } from '../src/contract.ts';
+import { present, stub } from './fixtures/typed.ts';
+const repo = stub<Repository>({
+  id: 'local1',
+  organization: 'https://dev.azure.com/example',
+  project: 'Project',
+  projectId: 'project1',
+  azureId: 'repo1',
+});
 const window = { since: '2026-11-10T11:12:13Z', until: '2026-11-17T11:12:13Z' };
 
 test('push pagination keeps fixed window and includes all refs without branch filtering', async () => {
-  const calls = [];
+  const calls: string[][] = [];
   const client = createAzureClient({
     cli: {
       run: async args => {
@@ -25,7 +33,7 @@ test('push pagination keeps fixed window and includes all refs without branch fi
 });
 
 test('closed PR stream uses closed time and pagination instead of creation time', async () => {
-  let args;
+  let args: string[] | undefined;
   const client = createAzureClient({
     cli: {
       run: async input => {
@@ -35,14 +43,14 @@ test('closed PR stream uses closed time and pagination instead of creation time'
     },
   });
   await client.read(repo, 'closedPrs', window);
-  assert(args.includes('searchCriteria.repositoryId=repo1'));
-  assert(args.includes('searchCriteria.queryTimeRangeType=closed'));
-  assert(args.includes('searchCriteria.status=all'));
-  assert(args.includes('searchCriteria.maxTime=2026-11-17T11:12:13.000Z'));
+  assert(args?.includes('searchCriteria.repositoryId=repo1'));
+  assert(args?.includes('searchCriteria.queryTimeRangeType=closed'));
+  assert(args?.includes('searchCriteria.status=all'));
+  assert(args?.includes('searchCriteria.maxTime=2026-11-17T11:12:13.000Z'));
 });
 
 test('refs use continuation token and build cache isolates repositories while coalescing matching reads', async () => {
-  const calls = [];
+  const calls: string[][] = [];
   const client = createAzureClient({
     cli: {
       run: async args => {
@@ -66,13 +74,15 @@ test('refs use continuation token and build cache isolates repositories while co
   assert(calls[2].includes('repositoryType=TfsGit'));
   await client.read(repo, 'builds', window);
   assert.equal(calls.length, 4);
-  assert.equal(a.nextCursor.from, '2026-11-10T11:10:00.000Z');
+  assert.equal(a.nextCursor?.from, '2026-11-10T11:10:00.000Z');
   const active = await client.read(repo, 'activeBuilds', window);
   assert.equal(active.items[0].id, 1);
-  assert(!calls.at(-1).some(value => value.startsWith('minTime=')));
-  assert(calls.at(-1).includes('repositoryId=repo1'));
-  assert.deepEqual(await client.buildsById(repo, [123]), { items: [{ id: 1 }], nextCursor: { token: 'page2' } });
-  assert(calls.at(-1).includes('buildIds=123'));
+  assert(!present(calls.at(-1)).some(value => value.startsWith('minTime=')));
+  assert(present(calls.at(-1)).includes('repositoryId=repo1'));
+  // Numeric ids still reach the query as before; the type says string, so the number needs a cast.
+  const numericIds = [123] as unknown as string[];
+  assert.deepEqual(await client.buildsById(repo, numericIds), { items: [{ id: 1 }], nextCursor: { token: 'page2' } });
+  assert(present(calls.at(-1)).includes('buildIds=123'));
 });
 
 test('malformed responses fail rather than becoming healthy empty activity', async () => {
@@ -81,7 +91,7 @@ test('malformed responses fail rather than becoming healthy empty activity', asy
 });
 
 test('resolution strips credentials and connection check never claims CLI account is effective identity', async () => {
-  const calls = [];
+  const calls: string[][] = [];
   const client = createAzureClient({
     cli: {
       run: async args => {
@@ -116,7 +126,7 @@ test('resolution strips credentials and connection check never claims CLI accoun
 });
 
 test('active PR reads are explicitly repo-scoped and exact PR reconciliation uses typed CLI', async () => {
-  const calls = [];
+  const calls: string[][] = [];
   const client = createAzureClient({
     cli: {
       run: async args => {
@@ -152,7 +162,7 @@ test('active PR reads are explicitly repo-scoped and exact PR reconciliation use
 });
 
 test('connection detection reuses local CLI sign-in without acquiring credentials or requiring setup', async () => {
-  const calls = [];
+  const calls: string[][] = [];
   const client = createAzureClient({
     cli: {
       async run(args) {
@@ -192,14 +202,14 @@ test('a missing account-show context does not reject existing DevOps CLI credent
   const status = await client.checkConnection(repo.organization);
   assert.equal(status.available, true);
   assert.equal(status.signedIn, false);
-  assert.equal(status.capabilities.organizationRead, true);
+  assert.equal(status.capabilities?.organizationRead, true);
   assert.match(status.message, /Existing Azure CLI access works/);
 });
 
 test('dropped commits read one page from the old tip that the new tip does not reach', async () => {
   const old = 'a'.repeat(40),
     tip = 'b'.repeat(40),
-    calls = [];
+    calls: string[][] = [];
   const client = createAzureClient({
     cli: {
       run: async args => {
@@ -213,11 +223,11 @@ test('dropped commits read one page from the old tip that the new tip does not r
   assert.deepEqual(page.nextCursor, { skip: 100 }, 'a full page says more were dropped');
   assert.equal(calls.length, 1);
   const args = calls[0];
-  assert(args.includes(`searchCriteria.compareVersion.version=${old}`));
-  assert(args.includes(`searchCriteria.itemVersion.version=${tip}`));
-  assert(args.includes('searchCriteria.compareVersion.versionType=commit'));
-  assert(args.includes('searchCriteria.itemVersion.versionType=commit'));
-  assert(args.includes('searchCriteria.$skip=0'));
+  assert(args?.includes(`searchCriteria.compareVersion.version=${old}`));
+  assert(args?.includes(`searchCriteria.itemVersion.version=${tip}`));
+  assert(args?.includes('searchCriteria.compareVersion.versionType=commit'));
+  assert(args?.includes('searchCriteria.itemVersion.versionType=commit'));
+  assert(args?.includes('searchCriteria.$skip=0'));
   assert(!args.some(arg => /fromCommitId|toCommitId|fromDate|toDate|showOldestCommitsFirst/.test(arg)));
 });
 
@@ -246,9 +256,9 @@ test('ref creation/deletion/equal tips cannot scan historical ancestry and malfo
 });
 
 test('checkout PR lookup is bounded and accepts completed PRs in the same source and target repository only', async () => {
-  const calls = [];
+  const calls: string[][] = [];
   const sourceRefName = 'refs/heads/feature/test';
-  const pr = id => ({
+  const pr = (id: number) => ({
     pullRequestId: id,
     status: 'completed',
     repository: { id: repo.azureId },
@@ -285,7 +295,7 @@ test('checkout PR lookup is bounded and accepts completed PRs in the same source
 });
 
 test('repository connection check preserves local CLI state when the scoped read fails', async () => {
-  const calls = [];
+  const calls: string[][] = [];
   const client = createAzureClient({
     now: () => 0,
     cli: {
@@ -322,7 +332,7 @@ test('repository connection check preserves local CLI state when the scoped read
 });
 
 test('a repository connection check also proves the REST activity read', async () => {
-  const calls = [];
+  const calls: string[][] = [];
   const client = createAzureClient({
     now: () => 0,
     cli: {
@@ -337,9 +347,9 @@ test('a repository connection check also proves the REST activity read', async (
     },
   });
   const status = await client.checkConnection(undefined, repo);
-  assert.equal(status.access.status, 'failed');
-  assert.equal(status.access.code, 'AUTH_REQUIRED');
-  const read = calls.at(-1);
+  assert.equal(status.access?.status, 'failed');
+  assert.equal(status.access?.code, 'AUTH_REQUIRED');
+  const read = present(calls.at(-1));
   assert.deepEqual(
     [read[0], read[1], read[read.indexOf('--resource') + 1], read[read.indexOf('--http-method') + 1]],
     ['devops', 'invoke', 'refs', 'GET'],
@@ -347,7 +357,7 @@ test('a repository connection check also proves the REST activity read', async (
 });
 
 test('PR review data counts people’s threads only and keeps each enabled policy result', () => {
-  const thread = (status, extra = {}) => ({ status, comments: [{ commentType: 'text' }], ...extra });
+  const thread = (status: string | undefined, extra = {}) => ({ status, comments: [{ commentType: 'text' }], ...extra });
   const review = reviewOf(
     [
       thread('active'),
@@ -374,7 +384,7 @@ test('PR review data counts people’s threads only and keeps each enabled polic
 });
 
 test('refs restart a snapshot saved by the branch-only query and ask policies for not-applicable results', async () => {
-  const calls = [];
+  const calls: string[][] = [];
   const client = createAzureClient({
     cli: {
       run: async args => {
@@ -389,14 +399,14 @@ test('refs restart a snapshot saved by the branch-only query and ask policies fo
   await client.read(repo, 'refs', { cursor: { token: 'all', allRefs: true } });
   assert(calls[1].includes('continuationToken=all'));
   await client.prReview(repo, 4);
-  assert(calls.at(-1).includes('includeNotApplicable=true'));
+  assert(present(calls.at(-1)).includes('includeNotApplicable=true'));
 });
 
 test('a single commit read returns its parents and the push that brought it, and fails closed on bad input', async () => {
   const id = 'a'.repeat(40),
     parent = 'b'.repeat(40);
-  const calls = [];
-  let body = { commitId: id, parents: [parent.toUpperCase()], push: { pushId: 41 }, comment: 'not kept' };
+  const calls: string[][] = [];
+  let body: object = { commitId: id, parents: [parent.toUpperCase()], push: { pushId: 41 }, comment: 'not kept' };
   const client = createAzureClient({
     cli: {
       run: async args => {

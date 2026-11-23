@@ -26,5 +26,22 @@ export function present<T>(value: T | null | undefined, what = 'the value'): T {
   return value;
 }
 
+/** An event's data, after failing the test if the event or its data is missing. */
+export function dataOf<T>(event: { data?: T } | null | undefined): T {
+  return present(present(event, 'the event').data, 'its data');
+}
+
+/** The fields of a stored JSON value, after failing the test if it is not an object. */
+export function fieldsOf(value: unknown): Record<string, unknown> {
+  assert.ok(typeof value === 'object' && value !== null, 'expected an object');
+  return value as Record<string, unknown>;
+}
+
 /** What a rejection or throw check reads from the error it is given; a check whose property is missing fails. */
 export type Thrown = Error & { code?: string; status?: number };
+
+/**
+ * A handle for a fake setTimer to return. The code under test only checks that it holds one and passes it back to
+ * clearTimer, which the fakes do not need.
+ */
+export const fakeTimer = () => stub<NodeJS.Timeout>({});

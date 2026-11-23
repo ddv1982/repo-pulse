@@ -6,9 +6,14 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createStore } from '../server/store.ts';
 import { renderMergeEvidence, mergeEvidenceBadge } from '../src/ui/merge-evidence.ts';
+import type { Job } from '../server/store.ts';
+import type { ActivityEvent, ActivityRequest, EventData } from '../src/activity.ts';
+import type { Repository, StreamState } from '../src/contract.ts';
+import { dataOf, fieldsOf, present, stub } from './fixtures/typed.ts';
 
-const repo = { id: 'repo', name: 'Repo', azureId: 'a' };
-const event = (id, extra = {}) => ({
+type Reviewer = NonNullable<EventData['reviewers']>[number];
+const repo = stub<Repository>({ id: 'repo', name: 'Repo', azureId: 'a' });
+const event = (id: string, extra: Partial<ActivityEvent> = {}): ActivityEvent => ({
   id,
   repoId: repo.id,
   kind: 'push',
@@ -19,7 +24,8 @@ const event = (id, extra = {}) => ({
   observedAt: '2026-11-17T10:00:00Z',
   ...extra,
 });
-const build = (id, status, extra = {}) => event(id, { kind: 'build', title: status, data: { buildId: 42, status }, ...extra });
+const build = (id: string, status: string, extra: Partial<ActivityEvent> = {}) =>
+  event(id, { kind: 'build', title: status, data: { buildId: 42, status }, ...extra });
 const setup = () => {
   const store = createStore();
   store.saveRepo(repo);
@@ -36,7 +42,7 @@ test('v1 migration preserves raw events and acknowledgement and queues no merge 
     PRAGMA user_version=1;`);
   db.prepare('INSERT INTO repositories VALUES(?,?)').run(repo.id, JSON.stringify(repo));
   const raw = event('old', { seen: true, imported: true, data: { pushId: 11 } });
-  db.prepare('INSERT INTO events VALUES(?,?,?,?,?,?,?)').run(raw.id, repo.id, raw.time, raw.observedAt, 1, 1, JSON.stringify(raw));
+  db.prepare('INSERT INTO events VALUES(?,?,?,?,?,?,?)').run(raw.id, repo.id, raw.time, present(raw.observedAt), 1, 1, JSON.stringify(raw));
   db.close();
   let store = createStore(path);
   assert.deepEqual(store.getEvent('old'), raw);
@@ -68,7 +74,7 @@ test('server-side group pagination reaches history beyond 1000 records and keeps
   assert.equal(first.newItems, 1106);
   assert.equal(first.newUpdates, 2305);
   assert.equal(first.items[0].eventIds.length, 1200);
-  assert.equal(first.counts.build, 1);
+  assert.equal(first.counts?.build, 1);
   assert.equal(first.counts.push, 1105);
   let cursor = first.nextCursor;
   const seenGroups = new Set(first.items.map(item => item.groupKey));
@@ -92,12 +98,12 @@ test('new-view keyset cursor survives acknowledgement between pages without skip
   store.insertEvents(Array.from({ length: 6 }, (_, i) => event(String(i), { observedAt: `2026-11-17T10:00:0${i}Z` })));
   const first = store.queryActivity({ view: 'new', limit: 2 });
   store.acknowledge(first.items.flatMap(item => item.unseenIds));
-  const second = store.queryActivity({ view: 'new', limit: 2, cursor: first.nextCursor });
+  const second = store.queryActivity({ view: 'new', limit: 2, cursor: first.nextCursor ?? undefined });
   assert.deepEqual(
     second.items.map(item => item.id),
     ['3', '2'],
   );
-  assert.throws(() => store.queryActivity({ view: 'all', cursor: first.nextCursor }), /cursor/);
+  assert.throws(() => store.queryActivity({ view: 'all', cursor: first.nextCursor ?? undefined }), /cursor/);
   store.close();
 });
 
@@ -110,7 +116,7 @@ test('raw filters apply before grouping and never acknowledge hidden group membe
   assert.deepEqual(store.queryActivity.unseenIds({ kind: 'build', search: 'Running' }), ['running']);
   assert.equal(store.getEventGroup('running').length, 2);
   store.acknowledge(filtered.items[0].unseenIds);
-  assert.equal(store.getEvent('queued').seen, false);
+  assert.equal(present(store.getEvent('queued')).seen, false);
   assert.equal(store.queryActivity({ view: 'new' }).items[0].eventIds.length, 2);
   assert.equal(store.queryActivity({ repoIds: [] }).total, 0);
   store.close();
@@ -139,7 +145,7 @@ test('enrichment is durable search metadata without changing raw identity, timin
     time: 'future',
     seen: false,
   });
-  const enriched = store.getEvent('push');
+  const enriched = present(store.getEvent('push'));
   assert.equal(enriched.id, 'push');
   assert.equal(enriched.time, raw.time);
   assert.equal(enriched.seen, true);
@@ -147,7 +153,7 @@ test('enrichment is durable search metadata without changing raw identity, timin
   assert.equal(store.queryActivity({ search: 'Searchable merged' }).total, 1);
   assert.equal(store.queryActivity({ view: 'new' }).total, 0);
   store.insertEvents([raw]);
-  assert.equal(store.getEvent('push').data.commits.length, 1);
+  assert.equal(dataOf(store.getEvent('push')).commits?.length, 1);
   assert.equal(store.listEvents().length, 1);
   store.close();
 });
@@ -159,7 +165,7 @@ test('job, event and stream writes roll back together', () => {
     store.commitPage({
       repoId: repo.id,
       stream: 'pushes',
-      state: { cursor: 1 },
+      state: stub<StreamState>({ cursor: { skip: 1 } }),
       events: [event('a')],
       jobs: [{ ...job, repoId: 'missing' }],
     }),
@@ -185,7 +191,7 @@ test('visible Running label filters only the matching build update and repositor
   assert.deepEqual(filtered.items[0].eventIds, ['running']);
   assert.equal(store.queryActivity({ search: 'Triggered manually' }).items[0].eventIds.length, 1);
   store.acknowledge(filtered.items[0].unseenIds);
-  assert.equal(store.getEvent('queued').seen, false);
+  assert.equal(present(store.getEvent('queued')).seen, false);
   const repoSearch = store.queryActivity({ search: 'customer billing' });
   assert.equal(repoSearch.total, 1);
   assert.equal(repoSearch.items[0].eventIds.length, 2);
@@ -208,7 +214,7 @@ test('v2 search indexes migrate to visible semantic labels without changing exis
   db.close();
   store = createStore(path);
   assert.equal(store.queryActivity({ search: 'Running' }).total, 1);
-  assert.equal(store.getEvent('old-running').seen, true);
+  assert.equal(present(store.getEvent('old-running')).seen, true);
   assert.equal(store.queryActivity({ view: 'new' }).total, 0);
   store.close();
   rmSync(dir, { recursive: true });
@@ -243,13 +249,13 @@ test('activity pages follow source chronology across imported streams while buil
     first.items.map(item => item.id),
     ['nov17-merge', 'nov16-push'],
   );
-  const second = store.queryActivity({ limit: 2, cursor: first.nextCursor });
+  const second = store.queryActivity({ limit: 2, cursor: first.nextCursor ?? undefined });
   assert.deepEqual(
     second.items.map(item => item.id),
     ['latest-observed-update', 'nov11-build'],
   );
   assert.equal(second.items[0].events[0].id, 'latest-observed-update');
-  const last = store.queryActivity({ limit: 2, cursor: second.nextCursor });
+  const last = store.queryActivity({ limit: 2, cursor: second.nextCursor ?? undefined });
   assert.deepEqual(
     last.items.map(item => item.id),
     ['july-active-pr'],
@@ -263,8 +269,8 @@ test('v3 migration queues no merge work and drops what was queued while preservi
     path = join(dir, 'v3.sqlite');
   let store = createStore(path);
   store.saveRepo(repo);
-  const sha = value => value.repeat(40);
-  const ref = (oldObjectId, newObjectId, name = 'refs/heads/main') => ({ name, oldObjectId, newObjectId });
+  const sha = (value: string) => value.repeat(40);
+  const ref = (oldObjectId: string, newObjectId: string, name = 'refs/heads/main') => ({ name, oldObjectId, newObjectId });
   const records = [
     event('eligible', { seen: true, imported: true, data: { pushId: 41, refUpdates: [ref(sha('a'), sha('b'))], commits: [] } }),
     event('in-progress', { data: { pushId: 42, refUpdates: [ref(sha('b'), sha('c'))] } }),
@@ -295,10 +301,10 @@ test('v3 migration queues no merge work and drops what was queued while preservi
   store = createStore(path);
   assert.deepEqual(store.listJobs(), []);
   assert.deepEqual(store.listEvents({ limit: 100 }), before);
-  assert.equal(store.getEvent('eligible').data.kept, 'metadata');
-  assert.equal(store.getEvent('eligible').data.mergeEvidence.status, 'complete');
-  assert.equal(store.getEvent('eligible').seen, true);
-  assert.equal(store.getEvent('eligible').imported, true);
+  assert.equal(dataOf(store.getEvent('eligible')).kept, 'metadata');
+  assert.equal(dataOf(store.getEvent('eligible')).mergeEvidence?.status, 'complete');
+  assert.equal(present(store.getEvent('eligible')).seen, true);
+  assert.equal(present(store.getEvent('eligible')).imported, true);
   store.close();
   store = createStore(path);
   assert.deepEqual(store.listJobs(), []);
@@ -346,16 +352,18 @@ test('opening a database with merge work left drops the jobs and keeps evidence 
     store.listJobs().map(job => job.id),
     ['backfill:repo'],
   );
-  assert.deepEqual(store.getEvent('done').data.mergeEvidence, done);
-  const partial = store.getEvent('partial');
-  assert.deepEqual(partial.data.mergeEvidence.candidateCommitIds, ['interior']);
-  assert.deepEqual(partial.data.mergeEvidence.limitations, ['Source branch unknown']);
-  assert.equal(partial.data.mergeEvidence.status, 'incomplete');
-  const retrying = store.getEvent('retrying').data.mergeEvidence;
+  assert.deepEqual(dataOf(store.getEvent('done')).mergeEvidence, done);
+  const partial = present(store.getEvent('partial'));
+  const partialEvidence = present(dataOf(partial).mergeEvidence);
+  // candidateCommitIds is a field of the earlier merge analysis, kept as it was stored.
+  assert.deepEqual(fieldsOf(partialEvidence).candidateCommitIds, ['interior']);
+  assert.deepEqual(partialEvidence.limitations, ['Source branch unknown']);
+  assert.equal(partialEvidence.status, 'incomplete');
+  const retrying = present(dataOf(store.getEvent('retrying')).mergeEvidence);
   assert.equal(retrying.status, 'incomplete');
   assert.deepEqual(retrying.limitations, ['Merge evidence could not be read.']);
   assert.deepEqual(retrying.error, { code: 'ENRICHMENT_FAILED', message: 'Merge evidence could not be read.' });
-  const html = renderMergeEvidence(partial.data) + mergeEvidenceBadge(partial);
+  const html = String(renderMergeEvidence(partial.data)) + String(mergeEvidenceBadge(partial));
   assert.doesNotMatch(html, /in progress|Checking/i);
   assert.match(html, /Evidence incomplete/);
   store.close();
@@ -392,7 +400,7 @@ test('opening a v11 database deletes the cached commit and commit-pr entities, r
     [{ type: 'ref', count: 1 }],
   );
   assert.equal(check.prepare("SELECT 1 FROM sqlite_schema WHERE name='rules'").get(), undefined);
-  assert.equal(check.prepare("SELECT evidence_id FROM activity_members WHERE event_id='graph'").get().evidence_id, '');
+  assert.equal(present(check.prepare("SELECT evidence_id FROM activity_members WHERE event_id='graph'").get()).evidence_id, '');
   check.close();
   assert.ok(statSync(path).size < before / 2, `${statSync(path).size} bytes after, ${before} before`);
   rmSync(dir, { recursive: true });
@@ -413,7 +421,7 @@ test('Activity revision advances only for committed changes to page data', () =>
     store.saveRepo({ ...repo, disabled: true });
     store.setSetting('refreshEnabled', false);
     stable();
-    assert.throws(() => store.commitPage({ repoId: repo.id, events: [event('rolled-back')], jobs: [{ id: 'invalid' }] }));
+    assert.throws(() => store.commitPage({ repoId: repo.id, events: [event('rolled-back')], jobs: [stub<Job>({ id: 'invalid' })] }));
     stable();
     assert.equal(store.getEvent('rolled-back'), undefined);
     store.commitPage({ repoId: repo.id, events: [event('history', { imported: true }), event('live')] });
@@ -444,7 +452,7 @@ test('Activity revision advances only for committed changes to page data', () =>
 test('filter options come from the full scoped history and stay available when a status is selected', () => {
   const store = setup();
   try {
-    store.saveRepo({ id: 'other', name: 'Other' });
+    store.saveRepo(stub<Repository>({ id: 'other', name: 'Other' }));
     store.insertEvents([
       event('older-canceled', {
         kind: 'build',
@@ -460,13 +468,13 @@ test('filter options come from the full scoped history and stay available when a
     const scope = { repoIds: [repo.id], limit: 1 };
     const all = store.queryActivity(scope);
     assert.deepEqual(all.filterOptions, ['push', 'pr', 'build', 'status:canceled', 'status:merged', 'evidence:pr-linked']);
-    assert.equal(store.queryActivity({ ...scope, cursor: all.nextCursor }).filterOptions, undefined);
+    assert.equal(store.queryActivity({ ...scope, cursor: all.nextCursor ?? undefined }).filterOptions, undefined);
     const canceled = store.queryActivity({ ...scope, kind: 'status:Canceled' });
     assert.equal(canceled.items[0].id, 'older-canceled');
     assert.deepEqual(canceled.filterOptions, all.filterOptions);
     assert.equal(store.queryActivity({ ...scope, kind: 'evidence:Completed PR linked' }).items[0].id, 'push-evidence');
     assert.equal(store.queryActivity({ ...scope, search: 'Completed PR linked' }).items[0].id, 'push-evidence');
-    assert.equal(store.queryActivity({ ...scope, view: 'new' }).filterOptions.includes('status:canceled'), false);
+    assert.equal(store.queryActivity({ ...scope, view: 'new' }).filterOptions?.includes('status:canceled'), false);
     assert.deepEqual(store.queryActivity({ ...scope, search: 'merged' }).filterOptions, ['pr', 'status:merged']);
   } finally {
     store.close();
@@ -485,11 +493,11 @@ test('New activity offers the displayed run status even when only an earlier upd
       }),
       build('b-failed', 'Other CI', { data: { buildId: 43, status: 'completed', result: 'failed' } }),
     ]);
-    const base = { view: 'new', repoIds: [repo.id], limit: 1 };
+    const base: ActivityRequest = { view: 'new', repoIds: [repo.id], limit: 1 };
     const page = store.queryActivity(base);
     assert.deepEqual(page.filterOptions, ['build', 'status:failed', 'status:succeeded']);
     assert.equal(page.items[0].id, 'a-succeeded');
-    assert.equal(store.queryActivity({ ...base, cursor: page.nextCursor }).items[0].id, 'b-failed');
+    assert.equal(store.queryActivity({ ...base, cursor: page.nextCursor ?? undefined }).items[0].id, 'b-failed');
     assert.equal(store.queryActivity({ ...base, kind: 'status:running' }).total, 0);
     const succeeded = store.queryActivity({ ...base, kind: 'status:succeeded' });
     assert.equal(succeeded.items[0].id, 'a-succeeded');
@@ -497,7 +505,7 @@ test('New activity offers the displayed run status even when only an earlier upd
     assert.deepEqual(store.queryActivity.unseenIds({ ...base, kind: 'status:succeeded' }), ['a-running']);
     store.acknowledge(succeeded.items[0].unseenIds);
     assert.equal(store.queryActivity({ ...base, kind: 'status:succeeded' }).total, 0);
-    assert.equal(store.getEvent('b-failed').seen, false);
+    assert.equal(present(store.getEvent('b-failed')).seen, false);
   } finally {
     store.close();
   }
@@ -518,7 +526,8 @@ test('v8 migration turns paused repositories into disabled ones', () => {
   const store = createStore(path);
   try {
     assert.deepEqual(
-      store.listRepos().map(({ id, disabled, paused }) => ({ id, disabled, paused })),
+      // paused is a field of the earlier repository format; the migration drops it.
+      store.listRepos().map(repo => ({ id: repo.id, disabled: repo.disabled, paused: fieldsOf(repo).paused })),
       [
         { id: 'paused', disabled: true, paused: undefined },
         { id: 'active', disabled: false, paused: undefined },
@@ -544,11 +553,20 @@ test('a v6 database keeps event IDs, seen flags and repositories when its activi
   db.prepare('INSERT INTO repositories VALUES(?,?)').run(repo.id, JSON.stringify({ ...repo, paused: true }));
   const seen = build('seen-build', 'completed', { data: { buildId: 42, status: 'completed', result: 'succeeded' } });
   const unseen = event('unseen-push', { data: { pushId: 12 } });
-  for (const [raw, flag] of [
+  const rows: [ActivityEvent, number][] = [
     [seen, 1],
     [unseen, 0],
-  ]) {
-    db.prepare('INSERT INTO events VALUES(?,?,?,?,?,?,?)').run(raw.id, repo.id, raw.time, raw.observedAt, flag, 0, JSON.stringify(raw));
+  ];
+  for (const [raw, flag] of rows) {
+    db.prepare('INSERT INTO events VALUES(?,?,?,?,?,?,?)').run(
+      raw.id,
+      repo.id,
+      raw.time,
+      present(raw.observedAt),
+      flag,
+      0,
+      JSON.stringify(raw),
+    );
     db.prepare(
       'INSERT INTO activity_members(event_id,group_key,kind,label,evidence,search_text,observed,time) VALUES(?,?,?,?,?,?,?,?)',
     ).run(raw.id, raw.id, raw.kind, 'old label', 'old evidence', '', 0, 0);
@@ -615,7 +633,7 @@ test('v9 migration drops the old Pull journal and keeps repositories and events'
   }
   const check = new DatabaseSync(path);
   assert.equal(check.prepare("SELECT name FROM sqlite_master WHERE name='pull_operations'").get(), undefined);
-  assert.equal(check.prepare('PRAGMA user_version').get().user_version, 15);
+  assert.equal(present(check.prepare('PRAGMA user_version').get()).user_version, 15);
   check.close();
   rmSync(dir, { recursive: true });
 });
@@ -628,14 +646,14 @@ test('a fresh database is created with its final activity columns', () => {
   const columns = check.prepare('PRAGMA table_info(activity_members)').all();
   assert.deepEqual(
     columns
-      .filter(column => ['status_id', 'evidence_id'].includes(column.name))
+      .filter(column => ['status_id', 'evidence_id'].includes(String(column.name)))
       .map(({ name, notnull, dflt_value }) => ({ name, notnull, dflt_value })),
     [
       { name: 'status_id', notnull: 1, dflt_value: "''" },
       { name: 'evidence_id', notnull: 1, dflt_value: "''" },
     ],
   );
-  assert.equal(check.prepare('PRAGMA user_version').get().user_version, 15);
+  assert.equal(present(check.prepare('PRAGMA user_version').get()).user_version, 15);
   check.close();
   rmSync(dir, { recursive: true });
 });
@@ -643,10 +661,10 @@ test('a fresh database is created with its final activity columns', () => {
 test('every older database version and a fresh database end at the latest version, and a newer one is refused', () => {
   const latest = 15;
   const dir = mkdtempSync(join(tmpdir(), 'pulse-versions-'));
-  const versionOf = path => {
+  const versionOf = (path: string) => {
     const db = new DatabaseSync(path);
     try {
-      return db.prepare('PRAGMA user_version').get().user_version;
+      return present(db.prepare('PRAGMA user_version').get()).user_version;
     } finally {
       db.close();
     }
@@ -696,6 +714,8 @@ test('a compaction left pending by an earlier start runs on the next start', () 
 test('migration 13 rebuilds search_text from named fields and preserves enrichment search without changing read state', () => {
   const dir = mkdtempSync(join(tmpdir(), 'pulse-search-v13-'));
   const path = join(dir, 'state.sqlite');
+  // The definition as Azure sends it, with a URL the event type leaves out.
+  const nightly = { name: 'Nightly CI', url: 'https://dev.azure.com/org/_apis/build/Definitions/42' };
   let store = createStore(path);
   store.saveRepo(repo);
   store.insertEvents([
@@ -704,7 +724,7 @@ test('migration 13 rebuilds search_text from named fields and preserves enrichme
       data: {
         buildId: 42,
         status: 'inProgress',
-        definition: { name: 'Nightly CI', url: 'https://dev.azure.com/org/_apis/build/Definitions/42' },
+        definition: nightly,
       },
     }),
     event('p-1', {
@@ -732,8 +752,8 @@ test('migration 13 rebuilds search_text from named fields and preserves enrichme
   assert.equal(store.queryActivity({ search: 'Enriched note' }).total, 1);
   assert.equal(store.queryActivity({ search: '5555eeee' }).total, 1);
   assert.equal(store.queryActivity({ search: 'fast-forward' }).total, 1);
-  assert.equal(store.getEvent('b-1').seen, true);
-  assert.equal(store.getEvent('p-1').imported, true);
+  assert.equal(present(store.getEvent('b-1')).seen, true);
+  assert.equal(present(store.getEvent('p-1')).imported, true);
   store.close();
   rmSync(dir, { recursive: true });
 });
@@ -746,7 +766,7 @@ test('People filters recorded identities before grouping and binds the cursor to
       build('chris-build', 'completed', { actor: 'Chris' }),
       event('bob', { actor: 'Bob Smith' }),
       event('branch-only', { branch: 'feature/Alice' }),
-      event('assigned', { kind: 'pr', data: { reviewers: [{ name: 'Alice Morgan' }] } }),
+      event('assigned', { kind: 'pr', data: { reviewers: [stub<Reviewer>({ name: 'Alice Morgan' })] } }),
       event('closer', { kind: 'pr', actor: 'Chris', data: { closedBy: 'Bob Smith' } }),
       event('vote', { kind: 'pr', actor: 'Chris', data: { voteChanges: [{ name: 'Alice Morgan', vote: 10 }] } }),
       event('linked', { actor: 'Microsoft.VisualStudio.Services.TFS' }),
@@ -756,7 +776,7 @@ test('People filters recorded identities before grouping and binds the cursor to
     store.enrichEvent('linked', { mergeEvidence: { prs: [{ pullRequestId: 12, closedBy: { displayName: 'Bob Smith' } }] } });
     const names = ' ALICE, Bob, alice, ';
     const first = store.queryActivity({ people: names, limit: 1 });
-    const rest = store.queryActivity({ people: 'bob, alice', cursor: first.nextCursor });
+    const rest = store.queryActivity({ people: 'bob, alice', cursor: first.nextCursor ?? undefined });
     assert.equal(first.total, 5);
     assert.deepEqual([...first.items, ...rest.items].flatMap(item => item.eventIds).sort(), [
       'alice-build',
@@ -765,13 +785,13 @@ test('People filters recorded identities before grouping and binds the cursor to
       'linked',
       'vote',
     ]);
-    assert.throws(() => store.queryActivity({ people: 'Chris', cursor: first.nextCursor }), /cursor does not match/);
+    assert.throws(() => store.queryActivity({ people: 'Chris', cursor: first.nextCursor ?? undefined }), /cursor does not match/);
     assert.equal(store.queryActivity({ people: names, kind: 'build' }).items[0].unseenIds.join(), 'alice-build');
     assert.equal(store.queryActivity({ people: 'Bob', search: 'branch-only' }).total, 0);
     assert.equal(store.queryActivity({ people: 'unknown, Microsoft' }).total, 0);
     assert.equal(store.queryActivity({ people: '%_' }).total, 0);
     store.enrichEvent('branch-only', { mergeEvidence: { prs: [{ closedBy: 'Bob Smith' }] } });
-    assert.throws(() => store.queryActivity({ people: names, cursor: first.nextCursor }), { code: 'ACTIVITY_CHANGED' });
+    assert.throws(() => store.queryActivity({ people: names, cursor: first.nextCursor ?? undefined }), { code: 'ACTIVITY_CHANGED' });
     assert.equal(store.queryActivity({ people: names }).total, 6);
     assert.throws(() => store.queryActivity({ people: 'a'.repeat(301) }), /300 characters/);
   } finally {
@@ -782,7 +802,7 @@ test('People filters recorded identities before grouping and binds the cursor to
 test('Activity search finds short names across accents and People matches name fragments', () => {
   const store = setup();
   try {
-    store.saveRepo({ id: 'other', name: 'Équipe' });
+    store.saveRepo(stub<Repository>({ id: 'other', name: 'Équipe' }));
     store.insertEvents([
       event('jose', { actor: 'José van Dijk' }),
       event('alice', { actor: 'Alice Morgan' }),
@@ -790,7 +810,7 @@ test('Activity search finds short names across accents and People matches name f
       event('split', { actor: 'Jose Smith', kind: 'pr', data: { closedBy: 'Alice Dijk' } }),
       event('other', { repoId: 'other', actor: 'JOSÉ SÁNCHEZ' }),
     ]);
-    const ids = filters =>
+    const ids = (filters: ActivityRequest) =>
       store
         .queryActivity({ repoIds: [repo.id], ...filters })
         .items.map(item => item.id)
@@ -802,7 +822,7 @@ test('Activity search finds short names across accents and People matches name f
     assert.deepEqual(ids({ people: 'Jose Dijk', search: 'Jose' }), ['jose']);
     assert.deepEqual(ids({ repoIds: ['other'], search: 'equipe' }), ['other']);
     const first = store.queryActivity({ people: 'José, ALI', limit: 1 });
-    const rest = store.queryActivity({ people: 'ali, JOSÉ', cursor: first.nextCursor });
+    const rest = store.queryActivity({ people: 'ali, JOSÉ', cursor: first.nextCursor ?? undefined });
     assert.deepEqual([...first.items, ...rest.items].map(item => item.id).sort(), ['alice', 'jose', 'other', 'split']);
   } finally {
     store.close();
@@ -849,7 +869,7 @@ test('name search preserves decomposed non-Latin text and handles punctuation wi
 test('comma-separated text search matches any term within the same repository scope', () => {
   const store = setup();
   try {
-    store.saveRepo({ id: 'other', name: 'Elsewhere' });
+    store.saveRepo(stub<Repository>({ id: 'other', name: 'Elsewhere' }));
     store.insertEvents([
       event('alice', { actor: 'Alice Morgan' }),
       event('bob', { actor: 'Bob Smith' }),
@@ -859,7 +879,7 @@ test('comma-separated text search matches any term within the same repository sc
     ]);
     const scope = { repoIds: [repo.id], search: ' Alice Morgan, Bob Smith, alice morgan, ' };
     const first = store.queryActivity({ ...scope, limit: 1 });
-    const rest = store.queryActivity({ ...scope, search: 'BOB SMITH, alice morgan', cursor: first.nextCursor });
+    const rest = store.queryActivity({ ...scope, search: 'BOB SMITH, alice morgan', cursor: first.nextCursor ?? undefined });
     assert.equal(first.total, 3);
     assert.deepEqual([...first.items, ...rest.items].map(item => item.id).sort(), ['alice', 'bob', 'branch']);
     assert.deepEqual(
@@ -875,14 +895,15 @@ test('comma-separated text search matches any term within the same repository sc
 
 test('a CI run on a pull request ref carries the refs of the stored pull request, also when that PR is on another page', () => {
   const store = setup();
-  const pr = (id, time, data) =>
+  const pr = (id: string, time: string, data: EventData) =>
     event(id, {
       kind: 'pr',
       branch: 'feature/a',
       time,
       data: { pullRequestId: 7, status: 'active', targetRefName: 'refs/heads/main', ...data },
     });
-  const run = (id, branch, time) => event(id, { kind: 'build', branch, time, data: { buildId: id, status: 'completed' } });
+  const run = (id: string, branch: string, time: string) =>
+    event(id, { kind: 'build', branch, time, data: { buildId: id, status: 'completed' } });
   store.insertEvents([
     pr('pr-old', '2026-11-10T10:00:00Z', { sourceRefName: 'refs/heads/feature/old-name' }),
     pr('pr-new', '2026-11-11T10:00:00Z', { sourceRefName: 'refs/heads/feature/a', fork: { repository: 'Fork', project: 'Other' } }),
@@ -892,7 +913,7 @@ test('a CI run on a pull request ref carries the refs of the stored pull request
   ]);
   const page = store.queryActivity({ limit: 3 });
   assert.deepEqual(
-    page.items.map(item => [item.id, item.data.pullRequest]),
+    page.items.map(item => [item.id, dataOf(item).pullRequest]),
     [
       [
         'run-7',
@@ -902,19 +923,19 @@ test('a CI run on a pull request ref carries the refs of the stored pull request
       ['run-main', undefined],
     ],
   );
-  assert.equal(store.getEvent('run-7').data.pullRequest, undefined, 'the saved event is not changed');
+  assert.equal(dataOf(store.getEvent('run-7')).pullRequest, undefined, 'the saved event is not changed');
   // A PR event that names its source only as the row branch still resolves, as it does in the tree.
   store.insertEvents([
     event('pr-9', { kind: 'pr', branch: 'fix/b', data: { pullRequestId: 9 } }),
     run('run-9', 'refs/pull/9/merge', '2026-11-18T12:00:00Z'),
   ]);
-  assert.deepEqual(store.queryActivity({ limit: 1 }).items[0].data.pullRequest, { id: 9, sourceRefName: 'fix/b' });
+  assert.deepEqual(dataOf(store.queryActivity({ limit: 1 }).items[0]).pullRequest, { id: 9, sourceRefName: 'fix/b' });
   // Timestamps with and without fractions compare by time, and a PR event without a source ref is passed over.
   store.insertEvents([
     pr('pr-retarget', '2026-11-11T10:00:00.800Z', { sourceRefName: 'refs/heads/feature/a', targetRefName: 'refs/heads/release' }),
     { ...pr('pr-bare', '2026-11-12T10:00:00Z', {}), branch: '' },
   ]);
-  assert.deepEqual(store.queryActivity({ limit: 2 }).items[1].data.pullRequest, {
+  assert.deepEqual(dataOf(store.queryActivity({ limit: 2 }).items[1]).pullRequest, {
     id: 7,
     sourceRefName: 'refs/heads/feature/a',
     targetRefName: 'refs/heads/release',
