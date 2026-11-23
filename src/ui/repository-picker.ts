@@ -12,7 +12,9 @@ export type CheckoutItem = { localPath: string; remote: DiscoveredRemote; multip
 export type Mixed = { organizations: boolean; projects: boolean };
 export interface PickerHost {
   request: typeof import('../api.ts').request;
+  /** The watched repositories; their checkouts are shown as already watched. */
   getRepos: () => Repository[];
+  /** Called after at least one repository was added. */
   onAdded: (count: number) => unknown;
 }
 

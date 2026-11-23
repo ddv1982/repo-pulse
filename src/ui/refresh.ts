@@ -21,6 +21,7 @@ export type Metadata = Partial<Omit<StateResponse, 'settings' | 'diagnostics'>> 
   diagnostics?: Partial<StateResponse['diagnostics']>;
 };
 
+/** Before the first page arrives only `items` and `loading` are set. */
 export type DisplayActivity = Pick<ActivityPage, 'items'> & Partial<Omit<ActivityPage, 'items'>> & { loading?: boolean; error?: string };
 
 export type PageState = Omit<Metadata, 'syncStatus'> & {
