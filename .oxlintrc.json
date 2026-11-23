@@ -6,7 +6,6 @@
   "env": { "builtin": true, "es2024": true },
   "ignorePatterns": ["web/vendor/**", ".repo-pulse/**", "test-results/**", "playwright-report/**", "playwright/.cache/**", "coverage/**"],
   "rules": {
-    "no-undef": "error",
     "no-unreachable": "error",
     "no-dupe-keys": "error",
     "no-unused-vars": ["error", { "args": "none", "caughtErrors": "none" }],
@@ -14,9 +13,16 @@
     "complexity": ["error", 30]
   },
   "overrides": [
-    { "files": ["**/*.{js,ts}"], "env": { "node": true } },
+    // ESLint's no-undef (Oxlint's ignores "off" globals) for JavaScript only; tsc reports undefined names in TypeScript.
+    { "files": ["**/*.{js,cjs}"], "rules": { "eslint-js/no-undef": "error" } },
+    {
+      "files": ["**/*.{js,ts}"],
+      "env": { "node": true },
+      // Node's env includes the CommonJS globals, which are undefined in ES modules.
+      "globals": { "require": "off", "module": "off", "exports": "off", "__dirname": "off", "__filename": "off" }
+    },
     { "files": ["**/*.cjs"], "env": { "node": true, "commonjs": true } },
-    { "files": ["src/**", "web/**", "e2e/**"], "env": { "browser": true } },
+    { "files": ["src/**/*.{js,ts}", "web/**/*.{js,ts}", "e2e/**/*.{js,ts}"], "env": { "browser": true } },
     // UI tests read rendered markup through test/fixtures/dom.js, so a markup change only breaks a test when what a person
     // sees changes. A regular expression over the HTML would pin its exact shape again. See docs/MAINTAINING.md.
     {
