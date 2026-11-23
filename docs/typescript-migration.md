@@ -101,11 +101,11 @@ Scope depends on **D2**.
 - [x] Fix string paths to renamed modules: `test/azure-cli.test.js:23`, `test/azure-rest.test.js:276`, `test/doctor.test.js:12,250` (done in Phase 4)
 - [x] Typed stub factories in `test/fixtures/` instead of `as any` for partial fakes
 - [x] The HTML-regex rule still fires on the three renamed UI tests (seeded check)
-- [ ] Test count unchanged (470: 469 plus the one Phase 2 added) and CI green after each batch
+- [x] Test count unchanged (470: 469 plus the one Phase 2 added) and CI green after each batch (PRs 95, 96, 97)
 
 ## Phase 6: e2e (3 files, about 3,700 lines)
 
-- [ ] `e2e/*.test.ts`; `test:ui` runs `node --test "e2e/*.test.ts"`; 85 Chromium tests pass
+- [x] `e2e/*.test.ts`; `test:ui` runs `node --test "e2e/*.test.ts"`; 85 Chromium tests pass; `tsconfig.test.json` checks `e2e/` with the unit tests, and the browser tests share the typed helpers in `test/fixtures/`
 
 ## Phase 7: close-out
 
