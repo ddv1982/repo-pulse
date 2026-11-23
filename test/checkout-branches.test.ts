@@ -5,8 +5,27 @@ import { createHash } from 'node:crypto';
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
-import { createCheckoutGit, runGit } from '../server/checkout-git.ts';
-import { checkoutFixture, git, squashFixture } from './fixtures/checkout.ts';
+import type { TestContext } from 'node:test';
+import { createCheckoutGit, runGit, type GitRunner } from '../server/checkout-git.ts';
+import type { BranchAction } from '../server/checkout-branches.ts';
+import type { Observation, Observations } from '../server/checkout-observations.ts';
+import type { CheckoutStatus } from '../src/contract.ts';
+import {
+  actions,
+  adviceOf,
+  branchReviewOf,
+  checkoutFixture,
+  comparisonOf,
+  diagnosticOf,
+  expectedOf,
+  followupOf,
+  git,
+  linked,
+  outcome,
+  squashFixture,
+  switchReviewOf,
+} from './fixtures/checkout.ts';
+import { present } from './fixtures/typed.ts';
 
 const exec = promisify(execFile);
 
@@ -20,8 +39,8 @@ test('an in-flight Check locks its checkout and linked worktrees while allowing 
   const otherPath = join(local, '..', 'other-checkout');
   git(source, 'clone', '--no-local', remote, otherPath);
   const other = { ...repo, id: 'other', localPath: otherPath };
-  const fetching = Promise.withResolvers();
-  const release = Promise.withResolvers();
+  const fetching = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
   const checkoutGit = createCheckoutGit({
     matchesRemote: url => url === remote,
     run: async (path, args, options) => {
@@ -35,23 +54,27 @@ test('an in-flight Check locks its checkout and linked worktrees while allowing 
   const repoStatus = await checkoutGit.status(repo);
   const worktreeStatus = await checkoutGit.status(worktreeRepo);
   const otherStatus = await checkoutGit.status(other);
-  const check = checkoutGit.update(repo, 'check', repoStatus);
+  const check = checkoutGit.update(repo, 'check', expectedOf(repoStatus));
   try {
     await Promise.race([fetching.promise, check.then(() => assert.fail('Check did not reach fetch.'))]);
-    await assert.rejects(checkoutGit.switchToActivityBranch(repo, 'topic', repoStatus), /already updating/);
+    await assert.rejects(checkoutGit.switchToActivityBranch(repo, 'topic', expectedOf(repoStatus)), /already updating/);
     await assert.rejects(
-      checkoutGit.switchToActivityBranch(worktreeRepo, 'topic', worktreeStatus),
+      checkoutGit.switchToActivityBranch(worktreeRepo, 'topic', expectedOf(worktreeStatus)),
       /Another checkout sharing this Git repository is updating/,
     );
     assert.equal(git(worktreePath, 'branch', '--show-current'), 'wt-branch');
-    const switched = await checkoutGit.switchToActivityBranch(other, 'topic', otherStatus);
-    assert.equal(switched.checkout.branch, 'topic');
+    const switched = await checkoutGit.switchToActivityBranch(other, 'topic', expectedOf(otherStatus));
+    assert.equal(linked(switched.checkout).branch, 'topic');
   } finally {
     release.resolve();
     await check;
   }
-  const worktreeSwitched = await checkoutGit.switchToActivityBranch(worktreeRepo, 'topic', await checkoutGit.status(worktreeRepo));
-  assert.equal(worktreeSwitched.checkout.branch, 'topic');
+  const worktreeSwitched = await checkoutGit.switchToActivityBranch(
+    worktreeRepo,
+    'topic',
+    expectedOf(await checkoutGit.status(worktreeRepo)),
+  );
+  assert.equal(linked(worktreeSwitched.checkout).branch, 'topic');
   assert.equal(git(local, 'rev-parse', 'HEAD'), original);
 });
 
@@ -68,10 +91,10 @@ test('Activity switch keeps the commits, upstream and compatible local edits of 
   git(local, 'add', 'feature.txt');
   writeFileSync(join(local, 'feature.txt'), 'unstaged edit');
   writeFileSync(join(local, 'notes.txt'), 'untracked notes');
-  const { checkout } = await checkoutGit.switchToActivityBranch(repo, branch, await checkoutGit.status(repo));
-  assert.equal(checkout.branch, branch);
-  assert.equal(checkout.head, localTip);
-  assert.equal(checkout.upstream, `origin/${branch}`);
+  const { checkout } = await checkoutGit.switchToActivityBranch(repo, branch, expectedOf(await checkoutGit.status(repo)));
+  assert.equal(linked(checkout).branch, branch);
+  assert.equal(linked(checkout).head, localTip);
+  assert.equal(linked(checkout).upstream, `origin/${branch}`);
   assert.equal(git(local, 'rev-parse', 'main'), original);
   assert.equal(git(local, 'show', ':feature.txt'), 'staged edit');
   assert.equal(readFileSync(join(local, 'feature.txt'), 'utf8'), 'unstaged edit');
@@ -88,14 +111,17 @@ test('Activity switch refuses conflicting edits, stale intent, occupied worktree
   git(local, 'fetch', 'origin', branch);
   git(local, 'branch', '--track', branch, `origin/${branch}`);
   const expected = await checkoutGit.status(repo);
-  const switchBranch = () => checkoutGit.switchToActivityBranch(repo, branch, expected);
+  const switchBranch = () => checkoutGit.switchToActivityBranch(repo, branch, expectedOf(expected));
 
   writeFileSync(join(local, 'feature.txt'), 'unsaved');
   await assert.rejects(switchBranch(), /conflicting files/i);
   assert.equal(git(local, 'branch', '--show-current'), 'main');
   assert.equal(readFileSync(join(local, 'feature.txt'), 'utf8'), 'unsaved');
   git(local, 'restore', 'feature.txt');
-  await assert.rejects(checkoutGit.switchToActivityBranch(repo, branch, { ...expected, head: 'a'.repeat(40) }), /checkout changed/i);
+  await assert.rejects(
+    checkoutGit.switchToActivityBranch(repo, branch, { ...expectedOf(expected), head: 'a'.repeat(40) }),
+    /checkout changed/i,
+  );
 
   const worktree = join(local, '..', 'occupied');
   git(local, 'worktree', 'add', worktree, branch);
@@ -117,7 +143,7 @@ test('Activity switch rejects misrouted fetch mappings and dangling symbolic tra
   git(local, 'config', 'remote.origin.fetch', '+refs/heads/main:refs/remotes/origin/main');
   git(local, 'config', '--add', 'remote.origin.fetch', '+refs/heads/other:refs/remotes/origin/topic');
   const expected = await checkoutGit.status(repo);
-  const switchBranch = () => checkoutGit.switchToActivityBranch(repo, 'topic', expected);
+  const switchBranch = () => checkoutGit.switchToActivityBranch(repo, 'topic', expectedOf(expected));
   await assert.rejects(switchBranch(), /does not map this branch/);
   assert.throws(() => git(local, 'show-ref', '--verify', 'refs/remotes/origin/topic'));
 
@@ -142,39 +168,42 @@ test('Activity confirms a rewrite before switching and preserves protection for 
   git(source, 'push', '--force-with-lease', 'origin', 'topic');
 
   const expected = await checkoutGit.status(repo);
-  const paused = await checkoutGit.switchToActivityBranch(repo, 'topic', expected, { eventId: 'rewrite' });
-  assert.equal(paused.switchReview.previous, oldTip);
-  assert.equal(paused.switchReview.tip, newTip);
+  const paused = await checkoutGit.switchToActivityBranch(repo, 'topic', expectedOf(expected), { eventId: 'rewrite' });
+  assert.equal(switchReviewOf(paused).previous, oldTip);
+  assert.equal(switchReviewOf(paused).tip, newTip);
   assert.equal(git(local, 'branch', '--show-current'), 'main');
   assert.equal(git(local, 'rev-parse', 'origin/topic'), oldTip);
   assert.equal(git(local, 'for-each-ref', 'refs/repo-pulse/upstream-rewrites'), '');
   const otherAdapter = createCheckoutGit({ matchesRemote: url => url === remote });
   await assert.rejects(
-    otherAdapter.switchToActivityBranch(repo, 'topic', expected, { eventId: 'rewrite', confirmation: paused.switchReview.token }),
+    otherAdapter.switchToActivityBranch(repo, 'topic', expectedOf(expected), {
+      eventId: 'rewrite',
+      confirmation: switchReviewOf(paused).token,
+    }),
     /changed since confirmation/,
   );
   assert.equal(git(local, 'branch', '--show-current'), 'main');
   assert.equal(git(local, 'rev-parse', 'origin/topic'), oldTip);
-  const switched = await checkoutGit.switchToActivityBranch(repo, 'topic', expected, {
+  const switched = await checkoutGit.switchToActivityBranch(repo, 'topic', expectedOf(expected), {
     eventId: 'rewrite',
-    confirmation: paused.switchReview.token,
+    confirmation: switchReviewOf(paused).token,
   });
-  assert.equal(switched.checkout.branch, 'topic');
-  assert.equal(switched.checkout.head, newTip);
+  assert.equal(linked(switched.checkout).branch, 'topic');
+  assert.equal(linked(switched.checkout).head, newTip);
   assert.equal(git(local, 'rev-list', '--left-right', '--count', 'HEAD...@{upstream}'), '0\t0');
   assert.equal(git(local, 'for-each-ref', '--format=%(objectname)', 'refs/repo-pulse/upstream-rewrites'), oldTip);
-  await checkoutGit.update(repo, 'check', await checkoutGit.status(repo));
+  await checkoutGit.update(repo, 'check', expectedOf(await checkoutGit.status(repo)));
   git(local, 'switch', 'main');
-  await checkoutGit.update(repo, 'check', await checkoutGit.status(repo));
+  await checkoutGit.update(repo, 'check', expectedOf(await checkoutGit.status(repo)));
   const other = join(local, '..', 'alternate-worktree');
   git(local, 'worktree', 'add', other, 'alternate');
   const restarted = createCheckoutGit({ matchesRemote: url => url === remote });
   const otherRepo = { ...repo, localPath: other };
   const status = await restarted.status(otherRepo);
   assert.equal(status.state, 'upstream-rewritten');
-  assert.equal(status.diagnostic.comparison.previous, oldTip);
-  assert.equal(status.canPull, false);
-  await assert.rejects(restarted.update(otherRepo, 'pull', status), /no longer eligible/);
+  assert.equal(comparisonOf(status).previous, oldTip);
+  assert.equal(actions(status).canPull, false);
+  await assert.rejects(restarted.update(otherRepo, 'pull', expectedOf(status)), /no longer eligible/);
   assert.equal(git(other, 'rev-parse', 'HEAD'), original);
 });
 
@@ -190,7 +219,10 @@ test('Activity refuses to overwrite a tracking ref also used by another source',
   git(local, 'fetch', 'origin', 'other');
   assert.equal(git(local, 'rev-parse', 'origin/topic'), other);
 
-  await assert.rejects(checkoutGit.switchToActivityBranch(repo, 'topic', await checkoutGit.status(repo)), /does not map this branch/);
+  await assert.rejects(
+    checkoutGit.switchToActivityBranch(repo, 'topic', expectedOf(await checkoutGit.status(repo))),
+    /does not map this branch/,
+  );
   assert.notEqual(git(local, 'rev-parse', 'HEAD'), topic);
   assert.equal(git(local, 'rev-parse', 'origin/topic'), other);
 });
@@ -200,7 +232,7 @@ test('Activity verifies the remote tip again after fetching the new branch objec
   git(source, 'switch', '-c', 'topic');
   commit(source, 'topic.txt', 'advertised tip');
   git(source, 'push', 'origin', 'topic');
-  let latest;
+  let latest: string | undefined;
   const checkoutGit = createCheckoutGit({
     matchesRemote: url => url === remote,
     run: async (path, args, options) => {
@@ -211,9 +243,9 @@ test('Activity verifies the remote tip again after fetching the new branch objec
       return runGit(path, args, options);
     },
   });
-  const result = await checkoutGit.switchToActivityBranch(repo, 'topic', await checkoutGit.status(repo));
+  const result = await checkoutGit.switchToActivityBranch(repo, 'topic', expectedOf(await checkoutGit.status(repo)));
   assert.ok(latest);
-  assert.equal(result.message, undefined);
+  assert.equal(outcome(result).message, undefined);
   assert.equal(git(local, 'rev-parse', 'HEAD'), latest);
   assert.equal(git(local, 'rev-parse', '@{upstream}'), latest);
 });
@@ -231,29 +263,34 @@ test('Activity refuses stale confirmation and keeps the local tip when refreshin
   git(source, 'push', 'origin', 'topic');
 
   const expected = await checkoutGit.status(repo);
-  const first = await checkoutGit.switchToActivityBranch(repo, 'topic', expected, { eventId: 'topic-event' });
-  assert.equal(first.switchReview.previous, null);
-  assert.equal(first.switchReview.ahead, 1);
-  assert.equal(first.switchReview.behind, 1);
+  const first = await checkoutGit.switchToActivityBranch(repo, 'topic', expectedOf(expected), { eventId: 'topic-event' });
+  assert.equal(switchReviewOf(first).previous, null);
+  assert.equal(switchReviewOf(first).ahead, 1);
+  assert.equal(switchReviewOf(first).behind, 1);
   const latest = commit(source, 'topic.txt', 'second remote advance');
   git(source, 'push', 'origin', 'topic');
   await assert.rejects(
-    checkoutGit.switchToActivityBranch(repo, 'topic', expected, { eventId: 'topic-event', confirmation: first.switchReview.token }),
+    checkoutGit.switchToActivityBranch(repo, 'topic', expectedOf(expected), {
+      eventId: 'topic-event',
+      confirmation: switchReviewOf(first).token,
+    }),
     /changed since confirmation/,
   );
   assert.equal(git(local, 'branch', '--show-current'), 'main');
   assert.equal(git(local, 'rev-parse', 'origin/topic'), previous);
-  const { switchReview } = await checkoutGit.switchToActivityBranch(repo, 'topic', expected, { eventId: 'topic-event' });
+  const switchReview = switchReviewOf(
+    await checkoutGit.switchToActivityBranch(repo, 'topic', expectedOf(expected), { eventId: 'topic-event' }),
+  );
   await assert.rejects(
-    checkoutGit.switchToActivityBranch(repo, 'topic', expected, { eventId: 'other-event', confirmation: switchReview.token }),
+    checkoutGit.switchToActivityBranch(repo, 'topic', expectedOf(expected), { eventId: 'other-event', confirmation: switchReview.token }),
     /changed since confirmation/,
   );
   await assert.rejects(
-    checkoutGit.switchToActivityBranch(repo, 'topic', expected, { confirmation: switchReview.token }),
+    checkoutGit.switchToActivityBranch(repo, 'topic', expectedOf(expected), { confirmation: switchReview.token }),
     /changed since confirmation/,
     'a review from Activity cannot confirm a switch chosen in Repositories',
   );
-  const { checkout } = await checkoutGit.switchToActivityBranch(repo, 'topic', expected, {
+  const { checkout } = await checkoutGit.switchToActivityBranch(repo, 'topic', expectedOf(expected), {
     eventId: 'topic-event',
     confirmation: switchReview.token,
   });
@@ -271,11 +308,14 @@ test('Activity rejects a dangling symbolic tracking ref introduced when Git begi
   const checkoutGit = createCheckoutGit({
     matchesRemote: url => url === remote,
     run: async (path, args, options) => {
-      if (args[2] === 'update-ref' && options?.input.includes(`create ${tracking} `)) git(local, 'symbolic-ref', tracking, absent);
+      if (args[2] === 'update-ref' && options?.input?.includes(`create ${tracking} `)) git(local, 'symbolic-ref', tracking, absent);
       return runGit(path, args, options);
     },
   });
-  await assert.rejects(checkoutGit.switchToActivityBranch(repo, 'topic', await checkoutGit.status(repo)), /could not verify and refresh/);
+  await assert.rejects(
+    checkoutGit.switchToActivityBranch(repo, 'topic', expectedOf(await checkoutGit.status(repo))),
+    /could not verify and refresh/,
+  );
   assert.equal(git(local, 'symbolic-ref', tracking), absent);
   assert.equal(git(local, 'branch', '--show-current'), 'main');
 });
@@ -302,16 +342,16 @@ test('Activity keeps the old tracker if Git cannot create the rewrite archive', 
     },
   });
   const expected = await checkoutGit.status(repo);
-  const { switchReview } = await checkoutGit.switchToActivityBranch(repo, 'topic', expected);
+  const switchReview = switchReviewOf(await checkoutGit.switchToActivityBranch(repo, 'topic', expectedOf(expected)));
   await assert.rejects(
-    checkoutGit.switchToActivityBranch(repo, 'topic', expected, { confirmation: switchReview.token }),
+    checkoutGit.switchToActivityBranch(repo, 'topic', expectedOf(expected), { confirmation: switchReview.token }),
     /could not verify and refresh/,
   );
   assert.equal(git(local, 'rev-parse', 'origin/topic'), previous);
   assert.equal(git(local, 'branch', '--show-current'), 'main');
 });
 
-async function checkedTopicRewrite(t) {
+async function checkedTopicRewrite(t: TestContext) {
   const fixture = checkoutFixture(t);
   const { source, local, repo, checkoutGit, commit, original } = fixture;
   git(source, 'switch', '-c', 'topic');
@@ -322,7 +362,7 @@ async function checkedTopicRewrite(t) {
   git(source, 'reset', '--hard', original);
   const newTip = commit(source, 'topic.txt', 'rewritten history');
   git(source, 'push', '--force-with-lease', 'origin', 'topic');
-  const checked = await checkoutGit.update(repo, 'check', await checkoutGit.status(repo));
+  const checked = await checkoutGit.update(repo, 'check', expectedOf(await checkoutGit.status(repo)));
   assert.equal(checked.checkout.state, 'upstream-rewritten');
   return { ...fixture, oldTip, newTip };
 }
@@ -336,11 +376,13 @@ for (const remoteAdvances of [false, true]) {
       commit(source, 'topic.txt', 'normal advance');
       git(source, 'push', 'origin', 'topic');
     }
-    const { checkout, switchReview, message } = await checkoutGit.switchToActivityBranch(repo, 'topic', await checkoutGit.status(repo));
+    const { checkout, switchReview, message } = outcome(
+      await checkoutGit.switchToActivityBranch(repo, 'topic', expectedOf(await checkoutGit.status(repo))),
+    );
     assert.equal(switchReview, undefined);
     assert.equal(message, undefined);
     assert.equal(checkout.state, remoteAdvances ? 'behind' : 'current');
-    assert.equal(checkout.canPull, remoteAdvances);
+    assert.equal(actions(checkout).canPull, remoteAdvances);
     const [archive] = git(local, 'for-each-ref', '--format=%(refname)', 'refs/repo-pulse/upstream-rewrites').split('\n');
     assert.ok(archive.endsWith(`/${newTip}/${oldTip}`));
   });
@@ -350,10 +392,10 @@ test('Activity ignores saved upstream observations from a replaced clone', async
   const { source, remote, local, repo, checkoutGit, newTip } = await checkedTopicRewrite(t);
   renameSync(local, `${local}-previous`);
   git(source, 'clone', '--no-local', remote, local);
-  const finished = await checkoutGit.switchToActivityBranch(repo, 'topic', await checkoutGit.status(repo));
-  assert.equal(finished.message, undefined);
-  assert.equal(finished.switchReview, undefined);
-  assert.equal(finished.checkout.head, newTip);
+  const finished = await checkoutGit.switchToActivityBranch(repo, 'topic', expectedOf(await checkoutGit.status(repo)));
+  assert.equal(outcome(finished).message, undefined);
+  assert.equal(outcome(finished).switchReview, undefined);
+  assert.equal(linked(finished.checkout).head, newTip);
   assert.equal(finished.checkout.state, 'current');
 });
 
@@ -372,8 +414,8 @@ test('Activity never switches a replacement clone after refreshing the tracker',
       return output;
     },
   });
-  const result = await checkoutGit.switchToActivityBranch(repo, 'topic', await checkoutGit.status(repo));
-  assert.match(result.message, /tracking ref was refreshed, but the checkout was not switched/);
+  const result = await checkoutGit.switchToActivityBranch(repo, 'topic', expectedOf(await checkoutGit.status(repo)));
+  assert.match(present(outcome(result).message), /tracking ref was refreshed, but the checkout was not switched/);
   assert.equal(git(local, 'branch', '--show-current'), 'main');
   assert.equal(git(`${local}-previous`, 'branch', '--show-current'), 'main');
 });
@@ -395,7 +437,7 @@ for (const afterSwitch of [false, true]) {
         },
       },
       run: async (path, args, options) => {
-        if (armed && args[0] === 'for-each-ref' && args.at(-1).startsWith('refs/repo-pulse/upstream-rewrites/')) {
+        if (armed && args[0] === 'for-each-ref' && args.at(-1)?.startsWith('refs/repo-pulse/upstream-rewrites/')) {
           armed = false;
           renameSync(local, `${local}-previous`);
           git(source, 'clone', '--no-local', remote, local);
@@ -405,9 +447,9 @@ for (const afterSwitch of [false, true]) {
         return output;
       },
     });
-    const result = await checkoutGit.switchToActivityBranch(repo, 'topic', await checkoutGit.status(repo));
-    assert.match(result.message, afterSwitch ? /could not be verified/ : /checkout was not switched/);
-    assert.equal(result.checkout.branch, 'main');
+    const result = await checkoutGit.switchToActivityBranch(repo, 'topic', expectedOf(await checkoutGit.status(repo)));
+    assert.match(present(outcome(result).message), afterSwitch ? /could not be verified/ : /checkout was not switched/);
+    assert.equal(linked(result.checkout).branch, 'main');
     assert.equal(git(local, 'branch', '--show-current'), 'main');
     assert.equal(git(`${local}-previous`, 'branch', '--show-current'), afterSwitch ? 'topic' : 'main');
   });
@@ -444,9 +486,9 @@ test('An existing branch follow-up retains its pre-upgrade checkout identity', a
     followups: { get: () => plan, save: () => {} },
   });
   const checkout = await checkoutGit.status(repo);
-  assert.equal(checkout.followup.id, plan.id);
-  const reviewed = await checkoutGit.branchAction(repo, { operation: 'review', planId: plan.id }, checkout);
-  assert.equal(reviewed.review.kind, 'included');
+  assert.equal(followupOf(checkout).id, plan.id);
+  const reviewed = await checkoutGit.branchAction(repo, { operation: 'review', planId: plan.id }, expectedOf(checkout));
+  assert.equal(branchReviewOf(reviewed).kind, 'included');
 });
 
 test('Activity reports an invalid symbolic tracker alongside the checkout even with a rewrite archive', async t => {
@@ -459,8 +501,8 @@ test('Activity reports an invalid symbolic tracker alongside the checkout even w
   const tip = commit(source, 'topic.txt', 'remote topic');
   git(source, 'push', '--force-with-lease', 'origin', 'topic');
   const tracking = 'refs/remotes/origin/topic';
-  const observations = new Map();
-  const observationStorage = {
+  const observations = new Map<string, Observation>();
+  const observationStorage: Observations = {
     get: (id, identity) => observations.get(identity),
     save: (id, value) => observations.set(value.identity, value),
   };
@@ -470,7 +512,7 @@ test('Activity reports an invalid symbolic tracker alongside the checkout even w
     matchesRemote: url => url === remote,
     observations: observationStorage,
     run: async (path, args, options) => {
-      if (inject && observations.size && args[0] === 'for-each-ref' && args.at(-1).startsWith('refs/repo-pulse/upstream-rewrites/')) {
+      if (inject && observations.size && args[0] === 'for-each-ref' && args.at(-1)?.startsWith('refs/repo-pulse/upstream-rewrites/')) {
         inject = false;
         git(local, 'update-ref', tracking, original);
         sample = true;
@@ -483,16 +525,16 @@ test('Activity reports an invalid symbolic tracker alongside the checkout even w
     },
   });
   const expected = await checkoutGit.status(repo);
-  const { switchReview } = await checkoutGit.switchToActivityBranch(repo, 'topic', expected);
-  const result = await checkoutGit.switchToActivityBranch(repo, 'topic', expected, { confirmation: switchReview.token });
-  assert.match(result.message, /could not be verified/);
-  assert.equal(result.checkout.lastBranchCheck.matchesFetchedTip, false);
+  const switchReview = switchReviewOf(await checkoutGit.switchToActivityBranch(repo, 'topic', expectedOf(expected)));
+  const result = await checkoutGit.switchToActivityBranch(repo, 'topic', expectedOf(expected), { confirmation: switchReview.token });
+  assert.match(present(outcome(result).message), /could not be verified/);
+  assert.equal(present(linked(result.checkout).lastBranchCheck).matchesFetchedTip, false);
   const restarted = createCheckoutGit({ matchesRemote: url => url === remote, observations: observationStorage });
   const latest = await restarted.status(repo);
-  assert.equal(latest.branch, 'topic');
-  assert.equal(latest.diagnostic.title, 'Upstream ref needs review');
-  assert.equal(latest.lastBranchCheck.matchesFetchedTip, false);
-  assert.equal(latest.canPull, false);
+  assert.equal(linked(latest).branch, 'topic');
+  assert.equal(diagnosticOf(latest).title, 'Upstream ref needs review');
+  assert.equal(present(linked(latest).lastBranchCheck).matchesFetchedTip, false);
+  assert.equal(actions(latest).canPull, false);
   assert.equal(git(local, 'rev-parse', tracking), tip);
 });
 
@@ -502,9 +544,9 @@ test('Activity reports a refreshed tracker if Git refuses to switch over a local
   const tip = commit(source, 'feature.txt', 'changed on the remote');
   git(source, 'push', 'origin', 'topic');
   writeFileSync(join(local, 'feature.txt'), 'unsaved edit');
-  const result = await checkoutGit.switchToActivityBranch(repo, 'topic', await checkoutGit.status(repo));
-  assert.match(result.message, /tracking ref was refreshed, but the checkout was not switched/);
-  assert.equal(result.checkout.head, original);
+  const result = await checkoutGit.switchToActivityBranch(repo, 'topic', expectedOf(await checkoutGit.status(repo)));
+  assert.match(present(outcome(result).message), /tracking ref was refreshed, but the checkout was not switched/);
+  assert.equal(linked(result.checkout).head, original);
   assert.equal(git(local, 'rev-parse', 'origin/topic'), tip);
   assert.equal(git(local, 'branch', '--show-current'), 'main');
   assert.equal(readFileSync(join(local, 'feature.txt'), 'utf8'), 'unsaved edit');
@@ -518,7 +560,7 @@ test('Activity confirmation belongs to the Git directory that was shown', async 
   renameSync(local, `${local}-previous`);
   git(source, 'clone', '--no-local', remote, local);
 
-  await assert.rejects(checkoutGit.switchToActivityBranch(repo, 'topic', expected), /checkout changed/i);
+  await assert.rejects(checkoutGit.switchToActivityBranch(repo, 'topic', expectedOf(expected)), /checkout changed/i);
   assert.equal(git(local, 'branch', '--show-current'), 'main');
   assert.equal(git(`${local}-previous`, 'branch', '--show-current'), 'main');
 });
@@ -539,9 +581,9 @@ test('Activity reports a partial switch if a conflicting fetch mapping appears d
       return runGit(path, args, options);
     },
   });
-  const result = await checkoutGit.switchToActivityBranch(repo, name, await checkoutGit.status(repo));
-  assert.match(result.message, /could not be verified/);
-  assert.equal(result.checkout.branch, name);
+  const result = await checkoutGit.switchToActivityBranch(repo, name, expectedOf(await checkoutGit.status(repo)));
+  assert.match(present(outcome(result).message), /could not be verified/);
+  assert.equal(linked(result.checkout).branch, name);
   assert.equal(git(local, 'config', 'branch.group/topic.remote'), 'origin');
   assert.equal(git(local, 'config', 'branch.group/topic.merge'), 'refs/heads/group/topic');
 });
@@ -559,8 +601,8 @@ test('Activity switch catches a symbolic tracking ref introduced during upstream
       return runGit(path, args, options);
     },
   });
-  const result = await checkoutGit.switchToActivityBranch(repo, 'topic', await checkoutGit.status(repo));
-  assert.match(result.message, /could not be verified/);
+  const result = await checkoutGit.switchToActivityBranch(repo, 'topic', expectedOf(await checkoutGit.status(repo)));
+  assert.match(present(outcome(result).message), /could not be verified/);
   assert.equal(git(local, 'symbolic-ref', tracking), absent);
   assert.throws(() => git(local, 'show-ref', '--verify', absent));
 });
@@ -580,7 +622,7 @@ test('Activity rechecks the Git directory after validating the destination', asy
       return runGit(path, args, options);
     },
   });
-  await assert.rejects(checkoutGit.switchToActivityBranch(repo, 'topic', await checkoutGit.status(repo)), /checkout changed/i);
+  await assert.rejects(checkoutGit.switchToActivityBranch(repo, 'topic', expectedOf(await checkoutGit.status(repo))), /checkout changed/i);
   assert.equal(git(local, 'branch', '--show-current'), 'main');
   assert.equal(git(`${local}-previous`, 'branch', '--show-current'), 'main');
 });
@@ -600,13 +642,16 @@ test('Activity reports a partial switch if the checkout is replaced during final
       return runGit(path, args, options);
     },
   });
-  const result = await checkoutGit.switchToActivityBranch(repo, 'topic', await checkoutGit.status(repo));
-  assert.match(result.message, /could not be verified/);
-  assert.equal(result.checkout.branch, 'main');
+  const result = await checkoutGit.switchToActivityBranch(repo, 'topic', expectedOf(await checkoutGit.status(repo)));
+  assert.match(present(outcome(result).message), /could not be verified/);
+  assert.equal(linked(result.checkout).branch, 'main');
   assert.equal(git(`${local}-previous`, 'branch', '--show-current'), 'topic');
 });
 
-async function setup(t, { followup = false, conflict = false, run } = {}) {
+async function setup(
+  t: TestContext,
+  { followup = false, conflict = false, run }: { followup?: boolean; conflict?: boolean; run?: GitRunner } = {},
+) {
   const fixture = squashFixture(t);
   const { local, remote, source, commit, repo, pr } = fixture;
   git(local, 'config', 'user.email', 'test@example.test');
@@ -618,8 +663,8 @@ async function setup(t, { followup = false, conflict = false, run } = {}) {
   const tip = conflict ? commit(source, 'second.txt', 'conflict on target') : commit(source, 'target.txt', 'new target commit');
   git(source, 'push', 'origin', 'release');
   const adapter = createCheckoutGit({ matchesRemote: url => url === remote, findPulls: async () => [pr], run });
-  const { checkout } = await adapter.update(repo, 'check', await adapter.status(repo));
-  assert.equal(checkout.diagnostic.advice.destination, 'local');
+  const { checkout } = await adapter.update(repo, 'check', expectedOf(await adapter.status(repo)));
+  assert.equal(adviceOf(checkout).destination, 'local');
   assert.equal(git(local, 'rev-parse', 'origin/release'), pr.result);
   return {
     ...fixture,
@@ -628,37 +673,39 @@ async function setup(t, { followup = false, conflict = false, run } = {}) {
     first,
     second,
     checkout,
-    switchTarget: () => adapter.branchAction(repo, { operation: 'switch-update', prId: pr.id, result: pr.result }, checkout),
-    act: (target, operation, extra) => adapter.branchAction(repo, { operation, planId: target.followup.id, ...extra }, target),
+    switchTarget: () => adapter.branchAction(repo, { operation: 'switch-update', prId: pr.id, result: pr.result }, expectedOf(checkout)),
+    // The tests pass commits only with carry, so each call makes one of the BranchAction variants.
+    act: (target: CheckoutStatus, operation: 'review' | 'remove' | 'carry', extra?: { commits: string[] }) =>
+      adapter.branchAction(repo, { operation, planId: followupOf(target).id, ...extra } as BranchAction, expectedOf(target)),
   };
 }
 
 test('switch updates a locally current squash PR target and old branch removal is recoverable', async t => {
   const fixture = await setup(t);
   const { local, source, pr, tip, switchTarget, act } = fixture;
-  const { checkout, message } = await switchTarget();
-  assert.match(message, /Switched to release and updated/);
-  assert.equal(checkout.head, tip);
+  const { checkout, message } = outcome(await switchTarget());
+  assert.match(present(message), /Switched to release and updated/);
+  assert.equal(linked(checkout).head, tip);
   assert.equal(git(local, 'rev-parse', 'topic'), pr.head);
   assert.equal(git(source, 'rev-parse', 'release'), tip);
-  assert.equal((await act(checkout, 'review')).review.kind, 'included');
+  assert.equal(branchReviewOf(await act(checkout, 'review')).kind, 'included');
   git(local, 'pack-refs', '--all');
   const removed = await act(checkout, 'remove');
-  assert.match(removed.message, /Removed local branch topic/);
-  assert.equal(removed.checkout.followup, undefined);
+  assert.match(present(outcome(removed).message), /Removed local branch topic/);
+  assert.equal(linked(removed.checkout).followup, undefined);
   assert.throws(() => git(local, 'show-ref', '--verify', 'refs/heads/topic'));
-  assert.equal(git(local, 'rev-parse', `refs/repo-pulse/archive/${checkout.followup.id}`), pr.head);
+  assert.equal(git(local, 'rev-parse', `refs/repo-pulse/archive/${followupOf(checkout).id}`), pr.head);
   assert.equal(git(local, 'branch', '--show-current'), 'release');
 });
 
 test('a branch switch just before the target update merges is reported as unclear, not as blocked', async t => {
-  const run = async (path, args, options) => {
+  const run: GitRunner = async (path, args, options) => {
     // A terminal switch after the final check, to a new branch already at the upstream tip.
-    if (args.includes('merge') && args.includes('--ff-only')) git(path, 'switch', '--quiet', '-c', 'other', args.at(-1));
+    if (args.includes('merge') && args.includes('--ff-only')) git(path, 'switch', '--quiet', '-c', 'other', present(args.at(-1)));
     return runGit(path, args, options);
   };
   const { switchTarget } = await setup(t, { run });
-  const { message } = await switchTarget();
+  const { message } = outcome(await switchTarget());
   assert.equal(
     message,
     'Switched to release. The checkout is no longer on release, so it is unclear which branch moved. Review the checkout in Git.',
@@ -700,19 +747,20 @@ test('a diverged target remains checked out and is reported as a partial success
   const target = git(local, 'rev-parse', 'HEAD');
   git(local, 'switch', 'topic');
   const result = await switchTarget();
-  assert.match(result.message, /Switched to release. The update was blocked/);
+  assert.match(present(outcome(result).message), /Switched to release. The update was blocked/);
   assert.equal(git(local, 'branch', '--show-current'), 'release');
   assert.equal(git(local, 'rev-parse', 'release'), target);
   assert.equal(git(local, 'rev-parse', 'topic'), pr.head);
 });
 
-function interceptGit(beforeRun) {
+function interceptGit(beforeRun: (path: string, options: Parameters<GitRunner>[2]) => void): GitRunner {
   return async (path, args, options) => {
     beforeRun(path, options);
     const command = exec('git', ['-C', path, ...args], { env: { ...process.env, GIT_OPTIONAL_LOCKS: '0', ...options?.guard } });
     if (options?.input) {
-      command.child.stdin.on('error', () => {});
-      command.child.stdin.end(options.input);
+      const stdin = present(command.child.stdin);
+      stdin.on('error', () => {});
+      stdin.end(options.input);
     }
     return (await command).stdout;
   };
@@ -721,7 +769,7 @@ function interceptGit(beforeRun) {
 test('an existing symbolic recovery ref cannot satisfy the archive requirement', async t => {
   const { local, pr, switchTarget, act } = await setup(t);
   const { checkout } = await switchTarget();
-  const archive = `refs/repo-pulse/archive/${checkout.followup.id}`;
+  const archive = `refs/repo-pulse/archive/${followupOf(checkout).id}`;
   git(local, 'symbolic-ref', archive, 'refs/heads/topic');
   await assert.rejects(act(checkout, 'remove'), /recovery reference is symbolic/);
   assert.equal(git(local, 'rev-parse', 'topic'), pr.head);
@@ -739,23 +787,23 @@ test('a recovery ref made symbolic just before deletion fails under the ref lock
 });
 
 test('late change to the source branch is rejected by the ref comparison', async t => {
-  let newTip;
+  let newTip: string | undefined;
   const runner = interceptGit((path, options) => {
-    if (options?.guard?.REPO_PULSE_DELETE_REF) git(path, 'update-ref', 'refs/heads/topic', newTip);
+    if (options?.guard?.REPO_PULSE_DELETE_REF) git(path, 'update-ref', 'refs/heads/topic', present(newTip));
   });
   const { local, original, pr, switchTarget, act } = await setup(t, { run: runner });
   newTip = original;
   const { checkout } = await switchTarget();
   await assert.rejects(act(checkout, 'remove'), /could not remove/);
   assert.equal(git(local, 'rev-parse', 'topic'), original);
-  assert.equal(git(local, 'rev-parse', `refs/repo-pulse/archive/${checkout.followup.id}`), pr.head);
+  assert.equal(git(local, 'rev-parse', `refs/repo-pulse/archive/${followupOf(checkout).id}`), pr.head);
 });
 
 test('old branch in another worktree cannot be removed', async t => {
   const { local, pr, switchTarget, act } = await setup(t);
   const { checkout } = await switchTarget();
   git(local, 'worktree', 'add', join(local, '..', 'other'), 'topic');
-  assert.equal((await act(checkout, 'review')).review.kind, 'occupied');
+  assert.equal(branchReviewOf(await act(checkout, 'review')).kind, 'occupied');
   await assert.rejects(act(checkout, 'remove'), /cannot be removed/);
   assert.equal(git(local, 'rev-parse', 'topic'), pr.head);
 });
@@ -764,8 +812,8 @@ test('an unrelated detached worktree does not block removing the old branch', as
   const { local, switchTarget, act } = await setup(t);
   const { checkout } = await switchTarget();
   git(local, 'worktree', 'add', '--detach', join(local, '..', 'detached'), 'release');
-  assert.equal((await act(checkout, 'review')).review.canRemove, true);
-  assert.match((await act(checkout, 'remove')).message, /Removed local branch topic/);
+  assert.equal(branchReviewOf(await act(checkout, 'review')).canRemove, true);
+  assert.match(present(outcome(await act(checkout, 'remove')).message), /Removed local branch topic/);
 });
 
 test('a detached worktree rebasing the old branch prevents removal', async t => {
@@ -775,7 +823,7 @@ test('a detached worktree rebasing the old branch prevents removal', async t => 
   git(local, 'worktree', 'add', worktree, 'topic');
   assert.throws(() => git(worktree, 'rebase', 'release'));
   assert.equal(git(worktree, 'branch', '--show-current'), '');
-  assert.equal((await act(checkout, 'review')).review.kind, 'occupied');
+  assert.equal(branchReviewOf(await act(checkout, 'review')).kind, 'occupied');
   await assert.rejects(act(checkout, 'remove'), /cannot be removed/);
   assert.equal(git(local, 'rev-parse', 'topic'), second);
   git(worktree, 'rebase', '--abort');
@@ -786,9 +834,9 @@ test('a detached worktree bisecting the old branch prevents removal', async t =>
   const { checkout } = await switchTarget();
   const worktree = join(local, '..', 'bisecting');
   git(local, 'worktree', 'add', worktree, 'topic');
-  git(worktree, 'bisect', 'start', second, original);
+  git(worktree, 'bisect', 'start', present(second), original);
   assert.equal(git(worktree, 'branch', '--show-current'), '');
-  assert.equal((await act(checkout, 'review')).review.kind, 'occupied');
+  assert.equal(branchReviewOf(await act(checkout, 'review')).kind, 'occupied');
   await assert.rejects(act(checkout, 'remove'), /cannot be removed/);
   assert.equal(git(local, 'rev-parse', 'topic'), second);
   git(worktree, 'bisect', 'reset');
@@ -797,14 +845,14 @@ test('a detached worktree bisecting the old branch prevents removal', async t =>
 test('carry applies only selected follow-up commits and leaves both original branch refs untouched', async t => {
   const { local, first, second, tip, switchTarget, act } = await setup(t, { followup: true });
   const { checkout } = await switchTarget();
-  const { review } = await act(checkout, 'review');
+  const review = branchReviewOf(await act(checkout, 'review'));
   assert.deepEqual(
-    review.commits.map(commit => commit.id),
+    present(review.commits).map(commit => commit.id),
     [first, second],
   );
   await assert.rejects(act(checkout, 'carry', { commits: [tip] }), /selected commits/);
-  const result = await act(checkout, 'carry', { commits: [second] });
-  assert.equal(result.checkout.branch, review.branch);
+  const result = await act(checkout, 'carry', { commits: [present(second)] });
+  assert.equal(linked(result.checkout).branch, review.branch);
   assert.equal(git(local, 'rev-parse', 'release'), tip);
   assert.equal(git(local, 'rev-parse', 'topic'), second);
   assert.equal(git(local, 'log', '-1', '--format=%s'), 'second local commit');
@@ -813,8 +861,8 @@ test('carry applies only selected follow-up commits and leaves both original bra
 });
 
 test('carry turns off submodule recursion for its worktree and cherry-pick, as Pull does', async t => {
-  const calls = [];
-  const run = async (path, args, options) => {
+  const calls: string[][] = [];
+  const run: GitRunner = async (path, args, options) => {
     calls.push(args);
     return runGit(path, args, options);
   };
@@ -822,10 +870,10 @@ test('carry turns off submodule recursion for its worktree and cherry-pick, as P
   git(local, 'config', 'submodule.recurse', 'true');
   const { checkout } = await switchTarget();
   await act(checkout, 'review');
-  await act(checkout, 'carry', { commits: [second] });
-  const configs = args => args.flatMap((arg, index) => (args[index - 1] === '-c' ? [arg] : []));
-  const worktree = calls.find(args => args.includes('worktree') && args.includes('add'));
-  const pick = calls.find(args => args.includes('cherry-pick'));
+  await act(checkout, 'carry', { commits: [present(second)] });
+  const configs = (args: string[]) => args.flatMap((arg, index) => (args[index - 1] === '-c' ? [arg] : []));
+  const worktree = present(calls.find(args => args.includes('worktree') && args.includes('add')));
+  const pick = present(calls.find(args => args.includes('cherry-pick')));
   assert.ok(configs(worktree).includes('submodule.recurse=false'), `worktree add: ${worktree.join(' ')}`);
   assert.ok(configs(pick).includes('submodule.recurse=false'), `cherry-pick: ${pick.join(' ')}`);
 });
@@ -833,14 +881,14 @@ test('carry turns off submodule recursion for its worktree and cherry-pick, as P
 test('carry conflicts remain in a separate worktree for native Git continue or abort', async t => {
   const { local, second, tip, switchTarget, act } = await setup(t, { followup: true, conflict: true });
   const { checkout } = await switchTarget();
-  const result = await act(checkout, 'carry', { commits: [second] });
-  assert.match(result.nextStep, /Continue or abort/);
-  assert.equal(result.checkout.branch, 'release');
+  const result = await act(checkout, 'carry', { commits: [present(second)] });
+  assert.match(present(outcome(result).nextStep), /Continue or abort/);
+  assert.equal(linked(result.checkout).branch, 'release');
   assert.equal(git(local, 'rev-parse', 'release'), tip);
   assert.equal(git(local, 'rev-parse', 'topic'), second);
-  const workspace = result.checkout.followup.workspace;
+  const workspace = followupOf(result.checkout).workspace;
   assert.ok(workspace);
-  assert.equal((await act(checkout, 'review')).checkout.followup.workspace, workspace);
+  assert.equal(followupOf((await act(checkout, 'review')).checkout).workspace, workspace);
   assert.equal(git(workspace, 'rev-parse', 'CHERRY_PICK_HEAD'), second);
   assert.match(readFileSync(join(workspace, 'second.txt'), 'utf8'), /<<<<<<< HEAD/);
   git(workspace, 'cherry-pick', '--abort');

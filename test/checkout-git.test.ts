@@ -3,24 +3,25 @@ import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, renameSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { checkoutFixture, git } from './fixtures/checkout.ts';
+import { actions, checkoutFixture, comparisonOf, expectedOf, git, linked } from './fixtures/checkout.ts';
 import { createCheckoutGit, runGit } from '../server/checkout-git.ts';
+import type { Observation } from '../server/checkout-observations.ts';
 
 test('status reads the last fetched upstream; Check changes refs and Pull fast-forwards the checkout', async t => {
   const fixture = checkoutFixture(t);
   const { repo, checkoutGit, original, local } = fixture;
   const tip = fixture.advance();
   const initial = await checkoutGit.status(repo);
-  assert.equal(initial.branch, 'main');
+  assert.equal(linked(initial).branch, 'main');
   assert.equal(initial.state, 'current');
   assert.equal(initial.upstream, 'origin/main');
   assert.equal(git(local, 'rev-parse', 'origin/main'), original);
-  const checked = await checkoutGit.update(repo, 'check', initial);
-  assert.equal(checked.checkout.behind, 1);
-  assert.equal(checked.checkout.canPull, true);
+  const checked = await checkoutGit.update(repo, 'check', expectedOf(initial));
+  assert.equal(linked(checked.checkout).behind, 1);
+  assert.equal(actions(checked.checkout).canPull, true);
   assert.equal(git(local, 'rev-parse', 'HEAD'), original);
   assert.equal(readFileSync(join(local, 'feature.txt'), 'utf8'), 'initial');
-  const pulled = await checkoutGit.update(repo, 'pull', checked.checkout);
+  const pulled = await checkoutGit.update(repo, 'pull', expectedOf(checked.checkout));
   assert.equal(pulled.updated, true);
   assert.equal(pulled.checkout.state, 'current');
   assert.equal(git(local, 'rev-parse', 'HEAD'), tip);
@@ -30,33 +31,33 @@ test('status reads the last fetched upstream; Check changes refs and Pull fast-f
 test('Pull rechecks working files, checkout identity, branch and upstream instead of trusting the request', async t => {
   const { repo, checkoutGit, original, local, advance, commit } = checkoutFixture(t);
   advance();
-  const { checkout: behind } = await checkoutGit.update(repo, 'check', await checkoutGit.status(repo));
+  const { checkout: behind } = await checkoutGit.update(repo, 'check', expectedOf(await checkoutGit.status(repo)));
   writeFileSync(join(local, 'feature.txt'), 'my uncommitted work');
-  await assert.rejects(checkoutGit.update(repo, 'pull', behind), /Git could not preserve the local checkout/);
+  await assert.rejects(checkoutGit.update(repo, 'pull', expectedOf(behind)), /Git could not preserve the local checkout/);
   assert.equal(readFileSync(join(local, 'feature.txt'), 'utf8'), 'my uncommitted work');
   writeFileSync(join(local, 'feature.txt'), 'initial');
   const localCommit = commit(local, 'local.txt', 'my unpushed commit');
-  await assert.rejects(checkoutGit.update(repo, 'pull', behind), /checkout changed/);
+  await assert.rejects(checkoutGit.update(repo, 'pull', expectedOf(behind)), /checkout changed/);
   const diverged = await checkoutGit.status(repo);
   assert.equal(diverged.state, 'diverged');
-  await assert.rejects(checkoutGit.update(repo, 'pull', diverged), /no longer eligible/);
+  await assert.rejects(checkoutGit.update(repo, 'pull', expectedOf(diverged)), /no longer eligible/);
   git(local, 'switch', '--detach', original);
-  await assert.rejects(checkoutGit.update(repo, 'pull', diverged), /checkout changed/);
+  await assert.rejects(checkoutGit.update(repo, 'pull', expectedOf(diverged)), /checkout changed/);
   assert.equal((await checkoutGit.status(repo)).state, 'detached');
   git(local, 'switch', 'main');
   git(local, 'remote', 'set-url', 'origin', 'https://dev.azure.com/other/Testing/_git/Orders');
-  await assert.rejects(checkoutGit.update(repo, 'check', behind), /checkout changed/);
+  await assert.rejects(checkoutGit.update(repo, 'check', expectedOf(behind)), /checkout changed/);
   const wrongRemote = await checkoutGit.status(repo);
   assert.equal(wrongRemote.state, 'different-remote');
-  assert.equal(wrongRemote.canCheck, false);
-  await assert.rejects(checkoutGit.update(repo, 'check', wrongRemote), /no longer eligible/);
+  assert.equal(actions(wrongRemote).canCheck, false);
+  await assert.rejects(checkoutGit.update(repo, 'check', expectedOf(wrongRemote)), /no longer eligible/);
   git(local, 'remote', 'set-url', 'origin', 'https://user:hunter2@dev.azure.com/other/Testing/_git/Orders');
   const passwordRemote = await checkoutGit.status(repo);
   assert.equal(passwordRemote.state, 'different-remote');
-  assert.equal(passwordRemote.canCheck, false);
+  assert.equal(actions(passwordRemote).canCheck, false);
   assert.equal(passwordRemote.diagnostic?.title, 'Remote URL contains credentials');
   assert(!JSON.stringify(passwordRemote).includes('hunter2'));
-  await assert.rejects(checkoutGit.update(repo, 'check', passwordRemote), /no longer eligible/);
+  await assert.rejects(checkoutGit.update(repo, 'check', expectedOf(passwordRemote)), /no longer eligible/);
   writeFileSync(join(local, 'feature.txt'), 'uncommitted');
   const dirtyPasswordRemote = await checkoutGit.status(repo);
   assert.equal(dirtyPasswordRemote.state, 'dirty');
@@ -71,7 +72,7 @@ test('a snapshot for one clone cannot update another linked clone with the same 
   const another = join(local, '..', 'another');
   git(local, 'clone', '--no-local', remote, another);
   const moved = { ...repo, localPath: another };
-  await assert.rejects(checkoutGit.update(moved, 'check', old), /checkout changed/);
+  await assert.rejects(checkoutGit.update(moved, 'check', expectedOf(old)), /checkout changed/);
   assert.equal(git(another, 'rev-parse', 'HEAD'), original);
 });
 
@@ -92,12 +93,12 @@ test('Pull refuses a replacement clone after fetching a rewritten upstream', asy
       return result;
     },
   });
-  const checked = (await checkoutGit.update(repo, 'check', await checkoutGit.status(repo))).checkout;
+  const checked = (await checkoutGit.update(repo, 'check', expectedOf(await checkoutGit.status(repo)))).checkout;
   git(source, 'reset', '--hard', original);
   commit(source, 'feature.txt', 'rewritten main');
   git(source, 'push', '--force-with-lease', 'origin', 'main');
   replace = true;
-  await assert.rejects(checkoutGit.update(repo, 'pull', checked), /checkout changed/i);
+  await assert.rejects(checkoutGit.update(repo, 'pull', expectedOf(checked)), /checkout changed/i);
   assert.equal(git(local, 'rev-parse', 'HEAD'), original);
   assert.equal(git(`${local}-previous`, 'rev-parse', 'HEAD'), original);
 });
@@ -133,20 +134,20 @@ for (const restoreDuringSample of [false, true]) {
         return output;
       },
     });
-    const checked = (await checkoutGit.update(repo, 'check', await checkoutGit.status(repo))).checkout;
+    const checked = (await checkoutGit.update(repo, 'check', expectedOf(await checkoutGit.status(repo)))).checkout;
     const tip = commit(source, 'feature.txt', 'second upstream update');
     git(source, 'push', 'origin', 'main');
     replace = true;
     fetched = false;
-    await assert.rejects(checkoutGit.update(repo, 'pull', checked), /checkout.*changed/i);
+    await assert.rejects(checkoutGit.update(repo, 'pull', expectedOf(checked)), /checkout.*changed/i);
     if (!restoreDuringSample) {
       renameSync(local, `${local}-replacement`);
       renameSync(`${local}-previous`, local);
     }
     const status = await checkoutGit.status(repo);
     assert.equal(status.state, 'behind');
-    const { checkout } = await checkoutGit.update(repo, 'check', status);
-    assert.equal(checkout.canPull, true);
+    const { checkout } = await checkoutGit.update(repo, 'check', expectedOf(status));
+    assert.equal(actions(checkout).canPull, true);
     assert.equal(git(local, 'rev-parse', 'origin/main'), tip);
     assert.equal(git(local, 'rev-parse', 'HEAD'), original);
   });
@@ -157,7 +158,7 @@ for (const verified of [false, true]) {
     const { repo, checkoutGit, local, source, remote, original, advance, commit } = checkoutFixture(t);
     const previous = advance();
     git(local, 'fetch', 'origin', 'main');
-    const { identity } = await checkoutGit.status(repo);
+    const { identity } = linked(await checkoutGit.status(repo));
     git(source, 'reset', '--hard', original);
     const tip = commit(source, 'feature.txt', 'rewritten main');
     git(source, 'push', '--force-with-lease', 'origin', 'main');
@@ -165,17 +166,21 @@ for (const verified of [false, true]) {
     const legacy = verified
       ? { identity, tracking: tip, pending: [], rewrite: { previous, tip, verified: true, commits: [] } }
       : { identity, pending: [previous] };
-    const values = new Map([[identity, legacy]]);
+    const values = new Map<string, unknown>([[identity, legacy]]);
     const restarted = createCheckoutGit({
       matchesRemote: url => url === remote,
-      observations: { get: (id, key) => values.get(key), save: (id, observation) => values.set(observation.identity, observation) },
+      // The stored observation has an earlier shape, which the adapter reads and upgrades.
+      observations: {
+        get: (id, key) => values.get(key) as Observation | undefined,
+        save: (id, observation) => values.set(observation.identity, observation),
+      },
     });
     const status = await restarted.status(repo);
     assert.equal(status.state, 'upstream-rewritten');
-    assert.equal(status.canPull, false);
-    await assert.rejects(restarted.update(repo, 'pull', status), /no longer eligible/);
-    const { checkout } = await restarted.update(repo, 'check', status);
-    assert.equal(checkout.diagnostic.comparison.previous, previous);
+    assert.equal(actions(status).canPull, false);
+    await assert.rejects(restarted.update(repo, 'pull', expectedOf(status)), /no longer eligible/);
+    const { checkout } = await restarted.update(repo, 'check', expectedOf(status));
+    assert.equal(comparisonOf(checkout).previous, previous);
     assert.equal(git(local, 'rev-parse', 'HEAD'), original);
   });
 }
@@ -186,8 +191,8 @@ test('Pull cannot overwrite an ignored local file', async t => {
   writeFileSync(join(local, 'local.env'), 'local private settings');
   commit(source, 'local.env', 'new upstream file');
   git(source, 'push', 'origin', 'main');
-  const { checkout } = await checkoutGit.update(repo, 'check', await checkoutGit.status(repo));
-  await assert.rejects(checkoutGit.update(repo, 'pull', checkout), /ignored local files/);
+  const { checkout } = await checkoutGit.update(repo, 'check', expectedOf(await checkoutGit.status(repo)));
+  await assert.rejects(checkoutGit.update(repo, 'pull', expectedOf(checkout)), /ignored local files/);
   assert.equal(git(local, 'rev-parse', 'HEAD'), original);
   assert.equal(readFileSync(join(local, 'local.env'), 'utf8'), 'local private settings');
 });
@@ -208,9 +213,9 @@ test('a local edit made during the fetch blocks the fast-forward', async t => {
       return output;
     },
   });
-  const { checkout } = await checkoutGit.update(repo, 'check', await checkoutGit.status(repo));
+  const { checkout } = await checkoutGit.update(repo, 'check', expectedOf(await checkoutGit.status(repo)));
   editAfterFetch = true;
-  await assert.rejects(checkoutGit.update(repo, 'pull', checkout), /Git could not preserve the local checkout/);
+  await assert.rejects(checkoutGit.update(repo, 'pull', expectedOf(checkout)), /Git could not preserve the local checkout/);
   assert.equal(git(local, 'rev-parse', 'HEAD'), original);
   assert.equal(readFileSync(join(local, 'feature.txt'), 'utf8'), 'edited during fetch');
 });
@@ -239,10 +244,10 @@ test('a branch switch after fetch validation cannot advance either branch', asyn
       return output;
     },
   });
-  const { checkout } = await checkoutGit.update(repo, 'check', await checkoutGit.status(repo));
+  const { checkout } = await checkoutGit.update(repo, 'check', expectedOf(await checkoutGit.status(repo)));
   switchAtTipRead = true;
   fetched = false;
-  await assert.rejects(checkoutGit.update(repo, 'pull', checkout), /(?:checkout|upstream) changed/);
+  await assert.rejects(checkoutGit.update(repo, 'pull', expectedOf(checkout)), /(?:checkout|upstream) changed/);
   assert.equal(git(local, 'branch', '--show-current'), 'other');
   assert.equal(git(local, 'rev-parse', 'main'), original);
   assert.equal(git(local, 'rev-parse', 'other'), original);
@@ -261,7 +266,7 @@ test('changing the remote URL during Check cannot redirect the fetch', async t =
       return git(path, ...args);
     },
   });
-  await assert.rejects(checkoutGit.update(repo, 'check', await checkoutGit.status(repo)), /upstream changed/);
+  await assert.rejects(checkoutGit.update(repo, 'check', expectedOf(await checkoutGit.status(repo))), /upstream changed/);
   assert.equal(git(local, 'rev-parse', 'origin/main'), tip);
   assert.equal(git(local, 'rev-parse', 'HEAD'), original);
 });
@@ -269,66 +274,66 @@ test('changing the remote URL during Check cannot redirect the fetch', async t =
 test('Check reports a missing upstream and restores Pull when the branch is available again', async t => {
   const { checkoutGit, repo, local, original, remote, source, advance } = checkoutFixture(t);
   const tip = advance();
-  const behind = await checkoutGit.update(repo, 'check', await checkoutGit.status(repo));
-  assert.equal(behind.checkout.canPull, true);
+  const behind = await checkoutGit.update(repo, 'check', expectedOf(await checkoutGit.status(repo)));
+  assert.equal(actions(behind.checkout).canPull, true);
   git(remote, 'update-ref', '-d', 'refs/heads/main');
-  const missing = await checkoutGit.update(repo, 'check', behind.checkout);
+  const missing = await checkoutGit.update(repo, 'check', expectedOf(behind.checkout));
   assert.equal(missing.checkout.state, 'upstream-missing');
-  assert.equal(missing.checkout.canPull, false);
-  assert.equal(missing.checkout.canCheck, true);
+  assert.equal(actions(missing.checkout).canPull, false);
+  assert.equal(actions(missing.checkout).canCheck, true);
   assert.equal((await checkoutGit.status(repo)).state, 'upstream-missing');
   assert.equal(git(local, 'rev-parse', 'HEAD'), original);
   assert.equal(git(local, 'rev-parse', 'origin/main'), tip);
   git(source, 'push', 'origin', 'main');
-  const restored = await checkoutGit.update(repo, 'check', missing.checkout);
-  assert.equal(restored.checkout.canPull, true);
+  const restored = await checkoutGit.update(repo, 'check', expectedOf(missing.checkout));
+  assert.equal(actions(restored.checkout).canPull, true);
 });
 
 test('a verified Git check time survives restart and identifies an externally fetched tip', async t => {
   const { repo, remote, local, advance, original } = checkoutFixture(t);
-  const values = new Map();
+  const values = new Map<string, Observation>();
   let now = Date.parse('2026-11-17T20:25:00Z');
-  const options = {
+  const options: Parameters<typeof createCheckoutGit>[0] = {
     now: () => now,
     matchesRemote: url => url === remote,
     observations: { get: id => values.get(id), save: (id, observation) => values.set(id, observation) },
   };
   const adapter = createCheckoutGit(options);
   const initial = await adapter.status(repo);
-  assert.equal(initial.lastBranchCheck, undefined);
+  assert.equal(linked(initial).lastBranchCheck, undefined);
   const at = new Date(now).toISOString();
-  const checked = (await adapter.update(repo, 'check', initial)).checkout;
-  assert.deepEqual(checked.lastBranchCheck, { at, matchesFetchedTip: true });
+  const checked = (await adapter.update(repo, 'check', expectedOf(initial))).checkout;
+  assert.deepEqual(linked(checked).lastBranchCheck, { at, matchesFetchedTip: true });
   assert.equal(git(local, 'rev-parse', 'HEAD'), original);
   advance();
   git(local, 'fetch', 'origin', 'main');
   now += 60_000;
   const restarted = createCheckoutGit(options);
   const after = await restarted.status(repo);
-  assert.deepEqual(after.lastBranchCheck, { at, matchesFetchedTip: false });
-  assert.equal(after.behind, 1);
+  assert.deepEqual(linked(after).lastBranchCheck, { at, matchesFetchedTip: false });
+  assert.equal(linked(after).behind, 1);
   git(remote, 'update-ref', '-d', 'refs/heads/main');
-  const failed = (await restarted.update(repo, 'check', after)).checkout;
+  const failed = (await restarted.update(repo, 'check', expectedOf(after))).checkout;
   assert.equal(failed.state, 'upstream-missing');
   assert.deepEqual(failed.lastBranchCheck, { at, matchesFetchedTip: false });
 });
 
 test('a new clone at the same path needs its own successful check', async t => {
   const { repo, remote, local, original } = checkoutFixture(t);
-  const values = new Map();
-  const options = {
+  const values = new Map<string, Observation>();
+  const options: Parameters<typeof createCheckoutGit>[0] = {
     matchesRemote: url => url === remote,
     observations: { get: id => values.get(id), save: (id, observation) => values.set(id, observation) },
   };
   const adapter = createCheckoutGit(options);
-  const result = await adapter.update(repo, 'check', await adapter.status(repo));
-  assert.ok(result.checkout.lastBranchCheck);
+  const result = await adapter.update(repo, 'check', expectedOf(await adapter.status(repo)));
+  assert.ok(linked(result.checkout).lastBranchCheck);
   renameSync(local, join(local, '..', 'previous-clone'));
   git(join(local, '..'), 'clone', '--no-local', remote, local);
   const replaced = await createCheckoutGit(options).status(repo);
-  assert.equal(replaced.head, original);
-  assert.equal(replaced.upstream, 'origin/main');
-  assert.equal(replaced.lastBranchCheck, undefined);
+  assert.equal(linked(replaced).head, original);
+  assert.equal(linked(replaced).upstream, 'origin/main');
+  assert.equal(linked(replaced).lastBranchCheck, undefined);
 });
 
 test('Pull fast-forwards and keeps unrelated staged, unstaged and untracked work', async t => {
@@ -342,12 +347,12 @@ test('Pull fast-forwards and keeps unrelated staged, unstaged and untracked work
   writeFileSync(join(local, 'scratch.txt'), 'untracked work');
   const tip = commit(source, 'feature.txt', 'incoming edits');
   git(source, 'push', 'origin', 'main');
-  const { checkout } = await checkoutGit.update(repo, 'check', await checkoutGit.status(repo));
-  assert.equal(checkout.canPull, true);
-  assert.equal(checkout.dirty, true);
-  const result = await checkoutGit.update(repo, 'pull', checkout);
+  const { checkout } = await checkoutGit.update(repo, 'check', expectedOf(await checkoutGit.status(repo)));
+  assert.equal(actions(checkout).canPull, true);
+  assert.equal(linked(checkout).dirty, true);
+  const result = await checkoutGit.update(repo, 'pull', expectedOf(checkout));
   assert.equal(result.updated, true);
-  assert.equal(result.checkout.dirty, true);
+  assert.equal(linked(result.checkout).dirty, true);
   assert.equal(git(local, 'rev-parse', 'HEAD'), tip);
   assert.equal(git(local, 'show', ':notes.txt'), 'staged notes');
   assert.equal(readFileSync(join(local, 'notes.txt'), 'utf8'), 'unstaged notes');
@@ -360,8 +365,8 @@ test('Pull advances the branch even when local Git config asks merges to squash'
   const { repo, checkoutGit, local } = fixture;
   git(local, 'config', 'branch.main.mergeOptions', '--squash');
   const tip = fixture.advance();
-  const { checkout } = await checkoutGit.update(repo, 'check', await checkoutGit.status(repo));
-  const pulled = await checkoutGit.update(repo, 'pull', checkout);
+  const { checkout } = await checkoutGit.update(repo, 'check', expectedOf(await checkoutGit.status(repo)));
+  const pulled = await checkoutGit.update(repo, 'pull', expectedOf(checkout));
   assert.equal(git(local, 'rev-parse', 'HEAD'), tip, 'the branch moved to the upstream tip');
   assert.equal(pulled.updated, true);
   assert.equal(git(local, 'status', '--porcelain'), '', 'nothing was left staged');
@@ -376,8 +381,8 @@ test('Pull still fast-forwards when local Git config picks a merge strategy', as
     const { repo, checkoutGit, local, original } = fixture;
     git(local, 'config', key, value);
     const tip = fixture.advance();
-    const { checkout } = await checkoutGit.update(repo, 'check', await checkoutGit.status(repo));
-    await checkoutGit.update(repo, 'pull', checkout);
+    const { checkout } = await checkoutGit.update(repo, 'check', expectedOf(await checkoutGit.status(repo)));
+    await checkoutGit.update(repo, 'pull', expectedOf(checkout));
     assert.equal(git(local, 'rev-parse', 'HEAD'), tip, key);
     assert.equal(git(local, 'rev-parse', 'HEAD^'), original, key);
   }
@@ -392,13 +397,14 @@ test('Pull fast-forwards a branch whose name contains an equals sign', async t =
   git(local, 'config', 'branch.feature/a=b.mergeOptions', '-s ours');
   const tip = commit(source, 'feature.txt', 'on a=b');
   git(source, 'push', 'origin', 'feature/a=b');
-  const { checkout } = await checkoutGit.update(repo, 'check', await checkoutGit.status(repo));
-  await checkoutGit.update(repo, 'pull', checkout);
+  const { checkout } = await checkoutGit.update(repo, 'check', expectedOf(await checkoutGit.status(repo)));
+  await checkoutGit.update(repo, 'pull', expectedOf(checkout));
   assert.equal(git(local, 'rev-parse', 'HEAD'), tip);
 });
 
 test('a checkout whose own Git config runs commands is refused before Git reads it', async t => {
-  const { repo, checkoutGit, local, root = join(local, '..') } = checkoutFixture(t);
+  const { repo, checkoutGit, local } = checkoutFixture(t);
+  const root = join(local, '..');
   const marker = join(root, 'filter-ran');
   // A clean filter runs when status refreshes a tracked file whose timestamp changed.
   git(local, 'config', 'filter.probe.clean', `sh -c 'touch "${marker}"; cat'`);
@@ -409,7 +415,7 @@ test('a checkout whose own Git config runs commands is refused before Git reads 
   assert.equal(status.state, 'unavailable');
   assert.equal(status.diagnostic?.title, 'Checkout Git config runs commands');
   assert.match(status.diagnostic?.message ?? '', /filter\.probe\.clean/);
-  await assert.rejects(checkoutGit.update(repo, 'check', status), /filter\.probe\.clean/);
+  await assert.rejects(checkoutGit.update(repo, 'check', expectedOf(status)), /filter\.probe\.clean/);
   assert.equal(existsSync(marker), false);
 });
 
@@ -422,7 +428,7 @@ test('a submodule whose Git config runs commands is refused too', async t => {
   git(local, '-c', 'protocol.file.allow=always', 'submodule', 'add', '--quiet', library, 'lib');
   assert.equal((await checkoutGit.status(repo)).state !== 'unavailable', true);
   git(join(local, 'lib'), 'config', 'core.sshCommand', 'ssh -o ProxyCommand=true');
-  await assert.rejects(checkoutGit.update(repo, 'check', await checkoutGit.status(repo)), /core\.sshcommand/i);
+  await assert.rejects(checkoutGit.update(repo, 'check', expectedOf(await checkoutGit.status(repo))), /core\.sshcommand/i);
   const fresh = await createCheckoutGit({ matchesRemote: url => url === remote }).status(repo);
   assert.equal(fresh.state, 'unavailable');
   assert.match(fresh.diagnostic?.message ?? '', /core\.sshcommand/);
@@ -454,16 +460,17 @@ test('a branch switch just before Pull merges is reported as unclear instead of 
       return runGit(path, args, options);
     },
   });
-  const { checkout } = await checkoutGit.update(repo, 'check', await checkoutGit.status(repo));
+  const { checkout } = await checkoutGit.update(repo, 'check', expectedOf(await checkoutGit.status(repo)));
   git(local, 'branch', 'other', 'origin/main');
-  await assert.rejects(checkoutGit.update(repo, 'pull', checkout), /no longer on main, so it is unclear which branch moved/);
+  await assert.rejects(checkoutGit.update(repo, 'pull', expectedOf(checkout)), /no longer on main, so it is unclear which branch moved/);
   assert.equal(git(local, 'rev-parse', 'main'), original, 'main did not move');
   assert.equal(git(local, 'rev-parse', 'other'), tip, 'other did not move');
 });
 
 test('a Pull that adds a gitlink over a nested checkout checks that checkout before reading status', async t => {
   const fixture = checkoutFixture(t);
-  const { repo, checkoutGit, local, source, commit, root = join(local, '..') } = fixture;
+  const { repo, checkoutGit, local, source, commit } = fixture;
+  const root = join(local, '..');
   const marker = join(root, 'filter-ran');
   const nested = join(local, 'nested');
   git(local, 'init', '--initial-branch=main', nested);
@@ -473,10 +480,10 @@ test('a Pull that adds a gitlink over a nested checkout checks that checkout bef
   git(source, 'update-index', '--add', '--cacheinfo', `160000,${git(nested, 'rev-parse', 'HEAD')},nested`);
   git(source, '-c', 'user.email=test@example.test', '-c', 'user.name=Test', 'commit', '-m', 'add gitlink');
   git(source, 'push', 'origin', 'main');
-  const { checkout } = await checkoutGit.update(repo, 'check', await checkoutGit.status(repo));
+  const { checkout } = await checkoutGit.update(repo, 'check', expectedOf(await checkoutGit.status(repo)));
   utimesSync(join(nested, 'n.txt'), new Date(), new Date(Date.now() + 5000));
   await assert.rejects(
-    checkoutGit.update(repo, 'pull', checkout),
+    checkoutGit.update(repo, 'pull', expectedOf(checkout)),
     /^Error: The branch was updated to the upstream commit\. .*filter\.probe\.clean/,
   );
   assert.equal(git(local, 'rev-parse', 'HEAD'), git(source, 'rev-parse', 'HEAD'));

@@ -13,17 +13,15 @@ import type { createCheckoutGit } from '../server/checkout-git.ts';
 import type { AppOptions } from '../server.ts';
 import type {
   ActivityResponse,
-  AzureRepo,
   CheckoutStatus,
   ConnectionStatus,
   PushCommitsResponse,
-  Repository,
   StateResponse,
   SyncEngineStatus,
 } from '../src/contract.ts';
 import type { ActivityEvent } from '../src/activity.ts';
 import { TEST_KEY, keyedFetch, portOf } from './fixtures/access.ts';
-import { fieldsOf, present, stub } from './fixtures/typed.ts';
+import { fieldsOf, present, stub, watchedIdOf } from './fixtures/typed.ts';
 
 const fetch = keyedFetch();
 type CheckoutGit = ReturnType<typeof createCheckoutGit>;
@@ -350,15 +348,13 @@ test('checkout status skips disabled repositories', async t => {
 
 test('a disabled repository makes no direct Azure reads', async t => {
   const reads: [string, string | undefined][] = [];
-  // The provider is typed with the Azure fields only; the server passes the watched repository, which carries its ID.
-  const idOf = (repo?: AzureRepo) => (repo as Repository | undefined)?.id;
   const provider = stub<AzureProvider>({
     checkConnection: async (org, repo) => {
-      reads.push(['connection', idOf(repo)]);
+      reads.push(['connection', watchedIdOf(repo)]);
       return stub<ConnectionStatus>({ available: true });
     },
     pushCommits: async repo => {
-      reads.push(['commits', idOf(repo)]);
+      reads.push(['commits', watchedIdOf(repo)]);
       return { items: [], nextCursor: null };
     },
   });
