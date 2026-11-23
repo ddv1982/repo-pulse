@@ -4,10 +4,10 @@ import { ancestry } from './checkout-advice.js';
 
 /** @typedef {import('./checkout-advice.js').PullAdvice} PullAdvice */
 /** @typedef {import('./checkout-git.js').GitRunner} GitRunner */
-/** @typedef {import('../src/contract.js').Rewrite} Rewrite */
+/** @typedef {import('../src/contract.ts').Rewrite} Rewrite */
 /** @typedef {{ identity: string, tracking?: string, lastCheck?: { branch: string, at: string, tip: string, gitDirectory: string }, pending?: string[], missing?: { head: string, advice?: PullAdvice }, rewrite?: Rewrite, failure?: { title: string, suggestion: string } }} Observation */
 /** @typedef {{ get: (id: string, identity: string) => Observation|undefined, save: (id: string, value: Observation) => void }} Observations */
-/** @typedef {import('../src/contract.js').CheckoutDiagnostic} CheckoutDiagnostic */
+/** @typedef {import('../src/contract.ts').CheckoutDiagnostic} CheckoutDiagnostic */
 
 /** @returns {Observations} */
 export function memoryObservations() {

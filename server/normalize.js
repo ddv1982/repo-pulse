@@ -1,10 +1,10 @@
 // @ts-check
 import { createHash } from 'node:crypto';
-import { actorName, branchName, safeAzureUrl } from '../src/events.js';
+import { actorName, branchName, safeAzureUrl } from '../src/events.ts';
 import { mergeUpdates } from './merge-evidence.js';
 import { forkJob } from './fork-origin.js';
 
-/** @typedef {import('../src/activity.js').ActivityKind} ActivityKind */
+/** @typedef {import('../src/activity.ts').ActivityKind} ActivityKind */
 /** @typedef {import('./azure-client.js').AzureStream} StreamName */
 /** @typedef {import('./azure-client.js').AzureRecord} AzureRecord */
 /** @typedef {import('./azure-client.js').AzureRepo & { id: string, disabled?: boolean }} WatchedRepo */

@@ -1,6 +1,6 @@
 // @ts-check
 
-import { required } from './dom.js';
+import { required } from './dom.ts';
 
 /**
  * The open menu is kept in `state.openMenu` (its panel ID), so a render draws it open and incoming activity can render

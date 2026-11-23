@@ -1,4 +1,4 @@
-/** @typedef {import('../src/activity.js').RefUpdate} RefUpdate */
+/** @typedef {import('../src/activity.ts').RefUpdate} RefUpdate */
 /** @typedef {{ data?: { refUpdates?: RefUpdate[] } }} PushEvent */
 /** A branch update that moved an existing branch to another existing object. */
 /** @typedef {RefUpdate & { name: string, oldObjectId: string, newObjectId: string }} MergeUpdate */

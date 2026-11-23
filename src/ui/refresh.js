@@ -4,12 +4,12 @@ import { createActivityData, activityEvents } from './activity-data.js';
 import { isActivity } from './navigation.js';
 
 /**
- * @typedef {import('../activity.js').ActivityEvent} ActivityEvent
- * @typedef {import('../activity.js').ActivityPage} ActivityPage
+ * @typedef {import('../activity.ts').ActivityEvent} ActivityEvent
+ * @typedef {import('../activity.ts').ActivityPage} ActivityPage
  * @typedef {import('./activity-data.js').EventDetail} EventDetail
  * @typedef {import('./activity-data.js').ActivityView & {eventId: string|null, generation: number}} View
- * @typedef {import('../api.js').StateResponse} StateResponse
- * @typedef {typeof import('../api.js').request} Request
+ * @typedef {import('../api.ts').StateResponse} StateResponse
+ * @typedef {typeof import('../api.ts').request} Request
  * @typedef {StateResponse['repos'][number]} Repo
  * @typedef {Partial<Omit<StateResponse, 'settings' | 'diagnostics'>> & { watched?: Repo[],
  *   settings?: Partial<StateResponse['settings']>, diagnostics?: Partial<StateResponse['diagnostics']> }} Metadata

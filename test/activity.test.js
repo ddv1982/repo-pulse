@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { groupActivity } from '../src/activity.js';
+import { groupActivity } from '../src/activity.ts';
 
 const at = minute => `2026-11-17T10:${String(minute).padStart(2, '0')}:00Z`;
 const build = (id, status, minute, extra = {}) => ({
@@ -149,14 +149,14 @@ test('unrelated PRs and pushes remain individual records without source assumpti
 });
 
 test('a retired evidence filter restored from an older session shows all activity', async () => {
-  const { parseActivityFilter, activityFilterLabel } = await import('../src/activity-text.js');
+  const { parseActivityFilter, activityFilterLabel } = await import('../src/activity-text.ts');
   assert.deepEqual(parseActivityFilter('evidence:merge-commit'), { type: 'all' });
   assert.equal(activityFilterLabel('evidence:merge-commit'), 'All types');
   assert.deepEqual(parseActivityFilter('evidence:pr-linked'), { type: 'evidence', id: 'pr-linked' });
 });
 
 test('activitySearchText indexes named searchable fields and drops raw JSON payload noise', async () => {
-  const { activitySearchText } = await import('../src/activity-text.js');
+  const { activitySearchText } = await import('../src/activity-text.ts');
   const buildText = activitySearchText({
     id: 'b-1',
     repoId: 'r-1',

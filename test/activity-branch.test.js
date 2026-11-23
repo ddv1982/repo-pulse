@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { activityBranch } from '../src/activity-branch.js';
+import { activityBranch } from '../src/activity-branch.ts';
 
 test('only explicit branch creation and single-branch pushes produce a checkout target', () => {
   const name = 'refs/heads/feature/topic';

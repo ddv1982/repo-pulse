@@ -1,7 +1,7 @@
 // @ts-check
 
-import { emptyHtml, html } from './format.js';
-import { activityFilterLabel, canonicalActivityFilter } from '../activity-text.js';
+import { emptyHtml, html } from './format.ts';
+import { activityFilterLabel, canonicalActivityFilter } from '../activity-text.ts';
 import { createToolbarMenu } from './toolbar-menu.js';
 
 /** @param {string} [value] @param {string[]} [options] @param {boolean} [loading] @param {boolean} [open] */

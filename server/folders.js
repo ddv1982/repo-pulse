@@ -6,7 +6,7 @@ import { discoverRepositories } from './repositories.js';
 /** Only immediate folder names and Git remotes; browsing never contacts Azure. */
 /**
  * @param {unknown} input @param {{ home?: string, discover?: typeof discoverRepositories }} [options]
- * @returns {Promise<import('../src/contract.js').FoldersResponse>}
+ * @returns {Promise<import('../src/contract.ts').FoldersResponse>}
  */
 export async function browseFolders(input, { home = homedir(), discover = discoverRepositories } = {}) {
   let path;

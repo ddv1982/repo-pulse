@@ -1,8 +1,8 @@
 // @ts-check
 
-import { dateTime, emptyHtml, html } from './format.js';
+import { dateTime, emptyHtml, html } from './format.ts';
 
-/** A connection check's answer; a failed request is recorded as an unavailable status. @typedef {import('../api.js').ConnectionResponse} ConnectionStatus */
+/** A connection check's answer; a failed request is recorded as an unavailable status. @typedef {import('../api.ts').ConnectionResponse} ConnectionStatus */
 /** @typedef {{ results: Map<string, ConnectionStatus>, local: ConnectionStatus | null, pending: string | null, repoId: string }} ConnectionState */
 /** @typedef {Pick<import('./refresh.js').PageState, 'demo' | 'streams'>} ConnectionPage */
 
@@ -36,7 +36,7 @@ export function connectionStatus(state, connection, repoId) {
   return 'Access not yet checked';
 }
 
-/** @param {{ request: typeof import('../api.js').request, render: () => void }} options */
+/** @param {{ request: typeof import('../api.ts').request, render: () => void }} options */
 export function createConnectionController({ request, render }) {
   /** @type {Map<string, ConnectionStatus>} */
   const results = new Map();

@@ -1,4 +1,4 @@
-import { emptyHtml, html, dateTime, streamError, azureLink, streamLabel } from './format.js';
+import { emptyHtml, html, dateTime, streamError, azureLink, streamLabel } from './format.ts';
 import { connectionResult } from './connection.js';
 import { syncPill } from './health.js';
 import { renderCheckout } from './checkout-render.js';

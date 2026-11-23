@@ -1,11 +1,11 @@
 // @ts-check
 
-import { required } from './dom.js';
-import { canonicalActivityFilter } from '../activity-text.js';
+import { required } from './dom.ts';
+import { canonicalActivityFilter } from '../activity-text.ts';
 import { splitActivitySearch } from './activity-search.js';
-import { emptyHtml, html } from './format.js';
+import { emptyHtml, html } from './format.ts';
 
-/** @typedef {import('../contract.js').SavedActivityFilter} SavedActivityFilter */
+/** @typedef {import('../contract.ts').SavedActivityFilter} SavedActivityFilter */
 
 /** @typedef {SavedActivityFilter['filters']} ActivityFilters */
 

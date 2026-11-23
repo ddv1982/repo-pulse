@@ -1,9 +1,9 @@
 // @ts-check
 
-import { html, dateTime } from './format.js';
+import { html, dateTime } from './format.ts';
 
-/** @typedef {import('../contract.js').SyncStatus} SyncStatus */
-/** @typedef {import('../contract.js').OverallSyncStatus} OverallSyncStatus */
+/** @typedef {import('../contract.ts').SyncStatus} SyncStatus */
+/** @typedef {import('../contract.ts').OverallSyncStatus} OverallSyncStatus */
 /** `unavailable` is a state response without a sync status, as from an older server. @typedef {OverallSyncStatus | { state: 'unavailable' }} ShownSyncStatus */
 /** @typedef {SyncStatus | ShownSyncStatus} AnySyncStatus */
 

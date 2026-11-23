@@ -1,5 +1,3 @@
-// @ts-check
-
 export {
   activityActor,
   activityLabel,
@@ -10,32 +8,27 @@ export {
   labels,
   triggerLabel,
   voteLabel,
-} from '../activity-text.js';
-export { isUnseen } from '../activity.js';
-export { branchName } from '../events.js';
-import { safeAzureUrl } from '../events.js';
+} from '../activity-text.ts';
+export { isUnseen } from '../activity.ts';
+export { branchName } from '../events.ts';
+import { safeAzureUrl } from '../events.ts';
 
-/** @type {Record<string, string>} */
-const entities = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
-/** @param {unknown} value */
-const escape = value => String(value ?? '').replace(/[&<>"']/g, c => entities[c]);
+const entities: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+const escape = (value: unknown) => String(value ?? '').replace(/[&<>"']/g, c => entities[c]);
 
 const SAFE_HTML = Symbol('SafeHtml');
 
 /** Trusted HTML produced only by the `html` tagged template; verified via private-field brand check. */
 export class SafeHtml {
   #html;
-  /** @param {string} value @param {symbol} token */
-  constructor(value, token) {
+  constructor(value: string, token: symbol) {
     if (token !== SAFE_HTML) throw new TypeError('Use html`...` to build SafeHtml.');
     this.#html = value;
   }
-  /** @param {unknown} value @returns {value is SafeHtml} */
-  static is(value) {
+  static is(value: unknown): value is SafeHtml {
     return typeof value === 'object' && value !== null && #html in value;
   }
-  /** @param {unknown} value @returns {string} */
-  static unwrap(value) {
+  static unwrap(value: unknown): string {
     if (!SafeHtml.is(value)) throw new TypeError('Repo Pulse: expected SafeHtml.');
     return value.#html;
   }
@@ -44,10 +37,9 @@ export class SafeHtml {
   }
 }
 
-/** @typedef {SafeHtml | string | number | boolean | null | undefined | HtmlValue[]} HtmlValue */
+export type HtmlValue = SafeHtml | string | number | boolean | null | undefined | HtmlValue[];
 
-/** @param {HtmlValue} value @returns {string} */
-function renderValue(value) {
+function renderValue(value: HtmlValue): string {
   if (value === null || value === undefined) return '';
   if (SafeHtml.is(value)) return SafeHtml.unwrap(value);
   if (Array.isArray(value)) {
@@ -60,11 +52,8 @@ function renderValue(value) {
 
 /**
  * Tagged template that auto-escapes interpolated values unless they are already SafeHtml.
- * @param {TemplateStringsArray} strings
- * @param {...HtmlValue} values
- * @returns {SafeHtml}
  */
-export function html(strings, ...values) {
+export function html(strings: TemplateStringsArray, ...values: HtmlValue[]): SafeHtml {
   let out = strings[0];
   for (let i = 0; i < values.length; i++) out += renderValue(values[i]) + strings[i + 1];
   return new SafeHtml(out, SAFE_HTML);
@@ -72,15 +61,13 @@ export function html(strings, ...values) {
 
 export const emptyHtml = html``;
 
-/** @param {HtmlValue[]} items @param {HtmlValue} [separator] @returns {SafeHtml} */
-export function joinHtml(items, separator = emptyHtml) {
+export function joinHtml(items: HtmlValue[], separator: HtmlValue = emptyHtml): SafeHtml {
   const sep = renderValue(separator);
   let out = '';
   for (let i = 0; i < items.length; i++) out += (i ? sep : '') + renderValue(items[i]);
   return new SafeHtml(out, SAFE_HTML);
 }
-/** @type {Record<string, string | undefined>} */
-const streamLabels = {
+const streamLabels: Record<string, string | undefined> = {
   refs: 'Branches',
   pushes: 'Pushes',
   prs: 'Open pull requests',
@@ -89,13 +76,11 @@ const streamLabels = {
   builds: 'Recent CI runs',
   activeBuilds: 'Active CI runs',
 };
-/** @param {string} value */
-export function streamLabel(value) {
+export function streamLabel(value: string) {
   return streamLabels[value] || 'Activity';
 }
 
-/** @param {string | number | undefined} value */
-export function dateTime(value) {
+export function dateTime(value: string | number | undefined) {
   // new Date(undefined) is an invalid date too; the explicit NaN only spells that out for the type checker.
   const date = new Date(value === undefined ? NaN : value);
   return Number.isNaN(date.valueOf())
@@ -103,14 +88,13 @@ export function dateTime(value) {
     : date.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 
-/** The full date with year and weekday, for hover text beside the short dateTime. @param {string | number | undefined} value */
-export function fullDateTime(value) {
+/** The full date with year and weekday, for hover text beside the short dateTime. */
+export function fullDateTime(value: string | number | undefined) {
   const date = new Date(value === undefined ? NaN : value);
   return Number.isNaN(date.valueOf()) ? '' : date.toLocaleString([], { dateStyle: 'full', timeStyle: 'short' });
 }
 
-/** @param {unknown} value @returns {SafeHtml} */
-export function azureLink(value, label = 'Azure ↗', className = 'ghost sm') {
+export function azureLink(value: unknown, label = 'Azure ↗', className = 'ghost sm'): SafeHtml {
   try {
     const safe = safeAzureUrl(value);
     if (!safe) return emptyHtml;
@@ -121,7 +105,6 @@ export function azureLink(value, label = 'Azure ↗', className = 'ghost sm') {
   }
 }
 
-/** @param {{ error?: string | { message?: string } | null }} stream */
-export function streamError(stream) {
+export function streamError(stream: { error?: string | { message?: string } | null }) {
   return typeof stream.error === 'string' ? stream.error : stream.error?.message;
 }

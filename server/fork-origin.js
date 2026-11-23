@@ -1,7 +1,7 @@
 // @ts-check
 
 /** @typedef {import('./azure-client.js').AzureProvider} AzureProvider */
-/** @typedef {import('../src/activity.js').ForkOrigin} ForkOrigin */
+/** @typedef {import('../src/activity.ts').ForkOrigin} ForkOrigin */
 /**
  * One live branch creation, checked for the commit it started from and the branch that held it. Until `base` is known,
  * `at` is the commit to read next and `reads` counts the commit reads so far. `checks` are the candidate branches

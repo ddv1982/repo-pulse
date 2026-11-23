@@ -6,7 +6,7 @@
  * @typedef {{ id: string, type: 'rewrite', repoId: string, eventId: string, ref: string, oldObjectId: string,
  *   newObjectId: string, attempts: number, nextAt: string }} RewriteJob
  */
-/** @typedef {import('../src/activity.js').RewriteResult} RewriteResult */
+/** @typedef {import('../src/activity.ts').RewriteResult} RewriteResult */
 /**
  * @typedef {Pick<ReturnType<typeof import('./store.js').createStore>,
  *   'listRepos'|'listJobs'|'saveJob'|'getEvent'|'saveRewriteResult'>} RewriteStore

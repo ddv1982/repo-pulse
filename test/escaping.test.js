@@ -9,9 +9,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { groupActivity } from '../src/activity.js';
-import { SafeHtml, html as safeHtml, joinHtml } from '../src/ui/format.js';
-import { setHtml } from '../src/ui/dom.js';
+import { groupActivity } from '../src/activity.ts';
+import { SafeHtml, html as safeHtml, joinHtml } from '../src/ui/format.ts';
+import { setHtml } from '../src/ui/dom.ts';
 import { parse } from './fixtures/dom.js';
 import { renderFeed, renderDetail } from '../src/ui/feed.js';
 import { renderRepositories } from '../src/ui/repositories.js';
@@ -19,7 +19,7 @@ import { renderSettings } from '../src/ui/settings.js';
 import { renderHeader } from '../src/ui/header.js';
 import { renderCheckout } from '../src/ui/checkout-render.js';
 
-/** @typedef {import('../src/activity.js').ActivityEvent} ActivityEvent */
+/** @typedef {import('../src/activity.ts').ActivityEvent} ActivityEvent */
 /** @typedef {import('../src/ui/refresh.js').PageState} PageState */
 /** @typedef {import('../src/ui/refresh.js').Repo} Repo */
 /** @typedef {import('../src/ui/checkout.js').CheckoutSnapshot} CheckoutSnapshot */

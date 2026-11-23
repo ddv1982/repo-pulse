@@ -1,6 +1,6 @@
 // @ts-check
 
-import { emptyHtml, html, buildState } from './format.js';
+import { emptyHtml, html, buildState } from './format.ts';
 
 /** @typedef {import('./refresh.js').PageState} PageState */
 
@@ -13,7 +13,7 @@ export function emptyActivityMessage(ui, partial) {
 }
 /**
  * Unread totals come from the server so they cover every page, not only the loaded rows.
- * @param {import('../activity.js').ActivityItem[]} unseen the loaded unread rows @param {Pick<PageState, 'activity'>} state
+ * @param {import('../activity.ts').ActivityItem[]} unseen the loaded unread rows @param {Pick<PageState, 'activity'>} state
  */
 function unreadCounts(unseen, state) {
   const newCounts = state.activity.newCounts;
@@ -51,7 +51,7 @@ function unreadCounts(unseen, state) {
 }
 
 /**
- * @param {import('../activity.js').ActivityItem[]} records @param {Pick<PageState, 'activity'>} state
+ * @param {import('../activity.ts').ActivityItem[]} records @param {Pick<PageState, 'activity'>} state
  * @param {{ repoIds: string[] | null, route?: string, search?: string, kind?: string }} ui @param {boolean} partial the counts may be incomplete
  */
 export function renderSummary(records, state, ui, partial) {

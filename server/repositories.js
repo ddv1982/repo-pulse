@@ -5,10 +5,10 @@ import { stat, readdir, realpath } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { homedir } from 'node:os';
 
-/** @typedef {import('../src/contract.js').DiscoveredRemote} ParsedRemote */
-/** @typedef {import('../src/contract.js').DiscoveredRemote} DiscoveredRemote */
-/** @typedef {import('../src/contract.js').DiscoveredCheckout} DiscoveredCheckout */
-/** @typedef {import('../src/contract.js').Discovery} Discovery */
+/** @typedef {import('../src/contract.ts').DiscoveredRemote} ParsedRemote */
+/** @typedef {import('../src/contract.ts').DiscoveredRemote} DiscoveredRemote */
+/** @typedef {import('../src/contract.ts').DiscoveredCheckout} DiscoveredCheckout */
+/** @typedef {import('../src/contract.ts').Discovery} Discovery */
 
 const exec = promisify(execFile);
 const invalid = () => Object.assign(new Error('Use an Azure DevOps Services HTTPS or SSH repository URL.'), { code: 'INVALID_REPOSITORY' });

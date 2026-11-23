@@ -1,8 +1,8 @@
 // @ts-check
 
-import { emptyHtml, html, dateTime, isUnseen, activityLabel, activityTone } from './format.js';
+import { emptyHtml, html, dateTime, isUnseen, activityLabel, activityTone } from './format.ts';
 
-/** @param {import('../activity.js').ActivityItem} record */
+/** @param {import('../activity.ts').ActivityItem} record */
 export function renderTrail(record, { expanded = false } = {}) {
   if (record.events.length < 2) return emptyHtml;
   const entries = html`<ol>${record.events.map(event => html`<li><time datetime="${event.time}">${dateTime(event.time)}</time><span class="status-text ${activityTone(event)}"><span class="status-dot" aria-hidden="true"></span>${activityLabel(event)}</span><span>${isUnseen(event) ? 'new' : event.imported ? 'imported' : 'seen'}</span></li>`)}</ol>`;

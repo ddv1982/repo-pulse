@@ -1,7 +1,7 @@
 /** @typedef {ReturnType<typeof import('./store.js').createStore>} Store */
-/** @typedef {import('../src/activity.js').ActivityEvent} ActivityEvent */
+/** @typedef {import('../src/activity.ts').ActivityEvent} ActivityEvent */
 /** Fixtures carry provider fields beyond EventData, as stored events do. */
-/** @typedef {ActivityEvent & { data?: import('../src/activity.js').EventData & Record<string, unknown> }} DemoEvent */
+/** @typedef {ActivityEvent & { data?: import('../src/activity.ts').EventData & Record<string, unknown> }} DemoEvent */
 /** @typedef {import('./azure-client.js').AzureStream} AzureStream */
 
 /** @type {AzureStream[]} */

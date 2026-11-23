@@ -1,10 +1,10 @@
 // @ts-check
 
-import { emptyHtml, html, dateTime } from './format.js';
-import { required } from './dom.js';
+import { emptyHtml, html, dateTime } from './format.ts';
+import { required } from './dom.ts';
 
 /** /api/state lists backfill jobs; these are the fields the Repositories page shows. */
-/** @typedef {Pick<import('../contract.js').HistoryJob, 'status' | 'error' | 'pages' | 'lastProgressAt'>} HistoryJob */
+/** @typedef {Pick<import('../contract.ts').HistoryJob, 'status' | 'error' | 'pages' | 'lastProgressAt'>} HistoryJob */
 /** @typedef {Pick<import('./refresh.js').Repo, 'id' | 'name'>} HistoryRepo */
 
 /** @param {HistoryJob} job @returns {[string, string]} */

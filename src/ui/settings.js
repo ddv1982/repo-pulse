@@ -1,7 +1,7 @@
 // @ts-check
 
 import { connectionStatus } from './connection.js';
-import { emptyHtml, html } from './format.js';
+import { emptyHtml, html } from './format.ts';
 import { syncRepoName, syncSentence } from './health.js';
 
 /** @typedef {import('./refresh.js').PageState} PageState */

@@ -1,11 +1,11 @@
 // @ts-check
 
 import { randomUUID } from 'node:crypto';
-import { canonicalActivityFilter } from '../src/activity-text.js';
+import { canonicalActivityFilter } from '../src/activity-text.ts';
 import { parsePeople } from './activity-people.js';
 
-/** @typedef {import('../src/contract.js').ActivityFilters} ActivityFilters */
-/** @typedef {import('../src/contract.js').SavedActivityFilter} SavedActivityFilter */
+/** @typedef {import('../src/contract.ts').ActivityFilters} ActivityFilters */
+/** @typedef {import('../src/contract.ts').SavedActivityFilter} SavedActivityFilter */
 
 const setting = 'savedActivityFilters';
 /** @param {string} message @param {number} [status] */

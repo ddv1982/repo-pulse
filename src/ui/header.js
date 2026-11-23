@@ -1,6 +1,6 @@
 // @ts-check
 
-import { emptyHtml, html } from './format.js';
+import { emptyHtml, html } from './format.ts';
 import { syncPill, syncRepoName } from './health.js';
 import { icons, themeSwitch } from './icons.js';
 import { activityHref, isActivity } from './navigation.js';

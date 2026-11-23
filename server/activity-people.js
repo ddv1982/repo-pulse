@@ -1,6 +1,6 @@
 // @ts-check
 
-import { azureDevOpsService } from '../src/activity-text.js';
+import { azureDevOpsService } from '../src/activity-text.ts';
 
 /** @param {string} text */
 export function foldSearchText(text) {
@@ -42,7 +42,7 @@ function matchesName(name, term) {
   });
 }
 
-/** @param {import('../src/activity.js').ActivityEvent} event @param {string[]} terms */
+/** @param {import('../src/activity.ts').ActivityEvent} event @param {string[]} terms */
 export function matchesPeople({ kind, actor, data }, terms) {
   const names = [actor];
   if (kind === 'pr') names.push(data?.closedBy, ...(data?.voteChanges || []).map(change => change.name));

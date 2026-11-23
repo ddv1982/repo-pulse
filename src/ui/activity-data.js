@@ -2,11 +2,11 @@
 
 import { splitActivitySearch } from './activity-search.js';
 
-/** @typedef {import('../activity.js').ActivityEvent} ActivityEvent */
-/** @typedef {import('../activity.js').ActivityItem} ActivityItem */
-/** @typedef {import('../activity.js').ActivityPage} ActivityPage */
-/** @typedef {import('../api.js').EventResponse} EventDetail */
-/** @typedef {typeof import('../api.js').request} Request */
+/** @typedef {import('../activity.ts').ActivityEvent} ActivityEvent */
+/** @typedef {import('../activity.ts').ActivityItem} ActivityItem */
+/** @typedef {import('../activity.ts').ActivityPage} ActivityPage */
+/** @typedef {import('../api.ts').EventResponse} EventDetail */
+/** @typedef {typeof import('../api.ts').request} Request */
 /** @typedef {{ route: string, repoIds: string[]|null, kind?: string, search?: string }} ActivityView */
 
 const PAGE_SIZE = 50;

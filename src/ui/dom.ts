@@ -1,17 +1,16 @@
 import { Idiomorph } from '../../web/vendor/idiomorph.esm.js';
-import { SafeHtml } from './format.js';
+import { SafeHtml } from './format.ts';
 
 /**
  * Look up an element the UI cannot work without. A missing or mistyped element is a broken page, so fail with the
  * selector in the message instead of a later "cannot read properties of null".
- * The default Type is cast because HTMLElement fits T only when T keeps its default, which JSDoc cannot express.
- * @template {Element} [T=HTMLElement]
- * @param {string} selector
- * @param {new (...args: any[]) => T} [Type]
- * @param {ParentNode} [root]
- * @returns {T}
+ * The default Type is cast because HTMLElement fits T only when T keeps its default, which the signature cannot express.
  */
-export function required(selector, Type = /** @type {new () => T} */ (/** @type {unknown} */ (HTMLElement)), root = document) {
+export function required<T extends Element = HTMLElement>(
+  selector: string,
+  Type: new (...args: any[]) => T = HTMLElement as unknown as new () => T,
+  root: ParentNode = document,
+): T {
   const element = root.querySelector(selector);
   if (!(element instanceof Type)) throw new Error(`Repo Pulse: missing required element ${selector}`);
   return element;
@@ -21,10 +20,8 @@ export function required(selector, Type = /** @type {new () => T} */ (/** @type 
  * Writes trusted SafeHtml to an element. This is the single innerHTML sink in browser code.
  * The markup is parsed into an inert template and merged into the live children (idiomorph), so nodes that still match
  * keep their identity, focus, caret, text selection and listeners instead of being replaced on every render.
- * @param {Element} element
- * @param {SafeHtml} markup
  */
-export function setHtml(element, markup) {
+export function setHtml(element: Element, markup: SafeHtml) {
   const template = element.ownerDocument.createElement('template');
   template.innerHTML = SafeHtml.unwrap(markup);
   // A focused field's value is not protected: every input rendered here writes what is typed into state on each input

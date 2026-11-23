@@ -4,8 +4,8 @@ import { renderFeed, renderDetail } from './feed.js';
 import { renderRepositories } from './repositories.js';
 import { renderSettings } from './settings.js';
 import { eventIds } from './seen-actions.js';
-import { required, setHtml } from './dom.js';
-import { emptyHtml, html } from './format.js';
+import { required, setHtml } from './dom.ts';
+import { emptyHtml, html } from './format.ts';
 
 /** @param {string} id */
 export function replacementFocus(id) {
