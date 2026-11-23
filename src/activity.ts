@@ -196,8 +196,7 @@ export function activityKey(event: ActivityEvent) {
     : lifecycleKey(event) || JSON.stringify(['event', event.repoId, event.kind, event.id]);
 }
 
-/** View-only grouping. Raw events and their exact acknowledgement flags remain untouched.
- */
+/** View-only grouping. Raw events and their exact acknowledgement flags remain untouched. */
 export function groupActivity(events: ActivityEvent[]): ActivityItem[] {
   const lifecycle = new Set(events.map(lifecycleKey).filter(Boolean));
   const groups: Map<string, ActivityEvent[]> = new Map();

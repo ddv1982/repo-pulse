@@ -172,8 +172,7 @@ export type PullAdvice = {
 };
 export type Rewrite = { previous: string; tip: string; verified: boolean; commits: { side: 'old' | 'new'; id: string; subject: string }[] };
 export type CheckoutDiagnostic = { title?: string; message?: string; suggestion: string; advice?: PullAdvice; comparison?: Rewrite };
-/** The part of a follow-up plan a checkout status shows.
- */
+/** The part of a follow-up plan a checkout status shows. */
 export type FollowupSummary = { id: string; source: string; workspace?: string };
 export type Review = {
   kind: 'included' | 'local-followup' | 'unknown' | 'changed' | 'occupied';
@@ -228,8 +227,7 @@ export type ActiveCheckout = PullableCheckout | BlockedCheckout;
 export type DecoratedCheckout = ActiveCheckout & { followup?: FollowupSummary };
 
 export type CheckoutStatus = DecoratedCheckout | { state: 'unavailable' | 'not-linked'; diagnostic?: CheckoutDiagnostic };
-/** A check or pull, with the checkout read after it.
- */
+/** A check or pull, with the checkout read after it. */
 export type CheckoutUpdateResult = { checkout: CheckoutStatus; updated: boolean };
 /**
  * A branch action, with the checkout read after it: a message, a review of the branch, or a next step.
@@ -252,8 +250,7 @@ export type ActivitySwitchResult =
 
 export type ErrorResponse = { message: string; code?: string };
 export type OkResponse = { ok: true };
-/** POST /api/session: the key, given once for the launch token.
- */
+/** POST /api/session: the key, given once for the launch token. */
 export type SessionResponse = { key: string };
 /**
  * GET /api/state. The settings are only ever written by POST /api/settings.
@@ -269,43 +266,32 @@ export type StateResponse = {
   syncStatus: SyncStatusReport;
   demo: boolean;
 };
-/** GET /api/activity, built by server/activity-query.js.
- */
+/** GET /api/activity, built by server/activity-query.js. */
 export type ActivityResponse = import('./activity.ts').ActivityPage;
-/** GET /api/events/:id: the event and every event grouped with it.
- */
+/** GET /api/events/:id: the event and every event grouped with it. */
 export type EventResponse = { event: HydratedEvent; events: HydratedEvent[] };
 /** GET /api/checkouts: status per enabled repository id, empty in demo mode. */
 export type CheckoutsResponse = Record<string, CheckoutStatus>;
-/** GET /api/repos/:id/checkout/status.
- */
+/** GET /api/repos/:id/checkout/status. */
 export type CheckoutStatusResponse = CheckoutStatus;
-/** GET /api/repos/:id/checkout/branches.
- */
+/** GET /api/repos/:id/checkout/branches. */
 export type CheckoutBranchesResponse = { branches: { name: string; local: boolean }[] };
 /** POST /api/repos/:id/checkout. */
 export type CheckoutUpdateResponse = CheckoutUpdateResult | BranchActionResult | ActivitySwitchResult;
-/** GET /api/connection.
- */
+/** GET /api/connection. */
 export type ConnectionResponse = ConnectionStatus;
 export type PushCommit = { commitId: string; comment?: string };
-/** GET /api/push/:repo/:id/commits.
- */
+/** GET /api/push/:repo/:id/commits. */
 export type PushCommitsResponse = { items: PushCommit[]; nextCursor: unknown; message?: string };
-/** GET /api/pr/:repo/:id/review.
- */
+/** GET /api/pr/:repo/:id/review. */
 export type PrReviewResponse = PullRequestReview & { message?: string };
-/** POST /api/backfill.
- */
+/** POST /api/backfill. */
 export type BackfillResponse = HistoryJob;
-/** POST /api/refresh.
- */
+/** POST /api/refresh. */
 export type RefreshResponse = { ok: true; status: RefreshStatus | { demo: true } };
-/** POST /api/reset.
- */
+/** POST /api/reset. */
 export type ResetResponse = { started: true };
-/** POST /api/discover.
- */
+/** POST /api/discover. */
 export type DiscoverResponse = Discovery;
 /**
  * POST /api/folders: one folder's subfolders and the checkouts found in it.
@@ -318,8 +304,7 @@ export type FoldersResponse = {
   repositories: DiscoveredCheckout[];
   warnings: string[];
 };
-/** POST /api/demo/event.
- */
+/** POST /api/demo/event. */
 export type DemoEventResponse = ActivityEvent;
 
 export {};
