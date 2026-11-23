@@ -92,7 +92,7 @@ at compile time. Moving from A to B later only touches `staticFile` and the buil
 
 Scope depends on **D2**.
 
-- [ ] The codemod keeps the prose after a typedef's name (continuation lines included) and after `@property` names, which `convertTypedefToType` drops; proven on `src/activity-tree.js`, `src/ui/refresh.js` and `src/ui/repository-picker.js` from before Phase 3a with the prose scan
+- [x] The codemod keeps the prose after a typedef's name (continuation lines included) and after `@property` names, which `convertTypedefToType` drops; proven on `src/activity-tree.js`, `src/ui/refresh.js` and `src/ui/repository-picker.js` from before Phase 3a with the prose scan
 - [ ] `tsconfig.test.json` includes only `test/**/*.ts` and `e2e/**/*.ts` (so each batch's converted files are checked and Phase 6 needs no config change), sets `skipLibCheck` (linkedom 0.18.15's declarations conflict with the DOM lib) and joins `check:types` from 5a at 0 errors
 - [ ] 5a: `test/fixtures/*`, the UI and `src/` tests and the small server tests (26 files, about 4,300 lines), including `merge-ui`, `sync-status-ui` and `presentation`
 - [ ] 5b: `reset-api`, `backfill`, `rewrite-check`, `fork-origin`, `azure-client`, `sync-status`, `azure-rest`, `server`, `store`, `store-history` (about 4,600 lines)
