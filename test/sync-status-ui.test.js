@@ -1,10 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { renderHeader as renderHeaderHtml } from '../src/ui/header.js';
-import { renderRepositories as renderRepositoriesHtml } from '../src/ui/repositories.js';
-import { renderFeed as renderFeedHtml } from '../src/ui/feed.js';
-import { renderSettings as renderSettingsHtml } from '../src/ui/settings.js';
-import { syncLabel } from '../src/ui/health.js';
+import { renderHeader as renderHeaderHtml } from '../src/ui/header.ts';
+import { renderRepositories as renderRepositoriesHtml } from '../src/ui/repositories.ts';
+import { renderFeed as renderFeedHtml } from '../src/ui/feed.ts';
+import { renderSettings as renderSettingsHtml } from '../src/ui/settings.ts';
+import { syncLabel } from '../src/ui/health.ts';
 import { parse, one, all, text, srText } from './fixtures/dom.js';
 
 const renderHeader = (...args) => String(renderHeaderHtml(...args));
@@ -162,7 +162,7 @@ test('the Activity banner and partial wording follow the repositories in the Act
 });
 
 test('a state without a sync status reads as unavailable, not as no repositories', async () => {
-  const { createRefreshController } = await import('../src/ui/refresh.js');
+  const { createRefreshController } = await import('../src/ui/refresh.ts');
   const refresh = createRefreshController({
     request: async () => ({ repos: [repo], settings: { refreshEnabled: true } }),
     getView: () => ({ route: 'settings', repoIds: null, eventId: null, search: '', kind: '', generation: 0 }),

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createRefreshController } from '../src/ui/refresh.js';
+import { createRefreshController } from '../src/ui/refresh.ts';
 
 const metadata = { repos: [{ id: 'orders' }], activityRevision: '1' };
 const page = id => ({ items: [{ groupKey: id, events: [{ id }] }], total: 1, nextCursor: null });

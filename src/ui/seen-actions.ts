@@ -1,27 +1,22 @@
-// @ts-check
+export type Action = (element: HTMLElement) => Promise<void> | void;
 
-/** @typedef {(element: HTMLElement) => Promise<void> | void} Action */
-
-/** @param {string | undefined} encoded @returns {string[] | undefined} */
-function readIds(encoded) {
+function readIds(encoded: string | undefined): string[] | undefined {
   try {
     const ids = JSON.parse(encoded ?? '');
-    if (Array.isArray(ids)) return ids.filter((/** @type {unknown} */ id) => typeof id === 'string');
+    if (Array.isArray(ids)) return ids.filter((id: unknown) => typeof id === 'string');
   } catch {
     /* A row may carry only its representative ID. */
   }
 }
 
-/** @param {HTMLElement} element */
-export function eventIds(element) {
+export function eventIds(element: HTMLElement) {
   return (
     readIds(element.dataset.eventIds) ??
     (element.dataset.id ? [element.dataset.id] : element.dataset.eventId ? [element.dataset.eventId] : [])
   );
 }
 
-/** @param {HTMLElement} page */
-function shownUnseenIds(page) {
+function shownUnseenIds(page: HTMLElement) {
   const ids = [...page.querySelectorAll('li[data-event-id]')]
     .filter(element => element instanceof HTMLLIElement)
     .filter(element => {
@@ -34,24 +29,22 @@ function shownUnseenIds(page) {
   return [...new Set(ids)];
 }
 
-/**
- * @param {{
- *   page: HTMLElement,
- *   request: typeof import('../api.ts').request,
- *   reload: () => Promise<unknown>,
- *   toast: (message: string, options?: { undo?: boolean }) => void,
- * }} options
- */
-export function createSeenActions({ page, request, reload, toast }) {
-  /** @type {string[]} */
-  let undoIds = [];
+export function createSeenActions({
+  page,
+  request,
+  reload,
+  toast,
+}: {
+  page: HTMLElement;
+  request: typeof import('../api.ts').request;
+  reload: () => Promise<unknown>;
+  toast: (message: string, options?: { undo?: boolean }) => void;
+}) {
+  let undoIds: string[] = [];
 
-  /** @param {string[]} ids @param {boolean} seen @param {{undo?: boolean}} [options] */
-  async function acknowledge(ids, seen, { undo = false } = {}) {
-    /** @type {string[]} */
-    const completed = [];
-    /** @type {unknown} */
-    let failure;
+  async function acknowledge(ids: string[], seen: boolean, { undo = false }: { undo?: boolean } = {}) {
+    const completed: string[] = [];
+    let failure: unknown;
     let processed = 0;
     for (let offset = 0; offset < ids.length; offset += 250) {
       const batch = ids.slice(offset, offset + 250);
@@ -91,7 +84,6 @@ export function createSeenActions({ page, request, reload, toast }) {
   return {
     acknowledge,
     shownUnseenIds: () => shownUnseenIds(page),
-    /** @type {Record<string, Action>} */
     actions: {
       'ack-item': element => {
         const ids = eventIds(element);
@@ -100,6 +92,6 @@ export function createSeenActions({ page, request, reload, toast }) {
       'undo-ack': async () => {
         if (undoIds.length) await acknowledge(undoIds, false, { undo: true });
       },
-    },
+    } satisfies Record<string, Action>,
   };
 }

@@ -1,14 +1,12 @@
-// @ts-check
-
 import { html, dateTime } from './format.ts';
 
-/** @typedef {import('../contract.ts').SyncStatus} SyncStatus */
-/** @typedef {import('../contract.ts').OverallSyncStatus} OverallSyncStatus */
-/** `unavailable` is a state response without a sync status, as from an older server. @typedef {OverallSyncStatus | { state: 'unavailable' }} ShownSyncStatus */
-/** @typedef {SyncStatus | ShownSyncStatus} AnySyncStatus */
+export type SyncStatus = import('../contract.ts').SyncStatus;
+export type OverallSyncStatus = import('../contract.ts').OverallSyncStatus;
+/** `unavailable` is a state response without a sync status, as from an older server. */
+export type ShownSyncStatus = OverallSyncStatus | { state: 'unavailable' };
+export type AnySyncStatus = SyncStatus | ShownSyncStatus;
 
-/** @type {Record<AnySyncStatus['state'], string>} */
-const tones = {
+const tones: Record<AnySyncStatus['state'], string> = {
   synced: 'ok',
   syncing: 'info',
   delayed: 'warn',
@@ -18,22 +16,20 @@ const tones = {
   unavailable: 'neutral',
 };
 
-/** The time alone today, the date with it otherwise. @param {string} value */
-function clock(value) {
+/** The time alone today, the date with it otherwise. */
+function clock(value: string) {
   const date = new Date(value);
   return date.toDateString() === new Date().toDateString()
     ? date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     : dateTime(value);
 }
 
-/** @param {AnySyncStatus} status */
-const reason = status => ('reason' in status && status.reason ? status.reason : '');
+const reason = (status: AnySyncStatus) => ('reason' in status && status.reason ? status.reason : '');
 // A reason that starts with a product name, such as Azure DevOps, keeps its capital.
-/** @param {string} text */
-const lowerFirst = text => (text.startsWith('Azure') ? text : text.replace(/^\w/, c => c.toLowerCase()));
+const lowerFirst = (text: string) => (text.startsWith('Azure') ? text : text.replace(/^\w/, c => c.toLowerCase()));
 
-/** The short pill text. @param {AnySyncStatus} status */
-export function syncLabel(status) {
+/** The short pill text. */
+export function syncLabel(status: AnySyncStatus) {
   switch (status.state) {
     case 'synced':
       return status.lastCheck ? `Synced · ${clock(status.lastCheck)}` : 'Synced';
@@ -52,8 +48,8 @@ export function syncLabel(status) {
   }
 }
 
-/** The state and why, in one sentence. @param {AnySyncStatus} status @param {string} [repoName] the repository it concerns */
-export function syncSentence(status, repoName = '') {
+/** The state and why, in one sentence. @param [repoName] the repository it concerns */
+export function syncSentence(status: AnySyncStatus, repoName: string = '') {
   const where = repoName ? ` in ${repoName}` : '';
   switch (status.state) {
     case 'synced':
@@ -76,21 +72,19 @@ export function syncSentence(status, repoName = '') {
 /**
  * What the live region announces: the sentence without the clock time or minute count, which change on every check
  * and would make a screen reader repeat an unchanged status.
- * @param {AnySyncStatus} status @param {string} [repoName]
  */
-export function syncAnnouncement(status, repoName = '') {
+export function syncAnnouncement(status: AnySyncStatus, repoName: string = '') {
   if (status.state === 'synced') return 'Synced';
   if (status.state === 'delayed') return `Delayed${repoName ? ` in ${repoName}` : ''}`;
   return syncSentence(status, repoName);
 }
 
-/** @param {AnySyncStatus} status @param {string} [repoName] */
-export function syncPill(status, repoName) {
+export function syncPill(status: AnySyncStatus, repoName?: string) {
   const sentence = syncSentence(status, repoName);
   return html`<span class="chip status-chip sync-pill ${tones[status.state]}" aria-label="Sync status: ${sentence}" title="${sentence}">${syncLabel(status)}</span>`;
 }
 
-/** The repository an overall status concerns. @param {{ id: string, name: string }[]} repos @param {AnySyncStatus} status */
-export function syncRepoName(repos, status) {
+/** The repository an overall status concerns. */
+export function syncRepoName(repos: { id: string; name: string }[], status: AnySyncStatus) {
   return 'repoId' in status ? (repos.find(repo => repo.id === status.repoId)?.name ?? '') : '';
 }

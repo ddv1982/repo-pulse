@@ -1,18 +1,21 @@
 import { emptyHtml, html, dateTime, streamError, azureLink, streamLabel } from './format.ts';
-import { connectionResult } from './connection.js';
-import { syncPill } from './health.js';
-import { renderCheckout } from './checkout-render.js';
-import { renderHistoryButton, renderHistoryProgress } from './history-import.js';
-import { displayLocalPath } from './repository-picker.js';
+import { connectionResult } from './connection.ts';
+import { syncPill } from './health.ts';
+import { renderCheckout } from './checkout-render.ts';
+import { renderHistoryButton, renderHistoryProgress } from './history-import.ts';
+import { displayLocalPath } from './repository-picker.ts';
 
-/** @typedef {import('./refresh.js').PageState} PageState */
-/** @typedef {import('./refresh.js').Repo} Repo */
-/** @typedef {import('./checkout.js').CheckoutSnapshot} CheckoutSnapshot */
-/** @typedef {import('./history-import.js').HistoryJob} HistoryJob */
-/** @typedef {Pick<import('./connection.js').ConnectionState, 'results'>} RepositoriesView */
+export type PageState = import('./refresh.ts').PageState;
+export type Repo = import('./refresh.ts').Repo;
+export type CheckoutSnapshot = import('./checkout.ts').CheckoutSnapshot;
+export type HistoryJob = import('./history-import.ts').HistoryJob;
+export type RepositoriesView = Pick<import('./connection.ts').ConnectionState, 'results'>;
 
-/** @param {PageState} state @param {{ connection?: RepositoriesView }} ui @param {Record<string, CheckoutSnapshot>} [checkouts] */
-export function renderRepositories(state, ui, checkouts = {}) {
+export function renderRepositories(
+  state: PageState,
+  ui: { connection?: RepositoriesView },
+  checkouts: Record<string, CheckoutSnapshot> = {},
+) {
   const jobs = new Map(state.jobs?.map(job => [job.repoId, job]));
   const disabled = state.watched.filter(repo => repo.disabled).length;
   return html`<div class="repo-heading">
@@ -47,14 +50,12 @@ export function renderRepositories(state, ui, checkouts = {}) {
     </section>`;
 }
 
-/** @param {Repo} repo */
-function repoSwitch(repo) {
+function repoSwitch(repo: Repo) {
   return html`<input class="setting-switch" type="checkbox" role="switch" id="enable-${repo.id}" data-repo-toggle data-id="${repo.id}"
     aria-label="Watch ${repo.name}" title="${repo.disabled ? 'Disabled: no checks and hidden from Activity' : 'Enabled: checked and shown in Activity'}" ${repo.disabled ? emptyHtml : html`checked`}>`;
 }
 
-/** @param {Repo} repo */
-function renderDisabledRepo(repo) {
+function renderDisabledRepo(repo: Repo) {
   return html`<article class="repo-card repo-entry repo-disabled">
     <div class="repo-overview">
       ${repoSwitch(repo)}
@@ -67,11 +68,15 @@ function renderDisabledRepo(repo) {
   </article>`;
 }
 
-/**
- * @param {Repo} repo @param {import('./health.js').SyncStatus | undefined} status @param {PageState['streams']} streams @param {HistoryJob | null | undefined} job
- * @param {CheckoutSnapshot | undefined} checkout @param {boolean | undefined} demo @param {PageState['settings']} settings
- */
-function renderRepo(repo, status, streams, job, checkout, demo, settings) {
+function renderRepo(
+  repo: Repo,
+  status: import('./health.ts').SyncStatus | undefined,
+  streams: PageState['streams'],
+  job: HistoryJob | null | undefined,
+  checkout: CheckoutSnapshot | undefined,
+  demo: boolean | undefined,
+  settings: PageState['settings'],
+) {
   const automatic = settings.refreshEnabled !== false;
   const records = streams.filter(stream => stream.repoId === repo.id);
   const checked = records.map(stream => Date.parse(stream.lastSuccess ?? '')).filter(Number.isFinite);

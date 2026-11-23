@@ -13,19 +13,19 @@ import { groupActivity } from '../src/activity.ts';
 import { SafeHtml, html as safeHtml, joinHtml } from '../src/ui/format.ts';
 import { setHtml } from '../src/ui/dom.ts';
 import { parse } from './fixtures/dom.js';
-import { renderFeed, renderDetail } from '../src/ui/feed.js';
-import { renderRepositories } from '../src/ui/repositories.js';
-import { renderSettings } from '../src/ui/settings.js';
-import { renderHeader } from '../src/ui/header.js';
-import { renderCheckout } from '../src/ui/checkout-render.js';
+import { renderFeed, renderDetail } from '../src/ui/feed.ts';
+import { renderRepositories } from '../src/ui/repositories.ts';
+import { renderSettings } from '../src/ui/settings.ts';
+import { renderHeader } from '../src/ui/header.ts';
+import { renderCheckout } from '../src/ui/checkout-render.ts';
 
 /** @typedef {import('../src/activity.ts').ActivityEvent} ActivityEvent */
-/** @typedef {import('../src/ui/refresh.js').PageState} PageState */
-/** @typedef {import('../src/ui/refresh.js').Repo} Repo */
-/** @typedef {import('../src/ui/checkout.js').CheckoutSnapshot} CheckoutSnapshot */
-/** @typedef {import('../src/ui/connection.js').ConnectionState} ConnectionState */
-/** @typedef {import('../src/ui/connection.js').ConnectionStatus} ConnectionStatus */
-/** @typedef {import('../src/ui/activity-detail.js').CommitsView} CommitsView */
+/** @typedef {import('../src/ui/refresh.ts').PageState} PageState */
+/** @typedef {import('../src/ui/refresh.ts').Repo} Repo */
+/** @typedef {import('../src/ui/checkout.ts').CheckoutSnapshot} CheckoutSnapshot */
+/** @typedef {import('../src/ui/connection.ts').ConnectionState} ConnectionState */
+/** @typedef {import('../src/ui/connection.ts').ConnectionStatus} ConnectionStatus */
+/** @typedef {import('../src/ui/activity-detail.ts').CommitsView} CommitsView */
 /** A transformed value and the exact escaped markup expected where it is rendered. @typedef {{ field: string, html: string }} Sink */
 /** @typedef {{ render: () => string[], shows: string[], sinks: Sink[] }} View */
 
@@ -357,7 +357,7 @@ const commitViews = [
   { error: probe('pushCommits.error') },
 ];
 
-/** @type {import('../src/ui/feed.js').FeedView} */
+/** @type {import('../src/ui/feed.ts').FeedView} */
 const feedView = { route: 'activity', repoIds: null, search: '', kind: '', filtersOpen: false };
 
 /** A full commit ID in its title with the first 8 characters shown, as the detail view renders commits. @param {string} id */

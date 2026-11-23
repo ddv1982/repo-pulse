@@ -5,7 +5,7 @@ import { mkdtempSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createStore } from '../server/store.js';
-import { renderMergeEvidence, mergeEvidenceBadge } from '../src/ui/merge-evidence.js';
+import { renderMergeEvidence, mergeEvidenceBadge } from '../src/ui/merge-evidence.ts';
 
 const repo = { id: 'repo', name: 'Repo', azureId: 'a' };
 const event = (id, extra = {}) => ({

@@ -1,13 +1,11 @@
-// @ts-check
-
 import { activityMergeBadge, matchesPushResult, matchingPushResults } from '../activity-text.ts';
 import { emptyHtml, html, dateTime, branchName, azureLink } from './format.ts';
 
-/** @typedef {import('../activity.ts').EventData} EventData */
-/** @typedef {import('../activity.ts').EvidencePr} EvidencePr */
+export type EventData = import('../activity.ts').EventData;
+export type EvidencePr = import('../activity.ts').EvidencePr;
 
-/** Evidence is supplemental metadata, never an inferred actor or merge operation. @param {EventData} [data] */
-export function renderMergeEvidence(data = {}) {
+/** Evidence is supplemental metadata, never an inferred actor or merge operation.  */
+export function renderMergeEvidence(data: EventData = {}) {
   const evidence = data.mergeEvidence;
   if (!evidence) return emptyHtml;
   const prs = evidence.prs || [];
@@ -29,24 +27,22 @@ export function renderMergeEvidence(data = {}) {
   </section>`;
 }
 
-/** @param {{ dropped?: number, more?: boolean }} update */
-const droppedText = update => `${update.dropped}${update.more ? '+' : ''} commit${update.dropped === 1 && !update.more ? '' : 's'} dropped`;
+const droppedText = (update: { dropped?: number; more?: boolean }) =>
+  `${update.dropped}${update.more ? '+' : ''} commit${update.dropped === 1 && !update.more ? '' : 's'} dropped`;
 
-/** @typedef {{ name?: string, update: { status?: string, dropped?: number, more?: boolean } }} CheckedUpdate */
+export type CheckedUpdate = { name?: string; update: { status?: string; dropped?: number; more?: boolean } };
 /**
  * Branch updates with a history check: saved as ref ranges by the earlier merge analysis, or by the rewrite check.
- * @param {EventData} [data] @returns {CheckedUpdate[]}
  */
-const checkedUpdates = data => [
+const checkedUpdates = (data?: EventData): CheckedUpdate[] => [
   ...(data?.mergeEvidence?.refRanges || []).flatMap(range => (range.update ? [{ name: range.name, update: range.update }] : [])),
   ...(data?.mergeEvidence?.rewrite || []).map(({ ref, ...update }) => ({ name: ref, update })),
 ];
 
-/** Branch updates whose old tip the new tip no longer reaches. @param {EventData} [data] */
-const rewrites = data => checkedUpdates(data).filter(range => range.update.status === 'rewrite');
+/** Branch updates whose old tip the new tip no longer reaches.  */
+const rewrites = (data?: EventData) => checkedUpdates(data).filter(range => range.update.status === 'rewrite');
 
-/** @param {import('../activity.ts').ActivityEvent} event */
-export function mergeEvidenceBadge(event) {
+export function mergeEvidenceBadge(event: import('../activity.ts').ActivityEvent) {
   const label = activityMergeBadge(event);
   const rewritten = event.kind === 'push' ? rewrites(event.data) : [];
   const history = rewritten.length
@@ -57,27 +53,26 @@ export function mergeEvidenceBadge(event) {
   return html`<span class="chip status-chip ok">${count > 1 ? `${count} completed PRs linked` : count === 1 ? 'Completed PR linked' : 'Related PR evidence'}</span>${history}`;
 }
 
-/** @param {EventData} [data] */
-function renderHistory(data) {
+function renderHistory(data?: EventData) {
   const ranges = checkedUpdates(data);
   if (!ranges.length) return emptyHtml;
-  /** @type {Record<string, string>} */
-  const text = { 'fast-forward': 'fast-forward, no history dropped', unknown: 'old tip could not be read; rewrite not established' };
-  const line = (/** @type {CheckedUpdate} */ range) =>
+  const text: Record<string, string> = {
+    'fast-forward': 'fast-forward, no history dropped',
+    unknown: 'old tip could not be read; rewrite not established',
+  };
+  const line = (range: CheckedUpdate) =>
     html`<li>${branchName(range.name)} · ${range.update.status === 'rewrite' ? `history rewritten, ${droppedText(range.update)} from the old tip` : text[range.update.status ?? ''] || 'not checked'}</li>`;
   return html`<ul>${ranges.map(line)}</ul>`;
 }
 
-/** @type {Record<string, string | undefined>} */
-const prStrategies = {
+const prStrategies: Record<string, string | undefined> = {
   noFastForward: 'Merge commit',
   squash: 'Squash',
   rebase: 'Rebase and fast-forward',
   rebaseMerge: 'Rebase with merge commit',
 };
 
-/** @param {EvidencePr} pr @param {EventData} data */
-function renderPr(pr, data) {
+function renderPr(pr: EvidencePr, data: EventData) {
   const id = pr.pullRequestId || pr.id;
   const source = branchName(pr.sourceRefName);
   const target = branchName(pr.targetRefName);

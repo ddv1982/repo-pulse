@@ -1,28 +1,23 @@
-// @ts-check
-
 import { emptyHtml, html, dateTime } from './format.ts';
 import { required } from './dom.ts';
 
 /** /api/state lists backfill jobs; these are the fields the Repositories page shows. */
-/** @typedef {Pick<import('../contract.ts').HistoryJob, 'status' | 'error' | 'pages' | 'lastProgressAt'>} HistoryJob */
-/** @typedef {Pick<import('./refresh.js').Repo, 'id' | 'name'>} HistoryRepo */
+export type HistoryJob = Pick<import('../contract.ts').HistoryJob, 'status' | 'error' | 'pages' | 'lastProgressAt'>;
+export type HistoryRepo = Pick<import('./refresh.ts').Repo, 'id' | 'name'>;
 
-/** @param {HistoryJob} job @returns {[string, string]} */
-function statusFor(job) {
+function statusFor(job: HistoryJob): [string, string] {
   if (job.status === 'completed') return ['History sync finished', 'ok'];
   if (job.error || job.status === 'retrying') return ['History sync retrying', 'warn'];
   if (job.status === 'running') return ['History sync running', 'info'];
   return ['History sync queued', 'info'];
 }
 
-/** @param {Pick<HistoryRepo, 'id'>} repo @param {HistoryJob | null | undefined} job */
-export function renderHistoryButton(repo, job) {
+export function renderHistoryButton(repo: Pick<HistoryRepo, 'id'>, job: HistoryJob | null | undefined) {
   const busy = job && job.status !== 'completed';
   return html`<button class="btn sm" type="button" id="import-${repo.id}" data-action="open-history-import" data-id="${repo.id}" ${busy ? html`disabled` : emptyHtml}>Sync older activity…</button>`;
 }
 
-/** @param {Pick<HistoryRepo, 'id'>} repo @param {HistoryJob | null | undefined} job */
-export function renderHistoryProgress(repo, job) {
+export function renderHistoryProgress(repo: Pick<HistoryRepo, 'id'>, job: HistoryJob | null | undefined) {
   if (!job) return emptyHtml;
   const [label, tone] = statusFor(job);
   return html`<div class="history-progress" id="history-${repo.id}" role="status" tabindex="-1">
@@ -32,19 +27,23 @@ export function renderHistoryProgress(repo, job) {
   </div>`;
 }
 
-/**
- * @param {HTMLDialogElement} dialog
- * @param {{ start: (repoId: string | undefined, days: number | 'all') => Promise<unknown>, onStarted: (repoId: string | undefined) => Promise<void> }} options
- */
-export function createHistoryImport(dialog, { start, onStarted }) {
+export function createHistoryImport(
+  dialog: HTMLDialogElement,
+  {
+    start,
+    onStarted,
+  }: {
+    start: (repoId: string | undefined, days: number | 'all') => Promise<unknown>;
+    onStarted: (repoId: string | undefined) => Promise<void>;
+  },
+) {
   const form = required('form', HTMLFormElement, dialog);
   const repositoryName = required('#history-repository', HTMLElement, dialog);
   const error = required('[role="alert"]', HTMLElement, dialog);
   const controls = [...form.querySelectorAll('input, button')].filter(
     control => control instanceof HTMLInputElement || control instanceof HTMLButtonElement,
   );
-  /** @type {string | undefined} */
-  let repoId;
+  let repoId: string | undefined;
   let submitting = false;
 
   required('[data-history-cancel]', HTMLElement, dialog).addEventListener('click', () => dialog.close());
@@ -82,8 +81,7 @@ export function createHistoryImport(dialog, { start, onStarted }) {
     get open() {
       return dialog.open;
     },
-    /** @param {HistoryRepo} repo */
-    show(repo) {
+    show(repo: HistoryRepo) {
       repoId = repo.id;
       repositoryName.textContent = repo.name;
       form.reset();

@@ -10,10 +10,10 @@ import {
   activitySummary,
   labels,
 } from '../src/ui/format.ts';
-import { renderRepositories as renderRepositoriesHtml } from '../src/ui/repositories.js';
-import { renderFeed as renderPagedFeedHtml, renderDetail as renderDetailHtml } from '../src/ui/feed.js';
-import { forkText, treeLegend } from '../src/ui/activity-tree.js';
-import { scopeName } from '../src/ui/header.js';
+import { renderRepositories as renderRepositoriesHtml } from '../src/ui/repositories.ts';
+import { renderFeed as renderPagedFeedHtml, renderDetail as renderDetailHtml } from '../src/ui/feed.ts';
+import { forkText, treeLegend } from '../src/ui/activity-tree.ts';
+import { scopeName } from '../src/ui/header.ts';
 import { createStore } from '../server/store.js';
 import { parse, one, all, row, text, srText } from './fixtures/dom.js';
 

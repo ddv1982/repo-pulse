@@ -1,26 +1,32 @@
-// @ts-check
+import { repositoryHref } from './navigation.ts';
 
-import { repositoryHref } from './navigation.js';
+export type CheckoutSnapshot = import('./checkout.ts').CheckoutSnapshot;
+export type CheckoutOperation = import('./checkout.ts').CheckoutOperation;
+export type Action = (element: HTMLElement) => Promise<void> | void;
+export type ActivityCheckout = { repoId: string; localPath: string; eventId: string; branch: string; isCurrent: () => boolean };
 
-/** @typedef {import('./checkout.js').CheckoutSnapshot} CheckoutSnapshot */
-/** @typedef {import('./checkout.js').CheckoutOperation} CheckoutOperation */
-/** @typedef {(element: HTMLElement) => Promise<void> | void} Action */
-/** @typedef {{ repoId: string, localPath: string, eventId: string, branch: string, isCurrent: () => boolean }} ActivityCheckout */
-
-/**
- * @param {{
- *   checkoutPanel: ReturnType<typeof import('./checkout.js').createCheckoutPanel>,
- *   getActivityCheckout: () => ActivityCheckout | null,
- *   confirm: (title: string, description: string, callback: () => Promise<void>, label?: string, options?: { subject?: string, destructive?: boolean }) => void,
- *   toast: (message: string) => void,
- *   closeBranchPicker: () => void,
- *   currentView: () => () => boolean,
- * }} options
- * @returns {Record<string, Action>}
- */
-export function createCheckoutActions({ checkoutPanel, getActivityCheckout, confirm, toast, closeBranchPicker, currentView }) {
-  /** @param {string} id @param {CheckoutOperation} operation @param {CheckoutSnapshot} checkout @param {Record<string, unknown>} [options] */
-  async function updateCheckout(id, operation, checkout, options) {
+export function createCheckoutActions({
+  checkoutPanel,
+  getActivityCheckout,
+  confirm,
+  toast,
+  closeBranchPicker,
+  currentView,
+}: {
+  checkoutPanel: ReturnType<typeof import('./checkout.ts').createCheckoutPanel>;
+  getActivityCheckout: () => ActivityCheckout | null;
+  confirm: (
+    title: string,
+    description: string,
+    callback: () => Promise<void>,
+    label?: string,
+    options?: { subject?: string; destructive?: boolean },
+  ) => void;
+  toast: (message: string) => void;
+  closeBranchPicker: () => void;
+  currentView: () => () => boolean;
+}): Record<string, Action> {
+  async function updateCheckout(id: string, operation: CheckoutOperation, checkout: CheckoutSnapshot, options?: Record<string, unknown>) {
     const { branch, head, upstream, identity } = checkout;
     try {
       const result = await checkoutPanel.update(id, operation, { branch, head, upstream, identity }, options);
@@ -39,8 +45,10 @@ export function createCheckoutActions({ checkoutPanel, getActivityCheckout, conf
     }
   }
 
-  /** @param {HTMLElement} element @param {Exclude<CheckoutOperation, 'check' | 'pull' | 'switch-activity' | 'switch-branch'>} operation */
-  function branchAction(element, operation) {
+  function branchAction(
+    element: HTMLElement,
+    operation: Exclude<CheckoutOperation, 'check' | 'pull' | 'switch-activity' | 'switch-branch'>,
+  ) {
     const id = element.dataset.id ?? '';
     const checkout = checkoutPanel.snapshots[id];
     if (!checkout) return;
@@ -57,8 +65,7 @@ export function createCheckoutActions({ checkoutPanel, getActivityCheckout, conf
     }
     const followup = checkout.followup;
     if (!followup) return;
-    /** @type {{ planId: string, commits?: string[] }} */
-    const options = { planId: followup.id };
+    const options: { planId: string; commits?: string[] } = { planId: followup.id };
     const perform = () => updateCheckout(id, operation, checkout, options);
     if (operation === 'remove') {
       return confirm(
@@ -89,11 +96,14 @@ export function createCheckoutActions({ checkoutPanel, getActivityCheckout, conf
   /**
    * Confirms and runs a branch switch, with a second review when the branch's remote history was rewritten or has
    * diverged from the local branch. Activity and Repositories share it so both ask the same questions.
-   * @param {{ repoId: string, localPath: string, branch: string, isCurrent: () => boolean }} target
-   * @param {'switch-activity' | 'switch-branch'} operation @param {Record<string, unknown>} request
-   * @param {() => void} done runs after a verified switch, and when the checkout is already on the branch
+   * @param done runs after a verified switch, and when the checkout is already on the branch
    */
-  async function switchCheckout({ repoId, localPath, branch, isCurrent }, operation, request, done) {
+  async function switchCheckout(
+    { repoId, localPath, branch, isCurrent }: { repoId: string; localPath: string; branch: string; isCurrent: () => boolean },
+    operation: 'switch-activity' | 'switch-branch',
+    request: Record<string, unknown>,
+    done: () => void,
+  ) {
     const checkout = await checkoutPanel.read(repoId);
     if (!isCurrent()) return;
     if (checkout.branch === branch) return done();
@@ -103,8 +113,7 @@ export function createCheckoutActions({ checkoutPanel, getActivityCheckout, conf
     const { branch: current, head, upstream, identity, switchIdentity } = checkout;
     if (!current || !head || !identity) throw new Error('Switching requires an existing branch checked out in Git.');
     if (!switchIdentity) throw new Error('Repo Pulse could not verify the local Git directory.');
-    /** @param {string} [confirmation] */
-    const switchBranch = async confirmation => {
+    const switchBranch = async (confirmation?: string) => {
       if (!isCurrent()) return;
       const result = await checkoutPanel.update(
         repoId,

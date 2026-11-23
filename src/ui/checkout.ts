@@ -1,32 +1,47 @@
-// @ts-check
-
-import { checkAge, renderCheckout } from './checkout-render.js';
+import { checkAge, renderCheckout } from './checkout-render.ts';
 import { setHtml } from './dom.ts';
 
-/** @typedef {import('../contract.ts').CheckoutStatus} CheckoutStatus */
-/** @typedef {import('../contract.ts').BlockedCheckout} BlockedCheckout */
-/** @typedef {import('../contract.ts').Review} Review */
-/** @typedef {import('../contract.ts').FollowupSummary} FollowupSummary */
+export type CheckoutStatus = import('../contract.ts').CheckoutStatus;
+export type BlockedCheckout = import('../contract.ts').BlockedCheckout;
+export type Review = import('../contract.ts').Review;
+export type FollowupSummary = import('../contract.ts').FollowupSummary;
 /**
  * One repository's checkout as this page reads it. Every /api/checkouts entry fits: the server adds `followup`
  * when a branch follow-up is open, and the page keeps the `review` and `nextStep` a branch action returned.
- * @typedef {{ state: CheckoutStatus['state'], canPull?: boolean, followup?: FollowupSummary,
- *   review?: Review, nextStep?: string } & Partial<Omit<BlockedCheckout, 'state' | 'canPull'>>} CheckoutSnapshot
  */
-/** @typedef {{ checkout: CheckoutSnapshot, updated?: boolean, message?: string, notice?: string,
- *   switchReview?: import('../contract.ts').ActivitySwitchReview, review?: Review, nextStep?: string }} CheckoutUpdate */
-/** @typedef {'check' | 'pull' | 'switch-activity' | 'switch-branch' | 'switch-update' | 'review' | 'remove' | 'carry'} CheckoutOperation */
+export type CheckoutSnapshot = {
+  state: CheckoutStatus['state'];
+  canPull?: boolean;
+  followup?: FollowupSummary;
+  review?: Review;
+  nextStep?: string;
+} & Partial<Omit<BlockedCheckout, 'state' | 'canPull'>>;
+export type CheckoutUpdate = {
+  checkout: CheckoutSnapshot;
+  updated?: boolean;
+  message?: string;
+  notice?: string;
+  switchReview?: import('../contract.ts').ActivitySwitchReview;
+  review?: Review;
+  nextStep?: string;
+};
+export type CheckoutOperation = 'check' | 'pull' | 'switch-activity' | 'switch-branch' | 'switch-update' | 'review' | 'remove' | 'carry';
 
-/** @param {{ page: HTMLElement, request: typeof import('../api.ts').request, isVisible: () => boolean }} options */
-export function createCheckoutPanel({ page, request, isVisible }) {
-  /** @type {Record<string, CheckoutSnapshot>} */
-  let snapshots = {};
+export function createCheckoutPanel({
+  page,
+  request,
+  isVisible,
+}: {
+  page: HTMLElement;
+  request: typeof import('../api.ts').request;
+  isVisible: () => boolean;
+}) {
+  let snapshots: Record<string, CheckoutSnapshot> = {};
   let reading = false,
     mutating = false,
     generation = 0;
 
-  /** @param {string} id @param {CheckoutSnapshot} checkout */
-  function retainLocalState(id, checkout) {
+  function retainLocalState(id: string, checkout: CheckoutSnapshot) {
     const previous = snapshots[id];
     if (
       previous?.review &&
@@ -43,8 +58,7 @@ export function createCheckoutPanel({ page, request, isVisible }) {
     return checkout;
   }
 
-  /** @param {Record<string, CheckoutSnapshot>} next */
-  function publish(next) {
+  function publish(next: Record<string, CheckoutSnapshot>) {
     const before = snapshots;
     snapshots = next;
     if (!isVisible()) return;
@@ -78,8 +92,7 @@ export function createCheckoutPanel({ page, request, isVisible }) {
     get snapshots() {
       return snapshots;
     },
-    /** @param {string} id @returns {Promise<CheckoutSnapshot>} */
-    async read(id) {
+    async read(id: string): Promise<CheckoutSnapshot> {
       const issued = generation;
       const checkout = await request(`/api/repos/${encodeURIComponent(id)}/checkout/status`);
       if (!mutating && issued === generation) publish({ ...snapshots, [id]: retainLocalState(id, checkout) });
@@ -90,8 +103,7 @@ export function createCheckoutPanel({ page, request, isVisible }) {
       const issued = generation;
       reading = true;
       try {
-        /** @type {Record<string, CheckoutSnapshot>} */
-        const next = await request('/api/checkouts');
+        const next: Record<string, CheckoutSnapshot> = await request('/api/checkouts');
         if (!mutating && issued === generation) {
           for (const [id, checkout] of Object.entries(next)) retainLocalState(id, checkout);
           publish(next);
@@ -102,24 +114,23 @@ export function createCheckoutPanel({ page, request, isVisible }) {
             Object.fromEntries(
               [...page.querySelectorAll('[data-checkout-part="status"]')]
                 .filter(element => element instanceof HTMLElement)
-                .map(element => [element.dataset.checkoutId ?? '', { state: /** @type {const} */ ('unavailable') }]),
+                .map(element => [element.dataset.checkoutId ?? '', { state: 'unavailable' as const }]),
             ),
           );
       } finally {
         reading = false;
       }
     },
-    /**
-     * @param {string} id @param {CheckoutOperation} operation
-     * @param {Pick<CheckoutSnapshot, 'branch' | 'head' | 'upstream' | 'identity' | 'switchIdentity'>} expected @param {Record<string, unknown>} [options]
-     * @returns {Promise<CheckoutUpdate>}
-     */
-    async update(id, operation, expected, options = {}) {
+    async update(
+      id: string,
+      operation: CheckoutOperation,
+      expected: Pick<CheckoutSnapshot, 'branch' | 'head' | 'upstream' | 'identity' | 'switchIdentity'>,
+      options: Record<string, unknown> = {},
+    ): Promise<CheckoutUpdate> {
       mutating = true;
       generation++;
       try {
-        /** @type {CheckoutUpdate} */
-        const result = await request(`/api/repos/${encodeURIComponent(id)}/checkout`, {
+        const result: CheckoutUpdate = await request(`/api/repos/${encodeURIComponent(id)}/checkout`, {
           method: 'POST',
           body: { ...options, operation, expected },
         });

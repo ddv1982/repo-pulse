@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { isSavedFilterModified } from '../src/ui/saved-filters.js';
+import { isSavedFilterModified } from '../src/ui/saved-filters.ts';
 
 test('saved filter comparison ignores removed repositories and set order while retaining a dynamic All scope', () => {
   const watched = [{ id: 'one' }, { id: 'two' }];

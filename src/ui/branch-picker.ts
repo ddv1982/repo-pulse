@@ -1,30 +1,23 @@
-// @ts-check
-
 import { emptyHtml, html } from './format.ts';
 import { required, setHtml } from './dom.ts';
 
-/** @typedef {import('../contract.ts').CheckoutBranchesResponse['branches'][number]} CheckoutBranch */
-/** @typedef {{ id: string, name: string, localPath?: string }} PickerRepo */
+export type CheckoutBranch = import('../contract.ts').CheckoutBranchesResponse['branches'][number];
+export type PickerRepo = { id: string; name: string; localPath?: string };
 
 /**
  * The Repositories dialog that lists a checkout's watched branches. Choosing one runs the `switch-checkout-branch`
  * action, which closes this dialog before it asks to confirm the switch.
- * @param {HTMLDialogElement} dialog
- * @param {{ load: (repoId: string) => Promise<CheckoutBranch[]> }} options
  */
-export function createBranchPicker(dialog, { load }) {
+export function createBranchPicker(dialog: HTMLDialogElement, { load }: { load: (repoId: string) => Promise<CheckoutBranch[]> }) {
   const form = required('form', HTMLFormElement, dialog);
   const filter = required('#branch-filter', HTMLInputElement, dialog);
   const list = required('#branch-list', HTMLElement, dialog);
   const status = required('#branch-status', HTMLElement, dialog);
   const repository = required('#branch-repository', HTMLElement, dialog);
-  /** @type {PickerRepo | undefined} */
-  let repo;
-  /** @type {CheckoutBranch[]} */
-  let branches = [];
+  let repo: PickerRepo | undefined;
+  let branches: CheckoutBranch[] = [];
   let current = '';
-  /** @type {string | null} */
-  let failure = null;
+  let failure: string | null = null;
   let loading = false;
   let opened = 0;
 
@@ -71,8 +64,8 @@ export function createBranchPicker(dialog, { load }) {
     close() {
       if (dialog.open) dialog.close();
     },
-    /** @param {PickerRepo} next @param {string} branch the branch checked out now */
-    async show(next, branch) {
+    /** @param branch the branch checked out now */
+    async show(next: PickerRepo, branch: string) {
       const issued = ++opened;
       repo = next;
       current = branch;

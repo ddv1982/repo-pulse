@@ -1,13 +1,16 @@
-// @ts-check
-
 import { dateTime, emptyHtml, html } from './format.ts';
 
-/** A connection check's answer; a failed request is recorded as an unavailable status. @typedef {import('../api.ts').ConnectionResponse} ConnectionStatus */
-/** @typedef {{ results: Map<string, ConnectionStatus>, local: ConnectionStatus | null, pending: string | null, repoId: string }} ConnectionState */
-/** @typedef {Pick<import('./refresh.js').PageState, 'demo' | 'streams'>} ConnectionPage */
+/** A connection check's answer; a failed request is recorded as an unavailable status. */
+export type ConnectionStatus = import('../api.ts').ConnectionResponse;
+export type ConnectionState = {
+  results: Map<string, ConnectionStatus>;
+  local: ConnectionStatus | null;
+  pending: string | null;
+  repoId: string;
+};
+export type ConnectionPage = Pick<import('./refresh.ts').PageState, 'demo' | 'streams'>;
 
-/** @param {ConnectionStatus | undefined} connection */
-export function connectionResult(connection) {
+export function connectionResult(connection: ConnectionStatus | undefined) {
   if (!connection) return html`<p class="help" role="status">Detecting your existing Azure CLI configuration…</p>`;
   return html`<div class="connection-summary"><span class="${connection.available ? 'status-good' : 'status-bad'}" role="status">
     ${connection.available ? 'Using existing Azure CLI' : 'Azure CLI needs attention'}</span>
@@ -16,8 +19,7 @@ export function connectionResult(connection) {
     ${connection.available ? emptyHtml : html`<p class="help">${connection.message}</p>`}`;
 }
 
-/** @param {ConnectionPage} state @param {ConnectionState} connection @param {string} repoId */
-export function connectionStatus(state, connection, repoId) {
+export function connectionStatus(state: ConnectionPage, connection: ConnectionState, repoId: string) {
   const result = connection.results.get(repoId);
   const streams = state.streams.filter(stream => stream.repoId === repoId);
   const lastRead = Math.max(...streams.map(stream => Date.parse(stream.lastSuccess ?? '')).filter(Number.isFinite));
@@ -36,16 +38,12 @@ export function connectionStatus(state, connection, repoId) {
   return 'Access not yet checked';
 }
 
-/** @param {{ request: typeof import('../api.ts').request, render: () => void }} options */
-export function createConnectionController({ request, render }) {
-  /** @type {Map<string, ConnectionStatus>} */
-  const results = new Map();
-  /** @type {ConnectionState} */
-  const state = { results, local: null, pending: null, repoId: '' };
+export function createConnectionController({ request, render }: { request: typeof import('../api.ts').request; render: () => void }) {
+  const results: Map<string, ConnectionStatus> = new Map();
+  const state: ConnectionState = { results, local: null, pending: null, repoId: '' };
   return {
     state,
-    /** @param {string} [repoId] @param {{ force?: boolean }} [options] */
-    async check(repoId = '', { force = false } = {}) {
+    async check(repoId: string = '', { force = false }: { force?: boolean } = {}) {
       if (state.pending !== null || (!force && results.has(repoId))) return;
       state.pending = repoId;
       if (force) render();
@@ -61,8 +59,7 @@ export function createConnectionController({ request, render }) {
         render();
       }
     },
-    /** @param {string} repoId */
-    select(repoId) {
+    select(repoId: string) {
       state.repoId = repoId;
     },
   };

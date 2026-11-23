@@ -1,43 +1,39 @@
 import { request } from './api.ts';
-import { joinActivitySearch } from './ui/activity-search.js';
+import { joinActivitySearch } from './ui/activity-search.ts';
 import { activityFilterLabel } from './activity-text.ts';
-import { createCheckoutActions } from './ui/checkout-actions.js';
+import { createCheckoutActions } from './ui/checkout-actions.ts';
 import { activityBranch } from './activity-branch.ts';
-import { createCheckoutPanel } from './ui/checkout.js';
-import { connectionResult, createConnectionController } from './ui/connection.js';
+import { createCheckoutPanel } from './ui/checkout.ts';
+import { connectionResult, createConnectionController } from './ui/connection.ts';
 import { emptyHtml, html } from './ui/format.ts';
-import { createRepositoryPicker } from './ui/repository-picker.js';
-import { createNavigation, activityHref, isActivity } from './ui/navigation.js';
-import { createTypeFilter } from './ui/type-filter.js';
-import { createRefreshController } from './ui/refresh.js';
-import { createBrowserView, replacementFocus } from './ui/browser-view.js';
-import { createSeenActions, eventIds } from './ui/seen-actions.js';
-import { createFilterNameDialog, currentActivityFilters, isSavedFilterModified, savedRepositoryScope } from './ui/saved-filters.js';
-import { createToolbarMenu } from './ui/toolbar-menu.js';
-import { scopeName } from './ui/header.js';
-import { createHistoryImport } from './ui/history-import.js';
-import { createBranchPicker } from './ui/branch-picker.js';
+import { createRepositoryPicker } from './ui/repository-picker.ts';
+import { createNavigation, activityHref, isActivity } from './ui/navigation.ts';
+import { createTypeFilter } from './ui/type-filter.ts';
+import { createRefreshController } from './ui/refresh.ts';
+import { createBrowserView, replacementFocus } from './ui/browser-view.ts';
+import { createSeenActions, eventIds } from './ui/seen-actions.ts';
+import { createFilterNameDialog, currentActivityFilters, isSavedFilterModified, savedRepositoryScope } from './ui/saved-filters.ts';
+import { createToolbarMenu } from './ui/toolbar-menu.ts';
+import { scopeName } from './ui/header.ts';
+import { createHistoryImport } from './ui/history-import.ts';
+import { createBranchPicker } from './ui/branch-picker.ts';
 import { required, setHtml } from './ui/dom.ts';
 
-/** @typedef {import('./ui/refresh.js').PageState} PageState */
-/** @typedef {import('./ui/checkout-actions.js').Action} Action */
-/** web/theme.js publishes this before the modules load. @typedef {Window & { repoPulseTheme?: { set: (value: string) => void } }} ThemedWindow */
+export type PageState = import('./ui/refresh.ts').PageState;
+export type Action = import('./ui/checkout-actions.ts').Action;
+/** web/theme.js publishes this before the modules load. */
+export type ThemedWindow = Window & { repoPulseTheme?: { set: (value: string) => void } };
 
 const page = required('#page');
 const header = required('#header');
 const dialog = required('#confirm-dialog', HTMLDialogElement);
-/** @type {(() => Promise<void>) | null} */
-let pendingConfirmation;
-/** @type {HTMLElement | SVGElement | null} */
-let dialogOpener;
+let pendingConfirmation: (() => Promise<void>) | null;
+let dialogOpener: HTMLElement | SVGElement | null;
 let busy = false;
-/** @type {{ metadata?: string, activity?: PageState['activity'], events?: PageState['events'] }} */
-let lastRendered = {};
-/** @type {ReturnType<typeof setTimeout> | undefined} */
-let toastTimer;
+let lastRendered: { metadata?: string; activity?: PageState['activity']; events?: PageState['events'] } = {};
+let toastTimer: ReturnType<typeof setTimeout> | undefined;
 
-/** @type {ReturnType<typeof setTimeout> | undefined} */
-let searchTimer;
+let searchTimer: ReturnType<typeof setTimeout> | undefined;
 const connection = createConnectionController({
   request,
   render() {
@@ -50,8 +46,7 @@ const connection = createConnectionController({
     }
   },
 });
-/** @type {import('./ui/browser-view.js').BrowserUi} */
-const ui = {
+const ui: import('./ui/browser-view.ts').BrowserUi = {
   route: 'catchup',
   eventId: null,
   repoIds: null,
@@ -63,8 +58,8 @@ const ui = {
   activityRoute: 'catchup',
   connection: connection.state,
 };
-/** Data each detail page loaded on request, by event. @type {Map<string | null, import('./ui/activity-detail.js').LoadedView>} */
-const commitResults = new Map();
+/** Data each detail page loaded on request, by event. */
+const commitResults: Map<string | null, import('./ui/activity-detail.ts').LoadedView> = new Map();
 const picker = createRepositoryPicker({
   request,
   getRepos: () => refresh.state.watched,
@@ -154,8 +149,7 @@ function renderOptions() {
   };
 }
 
-/** @returns {import('./ui/checkout-actions.js').ActivityCheckout|null} */
-function getActivityCheckout() {
+function getActivityCheckout(): import('./ui/checkout-actions.ts').ActivityCheckout | null {
   if (ui.route !== 'event' || refresh.state.demo) return null;
   const event = refresh.state.events.find(event => event.id === ui.eventId);
   const repo = event && refresh.state.repos.find(repo => repo.id === event.repoId);
@@ -171,8 +165,8 @@ function currentView() {
   return () => location.hash === hash && navigation.view().generation === generation;
 }
 
-/** The header, and with it the scope panel, renders only after the first state load. @param {boolean} open */
-function showScopePanel(open) {
+/** The header, and with it the scope panel, renders only after the first state load. */
+function showScopePanel(open: boolean) {
   if (open) ui.openMenu = 'repo-panel';
   // A toolbar menu opened by the same click has already taken ui.openMenu.
   else if (ui.openMenu === 'repo-panel') ui.openMenu = '';
@@ -190,8 +184,7 @@ function render() {
   if (ui.route === 'repositories') void connection.check();
 }
 
-/** @param {boolean} force */
-function refreshTarget(force) {
+function refreshTarget(force: boolean) {
   return view.refreshTarget(
     force,
     busy || dialog.open || historyImport.open || filterName.open || branchPicker.open || (ui.route === 'repositories' && picker.active()),
@@ -249,8 +242,7 @@ const refresh = createRefreshController({
 });
 const load = refresh.load;
 
-/** @param {string} message */
-function showError(message, network = false) {
+function showError(message: string, network = false) {
   const notice = required('#notice');
   setHtml(
     notice,
@@ -266,8 +258,7 @@ function clearNotice() {
   delete notice.dataset.networkError;
 }
 
-/** @param {string} message */
-function toast(message, { undo = false } = {}) {
+function toast(message: string, { undo = false } = {}) {
   const element = required('#toast');
   clearTimeout(toastTimer);
   setHtml(element, html`${message}${undo ? html`<button type="button" data-action="undo-ack">Undo</button>` : emptyHtml}`);
@@ -280,8 +271,13 @@ function toast(message, { undo = false } = {}) {
   );
 }
 
-/** @param {string} title @param {string} description @param {() => Promise<void>} callback */
-function confirm(title, description, callback, label = 'Confirm', { subject = '', destructive = false } = {}) {
+function confirm(
+  title: string,
+  description: string,
+  callback: () => Promise<void>,
+  label = 'Confirm',
+  { subject = '', destructive = false } = {},
+) {
   pendingConfirmation = callback;
   const opener = document.activeElement;
   dialogOpener = opener instanceof HTMLElement || opener instanceof SVGElement ? opener : null;
@@ -304,8 +300,7 @@ function closeDialog() {
   opener?.focus({ preventScroll: true });
 }
 
-/** @param {() => unknown} callback */
-async function withAction(callback) {
+async function withAction(callback: () => unknown) {
   if (busy) return;
   busy = true;
   try {
@@ -317,8 +312,7 @@ async function withAction(callback) {
   }
 }
 
-/** @param {boolean} pending */
-function setRefreshPending(pending) {
+function setRefreshPending(pending: boolean) {
   ui.refreshing = pending;
   for (const button of header.querySelectorAll('[data-action="refresh"]')) {
     if (!(button instanceof HTMLElement)) continue;
@@ -337,8 +331,7 @@ function reconcileSavedFilter() {
   if (ui.savedFilterId && refresh.state.savedFilters && !selectedFilter()) ui.savedFilterId = '';
 }
 
-/** @param {import('./ui/saved-filters.js').SavedActivityFilter} preset */
-function applySavedFilter({ id, name, filters }) {
+function applySavedFilter({ id, name, filters }: import('./ui/saved-filters.ts').SavedActivityFilter) {
   const { search, people, kind, repoIds, view } = filters;
   const watched = refresh.state.watched;
   const available = new Set(refresh.state.repos.map(repo => repo.id));
@@ -362,8 +355,7 @@ function applySavedFilter({ id, name, filters }) {
   toast(`Applied “${name}”.${destinationMessage}${scopeMessage}`);
 }
 
-/** @type {Record<string, Action>} */
-const actions = {
+const actions: Record<string, Action> = {
   ...createCheckoutActions({
     checkoutPanel,
     getActivityCheckout,
@@ -605,7 +597,7 @@ document.addEventListener('click', event => {
   const theme = target.closest('[data-theme]');
   if (theme instanceof HTMLElement) {
     // web/theme.js defines repoPulseTheme on window before this module loads; the optional call covers its absence.
-    /** @type {ThemedWindow} */ (window).repoPulseTheme?.set(theme.dataset.theme ?? '');
+    (window as ThemedWindow).repoPulseTheme?.set(theme.dataset.theme ?? '');
     return;
   }
   if (target.closest('#repo-toggle')) {

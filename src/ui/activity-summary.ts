@@ -1,11 +1,8 @@
-// @ts-check
-
 import { emptyHtml, html, buildState } from './format.ts';
 
-/** @typedef {import('./refresh.js').PageState} PageState */
+export type PageState = import('./refresh.ts').PageState;
 
-/** @param {{repoIds: string[] | null, route?: string, search?: string, kind?: string}} ui @param {boolean} partial */
-export function emptyActivityMessage(ui, partial) {
+export function emptyActivityMessage(ui: { repoIds: string[] | null; route?: string; search?: string; kind?: string }, partial: boolean) {
   const scoped = Boolean(ui.search || ui.kind || ui.repoIds !== null);
   if (scoped) return ui.route === 'activity' ? 'No activity matches these filters' : 'No unread updates match these filters';
   if (partial) return 'No activity loaded yet';
@@ -13,12 +10,10 @@ export function emptyActivityMessage(ui, partial) {
 }
 /**
  * Unread totals come from the server so they cover every page, not only the loaded rows.
- * @param {import('../activity.ts').ActivityItem[]} unseen the loaded unread rows @param {Pick<PageState, 'activity'>} state
- */
-function unreadCounts(unseen, state) {
+ * @param unseen the loaded unread rows */
+function unreadCounts(unseen: import('../activity.ts').ActivityItem[], state: Pick<PageState, 'activity'>) {
   const newCounts = state.activity.newCounts;
-  /** @param {string} kind */
-  const unreadOf = kind => newCounts?.[kind] ?? unseen.filter(record => record.kind === kind).length;
+  const unreadOf = (kind: string) => newCounts?.[kind] ?? unseen.filter(record => record.kind === kind).length;
   // Run states exist only for loaded rows, so the CI line appears once every unread run is loaded.
   const builds = unseen.filter(record => record.kind === 'build');
   const allBuildsLoaded = builds.length >= unreadOf('build');
@@ -51,10 +46,14 @@ function unreadCounts(unseen, state) {
 }
 
 /**
- * @param {import('../activity.ts').ActivityItem[]} records @param {Pick<PageState, 'activity'>} state
- * @param {{ repoIds: string[] | null, route?: string, search?: string, kind?: string }} ui @param {boolean} partial the counts may be incomplete
+ * @param partial the counts may be incomplete
  */
-export function renderSummary(records, state, ui, partial) {
+export function renderSummary(
+  records: import('../activity.ts').ActivityItem[],
+  state: Pick<PageState, 'activity'>,
+  ui: { repoIds: string[] | null; route?: string; search?: string; kind?: string },
+  partial: boolean,
+) {
   const { newItems, updates, counts } = unreadCounts(
     records.filter(record => record.unseen),
     state,

@@ -1,23 +1,19 @@
-// @ts-check
-
-import { connectionStatus } from './connection.js';
+import { connectionStatus } from './connection.ts';
 import { emptyHtml, html } from './format.ts';
-import { syncRepoName, syncSentence } from './health.js';
+import { syncRepoName, syncSentence } from './health.ts';
 
-/** @typedef {import('./refresh.js').PageState} PageState */
-/** @typedef {import('./connection.js').ConnectionState} ConnectionState */
-/** @typedef {import('./connection.js').ConnectionStatus} ConnectionStatus */
+export type PageState = import('./refresh.ts').PageState;
+export type ConnectionState = import('./connection.ts').ConnectionState;
+export type ConnectionStatus = import('./connection.ts').ConnectionStatus;
 
-/** @param {PageState['repos']} repos @param {string} repoId */
-function repositorySelect(repos, repoId) {
+function repositorySelect(repos: PageState['repos'], repoId: string) {
   if (!repos.length) return emptyHtml;
   return html`<label>Repository <select class="control sm" id="connection-repo">
               ${repos.map(repo => html`<option value="${repo.id}" ${repo.id === repoId ? html`selected` : emptyHtml}>${repo.name} · ${repo.project}</option>`)}
             </select></label>`;
 }
 
-/** @param {PageState} state @param {ConnectionState} connection @param {string} repoId @param {ConnectionStatus | undefined} result */
-function connectionDetails(state, connection, repoId, result) {
+function connectionDetails(state: PageState, connection: ConnectionState, repoId: string, result: ConnectionStatus | undefined) {
   const local = result?.version || result?.available === false ? result : connection.local;
   return html`
           <div class="connection-summary">
@@ -30,8 +26,7 @@ function connectionDetails(state, connection, repoId, result) {
           <p class="help">The connection check reads repository details. CI permissions and local Git upstream access are separate.</p>`;
 }
 
-/** @param {PageState} state @param {ConnectionState} connection */
-export function renderSettings(state, connection) {
+export function renderSettings(state: PageState, connection: ConnectionState) {
   const { settings, syncStatus } = state;
   const repoId = state.repos.some(repo => repo.id === connection.repoId) ? connection.repoId : state.repos[0]?.id || '';
   const result = connection.results.get(repoId);
