@@ -2,8 +2,14 @@
   "extends": "./tsconfig.base.json",
   "compilerOptions": {
     "lib": ["ES2024", "DOM", "DOM.Iterable"],
-    "types": []
+    "types": [],
+    "noEmit": false,
+    "noEmitOnError": true,
+    "rootDir": ".",
+    "outDir": "dist",
+    "rewriteRelativeImportExtensions": true,
+    "moduleDetection": "legacy"
   },
-  "include": ["src/**/*.js", "web/**/*.js"],
+  "include": ["src/**/*.js", "src/**/*.ts", "web/**/*.js", "web/**/*.ts"],
   "exclude": ["web/vendor/**"]
 }

@@ -4,7 +4,15 @@
   "categories": { "correctness": "off" },
   "jsPlugins": [{ "name": "eslint-js", "specifier": "oxlint-plugin-eslint" }],
   "env": { "builtin": true, "es2024": true },
-  "ignorePatterns": ["web/vendor/**", ".repo-pulse/**", "test-results/**", "playwright-report/**", "playwright/.cache/**", "coverage/**"],
+  "ignorePatterns": [
+    "dist/**",
+    "web/vendor/**",
+    ".repo-pulse/**",
+    "test-results/**",
+    "playwright-report/**",
+    "playwright/.cache/**",
+    "coverage/**"
+  ],
   "rules": {
     "no-unreachable": "error",
     "no-dupe-keys": "error",

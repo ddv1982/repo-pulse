@@ -3,7 +3,8 @@ import { execFileSync } from 'node:child_process';
 
 async function check(directory) {
   for (const entry of await readdir(directory, { withFileTypes: true })) {
-    if (entry.name.startsWith('.') || ['node_modules', 'test-results', 'playwright-report'].includes(entry.name)) continue;
+    // dist/ is compiled output. TypeScript files are left to tsc: node --check rejects type syntax.
+    if (entry.name.startsWith('.') || ['node_modules', 'test-results', 'playwright-report', 'dist'].includes(entry.name)) continue;
     const path = `${directory}/${entry.name}`;
     if (entry.isDirectory()) await check(path);
     else if (/\.[cm]?js$/.test(entry.name)) execFileSync(process.execPath, ['--check', path], { stdio: 'inherit' });

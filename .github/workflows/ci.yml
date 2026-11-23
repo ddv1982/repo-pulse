@@ -22,6 +22,7 @@ jobs:
       - run: npm run check
       - run: npm run check:types
       - run: npm run lint
+      - run: npm run build:web
       - run: npm test
       - run: npx playwright install --with-deps chromium
       - run: npm run test:ui
@@ -39,4 +40,5 @@ jobs:
       - run: npm run check
       - run: npm run check:types
       - run: npm run lint
+      - run: npm run build:web
       - run: npm test

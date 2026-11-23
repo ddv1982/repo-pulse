@@ -4,6 +4,9 @@
     "checkJs": true,
     "noEmit": true,
     "strict": true,
+    "erasableSyntaxOnly": true,
+    "verbatimModuleSyntax": true,
+    "allowImportingTsExtensions": true,
     "module": "NodeNext",
     "target": "ES2024"
   }
