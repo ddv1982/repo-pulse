@@ -6,7 +6,7 @@ import { activityHref, isActivity } from './navigation.ts';
 export type ScopeState = Pick<import('./refresh.ts').PageState, 'repos'>;
 export type HeaderState = ScopeState & Pick<import('./refresh.ts').PageState, 'settings' | 'syncStatus'>;
 export type ScopeView = Pick<import('./navigation.ts').NavigationState, 'repoIds'>;
-/** web.js sets `refreshing` while a refresh runs; `openMenu` is `repo-panel` while the scope panel is open. */
+/** web.ts sets `refreshing` while a refresh runs; `openMenu` is `repo-panel` while the scope panel is open. */
 export type HeaderView = ScopeView &
   Pick<import('./navigation.ts').NavigationState, 'route' | 'activityRoute'> & { refreshing?: boolean; openMenu?: string };
 

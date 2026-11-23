@@ -106,7 +106,7 @@ Scope depends on **D2**.
 
 - [ ] Remove `allowJs`/`checkJs` and the `.js` include globs; keep the `.cjs` hook checked explicitly
 - [ ] Delete the codemod script
-- [ ] Update `.js` paths and commands in the living docs: `docs/MAINTAINING.md` (66 references), README (4), `PLAN.md` (2). Leave dated records (`docs/probe-results.md`, `docs/IMPROVEMENT-PLAN.md`, `docs/FULL-COVERAGE-RESEARCH.md`) as written
+- [ ] Update `.js` paths and commands in the living docs: `docs/MAINTAINING.md` (66 references), README (4), `PLAN.md` (2). Leave dated records (`docs/probe-results.md`, `docs/IMPROVEMENT-PLAN.md`, `docs/FULL-COVERAGE-RESEARCH.md`) as written; also rename `.js` file names in comments under `test/` and `e2e/` (`server/`, `src/` and `scripts/` were done in Phase 4b, and `docs/MAINTAINING.md`'s review-tier paths too)
 - [ ] Clean-clone `npm ci` plus the full check matrix; no `.js` outside `dist/` and `web/vendor/` except the hook
 
 ## Phase 8: stricter compiler flags (one PR each)

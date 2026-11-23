@@ -4,7 +4,7 @@ export type ActivityEvent = import('./activity.ts').ActivityEvent;
 /**
  * How a fork origin is known. Unchecked, from the rows on the page: `tip`, the new branch started at a revision an
  * older row shows on another branch; `pr`, a pull request from the branch names a target, which is an assumption.
- * Checked by server/fork-origin.js, from the commit the branch started at (`base`): `recorded`, the base was the
+ * Checked by server/fork-origin.ts, from the commit the branch started at (`base`): `recorded`, the base was the
  * latest recorded tip of one other branch; `contained`, one checked candidate already held the base. The checked
  * outcomes with no parent draw nothing: `ambiguous` (several branches held the base), `refuted` (the PR target did
  * not hold it), `unplaced` (no recorded or checked branch held it), `orphan` and `merge`.
@@ -140,7 +140,7 @@ function tipSightings(items: ActivityEvent[]) {
 }
 
 /**
- * The origin server/fork-origin.js stored, or undefined when there is none or the check failed, so the unchecked
+ * The origin server/fork-origin.ts stored, or undefined when there is none or the check failed, so the unchecked
  * evidence applies. A checked origin never falls back to the pull request target.
  */
 function checkedFork(origin: import('./activity.ts').ForkOrigin | undefined, pr: PullRequest | undefined): TreeFork | null | undefined {

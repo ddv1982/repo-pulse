@@ -302,7 +302,7 @@ export function createSync({
     { page, complete, items }: { page: { items: AzureRecord[]; restarted?: boolean }; complete: boolean; items: AzureRecord[] },
   ) {
     if (state.stream !== 'refs') return { output: normalize(repo, state.stream, items, working), pendingItems: undefined };
-    // A provider that restarted the snapshot at page one (see azure-client.js refs) invalidates the pages saved so far.
+    // A provider that restarted the snapshot at page one (see azure-client.ts refs) invalidates the pages saved so far.
     const pendingItems = [...(page.restarted ? [] : state.pendingItems || []), ...page.items];
     const output: SyncBatch = complete ? reconcileRefs(repo, pendingItems, working) : { events: [], entities: [] };
     return { output, pendingItems };

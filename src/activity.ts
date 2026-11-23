@@ -1,7 +1,7 @@
 export type ActivityKind = 'branch-created' | 'branch-deleted' | 'tag' | 'push' | 'pr' | 'build';
 export type RefUpdate = { name?: string; oldObjectId?: string; newObjectId?: string };
 /**
- * A completed PR in push merge evidence (server/merge-evidence.js localPrLink). `id` and an object `closedBy` come from older rows.
+ * A completed PR in push merge evidence (server/merge-evidence.ts localPrLink). `id` and an object `closedBy` come from older rows.
  */
 export type EvidencePr = {
   pullRequestId?: number | string;
@@ -27,7 +27,7 @@ export type EvidenceRange = {
   update?: { status?: string; dropped?: number; more?: boolean };
 };
 /**
- * One moved branch of a live push, checked by server/rewrite-check.js. `dropped` counts the commits the old tip reaches
+ * One moved branch of a live push, checked by server/rewrite-check.ts. `dropped` counts the commits the old tip reaches
  * and the new tip does not, up to one page; `more` says the page was full.
  */
 export type RewriteResult = { ref: string; status: 'fast-forward' | 'rewrite' | 'unknown'; dropped?: number; more?: boolean };
@@ -47,7 +47,7 @@ export type MergeEvidenceData = {
   rewrite?: RewriteResult[];
 };
 /**
- * Where a live branch creation started, checked by server/fork-origin.js. `base` is the first commit of the branch that
+ * Where a live branch creation started, checked by server/fork-origin.ts. `base` is the first commit of the branch that
  * the creating push did not bring. `found`: `on` lists the branches whose latest recorded tip before that push was the
  * base (`via: 'tip'`), or, failing that, the checked candidates whose tip then contained it (`via: 'contained'`).
  * `none`: the base is known but no recorded tip or checked candidate held it; `notOn` lists the candidates checked.
@@ -64,7 +64,7 @@ export type ForkOrigin = {
   unanswered?: string[];
 };
 /**
- * Provider fields of an event, plus enrichment. Each kind fills its own subset (see server/normalize.js).
+ * Provider fields of an event, plus enrichment. Each kind fills its own subset (see server/normalize.ts).
  */
 export type EventData = RefUpdate & {
   id?: number | string;

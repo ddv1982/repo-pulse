@@ -55,7 +55,7 @@ const readSetting: Reader<SettingValue> = parse;
 const readEnrichment: Reader<Record<string, unknown>> = parse;
 /** Entity data depends on the entity type, so callers check its shape. */
 const readEntity: Reader<unknown> = parse;
-/** The first sync imports this far back from its baseline (server/sync.js, the first window's `since`). */
+/** The first sync imports this far back from its baseline (server/sync.ts, the first window's `since`). */
 const FIRST_SYNC_MS = 7 * 86400000;
 const badRequest = (message: string) => Object.assign(new Error(message), { code: 'BAD_REQUEST' });
 const stamp = (value: string) => (Number.isFinite(Date.parse(value)) ? Date.parse(value) : 0);
@@ -687,7 +687,7 @@ export function createStore(path = ':memory:') {
       const jobs = q(`SELECT data FROM jobs ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY next_at,id`)
         .all(...params)
         .map(readJob);
-      // Persisted JSON: rows of type 'backfill' are only ever written by server/backfill.js, as a HistoryJob.
+      // Persisted JSON: rows of type 'backfill' are only ever written by server/backfill.ts, as a HistoryJob.
       return jobs as T extends 'backfill' ? import('./backfill.ts').HistoryJob[] : Job[];
     },
     saveJob,

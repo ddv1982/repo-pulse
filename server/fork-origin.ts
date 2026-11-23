@@ -151,7 +151,7 @@ export function createForkOriginCheck({
         .filter(repo => !repo.disabled)
         .map(repo => [repo.id, repo]),
     );
-    // Rows of type 'fork' are only written by server/normalize.js and this check, as a ForkJob.
+    // Rows of type 'fork' are only written by server/normalize.ts and this check, as a ForkJob.
     const jobs = store.listJobs({ type: 'fork', dueBefore: iso(now()) }) as unknown as ForkJob[];
     const job = jobs.find(item => repos.has(item.repoId) && !((deferred.get(item.id)?.at ?? 0) > now()) && !waits(item));
     const repo = job && repos.get(job.repoId);

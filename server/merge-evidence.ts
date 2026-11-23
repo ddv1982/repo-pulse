@@ -20,7 +20,7 @@ export function mergeUpdates(event: PushEvent): MergeUpdate[] {
 
 /**
  * A completed PR whose merge commit is the new tip of a ref the push moved, in the EvidencePr shape saved evidence
- * already uses (src/activity.js). Tip identity proves the push set the target to the PR's result, so no query is involved.
+ * already uses (src/activity.ts). Tip identity proves the push set the target to the PR's result, so no query is involved.
  */
 export function localPrLink({
   url,

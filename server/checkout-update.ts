@@ -229,8 +229,7 @@ export function createCheckoutUpdater({
       throw problem('The checkout or its upstream changed during the check. The branch was not updated.');
   }
 
-  /** Decides from the post-fetch reading whether to fast-forward, and does so.
-   *  */
+  /** Decides from the post-fetch reading whether to fast-forward, and does so. */
   async function finishUpdate(
     path: string,
     repo: LinkedRepo,

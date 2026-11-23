@@ -54,7 +54,7 @@ export type AppOptions = {
   launchToken?: string;
 };
 
-// The JSON each route answers with is defined in src/contract.js, which src/api.js maps request paths to, so the
+// The JSON each route answers with is defined in src/contract.ts, which src/api.ts maps request paths to, so the
 // browser modules that read a response are checked against what the handler below produces.
 export type Repository = import('./src/contract.ts').Repository;
 export type SessionResponse = import('./src/contract.ts').SessionResponse;
