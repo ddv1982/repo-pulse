@@ -1,19 +1,31 @@
-// @ts-check
-
-/** @typedef {import('./azure-client.js').AzureProvider} AzureProvider */
-/** @typedef {import('../src/activity.ts').ForkOrigin} ForkOrigin */
+export type AzureProvider = import('./azure-client.js').AzureProvider;
+export type ForkOrigin = import('../src/activity.ts').ForkOrigin;
 /**
  * One live branch creation, checked for the commit it started from and the branch that held it. Until `base` is known,
  * `at` is the commit to read next and `reads` counts the commit reads so far. `checks` are the candidate branches
  * still to test with the tip each had before the creating push.
- * @typedef {{ id: string, type: 'fork', repoId: string, eventId: string, ref: string, pushId: number, at: string,
- *   reads: number, attempts: number, nextAt: string, base?: string, checks?: { ref: string, tip: string }[],
- *   on?: string[], notOn?: string[], unanswered?: string[] }} ForkJob
  */
-/**
- * @typedef {Pick<ReturnType<typeof import('./store.js').createStore>,
- *   'listRepos'|'listJobs'|'saveJob'|'getEvent'|'saveForkResult'|'branchTipsBefore'|'forkCandidates'|'getStreams'>} ForkStore
- */
+export type ForkJob = {
+  id: string;
+  type: 'fork';
+  repoId: string;
+  eventId: string;
+  ref: string;
+  pushId: number;
+  at: string;
+  reads: number;
+  attempts: number;
+  nextAt: string;
+  base?: string;
+  checks?: { ref: string; tip: string }[];
+  on?: string[];
+  notOn?: string[];
+  unanswered?: string[];
+};
+export type ForkStore = Pick<
+  ReturnType<typeof import('./store.js').createStore>,
+  'listRepos' | 'listJobs' | 'saveJob' | 'getEvent' | 'saveForkResult' | 'branchTipsBefore' | 'forkCandidates' | 'getStreams'
+>;
 
 const ATTEMPTS = 4;
 const RETRY_MS = 60000;
@@ -21,16 +33,23 @@ const RETRY_MS = 60000;
 export const MAX_READS = 8;
 /** Candidate branches tested for containing the base, one read each. */
 export const MAX_CHECKS = 3;
-/** @param {number} ms */
-const iso = ms => new Date(ms).toISOString();
+const iso = (ms: number) => new Date(ms).toISOString();
 
 /**
  * The check for one push branch creation, or null when the row cannot be checked (no full ref or created tip).
- * @param {{ id: string, repoId: string, kind: string, observedAt: string, data?: { evidence?: string, name?: string,
- *   newObjectId?: string, pushId?: number | string } }} event
- * @returns {ForkJob | null}
  */
-export function forkJob(event) {
+export function forkJob(event: {
+  id: string;
+  repoId: string;
+  kind: string;
+  observedAt: string;
+  data?: {
+    evidence?: string;
+    name?: string;
+    newObjectId?: string;
+    pushId?: number | string;
+  };
+}): ForkJob | null {
   const { evidence, name, newObjectId, pushId } = event.data ?? {};
   if (event.kind !== 'branch-created' || evidence !== 'push' || typeof name !== 'string') return null;
   if (typeof newObjectId !== 'string' || !/^[0-9a-f]{40}$/i.test(newObjectId) || /^0+$/.test(newObjectId)) return null;
@@ -51,18 +70,24 @@ export function forkJob(event) {
 
 /**
  * Each tick runs at most one Azure call for one due job.
- * @param {{ store: ForkStore, provider: Pick<AzureProvider, 'commit'|'droppedCommits'>, now?: () => number }} options
  */
-export function createForkOriginCheck({ store, provider, now = Date.now }) {
-  /** A finished check whose result could not be stored waits here, like the rewrite check. @type {Map<string, { at: number, result?: ForkOrigin }>} */
-  const deferred = new Map();
+export function createForkOriginCheck({
+  store,
+  provider,
+  now = Date.now,
+}: {
+  store: ForkStore;
+  provider: Pick<AzureProvider, 'commit' | 'droppedCommits'>;
+  now?: () => number;
+}) {
+  /** A finished check whose result could not be stored waits here, like the rewrite check. */
+  const deferred: Map<string, { at: number; result?: ForkOrigin }> = new Map();
 
   /**
    * The base is known: a branch whose latest recorded tip was the base settles it with no call; otherwise the
    * candidates with a recorded tip become checks.
-   * @param {ForkJob} job @param {string} base @returns {ForkJob | ForkOrigin}
    */
-  function fromBase(job, base) {
+  function fromBase(job: ForkJob, base: string): ForkJob | ForkOrigin {
     const tips = store.branchTipsBefore(job.repoId, job.pushId);
     tips.delete(job.ref);
     const on = [...tips].filter(([, tip]) => tip === base).map(([ref]) => ref);
@@ -71,13 +96,12 @@ export function createForkOriginCheck({ store, provider, now = Date.now }) {
       .forkCandidates(job.repoId, job.ref)
       .filter(ref => tips.has(ref))
       .slice(0, MAX_CHECKS)
-      .map(ref => ({ ref, tip: /** @type {string} */ (tips.get(ref)) }));
+      .map(ref => ({ ref, tip: tips.get(ref) as string }));
     if (!checks.length) return { status: 'none', base, notOn: [] };
     return { ...job, base, checks, on: [], notOn: [] };
   }
 
-  /** @param {ForkJob} job @param {import('./azure-client.js').AzureRepo} repo @returns {Promise<ForkJob | ForkOrigin>} */
-  async function step(job, repo) {
+  async function step(job: ForkJob, repo: import('./azure-client.js').AzureRepo): Promise<ForkJob | ForkOrigin> {
     if (!job.base) {
       const commit = await provider.commit(repo, job.at);
       // The first commit an earlier push brought is where the branch started. Without a push order there is no base.
@@ -96,33 +120,30 @@ export function createForkOriginCheck({ store, provider, now = Date.now }) {
   /**
    * Files the current candidate under its answer and moves to the next one, or settles once none is left. A candidate
    * whose read failed is `unanswered`, so a single match next to it is not called the only one.
-   * @param {ForkJob} job @param {'on' | 'notOn' | 'unanswered'} list @returns {ForkJob | ForkOrigin}
    */
-  function answer(job, list) {
+  function answer(job: ForkJob, list: 'on' | 'notOn' | 'unanswered'): ForkJob | ForkOrigin {
     const [check, ...rest] = job.checks ?? [];
     const next = { ...job, checks: rest, [list]: [...(job[list] ?? []), check.ref] };
     if (rest.length) return next;
-    const base = /** @type {string} */ (job.base),
+    const base = job.base as string,
       { on = [], notOn = [], unanswered = [] } = next;
     const extra = unanswered.length ? { unanswered } : {};
     return on.length ? { status: 'found', base, on, via: 'contained', notOn, ...extra } : { status: 'none', base, notOn, ...extra };
   }
 
-  /** @returns {Promise<boolean>} whether a check ran */
-  async function tick() {
+  /** @returns whether a check ran */
+  async function tick(): Promise<boolean> {
     // Tips are matched against stored pushes. While a push window is still paging, a creation inside it may have older
     // pushes still to come, so a check that has not matched tips yet waits.
-    /** @type {Map<string, number>} */
-    const reading = new Map(
+    const reading: Map<string, number> = new Map(
       store
         .getStreams()
         .flatMap(state => (state.stream === 'pushes' && state.window ? [[state.repoId, Date.parse(state.window.since)]] : [])),
     );
-    /** @param {ForkJob} job */
-    const waits = job => {
+    const waits = (job: ForkJob) => {
       if (job.base || !reading.has(job.repoId)) return false;
       const time = Date.parse(store.getEvent(job.eventId)?.time ?? '');
-      return !(time < /** @type {number} */ (reading.get(job.repoId)));
+      return !(time < (reading.get(job.repoId) as number));
     };
     const repos = new Map(
       store
@@ -131,17 +152,16 @@ export function createForkOriginCheck({ store, provider, now = Date.now }) {
         .map(repo => [repo.id, repo]),
     );
     // Rows of type 'fork' are only written by server/normalize.js and this check, as a ForkJob.
-    const jobs = /** @type {ForkJob[]} */ (/** @type {unknown} */ (store.listJobs({ type: 'fork', dueBefore: iso(now()) })));
+    const jobs = store.listJobs({ type: 'fork', dueBefore: iso(now()) }) as unknown as ForkJob[];
     const job = jobs.find(item => repos.has(item.repoId) && !((deferred.get(item.id)?.at ?? 0) > now()) && !waits(item));
     const repo = job && repos.get(job.repoId);
     if (!job || !repo) return false;
-    /** @type {ForkJob | ForkOrigin | undefined} */
-    let next = deferred.get(job.id)?.result;
+    let next: ForkJob | ForkOrigin | undefined = deferred.get(job.id)?.result;
     if (!next)
       try {
         next = await step(job, repo);
       } catch (error) {
-        const code = /** @type {{ code?: unknown }} */ (error)?.code;
+        const code = (error as { code?: unknown })?.code;
         if (code === 'CLOSED') return true;
         const attempts = job.attempts + 1;
         if (code !== 'NOT_FOUND' && attempts < ATTEMPTS) {

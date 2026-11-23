@@ -5,7 +5,7 @@ import { existsSync } from 'node:fs';
 import { tmpdir, homedir } from 'node:os';
 import { join } from 'node:path';
 import { chromium, expect } from '@playwright/test';
-import { startApp, createApp } from '../server.js';
+import { startApp, createApp } from '../server.ts';
 import { createStore } from '../server/store.js';
 import { TEST_KEY, rememberKey } from '../test/fixtures/access.js';
 

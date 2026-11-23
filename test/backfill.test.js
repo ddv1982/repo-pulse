@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createStore } from '../server/store.js';
 import { createSync } from '../server/sync.js';
-import { createBackfill } from '../server/backfill.js';
+import { createBackfill } from '../server/backfill.ts';
 
 const BASE = Date.parse('2026-11-17T10:00:00Z');
 const DAY = 86400000;

@@ -1,5 +1,5 @@
 // Simulates live polling against the shared Azure call budget.
-// Usage: node scripts/measure-budget.js [--limit 12] [--repos 1,5,10,20] [--pushes-per-hour 4] [--call-ms 1500] [--minutes 60]
+// Usage: node scripts/measure-budget.ts [--limit 12] [--repos 1,5,10,20] [--pushes-per-hour 4] [--call-ms 1500] [--minutes 60]
 //   [--active-prs 0 --pr-every 3]: also spend one threads read and one policy evaluations read per active PR every N minutes.
 import { createHash } from 'node:crypto';
 import { createStore } from '../server/store.js';

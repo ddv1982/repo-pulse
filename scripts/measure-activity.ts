@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto';
-import { createApp } from '../server.js';
+import { createApp } from '../server.ts';
 import { createStore } from '../server/store.js';
 
 const samples = 20;

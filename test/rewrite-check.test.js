@@ -6,8 +6,8 @@ import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { createStore } from '../server/store.js';
 import { createSync } from '../server/sync.js';
-import { createBackfill } from '../server/backfill.js';
-import { createRewriteCheck } from '../server/rewrite-check.js';
+import { createBackfill } from '../server/backfill.ts';
+import { createRewriteCheck } from '../server/rewrite-check.ts';
 import { mergeEvidenceBadge as mergeEvidenceBadgeHtml } from '../src/ui/merge-evidence.ts';
 
 const mergeEvidenceBadge = (...args) => String(mergeEvidenceBadgeHtml(...args));

@@ -1,9 +1,6 @@
-// @ts-check
-
 import { azureDevOpsService } from '../src/activity-text.ts';
 
-/** @param {string} text */
-export function foldSearchText(text) {
+export function foldSearchText(text: string) {
   const lower = text.toLowerCase();
   if (!/\P{ASCII}/u.test(lower)) return lower;
   return lower.replace(/\p{Script=Latin}[\p{Script=Latin}\p{M}]*/gu, span =>
@@ -11,8 +8,7 @@ export function foldSearchText(text) {
   );
 }
 
-/** @param {string} value */
-export function parsePeople(value) {
+export function parsePeople(value: string) {
   const names = [
     ...new Set(
       value
@@ -27,8 +23,7 @@ export function parsePeople(value) {
   return names;
 }
 
-/** @param {string} name @param {string} term */
-function matchesName(name, term) {
+function matchesName(name: string, term: string) {
   if (name.includes(term)) return true;
   if (!/\s/u.test(term)) return false;
   const wordPattern = /[\p{L}\p{M}\p{N}]+/gu;
@@ -42,8 +37,7 @@ function matchesName(name, term) {
   });
 }
 
-/** @param {import('../src/activity.ts').ActivityEvent} event @param {string[]} terms */
-export function matchesPeople({ kind, actor, data }, terms) {
+export function matchesPeople({ kind, actor, data }: import('../src/activity.ts').ActivityEvent, terms: string[]) {
   const names = [actor];
   if (kind === 'pr') names.push(data?.closedBy, ...(data?.voteChanges || []).map(change => change.name));
   if (kind === 'push') {

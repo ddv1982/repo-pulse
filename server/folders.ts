@@ -1,14 +1,13 @@
 import { readdir, stat } from 'node:fs/promises';
 import { dirname, join, parse, resolve, sep } from 'node:path';
 import { homedir } from 'node:os';
-import { discoverRepositories } from './repositories.js';
+import { discoverRepositories } from './repositories.ts';
 
 /** Only immediate folder names and Git remotes; browsing never contacts Azure. */
-/**
- * @param {unknown} input @param {{ home?: string, discover?: typeof discoverRepositories }} [options]
- * @returns {Promise<import('../src/contract.ts').FoldersResponse>}
- */
-export async function browseFolders(input, { home = homedir(), discover = discoverRepositories } = {}) {
+export async function browseFolders(
+  input: unknown,
+  { home = homedir(), discover = discoverRepositories }: { home?: string; discover?: typeof discoverRepositories } = {},
+): Promise<import('../src/contract.ts').FoldersResponse> {
   let path;
   if (input === undefined || input === '') {
     const projects = join(home, 'projects');

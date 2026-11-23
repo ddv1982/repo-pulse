@@ -1,49 +1,46 @@
-// @ts-check
-
-/** @typedef {import('../src/activity.ts').ActivityEvent} ActivityEvent */
-/** @typedef {import('../src/contract.ts').HistoryStream} HistoryStream */
-/** @typedef {import('../src/contract.ts').HistoryWindow} HistoryWindow */
-/** @typedef {import('./azure-client.js').AzureRepo & { id: string, disabled?: boolean }} WatchedRepo */
-/** @typedef {import('./azure-client.js').AzurePage} SourcePage */
-/** @typedef {import('../src/contract.ts').HistoryJob} HistoryJob */
-/** @typedef {{ type: string, id: string, data: unknown }} Entity */
-/** @typedef {{ events?: ActivityEvent[], entities?: Entity[] }} HistoryBatch */
-/**
- * @typedef {{
- *   listRepos: () => WatchedRepo[],
- *   listJobs: (filter: {type: 'backfill'}) => HistoryJob[],
- *   getSetting: (key: string, fallback: string) => unknown,
- *   saveJob: (job: HistoryJob) => void,
- *   commitPage: (page: {repoId: string, events: ActivityEvent[], entities: Entity[], jobs: HistoryJob[]}) => void
- * }} HistoryStore
- */
+export type ActivityEvent = import('../src/activity.ts').ActivityEvent;
+export type HistoryStream = import('../src/contract.ts').HistoryStream;
+export type HistoryWindow = import('../src/contract.ts').HistoryWindow;
+export type WatchedRepo = import('./azure-client.js').AzureRepo & { id: string; disabled?: boolean };
+export type SourcePage = import('./azure-client.js').AzurePage;
+export type HistoryJob = import('../src/contract.ts').HistoryJob;
+export type Entity = { type: string; id: string; data: unknown };
+export type HistoryBatch = { events?: ActivityEvent[]; entities?: Entity[] };
+export type HistoryStore = {
+  listRepos: () => WatchedRepo[];
+  listJobs: (filter: { type: 'backfill' }) => HistoryJob[];
+  getSetting: (key: string, fallback: string) => unknown;
+  saveJob: (job: HistoryJob) => void;
+  commitPage: (page: { repoId: string; events: ActivityEvent[]; entities: Entity[]; jobs: HistoryJob[] }) => void;
+};
 
 const DAY = 86400000;
 const WINDOW = 30 * DAY;
 const EARLIEST = Date.parse('2010-01-01T00:00:00Z');
-/** @type {HistoryStream[]} */
-const STREAMS = ['pushes', 'closedPrs', 'builds'];
-/** @param {number} value */
-const iso = value => new Date(value).toISOString();
-/** @param {string} message @param {number} status */
-const failure = (message, status) => Object.assign(new Error(message), { status });
+const STREAMS: HistoryStream[] = ['pushes', 'closedPrs', 'builds'];
+const iso = (value: number) => new Date(value).toISOString();
+const failure = (message: string, status: number) => Object.assign(new Error(message), { status });
 
-/**
- * @param {{
- *   store: HistoryStore,
- *   provider: Pick<import('./azure-client.js').AzureProvider, 'read'>,
- *   normalize: (repo: WatchedRepo, stream: HistoryStream, records: unknown[], state: {initialized: false, historical: true, window: HistoryWindow}) => HistoryBatch,
- *   now?: () => number
- * }} options
- */
-export function createBackfill({ store, provider, normalize, now = Date.now }) {
-  /** @type {Promise<boolean>|null|undefined} */
-  let active;
-  /** @type {string|undefined} */
-  let lastId;
+export function createBackfill({
+  store,
+  provider,
+  normalize,
+  now = Date.now,
+}: {
+  store: HistoryStore;
+  provider: Pick<import('./azure-client.js').AzureProvider, 'read'>;
+  normalize: (
+    repo: WatchedRepo,
+    stream: HistoryStream,
+    records: unknown[],
+    state: { initialized: false; historical: true; window: HistoryWindow },
+  ) => HistoryBatch;
+  now?: () => number;
+}) {
+  let active: Promise<boolean> | null | undefined;
+  let lastId: string | undefined;
   const jobs = () => store.listJobs({ type: 'backfill' });
-  /** @param {string} repoId @param {number|'all'} [days] @returns {HistoryJob} */
-  function start(repoId, days = 30) {
+  function start(repoId: string, days: number | 'all' = 30): HistoryJob {
     const repo = store.listRepos().find(item => item.id === repoId);
     if (!repo) throw failure('Repository is not watched.', 404);
     const period = days === 'all' ? 'all' : Number(days);
@@ -59,8 +56,7 @@ export function createBackfill({ store, provider, normalize, now = Date.now }) {
     const until = Number.isFinite(baseline) ? Math.min(requestedAt, baseline) : requestedAt;
     const since = period === 'all' ? EARLIEST : requestedAt - period * DAY;
     const complete = since >= until;
-    /** @type {HistoryJob} */
-    const job = {
+    const job: HistoryJob = {
       id: `backfill:${repoId}`,
       type: 'backfill',
       repoId,
@@ -87,10 +83,8 @@ export function createBackfill({ store, provider, normalize, now = Date.now }) {
     store.saveJob(job);
     return job;
   }
-  /** @param {HistoryJob} job @param {HistoryWindow} window @param {SourcePage} page @returns {HistoryJob} */
-  function nextPage(job, window, page) {
-    /** @type {HistoryJob} */
-    const next = {
+  function nextPage(job: HistoryJob, window: HistoryWindow, page: SourcePage): HistoryJob {
+    const next: HistoryJob = {
       ...job,
       status: 'pending',
       nextAt: iso(now()),
@@ -155,7 +149,7 @@ export function createBackfill({ store, provider, normalize, now = Date.now }) {
     } catch (error) {
       if (!current()) return true;
       // Shutdown aborted the read, not Azure; the page resumes on the next start.
-      if (/** @type {{ code?: unknown }} */ (error)?.code === 'CLOSED') return true;
+      if ((error as { code?: unknown })?.code === 'CLOSED') return true;
       const failures = (job.failures || 0) + 1;
       const detail =
         error instanceof Error && 'code' in error && typeof error.code === 'string'

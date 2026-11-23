@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, writeFile, rm, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { parseRemote, normalizeOrganization, repositoryKey, discoverRepositories, hasRemoteCredentials } from '../server/repositories.js';
+import { parseRemote, normalizeOrganization, repositoryKey, discoverRepositories, hasRemoteCredentials } from '../server/repositories.ts';
 
 test('Azure remote formats normalize to a credential-free canonical identity', () => {
   const forms = [

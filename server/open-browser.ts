@@ -1,5 +1,3 @@
-// @ts-check
-
 import { spawn as nodeSpawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { rm, writeFile } from 'node:fs/promises';
@@ -8,10 +6,8 @@ import { pathToFileURL } from 'node:url';
 
 /**
  * The program and leading arguments that open a URL in the default browser, called without a shell.
- * @param {NodeJS.Platform} platform
- * @returns {[string, string[]]}
  */
-export function browserOpener(platform) {
+export function browserOpener(platform: NodeJS.Platform): [string, string[]] {
   if (platform === 'darwin') return ['open', []];
   // explorer.exe can read an unquoted '=' as a delimiter; the URL protocol handler takes the URL as given.
   if (platform === 'win32') return ['rundll32.exe', ['url.dll,FileProtocolHandler']];
@@ -20,9 +16,8 @@ export function browserOpener(platform) {
 
 /**
  * Whether this session can show a browser. On Linux and similar systems that needs a graphical display.
- * @param {NodeJS.Platform} platform @param {NodeJS.ProcessEnv} env
  */
-export function canOpenBrowser(platform, env) {
+export function canOpenBrowser(platform: NodeJS.Platform, env: NodeJS.ProcessEnv) {
   return platform === 'darwin' || platform === 'win32' || Boolean(env.DISPLAY || env.WAYLAND_DISPLAY);
 }
 
@@ -34,11 +29,16 @@ export function canOpenBrowser(platform, env) {
  * into an owner-only page in the private data directory, the opener gets only that page's file URL, and the page
  * forwards the browser to the link. The page is removed after `keepMs` or by the returned function. Nothing here stops
  * startup: if it fails, the printed link still works.
- * @param {string} url
- * @param {{ dataDir: string, platform?: NodeJS.Platform, spawn?: typeof nodeSpawn, keepMs?: number }} options
- * @returns {Promise<() => Promise<void>>}
  */
-export async function openBrowser(url, { dataDir, platform = process.platform, spawn = nodeSpawn, keepMs = 60_000 }) {
+export async function openBrowser(
+  url: string,
+  {
+    dataDir,
+    platform = process.platform,
+    spawn = nodeSpawn,
+    keepMs = 60_000,
+  }: { dataDir: string; platform?: NodeJS.Platform; spawn?: typeof nodeSpawn; keepMs?: number },
+): Promise<() => Promise<void>> {
   let target = url;
   let remove = async () => {};
   if (platform !== 'win32') {

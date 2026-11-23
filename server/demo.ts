@@ -1,13 +1,11 @@
-/** @typedef {ReturnType<typeof import('./store.js').createStore>} Store */
-/** @typedef {import('../src/activity.ts').ActivityEvent} ActivityEvent */
+export type Store = ReturnType<typeof import('./store.js').createStore>;
+export type ActivityEvent = import('../src/activity.ts').ActivityEvent;
 /** Fixtures carry provider fields beyond EventData, as stored events do. */
-/** @typedef {ActivityEvent & { data?: import('../src/activity.ts').EventData & Record<string, unknown> }} DemoEvent */
-/** @typedef {import('./azure-client.js').AzureStream} AzureStream */
+export type DemoEvent = ActivityEvent & { data?: import('../src/activity.ts').EventData & Record<string, unknown> };
+export type AzureStream = import('./azure-client.js').AzureStream;
 
-/** @type {AzureStream[]} */
-const STREAMS = ['pushes', 'refs', 'prs', 'closedPrs', 'builds', 'activeBuilds'];
-/** @param {number} minutes */
-const ago = minutes => new Date(Date.now() - minutes * 60_000).toISOString();
+const STREAMS: AzureStream[] = ['pushes', 'refs', 'prs', 'closedPrs', 'builds', 'activeBuilds'];
+const ago = (minutes: number) => new Date(Date.now() - minutes * 60_000).toISOString();
 export const demoRepos = [
   {
     id: 'demo-orders',
@@ -38,13 +36,11 @@ export const demoRepos = [
   },
 ];
 
-/** @param {Store} store */
-export function seedDemo(store) {
+export function seedDemo(store: Store) {
   if (store.getSetting('demoSeeded', false)) return;
   for (const repo of demoRepos) store.saveRepo(repo);
   const source = demoRepos[0].webUrl;
-  /** @type {DemoEvent[]} */
-  const events = [
+  const events: DemoEvent[] = [
     {
       id: 'demo-tag-1',
       repoId: 'demo-orders',
@@ -271,12 +267,10 @@ export function seedDemo(store) {
   store.setSetting('demoSeeded', true);
 }
 
-/** @param {Store} store @returns {ActivityEvent} */
-export function addDemoEvent(store) {
+export function addDemoEvent(store: Store): ActivityEvent {
   const counter = Number(store.getSetting('demoCounter', 0)) + 1;
   store.setSetting('demoCounter', counter);
-  /** @type {ActivityEvent} */
-  const event = {
+  const event: ActivityEvent = {
     id: `demo-incoming-${counter}`,
     repoId: 'demo-orders',
     kind: 'branch-created',
@@ -295,12 +289,12 @@ export function addDemoEvent(store) {
 }
 
 export const demoProvider = {
-  /** Like the live client, the check never claims an identity. @returns {Promise<import('./azure-client.js').ConnectionStatus>} */
-  async checkConnection() {
+  /** Like the live client, the check never claims an identity. */
+  async checkConnection(): Promise<import('./azure-client.js').ConnectionStatus> {
     return { available: true, identity: null, identityVerified: false, message: 'Isolated demo mode. Azure CLI is never invoked.' };
   },
-  /** Fictional review data for the demo PR; no Azure read. @returns {Promise<import('./azure-client.js').PullRequestReview>} */
-  async prReview() {
+  /** Fictional review data for the demo PR; no Azure read. */
+  async prReview(): Promise<import('./azure-client.js').PullRequestReview> {
     return {
       threads: { open: 2, resolved: 3 },
       policies: [

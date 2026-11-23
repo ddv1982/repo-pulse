@@ -1,90 +1,84 @@
-// @ts-check
 import { createServer } from 'node:http';
 import { readFile, mkdir, chmod, rm, stat } from 'node:fs/promises';
 import { resolve, dirname, extname, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { homedir } from 'node:os';
-import { createSavedActivityFilters } from './server/saved-activity-filters.js';
+import { createSavedActivityFilters } from './server/saved-activity-filters.ts';
 import { createStore } from './server/store.js';
 import { createSync } from './server/sync.js';
 import { createAzureCli, defaultExecutor } from './server/azure-cli.js';
 import { createRestExecutor, useSystemNetworkSettings } from './server/azure-rest.js';
 import { createAzureClient } from './server/azure-client.js';
-import { discoverRepositories, parseRemote } from './server/repositories.js';
-import { seedDemo, addDemoEvent, demoProvider } from './server/demo.js';
+import { discoverRepositories, parseRemote } from './server/repositories.ts';
+import { seedDemo, addDemoEvent, demoProvider } from './server/demo.ts';
 import { syncStatus } from './server/sync-status.js';
-import { createBackfill } from './server/backfill.js';
-import { createRewriteCheck } from './server/rewrite-check.js';
-import { createForkOriginCheck } from './server/fork-origin.js';
+import { createBackfill } from './server/backfill.ts';
+import { createRewriteCheck } from './server/rewrite-check.ts';
+import { createForkOriginCheck } from './server/fork-origin.ts';
 import { createCheckoutLookup } from './server/checkout-advice.js';
 import { isBranchAction } from './server/checkout-branches.js';
 import { createCheckoutGit, isCheckoutIntent, isSwitchIntent } from './server/checkout-git.js';
 import { activityBranch } from './src/activity-branch.ts';
-import { browseFolders } from './server/folders.js';
-import { canOpenBrowser, openBrowser } from './server/open-browser.js';
+import { browseFolders } from './server/folders.ts';
+import { canOpenBrowser, openBrowser } from './server/open-browser.ts';
 
-/** @typedef {import('node:http').IncomingMessage} Request */
-/** @typedef {import('node:http').ServerResponse} Response */
-/** @typedef {ReturnType<typeof createStore>} Store */
-/** @typedef {import('./server/azure-client.js').AzureProvider} AzureProvider */
+export type Request = import('node:http').IncomingMessage;
+export type Response = import('node:http').ServerResponse;
+export type Store = ReturnType<typeof createStore>;
+export type AzureProvider = import('./server/azure-client.js').AzureProvider;
 /** Live mode passes the Azure client; demo mode passes demoProvider, which answers only the routes demo serves. */
-/** @typedef {AzureProvider | typeof demoProvider} AppProvider */
-/** @typedef {import('./src/contract.ts').DemoSyncStatus} DemoSyncStatus */
+export type AppProvider = AzureProvider | typeof demoProvider;
+export type DemoSyncStatus = import('./src/contract.ts').DemoSyncStatus;
 /** Demo mode passes a stub, so the app relies only on the two calls both share with createSync, and reset in live mode. */
-/**
- * @typedef {{
- *   status: () => import('./server/sync.js').SyncStatus | DemoSyncStatus,
- *   refresh: (repoIds?: string[]) => import('./server/sync.js').RefreshStatus | { demo: true },
- *   reset?: (clear: () => void) => Promise<void>,
- * }} AppSync
- */
-/** @typedef {{ req: Request, res: Response, url: URL, params: string[] }} RouteContext */
-/** @typedef {{ method: 'GET'|'POST'|'PATCH'|'DELETE', path: string | RegExp, handler: (context: RouteContext) => unknown }} Route */
-/** @typedef {Error & { status?: number, code?: string }} RequestError */
-/**
- * @typedef {{
- *   store: Store,
- *   provider: AppProvider,
- *   sync: AppSync,
- *   cli?: Pick<ReturnType<typeof createAzureCli>, 'diagnostics'> | null,
- *   backfill?: Pick<ReturnType<typeof createBackfill>, 'start'>,
- *   demo?: boolean,
- *   discover?: typeof discoverRepositories,
- *   browse?: (input: unknown) => Promise<FoldersResponse>,
- *   checkoutGit?: ReturnType<typeof createCheckoutGit>,
- *   onStateRead?: () => void,
- *   accessKey: string,
- *   launchToken?: string,
- * }} AppOptions
- */
+export type AppSync = {
+  status: () => import('./server/sync.js').SyncStatus | DemoSyncStatus;
+  refresh: (repoIds?: string[]) => import('./server/sync.js').RefreshStatus | { demo: true };
+  reset?: (clear: () => void) => Promise<void>;
+};
+export type RouteContext = { req: Request; res: Response; url: URL; params: string[] };
+export type Route = { method: 'GET' | 'POST' | 'PATCH' | 'DELETE'; path: string | RegExp; handler: (context: RouteContext) => unknown };
+export type RequestError = Error & { status?: number; code?: string };
+export type AppOptions = {
+  store: Store;
+  provider: AppProvider;
+  sync: AppSync;
+  cli?: Pick<ReturnType<typeof createAzureCli>, 'diagnostics'> | null;
+  backfill?: Pick<ReturnType<typeof createBackfill>, 'start'>;
+  demo?: boolean;
+  discover?: typeof discoverRepositories;
+  browse?: (input: unknown) => Promise<FoldersResponse>;
+  checkoutGit?: ReturnType<typeof createCheckoutGit>;
+  onStateRead?: () => void;
+  accessKey: string;
+  launchToken?: string;
+};
 
 // The JSON each route answers with is defined in src/contract.js, which src/api.js maps request paths to, so the
 // browser modules that read a response are checked against what the handler below produces.
-/** @typedef {import('./src/contract.ts').Repository} Repository */
-/** @typedef {import('./src/contract.ts').SessionResponse} SessionResponse */
-/** @typedef {import('./src/contract.ts').ErrorResponse} ErrorResponse */
-/** @typedef {import('./src/contract.ts').OkResponse} OkResponse */
-/** @typedef {import('./src/contract.ts').StateResponse} StateResponse */
-/** @typedef {import('./src/contract.ts').ActivityResponse} ActivityResponse */
-/** @typedef {import('./src/contract.ts').EventResponse} EventResponse */
-/** @typedef {import('./src/contract.ts').CheckoutsResponse} CheckoutsResponse */
-/** @typedef {import('./src/contract.ts').CheckoutStatusResponse} CheckoutStatusResponse */
-/** @typedef {import('./src/contract.ts').CheckoutBranchesResponse} CheckoutBranchesResponse */
-/** @typedef {import('./src/contract.ts').CheckoutUpdateResponse} CheckoutUpdateResponse */
-/** @typedef {import('./src/contract.ts').ConnectionResponse} ConnectionResponse */
-/** @typedef {import('./src/contract.ts').PushCommitsResponse} PushCommitsResponse */
-/** @typedef {import('./src/contract.ts').PrReviewResponse} PrReviewResponse */
-/** @typedef {import('./src/contract.ts').BackfillResponse} BackfillResponse */
-/** @typedef {import('./src/contract.ts').RefreshResponse} RefreshResponse */
-/** @typedef {import('./src/contract.ts').ResetResponse} ResetResponse */
-/** @typedef {import('./src/contract.ts').DiscoverResponse} DiscoverResponse */
-/** @typedef {import('./src/contract.ts').FoldersResponse} FoldersResponse */
-/** @typedef {import('./src/contract.ts').DemoEventResponse} DemoEventResponse */
+export type Repository = import('./src/contract.ts').Repository;
+export type SessionResponse = import('./src/contract.ts').SessionResponse;
+export type ErrorResponse = import('./src/contract.ts').ErrorResponse;
+export type OkResponse = import('./src/contract.ts').OkResponse;
+export type StateResponse = import('./src/contract.ts').StateResponse;
+export type ActivityResponse = import('./src/contract.ts').ActivityResponse;
+export type EventResponse = import('./src/contract.ts').EventResponse;
+export type CheckoutsResponse = import('./src/contract.ts').CheckoutsResponse;
+export type CheckoutStatusResponse = import('./src/contract.ts').CheckoutStatusResponse;
+export type CheckoutBranchesResponse = import('./src/contract.ts').CheckoutBranchesResponse;
+export type CheckoutUpdateResponse = import('./src/contract.ts').CheckoutUpdateResponse;
+export type ConnectionResponse = import('./src/contract.ts').ConnectionResponse;
+export type PushCommitsResponse = import('./src/contract.ts').PushCommitsResponse;
+export type PrReviewResponse = import('./src/contract.ts').PrReviewResponse;
+export type BackfillResponse = import('./src/contract.ts').BackfillResponse;
+export type RefreshResponse = import('./src/contract.ts').RefreshResponse;
+export type ResetResponse = import('./src/contract.ts').ResetResponse;
+export type DiscoverResponse = import('./src/contract.ts').DiscoverResponse;
+export type FoldersResponse = import('./src/contract.ts').FoldersResponse;
+export type DemoEventResponse = import('./src/contract.ts').DemoEventResponse;
 
 const ROOT = dirname(fileURLToPath(import.meta.url));
-/** @type {Record<string, string>} */
-const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml' };
+const TYPES: Record<string, string> = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml' };
 const HEADERS = {
   'content-security-policy':
     "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'",
@@ -93,13 +87,11 @@ const HEADERS = {
   'cache-control': 'no-store',
 };
 
-/** @param {string} message @returns {RequestError} */
-function problem(message, status = 400) {
+function problem(message: string, status = 400): RequestError {
   return Object.assign(new Error(message), { status });
 }
 
-/** @param {string} value */
-function decodeParam(value) {
+function decodeParam(value: string) {
   try {
     return decodeURIComponent(value);
   } catch {
@@ -109,10 +101,8 @@ function decodeParam(value) {
 
 /**
  * Parses a JSON object body. Its fields stay unknown until each route validates them.
- * @param {Request} req
- * @returns {Promise<Record<string, unknown>>}
  */
-async function body(req) {
+async function body(req: Request): Promise<Record<string, unknown>> {
   if (!req.headers['content-type']?.startsWith('application/json')) throw problem('Send application/json.', 415);
   const chunks = [];
   let size = 0;
@@ -130,8 +120,7 @@ async function body(req) {
   }
 }
 
-/** @param {Request} req */
-function checkLocalRequest(req) {
+function checkLocalRequest(req: Request) {
   // Compare the actual bound port too: other localhost apps are different origins.
   const port = req.socket.localPort;
   const hosts = new Set([`localhost:${port}`, `127.0.0.1:${port}`, `[::1]:${port}`]);
@@ -145,10 +134,13 @@ function checkLocalRequest(req) {
   if (req.headers['sec-fetch-site'] === 'cross-site' && !pageLoad) throw problem('Cross-site requests are not allowed.', 403);
 }
 
-/** @param {string} pathname @param {Response} res */
-async function staticFile(pathname, res) {
-  /** @type {Record<string, string>} */
-  const alias = { '/': 'web/index.html', '/app.css': 'web/app.css', '/theme.js': 'web/theme.js', '/favicon.svg': 'web/favicon.svg' };
+async function staticFile(pathname: string, res: Response) {
+  const alias: Record<string, string> = {
+    '/': 'web/index.html',
+    '/app.css': 'web/app.css',
+    '/theme.js': 'web/theme.js',
+    '/favicon.svg': 'web/favicon.svg',
+  };
   let relative = alias[pathname];
   if (!relative && /^\/(src|web)\/[a-zA-Z0-9_./-]+\.(js|css|svg)$/.test(pathname)) relative = pathname.slice(1);
   if (!relative) return false;
@@ -162,14 +154,13 @@ async function staticFile(pathname, res) {
     res.writeHead(200, { 'content-type': `${TYPES[extname(path)]}; charset=utf-8` }).end(content);
     return true;
   } catch (error) {
-    if (/** @type {NodeJS.ErrnoException} */ (error).code === 'ENOENT') return false;
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false;
     throw error;
   }
 }
 
 /**
  * Narrow loopback HTTP boundary. Azure commands, sync and persistence live in separate modules.
- * @param {AppOptions} options
  */
 export function createApp({
   store,
@@ -187,14 +178,13 @@ export function createApp({
     }),
     // Settings are stored JSON; these keys only ever hold what the matching save wrote.
     followups: {
-      get: id => /** @type {import('./server/checkout-branches.js').Followup | undefined} */ (store.getSetting(`checkout-followup:${id}`)),
+      get: id => store.getSetting(`checkout-followup:${id}`) as import('./server/checkout-branches.js').Followup | undefined,
       save: (id, value) => store.setSetting(`checkout-followup:${id}`, value),
     },
     observations: {
       get: (id, identity) => {
-        const saved = /** @type {import('./server/checkout-observations.js').Observation | undefined} */ (
-          store.getSetting(`checkout:${id}:${identity}`) ?? store.getSetting(`checkout:${id}`)
-        );
+        const saved = (store.getSetting(`checkout:${id}:${identity}`) ?? store.getSetting(`checkout:${id}`)) as
+          import('./server/checkout-observations.js').Observation | undefined;
         return saved?.identity === identity ? saved : undefined;
       },
       save: (id, value) => store.setSetting(`checkout:${id}:${value.identity}`, value),
@@ -203,48 +193,41 @@ export function createApp({
   onStateRead = () => {},
   accessKey,
   launchToken,
-}) {
+}: AppOptions) {
   if (typeof accessKey !== 'string' || accessKey.length < 32) throw new Error('createApp needs an access key of at least 32 characters.');
   const expectedKey = Buffer.from(accessKey);
   const startedAt = Date.now();
-  /** The reset in progress, shared by every request that arrives while it runs. @type {Promise<void> | null} */
-  let resetting = null;
+  /** The reset in progress, shared by every request that arrives while it runs. */
+  let resetting: Promise<void> | null = null;
   /** Set when the last reset failed, until another starts, so the page can say so instead of looking unchanged. */
   let resetFailed = false;
-  /** @param {unknown} value @param {Buffer} expected */
-  const matches = (value, expected) => {
+  const matches = (value: unknown, expected: Buffer) => {
     const given = Buffer.from(String(value ?? ''));
     return given.length === expected.length && timingSafeEqual(given, expected);
   };
-  /** @param {Request} req */
-  const hasAccessKey = req => matches(req.headers['x-repo-pulse-key'], expectedKey);
+  const hasAccessKey = (req: Request) => matches(req.headers['x-repo-pulse-key'], expectedKey);
   // The launch link carries this token instead of the key. It works once, so a copied or recorded link is spent.
   let launch = launchToken ? Buffer.from(launchToken) : null;
-  /** @param {Response} res @param {number} status @param {unknown} data */
-  const json = (res, status, data) =>
+  const json = (res: Response, status: number, data: unknown) =>
     res.writeHead(status, { 'content-type': 'application/json; charset=utf-8' }).end(JSON.stringify(data));
-  /** @param {unknown} id */
-  const repoById = id => {
+  const repoById = (id: unknown) => {
     const repo = store.listRepos().find(item => item.id === id);
     if (!repo) throw problem('Repository is not watched.', 404);
     return repo;
   };
-  /** @param {unknown} id */
-  const enabledRepoById = id => {
+  const enabledRepoById = (id: unknown) => {
     const repo = repoById(id);
     if (repo.disabled) throw problem('Repository is disabled. Enable it on Repositories first.', 409);
     return repo;
   };
-  /** @param {unknown} value @returns {value is string[]} */
-  const isStringList = value => Array.isArray(value) && value.every(item => typeof item === 'string');
+  const isStringList = (value: unknown): value is string[] => Array.isArray(value) && value.every(item => typeof item === 'string');
   const enabledRepoIds = () =>
     store
       .listRepos()
       .filter(repo => !repo.disabled)
       .map(repo => repo.id);
   const savedFilters = createSavedActivityFilters(store);
-  /** @param {URLSearchParams} query */
-  function activityScope(query) {
+  function activityScope(query: URLSearchParams) {
     const repoIdList = query.get('repoIds');
     const requested = repoIdList !== null ? repoIdList.split(',').filter(Boolean) : undefined;
     requested?.forEach(repoById);
@@ -257,8 +240,7 @@ export function createApp({
     };
   }
   // First match wins, in table order. Route params arrive undecoded so each handler keeps its own check order.
-  /** @type {Route[]} */
-  const routes = [
+  const routes: Route[] = [
     {
       method: 'GET',
       path: '/api/state',
@@ -271,37 +253,33 @@ export function createApp({
         const jobs = store.listJobs({ type: 'backfill' });
         // Both settings are only written by POST /api/settings: a boolean and a Date.now() stamp.
         const settings = {
-          refreshEnabled: /** @type {boolean} */ (store.getSetting('refreshEnabled', true)),
-          refreshResumedAt: /** @type {number | null} */ (store.getSetting('refreshResumedAt', null)),
+          refreshEnabled: store.getSetting('refreshEnabled', true) as boolean,
+          refreshResumedAt: store.getSetting('refreshResumedAt', null) as number | null,
         };
         const diagnostics = { ...(cli?.diagnostics() || {}), sync: status };
-        return json(
-          res,
-          200,
-          /** @satisfies {StateResponse} */ ({
+        return json(res, 200, {
+          repos,
+          streams,
+          diagnostics,
+          jobs,
+          activityRevision: store.activityRevision(),
+          savedFilters: savedFilters.list(),
+          settings,
+          syncStatus: syncStatus({
             repos,
             streams,
-            diagnostics,
             jobs,
-            activityRevision: store.activityRevision(),
-            savedFilters: savedFilters.list(),
+            inProgress,
             settings,
-            syncStatus: syncStatus({
-              repos,
-              streams,
-              jobs,
-              inProgress,
-              settings,
-              startedAt,
-              now: Date.now(),
-              demo,
-              throttledUntil: diagnostics.throttledUntil,
-              resetting: Boolean(resetting),
-              resetFailed,
-            }),
+            startedAt,
+            now: Date.now(),
             demo,
+            throttledUntil: diagnostics.throttledUntil,
+            resetting: Boolean(resetting),
+            resetFailed,
           }),
-        );
+          demo,
+        } satisfies StateResponse);
       },
     },
     {
@@ -320,7 +298,7 @@ export function createApp({
           limit,
           cursor,
         });
-        return json(res, 200, /** @satisfies {ActivityResponse} */ (result));
+        return json(res, 200, result satisfies ActivityResponse);
       },
     },
     {
@@ -349,7 +327,7 @@ export function createApp({
       path: /^\/api\/activity-filters\/([^/]+)$/,
       handler: ({ res, params: [rawId] }) => {
         savedFilters.remove(decodeParam(rawId));
-        return json(res, 200, /** @satisfies {OkResponse} */ ({ ok: true }));
+        return json(res, 200, { ok: true } satisfies OkResponse);
       },
     },
     {
@@ -359,7 +337,7 @@ export function createApp({
         const id = decodeParam(rawId);
         const event = store.getEvent(id);
         if (!event || !enabledRepoIds().includes(event.repoId)) throw problem('Activity not found.', 404);
-        return json(res, 200, /** @satisfies {EventResponse} */ ({ event, events: store.getEventGroup(id) }));
+        return json(res, 200, { event, events: store.getEventGroup(id) } satisfies EventResponse);
       },
     },
     {
@@ -373,7 +351,7 @@ export function createApp({
         if (days !== 30 && days !== 90 && days !== 'all') throw problem('Choose 30 days, 90 days or all available history.');
         // Checked after the body arrives: the reset would delete the job this request creates.
         if (resetting) throw problem('Starting from scratch is in progress. Try again in a moment.', 409);
-        return json(res, 202, /** @satisfies {BackfillResponse} */ (backfill.start(repo.id, days)));
+        return json(res, 202, backfill.start(repo.id, days) satisfies BackfillResponse);
       },
     },
     {
@@ -385,7 +363,7 @@ export function createApp({
           throw problem('Use https://dev.azure.com/your-organization.');
         const repoId = url.searchParams.get('repoId');
         const connection = await provider.checkConnection(org, repoId === null ? undefined : enabledRepoById(repoId));
-        return json(res, 200, /** @satisfies {ConnectionResponse} */ (connection));
+        return json(res, 200, connection satisfies ConnectionResponse);
       },
     },
     {
@@ -394,7 +372,7 @@ export function createApp({
       handler: async ({ req, res }) => {
         const input = await body(req);
         if (typeof input.path !== 'string' || !input.path.trim()) throw problem('Enter a local folder path.');
-        return json(res, 200, /** @satisfies {DiscoverResponse} */ (await discover(input.path)));
+        return json(res, 200, (await discover(input.path)) satisfies DiscoverResponse);
       },
     },
     {
@@ -402,7 +380,7 @@ export function createApp({
       path: '/api/folders',
       handler: async ({ req, res }) => {
         const input = await body(req);
-        return json(res, 200, /** @satisfies {FoldersResponse} */ (await browse(input.path)));
+        return json(res, 200, (await browse(input.path)) satisfies FoldersResponse);
       },
     },
     {
@@ -413,8 +391,7 @@ export function createApp({
         if (demo || !('resolveRepository' in provider))
           throw problem('Demo repositories are fictional. Start live mode to add your repositories.');
         const input = await body(req);
-        /** @type {import('./server/repositories.js').ParsedRemote & { localPath?: string }} */
-        let remote;
+        let remote: import('./server/repositories.ts').ParsedRemote & { localPath?: string };
         if (typeof input.url === 'string' && input.url.trim()) remote = parseRemote(input.url.trim());
         else if (typeof input.path === 'string' && input.path.trim()) {
           const result = await discover(input.path);
@@ -425,13 +402,12 @@ export function createApp({
           if (remotes.length !== 1) throw problem('Choose the remote explicitly for a checkout with multiple Azure remotes.');
           remote = { ...parseRemote(remotes[0].url), localPath: checkout.localPath };
         } else throw problem('Enter an Azure repository URL or local checkout path.');
-        /** @type {import('./server/store.js').Repository} */
-        const repo = await provider.resolveRepository(remote);
+        const repo: import('./server/store.js').Repository = await provider.resolveRepository(remote);
         if (remote.localPath) repo.localPath = remote.localPath;
         const existing = store.listRepos().find(item => item.id === repo.id);
         store.saveRepo({ ...repo, disabled: existing?.disabled || false });
         sync.refresh([repo.id]);
-        return json(res, 201, /** @satisfies {Repository} */ (repo));
+        return json(res, 201, repo satisfies Repository);
       },
     },
     {
@@ -439,8 +415,7 @@ export function createApp({
       path: '/api/checkouts',
       handler: async ({ res }) => {
         const repos = store.listRepos().filter(repo => !repo.disabled);
-        /** @type {[string, import('./server/checkout-git.js').CheckoutStatus][]} */
-        const results = [];
+        const results: [string, import('./server/checkout-git.js').CheckoutStatus][] = [];
         if (!demo)
           for (let i = 0; i < repos.length; i += 2) {
             results.push(
@@ -448,16 +423,12 @@ export function createApp({
                 repos
                   .slice(i, i + 2)
                   .map(
-                    async repo =>
-                      /** @type {[string, import('./server/checkout-git.js').CheckoutStatus]} */ ([
-                        repo.id,
-                        await checkoutGit.status(repo),
-                      ]),
+                    async repo => [repo.id, await checkoutGit.status(repo)] as [string, import('./server/checkout-git.js').CheckoutStatus],
                   ),
               )),
             );
           }
-        return json(res, 200, /** @satisfies {CheckoutsResponse} */ (Object.fromEntries(results)));
+        return json(res, 200, Object.fromEntries(results) satisfies CheckoutsResponse);
       },
     },
     {
@@ -468,10 +439,10 @@ export function createApp({
         const repo = enabledRepoById(decodeParam(rawId));
         const local = new Set(await checkoutGit.localBranches(repo));
         const pinned = ['main', 'master'];
-        /** @typedef {{ active?: boolean, lastPushId?: number }} RefData */
+        type RefData = { active?: boolean; lastPushId?: number };
         const branches = store
           .listEntities(repo.id, 'ref')
-          .map(({ id, data }) => ({ id, ref: /** @type {RefData | null} */ (data) }))
+          .map(({ id, data }) => ({ id, ref: data as RefData | null }))
           .filter(({ id, ref }) => id.startsWith('refs/heads/') && id.length > 11 && ref?.active !== false)
           .map(({ id, ref }) => ({ name: id.slice(11), pushId: Number(ref?.lastPushId) || 0 }))
           .sort(
@@ -482,7 +453,7 @@ export function createApp({
               a.name.localeCompare(b.name),
           )
           .map(({ name }) => ({ name, local: local.has(name) }));
-        return json(res, 200, /** @satisfies {CheckoutBranchesResponse} */ ({ branches }));
+        return json(res, 200, { branches } satisfies CheckoutBranchesResponse);
       },
     },
     {
@@ -491,7 +462,7 @@ export function createApp({
       handler: async ({ res, params: [rawId] }) => {
         if (demo) throw problem('Demo checkouts have no local status.', 403);
         const repo = enabledRepoById(decodeParam(rawId));
-        return json(res, 200, /** @satisfies {CheckoutStatusResponse} */ (await checkoutGit.status(repo)));
+        return json(res, 200, (await checkoutGit.status(repo)) satisfies CheckoutStatusResponse);
       },
     },
     {
@@ -510,35 +481,31 @@ export function createApp({
           return json(
             res,
             200,
-            /** @satisfies {CheckoutUpdateResponse} */ (
-              await checkoutGit.switchToActivityBranch(repo, branch, expected, {
-                eventId: input.eventId,
-                confirmation: typeof input.confirmation === 'string' ? input.confirmation : undefined,
-              })
-            ),
+            (await checkoutGit.switchToActivityBranch(repo, branch, expected, {
+              eventId: input.eventId,
+              confirmation: typeof input.confirmation === 'string' ? input.confirmation : undefined,
+            })) satisfies CheckoutUpdateResponse,
           );
         }
         if (operation === 'switch-branch' && isSwitchIntent(expected) && typeof input.branch === 'string') {
           // Only a branch the watched repository still lists, like an event, may name the switch target.
-          const ref = /** @type {{ active?: boolean } | null} */ (store.getEntity(repo.id, 'ref', `refs/heads/${input.branch}`));
+          const ref = store.getEntity(repo.id, 'ref', `refs/heads/${input.branch}`) as { active?: boolean } | null;
           if (!ref || ref.active === false) throw problem('The repository no longer lists this branch.');
           return json(
             res,
             200,
-            /** @satisfies {CheckoutUpdateResponse} */ (
-              await checkoutGit.switchToActivityBranch(repo, input.branch, expected, {
-                confirmation: typeof input.confirmation === 'string' ? input.confirmation : undefined,
-              })
-            ),
+            (await checkoutGit.switchToActivityBranch(repo, input.branch, expected, {
+              confirmation: typeof input.confirmation === 'string' ? input.confirmation : undefined,
+            })) satisfies CheckoutUpdateResponse,
           );
         }
         if (isBranchAction(input) && isCheckoutIntent(expected)) {
-          return json(res, 200, /** @satisfies {CheckoutUpdateResponse} */ (await checkoutGit.branchAction(repo, input, expected)));
+          return json(res, 200, (await checkoutGit.branchAction(repo, input, expected)) satisfies CheckoutUpdateResponse);
         }
         if ((operation !== 'check' && operation !== 'pull') || !isCheckoutIntent(expected)) {
           throw problem('Choose a checkout and Git action.');
         }
-        return json(res, 200, /** @satisfies {CheckoutUpdateResponse} */ (await checkoutGit.update(repo, operation, expected)));
+        return json(res, 200, (await checkoutGit.update(repo, operation, expected)) satisfies CheckoutUpdateResponse);
       },
     },
     {
@@ -551,7 +518,7 @@ export function createApp({
         if (typeof input.disabled !== 'boolean') throw problem('disabled must be true or false.');
         store.saveRepo({ ...repo, disabled: input.disabled });
         if (!input.disabled) sync.refresh([id]);
-        return json(res, 200, /** @satisfies {OkResponse} */ ({ ok: true }));
+        return json(res, 200, { ok: true } satisfies OkResponse);
       },
     },
     {
@@ -561,7 +528,7 @@ export function createApp({
         const id = decodeParam(rawId);
         repoById(id);
         store.removeRepo(id);
-        return json(res, 200, /** @satisfies {OkResponse} */ ({ ok: true }));
+        return json(res, 200, { ok: true } satisfies OkResponse);
       },
     },
     {
@@ -572,7 +539,7 @@ export function createApp({
         const { repoIds } = input;
         if (repoIds !== undefined && !isStringList(repoIds)) throw problem('repoIds must be a list.');
         repoIds?.forEach(repoById);
-        return json(res, 202, /** @satisfies {RefreshResponse} */ ({ ok: true, status: sync.refresh(repoIds) }));
+        return json(res, 202, { ok: true, status: sync.refresh(repoIds) } satisfies RefreshResponse);
       },
     },
     {
@@ -595,7 +562,7 @@ export function createApp({
           .finally(() => {
             resetting = null;
           });
-        return json(res, 202, /** @satisfies {ResetResponse} */ ({ started: true }));
+        return json(res, 202, { started: true } satisfies ResetResponse);
       },
     },
     {
@@ -620,21 +587,21 @@ export function createApp({
           store.setSetting('refreshResumedAt', Date.now());
         }
         store.setSetting('refreshEnabled', input.refreshEnabled);
-        return json(res, 200, /** @satisfies {OkResponse} */ ({ ok: true }));
+        return json(res, 200, { ok: true } satisfies OkResponse);
       },
     },
     // Only demo mode has this route; in live mode the path is a plain 404.
     ...(demo
-      ? /** @type {Route[]} */ ([
+      ? ([
           {
             method: 'POST',
             path: '/api/demo/event',
             handler: async ({ req, res }) => {
               await body(req);
-              return json(res, 201, /** @satisfies {DemoEventResponse} */ (addDemoEvent(store)));
+              return json(res, 201, addDemoEvent(store) satisfies DemoEventResponse);
             },
           },
-        ])
+        ] as Route[])
       : []),
     {
       method: 'GET',
@@ -642,11 +609,11 @@ export function createApp({
       handler: async ({ res, url, params: [rawId, pushId] }) => {
         const repo = enabledRepoById(decodeParam(rawId));
         if (!provider.pushCommits)
-          return json(
-            res,
-            200,
-            /** @satisfies {PushCommitsResponse} */ ({ items: [], nextCursor: null, message: 'Open Azure DevOps for commit details.' }),
-          );
+          return json(res, 200, {
+            items: [],
+            nextCursor: null,
+            message: 'Open Azure DevOps for commit details.',
+          } satisfies PushCommitsResponse);
         const skip = Number(url.searchParams.get('skip') || 0);
         if (!Number.isSafeInteger(skip) || skip < 0) throw problem('Invalid page offset.');
         const page = await provider.pushCommits(repo, Number(pushId), { skip });
@@ -655,7 +622,7 @@ export function createApp({
           commitId: typeof item?.commitId === 'string' ? item.commitId : '',
           ...(typeof item?.comment === 'string' ? { comment: item.comment } : {}),
         }));
-        return json(res, 200, /** @satisfies {PushCommitsResponse} */ ({ items, nextCursor: page.nextCursor }));
+        return json(res, 200, { items, nextCursor: page.nextCursor } satisfies PushCommitsResponse);
       },
     },
     {
@@ -663,7 +630,7 @@ export function createApp({
       path: /^\/api\/pr\/([^/]+)\/(\d+)\/review$/,
       handler: async ({ res, params: [rawId, pullRequestId] }) => {
         const repo = enabledRepoById(decodeParam(rawId));
-        return json(res, 200, /** @satisfies {PrReviewResponse} */ (await provider.prReview(repo, pullRequestId)));
+        return json(res, 200, (await provider.prReview(repo, pullRequestId)) satisfies PrReviewResponse);
       },
     },
   ];
@@ -674,14 +641,14 @@ export function createApp({
       const url = new URL(String(req.url), `http://${req.headers.host}`);
       const path = url.pathname;
       if (req.method === 'GET' && (await staticFile(path, res))) return;
-      if (!path.startsWith('/api/')) return json(res, 404, /** @satisfies {ErrorResponse} */ ({ message: 'Not found.' }));
+      if (!path.startsWith('/api/')) return json(res, 404, { message: 'Not found.' } satisfies ErrorResponse);
       if (path === '/api/session' && req.method === 'POST') {
         if (!launch || !matches(req.headers['x-repo-pulse-launch'], launch))
           throw Object.assign(problem('This launch link was already used. Open the newest link printed in the terminal.', 401), {
             code: 'LAUNCH_USED',
           });
         launch = null;
-        return json(res, 200, /** @satisfies {SessionResponse} */ ({ key: accessKey }));
+        return json(res, 200, { key: accessKey } satisfies SessionResponse);
       }
       // Every API request, reads included, carries the key. A browser on another origin cannot add the header.
       if (!hasAccessKey(req))
@@ -698,9 +665,9 @@ export function createApp({
         const match = typeof route.path === 'string' ? route.path === path && [path] : route.path.exec(path);
         if (match) return await route.handler({ req, res, url, params: match.slice(1) });
       }
-      return json(res, 404, /** @satisfies {ErrorResponse} */ ({ message: 'Not found.' }));
+      return json(res, 404, { message: 'Not found.' } satisfies ErrorResponse);
     } catch (caught) {
-      const error = /** @type {RequestError} */ (caught);
+      const error = caught as RequestError;
       // Adapter errors carry already-redacted, actionable text; unexpected errors stay local.
       const status =
         error.status ||
@@ -712,20 +679,19 @@ export function createApp({
               ? 502
               : 500);
       if (status === 500) console.error('Request failed:', error.name);
-      return json(
-        res,
-        status,
-        /** @satisfies {ErrorResponse} */ ({
-          message: status === 500 ? 'Something went wrong. Try again; cached data is kept.' : error.message,
-          code: error.code,
-        }),
-      );
+      return json(res, status, {
+        message: status === 500 ? 'Something went wrong. Try again; cached data is kept.' : error.message,
+        code: error.code,
+      } satisfies ErrorResponse);
     }
   });
 }
 
-/** @param {{ demo?: boolean, port?: number, dataDir?: string }} [options] */
-export async function startApp({ demo = false, port = 0, dataDir = resolve(ROOT, '.repo-pulse') } = {}) {
+export async function startApp({
+  demo = false,
+  port = 0,
+  dataDir = resolve(ROOT, '.repo-pulse'),
+}: { demo?: boolean; port?: number; dataDir?: string } = {}) {
   await secureDataDir(dataDir);
   // Earlier versions kept one key for good; every start now makes its own, so a key from a past run is useless.
   await rm(resolve(dataDir, 'access-key'), { force: true });
@@ -739,8 +705,7 @@ export async function startApp({ demo = false, port = 0, dataDir = resolve(ROOT,
   const azure = cli && createAzureClient({ cli });
   const provider = azure || demoProvider;
   let lastClientAt = 0;
-  /** @type {ReturnType<typeof createBackfill> | undefined} */
-  let backfill;
+  let backfill: ReturnType<typeof createBackfill> | undefined;
   const rewriteCheck = azure && createRewriteCheck({ store, provider: azure });
   const forkCheck = azure && createForkOriginCheck({ store, provider: azure });
   const liveSync =
@@ -755,8 +720,7 @@ export async function startApp({ demo = false, port = 0, dataDir = resolve(ROOT,
     });
   const sync = (liveSync && {
     ...liveSync,
-    /** @param {() => void} clear */
-    reset: clear =>
+    reset: (clear: () => void) =>
       liveSync.reset(() => {
         clear();
         rewriteCheck?.reset();
@@ -765,12 +729,10 @@ export async function startApp({ demo = false, port = 0, dataDir = resolve(ROOT,
   }) || {
     start() {},
     stop() {},
-    /** @returns {{ demo: true }} */
-    refresh() {
+    refresh(): { demo: true } {
       return { demo: true };
     },
-    /** @returns {DemoSyncStatus} */
-    status() {
+    status(): DemoSyncStatus {
       return { demo: true, running: false };
     },
   };
@@ -806,15 +768,14 @@ export async function startApp({ demo = false, port = 0, dataDir = resolve(ROOT,
     await new Promise(resolveClose => app.close(resolveClose));
     store.close();
   };
-  const url = `http://127.0.0.1:${/** @type {import('node:net').AddressInfo} */ (app.address()).port}`;
+  const url = `http://127.0.0.1:${(app.address() as import('node:net').AddressInfo).port}`;
   return { app, store, sync, provider, close, url, dataDir, accessKey, launchUrl: `${url}/#launch=${launchToken}` };
 }
 
 /**
  * The data directory holds the database: it must belong to this account and be closed to others.
- * @param {string} dataDir
  */
-async function secureDataDir(dataDir) {
+async function secureDataDir(dataDir: string) {
   await mkdir(dataDir, { recursive: true, mode: 0o700 });
   if (typeof process.getuid !== 'function') return;
   const info = await stat(dataDir);

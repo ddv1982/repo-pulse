@@ -5,8 +5,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { request as httpRequest } from 'node:http';
 import { createStore } from '../server/store.js';
-import { createApp, startApp } from '../server.js';
-import { seedDemo } from '../server/demo.js';
+import { createApp, startApp } from '../server.ts';
+import { seedDemo } from '../server/demo.ts';
 import { createAzureClient } from '../server/azure-client.js';
 import { TEST_KEY, keyedFetch } from './fixtures/access.js';
 
@@ -351,7 +351,7 @@ test('a disabled repository makes no direct Azure reads', async t => {
 test('live mode cannot generate demo activity or expose arbitrary files', async t => {
   const { url, mutate } = await fixture(t, { demo: false });
   assert.equal((await mutate('/api/demo/event', {})).status, 404);
-  assert.equal((await fetch(url + '/web/../server.js')).status, 404);
+  assert.equal((await fetch(url + '/web/../server.ts')).status, 404);
   assert.equal((await fetch(url + '/api/connection?organization=https://attacker.example')).status, 400);
 });
 

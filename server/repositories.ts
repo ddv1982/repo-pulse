@@ -5,15 +5,14 @@ import { stat, readdir, realpath } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { homedir } from 'node:os';
 
-/** @typedef {import('../src/contract.ts').DiscoveredRemote} ParsedRemote */
-/** @typedef {import('../src/contract.ts').DiscoveredRemote} DiscoveredRemote */
-/** @typedef {import('../src/contract.ts').DiscoveredCheckout} DiscoveredCheckout */
-/** @typedef {import('../src/contract.ts').Discovery} Discovery */
+export type ParsedRemote = import('../src/contract.ts').DiscoveredRemote;
+export type DiscoveredRemote = import('../src/contract.ts').DiscoveredRemote;
+export type DiscoveredCheckout = import('../src/contract.ts').DiscoveredCheckout;
+export type Discovery = import('../src/contract.ts').Discovery;
 
 const exec = promisify(execFile);
 const invalid = () => Object.assign(new Error('Use an Azure DevOps Services HTTPS or SSH repository URL.'), { code: 'INVALID_REPOSITORY' });
-/** @param {string} value */
-const component = value => {
+const component = (value: string) => {
   let decoded;
   try {
     decoded = decodeURIComponent(value);
@@ -24,8 +23,8 @@ const component = value => {
   return decoded;
 };
 
-/** @param {unknown} value Anything that is not an Azure DevOps organization URL is refused. */
-export function normalizeOrganization(value) {
+/** @param value Anything that is not an Azure DevOps organization URL is refused. */
+export function normalizeOrganization(value: unknown) {
   let url;
   try {
     url = new URL(String(value));
@@ -45,9 +44,9 @@ export function normalizeOrganization(value) {
 /**
  * Git would receive the URL on its command line, where other local users can read it. A token can sit in the user name
  * too; Azure's own clone URLs use the organization name there, or no user name.
- * @param {URL} url @param {string} organization the organization as it appears in the URL
+ * @param organization the organization as it appears in the URL
  */
-function refuseCredentials(url, organization) {
+function refuseCredentials(url: URL, organization: string) {
   let user, org;
   try {
     user = decodeURIComponent(url.username);
@@ -62,8 +61,7 @@ function refuseCredentials(url, organization) {
     });
 }
 
-/** @param {unknown} value @returns {ParsedRemote} */
-export function parseRemote(value) {
+export function parseRemote(value: unknown): ParsedRemote {
   if (typeof value !== 'string' || value.length > 4096 || /[\x00-\x1f]/.test(value)) throw invalid();
   let organization, project, name;
   const ssh = value.match(/^(?:[^-@/:][^@/:]*@)?(?:ssh\.dev\.azure\.com|vs-ssh\.visualstudio\.com):v3\/([^/]+)\/([^/]+)\/([^/]+)\/?$/i);
@@ -109,8 +107,8 @@ export function parseRemote(value) {
   };
 }
 
-/** Whether Git would see credentials in this Azure remote URL. @param {string} url */
-export function hasRemoteCredentials(url) {
+/** Whether Git would see credentials in this Azure remote URL. */
+export function hasRemoteCredentials(url: string) {
   try {
     if (new URL(url).password) return true;
   } catch {
@@ -120,12 +118,11 @@ export function hasRemoteCredentials(url) {
     parseRemote(url);
     return false;
   } catch (error) {
-    return /** @type {{ code?: unknown }} */ (error).code === 'REMOTE_PASSWORD';
+    return (error as { code?: unknown }).code === 'REMOTE_PASSWORD';
   }
 }
 
-/** @param {unknown} organization @param {unknown} azureId */
-export function repositoryKey(organization, azureId) {
+export function repositoryKey(organization: unknown, azureId: unknown) {
   return createHash('sha256')
     .update(`${normalizeOrganization(organization)}\0${String(azureId).toLowerCase()}`)
     .digest('hex')
@@ -133,16 +130,13 @@ export function repositoryKey(organization, azureId) {
 }
 
 /** Explicit bounded discovery; Git reads worktree/linked configs without fetching. */
-/** @param {unknown} inputPath @returns {Promise<Discovery>} */
-export async function discoverRepositories(inputPath) {
+export async function discoverRepositories(inputPath: unknown): Promise<Discovery> {
   if (typeof inputPath !== 'string' || !inputPath.trim() || inputPath.includes('\0'))
     throw new Error('Choose a local checkout or its parent folder.');
   const path = resolve(inputPath.startsWith('~/') ? `${homedir()}/${inputPath.slice(2)}` : inputPath);
   if (!(await stat(path)).isDirectory()) throw new Error('Choose a folder.');
-  /** @type {Discovery} */
-  const result = { repositories: [], warnings: [] };
-  /** @param {string} localPath */
-  async function readCheckout(localPath) {
+  const result: Discovery = { repositories: [], warnings: [] };
+  async function readCheckout(localPath: string) {
     try {
       const { stdout } = await exec('git', ['-C', localPath, 'rev-parse', '--show-toplevel'], {
         timeout: 3000,
@@ -161,10 +155,9 @@ export async function discoverRepositories(inputPath) {
           })
         ).stdout;
       } catch (error) {
-        if (/** @type {{ code?: unknown }} */ (error).code !== 1) throw error;
+        if ((error as { code?: unknown }).code !== 1) throw error;
       }
-      /** @type {DiscoveredRemote[]} */
-      const remotes = [];
+      const remotes: DiscoveredRemote[] = [];
       for (const line of output.split('\n').filter(Boolean)) {
         const match = line.match(/^remote\.(.+)\.url\s+(.+)$/);
         if (!match) continue;
@@ -173,14 +166,14 @@ export async function discoverRepositories(inputPath) {
           remotes.push({ ...remote, name: match[1], repoName: remote.name });
         } catch (error) {
           // Other hosting providers are outside this watch list.
-          if (/** @type {{ code?: unknown }} */ (error).code === 'REMOTE_PASSWORD')
-            result.warnings.push(`${localPath} (${match[1]}): ${/** @type {Error} */ (error).message}`);
+          if ((error as { code?: unknown }).code === 'REMOTE_PASSWORD')
+            result.warnings.push(`${localPath} (${match[1]}): ${(error as Error).message}`);
         }
       }
       if (remotes.length) result.repositories.push({ localPath, remotes });
       return true;
     } catch (error) {
-      if (/** @type {NodeJS.ErrnoException} */ (error).code === 'ENOENT') throw new Error('Git is not installed.');
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') throw new Error('Git is not installed.');
       return false;
     }
   }

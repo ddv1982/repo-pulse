@@ -1,4 +1,3 @@
-// @ts-check
 import { execFile } from 'node:child_process';
 import { realpathSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -10,16 +9,21 @@ const execFileAsync = promisify(execFile);
 const MIN_NODE_MAJOR = 26;
 const COMMAND_TIMEOUT_MS = 15000;
 
-/**
- * @typedef {{ id: string, label: string, status: 'ok' | 'fail' | 'skip', detail: string, fix?: string }} DoctorCheck
- * @typedef {{ ok: boolean, checks: DoctorCheck[] }} DoctorReport
- * @typedef {{ stdout: string, stderr: string }} CommandOutput
- * @typedef {(file: string, args: string[], options?: { env?: NodeJS.ProcessEnv, cwd?: string, timeout?: number }) => Promise<CommandOutput>} CommandRunner
- * @typedef {Awaited<ReturnType<typeof resolveAzCommand>>} AzCommand
- */
+export type DoctorCheck = { id: string; label: string; status: 'ok' | 'fail' | 'skip'; detail: string; fix?: string };
 
-/** @param {string} file @param {string[]} args @param {{ env?: NodeJS.ProcessEnv, cwd?: string, timeout?: number }} [options] */
-async function defaultRunCommand(file, args, options = {}) {
+export type DoctorReport = { ok: boolean; checks: DoctorCheck[] };
+
+export type CommandOutput = { stdout: string; stderr: string };
+
+export type CommandRunner = (
+  file: string,
+  args: string[],
+  options?: { env?: NodeJS.ProcessEnv; cwd?: string; timeout?: number },
+) => Promise<CommandOutput>;
+
+export type AzCommand = Awaited<ReturnType<typeof resolveAzCommand>>;
+
+async function defaultRunCommand(file: string, args: string[], options: { env?: NodeJS.ProcessEnv; cwd?: string; timeout?: number } = {}) {
   const { stdout, stderr } = await execFileAsync(file, args, {
     encoding: 'utf8',
     timeout: COMMAND_TIMEOUT_MS,
@@ -29,8 +33,7 @@ async function defaultRunCommand(file, args, options = {}) {
   return { stdout: String(stdout || ''), stderr: String(stderr || '') };
 }
 
-/** @param {string} text @returns {Record<string, any> | null} */
-function parseJsonObject(text) {
+function parseJsonObject(text: string): Record<string, any> | null {
   try {
     const parsed = JSON.parse(text);
     return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : null;
@@ -39,36 +42,31 @@ function parseJsonObject(text) {
   }
 }
 
-/** @param {unknown} error */
-function isMissingBinary(error) {
+function isMissingBinary(error: unknown) {
   return Boolean(error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT');
 }
 
-/** @param {unknown} error */
-function isTimeout(error) {
+function isTimeout(error: unknown) {
   return Boolean(
     error && typeof error === 'object' && (('killed' in error && error.killed) || ('code' in error && error.code === 'ETIMEDOUT')),
   );
 }
 
-/** @param {unknown} error */
-function errorText(error) {
+function errorText(error: unknown) {
   if (!error || typeof error !== 'object') return '';
   const stderr = 'stderr' in error ? String(error.stderr || '') : '';
   const message = 'message' in error ? String(error.message || '') : '';
   return `${stderr}\n${message}`;
 }
 
-/** @param {AzCommand} az @param {CommandRunner} runCommand @param {string[]} args */
-function runAz(az, runCommand, args) {
+function runAz(az: AzCommand, runCommand: CommandRunner, args: string[]) {
   return runCommand(az.file, [...az.prefix, ...args], {
     env: Object.keys(az.env).length ? { ...process.env, ...az.env } : process.env,
     ...(az.cwd ? { cwd: az.cwd } : {}),
   });
 }
 
-/** @param {string} nodeVersion @returns {DoctorCheck} */
-function checkNode(nodeVersion) {
+function checkNode(nodeVersion: string): DoctorCheck {
   const cleaned = String(nodeVersion || '').replace(/^v/i, '');
   const major = Number(cleaned.split('.')[0]);
   if (Number.isInteger(major) && major >= MIN_NODE_MAJOR) {
@@ -83,8 +81,7 @@ function checkNode(nodeVersion) {
   };
 }
 
-/** @param {CommandRunner} runCommand @returns {Promise<DoctorCheck>} */
-async function checkGit(runCommand) {
+async function checkGit(runCommand: CommandRunner): Promise<DoctorCheck> {
   try {
     const { stdout } = await runCommand('git', ['--version']);
     const line = stdout.trim().split(/\r?\n/)[0] || 'available';
@@ -100,8 +97,10 @@ async function checkGit(runCommand) {
   }
 }
 
-/** @param {typeof resolveAzCommand} resolveAz @param {CommandRunner} runCommand @returns {Promise<{ az: AzCommand | null, check: DoctorCheck }>} */
-async function checkAzureCli(resolveAz, runCommand) {
+async function checkAzureCli(
+  resolveAz: typeof resolveAzCommand,
+  runCommand: CommandRunner,
+): Promise<{ az: AzCommand | null; check: DoctorCheck }> {
   try {
     const az = await resolveAz();
     const { stdout } = await runAz(az, runCommand, ['version', '--output', 'json']);
@@ -132,8 +131,7 @@ async function checkAzureCli(resolveAz, runCommand) {
   }
 }
 
-/** @param {AzCommand} az @param {CommandRunner} runCommand @returns {Promise<DoctorCheck>} */
-async function checkDevopsExtension(az, runCommand) {
+async function checkDevopsExtension(az: AzCommand, runCommand: CommandRunner): Promise<DoctorCheck> {
   try {
     const { stdout } = await runAz(az, runCommand, ['extension', 'show', '--name', 'azure-devops', '--output', 'json']);
     const parsed = parseJsonObject(stdout);
@@ -160,8 +158,7 @@ async function checkDevopsExtension(az, runCommand) {
   }
 }
 
-/** @param {AzCommand} az @param {CommandRunner} runCommand @returns {Promise<DoctorCheck>} */
-async function checkAzureLogin(az, runCommand) {
+async function checkAzureLogin(az: AzCommand, runCommand: CommandRunner): Promise<DoctorCheck> {
   try {
     const { stdout } = await runAz(az, runCommand, ['account', 'show', '--output', 'json']);
     const parsed = parseJsonObject(stdout);
@@ -191,19 +188,16 @@ async function checkAzureLogin(az, runCommand) {
 
 /**
  * Checks local prerequisites for running Repo Pulse against Azure DevOps.
- * @param {{ nodeVersion?: string, runCommand?: CommandRunner, resolveAz?: typeof resolveAzCommand }} [options]
- * @returns {Promise<DoctorReport>}
  */
 export async function runDoctor({
   nodeVersion = process.versions.node,
   runCommand = defaultRunCommand,
   resolveAz = resolveAzCommand,
-} = {}) {
+}: { nodeVersion?: string; runCommand?: CommandRunner; resolveAz?: typeof resolveAzCommand } = {}): Promise<DoctorReport> {
   const nodeCheck = checkNode(nodeVersion);
   const gitCheck = await checkGit(runCommand);
   const { az, check: azCheck } = await checkAzureCli(resolveAz, runCommand);
-  /** @type {DoctorCheck[]} */
-  const checks = [nodeCheck, gitCheck, azCheck];
+  const checks: DoctorCheck[] = [nodeCheck, gitCheck, azCheck];
 
   if (!az) {
     checks.push(
@@ -217,8 +211,7 @@ export async function runDoctor({
   return { ok: checks.every(check => check.status === 'ok'), checks };
 }
 
-/** @param {DoctorReport} report */
-export function formatDoctorReport(report) {
+export function formatDoctorReport(report: DoctorReport) {
   const tags = { ok: '[OK]  ', fail: '[FAIL]', skip: '[SKIP]' };
   const lines = [];
   for (const check of report.checks) {
@@ -236,8 +229,7 @@ export function formatDoctorReport(report) {
   return lines.join('\n');
 }
 
-/** @param {string | undefined} entryPath */
-function isMainEntry(entryPath) {
+function isMainEntry(entryPath: string | undefined) {
   if ('main' in import.meta && typeof import.meta.main === 'boolean') return import.meta.main;
   if (!entryPath) return false;
   try {

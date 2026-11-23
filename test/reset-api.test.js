@@ -3,9 +3,9 @@ import { request } from 'node:http';
 import assert from 'node:assert/strict';
 import { createStore } from '../server/store.js';
 import { createSync } from '../server/sync.js';
-import { seedDemo } from '../server/demo.js';
-import { createBackfill } from '../server/backfill.js';
-import { createApp } from '../server.js';
+import { seedDemo } from '../server/demo.ts';
+import { createBackfill } from '../server/backfill.ts';
+import { createApp } from '../server.ts';
 import { TEST_KEY, keyedFetch } from './fixtures/access.js';
 
 const fetch = keyedFetch();

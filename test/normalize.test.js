@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createStore } from '../server/store.js';
-import { createNormalizer } from '../server/normalize.js';
+import { createNormalizer } from '../server/normalize.ts';
 
 const repo = {
   id: 'repo-one',

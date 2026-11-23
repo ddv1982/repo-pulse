@@ -10,9 +10,9 @@ import {
   azureDevOpsService,
   SEARCH_INDEX_VERSION,
 } from '../src/activity-text.ts';
-import { createActivityQuery } from './activity-query.js';
-import { localPrLink, mergeUpdates } from './merge-evidence.js';
-import { forkJob } from './fork-origin.js';
+import { createActivityQuery } from './activity-query.ts';
+import { localPrLink, mergeUpdates } from './merge-evidence.ts';
+import { forkJob } from './fork-origin.ts';
 
 /** @typedef {import('node:sqlite').SQLOutputValue} SqlValue */
 /** @typedef {Record<string, SqlValue>} SqlRow */
@@ -692,7 +692,7 @@ export function createStore(path = ':memory:') {
     /**
      * @template {string} [T=string]
      * @param {{ type?: T, repoId?: string, status?: string, dueBefore?: string }} [filter]
-     * @returns {T extends 'backfill' ? import('./backfill.js').HistoryJob[] : Job[]}
+     * @returns {T extends 'backfill' ? import('./backfill.ts').HistoryJob[] : Job[]}
      */
     listJobs({ type, repoId, status, dueBefore } = {}) {
       /** @type {string[]} */
@@ -720,7 +720,7 @@ export function createStore(path = ':memory:') {
         .all(...params)
         .map(readJob);
       // Persisted JSON: rows of type 'backfill' are only ever written by server/backfill.js, as a HistoryJob.
-      return /** @type {T extends 'backfill' ? import('./backfill.js').HistoryJob[] : Job[]} */ (jobs);
+      return /** @type {T extends 'backfill' ? import('./backfill.ts').HistoryJob[] : Job[]} */ (jobs);
     },
     saveJob,
     /**

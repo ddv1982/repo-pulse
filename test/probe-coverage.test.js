@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { creationPushes, probeRequests, summarize } from '../scripts/probe-coverage.js';
+import { creationPushes, probeRequests, summarize } from '../scripts/probe-coverage.ts';
 
 const repo = { organization: 'https://dev.azure.com/example', project: 'Project', projectId: 'p1', azureId: 'r1' };
 

@@ -2,7 +2,7 @@
 
 import { setGlobalProxyFromEnv } from 'node:http';
 import tls from 'node:tls';
-import { normalizeOrganization } from './repositories.js';
+import { normalizeOrganization } from './repositories.ts';
 import { cliError } from './azure-cli.js';
 
 /**

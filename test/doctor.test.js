@@ -6,10 +6,10 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
-import { formatDoctorReport, runDoctor } from '../scripts/doctor.js';
+import { formatDoctorReport, runDoctor } from '../scripts/doctor.ts';
 
 const execFileAsync = promisify(execFile);
-const DOCTOR_SCRIPT = resolve(fileURLToPath(new URL('../scripts/doctor.js', import.meta.url)));
+const DOCTOR_SCRIPT = resolve(fileURLToPath(new URL('../scripts/doctor.ts', import.meta.url)));
 const defaultAz = async () => ({ file: 'az', prefix: [], env: {} });
 
 test('runDoctor passes when Node 26+, Git, Azure CLI, azure-devops extension, and cached account are ready', async () => {
@@ -247,7 +247,7 @@ test('doctor CLI runs on direct invocation and stays silent when imported', asyn
 
     const imported = await execFileAsync(
       process.execPath,
-      ['--input-type=module', '-e', `import ${JSON.stringify(new URL('../scripts/doctor.js', import.meta.url).href)};`],
+      ['--input-type=module', '-e', `import ${JSON.stringify(new URL('../scripts/doctor.ts', import.meta.url).href)};`],
       { env: isolatedEnv, encoding: 'utf8' },
     );
     assert.equal(imported.stdout, '');
