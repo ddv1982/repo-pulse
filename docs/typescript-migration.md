@@ -61,15 +61,15 @@ at compile time. Moving from A to B later only touches `staticFile` and the buil
 
 ## Phase 2: TypeScript scaffolding and browser build (no source converted)
 
-- [ ] Base config adds `erasableSyntaxOnly`, `verbatimModuleSyntax`, `allowImportingTsExtensions`; include globs cover `.ts`; `allowJs`/`checkJs` stay
-- [ ] `tsconfig.web.json` emits `src/` and `web/theme` to `dist/` with `rewriteRelativeImportExtensions`, `noEmitOnError`; `web/theme` compiles as a classic script (`moduleDetection: "legacy"`, no `export`)
-- [ ] `build:web` cleans `dist/` (cross-platform, in Node) and runs `tsc`; wired into `prestart`, `predemo`, `pretest`, `pretest:ui` and CI; `watch:web` for editing; `dist/` in `.gitignore`, `.prettierignore` and Oxlint ignores
-- [ ] `staticFile` serves `/src/*.js` and `/web/theme.js` from `dist/`, CSS, SVG and `web/vendor/` from `web/`, with the root prefix checks kept
-- [ ] `test/server.test.js`: JS content type for the built routes, unchanged CSS and vendor routes, 404 for `.ts` source and for server code (line 103 retargeted so it stays meaningful); fails when `dist/` is missing
-- [ ] `test/escaping.test.js:677`: the sole-`innerHTML`-sink test scans `.js` and `.ts`; seed an `innerHTML` in a `.ts` file and watch it fail (otherwise it passes vacuously after the rename)
-- [ ] `scripts/check.js`: skip `.ts` and `dist/` (`node --check` rejects type syntax on Node 26, verified)
-- [ ] Commit the conversion codemod as a temporary script (rename, `.ts` import paths, TypeScript's `annotateWithTypeFromJSDoc`/`convertTypedefToType` via `npx typescript@6.0.3` once, export only top-level aliases)
-- [ ] Update `PLAN.md:30`, `docs/MAINTAINING.md:20` and the README with the new constraint wording
+- [x] Base config adds `erasableSyntaxOnly`, `verbatimModuleSyntax`, `allowImportingTsExtensions`; include globs cover `.ts`; `allowJs`/`checkJs` stay
+- [x] `tsconfig.web.json` emits `src/` and `web/theme` to `dist/` with `rewriteRelativeImportExtensions`, `noEmitOnError`; `web/theme` compiles as a classic script (`moduleDetection: "legacy"`, no `export`; `auto` and `force` append `export {}`). TypeScript 7 removed `alwaysStrict: false`, so `dist/web/theme.js` starts with `"use strict"`, which its IIFE does not notice. `check:types` passes `--noEmit` to the web config
+- [x] `build:web` cleans `dist/` (cross-platform, in Node) and runs `tsc`; wired into `prestart`, `predemo`, `pretest`, `pretest:ui` and CI; `watch:web` for editing; `dist/` in `.gitignore`, `.prettierignore` and Oxlint ignores
+- [x] `staticFile` serves `/src/*.js` and `/web/theme.js` from `dist/`, CSS, SVG and `web/vendor/` from `web/`, with the root prefix checks kept
+- [x] `test/server.test.js`: JS content type for the built routes, unchanged CSS and vendor routes, 404 for `.ts` source and for server code (line 103 retargeted so it stays meaningful); fails when `dist/` is missing, naming `npm run build:web` (the server itself answers 404)
+- [x] `test/escaping.test.js:677`: the sole-`innerHTML`-sink test scans `.js` and `.ts`; seed an `innerHTML` in a `.ts` file and watch it fail (otherwise it passes vacuously after the rename)
+- [x] `scripts/check.js`: skip `.ts` and `dist/` (`node --check` rejects type syntax on Node 26, verified; its `.js` filter already skipped `.ts`)
+- [x] Commit the conversion codemod as a temporary script (rename, `.ts` import paths, TypeScript's `annotateWithTypeFromJSDoc`/`convertTypedefToType` via `npx typescript@6.0.3` once, export only top-level aliases). It also turns JSDoc casts into `as`/`satisfies` (TypeScript ignores them in `.ts`) and works around two defects in 6.0.3's annotate fix: a lone arrow parameter's type written as the return type, and dropped `@template` constraints
+- [x] Update `PLAN.md:30`, `docs/MAINTAINING.md:20` and the README with the new constraint wording
 - [ ] Full CI green; `npm run demo` loads from `dist/`
 
 ## Phase 3: browser and shared code (`src/`, `web/theme`, 37 files, about 5,500 lines)
