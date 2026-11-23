@@ -116,7 +116,7 @@ Scope depends on **D2**.
 
 ## Phase 8: stricter compiler flags (one PR each)
 
-- [ ] `noUncheckedIndexedAccess` (124 errors in today's production code)
+- [x] `noUncheckedIndexedAccess` (124 errors in today's production code). Measured when enabled, with scripts and tests checked: web 38, node 118 (9 of them in `src/` files the web program also reports), test 782 (650 in `test/` and `e2e/`), hook 1; all fixed without `!`, with one new `as` (a SQLite row in `server/store.ts`)
 - [ ] `exactOptionalPropertyTypes` (46 errors)
 
 ## Phase 9: type-aware lint
