@@ -1,44 +1,24 @@
-// @ts-check
-
 import { createHmac, randomBytes } from 'node:crypto';
-import { ancestry, isCommit } from './checkout-advice.js';
-import { readRef, switchLocalBranch } from './checkout-branches.js';
+import { ancestry, isCommit } from './checkout-advice.ts';
+import { readRef, switchLocalBranch } from './checkout-branches.ts';
 import { isSymbolicRef, worktreeUsesBranch } from './checkout-delete-guard.cjs';
-import { readDirectCommit, refreshSwitchTracking } from './checkout-switch-refs.js';
-import { verifyTrackingMapping } from './checkout-tracking.js';
+import { readDirectCommit, refreshSwitchTracking } from './checkout-switch-refs.ts';
+import { verifyTrackingMapping } from './checkout-tracking.ts';
 
-/** @typedef {import('./checkout-git.js').ActivitySwitchReview} ActivitySwitchReview */
-/** @typedef {import('./checkout-git.js').ActiveCheckout} ActiveCheckout */
-/** @typedef {import('./checkout-git.js').CheckoutReading} CheckoutReading */
-/** @typedef {import('./checkout-git.js').CheckoutStatus} CheckoutStatus */
-/** @typedef {import('./checkout-git.js').DecoratedCheckout} DecoratedCheckout */
-/** @typedef {import('./checkout-git.js').GitRunner} GitRunner */
-/** @typedef {import('./checkout-git.js').LinkedRepo} LinkedRepo */
-/** @typedef {import('./checkout-git.js').ReadCheckoutStatus} ReadCheckoutStatus */
-/** @typedef {import('./checkout-git.js').SwitchIntent} SwitchIntent */
-/** @typedef {import('./checkout-git.js').Upstream} Upstream */
-/** @typedef {import('./checkout-observations.js').Observation} Observation */
+export type ActivitySwitchReview = import('./checkout-git.ts').ActivitySwitchReview;
+export type ActiveCheckout = import('./checkout-git.ts').ActiveCheckout;
+export type CheckoutReading = import('./checkout-git.ts').CheckoutReading;
+export type CheckoutStatus = import('./checkout-git.ts').CheckoutStatus;
+export type DecoratedCheckout = import('./checkout-git.ts').DecoratedCheckout;
+export type GitRunner = import('./checkout-git.ts').GitRunner;
+export type LinkedRepo = import('./checkout-git.ts').LinkedRepo;
+export type ReadCheckoutStatus = import('./checkout-git.ts').ReadCheckoutStatus;
+export type SwitchIntent = import('./checkout-git.ts').SwitchIntent;
+export type Upstream = import('./checkout-git.ts').Upstream;
+export type Observation = import('./checkout-observations.ts').Observation;
 
 /**
  * The caller owns the checkout lock and supplies its existing Git runner and scope checks.
- * @param {{
- *   run: GitRunner, hooks: string, now: () => number,
- *   observations: import('./checkout-observations.js').Observations,
- *   problem: (message: string, status?: number) => Error & {status: number},
- *   statusAt: ReadCheckoutStatus,
- *   inspect: (path: string, repo: LinkedRepo) => Promise<CheckoutStatus>,
- *   decorate: (repo: LinkedRepo, path: string, snapshot: ActiveCheckout) => Promise<DecoratedCheckout>,
- *   remoteTarget: (path: string, repo: LinkedRepo, remote: string, source: string) => Promise<{target: Upstream|null}>,
- *   upstreamFor: (path: string, repo: LinkedRepo, branch: string|null) => Promise<{target: Upstream|null}>,
- *   validateUpstream: (path: string, target: Upstream) => Promise<void>,
- *   fetchUpstream: (path: string, target: Upstream, destination?: string|null) => Promise<void>,
- *   trackingTip: (path: string, tracking: string) => Promise<string|null>,
- *   fetchFailure: (error: unknown) => 'missing-ref' | {title: string, suggestion: string},
- *   observedAt: (repo: LinkedRepo, path: string, target: Upstream|null, gitDirectory: string|null) => Observation|undefined,
- *   upstreamIdentity: (path: string, target: Upstream|null, gitDirectory?: string|null) => string,
- *   matchesIntent: (snapshot: CheckoutReading, expected: Pick<CheckoutReading, 'branch'|'head'|'upstream'|'identity'>) => boolean,
- *   verifyCheckoutDirectory: (path: string, expected: string|null) => Promise<void>,
- * }} options
  */
 export function createActivitySwitch({
   run,
@@ -59,11 +39,29 @@ export function createActivitySwitch({
   upstreamIdentity,
   matchesIntent,
   verifyCheckoutDirectory,
+}: {
+  run: GitRunner;
+  hooks: string;
+  now: () => number;
+  observations: import('./checkout-observations.ts').Observations;
+  problem: (message: string, status?: number) => Error & { status: number };
+  statusAt: ReadCheckoutStatus;
+  inspect: (path: string, repo: LinkedRepo) => Promise<CheckoutStatus>;
+  decorate: (repo: LinkedRepo, path: string, snapshot: ActiveCheckout) => Promise<DecoratedCheckout>;
+  remoteTarget: (path: string, repo: LinkedRepo, remote: string, source: string) => Promise<{ target: Upstream | null }>;
+  upstreamFor: (path: string, repo: LinkedRepo, branch: string | null) => Promise<{ target: Upstream | null }>;
+  validateUpstream: (path: string, target: Upstream) => Promise<void>;
+  fetchUpstream: (path: string, target: Upstream, destination?: string | null) => Promise<void>;
+  trackingTip: (path: string, tracking: string) => Promise<string | null>;
+  fetchFailure: (error: unknown) => 'missing-ref' | { title: string; suggestion: string };
+  observedAt: (repo: LinkedRepo, path: string, target: Upstream | null, gitDirectory: string | null) => Observation | undefined;
+  upstreamIdentity: (path: string, target: Upstream | null, gitDirectory?: string | null) => string;
+  matchesIntent: (snapshot: CheckoutReading, expected: Pick<CheckoutReading, 'branch' | 'head' | 'upstream' | 'identity'>) => boolean;
+  verifyCheckoutDirectory: (path: string, expected: string | null) => Promise<void>;
 }) {
   const switchSecret = randomBytes(32);
 
-  /** @param {string} path @param {LinkedRepo} repo @param {string} source */
-  async function newBranchTarget(path, repo, source) {
+  async function newBranchTarget(path: string, repo: LinkedRepo, source: string) {
     const remotes = (await run(path, ['remote'])).trimEnd().split('\n').filter(Boolean);
     const targets = (await Promise.all(remotes.map(remote => remoteTarget(path, repo, remote, source))))
       .map(({ target }) => target)
@@ -72,8 +70,7 @@ export function createActivitySwitch({
     return targets[0];
   }
 
-  /** @param {string} path @param {Upstream} target */
-  async function activityRemoteTip(path, target) {
+  async function activityRemoteTip(path: string, target: Upstream) {
     const refs = await run(path, ['ls-remote', '--exit-code', '--refs', '--', target.url, target.source]);
     const [tip] =
       refs
@@ -84,8 +81,7 @@ export function createActivitySwitch({
     return tip;
   }
 
-  /** @param {string} path @param {Upstream} target */
-  async function activityTip(path, target) {
+  async function activityTip(path: string, target: Upstream) {
     try {
       const tip = await activityRemoteTip(path, target);
       if ((await trackingTip(path, tip)) === tip) return tip;
@@ -103,8 +99,7 @@ export function createActivitySwitch({
     }
   }
 
-  /** @param {string} path @param {LinkedRepo} repo @param {string} name @param {boolean} existingBranch */
-  async function activityTarget(path, repo, name, existingBranch) {
+  async function activityTarget(path: string, repo: LinkedRepo, name: string, existingBranch: boolean) {
     const source = `refs/heads/${name}`;
     if (await isSymbolicRef(run, path, source)) throw problem('The local branch ref is symbolic. Review it in Git.');
     const target = existingBranch ? (await upstreamFor(path, repo, name)).target : await newBranchTarget(path, repo, source);
@@ -114,16 +109,20 @@ export function createActivitySwitch({
     return target;
   }
 
-  /** @param {ActiveCheckout} snapshot @param {SwitchIntent} expected */
-  function checkSwitchIntent(snapshot, expected) {
+  function checkSwitchIntent(snapshot: ActiveCheckout, expected: SwitchIntent) {
     if (!matchesIntent(snapshot, expected) || snapshot.switchIdentity !== expected.switchIdentity) {
       throw problem('The checkout changed. Review the current branch and try again.');
     }
     if (snapshot.state === 'in-progress') throw problem('Finish the Git operation before switching branches.');
   }
 
-  /** @param {string} path @param {LinkedRepo} repo @param {Upstream} target @param {string|null} localTip @param {string|null} gitDirectory */
-  async function planActivitySwitch(path, repo, target, localTip, gitDirectory) {
+  async function planActivitySwitch(
+    path: string,
+    repo: LinkedRepo,
+    target: Upstream,
+    localTip: string | null,
+    gitDirectory: string | null,
+  ) {
     const previous = await readDirectCommit(run, path, target.tracking);
     const tip = await activityTip(path, target);
     const saved = observedAt(repo, path, target, gitDirectory);
@@ -149,11 +148,16 @@ export function createActivitySwitch({
     return { previous, tip, replaced, retained, ahead, behind };
   }
 
-  /**
-   * @param {string} path @param {LinkedRepo} repo @param {string} name @param {Upstream} target
-   * @param {string} switchIdentity @param {string|null} localTip @param {string} tip @param {boolean} rewritten
-   */
-  async function finishActivitySwitch(path, repo, name, target, switchIdentity, localTip, tip, rewritten) {
+  async function finishActivitySwitch(
+    path: string,
+    repo: LinkedRepo,
+    name: string,
+    target: Upstream,
+    switchIdentity: string,
+    localTip: string | null,
+    tip: string,
+    rewritten: boolean,
+  ) {
     try {
       if (!localTip) {
         const { snapshot } = await statusAt(path, repo);
@@ -205,10 +209,13 @@ export function createActivitySwitch({
     };
   }
 
-  /** @param {string} path @param {LinkedRepo} repo @param {string} name @param {SwitchIntent} expected
-   * @param {{ eventId?: string, confirmation?: string }} options
-   */
-  async function switchAt(path, repo, name, expected, { eventId, confirmation }) {
+  async function switchAt(
+    path: string,
+    repo: LinkedRepo,
+    name: string,
+    expected: SwitchIntent,
+    { eventId, confirmation }: { eventId?: string; confirmation?: string },
+  ) {
     const current = await statusAt(path, repo);
     checkSwitchIntent(current.snapshot, expected);
     if (expected.branch === name) return { checkout: await inspect(path, repo) };
@@ -243,8 +250,7 @@ export function createActivitySwitch({
     }
     await verify();
     if (needsReview && confirmation === undefined) {
-      /** @type {ActivitySwitchReview} */
-      const switchReview = {
+      const switchReview: ActivitySwitchReview = {
         token,
         upstream: target.tracking.slice('refs/remotes/'.length),
         previous: replaced[0] ?? null,

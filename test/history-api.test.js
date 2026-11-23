@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createStore } from '../server/store.js';
+import { createStore } from '../server/store.ts';
 import { createApp } from '../server.ts';
 import { TEST_KEY, keyedFetch } from './fixtures/access.js';
 

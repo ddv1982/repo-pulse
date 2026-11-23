@@ -1,15 +1,14 @@
 import { createHash } from 'node:crypto';
-import { ancestry, isCommit } from './checkout-advice.js';
-import { branchProblem, readRef } from './checkout-branches.js';
+import { ancestry, isCommit } from './checkout-advice.ts';
+import { branchProblem, readRef } from './checkout-branches.ts';
 import { isSymbolicRef } from './checkout-delete-guard.cjs';
-import { compareUpstream } from './checkout-observations.js';
+import { compareUpstream } from './checkout-observations.ts';
 
-/** @typedef {import('./checkout-git.js').GitRunner} GitRunner */
-/** @typedef {import('./checkout-git.js').LinkedRepo} LinkedRepo */
-/** @typedef {import('./checkout-git.js').Upstream} Upstream */
+export type GitRunner = import('./checkout-git.ts').GitRunner;
+export type LinkedRepo = import('./checkout-git.ts').LinkedRepo;
+export type Upstream = import('./checkout-git.ts').Upstream;
 
-/** @param {LinkedRepo} repo @param {Upstream} target */
-function archivePrefix(repo, target) {
+function archivePrefix(repo: LinkedRepo, target: Upstream) {
   const upstream = createHash('sha256')
     .update(
       JSON.stringify([target.source, target.tracking, ...[repo.organization, repo.project, repo.name].map(value => value.toLowerCase())]),
@@ -18,8 +17,7 @@ function archivePrefix(repo, target) {
   return `refs/repo-pulse/upstream-rewrites/${upstream}/`;
 }
 
-/** @param {GitRunner} run @param {string} path @param {string} ref */
-export async function readDirectCommit(run, path, ref) {
+export async function readDirectCommit(run: GitRunner, path: string, ref: string) {
   const output = await run(path, ['for-each-ref', '--format=%(refname)%00%(objectname)%00%(symref)%00%(objecttype)', '--', ref]);
   const sample = output
     .split('\n')
@@ -41,11 +39,17 @@ export async function readDirectCommit(run, path, ref) {
 /**
  * Confirm the ref type after Git has locked every ref and before sending commit.
  * The lock-held read matters because no-deref can replace a symbolic ref on older Git.
- * @param {GitRunner} run @param {string} path @param {string} hooks @param {string} ref
- * @param {string|null} previous @param {string} tip @param {{ref: string, oid: string}[]} [archives]
- * @param {() => Promise<void>} [verify]
  */
-async function writeRef(run, path, hooks, ref, previous, tip, archives = [], verify) {
+async function writeRef(
+  run: GitRunner,
+  path: string,
+  hooks: string,
+  ref: string,
+  previous: string | null,
+  tip: string,
+  archives: { ref: string; oid: string }[] = [],
+  verify?: () => Promise<void>,
+) {
   const input = ['start'];
   for (const archive of archives) input.push('option no-deref', `verify ${archive.ref} ${archive.oid}`);
   input.push('option no-deref', previous ? `update ${ref} ${tip} ${previous}` : `create ${ref} ${tip}`, 'prepare', '');
@@ -71,11 +75,18 @@ async function writeRef(run, path, hooks, ref, previous, tip, archives = [], ver
 /**
  * Archives are Git refs so the old objects stay reachable after an interruption or SQLite failure.
  * Write them before updating the tracker and verify them again while the tracker is locked.
- * @param {GitRunner} run @param {string} path @param {string} hooks @param {LinkedRepo} repo
- * @param {Upstream} target @param {string|null} previous @param {string} tip @param {{previous: string, tip: string}[]} rewrites
- * @param {() => Promise<void>} verify
  */
-export async function refreshSwitchTracking(run, path, hooks, repo, target, previous, tip, rewrites, verify) {
+export async function refreshSwitchTracking(
+  run: GitRunner,
+  path: string,
+  hooks: string,
+  repo: LinkedRepo,
+  target: Upstream,
+  previous: string | null,
+  tip: string,
+  rewrites: { previous: string; tip: string }[],
+  verify: () => Promise<void>,
+) {
   const archives = [];
   for (const rewrite of rewrites) {
     const oid = rewrite.previous;
@@ -88,10 +99,7 @@ export async function refreshSwitchTracking(run, path, hooks, repo, target, prev
   if (previous !== tip || archives.length) await writeRef(run, path, hooks, target.tracking, previous, tip, archives, verify);
 }
 
-/** @param {GitRunner} run @param {string} path @param {LinkedRepo} repo @param {Upstream} target
- * @param {string} head
- */
-export async function archivedSwitchRewrite(run, path, repo, target, head) {
+export async function archivedSwitchRewrite(run: GitRunner, path: string, repo: LinkedRepo, target: Upstream, head: string) {
   const prefix = archivePrefix(repo, target);
   const output = await run(path, ['for-each-ref', '--format=%(objectname) %(refname) %(symref)', '--', prefix]);
   if (!output.trim()) return undefined;

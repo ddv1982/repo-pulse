@@ -1,26 +1,23 @@
-// @ts-check
-
 import { worstStatus } from '../src/sync-worst.ts';
 
-/** @typedef {import('./sync.js').StreamState} StreamState */
-/** @typedef {import('../src/contract.ts').SyncState} SyncState */
-/** @typedef {import('../src/contract.ts').SyncStatus} SyncStatus */
-/** @typedef {import('../src/contract.ts').OverallSyncStatus} OverallSyncStatus */
-/**
- * @typedef {{
- *   repos: { id: string, disabled?: boolean }[],
- *   streams: StreamState[],
- *   jobs: (Pick<import('./backfill.ts').HistoryJob, 'repoId'|'status'> & Partial<Pick<import('./backfill.ts').HistoryJob, 'failures'|'error'|'stream'>>)[],
- *   inProgress: { repoId: string, stream: string }[],
- *   settings: { refreshEnabled: boolean, refreshResumedAt: number | null },
- *   startedAt: number,
- *   now: number,
- *   demo?: boolean,
- *   throttledUntil?: string | null,
- *   resetting?: boolean,
- *   resetFailed?: boolean,
- * }} SyncStatusInput
- */
+export type StreamState = import('./sync.ts').StreamState;
+export type SyncState = import('../src/contract.ts').SyncState;
+export type SyncStatus = import('../src/contract.ts').SyncStatus;
+export type OverallSyncStatus = import('../src/contract.ts').OverallSyncStatus;
+export type SyncStatusInput = {
+  repos: { id: string; disabled?: boolean }[];
+  streams: StreamState[];
+  jobs: (Pick<import('./backfill.ts').HistoryJob, 'repoId' | 'status'> &
+    Partial<Pick<import('./backfill.ts').HistoryJob, 'failures' | 'error' | 'stream'>>)[];
+  inProgress: { repoId: string; stream: string }[];
+  settings: { refreshEnabled: boolean; refreshResumedAt: number | null };
+  startedAt: number;
+  now: number;
+  demo?: boolean;
+  throttledUntil?: string | null;
+  resetting?: boolean;
+  resetFailed?: boolean;
+};
 
 const MINUTE = 60000;
 const HOUR = 60 * MINUTE;
@@ -28,8 +25,7 @@ const LATE = 3 * MINUTE;
 // A retry cannot fix these, so they count from the first failure.
 const LASTING = new Set(['AUTH_REQUIRED', 'FORBIDDEN', 'CLI_MISSING', 'CLI_SETUP']);
 
-/** @type {Record<StreamState['stream'] | 'history', string>} */
-const READS = {
+const READS: Record<StreamState['stream'] | 'history', string> = {
   pushes: 'pushes',
   refs: 'branches',
   prs: 'pull requests',
@@ -40,9 +36,8 @@ const READS = {
 };
 /**
  * What the reader can do about a lasting error; streams keep the technical message for Copy diagnostics.
- * @param {{ code: string, message: string }} error @param {StreamState['stream'] | 'history'} stream
  */
-function plainReason(error, stream) {
+function plainReason(error: { code: string; message: string }, stream: StreamState['stream'] | 'history') {
   switch (error.code) {
     case 'AUTH_REQUIRED':
       return 'Sign in to Azure again.';
@@ -54,8 +49,7 @@ function plainReason(error, stream) {
       return error.message;
   }
 }
-/** @param {number} ms */
-function behindText(ms) {
+function behindText(ms: number) {
   const [count, unit] =
     ms < 120 * MINUTE
       ? [Math.max(1, Math.round(ms / MINUTE)), 'minute']
@@ -65,15 +59,12 @@ function behindText(ms) {
   return `about ${count} ${unit}${count === 1 ? '' : 's'} behind`;
 }
 
-/** @param {StreamState} stream */
-const overdueAfter = stream => (stream.stream === 'refs' ? 20 : 10) * MINUTE;
-/** NaN when absent. @param {string | undefined} value */
-const time = value => Date.parse(value ?? '');
+const overdueAfter = (stream: StreamState) => (stream.stream === 'refs' ? 20 : 10) * MINUTE;
+/** NaN when absent. */
+const time = (value: string | undefined) => Date.parse(value ?? '');
 
 /**
  * One status per enabled repository, first matching rule wins; overall is the worst of them.
- * @param {SyncStatusInput} input
- * @returns {import('../src/contract.ts').SyncStatusReport}
  */
 export function syncStatus({
   repos,
@@ -87,25 +78,22 @@ export function syncStatus({
   throttledUntil,
   resetting = false,
   resetFailed = false,
-}) {
+}: SyncStatusInput): import('../src/contract.ts').SyncStatusReport {
   const automatic = settings.refreshEnabled !== false;
   const ranSince = Math.max(startedAt, settings.refreshResumedAt ?? 0);
-  /** @param {StreamState} stream */
-  const stale = stream => automatic && now - time(stream.lastSuccess) > overdueAfter(stream);
-  /** @param {StreamState} stream */
-  const graceOver = stream => now - ranSince > overdueAfter(stream);
+  const stale = (stream: StreamState) => automatic && now - time(stream.lastSuccess) > overdueAfter(stream);
+  const graceOver = (stream: StreamState) => now - ranSince > overdueAfter(stream);
   // Every stream is overdue right after a start or resume; the first minutes are catch-up, after which lateness counts from nextAt.
   const catchingUp = now - ranSince <= LATE;
-  /** How far behind a stream is, null when it is not, NaN when throttled before any success. @param {StreamState} stream @returns {number | null} */
-  function behindBy(stream) {
+  /** How far behind a stream is, null when it is not, NaN when throttled before any success. */
+  function behindBy(stream: StreamState): number | null {
     const age = now - time(stream.lastSuccess);
     if (stream.error?.code === 'THROTTLED' || (stale(stream) && graceOver(stream))) return age;
     const lateness = now - time(stream.nextAt);
     return (automatic || stream.manual) && !catchingUp && lateness > LATE ? lateness : null;
   }
 
-  /** @param {string} repoId @returns {SyncStatus} */
-  function repoStatus(repoId) {
+  function repoStatus(repoId: string): SyncStatus {
     const own = streams.filter(stream => stream.repoId === repoId);
     const successes = own.map(stream => time(stream.lastSuccess)).filter(Number.isFinite);
     const oldest = successes.length ? Math.min(...successes) : NaN;
@@ -144,11 +132,9 @@ export function syncStatus({
     return { state: 'synced', ...since, ...fresh };
   }
 
-  /** @type {Record<string, SyncStatus>} */
-  const statuses = {};
+  const statuses: Record<string, SyncStatus> = {};
   for (const repo of repos) if (!repo.disabled) statuses[repo.id] = repoStatus(repo.id);
-  /** @type {OverallSyncStatus} */
-  let overall =
+  let overall: OverallSyncStatus =
     worstStatus(Object.entries(statuses).map(([repoId, status]) => ({ ...status, repoId }))) ??
     // With no enabled repository a failed reset has no repository to report it, so the overall status does.
     (resetFailed ? { state: 'problem', reason: 'Starting from scratch failed. Try again.' } : { state: 'empty' });

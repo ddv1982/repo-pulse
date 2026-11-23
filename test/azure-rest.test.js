@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createAzureCli } from '../server/azure-cli.js';
-import { createRestExecutor, AZURE_DEVOPS_RESOURCE } from '../server/azure-rest.js';
+import { createAzureCli } from '../server/azure-cli.ts';
+import { createRestExecutor, AZURE_DEVOPS_RESOURCE } from '../server/azure-rest.ts';
 
 const ORG = 'https://dev.azure.com/example';
 const TOKEN = 'secret-token-value';
@@ -273,7 +273,7 @@ for (const scheme of ['http://', ''])
       socket.end('HTTP/1.1 502 Bad Gateway\r\n\r\n');
     });
     await new Promise(done => proxy.listen(0, '127.0.0.1', done));
-    const moduleUrl = new URL('../server/azure-rest.js', import.meta.url).href;
+    const moduleUrl = new URL('../server/azure-rest.ts', import.meta.url).href;
     const script = `import tls from 'node:tls'; import { useSystemNetworkSettings } from ${JSON.stringify(moduleUrl)};
     const before = tls.getCACertificates('default').length;
     useSystemNetworkSettings();

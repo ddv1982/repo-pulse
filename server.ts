@@ -5,20 +5,20 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { homedir } from 'node:os';
 import { createSavedActivityFilters } from './server/saved-activity-filters.ts';
-import { createStore } from './server/store.js';
-import { createSync } from './server/sync.js';
-import { createAzureCli, defaultExecutor } from './server/azure-cli.js';
-import { createRestExecutor, useSystemNetworkSettings } from './server/azure-rest.js';
-import { createAzureClient } from './server/azure-client.js';
+import { createStore } from './server/store.ts';
+import { createSync } from './server/sync.ts';
+import { createAzureCli, defaultExecutor } from './server/azure-cli.ts';
+import { createRestExecutor, useSystemNetworkSettings } from './server/azure-rest.ts';
+import { createAzureClient } from './server/azure-client.ts';
 import { discoverRepositories, parseRemote } from './server/repositories.ts';
 import { seedDemo, addDemoEvent, demoProvider } from './server/demo.ts';
-import { syncStatus } from './server/sync-status.js';
+import { syncStatus } from './server/sync-status.ts';
 import { createBackfill } from './server/backfill.ts';
 import { createRewriteCheck } from './server/rewrite-check.ts';
 import { createForkOriginCheck } from './server/fork-origin.ts';
-import { createCheckoutLookup } from './server/checkout-advice.js';
-import { isBranchAction } from './server/checkout-branches.js';
-import { createCheckoutGit, isCheckoutIntent, isSwitchIntent } from './server/checkout-git.js';
+import { createCheckoutLookup } from './server/checkout-advice.ts';
+import { isBranchAction } from './server/checkout-branches.ts';
+import { createCheckoutGit, isCheckoutIntent, isSwitchIntent } from './server/checkout-git.ts';
 import { activityBranch } from './src/activity-branch.ts';
 import { browseFolders } from './server/folders.ts';
 import { canOpenBrowser, openBrowser } from './server/open-browser.ts';
@@ -26,14 +26,14 @@ import { canOpenBrowser, openBrowser } from './server/open-browser.ts';
 export type Request = import('node:http').IncomingMessage;
 export type Response = import('node:http').ServerResponse;
 export type Store = ReturnType<typeof createStore>;
-export type AzureProvider = import('./server/azure-client.js').AzureProvider;
+export type AzureProvider = import('./server/azure-client.ts').AzureProvider;
 /** Live mode passes the Azure client; demo mode passes demoProvider, which answers only the routes demo serves. */
 export type AppProvider = AzureProvider | typeof demoProvider;
 export type DemoSyncStatus = import('./src/contract.ts').DemoSyncStatus;
 /** Demo mode passes a stub, so the app relies only on the two calls both share with createSync, and reset in live mode. */
 export type AppSync = {
-  status: () => import('./server/sync.js').SyncStatus | DemoSyncStatus;
-  refresh: (repoIds?: string[]) => import('./server/sync.js').RefreshStatus | { demo: true };
+  status: () => import('./server/sync.ts').SyncStatus | DemoSyncStatus;
+  refresh: (repoIds?: string[]) => import('./server/sync.ts').RefreshStatus | { demo: true };
   reset?: (clear: () => void) => Promise<void>;
 };
 export type RouteContext = { req: Request; res: Response; url: URL; params: string[] };
@@ -178,13 +178,13 @@ export function createApp({
     }),
     // Settings are stored JSON; these keys only ever hold what the matching save wrote.
     followups: {
-      get: id => store.getSetting(`checkout-followup:${id}`) as import('./server/checkout-branches.js').Followup | undefined,
+      get: id => store.getSetting(`checkout-followup:${id}`) as import('./server/checkout-branches.ts').Followup | undefined,
       save: (id, value) => store.setSetting(`checkout-followup:${id}`, value),
     },
     observations: {
       get: (id, identity) => {
         const saved = (store.getSetting(`checkout:${id}:${identity}`) ?? store.getSetting(`checkout:${id}`)) as
-          import('./server/checkout-observations.js').Observation | undefined;
+          import('./server/checkout-observations.ts').Observation | undefined;
         return saved?.identity === identity ? saved : undefined;
       },
       save: (id, value) => store.setSetting(`checkout:${id}:${value.identity}`, value),
@@ -402,7 +402,7 @@ export function createApp({
           if (remotes.length !== 1) throw problem('Choose the remote explicitly for a checkout with multiple Azure remotes.');
           remote = { ...parseRemote(remotes[0].url), localPath: checkout.localPath };
         } else throw problem('Enter an Azure repository URL or local checkout path.');
-        const repo: import('./server/store.js').Repository = await provider.resolveRepository(remote);
+        const repo: import('./server/store.ts').Repository = await provider.resolveRepository(remote);
         if (remote.localPath) repo.localPath = remote.localPath;
         const existing = store.listRepos().find(item => item.id === repo.id);
         store.saveRepo({ ...repo, disabled: existing?.disabled || false });
@@ -415,7 +415,7 @@ export function createApp({
       path: '/api/checkouts',
       handler: async ({ res }) => {
         const repos = store.listRepos().filter(repo => !repo.disabled);
-        const results: [string, import('./server/checkout-git.js').CheckoutStatus][] = [];
+        const results: [string, import('./server/checkout-git.ts').CheckoutStatus][] = [];
         if (!demo)
           for (let i = 0; i < repos.length; i += 2) {
             results.push(
@@ -423,7 +423,7 @@ export function createApp({
                 repos
                   .slice(i, i + 2)
                   .map(
-                    async repo => [repo.id, await checkoutGit.status(repo)] as [string, import('./server/checkout-git.js').CheckoutStatus],
+                    async repo => [repo.id, await checkoutGit.status(repo)] as [string, import('./server/checkout-git.ts').CheckoutStatus],
                   ),
               )),
             );

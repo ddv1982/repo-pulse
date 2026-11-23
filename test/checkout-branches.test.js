@@ -5,7 +5,7 @@ import { createHash } from 'node:crypto';
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
-import { createCheckoutGit, runGit } from '../server/checkout-git.js';
+import { createCheckoutGit, runGit } from '../server/checkout-git.ts';
 import { checkoutFixture, git, squashFixture } from './fixtures/checkout.js';
 
 const exec = promisify(execFile);

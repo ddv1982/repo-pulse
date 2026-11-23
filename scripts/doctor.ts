@@ -3,7 +3,7 @@ import { realpathSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { promisify } from 'node:util';
-import { resolveAzCommand } from '../server/azure-cli.js';
+import { resolveAzCommand } from '../server/azure-cli.ts';
 
 const execFileAsync = promisify(execFile);
 const MIN_NODE_MAJOR = 26;

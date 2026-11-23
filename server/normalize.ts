@@ -4,9 +4,9 @@ import { mergeUpdates } from './merge-evidence.ts';
 import { forkJob } from './fork-origin.ts';
 
 export type ActivityKind = import('../src/activity.ts').ActivityKind;
-export type StreamName = import('./azure-client.js').AzureStream;
-export type AzureRecord = import('./azure-client.js').AzureRecord;
-export type WatchedRepo = import('./azure-client.js').AzureRepo & { id: string; disabled?: boolean };
+export type StreamName = import('./azure-client.ts').AzureStream;
+export type AzureRecord = import('./azure-client.ts').AzureRecord;
+export type WatchedRepo = import('./azure-client.ts').AzureRepo & { id: string; disabled?: boolean };
 /** What `normalize` reads from a stream state; backfill passes `historical: true`. */
 export type NormalizeState = { initialized: boolean; historical?: boolean };
 /** What `reconcileRefs` reads from a stream state. */

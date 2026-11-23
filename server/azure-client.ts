@@ -1,33 +1,45 @@
-// @ts-check
 import { normalizeOrganization, parseRemote, repositoryKey } from './repositories.ts';
 import { safeAzureUrl } from '../src/events.ts';
-import { cliError } from './azure-cli.js';
+import { cliError } from './azure-cli.ts';
 
-/** @typedef {import('../src/contract.ts').AzureRecord} AzureRecord */
-/** @typedef {import('../src/contract.ts').AzureRepo} AzureRepo */
-/** @typedef {import('../src/contract.ts').AzureStream} AzureStream */
-/** @typedef {import('../src/contract.ts').PageCursor} PageCursor */
-/** `restarted` marks a first page read in place of the saved cursor's page. @typedef {{ items: AzureRecord[], nextCursor: PageCursor | null, restarted?: boolean }} AzurePage */
-/** @typedef {{ since?: string, until?: string, cursor?: PageCursor | null }} ReadOptions */
-/**
- * @typedef {{ id: number, source: string, target: string, sourceId: string, targetId: string,
- *   head?: string, result?: string, strategy?: string, url: string }} CheckoutPull
- */
-/** @typedef {import('../src/contract.ts').AccessCheck} AccessCheck */
-/** @typedef {import('../src/contract.ts').ConnectionStatus} ConnectionStatus */
-/**
- * @typedef {{ id: string, organization: string, project: string, projectId: string, azureId: string,
- *   name: string, webUrl: string, disabled: false }} ResolvedRepository
- */
-/** @typedef {{ organization: string, project: string, repoName?: string, name?: string }} RepositoryInput */
+export type AzureRecord = import('../src/contract.ts').AzureRecord;
+export type AzureRepo = import('../src/contract.ts').AzureRepo;
+export type AzureStream = import('../src/contract.ts').AzureStream;
+export type PageCursor = import('../src/contract.ts').PageCursor;
+/** `restarted` marks a first page read in place of the saved cursor's page. */
+export type AzurePage = { items: AzureRecord[]; nextCursor: PageCursor | null; restarted?: boolean };
+export type ReadOptions = { since?: string; until?: string; cursor?: PageCursor | null };
+export type CheckoutPull = {
+  id: number;
+  source: string;
+  target: string;
+  sourceId: string;
+  targetId: string;
+  head?: string;
+  result?: string;
+  strategy?: string;
+  url: string;
+};
+export type AccessCheck = import('../src/contract.ts').AccessCheck;
+export type ConnectionStatus = import('../src/contract.ts').ConnectionStatus;
+export type ResolvedRepository = {
+  id: string;
+  organization: string;
+  project: string;
+  projectId: string;
+  azureId: string;
+  name: string;
+  webUrl: string;
+  disabled: false;
+};
+export type RepositoryInput = { organization: string; project: string; repoName?: string; name?: string };
 /** The Azure CLI queue the client reads through (see createAzureCli). */
-/** @typedef {{ run: (args: string[]) => Promise<AzureRecord> }} AzureClientCli */
+export type AzureClientCli = { run: (args: string[]) => Promise<AzureRecord> };
 /** The provider contract. Sync and backfill type their provider as the subset of it they call. */
-/** @typedef {ReturnType<typeof createAzureClient>} AzureProvider */
-/** @typedef {import('../src/contract.ts').PullRequestReview} PullRequestReview */
+export type AzureProvider = ReturnType<typeof createAzureClient>;
+export type PullRequestReview = import('../src/contract.ts').PullRequestReview;
 const RESOLVED = new Set(['fixed', 'wontFix', 'closed', 'byDesign']);
-/** @param {unknown} threads @param {unknown} evaluations @returns {PullRequestReview} */
-export function reviewOf(threads, evaluations) {
+export function reviewOf(threads: unknown, evaluations: unknown): PullRequestReview {
   if (!Array.isArray(threads) || !Array.isArray(evaluations))
     throw cliError('INVALID_RESPONSE', 'Azure returned no pull request review data.');
   const discussion = threads.filter(thread => !thread?.isDeleted && !thread?.properties?.CodeReviewThreadType);
@@ -45,23 +57,17 @@ export function reviewOf(threads, evaluations) {
 }
 
 const PAGE = 100;
-/** @param {string | undefined} value */
-const iso = value => {
+const iso = (value: string | undefined) => {
   if (!value) return undefined;
   const date = new Date(value);
   if (!Number.isFinite(date.getTime())) throw new Error('Invalid sync date');
   return date.toISOString();
 };
-/** @param {string | undefined} value @param {'floor'|'ceil'} round */
-const bucket = (value, round) =>
+const bucket = (value: string | undefined, round: 'floor' | 'ceil') =>
   // A non-empty value always yields a date string (or throws).
-  value ? new Date(Math[round](new Date(/** @type {string} */ (iso(value))).getTime() / 300_000) * 300_000).toISOString() : undefined;
+  value ? new Date(Math[round](new Date(iso(value) as string).getTime() / 300_000) * 300_000).toISOString() : undefined;
 
-/**
- * @param {AzureRecord} response @param {{ skip?: number, mode?: 'skip'|'token' }} options
- * @returns {AzurePage}
- */
-function pageOf(response, { skip = 0, mode }) {
+function pageOf(response: AzureRecord, { skip = 0, mode }: { skip?: number; mode?: 'skip' | 'token' }): AzurePage {
   const items = Array.isArray(response) ? response : response?.value;
   if (!Array.isArray(items)) throw cliError('INVALID_RESPONSE', 'Azure CLI did not return an activity list.');
   const token = response?.continuation_token || response?.continuationToken;
@@ -71,13 +77,10 @@ function pageOf(response, { skip = 0, mode }) {
   };
 }
 
-/** @param {{ cli?: AzureClientCli, now?: () => number }} [options] */
-export function createAzureClient({ cli, now = Date.now } = {}) {
+export function createAzureClient({ cli, now = Date.now }: { cli?: AzureClientCli; now?: () => number } = {}) {
   if (!cli?.run) throw new Error('Azure CLI is required');
-  /** @type {Map<string, { expires: number, promise: Promise<AzureRecord> }>} */
-  const cache = new Map();
-  /** @param {string} key @param {() => Promise<AzureRecord>} work @returns {Promise<AzureRecord>} */
-  function cached(key, work, ttl = 30_000) {
+  const cache: Map<string, { expires: number; promise: Promise<AzureRecord> }> = new Map();
+  function cached(key: string, work: () => Promise<AzureRecord>, ttl = 30_000): Promise<AzureRecord> {
     const found = cache.get(key);
     if (found && found.expires > now()) return found.promise;
     const promise = Promise.resolve().then(work);
@@ -88,15 +91,16 @@ export function createAzureClient({ cli, now = Date.now } = {}) {
     if (cache.size > 200) for (const [entry, value] of cache) if (value.expires <= now()) cache.delete(entry);
     return promise;
   }
-  /**
-   * @param {AzureRepo} repo @param {'git'|'build'|'policy'} area @param {string} resource
-   * @param {Record<string, string|number|null|undefined>} [query] @param {Record<string, string>} [route]
-   * @returns {Promise<AzureRecord>}
-   */
-  const invoke = (repo, area, resource, query = {}, route = {}, shared = false) => {
+  const invoke = (
+    repo: AzureRepo,
+    area: 'git' | 'build' | 'policy',
+    resource: string,
+    query: Record<string, string | number | null | undefined> = {},
+    route: Record<string, string> = {},
+    shared = false,
+  ): Promise<AzureRecord> => {
     const org = normalizeOrganization(repo.organization);
-    /** @type {Record<string, string>} */
-    const routes = { project: repo.projectId || repo.project, ...route };
+    const routes: Record<string, string> = { project: repo.projectId || repo.project, ...route };
     if (area === 'git') routes.repositoryId = repo.azureId;
     const args = [
       'devops',
@@ -122,13 +126,11 @@ export function createAzureClient({ cli, now = Date.now } = {}) {
     return shared ? cached(JSON.stringify(args), () => cli.run(args), 45_000) : cli.run(args);
   };
   return {
-    /** @param {string} [organization] @param {AzureRepo} [repository] @returns {Promise<ConnectionStatus>} */
-    async checkConnection(organization, repository) {
+    async checkConnection(organization?: string, repository?: AzureRepo): Promise<ConnectionStatus> {
       try {
         const version = await cached('cli-version', () => cli.run(['version']), 300_000);
         const extension = await cached('cli-extension', () => cli.run(['extension', 'show', '--name', 'azure-devops']), 300_000);
-        /** @type {ConnectionStatus} */
-        const result = {
+        const result: ConnectionStatus = {
           available: true,
           version: version['azure-cli'],
           extension: extension.version,
@@ -184,7 +186,7 @@ export function createAzureClient({ cli, now = Date.now } = {}) {
             }
           } catch (caught) {
             // Caught values are untyped; CLI failures are errors that may carry a code.
-            const error = /** @type {{ code?: string, message: string }} */ (caught);
+            const error = caught as { code?: string; message: string };
             result.access = {
               status: 'failed',
               checkedAt: new Date(now()).toISOString(),
@@ -195,12 +197,11 @@ export function createAzureClient({ cli, now = Date.now } = {}) {
         }
         return result;
       } catch (caught) {
-        const error = /** @type {{ code?: string, message: string }} */ (caught);
+        const error = caught as { code?: string; message: string };
         return { available: false, code: error.code || 'CLI_ERROR', message: error.message, identity: null, identityVerified: false };
       }
     },
-    /** @param {string | RepositoryInput} input @returns {Promise<ResolvedRepository>} */
-    async resolveRepository(input) {
+    async resolveRepository(input: string | RepositoryInput): Promise<ResolvedRepository> {
       const parsed = typeof input === 'string' ? parseRemote(input) : input;
       const organization = normalizeOrganization(parsed.organization);
       const project = parsed.project,
@@ -231,14 +232,11 @@ export function createAzureClient({ cli, now = Date.now } = {}) {
         disabled: false,
       };
     },
-    /** @param {AzureRepo} repo @param {AzureStream} stream @param {ReadOptions} [options] @returns {Promise<AzurePage>} */
-    async read(repo, stream, { since, until, cursor } = {}) {
+    async read(repo: AzureRepo, stream: AzureStream, { since, until, cursor }: ReadOptions = {}): Promise<AzurePage> {
       const skip = Number(cursor?.skip || 0);
       if (!Number.isSafeInteger(skip) || skip < 0) throw new Error('Invalid page cursor');
-      /** @type {AzureRecord} */
-      let response,
-        /** @type {'skip'|'token'} */
-        mode = 'token';
+      let response: AzureRecord,
+        mode: 'skip' | 'token' = 'token';
       switch (stream) {
         case 'pushes':
           response = await invoke(repo, 'git', 'pushes', {
@@ -329,15 +327,14 @@ export function createAzureClient({ cli, now = Date.now } = {}) {
       }
       return pageOf(response, { skip, mode });
     },
-    /** A next cursor means Azure has more of the requested builds than this page holds. @param {AzureRepo} repo @param {string[]} ids @returns {Promise<AzurePage>} */
-    async buildsById(repo, ids) {
+    /** A next cursor means Azure has more of the requested builds than this page holds. */
+    async buildsById(repo: AzureRepo, ids: string[]): Promise<AzurePage> {
       if (!Array.isArray(ids) || ids.length > 100 || ids.some(id => !/^\d+$/.test(String(id)))) throw new Error('Invalid build IDs');
       if (!ids.length) return { items: [], nextCursor: null };
       const raw = await invoke(repo, 'build', 'builds', { buildIds: ids.join(',') }, {}, true);
       return pageOf(raw, { skip: 0, mode: 'token' });
     },
-    /** @param {AzureRepo} repo @param {string} source @returns {Promise<CheckoutPull[]>} */
-    async completedCheckoutPulls(repo, source) {
+    async completedCheckoutPulls(repo: AzureRepo, source: string): Promise<CheckoutPull[]> {
       if (typeof source !== 'string' || !/^refs\/heads\/[^\s\x00-\x1f]+$/.test(source) || source.length > 1024) return [];
       const response = await invoke(
         repo,
@@ -380,8 +377,7 @@ export function createAzureClient({ cli, now = Date.now } = {}) {
         ];
       });
     },
-    /** @param {AzureRepo} repo @param {string|number} id @returns {Promise<AzureRecord>} */
-    async pullRequest(repo, id) {
+    async pullRequest(repo: AzureRepo, id: string | number): Promise<AzureRecord> {
       if (!/^\d+$/.test(String(id))) throw new Error('Invalid PR ID');
       const raw = await cli.run([
         'repos',
@@ -410,9 +406,8 @@ export function createAzureClient({ cli, now = Date.now } = {}) {
     /**
      * One page of commits reachable from the old tip but not from the new one. Empty means the old tip
      * is an ancestor of the new one (a fast-forward); anything else means the update dropped history.
-     * @param {AzureRepo} repo @param {string} oldSha @param {string} newSha @returns {Promise<AzurePage>}
      */
-    async droppedCommits(repo, oldSha, newSha) {
+    async droppedCommits(repo: AzureRepo, oldSha: string, newSha: string): Promise<AzurePage> {
       if (![oldSha, newSha].every(sha => typeof sha === 'string' && /^[0-9a-f]{40}$/i.test(sha)))
         throw cliError('INVALID_QUERY', 'Commit queries require at most 100 complete commit IDs.');
       const old = oldSha.toLowerCase(),
@@ -434,9 +429,8 @@ export function createAzureClient({ cli, now = Date.now } = {}) {
     },
     /**
      * One commit's parents and the push that first brought it into the repository (null when Azure names none).
-     * @param {AzureRepo} repo @param {string} commitId @returns {Promise<{ parents: string[], pushId: number | null }>}
      */
-    async commit(repo, commitId) {
+    async commit(repo: AzureRepo, commitId: string): Promise<{ parents: string[]; pushId: number | null }> {
       if (typeof commitId !== 'string' || !/^[0-9a-f]{40}$/i.test(commitId))
         throw cliError('INVALID_QUERY', 'A commit read requires a complete commit ID.');
       const raw = await invoke(repo, 'git', 'commits', { changeCount: 0 }, { commitId: commitId.toLowerCase() });
@@ -448,9 +442,8 @@ export function createAzureClient({ cli, now = Date.now } = {}) {
     },
     /**
      * Read when a PR detail asks for it, never by polling: one read for discussion threads, one for policy evaluations.
-     * @param {AzureRepo} repo @param {string|number} pullRequestId @returns {Promise<PullRequestReview>}
      */
-    async prReview(repo, pullRequestId) {
+    async prReview(repo: AzureRepo, pullRequestId: string | number): Promise<PullRequestReview> {
       const id = String(pullRequestId);
       if (!/^\d+$/.test(id) || !repo.projectId) throw cliError('INVALID_QUERY', 'Invalid pull request.');
       const threads = await invoke(repo, 'git', 'pullRequestThreads', {}, { pullRequestId: id });
@@ -460,8 +453,7 @@ export function createAzureClient({ cli, now = Date.now } = {}) {
       });
       return reviewOf(threads.value, evaluations.value);
     },
-    /** @param {AzureRepo} repo @param {string|number} pushId @param {PageCursor} [cursor] @returns {Promise<AzurePage>} */
-    async pushCommits(repo, pushId, cursor = {}) {
+    async pushCommits(repo: AzureRepo, pushId: string | number, cursor: PageCursor = {}): Promise<AzurePage> {
       if (!/^\d+$/.test(String(pushId))) throw new Error('Invalid push ID');
       const skip = Number(cursor?.skip || 0);
       if (!Number.isSafeInteger(skip) || skip < 0) throw new Error('Invalid page cursor');

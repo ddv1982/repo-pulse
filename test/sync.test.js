@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createStore } from '../server/store.js';
+import { createStore } from '../server/store.ts';
 import { createHash } from 'node:crypto';
-import { createSync } from '../server/sync.js';
+import { createSync } from '../server/sync.ts';
 import { createBackfill } from '../server/backfill.ts';
 import { activityMergeBadge } from '../src/activity-text.ts';
 const repo = {

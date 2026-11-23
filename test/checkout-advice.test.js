@@ -2,9 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { createCheckoutGit } from '../server/checkout-git.js';
-import { createCheckoutLookup } from '../server/checkout-advice.js';
-import { createStore } from '../server/store.js';
+import { createCheckoutGit } from '../server/checkout-git.ts';
+import { createCheckoutLookup } from '../server/checkout-advice.ts';
+import { createStore } from '../server/store.ts';
 import { checkoutFixture, git, squashFixture } from './fixtures/checkout.js';
 
 test('missing upstream gives verified squash target advice without changing the checkout', async t => {

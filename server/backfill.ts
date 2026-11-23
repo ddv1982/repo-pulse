@@ -1,8 +1,8 @@
 export type ActivityEvent = import('../src/activity.ts').ActivityEvent;
 export type HistoryStream = import('../src/contract.ts').HistoryStream;
 export type HistoryWindow = import('../src/contract.ts').HistoryWindow;
-export type WatchedRepo = import('./azure-client.js').AzureRepo & { id: string; disabled?: boolean };
-export type SourcePage = import('./azure-client.js').AzurePage;
+export type WatchedRepo = import('./azure-client.ts').AzureRepo & { id: string; disabled?: boolean };
+export type SourcePage = import('./azure-client.ts').AzurePage;
 export type HistoryJob = import('../src/contract.ts').HistoryJob;
 export type Entity = { type: string; id: string; data: unknown };
 export type HistoryBatch = { events?: ActivityEvent[]; entities?: Entity[] };
@@ -28,7 +28,7 @@ export function createBackfill({
   now = Date.now,
 }: {
   store: HistoryStore;
-  provider: Pick<import('./azure-client.js').AzureProvider, 'read'>;
+  provider: Pick<import('./azure-client.ts').AzureProvider, 'read'>;
   normalize: (
     repo: WatchedRepo,
     stream: HistoryStream,

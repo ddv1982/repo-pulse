@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createAzureClient, reviewOf } from '../server/azure-client.js';
+import { createAzureClient, reviewOf } from '../server/azure-client.ts';
 const repo = { id: 'local1', organization: 'https://dev.azure.com/example', project: 'Project', projectId: 'project1', azureId: 'repo1' };
 const window = { since: '2026-11-10T11:12:13Z', until: '2026-11-17T11:12:13Z' };
 

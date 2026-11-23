@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createCheckoutGit } from '../../server/checkout-git.js';
+import { createCheckoutGit } from '../../server/checkout-git.ts';
 
 // Fixture repositories and the checkout code under test commit; a clean machine or CI runner has no Git identity.
 for (const [key, value] of Object.entries({

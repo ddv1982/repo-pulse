@@ -1,34 +1,17 @@
-// @ts-check
+import { ancestry } from './checkout-advice.ts';
+import { observedRewrite } from './checkout-observations.ts';
+import { readDirectCommit } from './checkout-switch-refs.ts';
 
-import { ancestry } from './checkout-advice.js';
-import { observedRewrite } from './checkout-observations.js';
-import { readDirectCommit } from './checkout-switch-refs.js';
-
-/** @typedef {import('./checkout-git.js').ActiveCheckout} ActiveCheckout */
-/** @typedef {import('./checkout-git.js').CheckoutReading} CheckoutReading */
-/** @typedef {import('./checkout-git.js').GitRunner} GitRunner */
-/** @typedef {import('./checkout-git.js').LinkedRepo} LinkedRepo */
-/** @typedef {import('./checkout-git.js').ReadCheckoutStatus} ReadCheckoutStatus */
-/** @typedef {import('./checkout-git.js').Upstream} Upstream */
-/** @typedef {import('./checkout-observations.js').Observation} Observation */
+export type ActiveCheckout = import('./checkout-git.ts').ActiveCheckout;
+export type CheckoutReading = import('./checkout-git.ts').CheckoutReading;
+export type GitRunner = import('./checkout-git.ts').GitRunner;
+export type LinkedRepo = import('./checkout-git.ts').LinkedRepo;
+export type ReadCheckoutStatus = import('./checkout-git.ts').ReadCheckoutStatus;
+export type Upstream = import('./checkout-git.ts').Upstream;
+export type Observation = import('./checkout-observations.ts').Observation;
 
 /**
  * Check, Pull and PR target updates share this workflow. The caller holds the checkout lock.
- * @param {{
- *   run: GitRunner, hooks: string, now: () => number,
- *   observations: import('./checkout-observations.js').Observations,
- *   problem: (message: string, status?: number) => Error & {status: number},
- *   statusAt: ReadCheckoutStatus,
- *   validateUpstream: (path: string, target: Upstream) => Promise<void>,
- *   fetchUpstream: (path: string, target: Upstream) => Promise<void>,
- *   trackingTip: (path: string, tracking: string, before?: boolean) => Promise<string|null>,
- *   fetchFailure: (error: unknown) => 'missing-ref' | {title: string, suggestion: string},
- *   observedAt: (repo: LinkedRepo, path: string, target: Upstream|null, gitDirectory: string|null) => Observation|undefined,
- *   upstreamIdentity: (path: string, target: Upstream|null, gitDirectory?: string|null) => string,
- *   readMissing: (path: string, repo: LinkedRepo, target: Upstream, snapshot: ActiveCheckout) => Promise<import('./checkout-advice.js').PullAdvice|undefined>,
- *   matchesIntent: (snapshot: CheckoutReading, expected: Pick<CheckoutReading, 'branch'|'head'|'upstream'|'identity'>) => boolean,
- *   verifyCheckoutDirectory: (path: string, expected: string|null) => Promise<void>,
- * }} options
  */
 export function createCheckoutUpdater({
   run,
@@ -46,12 +29,32 @@ export function createCheckoutUpdater({
   readMissing,
   matchesIntent,
   verifyCheckoutDirectory,
+}: {
+  run: GitRunner;
+  hooks: string;
+  now: () => number;
+  observations: import('./checkout-observations.ts').Observations;
+  problem: (message: string, status?: number) => Error & { status: number };
+  statusAt: ReadCheckoutStatus;
+  validateUpstream: (path: string, target: Upstream) => Promise<void>;
+  fetchUpstream: (path: string, target: Upstream) => Promise<void>;
+  trackingTip: (path: string, tracking: string, before?: boolean) => Promise<string | null>;
+  fetchFailure: (error: unknown) => 'missing-ref' | { title: string; suggestion: string };
+  observedAt: (repo: LinkedRepo, path: string, target: Upstream | null, gitDirectory: string | null) => Observation | undefined;
+  upstreamIdentity: (path: string, target: Upstream | null, gitDirectory?: string | null) => string;
+  readMissing: (
+    path: string,
+    repo: LinkedRepo,
+    target: Upstream,
+    snapshot: ActiveCheckout,
+  ) => Promise<import('./checkout-advice.ts').PullAdvice | undefined>;
+  matchesIntent: (snapshot: CheckoutReading, expected: Pick<CheckoutReading, 'branch' | 'head' | 'upstream' | 'identity'>) => boolean;
+  verifyCheckoutDirectory: (path: string, expected: string | null) => Promise<void>;
 }) {
-  /**
-   * @param {{ snapshot: ActiveCheckout, target: Upstream|null }} reading @param {'check'|'pull'|'update-target'} operation
-   * @returns {Upstream}
-   */
-  function eligibleTarget({ snapshot, target }, operation) {
+  function eligibleTarget(
+    { snapshot, target }: { snapshot: ActiveCheckout; target: Upstream | null },
+    operation: 'check' | 'pull' | 'update-target',
+  ): Upstream {
     if (
       !target ||
       !snapshot.canCheck ||
@@ -63,8 +66,7 @@ export function createCheckoutUpdater({
     return target;
   }
 
-  /** @param {string} path @param {string} head @param {string} tip */
-  async function refuseIgnoredOverlap(path, head, tip) {
+  async function refuseIgnoredOverlap(path: string, head: string, tip: string) {
     const additions = (await run(path, ['diff', '--no-renames', '--diff-filter=A', '--name-only', '-z', head, tip, '--']))
       .split('\0')
       .filter(Boolean);
@@ -83,8 +85,7 @@ export function createCheckoutUpdater({
       throw problem('Incoming files overlap ignored local files. Move them before pulling.');
   }
 
-  /** @param {string} path @param {string} branch @param {string} tip */
-  async function fastForward(path, branch, tip) {
+  async function fastForward(path: string, branch: string, tip: string) {
     try {
       // A strategy from branch.<name>.mergeOptions or pull.twohead makes even --ff-only create a merge commit,
       // so both are cleared for this merge. --no-squash keeps the earlier guard against a configured --squash.
@@ -135,8 +136,13 @@ export function createCheckoutUpdater({
   }
 
   /** Saves the pre-fetch tracking samples and returns what the later observation saves build on.
-   * @param {string} path @param {LinkedRepo} repo @param {{snapshot: ActiveCheckout, gitDirectory: string|null}} before @param {Upstream} target */
-  async function recordBaseline(path, repo, { snapshot, gitDirectory }, target) {
+   */
+  async function recordBaseline(
+    path: string,
+    repo: LinkedRepo,
+    { snapshot, gitDirectory }: { snapshot: ActiveCheckout; gitDirectory: string | null },
+    target: Upstream,
+  ) {
     const trackingBeforeFetch = await trackingTip(path, target.tracking, true);
     const saved = observedAt(repo, path, target, gitDirectory);
     const baselines = [
@@ -156,11 +162,17 @@ export function createCheckoutUpdater({
     return { saved, baselines, baseline, canClearRewrite, retainedRewrite: saved?.rewrite };
   }
 
-  /** @typedef {Awaited<ReturnType<typeof recordBaseline>>} Baseline */
+  type Baseline = Awaited<ReturnType<typeof recordBaseline>>;
 
-  /** @param {string} path @param {LinkedRepo} repo @param {'check'|'pull'|'update-target'} operation
-   * @param {ActiveCheckout} snapshot @param {Upstream} target @param {Baseline} recorded @param {unknown} failure */
-  async function recordFetchFailure(path, repo, operation, snapshot, target, { baseline, retainedRewrite }, failure) {
+  async function recordFetchFailure(
+    path: string,
+    repo: LinkedRepo,
+    operation: 'check' | 'pull' | 'update-target',
+    snapshot: ActiveCheckout,
+    target: Upstream,
+    { baseline, retainedRewrite }: Baseline,
+    failure: unknown,
+  ) {
     const reason = fetchFailure(failure);
     const advice = reason === 'missing-ref' && operation !== 'update-target' ? await readMissing(path, repo, target, snapshot) : undefined;
     const { snapshot: current } = await statusAt(path, repo);
@@ -179,9 +191,14 @@ export function createCheckoutUpdater({
   }
 
   /** Records the fetched tip and any rewrite, then rereads the checkout and records the branch check.
-   * @param {string} path @param {LinkedRepo} repo @param {{ snapshot: ActiveCheckout, gitDirectory: string|null }} before
-   * @param {Upstream} target @param {Baseline} recorded */
-  async function recordFetch(path, repo, before, target, { saved, baselines, baseline, canClearRewrite, retainedRewrite }) {
+   */
+  async function recordFetch(
+    path: string,
+    repo: LinkedRepo,
+    before: { snapshot: ActiveCheckout; gitDirectory: string | null },
+    target: Upstream,
+    { saved, baselines, baseline, canClearRewrite, retainedRewrite }: Baseline,
+  ) {
     const { snapshot } = before;
     await verifyCheckoutDirectory(path, snapshot.switchIdentity);
     const fetchedAt = new Date(now()).toISOString();
@@ -207,16 +224,22 @@ export function createCheckoutUpdater({
     return { after: after.snapshot, tip };
   }
 
-  /** @param {string} path @param {Upstream} target @param {string} tip */
-  async function verifyFetchedTip(path, target, tip) {
+  async function verifyFetchedTip(path: string, target: Upstream, tip: string) {
     if ((await readDirectCommit(run, path, target.tracking)) !== tip)
       throw problem('The checkout or its upstream changed during the check. The branch was not updated.');
   }
 
   /** Decides from the post-fetch reading whether to fast-forward, and does so.
-   * @param {string} path @param {LinkedRepo} repo @param {'check'|'pull'|'update-target'} operation
-   * @param {ActiveCheckout} after @param {Upstream} target @param {string} tip @param {string} [result] */
-  async function finishUpdate(path, repo, operation, after, target, tip, result) {
+   *  */
+  async function finishUpdate(
+    path: string,
+    repo: LinkedRepo,
+    operation: 'check' | 'pull' | 'update-target',
+    after: ActiveCheckout,
+    target: Upstream,
+    tip: string,
+    result?: string,
+  ) {
     if (operation === 'check' || after.state === 'upstream-rewritten') return { checkout: after, updated: false };
     if (!['behind', 'current'].includes(after.state) || (operation === 'update-target' && after.dirty)) {
       throw problem('The checkout or its upstream changed during the check. The branch was not updated.');
@@ -236,7 +259,7 @@ export function createCheckoutUpdater({
       return { checkout: (await statusAt(path, repo)).snapshot, updated: true };
     } catch (caught) {
       // The branch already moved, so no failure here may read as if Pull did nothing. Unexpected errors keep their text local.
-      const error = /** @type {Error & { status?: number, diagnostic?: unknown }} */ (caught);
+      const error = caught as Error & { status?: number; diagnostic?: unknown };
       const reason = error.status ? error.message : 'Review the checkout in Git.';
       throw Object.assign(problem(`The branch was updated to the upstream commit. ${reason}`, error.status === 404 ? 404 : 409), {
         diagnostic: error.diagnostic,
@@ -244,9 +267,13 @@ export function createCheckoutUpdater({
     }
   }
 
-  /** @param {string} path @param {LinkedRepo} repo @param {'check'|'pull'|'update-target'} operation
-   * @param {Pick<CheckoutReading, 'branch'|'head'|'upstream'|'identity'>} expected @param {string} [result] */
-  async function updateAt(path, repo, operation, expected, result) {
+  async function updateAt(
+    path: string,
+    repo: LinkedRepo,
+    operation: 'check' | 'pull' | 'update-target',
+    expected: Pick<CheckoutReading, 'branch' | 'head' | 'upstream' | 'identity'>,
+    result?: string,
+  ) {
     try {
       const before = await statusAt(path, repo);
       const { snapshot } = before;

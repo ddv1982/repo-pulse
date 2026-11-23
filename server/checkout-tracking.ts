@@ -1,7 +1,6 @@
-import { branchProblem } from './checkout-branches.js';
+import { branchProblem } from './checkout-branches.ts';
 
-/** @param {string} pattern @param {string} ref */
-function matchRef(pattern, ref) {
+function matchRef(pattern: string, ref: string) {
   if (pattern === ref) return '';
   const star = pattern.indexOf('*');
   if (star < 0) return null;
@@ -13,9 +12,12 @@ function matchRef(pattern, ref) {
 
 /**
  * Check the mapping in both directions before writing a shared tracking ref.
- * @param {import('./checkout-git.js').GitRunner} run @param {string} path @param {import('./checkout-git.js').Upstream} target
  */
-export async function verifyTrackingMapping(run, path, target) {
+export async function verifyTrackingMapping(
+  run: import('./checkout-git.ts').GitRunner,
+  path: string,
+  target: import('./checkout-git.ts').Upstream,
+) {
   const config = await run(path, ['config', '--null', '--get-regexp', '^remote\\..*\\.fetch$']).catch(error => {
     if (error?.code === 1 || error?.status === 1) return '';
     throw error;
