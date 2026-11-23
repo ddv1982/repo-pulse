@@ -413,11 +413,11 @@ export function createAzureClient({ cli, now = Date.now } = {}) {
         !['string', 'number'].includes(typeof prId) ||
         String(prId) !== String(id) ||
         typeof raw.repository?.id !== 'string' ||
-        !raw.repository.id
+        !raw.repository.id.trim()
       )
         throw cliError('INVALID_RESPONSE', 'Azure CLI did not return the requested repository pull request.');
       // A PR that now belongs to another repository, for example after a move, cannot be read for this one.
-      if (raw.repository?.id !== repo.azureId)
+      if (raw.repository.id.toLowerCase() !== repo.azureId?.toLowerCase())
         throw cliError('WRONG_REPOSITORY', 'Azure returned this pull request for a different repository.');
       return raw;
     },

@@ -137,10 +137,14 @@ test('active PR reads are explicitly repo-scoped and exact PR reconciliation use
   await assert.rejects(noRepository.pullRequest(repo, 123), { code: 'INVALID_RESPONSE' });
   const otherId = createAzureClient({ cli: { run: async () => ({ pullRequestId: 124, repository: { id: 'repo1' } }) } });
   await assert.rejects(otherId.pullRequest(repo, 123), { code: 'INVALID_RESPONSE' });
+  // Azure GUIDs differ in case between APIs, as elsewhere in the app.
+  const upper = createAzureClient({ cli: { run: async () => ({ pullRequestId: 123, repository: { id: 'REPO1' } }) } });
+  assert.equal((await upper.pullRequest(repo, 123)).pullRequestId, 123);
   for (const payload of [
     { pullRequestId: [123], repository: { id: 'repo1' } },
     { pullRequestId: 123, repository: { id: 7 } },
     { pullRequestId: 123, repository: { id: { id: 'repo1' } } },
+    { pullRequestId: 123, repository: { id: '  ' } },
   ]) {
     const odd = createAzureClient({ cli: { run: async () => payload } });
     await assert.rejects(odd.pullRequest(repo, 123), { code: 'INVALID_RESPONSE' }, JSON.stringify(payload));
