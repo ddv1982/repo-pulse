@@ -679,7 +679,7 @@ test('html auto-escapes plain values, composes SafeHtml, and setHtml refuses pla
   assert.equal(kept.textContent, '<img src=x onerror=alert(1)> & "quotes"', 'a refused value leaves the element unchanged');
 });
 
-test('setHtml in src/ui/dom.js is the only innerHTML sink across browser source files', () => {
+test('setHtml in src/ui/dom.ts is the only innerHTML sink across browser source files', () => {
   const dirs = ['src', join('src', 'ui'), 'web'];
   const offenders = [];
   for (const dir of dirs) {
