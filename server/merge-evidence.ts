@@ -33,7 +33,7 @@ export function localPrLink({
     targetRefName?: string;
     sourceCommit?: string;
     targetCommit?: string;
-    mergeCommit?: string;
+    mergeCommit?: string | undefined;
     mergeStrategy?: string;
     closedBy?: string;
   };

@@ -62,7 +62,7 @@ export type StoredEvent = ActivityEvent & { observedAt: string; data?: EventData
 /** An event as the store returns it: the read flags come from their columns and enrichment is merged into `data`. */
 export type HydratedEvent = StoredEvent & { seen: boolean; imported: boolean };
 /** Every watched repository was resolved through Azure (or is a demo fixture), so its Azure identity is always present. */
-export type Repository = AzureRepo & { id: string; name: string; disabled?: boolean; localPath?: string };
+export type Repository = AzureRepo & { id: string; name: string; disabled?: boolean; localPath?: string | undefined };
 
 // Sync
 
@@ -80,17 +80,17 @@ export type StreamState = {
   nextAt: string;
   error?: StreamError | null;
   lastAttempt?: string;
-  lastSuccess?: string;
+  lastSuccess?: string | undefined;
   pending?: boolean;
   failures?: number;
   quietCycles?: number;
   window?: StreamWindow;
   windowGeneration?: number;
-  refreshGeneration?: number;
-  manual?: boolean;
-  cursor?: PageCursor | null;
-  pendingItems?: AzureRecord[];
-  activeIds?: string[];
+  refreshGeneration?: number | undefined;
+  manual?: boolean | undefined;
+  cursor?: PageCursor | null | undefined;
+  pendingItems?: AzureRecord[] | undefined;
+  activeIds?: string[] | undefined;
 };
 /**
  * The sync loop's counters, read for Copy diagnostics. `lastTurn` holds when each kind of turn last ran.
@@ -164,16 +164,22 @@ export type PullAdvice = {
   branch: string;
   id: number;
   url?: string;
-  strategy?: string;
+  strategy?: string | undefined;
   verified: boolean;
   targetVerified?: boolean;
-  receipt?: { target: string; result: string; sourceHead?: string };
-  destination?: 'local' | 'remote-only' | 'other-worktree' | 'different-upstream' | 'unknown';
+  receipt?: { target: string; result: string; sourceHead?: string | undefined };
+  destination?: 'local' | 'remote-only' | 'other-worktree' | 'different-upstream' | 'unknown' | undefined;
 };
 export type Rewrite = { previous: string; tip: string; verified: boolean; commits: { side: 'old' | 'new'; id: string; subject: string }[] };
-export type CheckoutDiagnostic = { title?: string; message?: string; suggestion: string; advice?: PullAdvice; comparison?: Rewrite };
+export type CheckoutDiagnostic = {
+  title?: string;
+  message?: string | undefined;
+  suggestion: string;
+  advice?: PullAdvice | undefined;
+  comparison?: Rewrite;
+};
 /** The part of a follow-up plan a checkout status shows. */
-export type FollowupSummary = { id: string; source: string; workspace?: string };
+export type FollowupSummary = { id: string; source: string; workspace?: string | undefined };
 export type Review = {
   kind: 'included' | 'local-followup' | 'unknown' | 'changed' | 'occupied';
   commits?: { id: string; subject: string }[];
@@ -198,7 +204,7 @@ export type CheckoutIntent = CheckoutSelection & { upstream: string };
 export type CheckoutReading = GitStatus & {
   identity: string;
   switchIdentity: string | null;
-  lastBranchCheck?: { at: string; matchesFetchedTip: boolean };
+  lastBranchCheck?: { at: string; matchesFetchedTip: boolean } | undefined;
 };
 
 export type ActivitySwitchReview = { token: string; upstream: string; previous: string | null; tip: string; ahead: number; behind: number };
@@ -220,7 +226,12 @@ export type BlockedState =
 
 export type PullableCheckout = CheckoutIntent & CheckoutReading & { state: 'behind'; canCheck: true; canPull: true };
 
-export type BlockedCheckout = CheckoutReading & { state: BlockedState; canCheck: boolean; canPull: false; diagnostic?: CheckoutDiagnostic };
+export type BlockedCheckout = CheckoutReading & {
+  state: BlockedState;
+  canCheck: boolean;
+  canPull: false;
+  diagnostic?: CheckoutDiagnostic | undefined;
+};
 
 export type ActiveCheckout = PullableCheckout | BlockedCheckout;
 
@@ -249,7 +260,7 @@ export type ActivitySwitchResult =
 
 // Responses, one per route
 
-export type ErrorResponse = { message: string; code?: string };
+export type ErrorResponse = { message: string; code?: string | undefined };
 export type OkResponse = { ok: true };
 /** POST /api/session: the key, given once for the launch token. */
 export type SessionResponse = { key: string };

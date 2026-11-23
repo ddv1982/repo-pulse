@@ -2,7 +2,7 @@ import { emptyHtml, html } from './format.ts';
 import { required, setHtml } from './dom.ts';
 
 export type CheckoutBranch = import('../contract.ts').CheckoutBranchesResponse['branches'][number];
-export type PickerRepo = { id: string; name: string; localPath?: string };
+export type PickerRepo = { id: string; name: string; localPath?: string | undefined };
 
 /**
  * The Repositories dialog that lists a checkout's watched branches. Choosing one runs the `switch-checkout-branch`

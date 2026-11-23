@@ -60,7 +60,12 @@ function startPage(state: StreamState, at: number, overlapMs: number): StartedSt
 function nextPage(
   state: StartedStream,
   latest: StreamState,
-  { at, cursor, pendingItems, activeIds }: { at: number; cursor: PageCursor | null; pendingItems?: AzureRecord[]; activeIds?: string[] },
+  {
+    at,
+    cursor,
+    pendingItems,
+    activeIds,
+  }: { at: number; cursor: PageCursor | null; pendingItems?: AzureRecord[] | undefined; activeIds?: string[] | undefined },
 ): StreamState {
   return {
     ...state,
@@ -157,7 +162,7 @@ export function createSync({
   intervalMs?: number;
   isForeground?: () => boolean;
   refsIntervalMs?: number;
-  pollMs?: number;
+  pollMs?: number | undefined;
   overlapMs?: number;
   background?: Partial<Record<BackgroundKind, () => unknown>>;
 }) {

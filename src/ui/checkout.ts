@@ -13,17 +13,17 @@ export type CheckoutSnapshot = {
   state: CheckoutStatus['state'];
   canPull?: boolean;
   followup?: FollowupSummary;
-  review?: Review;
-  nextStep?: string;
+  review?: Review | undefined;
+  nextStep?: string | undefined;
 } & Partial<Omit<BlockedCheckout, 'state' | 'canPull'>>;
 export type CheckoutUpdate = {
   checkout: CheckoutSnapshot;
   updated?: boolean;
-  message?: string;
-  notice?: string;
-  switchReview?: import('../contract.ts').ActivitySwitchReview;
-  review?: Review;
-  nextStep?: string;
+  message?: string | undefined;
+  notice?: string | undefined;
+  switchReview?: import('../contract.ts').ActivitySwitchReview | undefined;
+  review?: Review | undefined;
+  nextStep?: string | undefined;
 };
 export type CheckoutOperation = 'check' | 'pull' | 'switch-activity' | 'switch-branch' | 'switch-update' | 'review' | 'remove' | 'carry';
 
@@ -124,7 +124,8 @@ export function createCheckoutPanel({
     async update(
       id: string,
       operation: CheckoutOperation,
-      expected: Pick<CheckoutSnapshot, 'branch' | 'head' | 'upstream' | 'identity' | 'switchIdentity'>,
+      // Sent as JSON, which leaves out a field holding undefined.
+      expected: { [K in 'branch' | 'head' | 'upstream' | 'identity' | 'switchIdentity']?: CheckoutSnapshot[K] | undefined },
       options: Record<string, unknown> = {},
     ): Promise<CheckoutUpdate> {
       mutating = true;

@@ -329,7 +329,7 @@ export function createActivityQuery(
     return { items, nextCursor, total, newItems, newUpdates, counts, newCounts, filterOptions: options, asOf: maxSequence };
   }
   // `through` is the snapshot a page was read at, so updates recorded after the user saw the page stay unread.
-  queryActivity.unseenIds = (input: ActivityRequest & { through?: number }) => {
+  queryActivity.unseenIds = (input: ActivityRequest & { through?: number | undefined }) => {
     const { selected, filter, needles, names } = readScope(input);
     const latest = Number(db.prepare('SELECT COALESCE(MAX(sequence),0) AS id FROM activity_members').get()?.id);
     const maxSequence = input.through === undefined ? latest : Math.min(input.through, latest);

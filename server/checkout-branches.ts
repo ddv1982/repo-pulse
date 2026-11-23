@@ -17,7 +17,7 @@ export type Followup = FollowupSummary & {
   sourceHead: string;
   targetRef: string;
   result: string;
-  recordedSource?: string;
+  recordedSource?: string | undefined;
   targetIdentity?: string;
   archive?: string;
 };

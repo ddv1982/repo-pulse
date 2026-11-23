@@ -60,10 +60,10 @@ export type BrowserUi = import('./navigation.ts').NavigationState & {
 export type RenderOptions = {
   restored: ResultsContext | null;
   returnRoute: string;
-  matchingIds?: string[];
+  matchingIds?: string[] | undefined;
   commits: import('./activity-detail.ts').LoadedView | undefined;
   checkouts: Record<string, import('./checkout.ts').CheckoutSnapshot>;
-  checkoutFocus?: string | null;
+  checkoutFocus?: string | null | undefined;
   isCurrent: () => boolean;
 };
 /** web/theme.ts publishes this before the modules load. */
