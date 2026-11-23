@@ -679,9 +679,9 @@ test('setHtml in src/ui/dom.js is the only innerHTML sink across browser source 
   const offenders = [];
   for (const dir of dirs) {
     for (const file of readdirSync(dir)) {
-      if (!file.endsWith('.js')) continue;
+      if (!/\.[jt]s$/.test(file)) continue;
       const rel = join(dir, file);
-      if (rel === join('src', 'ui', 'dom.js')) continue;
+      if (rel.replace(/\.[jt]s$/, '') === join('src', 'ui', 'dom')) continue;
       if (/\.innerHTML\b/.test(readFileSync(rel, 'utf8'))) offenders.push(rel);
     }
   }
