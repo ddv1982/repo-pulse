@@ -218,7 +218,7 @@ async function main() {
   const lines = [
     '# Coverage probe results',
     '',
-    `Recorded ${new Date().toISOString().slice(0, 10)} by \`scripts/probe-coverage.js\` for ${repos.length} watched repositories. GET requests only. Repositories are numbered; no names, IDs or identities are kept.`,
+    `Recorded ${new Date().toISOString().slice(0, 10)} by \`scripts/probe-coverage.ts\` for ${repos.length} watched repositories. GET requests only. Repositories are numbered; no names, IDs or identities are kept.`,
     '',
     '| Repository | Read | HTTP | ms | Facts |',
     '| --- | --- | --- | --- | --- |',
