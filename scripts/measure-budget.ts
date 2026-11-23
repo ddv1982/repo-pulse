@@ -6,7 +6,7 @@ import { createStore } from '../server/store.js';
 import { createSync } from '../server/sync.js';
 import { createAzureClient } from '../server/azure-client.js';
 
-const option = (name, fallback) => {
+const option = <T>(name: string, fallback: T) => {
   const index = process.argv.indexOf(`--${name}`);
   return index === -1 ? fallback : process.argv[index + 1];
 };
@@ -17,14 +17,14 @@ const minutes = Number(option('minutes', 60));
 const LIMIT_PER_MINUTE = Number(option('limit', 12));
 const activePrs = Number(option('active-prs', 0));
 const prEveryMs = Number(option('pr-every', 3)) * 60000;
-const sha = value => createHash('sha1').update(value).digest('hex');
+const sha = (value: string) => createHash('sha1').update(value).digest('hex');
 
-function simulate(repoTotal) {
+function simulate(repoTotal: number) {
   const start = Date.parse('2026-11-17T09:00:00Z');
   const end = start + minutes * 60000;
   let time = start;
   const now = () => time;
-  const starts = [];
+  const starts: number[] = [];
   let calls = 0;
   // One process-wide queue: wait for a free slot in the sliding minute, then spend the call's duration.
   function charge() {
@@ -38,7 +38,15 @@ function simulate(repoTotal) {
     time += callMs;
   }
 
-  const pushes = new Map();
+  const pushes = new Map<
+    string,
+    {
+      pushId: number;
+      date: string;
+      pushedBy: { displayName: string };
+      refUpdates: { name: string; oldObjectId: string; newObjectId: string }[];
+    }[]
+  >();
   for (let r = 0; r < repoTotal; r++) {
     const azureId = `repo-${r}`;
     const list = [];
@@ -57,9 +65,9 @@ function simulate(repoTotal) {
     pushes.set(azureId, list);
   }
 
-  const pairs = (args, flag) => {
+  const pairs = (args: string[], flag: string) => {
     const index = args.indexOf(flag);
-    const values = {};
+    const values: Record<string, string> = {};
     if (index === -1) return values;
     for (const entry of args.slice(index + 1)) {
       if (entry.startsWith('--')) break;
@@ -69,7 +77,7 @@ function simulate(repoTotal) {
     return values;
   };
   const cli = {
-    async run(args) {
+    async run(args: string[]) {
       charge();
       const resource = args[args.indexOf('--resource') + 1]?.toLowerCase();
       const query = pairs(args, '--query-parameters'),
@@ -130,7 +138,7 @@ function simulate(repoTotal) {
     end,
     generated,
     now: () => time,
-    advance: ms => {
+    advance: (ms: number) => {
       time += ms;
     },
     calls: () => calls,
@@ -138,12 +146,12 @@ function simulate(repoTotal) {
   };
 }
 
-function percentile(values, p) {
+function percentile(values: number[], p: number) {
   if (!values.length) return null;
   const sorted = [...values].sort((a, b) => a - b);
   return sorted[Math.min(sorted.length - 1, Math.ceil(p * sorted.length) - 1)];
 }
-const minutesOf = ms => (ms === null ? 'n/a' : (ms / 60000).toFixed(1));
+const minutesOf = (ms: number | null) => (ms === null ? 'n/a' : (ms / 60000).toFixed(1));
 
 console.log(
   `Budget ${LIMIT_PER_MINUTE} calls/min, ${callMs} ms per call, ${pushesPerHour} pushes/hour/repo, ${minutes} simulated minutes, tab in foreground${activePrs ? `, ${activePrs} active PRs/repo read twice every ${prEveryMs / 60000} min` : ''}.`,

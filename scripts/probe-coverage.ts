@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { AZURE_DEVOPS_RESOURCE } from '../server/azure-rest.js';
 import { normalizeOrganization } from '../server/repositories.ts';
+import type { AzureRecord } from '../src/contract.ts';
 
 const run = promisify(execFile);
 
@@ -23,7 +24,7 @@ export function probeRequests(repo: { organization: string; project: string; pro
   // The token goes only to an Azure DevOps organization URL the app itself would accept.
   const base = `${normalizeOrganization(repo.organization)}/${encodeURIComponent(repo.project)}/_apis`;
   const git = `${base}/git/repositories/${encodeURIComponent(repo.azureId)}`;
-  const requests = [
+  const requests: { name: string; url: string; tip?: string }[] = [
     { name: 'tag refs', url: `${git}/refs?filter=tags/&peelTags=true&$top=100&api-version=7.1` },
     { name: 'pushes with ref updates', url: `${git}/pushes?searchCriteria.includeRefUpdates=true&$top=100&api-version=7.1` },
     { name: 'active PRs', url: `${git}/pullrequests?searchCriteria.status=active&$top=20&api-version=7.1` },
@@ -61,10 +62,10 @@ export function probeRequests(repo: { organization: string; project: string; pro
  * Pushes that created a branch, newest first, at most three: the push and the revision the branch was created at.
  */
 export function creationPushes(body: any): { pushId: number; tip: string }[] {
-  const pushes = Array.isArray(body?.value) ? body.value : [];
+  const pushes: AzureRecord[] = Array.isArray(body?.value) ? body.value : [];
   return pushes
     .flatMap(push =>
-      (push.refUpdates || [])
+      ((push.refUpdates || []) as AzureRecord[])
         .filter(
           update =>
             String(update.name).startsWith('refs/heads/') && /^0+$/.test(update.oldObjectId ?? '') && SHA.test(update.newObjectId ?? ''),
@@ -119,8 +120,8 @@ const keys = (value: unknown) => (value && typeof value === 'object' ? Object.ke
 export function summarize(name: string, body: any, repo: { azureId: string; projectId: string }, context: { tip?: string } = {}) {
   if (name === 'created commit')
     return { fields: keys(body), parents: Array.isArray(body?.parents) ? body.parents.length : null, pushFields: keys(body?.push) };
-  const items = Array.isArray(body?.value) ? body.value : [];
-  const facts = { items: items.length, fields: keys(items[0]) };
+  const items: AzureRecord[] = Array.isArray(body?.value) ? body.value : [];
+  const facts: { items: number; fields: string[]; [fact: string]: unknown } = { items: items.length, fields: keys(items[0]) };
   if (name === 'tag refs') {
     facts.peeled = items.filter(ref => ref.peeledObjectId).length;
   } else if (name === 'pushes with ref updates') {
@@ -197,12 +198,12 @@ async function send(request: { name: string; url: string; method: string }, bear
     redirect: 'manual',
     headers: { Authorization: `Bearer ${bearer}`, Accept: 'application/json', 'X-TFS-FedAuthRedirect': 'Suppress' },
   });
-  const body = response.ok ? await response.json().catch(() => undefined) : undefined;
+  const body: AzureRecord = response.ok ? await response.json().catch(() => undefined) : undefined;
   return { status: response.status, ms: Math.round(performance.now() - started), body };
 }
 
 async function main() {
-  const option = (name, fallback) => {
+  const option = (name: string, fallback: string) => {
     const index = process.argv.indexOf(`--${name}`);
     return index === -1 ? fallback : process.argv[index + 1];
   };
