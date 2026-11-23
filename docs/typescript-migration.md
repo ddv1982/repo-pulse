@@ -51,7 +51,7 @@ at compile time. Moving from A to B later only touches `staticFile` and the buil
 - [x] Compare against `eslint . --max-warnings=0` on the clean tree; both exit 0
 - [x] Seed one violation per rule (including complexity 31 and an HTML regex in a `.ts` file), show Oxlint reports each, remove the seeds
 - [x] Remove `eslint`, `globals`, `eslint.config.js`; `lint` becomes `oxlint --deny-warnings . && prettier --check .`
-- [ ] CI green on ubuntu and windows (proves the native binary and the alpha JS plugin on Windows)
+- [x] CI green on ubuntu and windows (proves the native binary and the alpha JS plugin on Windows)
 
 ## Phase 1: split the type boundary (code stays JavaScript)
 
