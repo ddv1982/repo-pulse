@@ -5,7 +5,7 @@ import { mkdtemp, readFile, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { browserOpener, canOpenBrowser, openBrowser } from '../server/open-browser.js';
+import { browserOpener, canOpenBrowser, openBrowser } from '../server/open-browser.ts';
 
 const fakeSpawn = calls => (file, args, options) => {
   calls.push({ file, args, options });

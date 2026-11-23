@@ -198,7 +198,7 @@ function pageState(activity) {
       lastError: { code: 'FAILED', message: hidden('diagnostics.lastError.message') },
     },
     jobs: [
-      /** @type {import('../server/backfill.js').HistoryJob} */ ({
+      /** @type {import('../server/backfill.ts').HistoryJob} */ ({
         id: 'job',
         type: 'backfill',
         repoId: repo.id,

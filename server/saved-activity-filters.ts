@@ -1,28 +1,23 @@
-// @ts-check
-
 import { randomUUID } from 'node:crypto';
 import { canonicalActivityFilter } from '../src/activity-text.ts';
-import { parsePeople } from './activity-people.js';
+import { parsePeople } from './activity-people.ts';
 
-/** @typedef {import('../src/contract.ts').ActivityFilters} ActivityFilters */
-/** @typedef {import('../src/contract.ts').SavedActivityFilter} SavedActivityFilter */
+export type ActivityFilters = import('../src/contract.ts').ActivityFilters;
+export type SavedActivityFilter = import('../src/contract.ts').SavedActivityFilter;
 
 const setting = 'savedActivityFilters';
-/** @param {string} message @param {number} [status] */
-const problem = (message, status = 400) => Object.assign(new Error(message), { status });
+const problem = (message: string, status: number = 400) => Object.assign(new Error(message), { status });
 
-/** @param {unknown} value */
-function filterName(value) {
+function filterName(value: unknown) {
   if (typeof value !== 'string' || !value.trim() || value.trim().length > 80) {
     throw problem('Enter a filter name of 1 to 80 characters.');
   }
   return value.trim();
 }
 
-/** @param {unknown} value @returns {ActivityFilters} */
-function readFilters(value) {
+function readFilters(value: unknown): ActivityFilters {
   if (!value || typeof value !== 'object') throw problem('Choose Activity filters to save.');
-  const { search, people, kind, repoIds, view } = /** @type {Record<string, unknown>} */ (value);
+  const { search, people, kind, repoIds, view } = value as Record<string, unknown>;
   if (
     typeof search !== 'string' ||
     search.length > 300 ||
@@ -40,22 +35,19 @@ function readFilters(value) {
   return { search, people, kind: canonicalActivityFilter(kind), repoIds: repoIds === null ? null : [...new Set(repoIds)], view };
 }
 
-/** @param {Pick<ReturnType<typeof import('./store.js').createStore>, 'getSetting'|'setSetting'>} store */
-export function createSavedActivityFilters(store) {
+export function createSavedActivityFilters(store: Pick<ReturnType<typeof import('./store.js').createStore>, 'getSetting' | 'setSetting'>) {
   // The settings entry is written only here. Read and write synchronously on the server's SQLite connection.
-  const list = () => /** @type {SavedActivityFilter[]} */ (store.getSetting(setting, []));
+  const list = () => store.getSetting(setting, []) as SavedActivityFilter[];
   return {
     list,
-    /** @param {Record<string, unknown>} input */
-    create(input) {
+    create(input: Record<string, unknown>) {
       const presets = list();
       if (presets.length >= 25) throw problem('You can save up to 25 Activity filters.');
       const preset = { id: randomUUID(), name: filterName(input.name), filters: readFilters(input.filters) };
       store.setSetting(setting, [...presets, preset]);
       return preset;
     },
-    /** @param {string} id @param {Record<string, unknown>} input */
-    update(id, input) {
+    update(id: string, input: Record<string, unknown>) {
       const presets = list();
       const preset = presets.find(item => item.id === id);
       if (!preset) throw problem('Saved filter is no longer available.', 404);
@@ -65,8 +57,7 @@ export function createSavedActivityFilters(store) {
       store.setSetting(setting, presets);
       return preset;
     },
-    /** @param {string} id */
-    remove(id) {
+    remove(id: string) {
       store.setSetting(
         setting,
         list().filter(item => item.id !== id),

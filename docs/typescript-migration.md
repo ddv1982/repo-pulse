@@ -78,11 +78,11 @@ at compile time. Moving from A to B later only touches `staticFile` and the buil
 - [x] 3a: type `SafeHtml`, `html(strings: TemplateStringsArray, ...values)` and `setHtml(element, markup: SafeHtml)`; keep the private-field brand, construction token and sole sink; add a `@ts-expect-error` type test showing a raw string, a plain array and a lookalike object are rejected
 - [x] 3b: remaining `src/ui/*`, `src/web` and `web/theme` to `.ts`; check by hand that the stored theme applies on first paint with no flash, and that `dist/web/theme.js` has no `export`
 - [x] Idiomorph keeps its vendored bytes and `.d.ts` (`test/vendor.test.js` hash unchanged)
-- [ ] No `.js` left under `src/`; full CI green in each PR
+- [x] No `.js` left under `src/`; full CI green in each PR
 
 ## Phase 4: server and scripts (about 8,200 lines)
 
-- [ ] 4a: lower-risk `server/*` modules, `server.ts`, `scripts/*.ts`; `start`, `demo`, `doctor` point at `.ts`; add `scripts/**` to the node config and fix the 93 strict errors it surfaces
+- [x] 4a: lower-risk `server/*` modules, `server.ts`, `scripts/*.ts`; `start`, `demo`, `doctor` point at `.ts`; add `scripts/**` to the node config and fix the 93 strict errors it surfaces
 - [ ] 4b: `server/store`, `sync`, `azure-*` and `checkout-*` to `.ts`, with the full cross-model review `docs/MAINTAINING.md:72` requires for these paths
 - [ ] `server/checkout-delete-guard.cjs` stays CommonJS JavaScript: it is copied as an extensionless Git hook, and Node cannot strip types there (verified)
 - [ ] Audit `new URL(..., import.meta.url)` and dynamic imports for `.js` paths

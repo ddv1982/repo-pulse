@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createStore } from '../server/store.js';
-import { createApp } from '../server.js';
+import { createApp } from '../server.ts';
 import { TEST_KEY, keyedFetch } from './fixtures/access.js';
 
 const fetch = keyedFetch();

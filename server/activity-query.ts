@@ -1,23 +1,20 @@
-// @ts-check
-
-import { foldSearchText, matchesPeople, parsePeople } from './activity-people.js';
+import { foldSearchText, matchesPeople, parsePeople } from './activity-people.ts';
 import { projectActivity } from '../src/activity.ts';
 import { activityFilterLabel, labels, parseActivityFilter } from '../src/activity-text.ts';
 
-/** @typedef {import('node:sqlite').SQLInputValue} SqlValue */
-/** @typedef {Record<string, import('node:sqlite').SQLOutputValue>} SqlRow */
-/** @typedef {import('../src/activity.ts').ActivityEvent} ActivityEvent */
-/** @typedef {import('../src/activity.ts').ActivityRequest} ActivityRequest */
-/** @typedef {import('../src/activity.ts').ActivityPage} ActivityPage */
-/** @typedef {{ key: string, time: number, observed: number, representative: string }} Group */
-/** @typedef {{ kind: string, status: string, evidence: string }} FilterRow */
-/** @typedef {{ kind: string, count: number, newItems: number, newUpdates: number }} CountRow */
-/** @typedef {{ maxSequence: number, filterKey: string, revision?: string, after: Pick<Group, 'key'|'time'|'observed'> }} Position */
+export type SqlValue = import('node:sqlite').SQLInputValue;
+export type SqlRow = Record<string, import('node:sqlite').SQLOutputValue>;
+export type ActivityEvent = import('../src/activity.ts').ActivityEvent;
+export type ActivityRequest = import('../src/activity.ts').ActivityRequest;
+export type ActivityPage = import('../src/activity.ts').ActivityPage;
+export type Group = { key: string; time: number; observed: number; representative: string };
+export type FilterRow = { kind: string; status: string; evidence: string };
+export type CountRow = { kind: string; count: number; newItems: number; newUpdates: number };
+export type Position = { maxSequence: number; filterKey: string; revision?: string; after: Pick<Group, 'key' | 'time' | 'observed'> };
 
 const invalidFilter = () => Object.assign(new Error('Activity cursor does not match these filters.'), { code: 'BAD_REQUEST' });
 
-/** @param {string | undefined} cursor @param {string} filterKey @returns {Position | undefined} */
-function decodeCursor(cursor, filterKey) {
+function decodeCursor(cursor: string | undefined, filterKey: string): Position | undefined {
   if (!cursor) return undefined;
   try {
     const value = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8'));
@@ -36,11 +33,10 @@ function decodeCursor(cursor, filterKey) {
   throw invalidFilter();
 }
 
-/** @param {FilterRow[]} rows */
-function filterOptions(rows) {
+function filterOptions(rows: FilterRow[]) {
   const types = new Set(rows.map(row => row.kind));
-  const statuses = new Set();
-  const evidence = new Set();
+  const statuses = new Set<string>();
+  const evidence = new Set<string>();
   for (const row of rows) {
     const id = `status:${row.status}`;
     if (row.status && (row.kind === 'branch-deleted' || activityFilterLabel(id) !== activityFilterLabel(row.kind))) statuses.add(id);
@@ -54,7 +50,7 @@ function filterOptions(rows) {
 }
 
 // Most groups have one event. Only look up a representative when several match the scope.
-const grouped = (/** @type {string} */ selection) => `
+const grouped = (selection: string) => `
   SELECT group_stats.*, member.kind, member.status_id AS status, member.evidence_id AS evidence
   FROM (
     SELECT group_key AS key, MAX(time) AS time, MAX(observed) AS observed, SUM(unseen) AS unseen,
@@ -66,17 +62,15 @@ const grouped = (/** @type {string} */ selection) => `
     FROM ${selection} source GROUP BY group_key
   ) group_stats JOIN activity_members member ON member.event_id=group_stats.representative`;
 
-/** @typedef {ReturnType<typeof parseActivityFilter>} ActivityFilter */
-/** @typedef {{ scope: string, params: SqlValue[], people: boolean }} MemberScope */
+export type ActivityFilter = ReturnType<typeof parseActivityFilter>;
+export type MemberScope = { scope: string; params: SqlValue[]; people: boolean };
 
 /**
  * Member-level WHERE clause shared by the page query and the member lookup.
- * @param {number} maxSequence @param {string[] | undefined} selected @param {string[]} needles @param {string[]} people @returns {MemberScope}
  */
-function memberScope(maxSequence, selected, needles, people) {
+function memberScope(maxSequence: number, selected: string[] | undefined, needles: string[], people: string[]): MemberScope {
   const conditions = ['m.sequence<=?'];
-  /** @type {SqlValue[]} */
-  const params = [maxSequence];
+  const params: SqlValue[] = [maxSequence];
   if (selected) {
     conditions.push(selected.length ? `e.repo_id IN (${selected.map(() => '?').join(',')})` : '0');
     params.push(...selected);
@@ -102,15 +96,13 @@ function memberScope(maxSequence, selected, needles, people) {
   return { scope: conditions.join(' AND '), params, people: people.length > 0 };
 }
 
-/** @param {MemberScope} member @param {ActivityFilter} filter @param {string} view */
-function matchedScope({ scope, params, people }, filter, view) {
+function matchedScope({ scope, params, people }: MemberScope, filter: ActivityFilter, view: string) {
   const rawKind = filter.type === 'kind';
   const selection = rawKind ? 'kind_scope' : 'scoped';
   const kindScope = rawKind ? ', kind_scope AS (SELECT * FROM scoped WHERE kind=?)' : '';
   const visible = view === 'new' ? 'WHERE unseen>0' : '';
   const match = filter.type === 'status' ? 'WHERE status=?' : filter.type === 'evidence' ? 'WHERE evidence=?' : '';
-  /** @type {SqlValue[]} */
-  const queryParams = [...params];
+  const queryParams: SqlValue[] = [...params];
   if (rawKind || match) {
     if (filter.type !== 'all') queryParams.push(filter.id);
   }
@@ -128,9 +120,8 @@ function matchedScope({ scope, params, people }, filter, view) {
 
 /**
  * One statement returns the page of groups (plus one to detect more), per-kind counts and, on the first page, filter choices.
- * @param {MemberScope} member @param {ActivityFilter} filter @param {string} view @param {Position | undefined} position @param {number} pageSize
  */
-function pageQuery(member, filter, view, position, pageSize) {
+function pageQuery(member: MemberScope, filter: ActivityFilter, view: string, position: Position | undefined, pageSize: number) {
   const { sql: cte, params } = matchedScope(member, filter, view);
   const rawKind = filter.type === 'kind';
   const visible = view === 'new' ? 'WHERE unseen>0' : '';
@@ -158,10 +149,14 @@ function pageQuery(member, filter, view, position, pageSize) {
 
 /**
  * Loads and hydrates every event in the selected groups, keyed by group.
- * @param {import('node:sqlite').DatabaseSync} db @param {(row: SqlRow) => ActivityEvent} hydrate
- * @param {MemberScope} member @param {ActivityFilter} filter @param {Group[]} groups
  */
-function loadMembers(db, hydrate, { scope, params }, filter, groups) {
+function loadMembers(
+  db: import('node:sqlite').DatabaseSync,
+  hydrate: (row: SqlRow) => ActivityEvent,
+  { scope, params }: MemberScope,
+  filter: ActivityFilter,
+  groups: Group[],
+) {
   const rawKind = filter.type === 'kind';
   const groupScope = rawKind ? `${scope} AND m.kind=?` : scope;
   const rowParams = rawKind && filter.type === 'kind' ? [...params, filter.id] : params;
@@ -177,8 +172,7 @@ function loadMembers(db, hydrate, { scope, params }, filter, groups) {
         )
         .all(...rowParams, ...groups.map(group => group.key))
     : [];
-  /** @type {Map<string, ActivityEvent[]>} */
-  const members = new Map();
+  const members: Map<string, ActivityEvent[]> = new Map();
   for (const row of raw) {
     const key = String(row.activity_key);
     const rows = members.get(key);
@@ -193,11 +187,9 @@ const PULL_REF = /^refs\/pull\/(\d+)\//;
 /**
  * A CI run on refs/pull/N names no branch. Each such run in the page gets the refs of the newest stored event of
  * that pull request, so a reader sees the source branch without the PR being on the same page. Saved events stay as they are.
- * @param {import('node:sqlite').DatabaseSync} db @param {Iterable<ActivityEvent[]>} groups
  */
-function attachPullRequests(db, groups) {
-  /** @type {Map<string, ActivityEvent[]>} */
-  const runs = new Map();
+function attachPullRequests(db: import('node:sqlite').DatabaseSync, groups: Iterable<ActivityEvent[]>) {
+  const runs: Map<string, ActivityEvent[]> = new Map();
   for (const events of groups)
     for (const event of events) {
       const id = event.kind === 'build' ? PULL_REF.exec(event.branch ?? '')?.[1] : undefined;
@@ -208,7 +200,7 @@ function attachPullRequests(db, groups) {
       else runs.set(key, [event]);
     }
   if (!runs.size) return;
-  const wanted = [...runs.keys()].map(key => /** @type {[string, string]} */ (JSON.parse(key)));
+  const wanted = [...runs.keys()].map(key => JSON.parse(key) as [string, string]);
   const repoIds = [...new Set(wanted.map(([repoId]) => repoId))];
   const ids = [...new Set(wanted.map(([, id]) => id))];
   const rows = db
@@ -238,12 +230,9 @@ function attachPullRequests(db, groups) {
   }
 }
 
-/** @param {CountRow[]} countRows */
-function summarizeCounts(countRows) {
-  /** @type {Record<string, number>} */
-  const counts = {};
-  /** @type {Record<string, number>} */
-  const newCounts = {};
+function summarizeCounts(countRows: CountRow[]) {
+  const counts: Record<string, number> = {};
+  const newCounts: Record<string, number> = {};
   let total = 0,
     newItems = 0,
     newUpdates = 0;
@@ -257,8 +246,7 @@ function summarizeCounts(countRows) {
   return { counts, newCounts, total, newItems, newUpdates };
 }
 
-/** @param {Group | undefined} last @param {number} maxSequence @param {string} filterKey @param {string | undefined} revision */
-function encodeCursor(last, maxSequence, filterKey, revision) {
+function encodeCursor(last: Group | undefined, maxSequence: number, filterKey: string, revision: string | undefined) {
   return last
     ? Buffer.from(
         JSON.stringify({ maxSequence, filterKey, revision, after: { observed: last.observed, time: last.time, key: last.key } }),
@@ -266,23 +254,21 @@ function encodeCursor(last, maxSequence, filterKey, revision) {
     : null;
 }
 
-/**
- * @param {import('node:sqlite').DatabaseSync} db
- * @param {(row: SqlRow) => ActivityEvent} hydrate
- * @param {(repoId: string) => unknown} requireRepo
- * @param {() => string} activityRevision
- */
-export function createActivityQuery(db, hydrate, requireRepo, activityRevision) {
+export function createActivityQuery(
+  db: import('node:sqlite').DatabaseSync,
+  hydrate: (row: SqlRow) => ActivityEvent,
+  requireRepo: (repoId: string) => unknown,
+  activityRevision: () => string,
+) {
   db.function('matches_folded', { deterministic: true, varargs: true }, (text, ...terms) => {
     if (typeof text !== 'string') return 0;
     const folded = foldSearchText(text);
-    return Number(terms.some(term => folded.includes(/** @type {string} */ (term))));
+    return Number(terms.some(term => folded.includes(term as string)));
   });
   db.function('matches_people', { deterministic: true, varargs: true }, (data, enrichment, ...terms) =>
-    Number(matchesPeople(hydrate({ data, enrichment }), /** @type {string[]} */ (terms))),
+    Number(matchesPeople(hydrate({ data, enrichment }), terms as string[])),
   );
-  /** @param {ActivityRequest} input */
-  function readScope({ repoIds, kind = '', search = '', people = '' }) {
+  function readScope({ repoIds, kind = '', search = '', people = '' }: ActivityRequest) {
     if (typeof search !== 'string' || typeof people !== 'string' || typeof kind !== 'string') {
       throw Object.assign(new Error('Invalid activity filter.'), { code: 'BAD_REQUEST' });
     }
@@ -304,8 +290,15 @@ export function createActivityQuery(db, hydrate, requireRepo, activityRevision) 
     return { selected, filter, needles, names };
   }
 
-  /** @param {ActivityRequest} [input] @returns {ActivityPage} */
-  function queryActivity({ repoIds, view = 'all', kind = '', search = '', people = '', limit = 50, cursor } = {}) {
+  function queryActivity({
+    repoIds,
+    view = 'all',
+    kind = '',
+    search = '',
+    people = '',
+    limit = 50,
+    cursor,
+  }: ActivityRequest = {}): ActivityPage {
     if (!['all', 'new'].includes(view)) throw Object.assign(new Error('Invalid activity view.'), { code: 'BAD_REQUEST' });
     const pageSize = Math.max(1, Math.min(Number(limit) || 50, 200));
     const { selected, filter, needles, names } = readScope({ repoIds, kind, search, people });
@@ -324,8 +317,8 @@ export function createActivityQuery(db, hydrate, requireRepo, activityRevision) 
     const member = memberScope(maxSequence, selected, needles, names);
     const query = pageQuery(member, filter, view, position, pageSize);
     const page = db.prepare(query.sql).get(...query.params);
-    const groups = /** @type {Group[]} */ (JSON.parse(String(page?.groups)));
-    const countRows = /** @type {CountRow[]} */ (JSON.parse(String(page?.counts)));
+    const groups = JSON.parse(String(page?.groups)) as Group[];
+    const countRows = JSON.parse(String(page?.counts)) as CountRow[];
     const options = page?.options ? filterOptions(JSON.parse(String(page.options))) : undefined;
     const selectedGroups = groups.slice(0, pageSize);
     const members = loadMembers(db, hydrate, member, filter, selectedGroups);
@@ -335,9 +328,8 @@ export function createActivityQuery(db, hydrate, requireRepo, activityRevision) 
     const nextCursor = groups.length > pageSize ? encodeCursor(selectedGroups.at(-1), maxSequence, filterKey, revision) : null;
     return { items, nextCursor, total, newItems, newUpdates, counts, newCounts, filterOptions: options, asOf: maxSequence };
   }
-  /** @param {ActivityRequest} input */
   // `through` is the snapshot a page was read at, so updates recorded after the user saw the page stay unread.
-  queryActivity.unseenIds = (/** @type {ActivityRequest & { through?: number }} */ input) => {
+  queryActivity.unseenIds = (input: ActivityRequest & { through?: number }) => {
     const { selected, filter, needles, names } = readScope(input);
     const latest = Number(db.prepare('SELECT COALESCE(MAX(sequence),0) AS id FROM activity_members').get()?.id);
     const maxSequence = input.through === undefined ? latest : Math.min(input.through, latest);

@@ -10,14 +10,14 @@ import { existsSync } from 'node:fs';
 import { tmpdir, homedir } from 'node:os';
 import { join } from 'node:path';
 import { chromium, expect } from '@playwright/test';
-import { startApp, createApp } from '../server.js';
+import { startApp, createApp } from '../server.ts';
 import { createStore } from '../server/store.js';
 import { createSync } from '../server/sync.js';
 import { TEST_KEY, rememberKey } from '../test/fixtures/access.js';
 
-/** @typedef {import('../server.js').FoldersResponse} FoldersResponse */
-/** @typedef {import('../server.js').DiscoverResponse} DiscoverResponse */
-/** @typedef {import('../server/repositories.js').DiscoveredRemote} DiscoveredRemote */
+/** @typedef {import('../server.ts').FoldersResponse} FoldersResponse */
+/** @typedef {import('../server.ts').DiscoverResponse} DiscoverResponse */
+/** @typedef {import('../server/repositories.ts').DiscoveredRemote} DiscoveredRemote */
 /** @typedef {import('@playwright/test').Page} Page */
 
 async function browserPath() {

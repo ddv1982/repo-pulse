@@ -5,7 +5,7 @@ import { createHash } from 'node:crypto';
 import { access, realpath, stat } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { promisify } from 'node:util';
-import { hasRemoteCredentials, parseRemote } from './repositories.js';
+import { hasRemoteCredentials, parseRemote } from './repositories.ts';
 import { adviseMissingUpstream, isCommit } from './checkout-advice.js';
 import { branchFollowups, branchProblem, memoryFollowups } from './checkout-branches.js';
 import { isSymbolicRef } from './checkout-delete-guard.cjs';

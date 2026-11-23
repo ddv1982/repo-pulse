@@ -1,19 +1,23 @@
 import { randomBytes } from 'node:crypto';
-import { createApp } from '../server.js';
+import type { AddressInfo } from 'node:net';
+import { createApp, type AppProvider, type AppSync } from '../server.ts';
 import { createStore } from '../server/store.js';
+import type { ActivityEvent } from '../src/activity.ts';
+import type { Repository } from '../src/contract.ts';
 
 const samples = 20;
-const scenarios = [
+const scenarios: { repositories: number; events: number; mixedRuns?: boolean }[] = [
   { repositories: 2, events: 1100 },
   { repositories: 12, events: 25000 },
 ];
 if (process.argv.includes('--large')) scenarios.push({ repositories: 12, events: 75000, mixedRuns: true });
 
-async function measure(scenario) {
+async function measure(scenario: (typeof scenarios)[number]) {
   const store = createStore();
   const ids = Array.from({ length: scenario.repositories }, (_, index) => `repo-${index}`);
-  for (const id of ids) store.saveRepo({ id, name: id });
-  const events = Array.from({ length: scenario.events }, (_, index) => {
+  // The measured reads use only the id and name.
+  for (const id of ids) store.saveRepo({ id, name: id } as Repository);
+  const events = Array.from({ length: scenario.events }, (_, index): ActivityEvent => {
     const run = Math.floor(index / 2);
     const isBuild = scenario.mixedRuns && run % 5 === 0;
     return {
@@ -31,10 +35,11 @@ async function measure(scenario) {
   });
   store.insertEvents(events);
   const accessKey = randomBytes(32).toString('base64url');
-  const app = createApp({ store, provider: {}, sync: { status: () => ({}) }, accessKey });
-  await new Promise(resolve => app.listen(0, '127.0.0.1', resolve));
-  const base = `http://127.0.0.1:${app.address().port}`;
-  const read = async path => {
+  // The measured routes never call the provider or refresh, and the state route reports an empty sync status.
+  const app = createApp({ store, provider: {} as AppProvider, sync: { status: () => ({}) } as AppSync, accessKey });
+  await new Promise<void>(resolve => app.listen(0, '127.0.0.1', resolve));
+  const base = `http://127.0.0.1:${(app.address() as AddressInfo).port}`;
+  const read = async (path: string) => {
     const response = await fetch(base + path, { headers: { 'x-repo-pulse-key': accessKey } });
     if (!response.ok) throw new Error(`Unexpected HTTP status ${response.status}`);
     const body = await response.text();
@@ -51,7 +56,7 @@ async function measure(scenario) {
     },
   };
   try {
-    const result = { ...scenario, samples };
+    const result: Record<string, unknown> = { ...scenario, samples };
     for (const [name, work] of Object.entries(workloads)) {
       for (let warmup = 0; warmup < 3; warmup++) await work();
       const times = [];

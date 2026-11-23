@@ -1,32 +1,42 @@
-// @ts-check
-
-/** @typedef {import('./azure-client.js').AzureProvider} AzureProvider */
+export type AzureProvider = import('./azure-client.js').AzureProvider;
 /** One moved branch of a live push, checked once for commits the new tip no longer reaches. */
-/**
- * @typedef {{ id: string, type: 'rewrite', repoId: string, eventId: string, ref: string, oldObjectId: string,
- *   newObjectId: string, attempts: number, nextAt: string }} RewriteJob
- */
-/** @typedef {import('../src/activity.ts').RewriteResult} RewriteResult */
-/**
- * @typedef {Pick<ReturnType<typeof import('./store.js').createStore>,
- *   'listRepos'|'listJobs'|'saveJob'|'getEvent'|'saveRewriteResult'>} RewriteStore
- */
+export type RewriteJob = {
+  id: string;
+  type: 'rewrite';
+  repoId: string;
+  eventId: string;
+  ref: string;
+  oldObjectId: string;
+  newObjectId: string;
+  attempts: number;
+  nextAt: string;
+};
+export type RewriteResult = import('../src/activity.ts').RewriteResult;
+export type RewriteStore = Pick<
+  ReturnType<typeof import('./store.js').createStore>,
+  'listRepos' | 'listJobs' | 'saveJob' | 'getEvent' | 'saveRewriteResult'
+>;
 
 const ATTEMPTS = 4;
 const RETRY_MS = 60000;
-/** @param {number} ms */
-const iso = ms => new Date(ms).toISOString();
+const iso = (ms: number) => new Date(ms).toISOString();
 
 /**
  * Each tick runs at most one due check, so it is one Azure call.
- * @param {{ store: RewriteStore, provider: Pick<AzureProvider, 'droppedCommits'>, now?: () => number }} options
  */
-export function createRewriteCheck({ store, provider, now = Date.now }) {
+export function createRewriteCheck({
+  store,
+  provider,
+  now = Date.now,
+}: {
+  store: RewriteStore;
+  provider: Pick<AzureProvider, 'droppedCommits'>;
+  now?: () => number;
+}) {
   // A check whose result could not be stored waits here, since a database that refuses writes cannot reschedule it.
-  /** @type {Map<string, { at: number, result?: RewriteResult }>} */
-  const deferred = new Map();
-  /** @returns {Promise<boolean>} whether a check ran */
-  async function tick() {
+  const deferred: Map<string, { at: number; result?: RewriteResult }> = new Map();
+  /** @returns whether a check ran */
+  async function tick(): Promise<boolean> {
     const repos = new Map(
       store
         .listRepos()
@@ -34,7 +44,7 @@ export function createRewriteCheck({ store, provider, now = Date.now }) {
         .map(repo => [repo.id, repo]),
     );
     // Rows of type 'rewrite' are only written by server/normalize.js, as a RewriteJob.
-    const jobs = /** @type {RewriteJob[]} */ (/** @type {unknown} */ (store.listJobs({ type: 'rewrite', dueBefore: iso(now()) })));
+    const jobs = store.listJobs({ type: 'rewrite', dueBefore: iso(now()) }) as unknown as RewriteJob[];
     const job = jobs.find(item => repos.has(item.repoId) && !((deferred.get(item.id)?.at ?? 0) > now()));
     const repo = job && repos.get(job.repoId);
     if (!job || !repo) return false;
@@ -47,7 +57,7 @@ export function createRewriteCheck({ store, provider, now = Date.now }) {
           ? { ref: job.ref, status: 'rewrite', dropped: page.items.length, ...(page.nextCursor ? { more: true } : {}) }
           : { ref: job.ref, status: 'fast-forward' };
       } catch (error) {
-        const code = /** @type {{ code?: unknown }} */ (error)?.code;
+        const code = (error as { code?: unknown })?.code;
         // Shutdown aborted the call, not Azure; the unchanged job resumes on the next start.
         if (code === 'CLOSED') return true;
         const attempts = job.attempts + 1;

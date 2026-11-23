@@ -2,8 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createStore } from '../server/store.js';
 import { createSync } from '../server/sync.js';
-import { createBackfill } from '../server/backfill.js';
-import { createForkOriginCheck, MAX_READS } from '../server/fork-origin.js';
+import { createBackfill } from '../server/backfill.ts';
+import { createForkOriginCheck, MAX_READS } from '../server/fork-origin.ts';
 
 const repo = {
   id: 'one',

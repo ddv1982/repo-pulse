@@ -1,5 +1,5 @@
 // @ts-check
-import { normalizeOrganization, parseRemote, repositoryKey } from './repositories.js';
+import { normalizeOrganization, parseRemote, repositoryKey } from './repositories.ts';
 import { safeAzureUrl } from '../src/events.ts';
 import { cliError } from './azure-cli.js';
 

@@ -10,7 +10,7 @@ import { worstStatus } from '../src/sync-worst.ts';
  * @typedef {{
  *   repos: { id: string, disabled?: boolean }[],
  *   streams: StreamState[],
- *   jobs: (Pick<import('./backfill.js').HistoryJob, 'repoId'|'status'> & Partial<Pick<import('./backfill.js').HistoryJob, 'failures'|'error'|'stream'>>)[],
+ *   jobs: (Pick<import('./backfill.ts').HistoryJob, 'repoId'|'status'> & Partial<Pick<import('./backfill.ts').HistoryJob, 'failures'|'error'|'stream'>>)[],
  *   inProgress: { repoId: string, stream: string }[],
  *   settings: { refreshEnabled: boolean, refreshResumedAt: number | null },
  *   startedAt: number,

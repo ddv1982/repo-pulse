@@ -1,7 +1,7 @@
 import { readdir } from 'node:fs/promises';
 import { execFileSync } from 'node:child_process';
 
-async function check(directory) {
+async function check(directory: string) {
   for (const entry of await readdir(directory, { withFileTypes: true })) {
     // dist/ is compiled output. TypeScript files are left to tsc: node --check rejects type syntax.
     if (entry.name.startsWith('.') || ['node_modules', 'test-results', 'playwright-report', 'dist'].includes(entry.name)) continue;

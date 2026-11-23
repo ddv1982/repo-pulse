@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { browseFolders } from '../server/folders.js';
+import { browseFolders } from '../server/folders.ts';
 
 test('file-picker defaults to projects and returns immediate folders, breadcrumbs and local checkouts', async t => {
   const home = await mkdtemp(join(tmpdir(), 'repo-pulse-picker-'));

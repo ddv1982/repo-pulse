@@ -1,18 +1,18 @@
 // @ts-check
-import { createNormalizer } from './normalize.js';
+import { createNormalizer } from './normalize.ts';
 
-/** @typedef {import('./normalize.js').ActivityKind} ActivityKind */
+/** @typedef {import('./normalize.ts').ActivityKind} ActivityKind */
 /** @typedef {import('./azure-client.js').AzureStream} StreamName */
 /** @typedef {import('./azure-client.js').AzureProvider} AzureProvider */
 /** @typedef {import('./azure-client.js').PageCursor} PageCursor */
 /** @typedef {import('./azure-client.js').AzureRecord} AzureRecord */
-/** @typedef {import('./normalize.js').WatchedRepo} WatchedRepo */
-/** @typedef {import('./normalize.js').NormalizeState} NormalizeState */
-/** @typedef {import('./normalize.js').SyncEvent} SyncEvent */
-/** @typedef {import('./normalize.js').EventDetail} EventDetail */
-/** @typedef {import('./normalize.js').Entity} Entity */
-/** @typedef {import('./normalize.js').RewriteJob} RewriteJob */
-/** @typedef {import('./normalize.js').SyncBatch} SyncBatch */
+/** @typedef {import('./normalize.ts').WatchedRepo} WatchedRepo */
+/** @typedef {import('./normalize.ts').NormalizeState} NormalizeState */
+/** @typedef {import('./normalize.ts').SyncEvent} SyncEvent */
+/** @typedef {import('./normalize.ts').EventDetail} EventDetail */
+/** @typedef {import('./normalize.ts').Entity} Entity */
+/** @typedef {import('./normalize.ts').RewriteJob} RewriteJob */
+/** @typedef {import('./normalize.ts').SyncBatch} SyncBatch */
 /** The time range one read covers. It stays fixed across the pages of that read. */
 /** @typedef {import('../src/contract.ts').StreamWindow} StreamWindow */
 /** @typedef {import('../src/contract.ts').StreamState} StreamState */

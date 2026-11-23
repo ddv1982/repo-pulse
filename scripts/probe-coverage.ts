@@ -1,5 +1,5 @@
 // Read-only probe of the Azure responses the coverage phases in PLAN.md depend on.
-// Usage: node scripts/probe-coverage.js [--db .repo-pulse/live.sqlite] [--out docs/probe-results.md]
+// Usage: node scripts/probe-coverage.ts [--db .repo-pulse/live.sqlite] [--out docs/probe-results.md]
 // Reads the watched repositories from the local database (read-only) and sends GET requests only.
 // The output keeps status codes, field names, counts and latency, and never names, IDs or identities.
 import { execFile } from 'node:child_process';
@@ -8,26 +8,23 @@ import { DatabaseSync } from 'node:sqlite';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { AZURE_DEVOPS_RESOURCE } from '../server/azure-rest.js';
-import { normalizeOrganization } from '../server/repositories.js';
+import { normalizeOrganization } from '../server/repositories.ts';
+import type { AzureRecord } from '../src/contract.ts';
 
 const run = promisify(execFile);
 
-/**
- * @typedef {{ prId?: number, sourceCommit?: string, targetCommit?: string, creations?: { pushId: number, tip: string }[] }} Found
- */
+export type Found = { prId?: number; sourceCommit?: string; targetCommit?: string; creations?: { pushId: number; tip: string }[] };
 const SHA = /^[0-9a-f]{40}$/i;
 
 /**
  * The reads, in order. The per-PR reads use the first active PR the list returned; the fork evidence reads use the
  * branch creation pushes in the push list.
- * @param {{ organization: string, project: string, projectId: string, azureId: string }} repo
- * @param {Found} [found]
  */
-export function probeRequests(repo, found = {}) {
+export function probeRequests(repo: { organization: string; project: string; projectId: string; azureId: string }, found: Found = {}) {
   // The token goes only to an Azure DevOps organization URL the app itself would accept.
   const base = `${normalizeOrganization(repo.organization)}/${encodeURIComponent(repo.project)}/_apis`;
   const git = `${base}/git/repositories/${encodeURIComponent(repo.azureId)}`;
-  const requests = [
+  const requests: { name: string; url: string; tip?: string }[] = [
     { name: 'tag refs', url: `${git}/refs?filter=tags/&peelTags=true&$top=100&api-version=7.1` },
     { name: 'pushes with ref updates', url: `${git}/pushes?searchCriteria.includeRefUpdates=true&$top=100&api-version=7.1` },
     { name: 'active PRs', url: `${git}/pullrequests?searchCriteria.status=active&$top=20&api-version=7.1` },
@@ -63,13 +60,12 @@ export function probeRequests(repo, found = {}) {
 
 /**
  * Pushes that created a branch, newest first, at most three: the push and the revision the branch was created at.
- * @param {any} body @returns {{ pushId: number, tip: string }[]}
  */
-export function creationPushes(body) {
-  const pushes = Array.isArray(body?.value) ? body.value : [];
+export function creationPushes(body: any): { pushId: number; tip: string }[] {
+  const pushes: AzureRecord[] = Array.isArray(body?.value) ? body.value : [];
   return pushes
     .flatMap(push =>
-      (push.refUpdates || [])
+      ((push.refUpdates || []) as AzureRecord[])
         .filter(
           update =>
             String(update.name).startsWith('refs/heads/') && /^0+$/.test(update.oldObjectId ?? '') && SHA.test(update.newObjectId ?? ''),
@@ -112,23 +108,20 @@ const THREAD_TYPES = new Set([
 const THREAD_STATUSES = new Set(['active', 'pending', 'fixed', 'wontFix', 'closed', 'byDesign', 'unknown']);
 const ITERATION_REASONS = new Set(['create', 'push', 'forcePush', 'rebase', 'retarget', 'resolveConflicts', 'unknown']);
 const POLICY_STATUSES = new Set(['queued', 'running', 'approved', 'rejected', 'notApplicable', 'broken']);
-/** @param {unknown[]} values @param {Set<string>} known */
-const named = (values, known) =>
+const named = (values: unknown[], known: Set<string>) =>
   [...new Set(values.filter(Boolean).map(value => (known.has(String(value)) ? String(value) : 'other')))].sort();
 
-/** @param {unknown} value */
-const keys = value => (value && typeof value === 'object' ? Object.keys(value).sort() : []);
+const keys = (value: unknown) => (value && typeof value === 'object' ? Object.keys(value).sort() : []);
 
 /**
  * Field names and counts that answer the plan's questions. Nothing here is a name, ID or identity.
- * @param {string} name @param {any} body @param {{ azureId: string, projectId: string }} repo
- * @param {{ tip?: string }} [context] the revision a creation push created the branch at
+ * @param [context] the revision a creation push created the branch at
  */
-export function summarize(name, body, repo, context = {}) {
+export function summarize(name: string, body: any, repo: { azureId: string; projectId: string }, context: { tip?: string } = {}) {
   if (name === 'created commit')
     return { fields: keys(body), parents: Array.isArray(body?.parents) ? body.parents.length : null, pushFields: keys(body?.push) };
-  const items = Array.isArray(body?.value) ? body.value : [];
-  const facts = { items: items.length, fields: keys(items[0]) };
+  const items: AzureRecord[] = Array.isArray(body?.value) ? body.value : [];
+  const facts: { items: number; fields: string[]; [fact: string]: unknown } = { items: items.length, fields: keys(items[0]) };
   if (name === 'tag refs') {
     facts.peeled = items.filter(ref => ref.peeledObjectId).length;
   } else if (name === 'pushes with ref updates') {
@@ -197,8 +190,7 @@ async function token() {
   return stdout.trim();
 }
 
-/** @param {{ name: string, url: string, method: string }} request @param {string} bearer */
-async function send(request, bearer) {
+async function send(request: { name: string; url: string; method: string }, bearer: string) {
   if (request.method !== 'GET') throw new Error('The probe only sends GET requests.');
   const started = performance.now();
   // A refused token must come back as its HTTP status, not as a redirect to a sign-in page.
@@ -206,12 +198,12 @@ async function send(request, bearer) {
     redirect: 'manual',
     headers: { Authorization: `Bearer ${bearer}`, Accept: 'application/json', 'X-TFS-FedAuthRedirect': 'Suppress' },
   });
-  const body = response.ok ? await response.json().catch(() => undefined) : undefined;
+  const body: AzureRecord = response.ok ? await response.json().catch(() => undefined) : undefined;
   return { status: response.status, ms: Math.round(performance.now() - started), body };
 }
 
 async function main() {
-  const option = (name, fallback) => {
+  const option = (name: string, fallback: string) => {
     const index = process.argv.indexOf(`--${name}`);
     return index === -1 ? fallback : process.argv[index + 1];
   };
@@ -226,14 +218,13 @@ async function main() {
   const lines = [
     '# Coverage probe results',
     '',
-    `Recorded ${new Date().toISOString().slice(0, 10)} by \`scripts/probe-coverage.js\` for ${repos.length} watched repositories. GET requests only. Repositories are numbered; no names, IDs or identities are kept.`,
+    `Recorded ${new Date().toISOString().slice(0, 10)} by \`scripts/probe-coverage.ts\` for ${repos.length} watched repositories. GET requests only. Repositories are numbered; no names, IDs or identities are kept.`,
     '',
     '| Repository | Read | HTTP | ms | Facts |',
     '| --- | --- | --- | --- | --- |',
   ];
   for (const [index, repo] of repos.entries()) {
-    /** @type {Found} */
-    const found = {};
+    const found: Found = {};
     let requests = probeRequests(repo);
     for (let i = 0; i < requests.length; i++) {
       const request = requests[i];
