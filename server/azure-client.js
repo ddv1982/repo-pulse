@@ -3,28 +3,18 @@ import { normalizeOrganization, parseRemote, repositoryKey } from './repositorie
 import { safeAzureUrl } from '../src/events.js';
 import { cliError } from './azure-cli.js';
 
-/** Raw Azure DevOps JSON. Its shape is checked by the code that reads it, not by the compiler. */
-/** @typedef {any} AzureRecord */
-/** The repository fields the client reads. Watched repositories carry more. */
-/** @typedef {{ organization: string, project: string, projectId?: string, azureId: string, webUrl: string }} AzureRepo */
-/** @typedef {'pushes'|'refs'|'prs'|'closedPrs'|'builds'|'activeBuilds'} AzureStream */
-/**
- * Where the next page starts: `skip` for offset-paged reads, `token` for continuation reads.
- * Build reads also keep their coarse window in `from` and `to`.
- * @typedef {{ skip?: number, token?: string, from?: string, to?: string, allRefs?: boolean }} PageCursor
- */
+/** @typedef {import('../src/contract.js').AzureRecord} AzureRecord */
+/** @typedef {import('../src/contract.js').AzureRepo} AzureRepo */
+/** @typedef {import('../src/contract.js').AzureStream} AzureStream */
+/** @typedef {import('../src/contract.js').PageCursor} PageCursor */
 /** `restarted` marks a first page read in place of the saved cursor's page. @typedef {{ items: AzureRecord[], nextCursor: PageCursor | null, restarted?: boolean }} AzurePage */
 /** @typedef {{ since?: string, until?: string, cursor?: PageCursor | null }} ReadOptions */
 /**
  * @typedef {{ id: number, source: string, target: string, sourceId: string, targetId: string,
  *   head?: string, result?: string, strategy?: string, url: string }} CheckoutPull
  */
-/** @typedef {{ status: 'ok'|'failed', checkedAt: string, code?: string, message?: string }} AccessCheck */
-/**
- * @typedef {{ available: boolean, identity: null, identityVerified: boolean, message: string, code?: string,
- *   version?: string, extension?: string, signedIn?: boolean, account?: { name: string },
- *   access?: AccessCheck, capabilities?: { organizationRead: boolean } }} ConnectionStatus
- */
+/** @typedef {import('../src/contract.js').AccessCheck} AccessCheck */
+/** @typedef {import('../src/contract.js').ConnectionStatus} ConnectionStatus */
 /**
  * @typedef {{ id: string, organization: string, project: string, projectId: string, azureId: string,
  *   name: string, webUrl: string, disabled: false }} ResolvedRepository
@@ -34,11 +24,7 @@ import { cliError } from './azure-cli.js';
 /** @typedef {{ run: (args: string[]) => Promise<AzureRecord> }} AzureClientCli */
 /** The provider contract. Sync and backfill type their provider as the subset of it they call. */
 /** @typedef {ReturnType<typeof createAzureClient>} AzureProvider */
-/**
- * What a PR detail shows on request: counts of people's discussion threads and each policy's result.
- * Vote, reviewer and ref-update threads are Azure's own records of other events, so they are not counted.
- * @typedef {{ threads: { open: number, resolved: number }, policies: { name: string, status: string, blocking: boolean }[] }} PullRequestReview
- */
+/** @typedef {import('../src/contract.js').PullRequestReview} PullRequestReview */
 const RESOLVED = new Set(['fixed', 'wontFix', 'closed', 'byDesign']);
 /** @param {unknown} threads @param {unknown} evaluations @returns {PullRequestReview} */
 export function reviewOf(threads, evaluations) {

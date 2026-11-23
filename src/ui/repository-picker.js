@@ -1,9 +1,9 @@
 import { emptyHtml, html } from './format.js';
 import { required, setHtml } from './dom.js';
 
-/** @typedef {import('../../server.js').FoldersResponse} FoldersResponse */
-/** @typedef {import('../../server.js').Repository} Repository */
-/** @typedef {import('../../server/repositories.js').DiscoveredRemote} DiscoveredRemote */
+/** @typedef {import('../contract.js').FoldersResponse} FoldersResponse */
+/** @typedef {import('../contract.js').Repository} Repository */
+/** @typedef {import('../contract.js').DiscoveredRemote} DiscoveredRemote */
 /** A subfolder row, or the row that leads up to the parent folder. @typedef {FoldersResponse['folders'][number] & { up?: boolean }} FolderOption */
 /** One remote of a local checkout: a checkout with several remotes gets one row per remote. @typedef {{ localPath: string, remote: DiscoveredRemote, multiple: boolean }} CheckoutItem */
 /** Whether the listed checkouts span several organizations or projects, so rows must name them. @typedef {{ organizations: boolean, projects: boolean }} Mixed */

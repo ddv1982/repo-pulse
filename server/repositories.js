@@ -5,11 +5,10 @@ import { stat, readdir, realpath } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { homedir } from 'node:os';
 
-/** @typedef {ReturnType<typeof parseRemote>} ParsedRemote */
-/** A Git remote keeps the parsed Azure identity, but `name` is the remote's name and `repoName` the Azure repository. */
-/** @typedef {ParsedRemote} DiscoveredRemote */
-/** @typedef {{ localPath: string, remotes: DiscoveredRemote[] }} DiscoveredCheckout */
-/** @typedef {{ repositories: DiscoveredCheckout[], warnings: string[] }} Discovery */
+/** @typedef {import('../src/contract.js').DiscoveredRemote} ParsedRemote */
+/** @typedef {import('../src/contract.js').DiscoveredRemote} DiscoveredRemote */
+/** @typedef {import('../src/contract.js').DiscoveredCheckout} DiscoveredCheckout */
+/** @typedef {import('../src/contract.js').Discovery} Discovery */
 
 const exec = promisify(execFile);
 const invalid = () => Object.assign(new Error('Use an Azure DevOps Services HTTPS or SSH repository URL.'), { code: 'INVALID_REPOSITORY' });
@@ -63,7 +62,7 @@ function refuseCredentials(url, organization) {
     });
 }
 
-/** @param {unknown} value */
+/** @param {unknown} value @returns {ParsedRemote} */
 export function parseRemote(value) {
   if (typeof value !== 'string' || value.length > 4096 || /[\x00-\x1f]/.test(value)) throw invalid();
   let organization, project, name;

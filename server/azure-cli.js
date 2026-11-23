@@ -12,7 +12,7 @@ import { win32 } from 'node:path';
  * @typedef {(args: string[], options: ExecutorOptions) => Promise<unknown>} Executor
  * @typedef {{ file: string, prefix: string[], env: Record<string, string>, cwd?: string }} AzCommand
  * @typedef {{ args: string[], key: string, resolve: (value: unknown) => void, reject: (reason: unknown) => void }} QueueJob
- * @typedef {{ code: string | undefined, message: string | undefined }} LastError
+ * @typedef {import('../src/contract.js').CliLastError} LastError
  */
 
 const exec = promisify(execFile);
@@ -249,6 +249,7 @@ export function createAzureCli({
       if (!allowed(args)) return Promise.reject(cliError('READ_ONLY', 'This Azure CLI operation is not allowed.'));
       return enqueue(args);
     },
+    /** @returns {import('../src/contract.js').CliDiagnostics} */
     diagnostics() {
       const recent = starts.filter(time => time > now() - 60_000);
       return {

@@ -3,7 +3,7 @@
 import { azureLink, emptyHtml, html, joinHtml } from './format.js';
 
 /** @typedef {import('./checkout.js').CheckoutSnapshot} CheckoutSnapshot */
-/** @typedef {import('../../server/checkout-observations.js').CheckoutDiagnostic} CheckoutDiagnostic */
+/** @typedef {import('../contract.js').CheckoutDiagnostic} CheckoutDiagnostic */
 
 /** @type {Record<string, string | undefined>} */
 const statusLabels = {

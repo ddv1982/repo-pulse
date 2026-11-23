@@ -3,12 +3,9 @@
 import { worstStatus } from '../src/sync-worst.js';
 
 /** @typedef {import('./sync.js').StreamState} StreamState */
-/** @typedef {'paused'|'problem'|'delayed'|'syncing'|'synced'} SyncState */
-/**
- * `since` is the oldest last success across the repository's streams, absent until every stream has read once.
- * @typedef {{ state: SyncState, reason?: string, since?: string, lastCheck?: string, stream?: StreamState['stream'] | 'history' }} SyncStatus
- */
-/** @typedef {(SyncStatus & { repoId: string }) | { state: 'empty' } | { state: 'problem', reason: string }} OverallSyncStatus */
+/** @typedef {import('../src/contract.js').SyncState} SyncState */
+/** @typedef {import('../src/contract.js').SyncStatus} SyncStatus */
+/** @typedef {import('../src/contract.js').OverallSyncStatus} OverallSyncStatus */
 /**
  * @typedef {{
  *   repos: { id: string, disabled?: boolean }[],
@@ -76,7 +73,7 @@ const time = value => Date.parse(value ?? '');
 /**
  * One status per enabled repository, first matching rule wins; overall is the worst of them.
  * @param {SyncStatusInput} input
- * @returns {{ overall: OverallSyncStatus, repos: Record<string, SyncStatus> }}
+ * @returns {import('../src/contract.js').SyncStatusReport}
  */
 export function syncStatus({
   repos,

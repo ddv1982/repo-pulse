@@ -51,13 +51,13 @@ at compile time. Moving from A to B later only touches `staticFile` and the buil
 - [x] Compare against `eslint . --max-warnings=0` on the clean tree; both exit 0
 - [x] Seed one violation per rule (including complexity 31 and an HTML regex in a `.ts` file), show Oxlint reports each, remove the seeds
 - [x] Remove `eslint`, `globals`, `eslint.config.js`; `lint` becomes `oxlint --deny-warnings . && prettier --check .`
-- [ ] CI green on ubuntu and windows (proves the native binary and the alpha JS plugin on Windows)
+- [x] CI green on ubuntu and windows (proves the native binary and the alpha JS plugin on Windows)
 
 ## Phase 1: split the type boundary (code stays JavaScript)
 
-- [ ] Move the server types the browser uses (30 distinct type names from `server.js` and 7 `server/` modules, imported 36 times from 9 `src/` files) into a Node-free `src/contract.js`; repoint the `import()` types in `src/` and `server/`
-- [ ] `tsconfig.base.json` plus `tsconfig.web.json`, `tsconfig.json` (node) and `tsconfig.test.json`, all `noEmit` for now; `check:types` runs all three
-- [ ] Each config reports 0 errors, and `tsc -p tsconfig.web.json --listFilesOnly` lists no `server/` file
+- [x] Move the server types the browser uses (30 distinct type names from `server.js` and 7 `server/` modules, imported 36 times from 9 `src/` files) into a Node-free `src/contract.js`; repoint the `import()` types in `src/` and `server/`
+- [x] `tsconfig.base.json` plus `tsconfig.web.json`, `tsconfig.json` (node) and `tsconfig.test.json`, all `noEmit` for now; `check:types` runs `web` and `node`. `scripts/` stays out of the node config (93 errors when added) until Phase 4, and `tsconfig.test.json` (2,299 errors) joins `check:types` once Phases 5 and 6 bring it to 0
+- [x] `web` and `node` report 0 errors, the `node` program has no DOM lib, and `tsc -p tsconfig.web.json --listFilesOnly` lists no `server/` file
 
 ## Phase 2: TypeScript scaffolding and browser build (no source converted)
 
@@ -82,7 +82,7 @@ at compile time. Moving from A to B later only touches `staticFile` and the buil
 
 ## Phase 4: server and scripts (about 8,200 lines)
 
-- [ ] 4a: lower-risk `server/*` modules, `server.ts`, `scripts/*.ts`; `start`, `demo`, `doctor` point at `.ts`; fix the 92 strict errors `scripts/` surfaces once checked
+- [ ] 4a: lower-risk `server/*` modules, `server.ts`, `scripts/*.ts`; `start`, `demo`, `doctor` point at `.ts`; add `scripts/**` to the node config and fix the 93 strict errors it surfaces
 - [ ] 4b: `server/store`, `sync`, `azure-*` and `checkout-*` to `.ts`, with the full cross-model review `docs/MAINTAINING.md:72` requires for these paths
 - [ ] `server/checkout-delete-guard.cjs` stays CommonJS JavaScript: it is copied as an extensionless Git hook, and Node cannot strip types there (verified)
 - [ ] Audit `new URL(..., import.meta.url)` and dynamic imports for `.js` paths

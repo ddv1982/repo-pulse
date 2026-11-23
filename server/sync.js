@@ -14,19 +14,8 @@ import { createNormalizer } from './normalize.js';
 /** @typedef {import('./normalize.js').RewriteJob} RewriteJob */
 /** @typedef {import('./normalize.js').SyncBatch} SyncBatch */
 /** The time range one read covers. It stays fixed across the pages of that read. */
-/** @typedef {{ since: string, until: string }} StreamWindow */
-/** @typedef {{ code: string, message: string }} StreamError */
-/**
- * Persisted per repository and stream. Optional fields are absent before the first read
- * or after a completed read, which keeps only the fields `completePage` writes. Demo seeds
- * leave `error` out entirely.
- * @typedef {{
- *   repoId: string, stream: StreamName, initialized: boolean, nextAt: string, error?: StreamError|null,
- *   lastAttempt?: string, lastSuccess?: string, pending?: boolean, failures?: number, quietCycles?: number,
- *   window?: StreamWindow, windowGeneration?: number, refreshGeneration?: number, manual?: boolean,
- *   cursor?: PageCursor|null, pendingItems?: AzureRecord[], activeIds?: string[]
- * }} StreamState
- */
+/** @typedef {import('../src/contract.js').StreamWindow} StreamWindow */
+/** @typedef {import('../src/contract.js').StreamState} StreamState */
 /** A stream while a read is in flight: the window and the refresh generation it answers are fixed. */
 /** @typedef {StreamState & { window: StreamWindow, windowGeneration: number, lastAttempt: string, pending: true }} StartedStream */
 /**
@@ -42,8 +31,8 @@ import { createNormalizer } from './normalize.js';
  * }} SyncStore
  */
 /** GET /api/state reports this as `diagnostics.sync`. */
-/** @typedef {ReturnType<ReturnType<typeof createSync>['status']>} SyncStatus */
-/** @typedef {ReturnType<ReturnType<typeof createSync>['refresh']>} RefreshStatus */
+/** @typedef {import('../src/contract.js').SyncEngineStatus} SyncStatus */
+/** @typedef {import('../src/contract.js').RefreshStatus} RefreshStatus */
 /** Sync needs `read`; the active-build and PR follow-ups run only when the provider offers them. */
 /** @typedef {Pick<AzureProvider, 'read'> & Partial<Pick<AzureProvider, 'buildsById'|'pullRequest'>>} SyncProvider */
 /** @typedef {'rewrite'|'history'} BackgroundKind */
@@ -458,7 +447,7 @@ export function createSync({
         if (scheduled) schedule();
       }
     },
-    /** @param {string[]} [repoIds] */
+    /** @param {string[]} [repoIds] @returns {RefreshStatus} */
     refresh(repoIds) {
       const repos = store.listRepos();
       if (repoIds && repoIds.some(id => !repos.some(repo => repo.id === id)))
@@ -483,6 +472,7 @@ export function createSync({
       }
       return { scheduled: true };
     },
+    /** @returns {SyncStatus} */
     status() {
       // The page in flight and unanswered user refreshes are not visible in the persisted streams.
       /** @type {{ repoId: string, stream: StreamName }[]} */

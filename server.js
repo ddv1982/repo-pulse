@@ -30,7 +30,7 @@ import { canOpenBrowser, openBrowser } from './server/open-browser.js';
 /** @typedef {import('./server/azure-client.js').AzureProvider} AzureProvider */
 /** Live mode passes the Azure client; demo mode passes demoProvider, which answers only the routes demo serves. */
 /** @typedef {AzureProvider | typeof demoProvider} AppProvider */
-/** @typedef {{ demo: true, running: false }} DemoSyncStatus */
+/** @typedef {import('./src/contract.js').DemoSyncStatus} DemoSyncStatus */
 /** Demo mode passes a stub, so the app relies only on the two calls both share with createSync, and reset in live mode. */
 /**
  * @typedef {{
@@ -59,46 +59,28 @@ import { canOpenBrowser, openBrowser } from './server/open-browser.js';
  * }} AppOptions
  */
 
-// The JSON each route answers with. src/api.js maps request paths to these types, so the browser
-// modules that read a response are checked against what the handler below produces.
-/** @typedef {import('./server/store.js').Repository} Repository */
-/** @typedef {import('./server/store.js').HydratedEvent} HydratedEvent */
-/** @typedef {{ message: string, code?: string }} ErrorResponse */
-/** @typedef {{ ok: true }} OkResponse */
-/** POST /api/session: the key, given once for the launch token. @typedef {{ key: string }} SessionResponse */
-/**
- * GET /api/state. The settings are only ever written by POST /api/settings.
- * @typedef {{
- *   repos: Repository[],
- *   streams: import('./server/sync.js').StreamState[],
- *   diagnostics: Partial<ReturnType<ReturnType<typeof createAzureCli>['diagnostics']>> & { sync: ReturnType<AppSync['status']> },
- *   jobs: import('./server/backfill.js').HistoryJob[],
- *   activityRevision: string,
- *   savedFilters: import('./server/saved-activity-filters.js').SavedActivityFilter[],
- *   settings: { refreshEnabled: boolean, refreshResumedAt: number | null },
- *   syncStatus: ReturnType<typeof syncStatus>,
- *   demo: boolean,
- * }} StateResponse
- */
-/** GET /api/activity, built by server/activity-query.js. @typedef {import('./src/activity.js').ActivityPage} ActivityResponse */
-/** GET /api/events/:id: the event and every event grouped with it. @typedef {{ event: HydratedEvent, events: HydratedEvent[] }} EventResponse */
-/** GET /api/checkouts: status per enabled repository id, empty in demo mode. */
-/** @typedef {Record<string, import('./server/checkout-git.js').CheckoutStatus>} CheckoutsResponse */
-/** GET /api/repos/:id/checkout/status. @typedef {import('./server/checkout-git.js').CheckoutStatus} CheckoutStatusResponse */
-/** @typedef {ReturnType<typeof createCheckoutGit>} CheckoutGit */
-/** GET /api/repos/:id/checkout/branches. @typedef {{ branches: { name: string, local: boolean }[] }} CheckoutBranchesResponse */
-/** POST /api/repos/:id/checkout. */
-/** @typedef {Awaited<ReturnType<CheckoutGit['update']>> | Awaited<ReturnType<CheckoutGit['branchAction']>> | Awaited<ReturnType<CheckoutGit['switchToActivityBranch']>>} CheckoutUpdateResponse */
-/** GET /api/connection. @typedef {Awaited<ReturnType<AppProvider['checkConnection']>>} ConnectionResponse */
-/** @typedef {{ commitId: string, comment?: string }} PushCommit */
-/** GET /api/push/:repo/:id/commits. @typedef {{ items: PushCommit[], nextCursor: unknown, message?: string }} PushCommitsResponse */
-/** GET /api/pr/:repo/:id/review. @typedef {import('./server/azure-client.js').PullRequestReview & { message?: string }} PrReviewResponse */
-/** POST /api/backfill. @typedef {ReturnType<ReturnType<typeof createBackfill>['start']>} BackfillResponse */
-/** POST /api/refresh. @typedef {{ ok: true, status: ReturnType<AppSync['refresh']> }} RefreshResponse */
-/** POST /api/reset. @typedef {{ started: true }} ResetResponse */
-/** POST /api/discover. @typedef {import('./server/repositories.js').Discovery} DiscoverResponse */
-/** POST /api/folders. @typedef {Awaited<ReturnType<typeof browseFolders>>} FoldersResponse */
-/** POST /api/demo/event. @typedef {ReturnType<typeof addDemoEvent>} DemoEventResponse */
+// The JSON each route answers with is defined in src/contract.js, which src/api.js maps request paths to, so the
+// browser modules that read a response are checked against what the handler below produces.
+/** @typedef {import('./src/contract.js').Repository} Repository */
+/** @typedef {import('./src/contract.js').SessionResponse} SessionResponse */
+/** @typedef {import('./src/contract.js').ErrorResponse} ErrorResponse */
+/** @typedef {import('./src/contract.js').OkResponse} OkResponse */
+/** @typedef {import('./src/contract.js').StateResponse} StateResponse */
+/** @typedef {import('./src/contract.js').ActivityResponse} ActivityResponse */
+/** @typedef {import('./src/contract.js').EventResponse} EventResponse */
+/** @typedef {import('./src/contract.js').CheckoutsResponse} CheckoutsResponse */
+/** @typedef {import('./src/contract.js').CheckoutStatusResponse} CheckoutStatusResponse */
+/** @typedef {import('./src/contract.js').CheckoutBranchesResponse} CheckoutBranchesResponse */
+/** @typedef {import('./src/contract.js').CheckoutUpdateResponse} CheckoutUpdateResponse */
+/** @typedef {import('./src/contract.js').ConnectionResponse} ConnectionResponse */
+/** @typedef {import('./src/contract.js').PushCommitsResponse} PushCommitsResponse */
+/** @typedef {import('./src/contract.js').PrReviewResponse} PrReviewResponse */
+/** @typedef {import('./src/contract.js').BackfillResponse} BackfillResponse */
+/** @typedef {import('./src/contract.js').RefreshResponse} RefreshResponse */
+/** @typedef {import('./src/contract.js').ResetResponse} ResetResponse */
+/** @typedef {import('./src/contract.js').DiscoverResponse} DiscoverResponse */
+/** @typedef {import('./src/contract.js').FoldersResponse} FoldersResponse */
+/** @typedef {import('./src/contract.js').DemoEventResponse} DemoEventResponse */
 
 const ROOT = dirname(fileURLToPath(import.meta.url));
 /** @type {Record<string, string>} */
