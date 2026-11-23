@@ -697,7 +697,9 @@ async function setupPicker(t: TestContext, { existing = true } = {}) {
   const calls = { browse: 0, resolve: 0 };
   const browse = async (input: unknown) => {
     calls.browse++;
-    const path = String(input || '/workspace/projects');
+    const path = input || '/workspace/projects';
+    // The handler passes the request's path through; anything but a string is a regression this fake must not hide.
+    if (typeof path !== 'string') throw new TypeError('browse expects a folder path string');
     if (path === '/missing') throw Object.assign(new Error('This folder cannot be opened. Choose another local folder.'), { status: 400 });
     return {
       path,
