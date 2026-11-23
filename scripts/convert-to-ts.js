@@ -7,7 +7,7 @@
 // 2. points every relative specifier that resolves to a renamed file at the .ts name, in every tracked JS and TS
 //    file: `from '...'`, `import '...'`, `import('...')` and JSDoc `import('...')` types;
 // 3. turns JSDoc into TypeScript in the renamed files with TypeScript 6.0.3's language service (TypeScript 7 has no
-//    JavaScript API): the `convertTypedefToType` and `annotateWithTypeFromJSDoc` fixes (working around two of the
+//    JavaScript API): the `convertTypedefToType` and `annotateWithTypeFromJSDoc` fixes (working around three of the
 //    latter's defects, see arrowEdits, templateEdits and optionalEdits), then JSDoc casts (`/** @type {T} */ (x)` and
 //    `@satisfies`), which TypeScript ignores in a .ts file, become `as` and `satisfies`;
 // 4. exports the top-level type aliases and interfaces, as JSDoc typedefs were, and formats the files with Prettier.
