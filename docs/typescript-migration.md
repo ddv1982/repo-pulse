@@ -112,7 +112,7 @@ Scope depends on **D2**.
 - [x] Remove `allowJs`/`checkJs` and the `.js` include globs; keep the `.cjs` hook checked explicitly: `tsconfig.hook.json` is the only program with `allowJs`/`checkJs` and includes just the hook; the TypeScript importers read `server/checkout-delete-guard.d.cts`, and the hook's exports `@satisfies` that declaration so the two cannot drift (a planted wrong return type fails `check:types`)
 - [x] Delete the codemod script (it loaded TypeScript 6.0.3 through `npx`, so nothing else existed only for it)
 - [x] Update `.js` paths and commands in the living docs: `docs/MAINTAINING.md` (66 references), README (4), `PLAN.md` (2). Leave dated records (`docs/probe-results.md`, `docs/IMPROVEMENT-PLAN.md`, `docs/FULL-COVERAGE-RESEARCH.md`) as written; also rename `.js` file names in comments under `test/` and `e2e/` (`server/`, `src/` and `scripts/` were done in Phase 4b, and `docs/MAINTAINING.md`'s review-tier paths too). Done: 63 in `docs/MAINTAINING.md` (the served URL `/web/theme.js` and idiomorph's upstream `package/dist/idiomorph.esm.js` stay), 2 in `PLAN.md`, none in the README (its `.js` mentions are all "Node.js"), 6 comments under `test/` and `e2e/`, and the HTML-regex lint message; all 45 relative links in the three living docs resolve
-- [ ] Clean-clone `npm ci` plus the full check matrix; no `.js` outside `dist/` and `web/vendor/` except the hook
+- [x] Clean-clone `npm ci` plus the full check matrix; no `.js` outside `dist/` and `web/vendor/` except the hook (local clean clone: `check`, `check:types`, `lint` pass, 470 unit and 85 Chromium tests pass; `git ls-files '*.js' '*.cjs' '*.mjs'` lists only the hook and `web/vendor/idiomorph.esm.js`)
 
 ## Phase 8: stricter compiler flags (one PR each)
 
