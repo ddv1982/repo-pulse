@@ -344,7 +344,7 @@ test('repository history import scopes the confirmed range and keeps progress vi
   for (const [id, name] of [
     ['orders', 'Orders'],
     ['billing', 'Billing'],
-  ])
+  ] satisfies [string, string][])
     store.saveRepo(stub<Repository>({ id, name }));
   const calls: { repoId: string; days: HistoryJob['days'] | undefined }[] = [];
   let failOnce = true;

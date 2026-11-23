@@ -7,9 +7,10 @@ import type { AzureRepo, Repository } from '../../src/contract.ts';
 
 /**
  * A T built from the members a test supplies, like the object literal it replaces. Calling a member left out throws;
- * reading one gives undefined, which the code under test may treat as absent.
+ * reading one gives undefined, which the code under test may treat as absent. A member supplied as undefined reads the
+ * same as one left out.
  */
-export function stub<T>(members: Partial<T>): T {
+export function stub<T>(members: { [K in keyof T]?: T[K] | undefined }): T {
   return members as T;
 }
 

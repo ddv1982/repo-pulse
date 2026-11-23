@@ -529,7 +529,7 @@ test('malformed percent-encoding in route parameters returns 400 and CSP forbids
     ['DELETE', '/api/activity-filters/%E0%A4%A'],
     ['DELETE', '/api/repos/%E0%A4%A'],
     ['GET', '/api/repos/%E0%A4%A/checkout/status'],
-  ]) {
+  ] satisfies [string, string][]) {
     const response = await fetch(url + path, { method });
     assert.equal(response.status, 400, `${method} ${path}`);
   }

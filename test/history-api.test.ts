@@ -60,7 +60,7 @@ test('paged history and deep links reach old unseen activity beyond latest 1000'
 test('historical import endpoint validates repository, range and access key', async t => {
   const store = createStore();
   store.saveRepo(stub<Repository>({ id: 'r', name: 'Repo' }));
-  const starts: { repoId: string; days?: number | 'all' }[] = [];
+  const starts: { repoId: string; days?: number | 'all' | undefined }[] = [];
   const app = createApp({
     store,
     provider,

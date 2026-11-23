@@ -136,11 +136,11 @@ export const followupOf = (checkout: CheckoutStatus) => present(linked(checkout)
  */
 export function outcome(result: ActivitySwitchResult | BranchActionResult): {
   checkout: CheckoutStatus;
-  message?: string;
-  notice?: string;
-  nextStep?: string;
-  review?: Review;
-  switchReview?: ActivitySwitchReview;
+  message?: string | undefined;
+  notice?: string | undefined;
+  nextStep?: string | undefined;
+  review?: Review | undefined;
+  switchReview?: ActivitySwitchReview | undefined;
 } {
   return result;
 }

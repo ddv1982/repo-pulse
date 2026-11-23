@@ -103,7 +103,8 @@ test('branch creation pushes are found from the push list', () => {
 });
 
 test('creation push summaries say where the pushed commits leave the push, without commit IDs', () => {
-  const [a, b, c, base] = ['a', 'b', 'c', 'd'].map(char => char.repeat(40));
+  const sha = (char: string) => char.repeat(40);
+  const [a, b, c, base] = [sha('a'), sha('b'), sha('c'), sha('d')];
   const facts = summarize(
     'creation push commits',
     {
