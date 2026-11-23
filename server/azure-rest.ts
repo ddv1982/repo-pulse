@@ -35,12 +35,12 @@ export function useSystemNetworkSettings(env = process.env) {
 /** Collects `--flag value...` groups. A repeated flag is refused, so this agrees with the allowlist, which reads the first one. */
 function flags(args: string[]) {
   const values: Record<string, string[]> = {};
-  let current: string | undefined;
+  let current: string[] | undefined;
   for (const arg of args) {
     if (arg.startsWith('--')) {
       if (Object.hasOwn(values, arg)) throw refused('Repeated Azure CLI flag.');
-      values[(current = arg)] = [];
-    } else if (current) values[current].push(arg);
+      values[arg] = current = [];
+    } else if (current) current.push(arg);
   }
   return values;
 }
@@ -69,7 +69,7 @@ function requestFor(args: string[]): RestRequest {
   let path;
   if (area === 'git' && resource === 'pullrequestthreads') {
     path = `${segment(route.project)}/_apis/git/repositories/${segment(route.repositoryId)}/pullRequests/${segment(route.pullRequestId)}/threads`;
-  } else if (area === 'git' && ['pushes', 'refs', 'pullrequests', 'commits'].includes(resource)) {
+  } else if (area === 'git' && resource !== undefined && ['pushes', 'refs', 'pullrequests', 'commits'].includes(resource)) {
     path = `${segment(route.project)}/_apis/git/repositories/${segment(route.repositoryId)}/${resource}${route.commitId !== undefined ? `/${segment(route.commitId)}` : ''}`;
   } else if (area === 'build' && resource === 'builds') path = `${segment(route.project)}/_apis/build/builds`;
   else if (area === 'policy' && resource === 'evaluations') path = `${segment(route.project)}/_apis/policy/evaluations`;
@@ -77,7 +77,10 @@ function requestFor(args: string[]): RestRequest {
   else throw refused('Unsupported Azure DevOps read.');
   const url = new URL(`${organization}/${path}`);
   for (const [key, value] of Object.entries(pairs(values['--query-parameters']))) url.searchParams.set(key, value);
-  url.searchParams.set('api-version', values['--api-version']?.[0]);
+  // The allowlist requires --api-version; one with no value is refused rather than sent as "undefined".
+  const apiVersion = values['--api-version']?.[0];
+  if (apiVersion === undefined) throw refused('Unsupported Azure DevOps read.');
+  url.searchParams.set('api-version', apiVersion);
   return { url };
 }
 

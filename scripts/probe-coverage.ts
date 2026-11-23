@@ -205,7 +205,11 @@ async function send(request: { name: string; url: string; method: string }, bear
 async function main() {
   const option = (name: string, fallback: string) => {
     const index = process.argv.indexOf(`--${name}`);
-    return index === -1 ? fallback : process.argv[index + 1];
+    if (index === -1) return fallback;
+    const value = process.argv[index + 1];
+    // A missing value already threw where the option is used; this names the option instead.
+    if (value === undefined) throw new Error(`--${name} needs a value.`);
+    return value;
   };
   const db = new DatabaseSync(option('db', '.repo-pulse/live.sqlite'), { readOnly: true });
   const repos = db
@@ -226,8 +230,10 @@ async function main() {
   for (const [index, repo] of repos.entries()) {
     const found: Found = {};
     let requests = probeRequests(repo);
-    for (let i = 0; i < requests.length; i++) {
+    // The list grows after the first reads, so this reads it by index rather than iterating a copy.
+    for (let i = 0; ; i++) {
       const request = requests[i];
+      if (!request) break;
       const { status, ms, body } = await send(request, bearer);
       if (request.name === 'pushes with ref updates') found.creations = creationPushes(body);
       if (request.name === 'active PRs') {

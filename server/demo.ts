@@ -6,40 +6,39 @@ export type AzureStream = import('./azure-client.ts').AzureStream;
 
 const STREAMS: AzureStream[] = ['pushes', 'refs', 'prs', 'closedPrs', 'builds', 'activeBuilds'];
 const ago = (minutes: number) => new Date(Date.now() - minutes * 60_000).toISOString();
-export const demoRepos = [
-  {
-    id: 'demo-orders',
-    azureId: 'orders',
-    organization: 'https://dev.azure.com/example',
-    project: 'Demo',
-    name: 'orders-api',
-    webUrl: 'https://dev.azure.com/example/Demo/_git/orders-api',
-    disabled: false,
-  },
-  {
-    id: 'demo-billing',
-    azureId: 'billing',
-    organization: 'https://dev.azure.com/example',
-    project: 'Demo',
-    name: 'billing-web',
-    webUrl: 'https://dev.azure.com/example/Demo/_git/billing-web',
-    disabled: false,
-  },
-  {
-    id: 'demo-shared',
-    azureId: 'shared',
-    organization: 'https://dev.azure.com/example',
-    project: 'Demo',
-    name: 'shared-components',
-    webUrl: 'https://dev.azure.com/example/Demo/_git/shared-components',
-    disabled: false,
-  },
-];
+const orders = {
+  id: 'demo-orders',
+  azureId: 'orders',
+  organization: 'https://dev.azure.com/example',
+  project: 'Demo',
+  name: 'orders-api',
+  webUrl: 'https://dev.azure.com/example/Demo/_git/orders-api',
+  disabled: false,
+};
+const billing = {
+  id: 'demo-billing',
+  azureId: 'billing',
+  organization: 'https://dev.azure.com/example',
+  project: 'Demo',
+  name: 'billing-web',
+  webUrl: 'https://dev.azure.com/example/Demo/_git/billing-web',
+  disabled: false,
+};
+const shared = {
+  id: 'demo-shared',
+  azureId: 'shared',
+  organization: 'https://dev.azure.com/example',
+  project: 'Demo',
+  name: 'shared-components',
+  webUrl: 'https://dev.azure.com/example/Demo/_git/shared-components',
+  disabled: false,
+};
+export const demoRepos = [orders, billing, shared];
 
 export function seedDemo(store: Store) {
   if (store.getSetting('demoSeeded', false)) return;
   for (const repo of demoRepos) store.saveRepo(repo);
-  const source = demoRepos[0].webUrl;
+  const source = orders.webUrl;
   const events: DemoEvent[] = [
     {
       id: 'demo-tag-1',
@@ -87,7 +86,7 @@ export function seedDemo(store: Store) {
       time: ago(15),
       summary: 'First discovered in remote refs. Creation time and author were not supplied.',
       data: { evidence: 'refs' },
-      url: demoRepos[2].webUrl,
+      url: shared.webUrl,
     },
     {
       id: 'demo-push-1',
@@ -105,7 +104,7 @@ export function seedDemo(store: Store) {
           { commitId: 'd19e40223ac', comment: 'Cover export retry behavior' },
         ],
       },
-      url: demoRepos[1].webUrl,
+      url: billing.webUrl,
     },
     {
       id: 'demo-build-1',
@@ -138,7 +137,7 @@ export function seedDemo(store: Store) {
           { name: 'Billing reviewers', vote: 0, required: true },
         ],
       },
-      url: `${demoRepos[1].webUrl}/pullrequest/1175`,
+      url: `${billing.webUrl}/pullrequest/1175`,
     },
     {
       id: 'demo-branch-3',
@@ -151,7 +150,7 @@ export function seedDemo(store: Store) {
       summary: 'New remote branch. Its first push already carried new commits.',
       seen: true,
       data: { name: 'refs/heads/fix/export-retry', newObjectId: 'a7c05e9', evidence: 'push' },
-      url: demoRepos[1].webUrl,
+      url: billing.webUrl,
     },
     {
       id: 'demo-pr-2',
@@ -171,7 +170,7 @@ export function seedDemo(store: Store) {
         mergeStrategy: 'squash',
         closedBy: 'Redacted 1',
       },
-      url: `${demoRepos[2].webUrl}/pullrequest/412`,
+      url: `${shared.webUrl}/pullrequest/412`,
     },
     {
       id: 'demo-build-2',
@@ -197,7 +196,7 @@ export function seedDemo(store: Store) {
       summary: 'Add a shared date range picker.',
       seen: true,
       data: { pushId: 97, refUpdates: [{ name: 'refs/heads/feature/date-range', oldObjectId: '1b7d4e2', newObjectId: '6e0f9a3' }] },
-      url: demoRepos[2].webUrl,
+      url: shared.webUrl,
     },
     {
       id: 'demo-push-3',
@@ -243,7 +242,7 @@ export function seedDemo(store: Store) {
           ],
         },
       },
-      url: demoRepos[2].webUrl,
+      url: shared.webUrl,
     },
   ];
   store.insertEvents(events.map(event => ({ observedAt: ago(0), seen: false, imported: false, ...event })));
@@ -282,7 +281,7 @@ export function addDemoEvent(store: Store): ActivityEvent {
     summary: 'A new remote branch was added. This fictional event makes no Azure calls.',
     seen: false,
     imported: false,
-    url: demoRepos[0].webUrl,
+    url: orders.webUrl,
   };
   store.insertEvents([event]);
   return event;

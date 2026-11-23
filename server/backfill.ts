@@ -17,7 +17,7 @@ export type HistoryStore = {
 const DAY = 86400000;
 const WINDOW = 30 * DAY;
 const EARLIEST = Date.parse('2010-01-01T00:00:00Z');
-const STREAMS: HistoryStream[] = ['pushes', 'closedPrs', 'builds'];
+const STREAMS: [HistoryStream, ...HistoryStream[]] = ['pushes', 'closedPrs', 'builds'];
 const iso = (value: number) => new Date(value).toISOString();
 const failure = (message: string, status: number) => Object.assign(new Error(message), { status });
 
@@ -97,8 +97,8 @@ export function createBackfill({
     };
     if (page.nextCursor) return { ...next, cursor: page.nextCursor };
     next.cursor = null;
-    const index = STREAMS.indexOf(job.stream);
-    if (index < STREAMS.length - 1) return { ...next, stream: STREAMS[index + 1] };
+    const following = STREAMS[STREAMS.indexOf(job.stream) + 1];
+    if (following) return { ...next, stream: following };
     next.windowsCompleted++;
     next.coverageStart = window.since;
     const until = Date.parse(window.since),

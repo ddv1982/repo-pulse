@@ -26,14 +26,15 @@ export async function verifyTrackingMapping(
     const newline = entry.indexOf('\n');
     if (newline < 0) return [];
     const remote = entry.slice(7, newline - 6);
-    const [source, destination] = entry
+    // split always returns at least one part.
+    const [source = '', destination] = entry
       .slice(newline + 1)
       .replace(/^\+/, '')
       .split(':');
     return [{ remote, source, destination }];
   });
-  const forwards = mappings.filter(
-    ({ remote, source, destination }) => remote === target.remote && destination && matchRef(source, target.source) !== null,
+  const forwards = mappings.flatMap(({ remote, source, destination }) =>
+    remote === target.remote && destination && matchRef(source, target.source) !== null ? [{ source, destination }] : [],
   );
   const excluded = mappings.some(
     ({ remote, source }) => remote === target.remote && source.startsWith('^') && matchRef(source.slice(1), target.source) !== null,

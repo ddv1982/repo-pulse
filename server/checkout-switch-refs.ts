@@ -28,7 +28,8 @@ export async function readDirectCommit(run: GitRunner, path: string, ref: string
     if (await readRef(run, path, ref)) throw branchProblem('The Git ref changed while it was being read. Try again.');
     return null;
   }
-  const [, oid, symbolic, type] = sample;
+  // isCommit refuses '' as it refuses a missing field.
+  const [, oid = '', symbolic, type] = sample;
   if (symbolic) throw branchProblem('The tracking ref is symbolic. Review it in Git.');
   if (!isCommit(oid) || type !== 'commit') {
     throw branchProblem('The tracking ref does not point to a commit. Review it in Git.');
@@ -106,9 +107,9 @@ export async function archivedSwitchRewrite(run: GitRunner, path: string, repo: 
   const tracked = await readDirectCommit(run, path, target.tracking);
   if (!tracked || head === tracked) return undefined;
   for (const row of output.trim().split('\n')) {
-    const [old, ref, symbolic] = row.trim().split(' ');
+    const [old = '', ref, symbolic] = row.trim().split(' ');
     if (symbolic || !isCommit(old) || !ref?.startsWith(prefix)) continue;
-    const [next, archived] = ref.slice(prefix.length).split('/');
+    const [next = '', archived] = ref.slice(prefix.length).split('/');
     if (!isCommit(next) || archived !== old) continue;
     const baseline = await ancestry(run, path, old, tracked);
     if (baseline === true) continue;

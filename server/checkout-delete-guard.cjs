@@ -14,7 +14,8 @@ const exec = promisify(execFile);
 async function worktreeUsesBranch(run, path, ref) {
   const entries = (await run(path, ['worktree', 'list', '--porcelain', '-z'])).split('\0\0');
   for (const entry of entries) {
-    const [header, ...fields] = entry.split('\0');
+    // split always returns at least one part.
+    const [header = '', ...fields] = entry.split('\0');
     if (fields.includes(`branch ${ref}`)) return true;
     if (!fields.includes('detached')) continue;
     const checkout = header.slice('worktree '.length);

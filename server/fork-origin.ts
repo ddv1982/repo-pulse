@@ -101,19 +101,27 @@ export function createForkOriginCheck({
     return { ...job, base, checks, on: [], notOn: [] };
   }
 
+  /** A job with a base always has a candidate left: fromBase settles one with none, and answer settles the last. */
+  function currentCheck(job: ForkJob) {
+    const [check] = job.checks ?? [];
+    if (!check) throw new TypeError('A fork job with a base has no candidate to check.');
+    return check;
+  }
+
   async function step(job: ForkJob, repo: import('./azure-client.ts').AzureRepo): Promise<ForkJob | ForkOrigin> {
     if (!job.base) {
       const commit = await provider.commit(repo, job.at);
       // The first commit an earlier push brought is where the branch started. Without a push order there is no base.
       if (commit.pushId === null || commit.pushId > job.pushId) return { status: 'unknown' };
       if (commit.pushId < job.pushId) return fromBase(job, job.at);
-      if (commit.parents.length === 0) return { status: 'orphan' };
-      if (commit.parents.length > 1) return { status: 'merge' };
+      const [parent, ...others] = commit.parents;
+      if (parent === undefined) return { status: 'orphan' };
+      if (others.length) return { status: 'merge' };
       if (job.reads + 1 >= MAX_READS) return { status: 'unknown' };
-      return { ...job, at: commit.parents[0], reads: job.reads + 1 };
+      return { ...job, at: parent, reads: job.reads + 1 };
     }
     // Nothing the base reaches is missing from the candidate's tip, so the candidate already held the base.
-    const page = await provider.droppedCommits(repo, job.base, (job.checks ?? [])[0].tip);
+    const page = await provider.droppedCommits(repo, job.base, currentCheck(job).tip);
     return answer(job, page.items.length ? 'notOn' : 'on');
   }
 
@@ -122,8 +130,8 @@ export function createForkOriginCheck({
    * whose read failed is `unanswered`, so a single match next to it is not called the only one.
    */
   function answer(job: ForkJob, list: 'on' | 'notOn' | 'unanswered'): ForkJob | ForkOrigin {
-    const [check, ...rest] = job.checks ?? [];
-    const next = { ...job, checks: rest, [list]: [...(job[list] ?? []), check.ref] };
+    const [, ...rest] = job.checks ?? [];
+    const next = { ...job, checks: rest, [list]: [...(job[list] ?? []), currentCheck(job).ref] };
     if (rest.length) return next;
     const base = job.base as string,
       { on = [], notOn = [], unanswered = [] } = next;

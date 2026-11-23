@@ -10,7 +10,9 @@ const option = <T>(name: string, fallback: T) => {
   const index = process.argv.indexOf(`--${name}`);
   return index === -1 ? fallback : process.argv[index + 1];
 };
-const repoCounts = option('repos', '1,5,10,20').split(',').map(Number);
+const repoOption = option('repos', '1,5,10,20');
+if (repoOption === undefined) throw new Error('--repos needs a value.');
+const repoCounts = repoOption.split(',').map(Number);
 const pushesPerHour = Number(option('pushes-per-hour', 4));
 const callMs = Number(option('call-ms', 1500));
 const minutes = Number(option('minutes', 60));
@@ -28,9 +30,10 @@ function simulate(repoTotal: number) {
   let calls = 0;
   // One process-wide queue: wait for a free slot in the sliding minute, then spend the call's duration.
   function charge() {
-    while (starts.length && starts[0] <= time - 60000) starts.shift();
-    if (starts.length >= LIMIT_PER_MINUTE) {
-      time = starts[0] + 60000;
+    while (starts[0] !== undefined && starts[0] <= time - 60000) starts.shift();
+    const [oldest] = starts;
+    if (oldest !== undefined && starts.length >= LIMIT_PER_MINUTE) {
+      time = oldest + 60000;
       starts.shift();
     }
     starts.push(time);
@@ -82,10 +85,11 @@ function simulate(repoTotal: number) {
       const resource = args[args.indexOf('--resource') + 1]?.toLowerCase();
       const query = pairs(args, '--query-parameters'),
         route = pairs(args, '--route-parameters');
-      const repoPushes = pushes.get(route.repositoryId) || [];
+      const repoPushes = pushes.get(route.repositoryId ?? '') || [];
       if (resource === 'pushes') {
-        const from = Date.parse(query['searchCriteria.fromDate']),
-          to = Date.parse(query['searchCriteria.toDate']);
+        // A missing date parses to NaN either way.
+        const from = Date.parse(query['searchCriteria.fromDate'] ?? ''),
+          to = Date.parse(query['searchCriteria.toDate'] ?? '');
         const visible = repoPushes
           .filter(push => Date.parse(push.date) >= from && Date.parse(push.date) <= to && Date.parse(push.date) <= time)
           .reverse();
@@ -94,7 +98,7 @@ function simulate(repoTotal: number) {
       }
       if (resource === 'refs') {
         const latest = repoPushes.filter(push => Date.parse(push.date) <= time).at(-1);
-        return { value: [{ name: 'refs/heads/main', objectId: latest?.refUpdates[0].newObjectId || sha(`${route.repositoryId}:root`) }] };
+        return { value: [{ name: 'refs/heads/main', objectId: latest?.refUpdates[0]?.newObjectId || sha(`${route.repositoryId}:root`) }] };
       }
       return { value: [] };
     },
@@ -103,11 +107,11 @@ function simulate(repoTotal: number) {
   // Per-PR reads are spread evenly over their interval and share the queue with every other read.
   const prDue = Array.from({ length: repoTotal * activePrs }, (_, i) => start + (prEveryMs * i) / (repoTotal * activePrs || 1));
   function prReads() {
-    for (let i = 0; i < prDue.length; i++) {
-      if (prDue[i] > time) continue;
+    for (const [i, due] of prDue.entries()) {
+      if (due > time) continue;
       charge();
       charge();
-      prDue[i] += prEveryMs;
+      prDue[i] = due + prEveryMs;
     }
   }
 
@@ -149,7 +153,7 @@ function simulate(repoTotal: number) {
 function percentile(values: number[], p: number) {
   if (!values.length) return null;
   const sorted = [...values].sort((a, b) => a - b);
-  return sorted[Math.min(sorted.length - 1, Math.ceil(p * sorted.length) - 1)];
+  return sorted[Math.min(sorted.length - 1, Math.ceil(p * sorted.length) - 1)] ?? null;
 }
 const minutesOf = (ms: number | null) => (ms === null ? 'n/a' : (ms / 60000).toFixed(1));
 

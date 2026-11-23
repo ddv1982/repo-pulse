@@ -221,7 +221,8 @@ export function branchFollowups({
     // Offer only a linear continuation of the recorded PR source.
     let parent = plan.recordedSource;
     for (let index = 0; index + 2 < fields.length; index += 3) {
-      const [id, parents, subject] = fields.slice(index, index + 3);
+      // The loop bound leaves three fields, so the defaults never apply.
+      const [id = '', parents, subject = ''] = fields.slice(index, index + 3);
       if (!isCommit(id) || parents !== parent) return { kind: 'local-followup', canRemove };
       commits.push({ id, subject: subject.slice(0, 160) });
       parent = id;

@@ -52,7 +52,7 @@ export type GitRunner = (
 
 const exec = promisify(execFile);
 const problem = (message: string, status = 409) => Object.assign(new Error(message), { status });
-const operations = [
+const operations: [marker: string, label: string][] = [
   ['rebase-merge', 'Rebase'],
   ['rebase-apply/applying', 'Patch apply'],
   ['rebase-apply', 'Rebase'],
@@ -349,8 +349,11 @@ export function createCheckoutGit({
       // NUL-separated pairs of scope and key, so a subsection with a tab or newline stays one key.
       const listing = await run(folder, ['config', '--show-scope', '--includes', '--name-only', '--null', '--list'], { guard: offline });
       const fields = listing.split('\0');
-      for (let i = 0; i + 1 < fields.length; i += 2)
-        if ((fields[i] === 'local' || fields[i] === 'worktree') && commandKeys.test(fields[i + 1])) keys.add(fields[i + 1]);
+      for (let i = 0; i + 1 < fields.length; i += 2) {
+        // The loop bound leaves two fields, so the default never applies.
+        const [scope, key = ''] = fields.slice(i, i + 2);
+        if ((scope === 'local' || scope === 'worktree') && commandKeys.test(key)) keys.add(key);
+      }
       if (keys.size) return;
       // Gitlinks come from the index, like the ones status descends into; .gitmodules may not list them all.
       const index = await run(folder, ['ls-files', '--stage', '-z'], { guard: offline, maxBuffer: 256 * 1024 * 1024 });
@@ -424,7 +427,8 @@ export function createCheckoutGit({
     // Git would receive the URL on its command line, where other local users can read it.
     if (urls.some(hasRemoteCredentials)) return { target: null, passwordInUrl: true };
     const tracking = `refs/remotes/${remote}/${source.slice(11)}`;
-    return { target: urls.length === 1 && matchesRemote(urls[0], repo) ? { remote, source, tracking, url: urls[0] } : null };
+    const [url, ...others] = urls;
+    return { target: url !== undefined && !others.length && matchesRemote(url, repo) ? { remote, source, tracking, url } : null };
   }
 
   /** Finds an in-progress Git operation and a stable identity for the Git directory. */

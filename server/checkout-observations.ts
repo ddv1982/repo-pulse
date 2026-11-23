@@ -42,7 +42,8 @@ export async function compareUpstream(run: GitRunner, path: string, previous: st
   const parts = output.split('\0');
   const commits: Rewrite['commits'] = [];
   for (let i = 0; i + 2 < parts.length && commits.length < 12; i += 3) {
-    const [side, id, subject] = parts.slice(i, i + 3);
+    // The loop bound leaves three fields, so the defaults never apply.
+    const [side, id = '', subject = ''] = parts.slice(i, i + 3);
     if ((side === '<' || side === '>') && /^[0-9a-f]{4,64}$/.test(id)) {
       commits.push({ side: side === '<' ? 'old' : 'new', id, subject: subject.slice(0, 160) });
     }
