@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import type { SpawnOptions, spawn } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 import { mkdtemp, readFile, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -7,10 +8,15 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { browserOpener, canOpenBrowser, openBrowser } from '../server/open-browser.ts';
 
-const fakeSpawn = calls => (file, args, options) => {
-  calls.push({ file, args, options });
-  return Object.assign(new EventEmitter(), { unref() {} });
-};
+type SpawnCall = { file: string; args: readonly string[]; options: SpawnOptions };
+/** A spawn stand-in: openBrowser only listens for the child's `error` and unrefs it. */
+const asSpawn = (fake: (...call: [file: string, args: readonly string[], options: SpawnOptions]) => EventEmitter & { unref(): void }) =>
+  fake as typeof spawn;
+const fakeSpawn = (calls: SpawnCall[]) =>
+  asSpawn((file, args, options) => {
+    calls.push({ file, args, options });
+    return Object.assign(new EventEmitter(), { unref() {} });
+  });
 
 test('each platform has an opener that takes the URL as one argument', () => {
   assert.deepEqual(browserOpener('darwin'), ['open', []]);
@@ -30,7 +36,7 @@ test('on Linux the opener gets a unique owner-only page, not the launch link, an
   const dataDir = await mkdtemp(join(tmpdir(), 'repo-pulse-open-'));
   t.after(() => rm(dataDir, { recursive: true, force: true }));
   const url = 'http://127.0.0.1:1234/#launch=secret-token';
-  const calls = [];
+  const calls: SpawnCall[] = [];
   const remove = await openBrowser(url, { dataDir, platform: 'linux', spawn: fakeSpawn(calls) });
   const second = await openBrowser(url, { dataDir, platform: 'linux', spawn: fakeSpawn(calls) });
   assert.equal(calls.length, 2);
@@ -52,7 +58,7 @@ test('on Linux the opener gets a unique owner-only page, not the launch link, an
 });
 
 test('Windows hands the launch link to the opener directly; macOS gets the private page like Linux', async t => {
-  const calls = [];
+  const calls: SpawnCall[] = [];
   await openBrowser('http://127.0.0.1:1234/#launch=abc', { dataDir: '/nonexistent', platform: 'win32', spawn: fakeSpawn(calls) });
   assert.deepEqual(
     calls.map(({ file, args }) => [file, args]),
@@ -68,7 +74,7 @@ test('Windows hands the launch link to the opener directly; macOS gets the priva
 });
 
 test('a page that cannot be written, or a missing opener, never throws', async t => {
-  const calls = [];
+  const calls: SpawnCall[] = [];
   const remove = await openBrowser('http://127.0.0.1:1/', {
     dataDir: '/nonexistent/repo-pulse',
     platform: 'linux',
@@ -83,9 +89,9 @@ test('a page that cannot be written, or a missing opener, never throws', async t
     queueMicrotask(() => child.emit('error', Object.assign(new Error('spawn xdg-open ENOENT'), { code: 'ENOENT' })));
     return child;
   };
-  await openBrowser('http://127.0.0.1:1/', { dataDir, platform: 'linux', spawn: failing });
+  await openBrowser('http://127.0.0.1:1/', { dataDir, platform: 'linux', spawn: asSpawn(failing) });
   const throwing = () => {
     throw new Error('no such program');
   };
-  await openBrowser('http://127.0.0.1:1/', { dataDir, platform: 'linux', spawn: throwing });
+  await openBrowser('http://127.0.0.1:1/', { dataDir, platform: 'linux', spawn: asSpawn(throwing) });
 });

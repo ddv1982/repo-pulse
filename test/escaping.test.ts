@@ -1,4 +1,3 @@
-// @ts-check
 // Every text field that reaches the page from Azure DevOps or Git is set to a probe tag. A field that reaches the
 // markup without escape() leaves a raw `<x-` in the output, also when the view cut it short or serialized it first.
 // Each view lists the fields it shows escaped, and pins the escaped form of every value it cuts or serializes at the
@@ -12,42 +11,42 @@ import { join } from 'node:path';
 import { groupActivity } from '../src/activity.ts';
 import { SafeHtml, html as safeHtml, joinHtml } from '../src/ui/format.ts';
 import { setHtml } from '../src/ui/dom.ts';
-import { parse } from './fixtures/dom.js';
+import { parse } from './fixtures/dom.ts';
+import { present, stub } from './fixtures/typed.ts';
 import { renderFeed, renderDetail } from '../src/ui/feed.ts';
 import { renderRepositories } from '../src/ui/repositories.ts';
 import { renderSettings } from '../src/ui/settings.ts';
 import { renderHeader } from '../src/ui/header.ts';
 import { renderCheckout } from '../src/ui/checkout-render.ts';
 
-/** @typedef {import('../src/activity.ts').ActivityEvent} ActivityEvent */
-/** @typedef {import('../src/ui/refresh.ts').PageState} PageState */
-/** @typedef {import('../src/ui/refresh.ts').Repo} Repo */
-/** @typedef {import('../src/ui/checkout.ts').CheckoutSnapshot} CheckoutSnapshot */
-/** @typedef {import('../src/ui/connection.ts').ConnectionState} ConnectionState */
-/** @typedef {import('../src/ui/connection.ts').ConnectionStatus} ConnectionStatus */
-/** @typedef {import('../src/ui/activity-detail.ts').CommitsView} CommitsView */
-/** A transformed value and the exact escaped markup expected where it is rendered. @typedef {{ field: string, html: string }} Sink */
-/** @typedef {{ render: () => string[], shows: string[], sinks: Sink[] }} View */
+export type ActivityEvent = import('../src/activity.ts').ActivityEvent;
+export type PageState = import('../src/ui/refresh.ts').PageState;
+export type Repo = import('../src/ui/refresh.ts').Repo;
+export type CheckoutSnapshot = import('../src/ui/checkout.ts').CheckoutSnapshot;
+export type ConnectionState = import('../src/ui/connection.ts').ConnectionState;
+export type ConnectionStatus = import('../src/ui/connection.ts').ConnectionStatus;
+export type CommitsView = import('../src/ui/activity-detail.ts').CommitsView;
+/** A transformed value and the exact escaped markup expected where it is rendered. */
+export type Sink = { field: string; html: string };
+export type View = { render: () => (string | SafeHtml)[]; shows: string[]; sinks: Sink[] };
 
 // themeSwitch() in the header reads the theme that web/theme.js puts on window.
 Object.assign(globalThis, { window: globalThis });
 
-/** @param {string} field */
-const probe = field => `<x-probe a="${field}">`;
-/** A field the server sends but no view displays. It is still scanned for raw output, but no view must show it. @param {string} field */
-const hidden = field => `<x-hidden a="${field}">`;
-/** An Azure URL whose query holds a probe. URL parsing percent-encodes it, so it is never shown escaped. @param {string} field */
-const url = field => `https://dev.azure.com/org/project/_git/repo?x=${hidden(field)}`;
-/** The escaped form expected in markup, written independently of the escape() under test. @param {string} value */
-const html = value =>
+const probe = (field: string) => `<x-probe a="${field}">`;
+/** A field the server sends but no view displays. It is still scanned for raw output, but no view must show it. */
+const hidden = (field: string) => `<x-hidden a="${field}">`;
+/** An Azure URL whose query holds a probe. URL parsing percent-encodes it, so it is never shown escaped. */
+const url = (field: string) => `https://dev.azure.com/org/project/_git/repo?x=${hidden(field)}`;
+/** The escaped form expected in markup, written independently of the escape() under test. */
+const html = (value: string) =>
   value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
-/** The field a probe names, for failure messages. @param {string} value */
-const fieldOf = value => value.match(/<x-\w+ a="([^"]*)">/)?.[1] ?? value;
+/** The field a probe names, for failure messages. */
+const fieldOf = (value: string) => value.match(/<x-\w+ a="([^"]*)">/)?.[1] ?? value;
 const zero = '0000000000000000000000000000000000000000';
 const time = '2026-11-17T10:00:00Z';
 
-/** @type {Repo} */
-const repo = {
+const repo: Repo = {
   id: probe('repo.id'),
   name: probe('repo.name'),
   project: probe('repo.project'),
@@ -57,18 +56,16 @@ const repo = {
   // Repositories shows a path under the home folder as ~/…, so this path is rewritten before it is escaped.
   localPath: `/home/someone/${probe('repo.localPath')}`,
 };
-/** @type {Repo} */
-const disabledRepo = { ...repo, id: probe('disabledRepo.id'), name: probe('disabledRepo.name'), disabled: true };
+const disabledRepo: Repo = { ...repo, id: probe('disabledRepo.id'), name: probe('disabledRepo.name'), disabled: true };
 
-/** @type {ActivityEvent[]} */
-const events = [
+const events: ActivityEvent[] = [
   // The grouped build shows its newest event, so the queued event's own text is never displayed.
   ...['queued', 'running'].map((status, index) => {
     const text = status === 'running' ? probe : hidden;
     return {
       id: text(`build.${status}.id`),
       repoId: repo.id,
-      kind: /** @type {const} */ ('build'),
+      kind: 'build' as const,
       time: `2026-11-17T10:0${index}:00Z`,
       observedAt: `2026-11-17T10:0${index}:00Z`,
       title: text(`build.${status}.title`),
@@ -174,16 +171,13 @@ const events = [
 ];
 const [, running, , pr, push, , newBranchPush] = events;
 
-/** @param {string} field */
-const streamError = field => ({ code: 'FAILED', message: probe(field) });
-/** @type {PageState['streams']} */
-const streams = [
+const streamError = (field: string) => ({ code: 'FAILED', message: probe(field) });
+const streams: PageState['streams'] = [
   { repoId: repo.id, stream: 'pushes', initialized: true, nextAt: time, lastSuccess: time, error: streamError('stream.pushes.error') },
   { repoId: repo.id, stream: 'prs', initialized: true, nextAt: time, error: streamError('stream.prs.error') },
 ];
 
-/** @param {PageState['activity']} activity @returns {PageState} */
-function pageState(activity) {
+function pageState(activity: PageState['activity']): PageState {
   return {
     repos: [repo],
     watched: [repo, disabledRepo],
@@ -198,7 +192,7 @@ function pageState(activity) {
       lastError: { code: 'FAILED', message: hidden('diagnostics.lastError.message') },
     },
     jobs: [
-      /** @type {import('../server/backfill.ts').HistoryJob} */ ({
+      {
         id: 'job',
         type: 'backfill',
         repoId: repo.id,
@@ -206,7 +200,7 @@ function pageState(activity) {
         pages: 2,
         lastProgressAt: time,
         error: { code: 'FAILED', message: probe('job.error.message') },
-      }),
+      } as import('../server/backfill.ts').HistoryJob,
     ],
     syncStatus: {
       overall: { state: 'problem', reason: probe('syncStatus.overall.reason'), stream: 'pushes', repoId: repo.id },
@@ -227,8 +221,8 @@ const activity = {
   filterOptions: [probe('activity.filterOption')],
 };
 const state = pageState(activity);
-/** Delayed shows its reason in the pill text rather than only in the title. @type {PageState} */
-const delayed = {
+/** Delayed shows its reason in the pill text rather than only in the title. */
+const delayed: PageState = {
   ...state,
   syncStatus: {
     overall: { state: 'delayed', reason: probe('syncStatus.delayed.reason'), repoId: repo.id },
@@ -236,8 +230,7 @@ const delayed = {
   },
 };
 
-/** @param {string} field @param {string} branch @returns {import('../server/checkout-advice.ts').PullAdvice} */
-const advice = (field, branch) => ({
+const advice = (field: string, branch: string): import('../server/checkout-advice.ts').PullAdvice => ({
   branch,
   id: 12,
   url: url(`${field}.url`),
@@ -247,8 +240,8 @@ const advice = (field, branch) => ({
   receipt: { target: hidden(`${field}.receipt.target`), result: hidden(`${field}.receipt.result`) },
   destination: 'local',
 });
-/** A checkout that can switch shows the switch button instead of the message and suggestion. @param {string} name @param {boolean} canSwitch */
-const diagnostic = (name, canSwitch) => {
+/** A checkout that can switch shows the switch button instead of the message and suggestion. */
+const diagnostic = (name: string, canSwitch: boolean) => {
   const blockedText = canSwitch ? hidden : probe;
   return {
     title: probe(`${name}.diagnostic.title`),
@@ -261,7 +254,7 @@ const diagnostic = (name, canSwitch) => {
       verified: false,
       commits: [
         {
-          side: /** @type {const} */ ('old'),
+          side: 'old' as const,
           id: probe(`${name}.diagnostic.comparison.commits.id`),
           subject: probe(`${name}.diagnostic.comparison.commits.subject`),
         },
@@ -269,8 +262,7 @@ const diagnostic = (name, canSwitch) => {
     },
   };
 };
-/** @param {string} name @param {Partial<CheckoutSnapshot>} [fields] @returns {CheckoutSnapshot} */
-const reading = (name, fields = {}) => ({
+const reading = (name: string, fields: Partial<CheckoutSnapshot> = {}): CheckoutSnapshot => ({
   state: 'upstream-missing',
   canCheck: true,
   canPull: false,
@@ -287,8 +279,7 @@ const reading = (name, fields = {}) => ({
   ...fields,
 });
 
-/** @type {Record<string, CheckoutSnapshot>} */
-const checkouts = {
+const checkouts: Record<string, CheckoutSnapshot> = {
   // A clean checkout whose PR is recorded locally can switch, which shows the switch button.
   switchable: reading('switchable', { diagnostic: diagnostic('switchable', true) }),
   // Local changes block the switch, which shows the message and suggestion instead.
@@ -315,10 +306,9 @@ const checkouts = {
   detached: reading('detached', { state: 'detached', branch: '', head: probe('detached.head') }),
 };
 
-/** @param {string} name @param {string[]} [unshown] fields the view rendering this status does not display @returns {ConnectionStatus} */
-const connection = (name, unshown = []) => {
-  /** @param {string} field */
-  const text = field => (unshown.includes(field) ? hidden : probe)(`${name}.${field}`);
+/** @param [unshown] fields the view rendering this status does not display */
+const connection = (name: string, unshown: string[] = []): ConnectionStatus => {
+  const text = (field: string) => (unshown.includes(field) ? hidden : probe)(`${name}.${field}`);
   return {
     available: false,
     identity: null,
@@ -329,8 +319,13 @@ const connection = (name, unshown = []) => {
     account: { name: text('account.name') },
   };
 };
-/** @param {Partial<ConnectionState>} fields @returns {ConnectionState} */
-const connectionState = fields => ({ results: new Map(), local: null, pending: null, repoId: repo.id, ...fields });
+const connectionState = (fields: Partial<ConnectionState>): ConnectionState => ({
+  results: new Map(),
+  local: null,
+  pending: null,
+  repoId: repo.id,
+  ...fields,
+});
 const settingsConnections = [
   // A reachable CLI shows the repository check's message rather than its own.
   connectionState({
@@ -351,26 +346,30 @@ const settingsConnections = [
 ];
 const pickerConnection = connection('pickerConnection', ['version', 'extension']);
 
-/** @type {CommitsView[]} */
-const commitViews = [
-  { items: [{ commitId: probe('pushCommits.commitId'), comment: probe('pushCommits.comment') }], nextCursor: null },
-  { error: probe('pushCommits.error') },
-];
+const pushCommits = {
+  items: [{ commitId: probe('pushCommits.commitId'), comment: probe('pushCommits.comment') }],
+  nextCursor: null,
+} satisfies CommitsView;
+const commitViews: CommitsView[] = [pushCommits, { error: probe('pushCommits.error') }];
 
-/** @type {import('../src/ui/feed.ts').FeedView} */
-const feedView = { route: 'activity', repoIds: null, search: '', kind: '', filtersOpen: false };
+// No saved filter is selected: the feed reads savedFilterId only to find the selected one.
+const feedView = stub<import('../src/ui/feed.ts').FeedView & { savedFilterId: string }>({
+  route: 'activity',
+  repoIds: null,
+  search: '',
+  kind: '',
+  filtersOpen: false,
+});
 
-/** A full commit ID in its title with the first 8 characters shown, as the detail view renders commits. @param {string} id */
-const shortCommit = id => `<code title="${html(id)}">${html(id.slice(0, 8))}</code>`;
-/** The serialized event IDs a row and its buttons carry, ahead of the attribute that follows them. @param {string[]} ids @param {string} next */
-const eventIds = (ids, next) => `data-event-ids="${html(JSON.stringify(ids))}"${next}`;
-/** @param {string[]} ids */
-const idsField = ids => `eventIds ${ids.map(fieldOf).join(', ')}`;
+/** A full commit ID in its title with the first 8 characters shown, as the detail view renders commits. */
+const shortCommit = (id: string) => `<code title="${html(id)}">${html(id.slice(0, 8))}</code>`;
+/** The serialized event IDs a row and its buttons carry, ahead of the attribute that follows them. */
+const eventIds = (ids: string[], next: string) => `data-event-ids="${html(JSON.stringify(ids))}"${next}`;
+const idsField = (ids: string[]) => `eventIds ${ids.map(fieldOf).join(', ')}`;
 const summary = `Tip at ${html(String(newBranchPush.data?.refUpdates?.[0].newObjectId).slice(0, 7))}`;
 const evidence = push.data?.mergeEvidence ?? {};
 
-/** @type {Record<string, View>} */
-const views = {
+const views: Record<string, View> = {
   feed: {
     render: () => [
       renderFeed(state, { ...feedView, route: 'catchup' }),
@@ -464,7 +463,7 @@ const views = {
       { field: 'pr.sourceCommit', html: shortCommit(String(pr.data?.sourceCommit)) },
       { field: 'pr.mergeCommit', html: shortCommit(String(pr.data?.mergeCommit)) },
       { field: 'push.commitId', html: shortCommit(String(push.data?.commitId)) },
-      { field: 'pushCommits.commitId', html: shortCommit(String(commitViews[0].items?.[0].commitId)) },
+      { field: 'pushCommits.commitId', html: shortCommit(String(pushCommits.items[0].commitId)) },
       { field: 'push.mergeEvidence.prs.mergeCommit', html: `result ${shortCommit(String(evidence.prs?.[0].mergeCommit))}` },
       {
         field: 'push.mergeEvidence.commits.commitId',
@@ -576,7 +575,7 @@ const views = {
     ],
     sinks: [
       ...['switchable', 'blocked'].flatMap(name =>
-        /** @type {const} */ (['previous', 'tip']).map(side => {
+        (['previous', 'tip'] as const).map(side => {
           const value = String(checkouts[name].diagnostic?.comparison?.[side]);
           return {
             field: `${name}.diagnostic.comparison.${side}`,
@@ -648,29 +647,35 @@ test('html auto-escapes plain values, composes SafeHtml, and setHtml refuses pla
   );
   assert.equal(String(joinHtml(['<a>', safeHtml`<b>ok</b>`], safeHtml`<br>`)), '&lt;a&gt;<br><b>ok</b>');
   assert.throws(() => new SafeHtml('<b>forged</b>', Symbol('fake')), TypeError);
-  const lookalike = Object.create(SafeHtml.prototype, { toString: { value: () => '<b>spoof</b>' } });
+  // Made from SafeHtml's prototype, so its type cannot tell it apart; the private brand can.
+  const lookalike: SafeHtml = Object.create(SafeHtml.prototype, { toString: { value: () => '<b>spoof</b>' } });
   assert.equal(String(safeHtml`<div>${lookalike}</div>`), '<div>&lt;b&gt;spoof&lt;/b&gt;</div>');
   const hijackedArray = Object.assign(['<b>raw</b>'], { map: () => ({ join: () => '<b>hijacked</b>' }) });
   assert.equal(String(safeHtml`<div>${hijackedArray}</div>`), '<div>&lt;b&gt;raw&lt;/b&gt;</div>');
   assert.equal(String(joinHtml(hijackedArray, safeHtml`<br>`)), '&lt;b&gt;raw&lt;/b&gt;');
   const document = parse('<main><div data-flag="true">old</div></main>');
   // idiomorph reads the browser globals document, Node, Element and Document, which Node.js lacks.
-  const { Node, Element, Document } = /** @type {any} */ (document.defaultView);
+  const { Node, Element, Document } = present(document.defaultView);
   Object.assign(globalThis, { document, Node, Element, Document });
   t.after(() => {
-    for (const name of ['document', 'Node', 'Element', 'Document']) delete (/** @type {any} */ (globalThis)[name]);
+    for (const name of ['document', 'Node', 'Element', 'Document']) Reflect.deleteProperty(globalThis, name);
   });
   const element = document.querySelector('main');
-  const kept = element.firstElementChild;
+  assert.ok(element);
+  // The first child is the <div>, an HTMLElement; firstElementChild is typed as any Element.
+  const kept = element.firstElementChild as HTMLElement | null;
+  assert.ok(kept);
   setHtml(element, rendered);
   assert.equal(element.firstElementChild, kept, 'setHtml updates the matching element in place');
   // The attributes are updated in place, so compare what the markup means rather than its serialized order.
   assert.deepEqual({ ...kept.dataset }, { flag: 'false', on: 'true' });
   assert.equal(kept.textContent, '<img src=x onerror=alert(1)> & "quotes"');
   assert.equal(element.querySelector('img'), null);
-  assert.throws(() => setHtml(element, /** @type {any} */ ('<b>plain</b>')), TypeError);
-  assert.throws(() => setHtml(element, /** @type {any} */ ({ toString: () => '<b>spoof</b>' })), TypeError);
-  assert.throws(() => setHtml(element, /** @type {any} */ (lookalike)), TypeError);
+  // @ts-expect-error A raw string is refused by the type too.
+  assert.throws(() => setHtml(element, '<b>plain</b>'), TypeError);
+  // @ts-expect-error So is a lookalike with a toString.
+  assert.throws(() => setHtml(element, { toString: () => '<b>spoof</b>' }), TypeError);
+  assert.throws(() => setHtml(element, lookalike), TypeError);
   assert.equal(kept.textContent, '<img src=x onerror=alert(1)> & "quotes"', 'a refused value leaves the element unchanged');
 });
 

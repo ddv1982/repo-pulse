@@ -6,7 +6,7 @@ import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { createCheckoutGit, runGit } from '../server/checkout-git.ts';
-import { checkoutFixture, git, squashFixture } from './fixtures/checkout.js';
+import { checkoutFixture, git, squashFixture } from './fixtures/checkout.ts';
 
 const exec = promisify(execFile);
 

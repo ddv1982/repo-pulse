@@ -1,9 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { groupActivity } from '../src/activity.ts';
+import { groupActivity, type ActivityEvent, type ActivityKind, type EventData } from '../src/activity.ts';
+import { stub } from './fixtures/typed.ts';
 
-const at = minute => `2026-11-17T10:${String(minute).padStart(2, '0')}:00Z`;
-const build = (id, status, minute, extra = {}) => ({
+const at = (minute: number) => `2026-11-17T10:${String(minute).padStart(2, '0')}:00Z`;
+const build = (id: string, status: string, minute: number, extra: Partial<ActivityEvent> = {}): ActivityEvent => ({
   id,
   repoId: 'one',
   kind: 'build',
@@ -17,19 +18,26 @@ const build = (id, status, minute, extra = {}) => ({
 const zero = '0'.repeat(40),
   sha = 'a'.repeat(40),
   name = 'refs/heads/hotfix/one';
-function lifecycle(kind = 'branch-deleted', repoId = 'one', pushId = 7) {
+function lifecycle(kind: ActivityKind = 'branch-deleted', repoId = 'one', pushId = 7) {
   const ref = { name, oldObjectId: kind === 'branch-created' ? zero : sha, newObjectId: kind === 'branch-created' ? sha : zero };
-  return [
-    {
-      id: `${repoId}-push-${pushId}`,
-      kind: 'push',
-      repoId,
-      observedAt: at(1),
-      time: at(0),
-      data: { pushId, refUpdates: [ref], commits: [] },
-    },
-    { id: `${repoId}-${kind}-${pushId}`, kind, repoId, observedAt: at(1), time: at(0), data: { pushId, evidence: 'push', ...ref } },
-  ];
+  const push = {
+    id: `${repoId}-push-${pushId}`,
+    kind: 'push',
+    repoId,
+    observedAt: at(1),
+    time: at(0),
+    data: { pushId, refUpdates: [ref], commits: [] },
+  } satisfies ActivityEvent;
+  const branch = {
+    id: `${repoId}-${kind}-${pushId}`,
+    kind,
+    repoId,
+    observedAt: at(1),
+    time: at(0),
+    data: { pushId, evidence: 'push', ...ref },
+  } satisfies ActivityEvent;
+  const events: [typeof push, typeof branch] = [push, branch];
+  return events;
 }
 
 test('one build row represents queued/running/completed while keeping every exact raw event', () => {
@@ -38,7 +46,7 @@ test('one build row represents queued/running/completed while keeping every exac
   const [item] = groupActivity(input);
   assert.equal(item.id, 'completed');
   assert.deepEqual(
-    item.events.map(event => event.data.status),
+    item.events.map(event => event.data?.status),
     ['completed', 'inProgress', 'notStarted'],
   );
   assert.deepEqual(item.eventIds, ['completed', 'running', 'queued']);
@@ -87,7 +95,10 @@ test('different runs on the same commit and identical run IDs in different repos
 });
 
 test('missing or malformed run IDs do not merge unrelated records', () => {
-  const input = [undefined, null, 0, 'bad', -1].map((buildId, index) => build(`e${index}`, 'completed', index, { data: { buildId } }));
+  // Malformed on purpose: null is not a run ID the type allows.
+  const input = [undefined, null, 0, 'bad', -1].map((buildId, index) =>
+    build(`e${index}`, 'completed', index, { data: { buildId } as EventData }),
+  );
   assert.equal(groupActivity(input).length, input.length);
   assert.equal(
     groupActivity([
@@ -106,7 +117,7 @@ test('source observation time outranks old author/event time, with deterministic
   assert.deepEqual(groupActivity([newer, same]), groupActivity([same, newer]));
 });
 
-for (const kind of ['branch-deleted']) {
+for (const kind of ['branch-deleted'] as const) {
   test(`${kind} absorbs only its exact lifecycle-only supporting push`, () => {
     const input = lifecycle(kind);
     const [item] = groupActivity(input);
@@ -140,9 +151,9 @@ test('branch folding preserves multi-ref pushes, commits and unproven source fac
 
 test('unrelated PRs and pushes remain individual records without source assumptions', () => {
   const input = [
-    { id: 'pr-one', repoId: 'one', kind: 'pr', observedAt: at(2), data: { pullRequestId: 1 } },
-    { id: 'pr-two', repoId: 'one', kind: 'pr', observedAt: at(1), data: { pullRequestId: 1 } },
-    { id: 'push', repoId: 'one', kind: 'push', observedAt: at(0), data: { pushId: 7 } },
+    stub<ActivityEvent>({ id: 'pr-one', repoId: 'one', kind: 'pr', observedAt: at(2), data: { pullRequestId: 1 } }),
+    stub<ActivityEvent>({ id: 'pr-two', repoId: 'one', kind: 'pr', observedAt: at(1), data: { pullRequestId: 1 } }),
+    stub<ActivityEvent>({ id: 'push', repoId: 'one', kind: 'push', observedAt: at(0), data: { pushId: 7 } }),
   ];
   assert.equal(groupActivity(input).length, 3);
   assert.deepEqual(groupActivity([]), []);
@@ -157,6 +168,16 @@ test('a retired evidence filter restored from an older session shows all activit
 
 test('activitySearchText indexes named searchable fields and drops raw JSON payload noise', async () => {
   const { activitySearchText } = await import('../src/activity-text.ts');
+  // Raw provider fields the event type leaves out, which the search text must drop.
+  const buildData = {
+    buildId: 99,
+    status: 'completed',
+    result: 'succeeded',
+    reason: 'individualCI',
+    sourceVersion: 'deadbeef1234',
+    definition: { name: 'Release Pipeline', url: 'https://dev.azure.com/org/_apis/build/Definitions/7', revision: 42 },
+    repositoryId: 'internal-guid-noise',
+  };
   const buildText = activitySearchText({
     id: 'b-1',
     repoId: 'r-1',
@@ -165,15 +186,7 @@ test('activitySearchText indexes named searchable fields and drops raw JSON payl
     title: 'CI build #99',
     actor: 'Ada',
     branch: 'refs/heads/main',
-    data: {
-      buildId: 99,
-      status: 'completed',
-      result: 'succeeded',
-      reason: 'individualCI',
-      sourceVersion: 'deadbeef1234',
-      definition: { name: 'Release Pipeline', url: 'https://dev.azure.com/org/_apis/build/Definitions/7', revision: 42 },
-      repositoryId: 'internal-guid-noise',
-    },
+    data: buildData,
   });
   assert.match(buildText, /release pipeline/);
   assert.match(buildText, /deadbeef1234/);

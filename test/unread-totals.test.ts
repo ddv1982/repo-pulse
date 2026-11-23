@@ -1,10 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createStore } from '../server/store.ts';
+import type { ActivityEvent } from '../src/activity.ts';
+import type { Repository } from '../src/contract.ts';
+import { stub } from './fixtures/typed.ts';
 
-const repo = { id: 'repo', name: 'Repo', azureId: 'a' };
+const repo = stub<Repository>({ id: 'repo', name: 'Repo', azureId: 'a' });
 const base = Date.parse('2026-11-20T08:00:00Z');
-const push = (id, minute) => ({
+const push = (id: string, minute: number): ActivityEvent => ({
   id,
   repoId: repo.id,
   kind: 'push',
@@ -28,7 +31,7 @@ function reportedCase() {
 
 test('unread totals in the reported case ignore paging in both views', () => {
   const store = reportedCase();
-  for (const view of /** @type {const} */ (['all', 'new'])) {
+  for (const view of ['all', 'new'] as const) {
     const first = store.queryActivity({ view });
     assert.equal(first.items.length, 50);
     const second = store.queryActivity({ view, cursor: first.nextCursor ?? undefined });

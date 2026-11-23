@@ -259,7 +259,7 @@ test('a push that only moves pull request refs is Azure bookkeeping and makes no
       { initialized: true },
     );
     assert.deepEqual(
-      events.map(event => [event.kind, event.data.pushId, event.branch]),
+      events.map(event => [event.kind, event.data?.pushId, event.branch]),
       [
         ['push', 203, ''],
         ['push', 204, 'main'],

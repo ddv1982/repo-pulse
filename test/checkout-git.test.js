@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, renameSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { checkoutFixture, git } from './fixtures/checkout.js';
+import { checkoutFixture, git } from './fixtures/checkout.ts';
 import { createCheckoutGit, runGit } from '../server/checkout-git.ts';
 
 test('status reads the last fetched upstream; Check changes refs and Pull fast-forwards the checkout', async t => {

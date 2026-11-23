@@ -5,12 +5,18 @@ import { renderRepositories as renderRepositoriesHtml } from '../src/ui/reposito
 import { renderFeed as renderFeedHtml } from '../src/ui/feed.ts';
 import { renderSettings as renderSettingsHtml } from '../src/ui/settings.ts';
 import { syncLabel } from '../src/ui/health.ts';
-import { parse, one, all, text, srText } from './fixtures/dom.js';
+import type { Repository, StreamState, SyncEngineStatus, SyncStatus } from '../src/contract.ts';
+import type { ShownSyncStatus } from '../src/ui/health.ts';
+import type { PageState } from '../src/ui/refresh.ts';
+import { parse, one, all, text, srText } from './fixtures/dom.ts';
+import { fakeRequest, stub } from './fixtures/typed.ts';
 
-const renderHeader = (...args) => String(renderHeaderHtml(...args));
-const renderRepositories = (...args) => String(renderRepositoriesHtml(...args));
-const renderFeed = (...args) => String(renderFeedHtml(...args));
-const renderSettings = (...args) => String(renderSettingsHtml(...args));
+const renderHeader = (...args: Parameters<typeof renderHeaderHtml>) => String(renderHeaderHtml(...args));
+const renderRepositories = (...args: Parameters<typeof renderRepositoriesHtml>) => String(renderRepositoriesHtml(...args));
+/** The feed's view state; a test leaves out what it does not set, such as the selected saved filter. */
+type FeedUi = Parameters<typeof renderFeedHtml>[1];
+const renderFeed = (state: PageState, view: Partial<FeedUi>) => String(renderFeedHtml(state, stub<FeedUi>(view)));
+const renderSettings = (...args: Parameters<typeof renderSettingsHtml>) => String(renderSettingsHtml(...args));
 
 // themeSwitch() in the header reads the theme that web/theme.js puts on window.
 Object.assign(globalThis, { window: globalThis });
@@ -19,9 +25,9 @@ const today = new Date();
 today.setHours(12, 8, 0, 0);
 const since = today.toISOString();
 const earlier = new Date(today.valueOf() - 45 * 60000).toISOString();
-const repo = { id: 'r', name: 'orders-api', project: 'Shop' };
+const repo = stub<Repository>({ id: 'r', name: 'orders-api', project: 'Shop' });
 /** Each server state with the pill text and tone it shows. */
-const states = [
+const states: [SyncStatus, RegExp, string][] = [
   [{ state: 'synced', since: earlier, lastCheck: since }, /^Synced · 12:08\b/, 'ok'],
   [{ state: 'syncing' }, /^Syncing…$/, 'info'],
   [{ state: 'delayed', reason: 'about 7 minutes behind', stream: 'pushes' }, /^Delayed · about 7 minutes behind$/, 'warn'],
@@ -30,35 +36,43 @@ const states = [
 ];
 const tones = ['ok', 'info', 'warn', 'crit', 'neutral'];
 /** The one tone an element carries; several read as their joined names, so a test comparing tones fails. */
-const toneOf = element => tones.filter(tone => element.classList.contains(tone)).join('+');
+const toneOf = (element: Element) => tones.filter(tone => element.classList.contains(tone)).join('+');
 /** A sync pill's tone, text and element: the first pill in the markup or element. It keeps the chip styling. */
-const pill = from => {
+const pill = (from: string | ParentNode) => {
   const element = (typeof from === 'string' ? parse(from) : from).querySelector('.sync-pill');
   if (!element) return undefined;
   assert.ok(element.classList.contains('chip') && element.classList.contains('status-chip'), 'the pill is styled as a status chip');
   return { element, tone: toneOf(element), text: text(element) };
 };
 /** The status banners of a page: tone, bold title and the text after it. */
-const banners = markup =>
+const banners = (markup: string) =>
   all(parse(markup), '.banner').map(element => {
     const title = text(one(element, 'strong'));
     return { element, tone: toneOf(element), title, text: text(element).slice(title.length).trim() };
   });
 /** The summary headline when nothing is new. */
-const zero = markup => text(one(parse(markup), 'b.zero'));
+const zero = (markup: string) => text(one(parse(markup), 'b.zero'));
 /** The feed's empty-state message. */
-const bigMessage = markup => text(one(parse(markup), 'p.big'));
-const page = (overall, repos = {}) => ({
+const bigMessage = (markup: string) => text(one(parse(markup), 'p.big'));
+const page = (overall: ShownSyncStatus, repos: Record<string, SyncStatus> = {}): PageState => ({
   repos: [repo],
   watched: [repo],
-  streams: [{ repoId: 'r', stream: 'pushes', initialized: true, lastSuccess: since, error: { code: 'FAILED', message: 'Read failed' } }],
+  streams: [
+    stub<StreamState>({
+      repoId: 'r',
+      stream: 'pushes',
+      initialized: true,
+      lastSuccess: since,
+      error: { code: 'FAILED', message: 'Read failed' },
+    }),
+  ],
   settings: { refreshEnabled: false },
   diagnostics: {
     startsLastMinute: 3,
     limitPerMinute: 60,
     running: 0,
     concurrency: 2,
-    sync: { lag: { overdueStreams: 4, maxDelayMs: 9 * 60000 } },
+    sync: stub<SyncEngineStatus>({ lag: { overdueStreams: 4, maxDelayMs: 9 * 60000 } }),
   },
   activity: { items: [], total: 0, newItems: 0, newUpdates: 0 },
   events: [],
@@ -101,7 +115,11 @@ test('each repository shows its own sync status pill with the same wording', () 
 
 test('Activity shows at most one status banner, and only for Problem, Delayed or Paused', () => {
   const view = { route: 'catchup', repoIds: null, search: '', kind: '', filtersOpen: false };
-  const expected = { problem: ['crit', 'Problem'], delayed: ['warn', 'Delayed'], paused: ['info', 'Paused'] };
+  const expected: Record<string, [string, string]> = {
+    problem: ['crit', 'Problem'],
+    delayed: ['warn', 'Delayed'],
+    paused: ['info', 'Paused'],
+  };
   for (const [status] of states) {
     const found = banners(renderFeed(page({ ...status, repoId: 'r' }, { r: status }), view));
     assert.ok(found.length <= 1, `${status.state}: ${found.length} banners`);
@@ -133,14 +151,18 @@ test('Settings states the sync status in one sentence without the Azure calls co
   assert.match(text(one(synced, '.sync-sentence')), /^Synced, last check 12:08\b/);
 });
 
-const feedView = { route: 'catchup', repoIds: null, search: '', kind: '', filtersOpen: false };
+const feedView: Partial<FeedUi> = { route: 'catchup', repoIds: null, search: '', kind: '', filtersOpen: false };
 
 test('the Activity banner and partial wording follow the repositories in the Activity scope, the header the overall status', () => {
-  const other = { id: 's', name: 'billing-web', project: 'Shop' };
-  const problem = { state: 'problem', reason: 'Sign in to Azure again.', stream: 'refs' };
-  const delayed = { state: 'delayed', reason: 'about 7 minutes behind', stream: 'pushes' };
-  const synced = { state: 'synced', since, lastCheck: since };
-  const twoRepos = repos => ({ ...page({ ...problem, repoId: 'r' }, repos), repos: [repo, other], watched: [repo, other] });
+  const other = stub<Repository>({ id: 's', name: 'billing-web', project: 'Shop' });
+  const problem: SyncStatus = { state: 'problem', reason: 'Sign in to Azure again.', stream: 'refs' };
+  const delayed: SyncStatus = { state: 'delayed', reason: 'about 7 minutes behind', stream: 'pushes' };
+  const synced: SyncStatus = { state: 'synced', since, lastCheck: since };
+  const twoRepos = (repos: Record<string, SyncStatus>) => ({
+    ...page({ ...problem, repoId: 'r' }, repos),
+    repos: [repo, other],
+    watched: [repo, other],
+  });
 
   const syncedScope = renderFeed(twoRepos({ r: problem, s: synced }), { ...feedView, repoIds: ['s'] });
   assert.deepEqual(banners(syncedScope), []);
@@ -164,7 +186,7 @@ test('the Activity banner and partial wording follow the repositories in the Act
 test('a state without a sync status reads as unavailable, not as no repositories', async () => {
   const { createRefreshController } = await import('../src/ui/refresh.ts');
   const refresh = createRefreshController({
-    request: async () => ({ repos: [repo], settings: { refreshEnabled: true } }),
+    request: fakeRequest(async () => ({ repos: [repo], settings: { refreshEnabled: true } })),
     getView: () => ({ route: 'settings', repoIds: null, eventId: null, search: '', kind: '', generation: 0 }),
     reconcileRepositories: () => {},
     onUpdate: () => {},
@@ -183,7 +205,7 @@ test('with nothing loaded and a status other than Synced the summary does not cl
   for (const [status] of states.slice(1)) {
     assert.equal(zero(renderFeed(page({ ...status, repoId: 'r' }, { r: status }), feedView)), 'No activity loaded yet', status.state);
   }
-  const synced = { state: 'synced', since, lastCheck: since };
+  const synced: SyncStatus = { state: 'synced', since, lastCheck: since };
   assert.equal(zero(renderFeed(page({ ...synced, repoId: 'r' }, { r: synced }), feedView)), 'No new updates');
 });
 
@@ -240,7 +262,7 @@ test('a throttling delay keeps the Azure DevOps name capitalised in the pill', (
 });
 
 test('a problem that belongs to no repository still shows the Activity banner', () => {
-  const failed = { state: 'problem', reason: 'Starting from scratch failed. Try again.' };
+  const failed: ShownSyncStatus = { state: 'problem', reason: 'Starting from scratch failed. Try again.' };
   const markup = renderFeed({ ...page(failed, {}), repos: [], watched: [] }, { repoIds: null, route: 'catchup', search: '', kind: '' });
   assert.deepEqual(
     banners(markup).map(({ tone, title, text }) => [tone, title, text.startsWith('Starting from scratch failed. Try again.')]),

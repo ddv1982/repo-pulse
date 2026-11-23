@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { createCheckoutGit } from '../server/checkout-git.ts';
 import { createCheckoutLookup } from '../server/checkout-advice.ts';
 import { createStore } from '../server/store.ts';
-import { checkoutFixture, git, squashFixture } from './fixtures/checkout.js';
+import { checkoutFixture, git, squashFixture } from './fixtures/checkout.ts';
 
 test('missing upstream gives verified squash target advice without changing the checkout', async t => {
   const { repo, pr, remote, local } = squashFixture(t);

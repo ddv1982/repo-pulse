@@ -4,9 +4,10 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { win32 } from 'node:path';
 import { createAzureCli } from '../server/azure-cli.ts';
+import { stub, type Thrown } from './fixtures/typed.ts';
 
 const flush = () => new Promise(resolve => setImmediate(resolve));
-const read = repo => [
+const read = (repo: string) => [
   'repos',
   'show',
   '--repository',
@@ -52,15 +53,20 @@ test('CLI rejects writes and credential operations before execution', async () =
 
 test('CLI shares duplicate reads and bounds concurrency and rolling starts', async () => {
   let time = 0,
-    scheduled;
-  const release = [];
+    scheduled: (() => void) | undefined;
+  const release: ((output: string) => void)[] = [];
+  const settle = (output: string) => {
+    const next = release.shift();
+    assert.ok(next, 'a read is waiting');
+    next(output);
+  };
   const cli = createAzureCli({
     limitPerMinute: 2,
     concurrency: 1,
     now: () => time,
     setTimer: fn => {
       scheduled = fn;
-      return 1;
+      return stub<NodeJS.Timeout>({});
     },
     clearTimer: () => {},
     executor: () => new Promise(resolve => release.push(resolve)),
@@ -72,21 +78,22 @@ test('CLI shares duplicate reads and bounds concurrency and rolling starts', asy
   assert.equal(a, duplicate);
   await flush();
   assert.equal(release.length, 1);
-  release.shift()('{"id":"a"}');
+  settle('{"id":"a"}');
   await a;
   await flush();
   assert.equal(release.length, 1);
-  release.shift()('{"id":"b"}');
+  settle('{"id":"b"}');
   await b;
   await flush();
   assert.equal(cli.diagnostics().startsLastMinute, 2);
   assert.equal(cli.diagnostics().pending, 1);
   assert.equal(release.length, 0);
   time = 60_000;
+  assert.ok(scheduled);
   scheduled();
   await flush();
   assert.equal(release.length, 1);
-  release.shift()('{"id":"c"}');
+  settle('{"id":"c"}');
   await c;
   cli.close();
 });
@@ -98,7 +105,7 @@ test('CLI redacts upstream stderr, rejects invalid JSON and closes queued work',
       throw Object.assign(new Error(secret), { stderr: `403 token ${secret}` });
     },
   });
-  await assert.rejects(cli.run(read('a')), error => error.code === 'FORBIDDEN' && !error.message.includes(secret));
+  await assert.rejects(cli.run(read('a')), (error: Thrown) => error.code === 'FORBIDDEN' && !error.message.includes(secret));
   assert.equal(JSON.stringify(cli.diagnostics()).includes(secret), false);
   cli.close();
   const malformed = createAzureCli({ executor: async () => 'password=secret' });
@@ -120,7 +127,7 @@ test('CLI redacts upstream stderr, rejects invalid JSON and closes queued work',
 });
 
 test('CLI errors are classified from Azure output, not from the command arguments', async () => {
-  const failing = stderr =>
+  const failing = (stderr: string) =>
     createAzureCli({
       executor: async args => {
         // execFile puts the whole command line in error.message.
@@ -175,8 +182,8 @@ test('closing the CLI reports running reads as closed, not timed out', async () 
 test('Windows runs the interpreter each official az launcher calls, never through a shell', async () => {
   const { resolveAzCommand } = await import('../server/azure-cli.ts');
   const on =
-    (...files) =>
-    async path =>
+    (...files: string[]) =>
+    async (path: string) =>
       files.includes(path);
   const msi = 'C:\\Program Files\\Microsoft SDKs\\Azure\\CLI2';
   assert.deepEqual(

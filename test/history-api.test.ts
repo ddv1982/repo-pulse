@@ -1,16 +1,23 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createStore } from '../server/store.ts';
-import { createApp } from '../server.ts';
-import { TEST_KEY, keyedFetch } from './fixtures/access.js';
+import { createApp, type AppProvider, type AppSync } from '../server.ts';
+import type { SyncStatus } from '../server/sync.ts';
+import type { ActivityEvent } from '../src/activity.ts';
+import type { HistoryJob, Repository } from '../src/contract.ts';
+import { TEST_KEY, keyedFetch, portOf } from './fixtures/access.ts';
+import { stub } from './fixtures/typed.ts';
+
+const provider = stub<AppProvider>({});
+const sync = stub<AppSync>({ status: () => stub<SyncStatus>({}) });
 
 const fetch = keyedFetch();
 
 test('paged history and deep links reach old unseen activity beyond latest 1000', async t => {
   const store = createStore();
-  store.saveRepo({ id: 'r', name: 'Repo' });
+  store.saveRepo(stub<Repository>({ id: 'r', name: 'Repo' }));
   store.insertEvents(
-    Array.from({ length: 1101 }, (_, i) => ({
+    Array.from({ length: 1101 }, (_, i): ActivityEvent => ({
       id: `event${i}`,
       repoId: 'r',
       kind: 'push',
@@ -21,13 +28,13 @@ test('paged history and deep links reach old unseen activity beyond latest 1000'
       data: {},
     })),
   );
-  const app = createApp({ store, provider: {}, sync: { status: () => ({}) }, accessKey: TEST_KEY });
-  await new Promise(resolve => app.listen(0, '127.0.0.1', resolve));
+  const app = createApp({ store, provider, sync, accessKey: TEST_KEY });
+  await new Promise<void>(resolve => app.listen(0, '127.0.0.1', resolve));
   t.after(async () => {
     await new Promise(resolve => app.close(resolve));
     store.close();
   });
-  const base = `http://127.0.0.1:${app.address().port}`;
+  const base = `http://127.0.0.1:${portOf(app)}`;
   const metadata = await (await fetch(base + '/api/state')).json();
   assert.equal(Object.hasOwn(metadata, 'events'), false);
   assert.equal(typeof metadata.activityRevision, 'string');
@@ -52,27 +59,27 @@ test('paged history and deep links reach old unseen activity beyond latest 1000'
 
 test('historical import endpoint validates repository, range and access key', async t => {
   const store = createStore();
-  store.saveRepo({ id: 'r', name: 'Repo' });
-  const starts = [];
+  store.saveRepo(stub<Repository>({ id: 'r', name: 'Repo' }));
+  const starts: { repoId: string; days?: number | 'all' }[] = [];
   const app = createApp({
     store,
-    provider: {},
-    sync: { status: () => ({}) },
+    provider,
+    sync,
     backfill: {
       start: (repoId, days) => {
         starts.push({ repoId, days });
-        return { status: 'pending' };
+        return stub<HistoryJob>({ status: 'pending' });
       },
     },
     accessKey: TEST_KEY,
   });
-  await new Promise(resolve => app.listen(0, '127.0.0.1', resolve));
+  await new Promise<void>(resolve => app.listen(0, '127.0.0.1', resolve));
   t.after(async () => {
     await new Promise(resolve => app.close(resolve));
     store.close();
   });
-  const base = `http://127.0.0.1:${app.address().port}`;
-  const post = (body, key = TEST_KEY) =>
+  const base = `http://127.0.0.1:${portOf(app)}`;
+  const post = (body: unknown, key = TEST_KEY) =>
     globalThis.fetch(base + '/api/backfill', {
       method: 'POST',
       headers: { 'content-type': 'application/json', 'x-repo-pulse-key': key },

@@ -1,25 +1,26 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createRefreshController } from '../src/ui/refresh.ts';
+import { createRefreshController, type View } from '../src/ui/refresh.ts';
+import { fakeRequest } from './fixtures/typed.ts';
 
 const metadata = { repos: [{ id: 'orders' }], activityRevision: '1' };
-const page = id => ({ items: [{ groupKey: id, events: [{ id }] }], total: 1, nextCursor: null });
-const initialView = { route: 'activity', repoIds: null, eventId: null, search: '', kind: '', generation: 0 };
+const page = (id: string) => ({ items: [{ groupKey: id, events: [{ id }] }], total: 1, nextCursor: null });
+const initialView: View = { route: 'activity', repoIds: null, eventId: null, search: '', kind: '', generation: 0 };
 
 test('an obsolete filter cannot publish its rows or an error after navigation', async () => {
   for (const fail of [false, true]) {
     const delayed = Promise.withResolvers();
-    const requested = Promise.withResolvers();
+    const requested = Promise.withResolvers<void>();
     let view = initialView;
-    const updates = [];
-    const errors = [];
+    const updates: string[][] = [];
+    const errors: string[] = [];
     const refresh = createRefreshController({
-      request: path => {
+      request: fakeRequest(path => {
         if (path === '/api/state') return metadata;
         if (path.includes('search=current')) return page('current');
         requested.resolve();
         return delayed.promise;
-      },
+      }),
       getView: () => view,
       reconcileRepositories: () => {},
       onUpdate: () => updates.push(refresh.state.events.map(event => event.id)),
@@ -43,9 +44,9 @@ test('forced refresh callers complete after their coalesced follow-up read', asy
   const firstRead = Promise.withResolvers();
   const secondRead = Promise.withResolvers();
   let requests = 0;
-  const updates = [];
+  const updates: (string | undefined)[] = [];
   const refresh = createRefreshController({
-    request: () => (++requests === 1 ? firstRead.promise : secondRead.promise),
+    request: fakeRequest(() => (++requests === 1 ? firstRead.promise : secondRead.promise)),
     getView: () => ({ ...initialView, route: 'settings' }),
     reconcileRepositories: () => {},
     onUpdate: () => updates.push(refresh.state.activityRevision),
@@ -72,16 +73,16 @@ test('forced refresh callers complete after their coalesced follow-up read', asy
 test('a new non-Activity view gets a refresh while older metadata is in flight', async () => {
   let view = initialView;
   const previousRead = Promise.withResolvers();
-  const received = Promise.withResolvers();
+  const received = Promise.withResolvers<void>();
   let reads = 0;
-  const updates = [];
+  const updates: (string | undefined)[] = [];
   const refresh = createRefreshController({
-    request: path => {
+    request: fakeRequest(path => {
       assert.equal(path, '/api/state');
       if (++reads > 1) return { ...metadata, activityRevision: '2' };
       received.resolve();
       return previousRead.promise;
-    },
+    }),
     getView: () => view,
     reconcileRepositories: () => {},
     onUpdate: () => updates.push(refresh.state.activityRevision),
@@ -98,9 +99,9 @@ test('a new non-Activity view gets a refresh while older metadata is in flight',
 });
 
 test('disabled repositories stay watched but leave the shown repositories and their streams', async () => {
-  const reconciled = [];
+  const reconciled: string[][] = [];
   const refresh = createRefreshController({
-    request: path =>
+    request: fakeRequest(path =>
       path === '/api/state'
         ? {
             repos: [{ id: 'orders' }, { id: 'billing', disabled: true }],
@@ -111,6 +112,7 @@ test('disabled repositories stay watched but leave the shown repositories and th
             activityRevision: '1',
           }
         : page('orders'),
+    ),
     getView: () => initialView,
     reconcileRepositories: repos => reconciled.push(repos.map(repo => repo.id)),
     onUpdate: () => {},
