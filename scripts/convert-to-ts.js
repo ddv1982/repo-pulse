@@ -10,7 +10,7 @@
 //    JavaScript API): the `convertTypedefToType` and `annotateWithTypeFromJSDoc` fixes (working around two defects of
 //    the former and four of the latter, see typedefEdits, arrowEdits, templateEdits, optionalEdits and bindingEdits),
 //    then JSDoc casts, nested ones included (`/** @type {T} */ (x)` and `@satisfies`), which TypeScript ignores in a
-//    .ts file, become `as` and `satisfies`;
+//    .ts file, become `as` and `satisfies`, keeping `(a ?? b)` parenthesized so the whole expression is cast;
 // 4. exports the top-level type aliases and interfaces, as JSDoc typedefs were;
 // 5. removes the JSDoc types the TypeScript now carries and `// @ts-check`, keeping the prose (see jsdocEdits), and
 //    formats the files with Prettier.
@@ -215,7 +215,12 @@ function castEdits(file) {
     const start = doc.pos;
     const operator = ts.isJSDocTypeTag(tag) ? 'as' : 'satisfies';
     // The full text keeps the JSDoc of a nested cast, which getText would drop, for the next pass to convert.
-    const newText = `(${node.expression.getFullText(source).trim()} ${operator} ${tag.typeExpression.type.getText(source)})`;
+    let expression = node.expression.getFullText(source).trim();
+    // `as` and `satisfies` bind tighter than these, so `(a ?? b as T)` would cast only `b`.
+    const { expression: inner } = node;
+    if (ts.isBinaryExpression(inner) || ts.isConditionalExpression(inner) || ts.isArrowFunction(inner) || ts.isYieldExpression(inner))
+      expression = `(${expression})`;
+    const newText = `(${expression} ${operator} ${tag.typeExpression.type.getText(source)})`;
     edits.push({ span: { start, length: node.end - start }, newText });
   };
   visit(source);
