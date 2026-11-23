@@ -84,7 +84,7 @@ test('historical imports mark only new history read without changing live state'
     calls.map(call => call.stream),
     ['pushes', 'closedPrs', 'builds'],
   );
-  assert.equal(backfill.status()[0].status, 'completed');
+  assert.equal(present(backfill.status()[0]).status, 'completed');
   assert.ok(
     store
       .listEvents()
@@ -118,7 +118,7 @@ test('failed pages retain durable fixed windows and cursors across restart and r
   backfill.start(repo.id, 90);
   await backfill.tick();
   await backfill.tick();
-  const failed = backfill.status()[0];
+  const failed = present(backfill.status()[0]);
   assert.equal(failed.status, 'retrying');
   assert.deepEqual(failed.cursor, { skip: 100 });
   assert.equal(store.listEvents().length, 1);
@@ -128,10 +128,10 @@ test('failed pages retain durable fixed windows and cursors across restart and r
   fail = false;
   time += 60001;
   await backfill.tick();
-  assert.deepEqual(calls[2].cursor, { skip: 100 });
-  assert.equal(calls[0].since, calls[2].since);
-  assert.equal(calls[0].until, calls[2].until);
-  assert.equal(backfill.status()[0].stream, 'closedPrs');
+  assert.deepEqual(present(calls[2]).cursor, { skip: 100 });
+  assert.equal(present(calls[0]).since, present(calls[2]).since);
+  assert.equal(present(calls[0]).until, present(calls[2]).until);
+  assert.equal(present(backfill.status()[0]).stream, 'closedPrs');
   assert.equal(store.listEvents().length, 2);
   store.close();
 });
@@ -149,9 +149,9 @@ test('a page cut off by closing the queue is not a failed attempt and resumes wi
   };
   const { store, backfill } = setup(provider);
   backfill.start(repo.id, 90);
-  const before = backfill.status()[0];
+  const before = present(backfill.status()[0]);
   await backfill.tick();
-  const after = backfill.status()[0];
+  const after = present(backfill.status()[0]);
   assert.equal(after.failures ?? 0, 0);
   assert.equal(after.error ?? null, null);
   assert.equal(after.nextAt, before.nextAt);
@@ -180,10 +180,10 @@ test('all available history uses explicit 2010 boundary and keeps scanning older
   assert.match(job.note, /retention and permissions/);
   for (let page = 0; page < 6; page++) await backfill.tick();
   assert.equal(calls.length, 6, 'an empty recent window does not prove no older history');
-  assert.equal(backfill.status()[0].status, 'completed');
-  assert.equal(backfill.status()[0].windowsCompleted, 2);
-  assert.equal(calls[3].until, calls[0].since);
-  assert.equal(calls[3].since, job.rangeStart);
+  assert.equal(present(backfill.status()[0]).status, 'completed');
+  assert.equal(present(backfill.status()[0]).windowsCompleted, 2);
+  assert.equal(present(calls[3]).until, present(calls[0]).since);
+  assert.equal(present(calls[3]).since, job.rangeStart);
   store.close();
 });
 
@@ -272,13 +272,13 @@ test('transaction failure keeps the page resumable and validation rejects ambigu
   };
   await backfill.tick();
   assert.equal(store.listEvents().length, 0);
-  assert.equal(backfill.status()[0].cursor, null);
-  assert.equal(backfill.status()[0].status, 'retrying');
+  assert.equal(present(backfill.status()[0]).cursor, null);
+  assert.equal(present(backfill.status()[0]).status, 'retrying');
   store.commitPage = original;
   time += 60001;
   await backfill.tick();
   assert.equal(store.listEvents().length, 1);
-  assert.deepEqual(backfill.status()[0].cursor, { skip: 100 });
+  assert.deepEqual(present(backfill.status()[0]).cursor, { skip: 100 });
   store.close();
 });
 
@@ -307,12 +307,12 @@ test('a build queued before an internal window boundary and completed after it r
   const backfill = createBackfill({ store, provider, normalize: sync.normalize, now: () => BASE });
   backfill.start(repo.id, 90);
   for (let i = 0; i < 9; i++) await backfill.tick();
-  assert.equal(backfill.status()[0].status, 'completed');
+  assert.equal(present(backfill.status()[0]).status, 'completed');
   const events = store.listEvents();
   assert.equal(events.length, 1);
-  assert.equal(events[0].data?.buildId, 99);
-  assert.equal(events[0].time, build.finishTime);
-  assert.equal(events[0].imported, true);
-  assert.equal(events[0].seen, true);
+  assert.equal(present(events[0]).data?.buildId, 99);
+  assert.equal(present(events[0]).time, build.finishTime);
+  assert.equal(present(events[0]).imported, true);
+  assert.equal(present(events[0]).seen, true);
   store.close();
 });

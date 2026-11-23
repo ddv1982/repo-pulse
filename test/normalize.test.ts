@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createStore } from '../server/store.ts';
 import { createNormalizer } from '../server/normalize.ts';
+import { present } from './fixtures/typed.ts';
 
 const repo = {
   id: 'repo-one',
@@ -52,10 +53,10 @@ test('normalize emits push events, ref updates, and rewrite jobs only for live b
       live.events.map(e => e.kind),
       ['push', 'tag'],
     );
-    assert.equal(live.events[0].imported, false);
-    assert.equal(live.events[0].seen, false);
+    assert.equal(present(live.events[0]).imported, false);
+    assert.equal(present(live.events[0]).seen, false);
     assert.equal(live.jobs?.length, 1);
-    assert.equal(live.jobs?.[0].ref, 'refs/heads/main');
+    assert.equal(present(live.jobs?.[0]).ref, 'refs/heads/main');
     assert.ok(live.entities.some(e => e.type === 'ref' && e.id === 'refs/heads/main' && e.data.lastPushId === 101));
 
     const historical = normalize(
@@ -73,8 +74,8 @@ test('normalize emits push events, ref updates, and rewrite jobs only for live b
     );
 
     assert.equal(historical.events.length, 1);
-    assert.equal(historical.events[0].imported, true);
-    assert.equal(historical.events[0].seen, true);
+    assert.equal(present(historical.events[0]).imported, true);
+    assert.equal(present(historical.events[0]).seen, true);
     assert.equal(historical.jobs?.length, 0);
     assert.equal(
       historical.entities.some(e => e.type === 'ref'),
@@ -107,8 +108,8 @@ test('normalize fingerprints PRs and builds, filters foreign repos, and tracks r
     const foreignPr = { ...basePr, pullRequestId: 99, repository: { id: 'other-repo' } };
     const first = normalize(repo, 'prs', [basePr, foreignPr], { initialized: true });
     assert.equal(first.events.length, 1);
-    assert.equal(first.events[0].data?.mergeCommit, undefined, 'active PR must not store completion mergeCommit');
-    assert.deepEqual(first.events[0].data?.voteChanges, []);
+    assert.equal(present(first.events[0]).data?.mergeCommit, undefined, 'active PR must not store completion mergeCommit');
+    assert.deepEqual(present(first.events[0]).data?.voteChanges, []);
     store.commitPage({
       repoId: repo.id,
       stream: 'prs',
@@ -123,7 +124,7 @@ test('normalize fingerprints PRs and builds, filters foreign repos, and tracks r
       initialized: true,
     });
     assert.equal(voted.events.length, 1);
-    assert.deepEqual(voted.events[0].data?.voteChanges, [{ name: 'Sam', vote: 10 }]);
+    assert.deepEqual(present(voted.events[0]).data?.voteChanges, [{ name: 'Sam', vote: 10 }]);
 
     const baseBuild = {
       id: 500,
@@ -151,8 +152,8 @@ test('normalize fingerprints PRs and builds, filters foreign repos, and tracks r
       { initialized: true },
     );
     assert.equal(build.events.length, 1);
-    assert.equal(build.events[0].kind, 'build');
-    assert.equal(build.events[0].title, 'CI');
+    assert.equal(present(build.events[0]).kind, 'build');
+    assert.equal(present(build.events[0]).title, 'CI');
     store.commitPage({
       repoId: repo.id,
       stream: 'builds',
@@ -170,7 +171,7 @@ test('normalize fingerprints PRs and builds, filters foreign repos, and tracks r
       { initialized: true },
     );
     assert.equal(finishedBuild.events.length, 1);
-    assert.equal(finishedBuild.events[0].data?.result, 'succeeded');
+    assert.equal(present(finishedBuild.events[0]).data?.result, 'succeeded');
   } finally {
     store.close();
   }
@@ -218,7 +219,7 @@ test('reconcileRefs records baseline silently and reports later branch and tag a
         ['tag', 'v1', 'deleted'],
       ],
     );
-    assert.equal(next.events[1].data?.peeledObjectId, OLD);
+    assert.equal(present(next.events[1]).data?.peeledObjectId, OLD);
   } finally {
     store.close();
   }

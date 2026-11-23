@@ -156,7 +156,7 @@ test('CLI errors are classified from Azure output, not from the command argument
   for (const [stderr, code] of [
     ['ERROR: TF401180: The requested pull request was not found.', 'NOT_FOUND'],
     ['ERROR: Operation returned a 401 (Unauthorized) status code.', 'AUTH_REQUIRED'],
-  ]) {
+  ] satisfies [string, string][]) {
     const cli = failing(stderr);
     await assert.rejects(cli.run(args), { code }, stderr);
     cli.close();

@@ -191,7 +191,7 @@ test('ref baseline emits nothing and only full snapshots expose newly discovered
   await sync.tick();
   assert.equal(store.listEvents().length, 0);
   await sync.tick();
-  const event = store.listEvents()[0];
+  const event = present(store.listEvents()[0]);
   assert.equal(event.kind, 'branch-created');
   assert.equal(event.actor, 'Unknown');
   assert.equal(dataOf(event).evidence, 'snapshot');
@@ -201,7 +201,7 @@ test('ref baseline emits nothing and only full snapshots expose newly discovered
 
 test('new remote branch from push is visible before a PR and duplicate polls do not reset seen', async () => {
   const record = push(3);
-  record.refUpdates[0].oldObjectId = '0'.repeat(40);
+  present(record.refUpdates[0]).oldObjectId = '0'.repeat(40);
   const { store, sync, advance } = setup({
     async read() {
       return { items: [record], nextCursor: null };
@@ -425,11 +425,11 @@ test('editing an old active PR after baseline is unseen using observation time',
   };
   const { store, sync, advance } = setup(provider, ['prs']);
   await sync.tick();
-  assert.equal(store.listEvents()[0].imported, true);
+  assert.equal(present(store.listEvents()[0]).imported, true);
   title = 'New title';
   advance();
   await sync.tick();
-  const [changed] = store.listEvents({ unseen: true });
+  const changed = present(store.listEvents({ unseen: true })[0]);
   assert.match(present(changed.title), /New title/);
   assert.equal(changed.time, '2026-11-17T10:00:02.000Z');
   store.close();
@@ -453,12 +453,12 @@ test('pagination receives a fixed window and yields between pages to another rep
   advance(500);
   await sync.tick();
   await sync.tick();
-  assert.equal(calls[0].id, 'one');
-  assert.equal(calls[1].id, 'two');
-  assert.equal(calls[2].id, 'one');
-  assert.equal(calls[0].since, calls[2].since);
-  assert.equal(calls[0].until, calls[2].until);
-  assert.deepEqual(calls[2].cursor, { skip: 1 });
+  assert.equal(present(calls[0]).id, 'one');
+  assert.equal(present(calls[1]).id, 'two');
+  assert.equal(present(calls[2]).id, 'one');
+  assert.equal(present(calls[0]).since, present(calls[2]).since);
+  assert.equal(present(calls[0]).until, present(calls[2]).until);
+  assert.deepEqual(present(calls[2]).cursor, { skip: 1 });
   store.close();
 });
 
@@ -477,7 +477,7 @@ test('project-wide PR results cannot leak another repository into the watched re
   const { store, sync } = setup(provider, ['prs']);
   await sync.tick();
   assert.equal(store.listEvents().length, 1);
-  assert.match(present(store.listEvents()[0].title), /Watched repo/);
+  assert.match(present(present(store.listEvents()[0]).title), /Watched repo/);
   assert.equal(store.getEntity('one', 'pr', '1'), undefined);
   assert.equal(store.listEntities('one', 'pr').length, 1);
   store.close();
@@ -505,7 +505,7 @@ test('pausing during a read prevents follow-up reconciliation and never acknowle
   present(release)();
   await pending;
   assert.equal(reconciled, 0);
-  assert.equal(store.listEvents()[0].seen, false);
+  assert.equal(present(store.listEvents()[0]).seen, false);
   assert.equal(present(store.getStreams().find(s => s.stream === 'activeBuilds')).lastSuccess, undefined);
   store.close();
 });
@@ -538,7 +538,7 @@ test('completed PR snapshots retain source, target and merge result without extr
     ['closedPrs'],
   );
   await sync.tick();
-  const event = store.listEvents()[0];
+  const event = present(store.listEvents()[0]);
   assert.equal(dataOf(event).sourceRefName, item.sourceRefName);
   assert.equal(dataOf(event).targetRefName, item.targetRefName);
   assert.equal(dataOf(event).sourceCommit, 'source-sha');
@@ -1132,10 +1132,10 @@ test('tags join the refs snapshot without announcing the tags that already exist
     state: { ...refs, initialized: true, nextAt: new Date(BASE).toISOString() },
     entities: [{ type: 'ref', id: 'refs/heads/main', data: { name: 'refs/heads/main', objectId: 'a', active: true } }],
   });
-  items = [items[0], { name: 'refs/tags/old', objectId: 'b' }];
+  items = [present(items[0]), { name: 'refs/tags/old', objectId: 'b' }];
   await sync.tick();
   assert.equal(store.listEvents().length, 0, 'existing tags are a baseline, not news');
-  items = [items[0], { name: 'refs/tags/v2', objectId: 't', peeledObjectId: 'c' }];
+  items = [present(items[0]), { name: 'refs/tags/v2', objectId: 't', peeledObjectId: 'c' }];
   advance(600001);
   await sync.tick();
   const tags = store.listEvents().filter(event => event.kind === 'tag');
@@ -1260,7 +1260,7 @@ test('a historical PR import keeps the event ID it had before votes were recorde
   const { events } = sync.normalize(repo, 'closedPrs', [closed], { historical: true, initialized: false });
   const before = { status: 'completed', isDraft: false, title: 'Fix', source: 'c'.repeat(40), target: 'refs/heads/main' };
   const hash = createHash('sha256').update(JSON.stringify(before)).digest('hex').slice(0, 24);
-  assert.equal(events[0].id, `one:pr:history:8:${hash}`);
+  assert.equal(present(events[0]).id, `one:pr:history:8:${hash}`);
   store.close();
 });
 
@@ -1328,7 +1328,7 @@ test('a refs snapshot saved before tags restarts and still notices a branch dele
 for (const [order, first, second] of [
   ['push stored first', 'pushes', 'closedPrs'],
   ['PR stored first', 'closedPrs', 'pushes'],
-]) {
+] satisfies [string, string, string][]) {
   test(`a completed PR links to the push that is its result with no merge call, ${order}`, async () => {
     const result = 'c'.repeat(40);
     const items: Record<string, object[]> = {
@@ -1361,7 +1361,7 @@ for (const [order, first, second] of [
     for (const state of store.getStreams())
       if (!['pushes', 'closedPrs'].includes(state.stream)) store.saveStream({ ...state, nextAt: '2099-01-01T00:00:00Z' });
     for (const stream of [first, second]) {
-      offered[stream] = items[stream];
+      offered[stream] = present(items[stream]);
       for (let i = 0; i < 2; i++) {
         time += 2000;
         await sync.tick();

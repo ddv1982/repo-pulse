@@ -137,7 +137,7 @@ test('browser modules come from the build in dist/, and stylesheets, icons and v
     ['/web/vendor/idiomorph.esm.js', 'web/vendor/idiomorph.esm.js'],
     ['/web/favicon.svg', 'web/favicon.svg'],
     ['/web/app.css', 'web/app.css'],
-  ]) {
+  ] satisfies [string, string][]) {
     const response = await globalThis.fetch(url + route);
     assert.equal(response.status, 200, `${route} should be served`);
     const type = { '.js': 'text/javascript', '.svg': 'image/svg+xml', '.css': 'text/css' }[route.slice(route.lastIndexOf('.'))];
@@ -160,8 +160,8 @@ test('state carries a sync status per enabled repository and overall', async t =
 
   // The demo seed refuses CI reads for one repository; outside demo mode that is a problem for it alone.
   const live = (await fixture(t, { demo: false })).state.syncStatus;
-  assert.equal(live.repos['demo-billing'].state, 'problem');
-  assert.equal(live.repos['demo-billing'].stream, 'builds');
+  assert.equal(present(live.repos['demo-billing']).state, 'problem');
+  assert.equal(present(live.repos['demo-billing']).stream, 'builds');
   assert.equal(live.overall.state, 'problem');
   assert.equal('repoId' in live.overall && live.overall.repoId, 'demo-billing');
   assert.ok(Object.entries(live.repos).every(([id, status]) => id === 'demo-billing' || status.state !== 'problem'));
@@ -199,16 +199,16 @@ test('acknowledges exact shown IDs; a concurrently incoming demo branch stays un
 
 test('refresh coalesces through sync interface, disabling persists and bad input is rejected', async t => {
   const { mutate, calls, state, url } = await fixture(t);
-  assert.equal((await mutate('/api/refresh', { repoIds: [state.repos[0].id] })).status, 202);
-  assert.deepEqual(calls, [[state.repos[0].id]]);
+  assert.equal((await mutate('/api/refresh', { repoIds: [present(state.repos[0]).id] })).status, 202);
+  assert.deepEqual(calls, [[present(state.repos[0]).id]]);
   assert.equal((await mutate('/api/refresh', { repoIds: ['unknown'] })).status, 404);
-  assert.equal((await mutate(`/api/repos/${state.repos[0].id}`, { paused: true }, { method: 'PATCH' })).status, 400);
-  assert.equal((await mutate(`/api/repos/${state.repos[0].id}`, { disabled: true }, { method: 'PATCH' })).status, 200);
+  assert.equal((await mutate(`/api/repos/${present(state.repos[0]).id}`, { paused: true }, { method: 'PATCH' })).status, 400);
+  assert.equal((await mutate(`/api/repos/${present(state.repos[0]).id}`, { disabled: true }, { method: 'PATCH' })).status, 200);
   const after: StateResponse = await (await fetch(url + '/api/state')).json();
-  assert.equal(after.repos.find(repo => repo.id === state.repos[0].id)?.disabled, true);
+  assert.equal(after.repos.find(repo => repo.id === present(state.repos[0]).id)?.disabled, true);
   assert.equal(calls.length, 1);
-  assert.equal((await mutate(`/api/repos/${state.repos[0].id}`, { disabled: false }, { method: 'PATCH' })).status, 200);
-  assert.deepEqual(calls.at(-1), [state.repos[0].id]);
+  assert.equal((await mutate(`/api/repos/${present(state.repos[0]).id}`, { disabled: false }, { method: 'PATCH' })).status, 200);
+  assert.deepEqual(calls.at(-1), [present(state.repos[0]).id]);
   assert.equal((await mutate('/api/settings', { refreshEnabled: false })).status, 200);
   assert.equal((await mutate('/api/settings', { refreshEnabled: true })).status, 200);
   const {
@@ -509,7 +509,7 @@ test('the unread lookup honours a page snapshot and rejects an invalid one', asy
   const page = await (await fetch(`${url}/api/activity?view=new`)).json();
   const before = (await (await fetch(`${url}/api/activity/unseen`)).json()).ids;
   assert.ok(before.length > 0);
-  const repoId = store.listRepos()[0].id;
+  const repoId = present(store.listRepos()[0]).id;
   store.insertEvents([{ id: 'after-snapshot', repoId, kind: 'push', title: 'Later', time: '2020-01-01T00:00:00Z' }]);
   const bounded = (await (await fetch(`${url}/api/activity/unseen?through=${page.asOf}`)).json()).ids;
   assert.deepEqual(new Set(bounded), new Set(before));

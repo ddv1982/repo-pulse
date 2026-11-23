@@ -73,7 +73,7 @@ test('server-side group pagination reaches history beyond 1000 records and keeps
   assert.equal(first.total, 1106);
   assert.equal(first.newItems, 1106);
   assert.equal(first.newUpdates, 2305);
-  assert.equal(first.items[0].eventIds.length, 1200);
+  assert.equal(present(first.items[0]).eventIds.length, 1200);
   assert.equal(first.counts?.build, 1);
   assert.equal(first.counts.push, 1105);
   let cursor = first.nextCursor;
@@ -112,12 +112,12 @@ test('raw filters apply before grouping and never acknowledge hidden group membe
   store.insertEvents([build('queued', 'Queued'), build('running', 'Running', { observedAt: '2026-11-17T10:01:00Z' })]);
   const filtered = store.queryActivity({ view: 'new', kind: 'build', search: 'Running' });
   assert.equal(filtered.total, 1);
-  assert.deepEqual(filtered.items[0].eventIds, ['running']);
+  assert.deepEqual(present(filtered.items[0]).eventIds, ['running']);
   assert.deepEqual(store.queryActivity.unseenIds({ kind: 'build', search: 'Running' }), ['running']);
   assert.equal(store.getEventGroup('running').length, 2);
-  store.acknowledge(filtered.items[0].unseenIds);
+  store.acknowledge(present(filtered.items[0]).unseenIds);
   assert.equal(present(store.getEvent('queued')).seen, false);
-  assert.equal(store.queryActivity({ view: 'new' }).items[0].eventIds.length, 2);
+  assert.equal(present(store.queryActivity({ view: 'new' }).items[0]).eventIds.length, 2);
   assert.equal(store.queryActivity({ repoIds: [] }).total, 0);
   store.close();
 });
@@ -130,7 +130,7 @@ test('kind-filtering a deletion supporting push keeps its matching raw record vi
     event('branch', { kind: 'branch-deleted', data: { pushId: 4, ...ref } }),
   ]);
   assert.equal(store.queryActivity().total, 1);
-  assert.deepEqual(store.queryActivity({ kind: 'push' }).items[0].eventIds, ['push']);
+  assert.deepEqual(present(store.queryActivity({ kind: 'push' }).items[0]).eventIds, ['push']);
   assert.equal(store.getEventGroup('branch').length, 2);
   store.close();
 });
@@ -188,13 +188,13 @@ test('visible Running label filters only the matching build update and repositor
   ]);
   const filtered = store.queryActivity({ view: 'new', search: 'Running' });
   assert.equal(filtered.total, 1);
-  assert.deepEqual(filtered.items[0].eventIds, ['running']);
-  assert.equal(store.queryActivity({ search: 'Triggered manually' }).items[0].eventIds.length, 1);
-  store.acknowledge(filtered.items[0].unseenIds);
+  assert.deepEqual(present(filtered.items[0]).eventIds, ['running']);
+  assert.equal(present(store.queryActivity({ search: 'Triggered manually' }).items[0]).eventIds.length, 1);
+  store.acknowledge(present(filtered.items[0]).unseenIds);
   assert.equal(present(store.getEvent('queued')).seen, false);
   const repoSearch = store.queryActivity({ search: 'customer billing' });
   assert.equal(repoSearch.total, 1);
-  assert.equal(repoSearch.items[0].eventIds.length, 2);
+  assert.equal(present(repoSearch.items[0]).eventIds.length, 2);
   store.saveRepo({ ...repo, name: 'Renamed Service' });
   assert.equal(store.queryActivity({ search: 'customer billing' }).total, 0);
   assert.equal(store.queryActivity({ search: 'renamed service' }).total, 1);
@@ -254,7 +254,7 @@ test('activity pages follow source chronology across imported streams while buil
     second.items.map(item => item.id),
     ['latest-observed-update', 'nov11-build'],
   );
-  assert.equal(second.items[0].events[0].id, 'latest-observed-update');
+  assert.equal(present(present(second.items[0]).events[0]).id, 'latest-observed-update');
   const last = store.queryActivity({ limit: 2, cursor: second.nextCursor ?? undefined });
   assert.deepEqual(
     last.items.map(item => item.id),
@@ -470,10 +470,10 @@ test('filter options come from the full scoped history and stay available when a
     assert.deepEqual(all.filterOptions, ['push', 'pr', 'build', 'status:canceled', 'status:merged', 'evidence:pr-linked']);
     assert.equal(store.queryActivity({ ...scope, cursor: all.nextCursor ?? undefined }).filterOptions, undefined);
     const canceled = store.queryActivity({ ...scope, kind: 'status:Canceled' });
-    assert.equal(canceled.items[0].id, 'older-canceled');
+    assert.equal(present(canceled.items[0]).id, 'older-canceled');
     assert.deepEqual(canceled.filterOptions, all.filterOptions);
-    assert.equal(store.queryActivity({ ...scope, kind: 'evidence:Completed PR linked' }).items[0].id, 'push-evidence');
-    assert.equal(store.queryActivity({ ...scope, search: 'Completed PR linked' }).items[0].id, 'push-evidence');
+    assert.equal(present(store.queryActivity({ ...scope, kind: 'evidence:Completed PR linked' }).items[0]).id, 'push-evidence');
+    assert.equal(present(store.queryActivity({ ...scope, search: 'Completed PR linked' }).items[0]).id, 'push-evidence');
     assert.equal(store.queryActivity({ ...scope, view: 'new' }).filterOptions?.includes('status:canceled'), false);
     assert.deepEqual(store.queryActivity({ ...scope, search: 'merged' }).filterOptions, ['pr', 'status:merged']);
   } finally {
@@ -496,14 +496,14 @@ test('New activity offers the displayed run status even when only an earlier upd
     const base: ActivityRequest = { view: 'new', repoIds: [repo.id], limit: 1 };
     const page = store.queryActivity(base);
     assert.deepEqual(page.filterOptions, ['build', 'status:failed', 'status:succeeded']);
-    assert.equal(page.items[0].id, 'a-succeeded');
-    assert.equal(store.queryActivity({ ...base, cursor: page.nextCursor ?? undefined }).items[0].id, 'b-failed');
+    assert.equal(present(page.items[0]).id, 'a-succeeded');
+    assert.equal(present(store.queryActivity({ ...base, cursor: page.nextCursor ?? undefined }).items[0]).id, 'b-failed');
     assert.equal(store.queryActivity({ ...base, kind: 'status:running' }).total, 0);
     const succeeded = store.queryActivity({ ...base, kind: 'status:succeeded' });
-    assert.equal(succeeded.items[0].id, 'a-succeeded');
-    assert.deepEqual(succeeded.items[0].unseenIds, ['a-running']);
+    assert.equal(present(succeeded.items[0]).id, 'a-succeeded');
+    assert.deepEqual(present(succeeded.items[0]).unseenIds, ['a-running']);
     assert.deepEqual(store.queryActivity.unseenIds({ ...base, kind: 'status:succeeded' }), ['a-running']);
-    store.acknowledge(succeeded.items[0].unseenIds);
+    store.acknowledge(present(succeeded.items[0]).unseenIds);
     assert.equal(store.queryActivity({ ...base, kind: 'status:succeeded' }).total, 0);
     assert.equal(present(store.getEvent('b-failed')).seen, false);
   } finally {
@@ -583,7 +583,7 @@ test('a v6 database keeps event IDs, seen flags and repositories when its activi
       { id: 'unseen-push', seen: false },
     ],
   );
-  assert.equal(store.listRepos()[0].disabled, true);
+  assert.equal(present(store.listRepos()[0]).disabled, true);
   store.close();
   const check = new DatabaseSync(path);
   const columns = check
@@ -786,7 +786,7 @@ test('People filters recorded identities before grouping and binds the cursor to
       'vote',
     ]);
     assert.throws(() => store.queryActivity({ people: 'Chris', cursor: first.nextCursor ?? undefined }), /cursor does not match/);
-    assert.equal(store.queryActivity({ people: names, kind: 'build' }).items[0].unseenIds.join(), 'alice-build');
+    assert.equal(present(store.queryActivity({ people: names, kind: 'build' }).items[0]).unseenIds.join(), 'alice-build');
     assert.equal(store.queryActivity({ people: 'Bob', search: 'branch-only' }).total, 0);
     assert.equal(store.queryActivity({ people: 'unknown, Microsoft' }).total, 0);
     assert.equal(store.queryActivity({ people: '%_' }).total, 0);

@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { actions, checkoutFixture, comparisonOf, expectedOf, git, linked } from './fixtures/checkout.ts';
 import { createCheckoutGit, runGit } from '../server/checkout-git.ts';
 import type { Observation } from '../server/checkout-observations.ts';
+import { present } from './fixtures/typed.ts';
 
 test('status reads the last fetched upstream; Check changes refs and Pull fast-forwards the checkout', async t => {
   const fixture = checkoutFixture(t);
@@ -117,7 +118,11 @@ for (const restoreDuringSample of [false, true]) {
       matchesRemote: url => url === remote,
       run: async (path, args) => {
         const swap =
-          replace && fetched && args[0] === 'for-each-ref' && args.at(-1) === 'refs/remotes/origin/main' && args[1].includes('%(symref)');
+          replace &&
+          fetched &&
+          args[0] === 'for-each-ref' &&
+          args.at(-1) === 'refs/remotes/origin/main' &&
+          present(args[1]).includes('%(symref)');
         if (swap) {
           replace = false;
           renameSync(local, `${local}-previous`);
@@ -234,7 +239,7 @@ test('a branch switch after fetch validation cannot advance either branch', asyn
         fetched &&
         args[0] === 'for-each-ref' &&
         args.at(-1) === 'refs/remotes/origin/main' &&
-        args[1].includes('%(symref)')
+        present(args[1]).includes('%(symref)')
       ) {
         switchAtTipRead = false;
         git(local, 'switch', 'other');
@@ -376,7 +381,7 @@ test('Pull still fast-forwards when local Git config picks a merge strategy', as
   for (const [key, value] of [
     ['branch.main.mergeOptions', '-s ours'],
     ['pull.twohead', 'ours'],
-  ]) {
+  ] satisfies [string, string][]) {
     const fixture = checkoutFixture(t);
     const { repo, checkoutGit, local, original } = fixture;
     git(local, 'config', key, value);
@@ -522,7 +527,7 @@ test('conditional includes, transport and signing keys in checkout config are re
     ['credential.trace', '/tmp/trace'],
     ['url.https://example.test/.insteadOf', 'https://dev.azure.com/'],
     ['remote.origin.lfsurl', 'https://example.test/lfs'],
-  ]) {
+  ] satisfies [string, string][]) {
     git(local, 'config', key, value);
     const status = await createCheckoutGit({ matchesRemote: url => url === remote }).status(repo);
     assert.equal(status.state, 'unavailable', key);

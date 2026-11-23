@@ -14,7 +14,7 @@ import { startApp, createApp } from '../server.ts';
 import { createStore } from '../server/store.ts';
 import { createSync } from '../server/sync.ts';
 import { TEST_KEY, rememberKey, portOf } from '../test/fixtures/access.ts';
-import { stub } from '../test/fixtures/typed.ts';
+import { present, stub } from '../test/fixtures/typed.ts';
 
 export type FoldersResponse = import('../server.ts').FoldersResponse;
 export type DiscoverResponse = import('../server.ts').DiscoverResponse;
@@ -100,6 +100,8 @@ const checkoutRows = (page: Page) =>
   page.locator('#checkout-options [role="option"]').evaluateAll(rows =>
     rows.map(row => {
       const [path, context] = row.querySelectorAll('small');
+      // This runs in the browser, where the test's present() is not available.
+      if (!path) throw new Error('A checkout row has no path.');
       return {
         title: row.getAttribute('title'),
         name: row.querySelector('b')?.textContent,
@@ -121,7 +123,8 @@ const checkoutRow = (checkout: { localPath: string }, item: DiscoveredRemote, pa
 });
 
 test('the repository picker shows folder, checkout and remote names as text', async t => {
-  const [multi, single] = discovery.repositories;
+  const multi = present(discovery.repositories[0]);
+  const single = present(discovery.repositories[1]);
   const store = createStore();
   const provider = stub<AzureProvider>({
     async checkConnection() {
@@ -153,9 +156,9 @@ test('the repository picker shows folder, checkout and remote names as text', as
   await expect(page.getByRole('option')).toHaveCount(3);
   assert.deepEqual(await rawProbes(page), []);
   const rows = [
-    checkoutRow(multi, multi.remotes[0], `~/${probe('multi.localPath')}`),
-    checkoutRow(multi, multi.remotes[1], `~/${probe('multi.localPath')}`),
-    { ...checkoutRow(single, single.remotes[0], `./${probe('single.localPath')}`), remote: undefined },
+    checkoutRow(multi, present(multi.remotes[0]), `~/${probe('multi.localPath')}`),
+    checkoutRow(multi, present(multi.remotes[1]), `~/${probe('multi.localPath')}`),
+    { ...checkoutRow(single, present(single.remotes[0]), `./${probe('single.localPath')}`), remote: undefined },
   ];
   assert.deepEqual(await checkoutRows(page), rows);
   assert.deepEqual(
@@ -174,7 +177,7 @@ test('the repository picker shows folder, checkout and remote names as text', as
   assert.deepEqual(await checkoutRows(page), rows);
   await expect(page.locator('#checkout-options mark')).toHaveCount(6);
 
-  const second = multi.remotes[1];
+  const second = present(multi.remotes[1]);
   await page.getByRole('option').nth(1).click();
   const chip = page.locator('.picker-chips .chip');
   await expect(chip).toHaveText(`${second.repoName} · ${second.name}×`);
@@ -194,7 +197,7 @@ test('the repository picker shows folder, checkout and remote names as text', as
   const child = page.getByRole('option').nth(1);
   await expect(child.locator('b')).toHaveText(probe('folder.name'));
   await expect(child.locator('small')).toHaveText(`./${probe('folder.child')}`);
-  await expect(child.locator('small')).toHaveAttribute('title', folder.folders[0].path);
+  await expect(child.locator('small')).toHaveAttribute('title', present(folder.folders[0]).path);
   assert.deepEqual(await rawProbes(page), []);
 });
 

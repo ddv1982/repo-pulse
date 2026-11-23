@@ -12,7 +12,7 @@ import { createStore } from '../server/store.ts';
 import { TEST_KEY, rememberKey, portOf } from '../test/fixtures/access.ts';
 import type { AppSync } from '../server.ts';
 import type { AzureProvider } from '../server/azure-client.ts';
-import { stub } from '../test/fixtures/typed.ts';
+import { present, stub } from '../test/fixtures/typed.ts';
 import type {
   ActivityEvent,
   ConnectionStatus,
@@ -410,7 +410,7 @@ test('repository history import scopes the confirmed range and keeps progress vi
     { repoId: 'orders', days: 90 },
     { repoId: 'orders', days: 90 },
   ]);
-  const job = store.listJobs({ type: 'backfill' })[0];
+  const job = present(store.listJobs({ type: 'backfill' })[0]);
   store.saveJob({ ...job, status: 'retrying', pages: 2, error: { message: 'Read denied' } });
   await expect(orders.getByText('History sync retrying', { exact: true })).toBeVisible({ timeout: 8000 });
   await expect(orders.getByText('Read denied', { exact: true })).toBeVisible();

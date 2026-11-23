@@ -20,7 +20,7 @@ import type { AppSync } from '../server.ts';
 import type { AzureProvider, RepositoryInput, ResolvedRepository } from '../server/azure-client.ts';
 import type { ActivityKind } from '../src/activity.ts';
 import type { ActivityEvent, ConnectionStatus, EventData, Repository, StreamState, SyncEngineStatus, SyncStatus } from '../src/contract.ts';
-import { stub } from '../test/fixtures/typed.ts';
+import { present, stub } from '../test/fixtures/typed.ts';
 
 type Runtime = Awaited<ReturnType<typeof startApp>>;
 /** An element a test tags in the page, to tell afterwards whether a render kept the same node. */
@@ -364,7 +364,7 @@ async function postDemoEvent(runtime: Runtime) {
 for (const [name, selector] of [
   ['title', '.feed-title'],
   ['Seen toggle', '.seen-toggle'],
-]) {
+] satisfies [string, string][]) {
   test(`incoming activity renders while a row's ${name} has keyboard focus, and focus stays on it`, async t => {
     const { page, runtime } = await setup(t);
     const row = page.locator('li[data-event-id]').nth(1);
@@ -587,7 +587,7 @@ test('a focused scope checkbox stays on its repository when an earlier repositor
   await page.locator('#repo-toggle').click();
   const billing = page.locator('[data-scope-repo="demo-billing"]');
   await billing.focus();
-  const [first] = runtime.store.listRepos();
+  const first = present(runtime.store.listRepos()[0]);
   assert.notEqual(first.id, 'demo-billing');
   runtime.store.saveRepo({ ...first, disabled: true });
   await renderInBackground(page);
@@ -1211,7 +1211,7 @@ test('mixed control rows use one height per size on desktop and phone', async t 
   for (const [width, standard, compact] of [
     [1280, 36, 28],
     [390, 44, 36],
-  ]) {
+  ] satisfies [number, number, number][]) {
     await page.setViewportSize({ width, height: 900 });
     if (width < 640) await expect(page.locator('#activity-filters')).toBeHidden();
     await page.locator('#saved-filter-toggle').click();
@@ -1232,7 +1232,7 @@ test('mixed control rows use one height per size on desktop and phone', async t 
   for (const [width, compact] of [
     [390, 36],
     [1280, 28],
-  ]) {
+  ] satisfies [number, number][]) {
     await page.setViewportSize({ width, height: 900 });
     await height('#connection-repo', compact);
     await height('#check-settings-connection', compact);
@@ -1475,20 +1475,20 @@ test('semantic status colors match rows, imported history, details and trails in
       canvas.width = canvas.height = 1;
       const context = canvas.getContext('2d');
       if (!context) throw new Error('The canvas has no 2D context.');
-      const rgba = (color: string) => {
+      const rgba = (color: string): [number, number, number, number] => {
         context.clearRect(0, 0, 1, 1);
         context.fillStyle = color;
         context.fillRect(0, 0, 1, 1);
-        return [...context.getImageData(0, 0, 1, 1).data];
+        // One pixel is always four channels, so the defaults never apply.
+        const [red = 0, green = 0, blue = 0, alpha = 0] = context.getImageData(0, 0, 1, 1).data;
+        return [red, green, blue, alpha];
       };
-      const luminance = (color: number[]) =>
-        color
-          .slice(0, 3)
-          .map(value => {
-            const c = value / 255;
-            return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
-          })
-          .reduce((sum, value, index) => sum + value * [0.2126, 0.7152, 0.0722][index], 0);
+      const linear = (value: number) => {
+        const c = value / 255;
+        return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+      };
+      const luminance = ([red, green, blue]: [number, number, number, number]) =>
+        linear(red) * 0.2126 + linear(green) * 0.7152 + linear(blue) * 0.0722;
       const tokens = getComputedStyle(document.documentElement);
       const names: Record<string, string> = {
         crit: '--critical',
@@ -1502,13 +1502,17 @@ test('semantic status colors match rows, imported history, details and trails in
         const kind = row.querySelector('.kind');
         const card = row.closest('.card');
         if (!kind || !card) throw new Error(`${row.dataset.eventId} has no status label or card.`);
-        const tone = Object.keys(names).find(name => kind.classList.contains(name));
-        if (!tone) throw new Error(`${row.dataset.eventId} has no status tone.`);
+        const named = Object.entries(names).find(([name]) => kind.classList.contains(name));
+        if (!named) throw new Error(`${row.dataset.eventId} has no status tone.`);
+        const [tone, token] = named;
         const foreground = rgba(getComputedStyle(kind).color);
         let background = rgba(getComputedStyle(card).backgroundColor);
-        if (washes[tone]) {
-          const wash = rgba(tokens.getPropertyValue(washes[tone]));
-          background = background.map((value, index) => (index === 3 ? 255 : (wash[index] * wash[3]) / 255 + value * (1 - wash[3] / 255)));
+        const washToken = washes[tone];
+        if (washToken) {
+          const [washRed, washGreen, washBlue, washAlpha] = rgba(tokens.getPropertyValue(washToken));
+          const blend = (value: number, tint: number) => (tint * washAlpha) / 255 + value * (1 - washAlpha / 255);
+          const [red, green, blue] = background;
+          background = [blend(red, washRed), blend(green, washGreen), blend(blue, washBlue), 255];
         }
         const first = luminance(foreground),
           second = luminance(background);
@@ -1518,7 +1522,7 @@ test('semantic status colors match rows, imported history, details and trails in
           hasWash: getComputedStyle(row).backgroundImage !== 'none',
           washed: row.classList.contains('new') || row.classList.contains('crit'),
           ratio: (Math.max(first, second) + 0.05) / (Math.min(first, second) + 0.05),
-          matchesToken: JSON.stringify(foreground) === JSON.stringify(rgba(tokens.getPropertyValue(names[tone]))),
+          matchesToken: JSON.stringify(foreground) === JSON.stringify(rgba(tokens.getPropertyValue(token))),
         };
       });
     });
@@ -1701,7 +1705,7 @@ test('the sync status pill reads Synced in the demo and follows a Problem or Del
     [{ state: 'delayed', reason: 'about 9 minutes behind', stream: 'pushes' }, 'Delayed · about 9 minutes behind', 'warn'],
   ];
   // One handler for the whole test: replacing it while a poll is in flight would answer that request twice.
-  let status = cases[0][0];
+  let status = present(cases[0])[0];
   await page.route('**/api/state', async route => {
     const state = await (await route.fetch()).json();
     const repos = { ...state.syncStatus.repos, 'demo-orders': status };
@@ -1713,12 +1717,12 @@ test('the sync status pill reads Synced in the demo and follows a Problem or Del
     await expect(pill).toHaveText(text);
     await expect(pill).toHaveClass(new RegExp(`\\b${tone}\\b`));
     await expect(page.locator('#page .banner')).toHaveCount(1);
-    await expect(page.locator('#page .banner strong')).toHaveText(text.split(' · ')[0]);
+    await expect(page.locator('#page .banner strong')).toHaveText(present(text.split(' · ')[0]));
     await page.getByRole('link', { name: 'Repositories', exact: true }).click();
     await expect(page.locator('.repo-entry', { hasText: 'orders-api' }).locator('.sync-pill')).toHaveText(text);
   }
   await expect(pill).toHaveAccessibleName('Sync status: Delayed in orders-api: about 9 minutes behind');
-  status = cases[0][0];
+  status = present(cases[0])[0];
   await page.reload();
   await expect(pill).toHaveAccessibleName('Sync status: Problem in orders-api: Sign in to Azure again.');
   await expect(pill).toHaveAttribute('title', 'Problem in orders-api: Sign in to Azure again.');

@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { creationPushes, probeRequests, summarize } from '../scripts/probe-coverage.ts';
+import { present } from './fixtures/typed.ts';
 
 const repo = { organization: 'https://dev.azure.com/example', project: 'Project', projectId: 'p1', azureId: 'r1' };
 
@@ -78,11 +79,14 @@ test('the fork evidence reads follow a branch creation push and an active PR, GE
     'created commit',
   ]);
   const byName = Object.fromEntries(requests.map(request => [request.name, new URL(request.url)]));
-  assert.equal(byName['PR iterations'].pathname, '/example/Project/_apis/git/repositories/r1/pullrequests/7/iterations');
-  assert.equal(byName['PR merge bases'].pathname, `/example/Project/_apis/git/repositories/r1/commits/${'b'.repeat(40)}/mergebases`);
-  assert.equal(byName['PR merge bases'].searchParams.get('otherCommitId'), 'c'.repeat(40));
-  assert.equal(byName['creation push commits'].searchParams.get('pushId'), '41');
-  assert.equal(byName['created commit'].pathname, `/example/Project/_apis/git/repositories/r1/commits/${tip}`);
+  assert.equal(present(byName['PR iterations']).pathname, '/example/Project/_apis/git/repositories/r1/pullrequests/7/iterations');
+  assert.equal(
+    present(byName['PR merge bases']).pathname,
+    `/example/Project/_apis/git/repositories/r1/commits/${'b'.repeat(40)}/mergebases`,
+  );
+  assert.equal(present(byName['PR merge bases']).searchParams.get('otherCommitId'), 'c'.repeat(40));
+  assert.equal(present(byName['creation push commits']).searchParams.get('pushId'), '41');
+  assert.equal(present(byName['created commit']).pathname, `/example/Project/_apis/git/repositories/r1/commits/${tip}`);
   for (const request of requests) assert.equal(request.method, 'GET');
 });
 
