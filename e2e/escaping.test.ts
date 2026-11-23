@@ -13,12 +13,15 @@ import { chromium, expect } from '@playwright/test';
 import { startApp, createApp } from '../server.ts';
 import { createStore } from '../server/store.ts';
 import { createSync } from '../server/sync.ts';
-import { TEST_KEY, rememberKey } from '../test/fixtures/access.ts';
+import { TEST_KEY, rememberKey, portOf } from '../test/fixtures/access.ts';
+import { stub } from '../test/fixtures/typed.ts';
 
-/** @typedef {import('../server.ts').FoldersResponse} FoldersResponse */
-/** @typedef {import('../server.ts').DiscoverResponse} DiscoverResponse */
-/** @typedef {import('../server/repositories.ts').DiscoveredRemote} DiscoveredRemote */
-/** @typedef {import('@playwright/test').Page} Page */
+export type FoldersResponse = import('../server.ts').FoldersResponse;
+export type DiscoverResponse = import('../server.ts').DiscoverResponse;
+export type DiscoveredRemote = import('../server/repositories.ts').DiscoveredRemote;
+export type Page = import('@playwright/test').Page;
+export type AzureProvider = import('../server/azure-client.ts').AzureProvider;
+export type ConnectionStatus = import('../src/contract.ts').ConnectionStatus;
 
 async function browserPath() {
   if (process.env.CHROME) return process.env.CHROME;
@@ -38,16 +41,14 @@ async function browserPath() {
 
 /**
  * Two tags, so a value the picker splits around a search match still has markup on both sides of the match.
- * @param {string} field
  */
-const probe = field => `<x-probe a="${field}"><x-probe a="${field}">`;
+const probe = (field: string) => `<x-probe a="${field}"><x-probe a="${field}">`;
 
-/** @param {import('node:test').TestContext} t @param {string} url @param {string} [key] stored before the page loads */
-async function openPage(t, url, key) {
+/** @param [key] stored before the page loads */
+async function openPage(t: import('node:test').TestContext, url: string, key?: string) {
   const browser = await chromium.launch({ executablePath: await browserPath(), headless: true });
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
-  /** @type {string[]} */
-  const errors = [];
+  const errors: string[] = [];
   page.on('pageerror', error => errors.push(error.message));
   t.after(async () => {
     await browser.close();
@@ -58,16 +59,15 @@ async function openPage(t, url, key) {
   return page;
 }
 
-/** The fields whose markup reached the page unescaped, named by the probe elements it created. @param {Page} page */
-const rawProbes = page =>
+/** The fields whose markup reached the page unescaped, named by the probe elements it created. */
+const rawProbes = (page: Page) =>
   page.evaluate(() =>
     [...document.querySelectorAll('*')]
       .filter(node => node.localName.startsWith('x-'))
       .map(node => node.getAttribute('a') ?? node.localName),
   );
 
-/** @param {string} name @param {string} [organization] @param {string} [project] @returns {DiscoveredRemote} */
-const remote = (name, organization = `${name}.organization`, project = `${name}.project`) => ({
+const remote = (name: string, organization: string = `${name}.organization`, project: string = `${name}.project`): DiscoveredRemote => ({
   name: probe(`${name}.name`),
   repoName: probe(`${name}.repoName`),
   organization: `https://dev.azure.com/${probe(organization)}`,
@@ -76,15 +76,14 @@ const remote = (name, organization = `${name}.organization`, project = `${name}.
 });
 const root = `/srv/${probe('folder.path')}`;
 /** A checkout with two remotes under the home folder, and one with a remote in another organization under the listed folder. */
-const discovery = /** @satisfies {DiscoverResponse} */ ({
+const discovery = {
   repositories: [
     { localPath: `/home/someone/${probe('multi.localPath')}`, remotes: [remote('multi.origin'), remote('multi.second')] },
     { localPath: `${root}/${probe('single.localPath')}`, remotes: [remote('single.origin')] },
   ],
   warnings: [probe('discovery.warning')],
-});
-/** @type {FoldersResponse} */
-const folder = {
+} satisfies DiscoverResponse;
+const folder: FoldersResponse = {
   path: root,
   parent: '/srv',
   breadcrumbs: [
@@ -96,8 +95,8 @@ const folder = {
   ...discovery,
 };
 
-/** What each checkout row shows, read back as text and attribute values. @param {Page} page */
-const checkoutRows = page =>
+/** What each checkout row shows, read back as text and attribute values. */
+const checkoutRows = (page: Page) =>
   page.locator('#checkout-options [role="option"]').evaluateAll(rows =>
     rows.map(row => {
       const [path, context] = row.querySelectorAll('small');
@@ -112,8 +111,7 @@ const checkoutRows = page =>
     }),
   );
 
-/** @param {{ localPath: string }} checkout @param {DiscoveredRemote} item @param {string} path */
-const checkoutRow = (checkout, item, path) => ({
+const checkoutRow = (checkout: { localPath: string }, item: DiscoveredRemote, path: string) => ({
   title: `${checkout.localPath} · ${item.project} · ${item.organization}`,
   name: item.repoName,
   pathTitle: checkout.localPath,
@@ -125,11 +123,16 @@ const checkoutRow = (checkout, item, path) => ({
 test('the repository picker shows folder, checkout and remote names as text', async t => {
   const [multi, single] = discovery.repositories;
   const store = createStore();
-  const provider = {
+  const provider = stub<AzureProvider>({
     async checkConnection() {
-      return { available: true, signedIn: true, account: { name: 'someone@example.test' }, message: 'Signed in.' };
+      return stub<ConnectionStatus>({
+        available: true,
+        signedIn: true,
+        account: { name: 'someone@example.test' },
+        message: 'Signed in.',
+      });
     },
-  };
+  });
   const server = createApp({
     accessKey: TEST_KEY,
     store,
@@ -138,12 +141,12 @@ test('the repository picker shows folder, checkout and remote names as text', as
     browse: async () => folder,
     discover: async () => discovery,
   });
-  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
   t.after(async () => {
     await new Promise(resolve => server.close(resolve));
     store.close();
   });
-  const page = await openPage(t, `http://127.0.0.1:${server.address().port}/#repositories`, TEST_KEY);
+  const page = await openPage(t, `http://127.0.0.1:${portOf(server)}/#repositories`, TEST_KEY);
 
   const search = page.getByRole('combobox', { name: 'Search local repositories' });
   await search.focus();

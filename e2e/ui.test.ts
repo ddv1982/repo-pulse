@@ -1,12 +1,14 @@
 import test from 'node:test';
+import type { TestContext } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, rm, readdir, readFile, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { tmpdir, homedir } from 'node:os';
 import { join } from 'node:path';
 import { chromium, expect } from '@playwright/test';
+import type { Browser, Page } from '@playwright/test';
 import { startApp, createApp } from '../server.ts';
-import { TEST_KEY, fetchWithKey, rememberKey, rememberRuntime } from '../test/fixtures/access.ts';
+import { TEST_KEY, fetchWithKey, rememberKey, rememberRuntime, portOf } from '../test/fixtures/access.ts';
 import { checkoutFixture, git } from '../test/fixtures/checkout.ts';
 
 const fetch = fetchWithKey;
@@ -14,6 +16,22 @@ import { createStore } from '../server/store.ts';
 import { createSync } from '../server/sync.ts';
 import { createAzureCli } from '../server/azure-cli.ts';
 import { createAzureClient } from '../server/azure-client.ts';
+import type { AppSync } from '../server.ts';
+import type { AzureProvider, RepositoryInput, ResolvedRepository } from '../server/azure-client.ts';
+import type { ActivityKind } from '../src/activity.ts';
+import type { ActivityEvent, ConnectionStatus, EventData, Repository, StreamState, SyncEngineStatus, SyncStatus } from '../src/contract.ts';
+import { stub } from '../test/fixtures/typed.ts';
+
+type Runtime = Awaited<ReturnType<typeof startApp>>;
+/** An element a test tags in the page, to tell afterwards whether a render kept the same node. */
+type Marked = HTMLElement & { marker?: string };
+
+declare global {
+  interface Window {
+    /** The sync live region's text node, kept between page.evaluate calls to check that a render reused it. */
+    syncText?: ChildNode | null;
+  }
+}
 
 async function browserPath() {
   if (process.env.CHROME) return process.env.CHROME;
@@ -31,17 +49,17 @@ async function browserPath() {
   throw new Error('Install Chromium with npx playwright install chromium, or set CHROME.');
 }
 
-async function selectActivityType(page, label) {
+async function selectActivityType(page: Page, label: string) {
   await page.getByRole('button', { name: /^Activity type:/ }).click();
   await page.getByRole('option', { name: label, exact: true }).click();
 }
 
-async function setup(t, demo = true) {
+async function setup(t: TestContext, demo = true) {
   const directory = await mkdtemp(join(tmpdir(), 'repo-pulse-ui-'));
-  let runtime = rememberRuntime(await startApp({ demo, port: 0, dataDir: directory }));
+  let runtime: Runtime = rememberRuntime(await startApp({ demo, port: 0, dataDir: directory }));
   const browser = await chromium.launch({ executablePath: await browserPath(), headless: true });
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 }, colorScheme: 'light' });
-  const errors = [];
+  const errors: string[] = [];
   page.on('pageerror', error => errors.push(error.message));
   page.on('console', message => {
     if (message.type() === 'error') errors.push(message.text());
@@ -120,7 +138,7 @@ test('approved light/dark/System UI and responsive routes work without remote tr
   const { page } = await setup(t);
   await expect(page.getByText('Demo mode · fictional repositories and people')).toBeVisible();
   await expect(page.locator('[data-event-id="demo-branch-1"]')).toContainText('hotfix/2026.11-dose-rounding');
-  const remoteReads = [];
+  const remoteReads: string[] = [];
   page.on('request', request => {
     if (/\/api\/(refresh|connection|repos)(\?|$)/.test(request.url())) remoteReads.push(request.url());
   });
@@ -160,7 +178,7 @@ test('repo subset acknowledgement preserves hidden/incoming events and survives 
   await page.locator('[data-scope-repo="demo-shared"]').uncheck();
   await page.keyboard.press('Escape');
   await expect(page.locator('[data-event-id]')).toHaveCount(2);
-  let incoming;
+  let incoming: { id: string } | undefined;
   await page.route(
     '**/api/ack',
     async route => {
@@ -183,8 +201,9 @@ test('repo subset acknowledgement preserves hidden/incoming events and survives 
       .filter(event => event.repoId === 'demo-billing')
       .every(event => event.seen),
   );
-  assert.equal(app.runtime.store.getEvent(incoming.id).seen, false);
-  assert.equal(app.runtime.store.getEvent('demo-branch-1').seen, false);
+  assert.ok(incoming);
+  assert.equal(app.runtime.store.getEvent(incoming.id)?.seen, false);
+  assert.equal(app.runtime.store.getEvent('demo-branch-1')?.seen, false);
   await app.restart();
   assert.ok(
     app.runtime.store
@@ -192,7 +211,7 @@ test('repo subset acknowledgement preserves hidden/incoming events and survives 
       .filter(event => event.repoId === 'demo-billing')
       .every(event => event.seen),
   );
-  assert.equal(app.runtime.store.getEvent(incoming.id).seen, false);
+  assert.equal(app.runtime.store.getEvent(incoming.id)?.seen, false);
   await page.locator('[data-event-id="demo-branch-1"] .feed-title').click();
   await expect(page.getByRole('heading', { name: 'hotfix/2026.11-dose-rounding' })).toBeVisible();
   assert.equal((await (await fetch(app.runtime.url + '/api/events/demo-branch-1')).json()).event.seen, false);
@@ -235,7 +254,10 @@ test('disabling a repository hides it everywhere except Repositories until it is
   await expect(row.getByText('Disabled', { exact: true })).toBeVisible();
   await expect(row.getByRole('button', { name: 'Remove watch' })).toBeVisible();
   await expect(row.locator('.repo-details')).toHaveCount(0);
-  assert.equal((await (await fetch(runtime.url + '/api/state')).json()).repos.find(repo => repo.id === 'demo-billing').disabled, true);
+  assert.equal(
+    (await (await fetch(runtime.url + '/api/state')).json()).repos.find((repo: Repository) => repo.id === 'demo-billing').disabled,
+    true,
+  );
   await expect(page.locator('#repo-toggle')).toHaveAccessibleName('1 repository shown');
   await page.locator('#repo-toggle').click();
   await expect(page.locator('#repo-panel [data-scope-repo]')).toHaveCount(2);
@@ -261,7 +283,7 @@ test('disabling a repository hides it everywhere except Repositories until it is
 
 test('empty live startup detects existing CLI locally and prompts only local repo selection', async t => {
   const store = createStore();
-  const commands = [];
+  const commands: string[] = [];
   const cli = createAzureCli({
     executor: async args => {
       commands.push(args.slice(0, 2).join(' '));
@@ -274,8 +296,8 @@ test('empty live startup detects existing CLI locally and prompts only local rep
   const provider = createAzureClient({ cli });
   const sync = createSync({ store, provider });
   const server = createApp({ store, provider, sync, cli, accessKey: TEST_KEY });
-  let browser;
-  const errors = [];
+  let browser: Browser | undefined;
+  const errors: string[] = [];
   t.after(async () => {
     await browser?.close().catch(() => {});
     await sync.stop();
@@ -284,7 +306,7 @@ test('empty live startup detects existing CLI locally and prompts only local rep
     store.close();
     assert.deepEqual(errors, []);
   });
-  await new Promise((resolve, reject) => {
+  await new Promise<void>((resolve, reject) => {
     server.once('error', reject);
     server.listen(0, '127.0.0.1', resolve);
   });
@@ -293,7 +315,7 @@ test('empty live startup detects existing CLI locally and prompts only local rep
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
   page.on('pageerror', error => errors.push(error.message));
   await rememberKey(page);
-  const url = `http://127.0.0.1:${server.address().port}`;
+  const url = `http://127.0.0.1:${portOf(server)}`;
   await page.goto(url);
   await expect(page.getByRole('heading', { name: 'Repositories', exact: true })).toBeVisible();
   await expect(page.getByText('No repositories watched yet.')).toBeVisible();
@@ -315,7 +337,7 @@ test('focused search keeps its value and selection while incoming matching activ
   const { page, runtime } = await setup(t);
   const search = page.getByRole('searchbox', { name: 'Search activity' });
   await search.fill('hotfix/');
-  await search.evaluate(input => input.setSelectionRange(2, 5));
+  await search.evaluate((input: HTMLInputElement) => input.setSelectionRange(2, 5));
   await expect(search).toBeFocused();
   const incoming = await (
     await fetch(runtime.url + '/api/demo/event', {
@@ -327,10 +349,10 @@ test('focused search keeps its value and selection while incoming matching activ
   await expect(page.locator(`[data-event-id="${incoming.id}"]`)).toBeVisible({ timeout: 12000 });
   await expect(search).toBeFocused();
   await expect(search).toHaveValue('hotfix/');
-  assert.deepEqual(await search.evaluate(input => [input.selectionStart, input.selectionEnd]), [2, 5]);
+  assert.deepEqual(await search.evaluate((input: HTMLInputElement) => [input.selectionStart, input.selectionEnd]), [2, 5]);
 });
 
-async function postDemoEvent(runtime) {
+async function postDemoEvent(runtime: Runtime) {
   const response = await fetch(runtime.url + '/api/demo/event', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
@@ -358,14 +380,17 @@ test('incoming activity updates the feed in place: the search box and an existin
   const { page, runtime } = await setup(t);
   const id = await page.locator('li[data-event-id]').first().getAttribute('data-event-id');
   await page.evaluate(id => {
-    Object.assign(document.getElementById('feed-search'), { marker: 'search' });
-    Object.assign(document.querySelector(`li[data-event-id="${id}"]`), { marker: 'row' });
+    const search = document.getElementById('feed-search');
+    const row = document.querySelector(`li[data-event-id="${id}"]`);
+    if (!search || !row) throw new Error('The search box or the row is missing.');
+    Object.assign(search, { marker: 'search' });
+    Object.assign(row, { marker: 'row' });
   }, id);
   const incoming = await postDemoEvent(runtime);
   await expect(page.locator(`[data-event-id="${incoming.id}"]`)).toBeVisible({ timeout: 12000 });
   assert.deepEqual(
     await page.evaluate(
-      id => [document.getElementById('feed-search').marker, document.querySelector(`li[data-event-id="${id}"]`).marker],
+      id => [document.querySelector<Marked>('#feed-search')?.marker, document.querySelector<Marked>(`li[data-event-id="${id}"]`)?.marker],
       id,
     ),
     ['search', 'row'],
@@ -376,11 +401,11 @@ test('a header control keeps keyboard focus while incoming activity renders the 
   const { page, runtime } = await setup(t);
   const refresh = page.locator('#header-refresh-desktop');
   await refresh.focus();
-  await refresh.evaluate(element => (element.marker = 'header'));
+  await refresh.evaluate((element: Marked) => (element.marker = 'header'));
   const incoming = await postDemoEvent(runtime);
   await expect(page.locator(`[data-event-id="${incoming.id}"]`)).toBeVisible({ timeout: 12000 });
   await expect(refresh).toBeFocused();
-  assert.equal(await refresh.evaluate(element => element.marker), 'header');
+  assert.equal(await refresh.evaluate((element: Marked) => element.marker), 'header');
 });
 
 test('incoming activity renders while the Activity type menu is open, and the menu stays open with focus inside', async t => {
@@ -419,7 +444,7 @@ test('incoming activity renders while the repository scope panel is open, and th
 });
 
 // A background render keeps focus on the same item, never on a neighbour that took its place in the markup.
-async function renderInBackground(page) {
+async function renderInBackground(page: Page) {
   const polled = page.waitForResponse(response => response.url().includes('/api/state') && response.ok());
   await page.evaluate(() => window.dispatchEvent(new Event('focus')));
   await polled;
@@ -427,7 +452,7 @@ async function renderInBackground(page) {
 
 test('a focused saved-filter option keeps focus while incoming activity renders', async t => {
   const { page, runtime } = await setup(t);
-  const filters = search => ({ search, people: '', kind: '', repoIds: null, view: 'new' });
+  const filters = (search: string) => ({ search, people: '', kind: '', repoIds: null, view: 'new' });
   runtime.store.setSetting('savedActivityFilters', [
     { id: 'first', name: 'First preset', filters: filters('first') },
     { id: 'second', name: 'Second preset', filters: filters('second') },
@@ -444,8 +469,8 @@ test('a focused saved-filter option keeps focus while incoming activity renders'
 
 test('a focused saved-filter option stays on its preset when another preset is deleted, and falls back to the toggle', async t => {
   const { page, runtime } = await setup(t);
-  const filters = search => ({ search, people: '', kind: '', repoIds: null, view: 'new' });
-  const preset = (id, name) => ({ id, name, filters: filters(id) });
+  const filters = (search: string) => ({ search, people: '', kind: '', repoIds: null, view: 'new' });
+  const preset = (id: string, name: string) => ({ id, name, filters: filters(id) });
   runtime.store.setSetting('savedActivityFilters', [
     preset('first', 'First preset'),
     preset('second', 'Second preset'),
@@ -473,7 +498,7 @@ test('a focused saved-filter option stays on its preset when another preset is d
 
 test('a focused CI row keeps focus when a status update changes which event represents it', async t => {
   const { page, runtime } = await setup(t);
-  const build = (id, status, minutesAgo) => ({
+  const build = (id: string, status: string, minutesAgo: number): ActivityEvent => ({
     id,
     repoId: 'demo-orders',
     kind: 'build',
@@ -598,7 +623,9 @@ test('ticked commits survive incoming activity while focus is elsewhere on the p
     fieldset.innerHTML =
       '<input type="checkbox" name="checkout-commit" value="a" checked><button type="button">Carry selected commits</button>';
     const other = Object.assign(document.createElement('button'), { type: 'button', textContent: 'Remove old local branch…' });
-    document.getElementById('page').append(fieldset, other);
+    const main = document.getElementById('page');
+    if (!main) throw new Error('The page has no #page element.');
+    main.append(fieldset, other);
     other.focus();
   });
   await postDemoEvent(runtime);
@@ -611,16 +638,15 @@ test('a backward selection in the focused search box survives incoming activity'
   const { page, runtime } = await setup(t);
   const search = page.getByRole('searchbox', { name: 'Search activity' });
   await search.fill('hotfix/');
-  await search.evaluate(input => input.setSelectionRange(2, 5, 'backward'));
+  await search.evaluate((input: HTMLInputElement) => input.setSelectionRange(2, 5, 'backward'));
   const incoming = await postDemoEvent(runtime);
   await expect(page.locator(`[data-event-id="${incoming.id}"]`)).toBeVisible({ timeout: 12000 });
   await expect(search).toBeFocused();
   await expect(search).toHaveValue('hotfix/');
-  assert.deepEqual(await search.evaluate(input => [input.selectionStart, input.selectionEnd, input.selectionDirection]), [
-    2,
-    5,
-    'backward',
-  ]);
+  assert.deepEqual(
+    await search.evaluate((input: HTMLInputElement) => [input.selectionStart, input.selectionEnd, input.selectionDirection]),
+    [2, 5, 'backward'],
+  );
 });
 
 test('text selected inside a row stays selected while incoming activity renders', async t => {
@@ -630,6 +656,7 @@ test('text selected inside a row stays selected while incoming activity renders'
     const range = document.createRange();
     range.selectNodeContents(element);
     const selection = getSelection();
+    if (!selection) throw new Error('The document has no selection.');
     selection.removeAllRanges();
     selection.addRange(range);
     return selection.toString();
@@ -637,32 +664,40 @@ test('text selected inside a row stays selected while incoming activity renders'
   assert.ok(selected.length > 0);
   const incoming = await postDemoEvent(runtime);
   await expect(page.locator(`[data-event-id="${incoming.id}"]`)).toBeVisible({ timeout: 12000 });
-  assert.equal(await page.evaluate(() => getSelection().toString()), selected);
+  assert.equal(await page.evaluate(() => getSelection()?.toString()), selected);
 });
 
-async function setupPicker(t, { existing = true } = {}) {
+async function setupPicker(t: TestContext, { existing = true } = {}) {
   const store = createStore();
   const organization = 'https://dev.azure.com/example',
     project = 'Demo';
   if (existing)
-    store.saveRepo({
-      id: 'existing',
-      azureId: 'existing',
-      name: 'existing',
-      localPath: '/workspace/projects/existing',
-      organization,
-      project,
-    });
-  const remote = (name, repoName) => ({ name, repoName, organization, project, url: `${organization}/${project}/_git/${repoName}` });
+    store.saveRepo(
+      stub<Repository>({
+        id: 'existing',
+        azureId: 'existing',
+        name: 'existing',
+        localPath: '/workspace/projects/existing',
+        organization,
+        project,
+      }),
+    );
+  const remote = (name: string, repoName: string) => ({
+    name,
+    repoName,
+    organization,
+    project,
+    url: `${organization}/${project}/_git/${repoName}`,
+  });
   const repositories = [
     { localPath: '/workspace/projects/alpha', remotes: [remote('origin', 'alpha-api'), remote('upstream', 'alpha-upstream')] },
     { localPath: '/workspace/projects/beta', remotes: [remote('origin', 'beta-web')] },
     { localPath: '/workspace/projects/existing', remotes: [remote('origin', 'existing')] },
   ];
   const calls = { browse: 0, resolve: 0 };
-  const browse = async path => {
+  const browse = async (input: unknown) => {
     calls.browse++;
-    path ||= '/workspace/projects';
+    const path = String(input || '/workspace/projects');
     if (path === '/missing') throw Object.assign(new Error('This folder cannot be opened. Choose another local folder.'), { status: 400 });
     return {
       path,
@@ -670,34 +705,35 @@ async function setupPicker(t, { existing = true } = {}) {
       breadcrumbs: [
         { name: '/', path: '/' },
         { name: 'workspace', path: '/workspace' },
-        ...(path === '/workspace' ? [] : [{ name: path.split('/').at(-1), path }]),
+        ...(path === '/workspace' ? [] : [{ name: path.split('/').at(-1) ?? '', path }]),
       ],
       folders: [{ name: 'nested', path: '/workspace/projects/nested' }],
       repositories: path === '/workspace/projects' ? repositories : [],
       warnings: [],
     };
   };
-  const provider = {
+  const provider = stub<AzureProvider>({
     async checkConnection() {
-      return {
+      return stub<ConnectionStatus>({
         available: true,
         signedIn: true,
         account: { name: 'existing@example.test' },
         message: 'Existing Azure CLI sign-in detected.',
-      };
+      });
     },
-    async resolveRepository(input) {
+    // The picker sends each remote as an organization, project and name.
+    async resolveRepository(input: RepositoryInput) {
       calls.resolve++;
-      return { id: input.name, azureId: input.name, name: input.name, organization, project };
+      return stub<ResolvedRepository>({ id: input.name, azureId: input.name, name: input.name, organization, project });
     },
-  };
+  });
   const sync = createSync({ store, provider });
   const server = createApp({ store, provider, sync, browse, discover: async () => ({ repositories, warnings: [] }), accessKey: TEST_KEY });
-  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
   const browser = await chromium.launch({ executablePath: await browserPath(), headless: true });
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
   await rememberKey(page);
-  const errors = [];
+  const errors: string[] = [];
   page.on('pageerror', error => errors.push(error.message));
   t.after(async () => {
     if (!t.passed) {
@@ -710,7 +746,7 @@ async function setupPicker(t, { existing = true } = {}) {
     store.close();
     assert.deepEqual(errors, []);
   });
-  await page.goto(`http://127.0.0.1:${server.address().port}/${existing ? '#repositories' : ''}`);
+  await page.goto(`http://127.0.0.1:${portOf(server)}/${existing ? '#repositories' : ''}`);
   if (existing) await page.locator('#add-repositories').click();
   return { page, store, calls };
 }
@@ -723,8 +759,11 @@ test('a background render leaves the repository picker in place, so its focused 
   const toggle = page.getByRole('button', { name: 'Open repository picker' });
   await toggle.focus();
   await page.evaluate(() => {
-    Object.assign(document.getElementById('checkout-search'), { marker: 'picker' });
-    document.querySelector('#page h1').setAttribute('data-before-refresh', '');
+    const search = document.getElementById('checkout-search');
+    const heading = document.querySelector('#page h1');
+    if (!search || !heading) throw new Error('The picker search or the page heading is missing.');
+    Object.assign(search, { marker: 'picker' });
+    heading.setAttribute('data-before-refresh', '');
   });
   store.saveRepo({ ...store.getRepo('existing'), name: 'existing-renamed' });
   const polled = page.waitForResponse(response => response.url().includes('/api/state') && response.ok());
@@ -732,7 +771,7 @@ test('a background render leaves the repository picker in place, so its focused 
   await polled;
   await expect(page.locator('#page [data-before-refresh]')).toHaveCount(0);
   await expect(toggle).toBeFocused();
-  assert.equal(await page.evaluate(() => document.getElementById('checkout-search').marker), 'picker');
+  assert.equal(await page.evaluate(() => document.querySelector<Marked>('#checkout-search')?.marker), 'picker');
 });
 
 test('a New branch detail reviews a rewritten tracking ref before switching, then opens the checkout for pull', async t => {
@@ -748,8 +787,8 @@ test('a New branch detail reviews a rewritten tracking ref before switching, the
   const localFile = join(local, 'feature.txt');
   await writeFile(localFile, 'uncommitted local edit');
   const store = createStore();
-  store.saveRepo({ ...repo, id: 'other', name: 'Another watched repository', localPath: undefined });
-  store.saveRepo(repo);
+  store.saveRepo(stub<Repository>({ ...repo, id: 'other', name: 'Another watched repository', localPath: undefined }));
+  store.saveRepo(stub<Repository>(repo));
   store.insertEvents([
     {
       id: 'new-topic',
@@ -762,10 +801,12 @@ test('a New branch detail reviews a rewritten tracking ref before switching, the
       data: { name: `refs/heads/${branch}`, objectId: firstTip, evidence: 'snapshot' },
     },
   ]);
-  const provider = { checkConnection: async () => ({ available: true }) };
-  const sync = { status: () => ({ running: false, repos: {} }) };
+  const provider = stub<AzureProvider>({ checkConnection: async () => stub<ConnectionStatus>({ available: true }) });
+  const sync = stub<AppSync>({
+    status: () => stub<SyncEngineStatus & { repos: Record<string, never> }>({ running: false, repos: {} }),
+  });
   const app = createApp({ store, provider, sync, checkoutGit, accessKey: TEST_KEY });
-  await new Promise(resolve => app.listen(0, '127.0.0.1', resolve));
+  await new Promise<void>(resolve => app.listen(0, '127.0.0.1', resolve));
   const browser = await chromium.launch({ executablePath: await browserPath(), headless: true });
   t.after(async () => {
     await browser.close();
@@ -774,10 +815,10 @@ test('a New branch detail reviews a rewritten tracking ref before switching, the
   });
   const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
   page.setDefaultTimeout(5000);
-  const errors = [];
+  const errors: string[] = [];
   page.on('pageerror', error => errors.push(error.message));
   await rememberKey(page);
-  await page.goto(`http://127.0.0.1:${app.address().port}/#activity/all`);
+  await page.goto(`http://127.0.0.1:${portOf(app)}/#activity/all`);
   await page.locator('#activity-filters-toggle').click();
   const search = page.getByRole('searchbox', { name: 'Search activity' });
   await search.fill('checkout-from-activity');
@@ -834,8 +875,8 @@ test('Repositories switches between watched branches, and a merged pull request 
   commit(source, 'topic.txt', 'topic work');
   git(source, 'push', 'origin', 'topic');
   const store = createStore();
-  store.saveRepo(repo);
-  const ref = (name, lastPushId) => ({
+  store.saveRepo(stub<Repository>(repo));
+  const ref = (name: string, lastPushId: number) => ({
     type: 'ref',
     id: `refs/heads/${name}`,
     data: { name: `refs/heads/${name}`, active: true, lastPushId },
@@ -853,10 +894,12 @@ test('Repositories switches between watched branches, and a merged pull request 
       data: { pullRequestId: 7, status: 'completed', sourceRefName: 'refs/heads/topic', targetRefName: 'refs/heads/main' },
     },
   ]);
-  const provider = { checkConnection: async () => ({ available: true }) };
-  const sync = { status: () => ({ running: false, repos: {} }) };
+  const provider = stub<AzureProvider>({ checkConnection: async () => stub<ConnectionStatus>({ available: true }) });
+  const sync = stub<AppSync>({
+    status: () => stub<SyncEngineStatus & { repos: Record<string, never> }>({ running: false, repos: {} }),
+  });
   const app = createApp({ store, provider, sync, checkoutGit, accessKey: TEST_KEY });
-  await new Promise(resolve => app.listen(0, '127.0.0.1', resolve));
+  await new Promise<void>(resolve => app.listen(0, '127.0.0.1', resolve));
   const browser = await chromium.launch({ executablePath: await browserPath(), headless: true });
   t.after(async () => {
     await browser.close();
@@ -865,10 +908,10 @@ test('Repositories switches between watched branches, and a merged pull request 
   });
   const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
   page.setDefaultTimeout(5000);
-  const errors = [];
+  const errors: string[] = [];
   page.on('pageerror', error => errors.push(error.message));
   await rememberKey(page);
-  await page.goto(`http://127.0.0.1:${app.address().port}/#repositories`);
+  await page.goto(`http://127.0.0.1:${portOf(app)}/#repositories`);
   const checkout = page.locator('#checkout-state-repo');
   const open = checkout.getByRole('button', { name: 'Switch branch…' });
   const picker = page.locator('#branch-dialog');
@@ -927,7 +970,7 @@ test('Repositories switches between watched branches, and a merged pull request 
   await expect(checkout).toContainText('topic');
   assert.equal(git(local, 'rev-parse', 'HEAD'), localTip);
 
-  await page.goto(`http://127.0.0.1:${app.address().port}/#event/merged-topic`);
+  await page.goto(`http://127.0.0.1:${portOf(app)}/#event/merged-topic`);
   await page.getByRole('button', { name: 'Switch to main…' }).click();
   await confirmDialog.getByRole('button', { name: 'Switch branch', exact: true }).click();
   await expect(page).toHaveURL(/#repositories\/repo$/);
@@ -1040,10 +1083,7 @@ test('the focused picker search shows the text the picker resets it to', async t
 
 test('picker keeps a search typed during initial loading and retains failed selections on partial add', async t => {
   const { page, store } = await setupPicker(t);
-  let release;
-  const reading = new Promise(resolve => {
-    release = resolve;
-  });
+  const { promise: reading, resolve: release } = Promise.withResolvers<void>();
   await page.route('**/api/folders', async route => {
     await reading;
     await route.continue();
@@ -1076,16 +1116,18 @@ test('picker keeps a search typed during initial loading and retains failed sele
   );
 });
 
-async function groupedFixture(t) {
+async function groupedFixture(t: TestContext) {
   const app = await setup(t);
   for (const repo of app.runtime.store.listRepos()) app.runtime.store.removeRepo(repo.id);
-  app.runtime.store.saveRepo({
-    id: 'demo-orders',
-    name: 'Orders',
-    project: 'Demo',
-    organization: 'https://dev.azure.com/example',
-    azureId: 'orders',
-  });
+  app.runtime.store.saveRepo(
+    stub<Repository>({
+      id: 'demo-orders',
+      name: 'Orders',
+      project: 'Demo',
+      organization: 'https://dev.azure.com/example',
+      azureId: 'orders',
+    }),
+  );
   const now = Date.now();
   const record = {
     repoId: 'demo-orders',
@@ -1096,8 +1138,8 @@ async function groupedFixture(t) {
     seen: false,
     imported: false,
     data: { buildId: 700, sourceVersion: 'abcdef0123456789', definition: { name: 'Orders CI' }, reason: 'manual' },
-  };
-  const event = (id, status, offset) => ({
+  } satisfies Partial<ActivityEvent>;
+  const event = (id: string, status: string, offset: number): ActivityEvent => ({
     ...record,
     id,
     time: new Date(now + offset).toISOString(),
@@ -1105,8 +1147,10 @@ async function groupedFixture(t) {
     data: { ...record.data, status },
   });
   app.runtime.store.insertEvents([event('build-queued', 'notStarted', -120000), event('build-running', 'inProgress', -60000)]);
-  for (const stream of ['pushes', 'refs', 'prs', 'closedPrs', 'builds', 'activeBuilds'])
-    app.runtime.store.saveStream({ repoId: 'demo-orders', stream, initialized: true, lastSuccess: new Date(now).toISOString() });
+  for (const stream of ['pushes', 'refs', 'prs', 'closedPrs', 'builds', 'activeBuilds'] as const)
+    app.runtime.store.saveStream(
+      stub<StreamState>({ repoId: 'demo-orders', stream, initialized: true, lastSuccess: new Date(now).toISOString() }),
+    );
   // Exercise the normal healthy layout, using only the isolated fixture backend.
   await app.page.route('**/api/state', async route => {
     const response = await route.fetch();
@@ -1137,9 +1181,9 @@ test('build transitions group into one item and exact acknowledgement leaves a l
   );
   await page.getByRole('button', { name: 'Mark all seen (2)', exact: true }).click();
   await expect(page.locator('li.row .kind')).toHaveText('Succeeded');
-  assert.equal(runtime.store.listEvents().find(item => item.id === 'build-queued').seen, true);
-  assert.equal(runtime.store.listEvents().find(item => item.id === 'build-running').seen, true);
-  assert.equal(runtime.store.listEvents().find(item => item.id === 'build-succeeded').seen, false);
+  assert.equal(runtime.store.listEvents().find(item => item.id === 'build-queued')?.seen, true);
+  assert.equal(runtime.store.listEvents().find(item => item.id === 'build-running')?.seen, true);
+  assert.equal(runtime.store.listEvents().find(item => item.id === 'build-succeeded')?.seen, false);
   await page.getByRole('button', { name: 'Undo', exact: true }).click();
   await expect(page.getByRole('region', { name: 'Activity summary' })).toContainText('3 updates');
   assert.equal(runtime.store.listEvents({ unseen: true }).length, 3);
@@ -1150,8 +1194,8 @@ test('filtered group marks only shown matching updates while the hidden transiti
   await page.getByRole('searchbox', { name: 'Search activity' }).fill('Running');
   await page.getByRole('button', { name: 'Mark all matching seen (1)', exact: true }).click();
   await expect(page.locator('.feed-actions button')).toHaveCount(0);
-  assert.equal(runtime.store.listEvents().find(item => item.id === 'build-running').seen, true);
-  assert.equal(runtime.store.listEvents().find(item => item.id === 'build-queued').seen, false);
+  assert.equal(runtime.store.listEvents().find(item => item.id === 'build-running')?.seen, true);
+  assert.equal(runtime.store.listEvents().find(item => item.id === 'build-queued')?.seen, false);
 });
 
 test('mixed control rows use one height per size on desktop and phone', async t => {
@@ -1160,7 +1204,7 @@ test('mixed control rows use one height per size on desktop and phone', async t 
     { id: 'team', name: 'Orders team', filters: { search: '', people: '', kind: '', repoIds: null, view: 'new' } },
   ]);
   await page.reload();
-  const height = (selector, expected) => expect(page.locator(selector)).toHaveCSS('height', `${expected}px`);
+  const height = (selector: string, expected: number) => expect(page.locator(selector)).toHaveCSS('height', `${expected}px`);
 
   for (const [width, standard, compact] of [
     [1280, 36, 28],
@@ -1334,7 +1378,7 @@ test('one Activity group offers clearly distinct New updates and All activity wi
   await expect(page.getByRole('checkbox', { name: 'Unseen only', exact: true })).toHaveCount(0);
   await expect(page.getByRole('link', { name: 'New updates', exact: true })).toHaveAttribute('aria-current', 'page');
   await expect(page.locator('li.row')).toHaveCount(1);
-  const remoteReads = [];
+  const remoteReads: string[] = [];
   page.on('request', request => {
     if (/\/api\/(refresh|connection|repos)(\?|$)/.test(request.url())) remoteReads.push(request.url());
   });
@@ -1378,7 +1422,7 @@ test('legacy activity links normalize and detail returns to the correct New upda
 
 test('semantic status colors match rows, imported history, details and trails in both themes', async t => {
   const { page, runtime, event } = await groupedFixture(t);
-  const cases = [
+  const cases: [string, ActivityKind, EventData, string, string][] = [
     ['deleted', 'branch-deleted', { evidence: 'push' }, 'crit', 'Branch deleted'],
     ['failed', 'build', { status: 'completed', result: 'failed' }, 'crit', 'Failed'],
     ['canceled', 'build', { status: 'completed', result: 'canceled' }, 'warn', 'Canceled'],
@@ -1415,7 +1459,7 @@ test('semantic status colors match rows, imported history, details and trails in
   for (const theme of ['Light', 'Dark']) {
     await page.getByRole('button', { name: theme, exact: true }).click();
     const history = page.locator('details[data-group="Imported history"]');
-    if (!(await history.evaluate(element => element.open))) await history.locator('summary').first().click();
+    if (!(await history.evaluate((element: HTMLDetailsElement) => element.open))) await history.locator('summary').first().click();
     for (const [id, , , tone, label] of cases) {
       const row = page.locator(`li[data-event-id="color-${id}"]`);
       await expect(row.locator('.kind')).toHaveText(label);
@@ -1428,13 +1472,14 @@ test('semantic status colors match rows, imported history, details and trails in
       const canvas = document.createElement('canvas');
       canvas.width = canvas.height = 1;
       const context = canvas.getContext('2d');
-      const rgba = color => {
+      if (!context) throw new Error('The canvas has no 2D context.');
+      const rgba = (color: string) => {
         context.clearRect(0, 0, 1, 1);
         context.fillStyle = color;
         context.fillRect(0, 0, 1, 1);
         return [...context.getImageData(0, 0, 1, 1).data];
       };
-      const luminance = color =>
+      const luminance = (color: number[]) =>
         color
           .slice(0, 3)
           .map(value => {
@@ -1443,13 +1488,22 @@ test('semantic status colors match rows, imported history, details and trails in
           })
           .reduce((sum, value, index) => sum + value * [0.2126, 0.7152, 0.0722][index], 0);
       const tokens = getComputedStyle(document.documentElement);
-      const names = { crit: '--critical', warn: '--warning', ok: '--ok', info: '--info', neutral: '--muted-foreground' };
-      const washes = { crit: '--critical-wash', warn: '--warning-wash', ok: '--ok-wash', info: '--primary-wash' };
-      return [...document.querySelectorAll('li[data-event-id^="color-"]')].map(row => {
+      const names: Record<string, string> = {
+        crit: '--critical',
+        warn: '--warning',
+        ok: '--ok',
+        info: '--info',
+        neutral: '--muted-foreground',
+      };
+      const washes: Record<string, string> = { crit: '--critical-wash', warn: '--warning-wash', ok: '--ok-wash', info: '--primary-wash' };
+      return [...document.querySelectorAll<HTMLElement>('li[data-event-id^="color-"]')].map(row => {
         const kind = row.querySelector('.kind');
+        const card = row.closest('.card');
+        if (!kind || !card) throw new Error(`${row.dataset.eventId} has no status label or card.`);
         const tone = Object.keys(names).find(name => kind.classList.contains(name));
+        if (!tone) throw new Error(`${row.dataset.eventId} has no status tone.`);
         const foreground = rgba(getComputedStyle(kind).color);
-        let background = rgba(getComputedStyle(row.closest('.card')).backgroundColor);
+        let background = rgba(getComputedStyle(card).backgroundColor);
         if (washes[tone]) {
           const wash = rgba(tokens.getPropertyValue(washes[tone]));
           background = background.map((value, index) => (index === 3 ? 255 : (wash[index] * wash[3]) / 255 + value * (1 - wash[3] / 255)));
@@ -1473,7 +1527,7 @@ test('semantic status colors match rows, imported history, details and trails in
       assert.ok(result.ratio >= 4.5, `${theme} ${result.id} contrast ${result.ratio}`);
     }
     const trail = page.locator('[data-event-id="canceled-transition"] .trail');
-    if (!(await trail.evaluate(element => element.open))) await trail.locator('summary').click();
+    if (!(await trail.evaluate((element: HTMLDetailsElement) => element.open))) await trail.locator('summary').click();
     await expect(trail.locator('.status-text.warn')).toHaveText('Canceled');
     await expect(trail.locator('.status-text.info')).toHaveCount(2);
     await page.screenshot({ path: `test-results/status-colors-${theme.toLowerCase()}.png`, fullPage: true });
@@ -1507,18 +1561,32 @@ test('the app-owned type dropdown is themed, keyboard accessible and stable duri
     await expect(panel.getByRole('option', { name: theme === 'Light' ? 'Running' : 'Succeeded', exact: true })).toBeVisible();
     await expect(panel.getByRole('option', { name: 'Pull request', exact: true })).toHaveCount(0);
     assert.deepEqual(
-      await page.evaluate(() => ({
-        panel: getComputedStyle(document.querySelector('#kind-panel')).backgroundColor,
-        card: getComputedStyle(document.querySelector('.summary')).backgroundColor,
-        option: getComputedStyle(document.querySelector('.type-option')).color,
-        body: getComputedStyle(document.body).color,
-      })),
-      await page.evaluate(() => ({
-        panel: getComputedStyle(document.querySelector('.summary')).backgroundColor,
-        card: getComputedStyle(document.querySelector('.summary')).backgroundColor,
-        option: getComputedStyle(document.body).color,
-        body: getComputedStyle(document.body).color,
-      })),
+      await page.evaluate(() => {
+        const style = (selector: string) => {
+          const element = document.querySelector(selector);
+          if (!element) throw new Error(`${selector} is missing.`);
+          return getComputedStyle(element);
+        };
+        return {
+          panel: style('#kind-panel').backgroundColor,
+          card: style('.summary').backgroundColor,
+          option: style('.type-option').color,
+          body: getComputedStyle(document.body).color,
+        };
+      }),
+      await page.evaluate(() => {
+        const style = (selector: string) => {
+          const element = document.querySelector(selector);
+          if (!element) throw new Error(`${selector} is missing.`);
+          return getComputedStyle(element);
+        };
+        return {
+          panel: style('.summary').backgroundColor,
+          card: style('.summary').backgroundColor,
+          option: getComputedStyle(document.body).color,
+          body: getComputedStyle(document.body).color,
+        };
+      }),
     );
     if (theme === 'Light') {
       const polling = page.waitForResponse(response => new URL(response.url()).pathname === '/api/state', { timeout: 8000 });
@@ -1576,6 +1644,7 @@ test('the app-owned type dropdown is themed, keyboard accessible and stable duri
   await page.getByRole('button', { name: /^Activity type:/ }).click();
   await expect(page.locator('#kind-panel')).toHaveCSS('top', '44px');
   const box = await page.locator('#kind-panel').boundingBox();
+  assert.ok(box);
   assert.ok(box.x >= 0 && box.x + box.width <= 375);
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
   await page.locator('.summary').click();
@@ -1625,7 +1694,7 @@ test('the sync status pill reads Synced in the demo and follows a Problem or Del
   await expect(page.locator('#page .banner')).toHaveCount(0);
   await page.getByRole('link', { name: 'Repositories', exact: true }).click();
   await expect(page.locator('.repo-entry .sync-pill')).toHaveText([/^Synced · /, /^Synced · /, /^Synced · /]);
-  const cases = [
+  const cases: [SyncStatus, string, string][] = [
     [{ state: 'problem', reason: 'Sign in to Azure again.', stream: 'refs' }, 'Problem', 'crit'],
     [{ state: 'delayed', reason: 'about 9 minutes behind', stream: 'pushes' }, 'Delayed · about 9 minutes behind', 'warn'],
   ];
@@ -1673,6 +1742,7 @@ test('at 640px a long repository status pill wraps inside its column instead of 
     const [pill, column, checkout] = await Promise.all(
       ['.repo-overview .sync-pill', '.repo-overview', '.repo-checkout-line'].map(selector => entry.locator(selector).boundingBox()),
     );
+    assert.ok(pill && column && checkout);
     assert.ok(
       pill.x + pill.width <= column.x + column.width + 0.5,
       `pill ends at ${pill.x + pill.width}, its column at ${column.x + column.width}`,
@@ -1688,7 +1758,7 @@ test('at 640px a long repository status pill wraps inside its column instead of 
 
 test('one persistent live region outside the header announces only changed sync sentences; pills are plain text', async t => {
   const { page } = await setup(t);
-  let status = { state: 'problem', reason: 'Sign in to Azure again.', stream: 'refs' };
+  let status: SyncStatus = { state: 'problem', reason: 'Sign in to Azure again.', stream: 'refs' };
   await page.route('**/api/state', async route => {
     const state = await (await route.fetch()).json();
     const repos = { ...state.syncStatus.repos, 'demo-orders': status };
@@ -1702,21 +1772,45 @@ test('one persistent live region outside the header announces only changed sync 
   await expect(page.locator('#header #sync-live')).toHaveCount(0);
   // A header render rewrites the pill from markup, which drops an attribute the markup never has.
   const refreshed = async () => {
-    await page.evaluate(() => document.querySelector('#header .sync-pill').setAttribute('data-before-refresh', ''));
+    await page.evaluate(() => {
+      const pill = document.querySelector('#header .sync-pill');
+      if (!pill) throw new Error('The header has no sync pill.');
+      pill.setAttribute('data-before-refresh', '');
+    });
     await page.locator('#header-refresh-desktop').click();
     await expect(page.locator('#header [data-before-refresh]')).toHaveCount(0);
   };
-  await page.evaluate(() => (window.syncText = document.getElementById('sync-live').firstChild));
+  await page.evaluate(() => {
+    const live = document.getElementById('sync-live');
+    if (!live) throw new Error('#sync-live is missing.');
+    window.syncText = live.firstChild;
+  });
   await refreshed();
-  assert.equal(await page.evaluate(() => document.getElementById('sync-live').firstChild === window.syncText), true, 'same text node');
+  assert.equal(
+    await page.evaluate(() => {
+      const live = document.getElementById('sync-live');
+      if (!live) throw new Error('#sync-live is missing.');
+      return live.firstChild === window.syncText;
+    }),
+    true,
+    'same text node',
+  );
   status = { state: 'delayed', reason: 'about 9 minutes behind', stream: 'pushes' };
   await refreshed();
   await expect(live).toHaveText('Delayed in orders-api');
-  await page.evaluate(() => (window.syncText = document.getElementById('sync-live').firstChild));
+  await page.evaluate(() => {
+    const live = document.getElementById('sync-live');
+    if (!live) throw new Error('#sync-live is missing.');
+    window.syncText = live.firstChild;
+  });
   status = { state: 'delayed', reason: 'about 10 minutes behind', stream: 'pushes' };
   await refreshed();
   assert.equal(
-    await page.evaluate(() => document.getElementById('sync-live').firstChild === window.syncText),
+    await page.evaluate(() => {
+      const live = document.getElementById('sync-live');
+      if (!live) throw new Error('#sync-live is missing.');
+      return live.firstChild === window.syncText;
+    }),
     true,
     'a new minute count is not announced again',
   );
@@ -1736,10 +1830,9 @@ test('Escape before the first state load does not throw', async t => {
     await rm(directory, { recursive: true, force: true });
   });
   const page = await browser.newPage();
-  const errors = [];
+  const errors: string[] = [];
   page.on('pageerror', error => errors.push(error.message));
-  let releaseState;
-  const stateHeld = new Promise(resolve => (releaseState = resolve));
+  const { promise: stateHeld, resolve: releaseState } = Promise.withResolvers<void>();
   await page.route('**/api/state', async route => {
     await stateHeld;
     await route.continue();
@@ -1808,7 +1901,9 @@ test('the launch link works once, hides its token, and a stale or forged link ca
   assert.equal(new URL(page.url()).hash.includes('launch='), false);
   // A forged link in a fresh document tries the exchange, fails, and keeps the working key. A separate tab with this run's
   // key stored keeps its expected 401 responses out of the setup's console check.
-  const context = await page.context().browser().newContext();
+  const browser = page.context().browser();
+  assert.ok(browser);
+  const context = await browser.newContext();
   t.after(() => context.close());
   const tab = await context.newPage();
   await rememberKey(tab, runtime.accessKey);
@@ -1825,7 +1920,7 @@ test('the launch link works once, hides its token, and a stale or forged link ca
   });
   assert.equal((await again).status(), 401);
   await expect(tab.getByRole('link', { name: 'Repo Pulse', exact: true })).toBeVisible();
-  const stranger = await page.context().browser().newPage();
+  const stranger = await browser.newPage();
   t.after(() => stranger.close());
   // The same launch link in a browser without the key is already spent.
   await stranger.goto(runtime.launchUrl);
@@ -1852,20 +1947,24 @@ test('Start from scratch in Settings confirms, empties the feed and shows Syncin
   const gate = {
     closed: false,
     held: 0,
-    /** @type {(() => void)[]} */
-    waiting: [],
+    waiting: [] as (() => void)[],
     release() {
       gate.waiting.splice(0).forEach(resolve => resolve());
     },
   };
-  const provider = {
+  const provider = stub<AzureProvider>({
     async checkConnection() {
-      return { available: true, signedIn: true, account: { name: 'someone@example.test' }, message: 'Signed in.' };
+      return stub<ConnectionStatus>({
+        available: true,
+        signedIn: true,
+        account: { name: 'someone@example.test' },
+        message: 'Signed in.',
+      });
     },
     async read(_repo, stream) {
       if (gate.closed) {
         gate.held++;
-        await new Promise(resolve => gate.waiting.push(resolve));
+        await new Promise<void>(resolve => gate.waiting.push(resolve));
       }
       const items =
         stream === 'pushes'
@@ -1880,11 +1979,11 @@ test('Start from scratch in Settings confirms, empties the feed and shows Syncin
           : [];
       return { items, nextCursor: null };
     },
-  };
+  });
   const sync = createSync({ store, provider, pollMs: 20 });
   const server = createApp({ store, provider, sync, accessKey: TEST_KEY });
-  let browser;
-  const errors = [];
+  let browser: Browser | undefined;
+  const errors: string[] = [];
   t.after(async () => {
     gate.closed = false;
     gate.release();
@@ -1894,7 +1993,7 @@ test('Start from scratch in Settings confirms, empties the feed and shows Syncin
     store.close();
     assert.deepEqual(errors, []);
   });
-  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
   sync.start();
   sync.refresh();
   for (let i = 0; i < 200 && !store.listEvents().length; i++) await new Promise(resolve => setTimeout(resolve, 10));
@@ -1902,7 +2001,7 @@ test('Start from scratch in Settings confirms, empties the feed and shows Syncin
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
   page.on('pageerror', error => errors.push(error.message));
   await rememberKey(page);
-  const url = `http://127.0.0.1:${server.address().port}`;
+  const url = `http://127.0.0.1:${portOf(server)}`;
   await page.goto(`${url}/#activity/all`);
   await expect(page.locator('[data-event-id="one:push:1"]')).toHaveCount(1);
 
@@ -1964,6 +2063,7 @@ test('All activity shows the branch tree beside the type label, and narrow scree
   await expect(page.locator('[data-event-id="demo-build-2"] svg.tree circle.dot:not(.lane-none)')).toHaveCount(1);
   // A lane must run unbroken through a row, so each cell covers its row from border to border.
   const [cell, row] = await Promise.all([hotfix.locator('svg.tree').boundingBox(), hotfix.boundingBox()]);
+  assert.ok(cell && row);
   assert.ok(Math.abs(cell.y - row.y) <= 1 && Math.abs(cell.y + cell.height - (row.y + row.height)) <= 1, 'tree cell spans the row');
   await expect(hotfix.locator('.kind > svg')).toBeHidden();
 
@@ -2028,14 +2128,15 @@ test('on desktop every row lines up its ref line with its meta line, and its sum
       .filter(row => row.checkVisibility())
       .map(row => {
         // The baseline of an element's first visible text: a zero-size inline box placed before that text sits on it.
-        const baseline = selector => {
+        const baseline = (selector: string) => {
           const element = row.querySelector(selector);
           if (!element) return undefined;
           const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT, {
             acceptNode: node =>
-              node.textContent.trim() && !node.parentElement.closest('.sr') ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP,
+              node.textContent?.trim() && !node.parentElement?.closest('.sr') ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP,
           });
           const text = walker.nextNode();
+          if (!(text instanceof Text)) throw new Error(`${selector} has no text.`);
           const wrap = document.createElement('span');
           const probe = document.createElement('span');
           probe.style.cssText = 'display: inline-block; width: 0; height: 0';
@@ -2047,10 +2148,10 @@ test('on desktop every row lines up its ref line with its meta line, and its sum
         };
         return {
           id: row.dataset.eventId,
-          title: baseline('.feed-title .title'),
+          title: baseline('.feed-title .title') ?? NaN,
           summary: baseline('.event-main'),
           refs: ['.ref-repo', '.ref-name', '.ref-pr'].map(baseline).filter(y => y !== undefined),
-          meta: baseline('.event-meta'),
+          meta: baseline('.event-meta') ?? NaN,
         };
       }),
   );
@@ -2083,7 +2184,7 @@ test('on desktop every row lines up its ref line with its meta line, and its sum
   expect(await ciRow.locator('.ref-branch').evaluate(branch => branch.scrollWidth > branch.clientWidth)).toBe(true);
   // On a phone the type label shares its line with the taller Seen control, so it centres on it.
   await page.setViewportSize({ width: 390, height: 900 });
-  const centre = box => box.y + box.height / 2;
+  const centre = (box: { y: number; height: number }) => box.y + box.height / 2;
   const first = page.locator('.rows .row').first();
   await expect
     .poll(

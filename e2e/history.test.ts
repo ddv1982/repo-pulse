@@ -1,13 +1,29 @@
 import test from 'node:test';
+import type { TestContext } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, rm, readdir, mkdir } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { tmpdir, homedir } from 'node:os';
 import { join } from 'node:path';
 import { chromium, expect } from '@playwright/test';
+import type { Response } from '@playwright/test';
 import { startApp, createApp } from '../server.ts';
 import { createStore } from '../server/store.ts';
-import { TEST_KEY, rememberKey } from '../test/fixtures/access.ts';
+import { TEST_KEY, rememberKey, portOf } from '../test/fixtures/access.ts';
+import type { AppSync } from '../server.ts';
+import type { AzureProvider } from '../server/azure-client.ts';
+import { stub } from '../test/fixtures/typed.ts';
+import type {
+  ActivityEvent,
+  ConnectionStatus,
+  DemoSyncStatus,
+  HistoryJob,
+  Repository,
+  SavedActivityFilter,
+  StreamState,
+} from '../src/contract.ts';
+
+type Store = ReturnType<typeof createStore>;
 
 async function executable() {
   if (process.env.CHROME) return process.env.CHROME;
@@ -23,15 +39,15 @@ async function executable() {
   throw new Error('Install Chromium or set CHROME.');
 }
 
-async function demo(t) {
+async function demo(t: TestContext) {
   const directory = await mkdtemp(join(tmpdir(), 'repo-pulse-history-ui-'));
   const runtime = await startApp({ demo: true, port: 0, dataDir: directory });
   const browser = await chromium.launch({ executablePath: await executable(), headless: true });
   const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
   const page = await context.newPage();
-  let stopping;
+  let stopping: Promise<void> | undefined;
   const stop = () => (stopping ??= runtime.close());
-  const errors = [];
+  const errors: string[] = [];
   page.on('pageerror', error => errors.push(error.message));
   t.after(async () => {
     await browser.close();
@@ -46,9 +62,16 @@ async function demo(t) {
   return { runtime, page, directory, stop };
 }
 
-function seedHistory(store) {
+/** Whether a stored event is marked seen; fails when the event is not stored. */
+function isSeen(store: Store, id: string) {
+  const event = store.getEvent(id);
+  assert.ok(event, `Event ${id} is not stored.`);
+  return event.seen;
+}
+
+function seedHistory(store: Store) {
   const now = Date.now();
-  const records = Array.from({ length: 1050 }, (_, index) => ({
+  const records: ActivityEvent[] = Array.from({ length: 1050 }, (_, index) => ({
     id: `archive-${index}`,
     repoId: 'demo-orders',
     kind: 'push',
@@ -100,12 +123,12 @@ test('new updates, paged history, filters and deep links reach events beyond the
   await expect(page.getByRole('button', { name: 'Load more', exact: true })).toHaveCount(0);
   await page.goto(runtime.url + '/#event/archive-1049');
   await expect(page.getByRole('heading', { name: 'Archive entry 1049', exact: true })).toBeVisible();
-  assert.equal(runtime.store.getEvent('old-unseen').seen, false);
+  assert.equal(isSeen(runtime.store, 'old-unseen'), false);
 });
 
 test('mark all matching clears the confirmed unread snapshot across pages and undo restores only its changes', async t => {
   const { runtime, page } = await demo(t);
-  const make = (id, repoId = 'demo-orders', title = 'Snapshot test push') => ({
+  const make = (id: string, repoId = 'demo-orders', title = 'Snapshot test push'): ActivityEvent => ({
     id,
     repoId,
     kind: 'push',
@@ -131,17 +154,18 @@ test('mark all matching clears the confirmed unread snapshot across pages and un
   await expect(page.locator('li.row')).toHaveCount(1);
   await expect(page.locator('li[data-event-id="later-matching"]')).toBeVisible();
   await expect(page.getByText('59 updates marked seen.')).toBeVisible();
-  for (const event of matching) assert.equal(runtime.store.getEvent(event.id).seen, true);
-  for (const id of ['other-repo', 'other-search', 'later-matching']) assert.equal(runtime.store.getEvent(id).seen, false);
+  for (const event of matching) assert.equal(isSeen(runtime.store, event.id), true);
+  for (const id of ['other-repo', 'other-search', 'later-matching']) assert.equal(isSeen(runtime.store, id), false);
   await page.getByRole('button', { name: 'Undo', exact: true }).click();
   await expect(page.getByText('59 updates marked unseen.')).toBeVisible();
-  assert.equal(runtime.store.getEvent('snapshot-0').seen, true);
-  assert.equal(runtime.store.getEvent('snapshot-59').seen, false);
+  assert.equal(isSeen(runtime.store, 'snapshot-0'), true);
+  assert.equal(isSeen(runtime.store, 'snapshot-59'), false);
 });
 
 test('mark all matching uses the rendered repository scope when another repository is enabled', async t => {
   const { runtime, page } = await demo(t);
   const shared = runtime.store.listRepos().find(repo => repo.id === 'demo-shared');
+  assert.ok(shared);
   runtime.store.saveRepo({ ...shared, disabled: true });
   await page.goto(runtime.url + '/#activity/new');
   await expect(page.getByRole('button', { name: 'All 2 repositories' })).toBeVisible();
@@ -155,8 +179,8 @@ test('mark all matching uses the rendered repository scope when another reposito
   await expect(confirm).toContainText('All 2 repositories');
   await confirm.getByRole('button', { name: 'Mark as seen', exact: true }).click();
   await expect(page.getByText(`${ids.length} updates marked seen.`)).toBeVisible();
-  assert.ok(ids.every(id => runtime.store.getEvent(id).seen));
-  assert.ok(sharedIds.every(id => !runtime.store.getEvent(id).seen));
+  assert.ok(ids.every(id => isSeen(runtime.store, id)));
+  assert.ok(sharedIds.every(id => !isSeen(runtime.store, id)));
 });
 
 test('detail opened from a type filter only acknowledges the matching member', async t => {
@@ -176,19 +200,19 @@ test('detail opened from a type filter only acknowledges the matching member', a
   await expect(mark).toHaveAttribute('data-event-ids', JSON.stringify(['paired-push']));
   await mark.click();
   await expect(page.getByText('1 update marked seen.')).toBeVisible();
-  assert.equal(runtime.store.getEvent('paired-push').seen, true);
-  assert.equal(runtime.store.getEvent('paired-deletion').seen, false);
+  assert.equal(isSeen(runtime.store, 'paired-push'), true);
+  assert.equal(isSeen(runtime.store, 'paired-deletion'), false);
 });
 
 test('undo tracks the successful seen write even if the following refresh fails', async t => {
   const { runtime, page } = await demo(t);
-  const base = { repoId: 'demo-orders', kind: 'push', time: new Date().toISOString() };
+  const base = { repoId: 'demo-orders', kind: 'push', time: new Date().toISOString() } satisfies Partial<ActivityEvent>;
   runtime.store.insertEvents([
     { ...base, id: 'seen-earlier', title: 'Earlier push' },
     { ...base, id: 'seen-later', title: 'Later push' },
   ]);
   await page.goto(runtime.url + '/#activity/new');
-  const rowAction = id => page.locator(`li[data-event-id="${id}"] [data-action="ack-item"]`);
+  const rowAction = (id: string) => page.locator(`li[data-event-id="${id}"] [data-action="ack-item"]`);
   await rowAction('seen-earlier').click();
   await expect(page.locator('#toast')).toContainText('1 update marked seen.');
   await page.route('**/api/state', route => route.fulfill({ status: 500, json: { message: 'Synthetic refresh failure' } }));
@@ -199,15 +223,15 @@ test('undo tracks the successful seen write even if the following refresh fails'
   await page.unroute('**/api/state');
   await undo.click();
   await expect(page.locator('#toast')).toContainText('1 update marked unseen.');
-  assert.equal(runtime.store.getEvent('seen-earlier').seen, true);
-  assert.equal(runtime.store.getEvent('seen-later').seen, false);
+  assert.equal(isSeen(runtime.store, 'seen-earlier'), true);
+  assert.equal(isSeen(runtime.store, 'seen-later'), false);
 });
 
 for (const undo of [false, true]) {
   test(`a partial ${undo ? 'undo remains retryable' : 'seen write reports both write and refresh errors'}`, async t => {
     const { runtime, page } = await demo(t);
     runtime.store.acknowledge(runtime.store.listEvents().map(event => event.id));
-    const events = Array.from({ length: 251 }, (_, index) => ({
+    const events: ActivityEvent[] = Array.from({ length: 251 }, (_, index) => ({
       id: `partial-${index}`,
       repoId: 'demo-orders',
       kind: 'build',
@@ -243,7 +267,7 @@ for (const undo of [false, true]) {
     await page.unroute('**/api/state');
     await undoButton.click();
     await expect(page.locator('#toast')).toContainText(undo ? '1 update marked unseen.' : '250 updates marked unseen.');
-    assert.ok(events.every(event => !runtime.store.getEvent(event.id).seen));
+    assert.ok(events.every(event => !isSeen(runtime.store, event.id)));
   });
 }
 
@@ -264,14 +288,14 @@ test('paged query reset follows type and repository scope without acknowledging 
   await expect(page.locator('li.row')).toHaveCount(0);
   await expect(page.locator('.feed .empty .big')).toHaveText('No activity matches these filters');
   await expect(page.locator('.summary .headline b')).toHaveText('No activity matches these filters');
-  assert.equal(runtime.store.getEvent('old-unseen').seen, false);
+  assert.equal(isSeen(runtime.store, 'old-unseen'), false);
 });
 
 test('one long build history keeps every constituent and acknowledges explicit batches without consuming a late update', async t => {
   const { runtime, page } = await demo(t);
   runtime.store.acknowledge(runtime.store.listEvents().map(event => event.id));
   const beginning = Date.now() - 60000;
-  const event = (index, time) => ({
+  const event = (index: number | string, time: number): ActivityEvent => ({
     id: `long-build-${index}`,
     repoId: 'demo-orders',
     kind: 'build',
@@ -284,7 +308,7 @@ test('one long build history keeps every constituent and acknowledges explicit b
     data: { buildId: 7000, status: 'inProgress', sourceVersion: 'abcdef123456' },
   });
   runtime.store.insertEvents(Array.from({ length: 1050 }, (_, index) => event(index, beginning + index)));
-  const batches = [];
+  const batches: { ids: string[] }[] = [];
   page.on('request', request => {
     if (request.method() === 'POST' && new URL(request.url()).pathname === '/api/ack') batches.push(request.postDataJSON());
   });
@@ -309,8 +333,8 @@ test('one long build history keeps every constituent and acknowledges explicit b
     batches.some(batch => batch.ids.includes('long-build-late')),
     false,
   );
-  assert.equal(runtime.store.getEvent('long-build-0').seen, true);
-  assert.equal(runtime.store.getEvent('long-build-late').seen, false);
+  assert.equal(isSeen(runtime.store, 'long-build-0'), true);
+  assert.equal(isSeen(runtime.store, 'long-build-late'), false);
   await page.getByRole('button', { name: 'Undo', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Mark all seen (1051)', exact: true })).toBeVisible();
 });
@@ -321,14 +345,14 @@ test('repository history import scopes the confirmed range and keeps progress vi
     ['orders', 'Orders'],
     ['billing', 'Billing'],
   ])
-    store.saveRepo({ id, name });
-  const calls = [];
+    store.saveRepo(stub<Repository>({ id, name }));
+  const calls: { repoId: string; days: HistoryJob['days'] | undefined }[] = [];
   let failOnce = true;
   const app = createApp({
     accessKey: TEST_KEY,
     store,
-    provider: { checkConnection: async () => ({ available: true }) },
-    sync: { status: () => ({}) },
+    provider: stub<AzureProvider>({ checkConnection: async () => stub<ConnectionStatus>({ available: true }) }),
+    sync: stub<AppSync>({ status: () => stub<DemoSyncStatus>({}) }),
     backfill: {
       start(repoId, days) {
         calls.push({ repoId, days });
@@ -336,13 +360,13 @@ test('repository history import scopes the confirmed range and keeps progress vi
           failOnce = false;
           throw Object.assign(new Error('Try this date range again.'), { status: 409 });
         }
-        const job = { id: `backfill:${repoId}`, type: 'backfill', repoId, status: 'pending', days, pages: 0 };
+        const job = stub<HistoryJob>({ id: `backfill:${repoId}`, type: 'backfill', repoId, status: 'pending', days, pages: 0 });
         store.saveJob(job);
         return job;
       },
     },
   });
-  await new Promise(resolve => app.listen(0, '127.0.0.1', resolve));
+  await new Promise<void>(resolve => app.listen(0, '127.0.0.1', resolve));
   const browser = await chromium.launch({ executablePath: await executable(), headless: true });
   const page = await browser.newPage({ viewport: { width: 375, height: 812 }, colorScheme: 'dark' });
   await rememberKey(page);
@@ -351,7 +375,7 @@ test('repository history import scopes the confirmed range and keeps progress vi
     await new Promise(resolve => app.close(resolve));
     store.close();
   });
-  const base = `http://127.0.0.1:${app.address().port}`;
+  const base = `http://127.0.0.1:${portOf(app)}`;
   await page.goto(base + '/#settings');
   await expect(page.getByRole('button', { name: 'Sync older activity…' })).toHaveCount(0);
   await page.getByRole('link', { name: 'Repositories', exact: true }).click();
@@ -409,7 +433,7 @@ test('compact Settings keeps diagnostics closed until needed and copies the diag
   for (const [colorScheme, width] of [
     ['light', 1280],
     ['dark', 375],
-  ]) {
+  ] as const) {
     await page.emulateMedia({ colorScheme });
     await page.setViewportSize({ width, height: 812 });
     await expect(page.locator('#page').getByRole('switch', { name: 'Automatic checks' })).toBeVisible();
@@ -435,7 +459,7 @@ test('idle Activity polling skips history queries at one page and after loading 
   page.on('request', request => {
     if (new URL(request.url()).pathname === '/api/activity') reads++;
   });
-  const metadata = response => new URL(response.url()).pathname === '/api/state';
+  const metadata = (response: Response) => new URL(response.url()).pathname === '/api/state';
   async function readsBetweenPolls() {
     // Sample between metadata responses so the previous poll's Activity work has settled.
     await page.waitForResponse(metadata);
@@ -518,8 +542,8 @@ test('seen feedback waits for its refresh when a background poll is in flight', 
   await page.goto(runtime.url + '/#activity/new');
   // Hold the poll only once the page shows what it will mark.
   await expect(page.getByRole('button', { name: /^Mark all seen/ })).toBeVisible();
-  const started = Promise.withResolvers();
-  const release = Promise.withResolvers();
+  const started = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
   let holdFirst = true;
   await page.route('**/api/state', async route => {
     const response = await route.fetch();
@@ -550,21 +574,28 @@ test('Repositories shows the checkout, checks on demand, and pulls only after co
   const { checkoutFixture, git } = await import('../test/fixtures/checkout.ts');
   const fixture = checkoutFixture(t);
   const store = createStore();
-  store.saveRepo(fixture.repo);
+  store.saveRepo(stub<Repository>(fixture.repo));
   store.setSetting('refreshEnabled', false);
-  store.saveStream({ repoId: 'repo', stream: 'pushes', initialized: true, lastSuccess: new Date(Date.now() - 60 * 60_000).toISOString() });
+  store.saveStream(
+    stub<StreamState>({
+      repoId: 'repo',
+      stream: 'pushes',
+      initialized: true,
+      lastSuccess: new Date(Date.now() - 60 * 60_000).toISOString(),
+    }),
+  );
   const app = createApp({
     accessKey: TEST_KEY,
     store,
     checkoutGit: fixture.checkoutGit,
-    provider: { checkConnection: async () => ({ available: true }) },
-    sync: { status: () => ({}) },
+    provider: stub<AzureProvider>({ checkConnection: async () => stub<ConnectionStatus>({ available: true }) }),
+    sync: stub<AppSync>({ status: () => stub<DemoSyncStatus>({}) }),
   });
-  await new Promise(resolve => app.listen(0, '127.0.0.1', resolve));
+  await new Promise<void>(resolve => app.listen(0, '127.0.0.1', resolve));
   const browser = await chromium.launch({ executablePath: await executable(), headless: true });
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
   await rememberKey(page);
-  const pageErrors = [];
+  const pageErrors: string[] = [];
   page.on('pageerror', error => pageErrors.push(error.message));
   t.after(async () => {
     await browser.close();
@@ -572,7 +603,7 @@ test('Repositories shows the checkout, checks on demand, and pulls only after co
     store.close();
     assert.deepEqual(pageErrors, []);
   });
-  const base = `http://127.0.0.1:${app.address().port}`;
+  const base = `http://127.0.0.1:${portOf(app)}`;
   const updatePath = base + '/api/repos/repo/checkout';
   const payload = { operation: 'pull', expected: { branch: 'main', upstream: 'origin/main', head: fixture.original } };
   assert.equal(
@@ -598,7 +629,7 @@ test('Repositories shows the checkout, checks on demand, and pulls only after co
   await page.screenshot({ path: 'test-results/repository-branch-up-to-date-light.png', animations: 'disabled' });
   const lastGitCheck = row.locator('.checkout-last-check time');
   const firstCheckTime = await lastGitCheck.getAttribute('datetime');
-  assert.ok(Number.isFinite(Date.parse(firstCheckTime)));
+  assert.ok(Number.isFinite(Date.parse(firstCheckTime ?? '')));
   assert.equal(await row.locator('[data-branch-check-time]').getAttribute('datetime'), firstCheckTime);
   const { readFile, writeFile } = await import('node:fs/promises');
   await writeFile(join(fixture.local, 'notes.txt'), 'uncommitted notes');
@@ -622,6 +653,7 @@ test('Repositories shows the checkout, checks on demand, and pulls only after co
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.emulateMedia({ colorScheme: 'light' });
   const beforeRecheck = await lastGitCheck.getAttribute('datetime');
+  assert.ok(beforeRecheck !== null);
   await check.click();
   await expect(lastGitCheck).not.toHaveAttribute('datetime', beforeRecheck);
   await expect(row.getByText(/Try Pull first/)).toBeVisible();
@@ -667,6 +699,7 @@ test('Repositories shows the checkout, checks on demand, and pulls only after co
   await expect(row.getByText(/Previous only/)).toBeVisible();
   await expect(row.getByRole('button', { name: 'Pull', exact: true })).toHaveCount(0);
   const lastSuccessfulTime = await lastGitCheck.getAttribute('datetime');
+  assert.ok(lastSuccessfulTime !== null);
   git(fixture.remote, 'update-ref', '-d', 'refs/heads/main');
   await row.getByRole('button', { name: 'Check for updates' }).click();
   const upstreamError = row.getByText('Upstream branch not found', { exact: true });
@@ -753,8 +786,8 @@ test('New updates filters a grouped run by the status it shows and acknowledges 
   await expect(page.locator('li.row')).toHaveCount(1);
   await page.getByRole('button', { name: 'Mark all matching seen (1)', exact: true }).click();
   await expect(page.locator('li.row')).toHaveCount(0);
-  assert.equal(runtime.store.getEvent('scope-running').seen, true);
-  assert.equal(runtime.store.getEvent('demo-branch-1').seen, false);
+  assert.equal(isSeen(runtime.store, 'scope-running'), true);
+  assert.equal(isSeen(runtime.store, 'demo-branch-1'), false);
 });
 
 test('verified PR follow-up switches, reviews and removes the old branch from Repositories', async t => {
@@ -766,7 +799,7 @@ test('verified PR follow-up switches, reviews and removes the old branch from Re
   git(local, 'fetch', 'origin', 'release');
   git(local, 'branch', '--track', 'release', 'origin/release');
   const store = createStore();
-  store.saveRepo(repo);
+  store.saveRepo(stub<Repository>(repo));
   store.setSetting('refreshEnabled', false);
   let clock = Date.now();
   const checkoutGit = createCheckoutGit({ matchesRemote: url => url === remote, findPulls: async () => [pr], now: () => clock });
@@ -774,14 +807,14 @@ test('verified PR follow-up switches, reviews and removes the old branch from Re
     accessKey: TEST_KEY,
     store,
     checkoutGit,
-    provider: { checkConnection: async () => ({ available: true }) },
-    sync: { status: () => ({}) },
+    provider: stub<AzureProvider>({ checkConnection: async () => stub<ConnectionStatus>({ available: true }) }),
+    sync: stub<AppSync>({ status: () => stub<DemoSyncStatus>({}) }),
   });
-  await new Promise(resolve => app.listen(0, '127.0.0.1', resolve));
+  await new Promise<void>(resolve => app.listen(0, '127.0.0.1', resolve));
   const browser = await chromium.launch({ executablePath: await executable(), headless: true });
   const page = await browser.newPage({ viewport: { width: 375, height: 812 }, colorScheme: 'dark' });
   await rememberKey(page);
-  const errors = [];
+  const errors: string[] = [];
   page.on('pageerror', error => errors.push(error.message));
   t.after(async () => {
     await browser.close();
@@ -789,7 +822,7 @@ test('verified PR follow-up switches, reviews and removes the old branch from Re
     store.close();
     assert.deepEqual(errors, []);
   });
-  await page.goto(`http://127.0.0.1:${app.address().port}/#repositories`);
+  await page.goto(`http://127.0.0.1:${portOf(app)}/#repositories`);
   const row = page.getByRole('article');
   await expect(row.locator('code').first()).toHaveText(oldBranch);
   await row.locator('summary').click();
@@ -800,6 +833,7 @@ test('verified PR follow-up switches, reviews and removes the old branch from Re
   await page.setViewportSize({ width: 1280, height: 850 });
   await page.emulateMedia({ colorScheme: 'light' });
   const layout = await row.locator('.checkout-guidance').boundingBox();
+  assert.ok(layout);
   assert.ok(layout.width > 1000);
   await page.screenshot({ path: 'test-results/repo-checkout-follow-up-desktop-light.png', animations: 'disabled' });
   await switchButton.click();
@@ -819,7 +853,7 @@ test('verified PR follow-up switches, reviews and removes the old branch from Re
   for (const [width, colorScheme] of [
     [1280, 'dark'],
     [320, 'light'],
-  ]) {
+  ] as const) {
     await page.setViewportSize({ width, height: 812 });
     await page.emulateMedia({ colorScheme });
     await expect.poll(() => removal.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
@@ -842,18 +876,26 @@ test('verified PR follow-up switches, reviews and removes the old branch from Re
 
 test('Settings shows scoped CLI access and header switches share the automatic check preference', async t => {
   const store = createStore();
-  for (const id of ['orders', 'billing']) store.saveRepo({ id, name: id, project: 'QA' });
-  store.saveStream({ repoId: 'orders', stream: 'pushes', initialized: true, lastSuccess: new Date(Date.now() - 3600000).toISOString() });
-  const probes = [];
+  for (const id of ['orders', 'billing']) store.saveRepo(stub<Repository>({ id, name: id, project: 'QA' }));
+  store.saveStream(
+    stub<StreamState>({
+      repoId: 'orders',
+      stream: 'pushes',
+      initialized: true,
+      lastSuccess: new Date(Date.now() - 3600000).toISOString(),
+    }),
+  );
+  const probes: string[] = [];
   let manual = 0;
   const app = createApp({
     accessKey: TEST_KEY,
     store,
-    provider: {
-      async checkConnection(_org, repo) {
-        if (!repo) return { available: true, version: '2.93.0', extension: '1.0.2' };
+    provider: stub<AzureProvider>({
+      // The server passes the watched repository the check is for.
+      async checkConnection(_org?: string, repo?: Repository) {
+        if (!repo) return stub<ConnectionStatus>({ available: true, version: '2.93.0', extension: '1.0.2' });
         probes.push(repo.id);
-        return {
+        return stub<ConnectionStatus>({
           available: true,
           version: '2.93.0',
           extension: '1.0.2',
@@ -862,17 +904,18 @@ test('Settings shows scoped CLI access and header switches share the automatic c
             checkedAt: new Date().toISOString(),
             ...(repo.id === 'billing' ? { code: 'FORBIDDEN', message: 'Check repository permissions.' } : {}),
           },
-        };
+        });
       },
-    },
-    sync: {
-      status: () => ({}),
-      refresh() {
+    }),
+    sync: stub<AppSync>({
+      status: () => stub<DemoSyncStatus>({}),
+      // Returns no status, which the page does not read.
+      refresh: (() => {
         manual++;
-      },
-    },
+      }) as AppSync['refresh'],
+    }),
   });
-  await new Promise(resolve => app.listen(0, '127.0.0.1', resolve));
+  await new Promise<void>(resolve => app.listen(0, '127.0.0.1', resolve));
   const browser = await chromium.launch({ executablePath: await executable(), headless: true });
   const page = await browser.newPage({ viewport: { width: 1280, height: 850 } });
   await rememberKey(page);
@@ -881,7 +924,7 @@ test('Settings shows scoped CLI access and header switches share the automatic c
     await new Promise(resolve => app.close(resolve));
     store.close();
   });
-  await page.goto(`http://127.0.0.1:${app.address().port}/#settings`);
+  await page.goto(`http://127.0.0.1:${portOf(app)}/#settings`);
   const header = page.locator('#header');
   const settings = page.locator('#page');
   const headerToggle = header.getByRole('switch', { name: 'Automatic checks' });
@@ -918,13 +961,14 @@ test('Settings shows scoped CLI access and header switches share the automatic c
   await expect.poll(() => manual).toBe(2);
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
   await page.screenshot({ path: 'test-results/settings-connection-phone-dark.png', animations: 'disabled' });
-  for (let id = 1; id <= 10; id++) store.saveRepo({ id: `extra-${id}`, name: `Extra ${id}` });
+  for (let id = 1; id <= 10; id++) store.saveRepo(stub<Repository>({ id: `extra-${id}`, name: `Extra ${id}` }));
   await page.setViewportSize({ width: 320, height: 812 });
   await page.reload();
   await expect(header.getByText('12 repos', { exact: true })).toBeVisible();
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
   await header.getByLabel('Checks: automatic off', { exact: true }).click();
   const panel = await header.locator('.header-monitoring-menu').boundingBox();
+  assert.ok(panel);
   assert.ok(panel.x >= 0 && panel.x + panel.width <= 320);
   await page.keyboard.press('Escape');
   await expect(header.getByRole('switch', { name: 'Automatic checks' })).toHaveCount(0);
@@ -955,11 +999,11 @@ test('People and named filters restore a scoped Activity search after app restar
   await page.goto(runtime.url + '/#activity/all');
   const people = page.getByRole('searchbox', { name: 'Search activity' });
   const presets = page.locator('#saved-filter-toggle');
-  const choosePreset = async name => {
+  const choosePreset = async (name: string) => {
     await presets.click();
     await page.getByRole('option', { name: new RegExp(`^${name} `) }).click();
   };
-  const more = async name => {
+  const more = async (name: string) => {
     await page.getByRole('button', { name: 'More saved filter actions' }).click();
     await page.getByRole('menuitem', { name }).click();
   };
@@ -1023,8 +1067,10 @@ test('People and named filters restore a scoped Activity search after app restar
     await expect(presets).toHaveAccessibleName('Saved filter: Testing team');
     await expect(page.locator('li[data-event-id="bob-person"]')).toHaveCount(0);
     const repo = restarted.store.listRepos().find(item => item.id === 'demo-orders');
+    assert.ok(repo);
     restarted.store.saveRepo({ ...repo, disabled: true });
     const billing = restarted.store.listRepos().find(item => item.id === 'demo-billing');
+    assert.ok(billing);
     restarted.store.insertEvents([
       {
         id: 'other-repo-alice',
@@ -1052,7 +1098,7 @@ test('People and named filters restore a scoped Activity search after app restar
 
 test('saved filters stay available on mobile, apply on keyboard selection, and save variations explicitly', async t => {
   const { runtime, page } = await demo(t);
-  const filter = view => ({ search: '', people: '', kind: '', repoIds: null, view });
+  const filter = (view: string) => ({ search: '', people: '', kind: '', repoIds: null, view });
   const longName = 'A'.repeat(80);
   runtime.store.setSetting('savedActivityFilters', [
     { id: 'new', name: 'New changes', filters: filter('new') },
@@ -1085,6 +1131,7 @@ test('saved filters stay available on mobile, apply on keyboard selection, and s
   await polled;
   await expect(option).toBeFocused();
   const popup = await picker.boundingBox();
+  assert.ok(popup);
   assert.ok(popup.x >= 0 && popup.x + popup.width <= 390);
   await page.keyboard.press('Enter');
   await expect(page).toHaveURL(/#activity\/all$/);
@@ -1101,6 +1148,7 @@ test('saved filters stay available on mobile, apply on keyboard selection, and s
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
   await page.getByRole('button', { name: 'More saved filter actions' }).click();
   const actions = await page.getByRole('menu', { name: 'Saved filter actions' }).boundingBox();
+  assert.ok(actions);
   assert.ok(actions.x >= 0 && actions.x + actions.width <= 390);
   await page.getByRole('menuitem', { name: 'Restore saved version' }).click();
   await expect(search).toHaveValue('');
@@ -1112,14 +1160,17 @@ test('saved filters stay available on mobile, apply on keyboard selection, and s
   await page.getByRole('textbox', { name: 'Filter name' }).fill('Orders variation');
   await page.getByRole('dialog').getByRole('button', { name: 'Save', exact: true }).click();
   await expect(toggle).toHaveAccessibleName('Saved filter: Orders variation');
-  assert.equal(runtime.store.getSetting('savedActivityFilters').find(item => item.id === 'all').filters.search, '');
+  assert.equal(
+    (runtime.store.getSetting('savedActivityFilters') as SavedActivityFilter[]).find(item => item.id === 'all')?.filters.search,
+    '',
+  );
   await page.getByRole('button', { name: 'More saved filter actions' }).click();
   await page.getByRole('menuitem', { name: 'Stop using filter' }).click();
   await expect(toggle).toHaveAccessibleName('Saved filters');
   await expect(search).toHaveValue('Orders');
   await toggle.click();
   await picker.getByRole('option', { name: /Orders variation/ }).click();
-  const existing = runtime.store.getSetting('savedActivityFilters');
+  const existing = runtime.store.getSetting('savedActivityFilters') as SavedActivityFilter[];
   runtime.store.setSetting(
     'savedActivityFilters',
     existing.filter(item => item.name !== 'Orders variation'),
@@ -1135,8 +1186,8 @@ test('saving selects the new filter after an older state response arrives', asyn
   await page.getByRole('button', { name: 'Save filter…' }).click();
   const dialog = page.getByRole('dialog', { name: 'Save Activity filter' });
   await dialog.getByRole('textbox', { name: 'Filter name' }).fill('Fresh preset');
-  const captured = Promise.withResolvers();
-  const release = Promise.withResolvers();
+  const captured = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
   await page.route(
     '**/api/state',
     async route => {
@@ -1166,7 +1217,7 @@ test('saving selects the new filter after an older state response arrives', asyn
 
 test('an Activity response renders while a saved-filter menu stays open, and deletes keep newer selections', async t => {
   const { runtime, page } = await demo(t);
-  const filters = search => ({ search, people: '', kind: '', repoIds: null, view: 'new' });
+  const filters = (search: string) => ({ search, people: '', kind: '', repoIds: null, view: 'new' });
   runtime.store.setSetting('savedActivityFilters', [
     { id: 'first', name: 'First preset', filters: filters('first') },
     { id: 'second', name: 'Second preset', filters: filters('second') },
@@ -1177,15 +1228,15 @@ test('an Activity response renders while a saved-filter menu stays open, and del
   const search = page.getByRole('searchbox', { name: 'Search activity' });
   const activity = page.getByRole('region', { name: 'Repository activity' });
   await expect(toggle).toBeVisible();
-  let delayed;
+  let delayed: { term: string; release: PromiseWithResolvers<void> } | undefined;
   await page.route(/\/api\/activity\?/, async route => {
     if (new URL(route.request().url()).searchParams.get('search') === delayed?.term) await delayed.release.promise;
     await route.continue();
   });
-  async function respondWithMenuOpen(term, menu = toggle) {
-    const release = Promise.withResolvers();
+  async function respondWithMenuOpen(term: string, menu = toggle) {
+    const release = Promise.withResolvers<void>();
     delayed = { term, release };
-    const matches = url => new URL(url).searchParams.get('search') === term;
+    const matches = (url: string) => new URL(url).searchParams.get('search') === term;
     try {
       const started = page.waitForRequest(request => matches(request.url()), { timeout: 5000 });
       await search.fill(term);
@@ -1198,7 +1249,7 @@ test('an Activity response renders while a saved-filter menu stays open, and del
       await expect(emptyFeed).toBeVisible();
       await expect(menu).toHaveAttribute('aria-expanded', 'true');
       await expect(page.locator(`#${await menu.getAttribute('aria-controls')}`)).toBeVisible();
-      assert.equal(await menu.evaluate(element => element.closest('.menu').contains(document.activeElement)), true);
+      assert.equal(await menu.evaluate(element => element.closest('.menu')?.contains(document.activeElement)), true);
     } finally {
       release.resolve();
       delayed = undefined;
@@ -1221,6 +1272,7 @@ test('an Activity response renders while a saved-filter menu stays open, and del
 
   await respondWithMenuOpen('missing held click term');
   const bounds = await save.boundingBox();
+  assert.ok(bounds);
   await page.mouse.move(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
   await page.mouse.down();
   try {
@@ -1248,7 +1300,7 @@ test('an Activity response renders while a saved-filter menu stays open, and del
     else await deleteDialog.getByRole('button', { name: 'Cancel' }).click();
     await expect(more).toBeFocused();
   }
-  const finishDelete = Promise.withResolvers();
+  const finishDelete = Promise.withResolvers<void>();
   await page.route('**/api/activity-filters/first', async route => {
     await finishDelete.promise;
     await route.continue();
@@ -1272,7 +1324,7 @@ test('an Activity response renders while a saved-filter menu stays open, and del
 
 test('People detail only acknowledges the updates that matched the originating row', async t => {
   const { runtime, page } = await demo(t);
-  const common = { repoId: 'demo-orders', kind: 'build', time: new Date().toISOString() };
+  const common = { repoId: 'demo-orders', kind: 'build', time: new Date().toISOString() } satisfies Partial<ActivityEvent>;
   runtime.store.insertEvents([
     { ...common, id: 'alice-build', actor: 'Alice Example', title: 'Alice run', data: { buildId: 18001, status: 'queued' } },
     { ...common, id: 'other-build', actor: 'Chris Example', title: 'Chris run', data: { buildId: 18001, status: 'completed' } },
@@ -1286,8 +1338,8 @@ test('People detail only acknowledges the updates that matched the originating r
   await expect(mark).toHaveAttribute('data-event-ids', JSON.stringify(['alice-build']));
   await mark.click();
   await expect(page.getByRole('button', { name: 'Mark unseen', exact: true })).toBeVisible();
-  assert.equal(runtime.store.getEvent('alice-build').seen, true);
-  assert.equal(runtime.store.getEvent('other-build').seen, false);
+  assert.equal(isSeen(runtime.store, 'alice-build'), true);
+  assert.equal(isSeen(runtime.store, 'other-build'), false);
 });
 
 test('a New updates backlog beyond the shown rows is confirmed with its count below and then reads zero', async t => {
@@ -1320,7 +1372,7 @@ test('after the newest rows are marked seen, one catch-up action clears the olde
   const { runtime, page } = await demo(t);
   runtime.store.acknowledge(runtime.store.listEvents().map(event => event.id));
   const now = Date.now();
-  const push = (id, minutesAgo) => ({
+  const push = (id: string, minutesAgo: number): ActivityEvent => ({
     id,
     repoId: 'demo-orders',
     kind: 'push',
@@ -1354,8 +1406,8 @@ test('after the newest rows are marked seen, one catch-up action clears the olde
   await confirm.getByRole('button', { name: 'Mark as seen', exact: true }).click();
   await expect(page.getByText('235 updates marked seen.')).toBeVisible();
   await expect(headline).toHaveText('1 new item');
-  assert.ok(older.every(event => runtime.store.getEvent(event.id).seen));
-  assert.equal(runtime.store.getEvent('late').seen, false);
+  assert.ok(older.every(event => isSeen(runtime.store, event.id)));
+  assert.equal(isSeen(runtime.store, 'late'), false);
   await page.getByRole('button', { name: 'Undo', exact: true }).click();
   await expect(page.getByText('235 updates marked unseen.')).toBeVisible();
   await expect(headline).toHaveText('236 new items');
@@ -1373,7 +1425,7 @@ test('New updates offers one bulk action that clears a fully shown list without 
   await expect(bar).toHaveCount(1);
   await expect(bar).toHaveText(`Mark all seen (${total})`);
   // The saved-filter picker defers redraws while open; the write's refresh must still land.
-  const release = Promise.withResolvers();
+  const release = Promise.withResolvers<void>();
   await page.route(
     '**/api/ack',
     async route => {
