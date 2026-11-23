@@ -96,10 +96,10 @@ Scope depends on **D2**.
 - [x] `tsconfig.test.json` includes only `test/**/*.ts` and `e2e/**/*.ts` (so each batch's converted files are checked and Phase 6 needs no config change), sets `skipLibCheck` (linkedom 0.18.15's declarations conflict with the DOM lib) and joins `check:types` from 5a at 0 errors
 - [x] 5a: `test/fixtures/*`, the UI and `src/` tests and the small server tests (26 files, about 4,300 lines), including `merge-ui`, `sync-status-ui` and `presentation`
 - [x] 5b: `reset-api`, `backfill`, `rewrite-check`, `fork-origin`, `azure-client`, `sync-status`, `azure-rest`, `server`, `store`, `store-history` (about 4,600 lines)
-- [ ] 5c: `checkout-advice`, `checkout-git`, `checkout-branches`, `sync` (about 3,100 lines); `find test -name '*.js'` is empty and `npm run test:ui` passes
-- [ ] While mixed, `test` runs `node --test "test/*.test.js" "test/*.test.ts"` (no brace globs, for Windows); after the last batch, `"test/*.test.ts"` only
+- [x] 5c: `checkout-advice`, `checkout-git`, `checkout-branches`, `sync` (about 3,100 lines); `find test -name '*.js'` is empty and `npm run test:ui` passes
+- [x] While mixed, `test` runs `node --test "test/*.test.js" "test/*.test.ts"` (no brace globs, for Windows); after the last batch, `"test/*.test.ts"` only
 - [x] Fix string paths to renamed modules: `test/azure-cli.test.js:23`, `test/azure-rest.test.js:276`, `test/doctor.test.js:12,250` (done in Phase 4)
-- [ ] Typed stub factories in `test/fixtures/` instead of `as any` for partial fakes
+- [x] Typed stub factories in `test/fixtures/` instead of `as any` for partial fakes
 - [x] The HTML-regex rule still fires on the three renamed UI tests (seeded check)
 - [ ] Test count unchanged (470: 469 plus the one Phase 2 added) and CI green after each batch
 

@@ -5,6 +5,10 @@ import { createHash } from 'node:crypto';
 import { createSync } from '../server/sync.ts';
 import { createBackfill } from '../server/backfill.ts';
 import { activityMergeBadge } from '../src/activity-text.ts';
+import type { SyncProvider } from '../server/sync.ts';
+import type { AzureProvider, AzurePage, ReadOptions } from '../server/azure-client.ts';
+import type { Repository } from '../src/contract.ts';
+import { dataOf, fieldsOf, present, stub, watchedIdOf } from './fixtures/typed.ts';
 const repo = {
   id: 'one',
   name: 'One',
@@ -15,7 +19,7 @@ const repo = {
 };
 const BASE = Date.parse('2026-11-17T10:00:00Z');
 const DAY = 86400000;
-function setup(provider, streams = ['pushes']) {
+function setup(provider: SyncProvider, streams: string[] = ['pushes']) {
   const store = createStore();
   store.saveRepo(repo);
   let time = BASE;
@@ -31,7 +35,7 @@ function setup(provider, streams = ['pushes']) {
     },
   };
 }
-const push = (id, date = '2026-11-17T10:00:01Z') => ({
+const push = (id: number, date = '2026-11-17T10:00:01Z') => ({
   pushId: id,
   date,
   pushedBy: { displayName: 'A' },
@@ -49,9 +53,10 @@ test('manual refresh drains its paginated work once while automatic checks stay 
     store,
     now: () => time,
     provider: {
-      async read(current, stream, { cursor }) {
+      async read(current, stream, given) {
+        const { cursor } = present(given);
         calls++;
-        assert.equal(current.id, repo.id);
+        assert.equal(watchedIdOf(current), repo.id);
         return { items: [], nextCursor: stream === 'pushes' && !cursor ? { skip: 1 } : null };
       },
     },
@@ -82,8 +87,9 @@ test('newest-first push history cannot resurrect a deleted ref across pages or s
   };
   const creation = { ...push(10), refUpdates: [{ name, oldObjectId: '0'.repeat(40), newObjectId: 'b'.repeat(40) }] };
   let acrossPages = false;
-  const provider = {
-    async read(_repo, stream, { cursor }) {
+  const provider: SyncProvider = {
+    async read(_repo, stream, given) {
+      const { cursor } = present(given);
       if (stream === 'refs') return { items: [], nextCursor: null };
       if (!acrossPages) return { items: [deletion, creation], nextCursor: null };
       return { items: cursor ? [{ ...creation, pushId: 30 }] : [{ ...deletion, pushId: 40 }], nextCursor: cursor ? null : { skip: 1 } };
@@ -91,15 +97,15 @@ test('newest-first push history cannot resurrect a deleted ref across pages or s
   };
   const { store, sync, advance } = setup(provider, ['pushes']);
   // Baseline ref stream already exists; an empty reconciliation should add no duplicate deletion.
-  const refs = store.getStreams().find(state => state.stream === 'refs');
+  const refs = present(store.getStreams().find(state => state.stream === 'refs'));
   store.saveStream({ ...refs, initialized: true });
   await sync.tick();
-  assert.equal(store.getEntity(repo.id, 'ref', name).active, false);
+  assert.equal(fieldsOf(store.getEntity(repo.id, 'ref', name)).active, false);
   acrossPages = true;
   advance();
   await sync.tick();
   await sync.tick();
-  assert.equal(store.getEntity(repo.id, 'ref', name).active, false);
+  assert.equal(fieldsOf(store.getEntity(repo.id, 'ref', name)).active, false);
   const before = store.listEvents().filter(event => event.kind === 'branch-deleted').length;
   store.saveStream({ ...refs, initialized: true, nextAt: new Date(BASE).toISOString() });
   await sync.tick();
@@ -127,22 +133,23 @@ test('quiet streams and a background server reduce cadence without per-branch re
   sync.refresh();
   for (const stream of store.getStreams()) if (stream.stream !== 'pushes') store.saveStream({ ...stream, nextAt: '2099-01-01T00:00:00Z' });
   await sync.tick();
-  assert.equal(Date.parse(store.getStreams().find(s => s.stream === 'pushes').nextAt) - time, 180000);
+  assert.equal(Date.parse(present(store.getStreams().find(s => s.stream === 'pushes')).nextAt) - time, 180000);
   time += 180000;
   await sync.tick();
-  assert.equal(Date.parse(store.getStreams().find(s => s.stream === 'pushes').nextAt) - time, 300000);
+  assert.equal(Date.parse(present(store.getStreams().find(s => s.stream === 'pushes')).nextAt) - time, 300000);
   time += 300000;
   foreground = false;
   await sync.tick();
-  assert.equal(Date.parse(store.getStreams().find(s => s.stream === 'pushes').nextAt) - time, 300000);
+  assert.equal(Date.parse(present(store.getStreams().find(s => s.stream === 'pushes')).nextAt) - time, 300000);
   assert.equal(reads, 3);
   store.close();
 });
 
 test('failed page preserves cursor across sync restart, completed window deduplicates overlap', async () => {
   let calls = 0;
-  const provider = {
-    async read(_repo, _stream, options) {
+  const provider: SyncProvider = {
+    async read(_repo, _stream, given) {
+      const options = present(given);
       calls++;
       if (!options.cursor) return { items: [push(1, '2026-11-16T10:00:00Z')], nextCursor: { skip: 1 } };
       if (calls === 2) throw Object.assign(new Error('Network unavailable'), { code: 'NETWORK' });
@@ -151,28 +158,29 @@ test('failed page preserves cursor across sync restart, completed window dedupli
   };
   const { store, sync, advance } = setup(provider);
   await sync.tick();
-  assert.equal(store.getStreams().find(s => s.stream === 'pushes').cursor.skip, 1);
+  assert.equal(present(store.getStreams().find(s => s.stream === 'pushes'))?.cursor?.skip, 1);
   await sync.tick();
-  assert.equal(store.getStreams().find(s => s.stream === 'pushes').lastSuccess, undefined);
+  assert.equal(present(store.getStreams().find(s => s.stream === 'pushes')).lastSuccess, undefined);
   assert.equal(store.listEvents().length, 1);
   advance();
   const resumed = createSync({ store, provider, now: () => BASE + 2000, intervalMs: 1000 });
   await resumed.tick();
-  assert.equal(store.getStreams().find(s => s.stream === 'pushes').pending, false);
+  assert.equal(present(store.getStreams().find(s => s.stream === 'pushes')).pending, false);
   assert.equal(store.listEvents().length, 2);
-  assert.equal(store.listEvents().find(e => e.data.pushId === 1).imported, true);
-  assert.equal(store.listEvents().find(e => e.data.pushId === 2).seen, false);
+  assert.equal(present(store.listEvents().find(e => e.data?.pushId === 1)).imported, true);
+  assert.equal(present(store.listEvents().find(e => e.data?.pushId === 2)).seen, false);
   store.close();
 });
 
 test('ref baseline emits nothing and only full snapshots expose newly discovered branches', async () => {
   let stage = 0;
-  const provider = {
-    async read(_r, _s, { cursor }) {
+  const provider: SyncProvider = {
+    async read(_r, _s, given) {
+      const { cursor } = present(given);
       if (!stage) return { items: [{ name: 'refs/heads/main', objectId: 'a' }], nextCursor: null };
       return cursor
         ? { items: [{ name: 'refs/heads/hotfix/new', objectId: 'b' }], nextCursor: null }
-        : { items: [{ name: 'refs/heads/main', objectId: 'a' }], nextCursor: { next: 1 } };
+        : { items: [{ name: 'refs/heads/main', objectId: 'a' }], nextCursor: { skip: 1 } };
     },
   };
   const { store, sync, advance } = setup(provider, ['refs']);
@@ -186,8 +194,8 @@ test('ref baseline emits nothing and only full snapshots expose newly discovered
   const event = store.listEvents()[0];
   assert.equal(event.kind, 'branch-created');
   assert.equal(event.actor, 'Unknown');
-  assert.equal(event.data.evidence, 'snapshot');
-  assert.match(event.summary, /creation time and actor unknown/);
+  assert.equal(dataOf(event).evidence, 'snapshot');
+  assert.match(present(event.summary), /creation time and actor unknown/);
   store.close();
 });
 
@@ -200,13 +208,13 @@ test('new remote branch from push is visible before a PR and duplicate polls do 
     },
   });
   await sync.tick();
-  const branch = store.listEvents().find(e => e.kind === 'branch-created');
+  const branch = present(store.listEvents().find(e => e.kind === 'branch-created'));
   assert.equal(branch.branch, 'hotfix/example');
   store.acknowledge([branch.id]);
   advance();
   await sync.tick();
   assert.equal(store.listEvents().length, 2);
-  assert.equal(store.listEvents().find(e => e.id === branch.id).seen, true);
+  assert.equal(present(store.listEvents().find(e => e.id === branch.id)).seen, true);
   store.close();
 });
 
@@ -220,7 +228,7 @@ test('old active build is refreshed by ID after disappearing from active results
     sourceVersion: 'a',
   };
   let active = true;
-  const provider = {
+  const provider: SyncProvider = {
     async read() {
       return { items: active ? [build] : [], nextCursor: null };
     },
@@ -235,7 +243,7 @@ test('old active build is refreshed by ID after disappearing from active results
   advance();
   await sync.tick();
   assert.equal(store.listEvents().length, 2);
-  assert.equal(store.listEvents().find(e => e.data.result === 'failed').seen, false);
+  assert.equal(present(store.listEvents().find(e => e.data?.result === 'failed')).seen, false);
   store.close();
 });
 
@@ -250,8 +258,8 @@ for (const nextCursor of [null, { token: 'more' }]) {
       sourceVersion: 'a',
     };
     let active = true;
-    const asked = [];
-    const provider = {
+    const asked: string[][] = [];
+    const provider: SyncProvider = {
       async read() {
         return { items: active ? [build] : [], nextCursor: null };
       },
@@ -266,7 +274,7 @@ for (const nextCursor of [null, { token: 'more' }]) {
     active = false;
     advance();
     await sync.tick();
-    const stream = () => store.getStreams().find(state => state.stream === 'activeBuilds');
+    const stream = () => present(store.getStreams().find(state => state.stream === 'activeBuilds'));
     assert.equal(stream().error, null);
     store.saveStream({ ...stream(), nextAt: new Date(BASE + 2000).toISOString() });
     await sync.tick();
@@ -278,7 +286,7 @@ for (const nextCursor of [null, { token: 'more' }]) {
 
 test('PR reactivation creates a fresh event even when its state matches an earlier snapshot', async () => {
   let status = 'active';
-  const provider = {
+  const provider: SyncProvider = {
     async read() {
       return {
         items: [{ pullRequestId: 1, title: 'Fix', status, creationDate: '2026-11-16T10:00:00Z', sourceRefName: 'refs/heads/feature/x' }],
@@ -299,7 +307,7 @@ test('PR reactivation creates a fresh event even when its state matches an earli
   store.close();
 });
 
-const cachedPr = (id, status = 'active') => ({
+const cachedPr = (id: number, status = 'active') => ({
   pullRequestId: id,
   title: `PR ${id}`,
   status,
@@ -309,9 +317,9 @@ const cachedPr = (id, status = 'active') => ({
 
 test('a cached active PR that Azure can no longer read does not stall the prs stream or its later siblings', async () => {
   let listed = [1, 2, 3, 4, 5].map(id => cachedPr(id));
-  const lookups = [];
-  const unreadable = { 1: 'NOT_FOUND', 2: 'WRONG_REPOSITORY' };
-  const provider = {
+  const lookups: (number | string)[] = [];
+  const unreadable: Record<string, string> = { 1: 'NOT_FOUND', 2: 'WRONG_REPOSITORY' };
+  const provider: SyncProvider = {
     async read() {
       return { items: listed, nextCursor: null };
     },
@@ -326,22 +334,22 @@ test('a cached active PR that Azure can no longer read does not stall the prs st
   listed = [];
   advance();
   await sync.tick();
-  const prs = () => store.getStreams().find(state => state.stream === 'prs');
+  const prs = () => present(store.getStreams().find(state => state.stream === 'prs'));
   assert.equal(prs().error, null, 'one unreadable PR does not fail the page');
   assert.equal(prs().lastSuccess, new Date(BASE + 2000).toISOString(), 'the listing commits');
-  assert.equal(store.getEntity(repo.id, 'pr', '3').status, 'completed', 'a readable sibling commits');
-  assert.equal(store.getEntity(repo.id, 'pr', '1').status, 'active', 'an unreadable PR is left as it was');
+  assert.equal(fieldsOf(store.getEntity(repo.id, 'pr', '3')).status, 'completed', 'a readable sibling commits');
+  assert.equal(fieldsOf(store.getEntity(repo.id, 'pr', '1')).status, 'active', 'an unreadable PR is left as it was');
   store.saveStream({ ...prs(), nextAt: new Date(BASE + 2000).toISOString() });
   await sync.tick();
   assert.deepEqual(lookups, ['1', '2', '3', '4', '5', '1'], 'later PRs get a turn instead of the same first three');
-  assert.equal(store.getEntity(repo.id, 'pr', '5').status, 'completed');
+  assert.equal(fieldsOf(store.getEntity(repo.id, 'pr', '5')).status, 'completed');
   store.close();
 });
 
 for (const code of ['AUTH_REQUIRED', 'INVALID_RESPONSE']) {
   test(`a ${code} error during a per-PR lookup still fails the prs page`, async () => {
     let listed = [cachedPr(1), cachedPr(2)];
-    const provider = {
+    const provider: SyncProvider = {
       async read() {
         return { items: listed, nextCursor: null };
       },
@@ -352,22 +360,22 @@ for (const code of ['AUTH_REQUIRED', 'INVALID_RESPONSE']) {
     };
     const { store, sync, advance } = setup(provider, ['prs']);
     await sync.tick();
-    const before = store.getStreams().find(state => state.stream === 'prs').lastSuccess;
+    const before = present(store.getStreams().find(state => state.stream === 'prs')).lastSuccess;
     listed = [];
     advance();
     await sync.tick();
-    const prs = store.getStreams().find(state => state.stream === 'prs');
+    const prs = present(store.getStreams().find(state => state.stream === 'prs'));
     assert.equal(prs.error?.code, code);
     assert.equal(prs.lastSuccess, before, 'the page does not commit');
-    assert.equal(store.getEntity(repo.id, 'pr', '1').status, 'active', 'no sibling commits from a failed page');
+    assert.equal(fieldsOf(store.getEntity(repo.id, 'pr', '1')).status, 'active', 'no sibling commits from a failed page');
     store.close();
   });
 }
 
 test('disabled repositories and disabled refresh never call Azure; concurrent ticks coalesce', async () => {
-  let release;
+  let release: (() => void) | undefined;
   let calls = 0;
-  const provider = {
+  const provider: SyncProvider = {
     read() {
       calls++;
       return new Promise(resolve => {
@@ -388,7 +396,7 @@ test('disabled repositories and disabled refresh never call Azure; concurrent ti
   const b = sync.tick();
   assert.equal(a, b);
   assert.equal(calls, 1);
-  release();
+  present(release)();
   await a;
   assert.deepEqual(sync.refresh(), { scheduled: false, cooldown: true });
   store.close();
@@ -410,7 +418,7 @@ test('a refresh while a repository is disabled does not start its cooldown', () 
 
 test('editing an old active PR after baseline is unseen using observation time', async () => {
   let title = 'Original title';
-  const provider = {
+  const provider: SyncProvider = {
     async read() {
       return { items: [{ pullRequestId: 1, title, status: 'active', creationDate: '2026-10-01T00:00:00Z' }], nextCursor: null };
     },
@@ -422,16 +430,17 @@ test('editing an old active PR after baseline is unseen using observation time',
   advance();
   await sync.tick();
   const [changed] = store.listEvents({ unseen: true });
-  assert.match(changed.title, /New title/);
+  assert.match(present(changed.title), /New title/);
   assert.equal(changed.time, '2026-11-17T10:00:02.000Z');
   store.close();
 });
 
 test('pagination receives a fixed window and yields between pages to another repository', async () => {
-  const calls = [];
-  const provider = {
-    async read(repo, stream, options) {
-      calls.push({ id: repo.id, stream, ...options });
+  const calls: ({ id: string | undefined; stream: string } & ReadOptions)[] = [];
+  const provider: SyncProvider = {
+    async read(repo, stream, given) {
+      const options = present(given);
+      calls.push({ id: watchedIdOf(repo), stream, ...options });
       return { items: [], nextCursor: options.cursor ? null : { skip: 1 } };
     },
   };
@@ -454,7 +463,7 @@ test('pagination receives a fixed window and yields between pages to another rep
 });
 
 test('project-wide PR results cannot leak another repository into the watched repo', async () => {
-  const provider = {
+  const provider: SyncProvider = {
     async read() {
       return {
         items: [
@@ -468,16 +477,16 @@ test('project-wide PR results cannot leak another repository into the watched re
   const { store, sync } = setup(provider, ['prs']);
   await sync.tick();
   assert.equal(store.listEvents().length, 1);
-  assert.match(store.listEvents()[0].title, /Watched repo/);
+  assert.match(present(store.listEvents()[0].title), /Watched repo/);
   assert.equal(store.getEntity('one', 'pr', '1'), undefined);
   assert.equal(store.listEntities('one', 'pr').length, 1);
   store.close();
 });
 
 test('pausing during a read prevents follow-up reconciliation and never acknowledges existing events', async () => {
-  let release;
+  let release: (() => void) | undefined;
   let reconciled = 0;
-  const provider = {
+  const provider: SyncProvider = {
     read() {
       return new Promise(resolve => {
         release = () => resolve({ items: [], nextCursor: null });
@@ -493,11 +502,11 @@ test('pausing during a read prevents follow-up reconciliation and never acknowle
   store.commitPage({ repoId: 'one', stream: 'activeBuilds', entities: [{ type: 'build', id: '42', data: { status: 'inProgress' } }] });
   const pending = sync.tick();
   store.saveRepo({ ...repo, disabled: true });
-  release();
+  present(release)();
   await pending;
   assert.equal(reconciled, 0);
   assert.equal(store.listEvents()[0].seen, false);
-  assert.equal(store.getStreams().find(s => s.stream === 'activeBuilds').lastSuccess, undefined);
+  assert.equal(present(store.getStreams().find(s => s.stream === 'activeBuilds')).lastSuccess, undefined);
   store.close();
 });
 
@@ -530,13 +539,13 @@ test('completed PR snapshots retain source, target and merge result without extr
   );
   await sync.tick();
   const event = store.listEvents()[0];
-  assert.equal(event.data.sourceRefName, item.sourceRefName);
-  assert.equal(event.data.targetRefName, item.targetRefName);
-  assert.equal(event.data.sourceCommit, 'source-sha');
-  assert.equal(event.data.targetCommit, 'target-before-sha');
-  assert.equal(event.data.mergeCommit, 'merged-result-sha');
-  assert.equal(event.data.mergeStatus, 'succeeded');
-  assert.equal(event.data.mergeStrategy, 'squash');
+  assert.equal(dataOf(event).sourceRefName, item.sourceRefName);
+  assert.equal(dataOf(event).targetRefName, item.targetRefName);
+  assert.equal(dataOf(event).sourceCommit, 'source-sha');
+  assert.equal(dataOf(event).targetCommit, 'target-before-sha');
+  assert.equal(dataOf(event).mergeCommit, 'merged-result-sha');
+  assert.equal(dataOf(event).mergeStatus, 'succeeded');
+  assert.equal(dataOf(event).mergeStrategy, 'squash');
   assert.equal(event.actor, 'PR creator', 'the recorded actor is the creator, not an inferred merger');
   assert.equal(event.seen, false);
   advance();
@@ -571,10 +580,10 @@ test('active preview and abandoned PRs never acquire actual merge-result fields'
   await sync.tick();
   assert.equal(store.listEvents().length, 2);
   for (const event of store.listEvents()) {
-    assert.equal(event.data.mergeCommit, undefined);
-    assert.equal(event.data.targetCommit, undefined);
-    assert.equal(event.data.mergeStatus, undefined);
-    assert.equal(event.data.mergeStrategy, undefined);
+    assert.equal(dataOf(event).mergeCommit, undefined);
+    assert.equal(dataOf(event).targetCommit, undefined);
+    assert.equal(dataOf(event).mergeStatus, undefined);
+    assert.equal(dataOf(event).mergeStrategy, undefined);
   }
   store.close();
 });
@@ -627,9 +636,9 @@ test('real-time due pages precede the background history import', async () => {
 test('busy live queues leave turns for background work', async () => {
   const store = createStore();
   try {
-    for (let id = 0; id < 12; id++) store.saveRepo({ id: String(id), name: String(id) });
+    for (let id = 0; id < 12; id++) store.saveRepo(stub<Repository>({ id: String(id), name: String(id) }));
     let time = BASE;
-    const turns = [];
+    const turns: string[] = [];
     const sync = createSync({
       store,
       now: () => time,
@@ -637,7 +646,7 @@ test('busy live queues leave turns for background work', async () => {
       provider: {
         read: async () => {
           turns.push('live');
-          return { items: [] };
+          return stub<AzurePage>({ items: [] });
         },
       },
       background: {
@@ -697,13 +706,13 @@ test('automatic checks can be disabled while an explicit history import still ge
 test('repositories added during the refresh cooldown still get their initial import with automatic checks off', async () => {
   const store = createStore();
   store.setSetting('refreshEnabled', false);
-  const reads = [];
+  const reads: string[] = [];
   const sync = createSync({
     store,
     now: () => BASE,
     provider: {
       async read(current, stream) {
-        reads.push(`${current.id}:${stream}`);
+        reads.push(`${watchedIdOf(current)}:${stream}`);
         return { items: [], nextCursor: null };
       },
     },
@@ -726,8 +735,8 @@ test('a failing scheduled tick is contained and polling continues', async () => 
   const store = createStore();
   store.saveRepo(repo);
   let turns = 0;
-  const unhandled = [];
-  const onUnhandled = reason => unhandled.push(reason);
+  const unhandled: unknown[] = [];
+  const onUnhandled = (reason: unknown) => unhandled.push(reason);
   process.on('unhandledRejection', onUnhandled);
   const sync = createSync({
     store,
@@ -777,7 +786,11 @@ test('a failed manual refresh is not retried while automatic checks are off', as
   for (const state of store.getStreams()) if (state.stream !== 'pushes') store.saveStream({ ...state, manual: false });
   await sync.tick();
   assert.equal(calls, 1);
-  assert.equal(store.getStreams().find(state => state.stream === 'pushes').error.code, 'UNAVAILABLE', 'the failure stays visible');
+  assert.equal(
+    present(store.getStreams().find(state => state.stream === 'pushes')).error?.code,
+    'UNAVAILABLE',
+    'the failure stays visible',
+  );
   time += 31 * 60000;
   await sync.tick();
   assert.equal(calls, 1, 'no Azure call without another refresh request');
@@ -789,7 +802,7 @@ test('a refresh requested during a read that then fails is still answered while 
   store.saveRepo(repo);
   store.setSetting('refreshEnabled', false);
   let time = BASE,
-    fail,
+    fail: (() => void) | undefined,
     calls = 0;
   const sync = createSync({
     store,
@@ -811,10 +824,14 @@ test('a refresh requested during a read that then fails is still answered while 
   time += 40000;
   assert.equal(sync.refresh([repo.id]).scheduled, true);
   for (const state of store.getStreams()) if (state.stream !== 'pushes') store.saveStream({ ...state, manual: false });
-  fail();
+  present(fail)();
   await reading;
   const pending = () => sync.status().inProgress.some(entry => entry.stream === 'pushes');
-  assert.equal(store.getStreams().find(state => state.stream === 'pushes').error.code, 'UNAVAILABLE', 'the failure stays visible');
+  assert.equal(
+    present(store.getStreams().find(state => state.stream === 'pushes')).error?.code,
+    'UNAVAILABLE',
+    'the failure stays visible',
+  );
   assert.equal(pending(), true, 'the newer request is still pending');
   time += 31 * 60000;
   await sync.tick();
@@ -830,7 +847,7 @@ test('a refresh made with automatic checks on still runs if checks are turned of
   const store = createStore();
   store.saveRepo(repo);
   let time = BASE,
-    fail,
+    fail: (() => void) | undefined,
     calls = 0;
   const sync = createSync({
     store,
@@ -853,7 +870,7 @@ test('a refresh made with automatic checks on still runs if checks are turned of
   assert.equal(sync.refresh([repo.id]).scheduled, true);
   for (const state of store.getStreams()) if (state.stream !== 'pushes') store.saveStream({ ...state, nextAt: '2099-01-01T00:00:00Z' });
   store.setSetting('refreshEnabled', false);
-  fail();
+  present(fail)();
   await reading;
   time += 31 * 60000;
   await sync.tick();
@@ -871,14 +888,15 @@ test('a first sync whose read fails after a newer refresh keeps its lower bound'
   store.saveRepo(repo);
   store.setSetting('refreshEnabled', false);
   let time = BASE,
-    fail;
-  const sinces = [];
+    fail: (() => void) | undefined;
+  const sinces: (string | undefined)[] = [];
   const sync = createSync({
     store,
     now: () => time,
     intervalMs: 1000,
     provider: {
-      read(_repo, _stream, { since }) {
+      read(_repo, _stream, given) {
+        const { since } = present(given);
         sinces.push(since);
         if (sinces.length === 1) return Promise.resolve({ items: [], nextCursor: { skip: 1 } });
         if (sinces.length > 2) return Promise.resolve({ items: [], nextCursor: null });
@@ -899,7 +917,7 @@ test('a first sync whose read fails after a newer refresh keeps its lower bound'
   await new Promise(setImmediate);
   sync.refresh([repo.id]);
   onlyPushes();
-  fail();
+  present(fail)();
   await reading;
   time += 31 * 60000;
   await sync.tick();
@@ -914,7 +932,7 @@ for (const automatic of [true, false]) {
     store.saveRepo(repo);
     store.setSetting('refreshEnabled', automatic);
     let time = BASE,
-      release,
+      release: (() => void) | undefined,
       calls = 0;
     const sync = createSync({
       store,
@@ -936,9 +954,9 @@ for (const automatic of [true, false]) {
     await new Promise(setImmediate);
     time += 40000;
     assert.equal(sync.refresh([repo.id]).scheduled, true);
-    release();
+    present(release)();
     await reading;
-    const pushes = store.getStreams().find(state => state.stream === 'pushes');
+    const pushes = present(store.getStreams().find(state => state.stream === 'pushes'));
     assert.equal(pushes.nextAt, new Date(time).toISOString(), 'the refresh is still due');
     await sync.tick();
     assert.equal(calls, 2, 'the requested refresh reads again');
@@ -954,7 +972,7 @@ test('first-sync history at the baseline instant is imported whatever its fracti
   });
   assert.equal(store.getSetting(`baseline:${repo.id}`), '2026-11-17T10:00:00.000Z');
   await sync.tick();
-  const event = store.listEvents().find(item => item.kind === 'push');
+  const event = present(store.listEvents().find(item => item.kind === 'push'));
   assert.equal(event.imported, true, 'an event at the baseline instant is history, not a new update');
   store.close();
 });
@@ -962,7 +980,7 @@ test('first-sync history at the baseline instant is imported whatever its fracti
 test('a refresh in the same millisecond its stream starts reading still stays due', async () => {
   const store = createStore();
   store.saveRepo(repo);
-  let release,
+  let release: (() => void) | undefined,
     calls = 0;
   const sync = createSync({
     store,
@@ -982,9 +1000,9 @@ test('a refresh in the same millisecond its stream starts reading still stays du
   assert.equal(calls, 1);
   store.setSetting('refreshEnabled', false);
   assert.equal(sync.refresh([repo.id]).scheduled, true);
-  release();
+  present(release)();
   await reading;
-  const read = store.getStreams().find(state => state.initialized);
+  const read = present(store.getStreams().find(state => state.initialized));
   assert.equal(read.nextAt, new Date(BASE).toISOString(), 'the refresh is still due');
   assert.equal(read.manual, true, 'a manual refresh keeps its manual flag with automatic checks off');
   store.close();
@@ -993,7 +1011,7 @@ test('a refresh in the same millisecond its stream starts reading still stays du
 test('a read window saved before refresh generations existed still keeps a refresh made during its read', async () => {
   const store = createStore();
   store.saveRepo(repo);
-  let release,
+  let release: (() => void) | undefined,
     calls = 0,
     time = BASE;
   const sync = createSync({
@@ -1017,16 +1035,16 @@ test('a read window saved before refresh generations existed still keeps a refre
         ? { ...upgraded, window: { since: '2026-11-17T09:00:00.000Z', until: '2026-11-17T09:59:00.000Z' }, cursor: { skip: 100 } }
         : { ...upgraded, nextAt: '2099-01-01T00:00:00Z' },
     );
-    assert.ok(refreshGeneration >= 0);
+    assert.ok(refreshGeneration !== undefined && refreshGeneration >= 0);
   }
   const reading = sync.tick();
   await new Promise(setImmediate);
   time += 40000;
   store.setSetting('refreshEnabled', false);
   assert.equal(sync.refresh([repo.id]).scheduled, true);
-  release();
+  present(release)();
   await reading;
-  const pushes = store.getStreams().find(state => state.stream === 'pushes');
+  const pushes = present(store.getStreams().find(state => state.stream === 'pushes'));
   assert.equal(pushes.nextAt, new Date(time).toISOString(), 'the refresh is still due');
   assert.equal(pushes.manual, true);
   store.close();
@@ -1053,7 +1071,12 @@ test('status reports streams that are overdue because the budget is behind', asy
 
 test('tag pushes become tag rows with their own change, and a tag-only push makes no push row', async () => {
   const zero = '0'.repeat(40);
-  const tagPush = (pushId, refUpdates) => ({ pushId, date: '2026-11-17T10:00:01Z', pushedBy: { displayName: 'A' }, refUpdates });
+  const tagPush = (pushId: number, refUpdates: object[]) => ({
+    pushId,
+    date: '2026-11-17T10:00:01Z',
+    pushedBy: { displayName: 'A' },
+    refUpdates,
+  });
   const records = [
     tagPush(4, [{ name: 'refs/tags/v2', oldObjectId: 'c'.repeat(40), newObjectId: zero }]),
     tagPush(3, [{ name: 'refs/tags/v1', oldObjectId: 'a'.repeat(40), newObjectId: 'd'.repeat(40) }]),
@@ -1070,7 +1093,7 @@ test('tag pushes become tag rows with their own change, and a tag-only push make
   });
   await sync.tick();
   const tags = store.listEvents().filter(event => event.kind === 'tag');
-  assert.deepEqual(tags.map(event => [event.data.pushId, event.branch, event.data.change]).sort(), [
+  assert.deepEqual(tags.map(event => [dataOf(event).pushId, event.branch, dataOf(event).change]).sort(), [
     [1, 'v1', 'created'],
     [2, 'annotated', 'created'],
     [3, 'v1', 'moved'],
@@ -1078,21 +1101,21 @@ test('tag pushes become tag rows with their own change, and a tag-only push make
   ]);
   const pushes = store.listEvents().filter(event => event.kind === 'push');
   assert.deepEqual(
-    pushes.map(event => event.data.pushId),
+    pushes.map(event => dataOf(event).pushId),
     [2],
     'only the push that moved a branch is a push row',
   );
   assert.deepEqual(
-    pushes[0].data.refUpdates.map(ref => ref.name),
+    present(dataOf(pushes[0]).refUpdates).map(ref => ref.name),
     ['refs/heads/main'],
   );
-  assert.equal(store.getEntity('one', 'ref', 'refs/tags/v1').objectId, 'd'.repeat(40));
-  assert.equal(store.getEntity('one', 'ref', 'refs/tags/v2').active, false);
+  assert.equal(fieldsOf(store.getEntity('one', 'ref', 'refs/tags/v1')).objectId, 'd'.repeat(40));
+  assert.equal(fieldsOf(store.getEntity('one', 'ref', 'refs/tags/v2')).active, false);
   store.close();
 });
 
 test('tags join the refs snapshot without announcing the tags that already existed', async () => {
-  let items = [{ name: 'refs/heads/main', objectId: 'a' }];
+  let items: object[] = [{ name: 'refs/heads/main', objectId: 'a' }];
   const { store, sync, advance } = setup(
     {
       async read() {
@@ -1102,7 +1125,7 @@ test('tags join the refs snapshot without announcing the tags that already exist
     ['refs'],
   );
   // An install from before tags: the refs stream is initialized and knows main, but has never recorded a tag.
-  const refs = store.getStreams().find(state => state.stream === 'refs');
+  const refs = present(store.getStreams().find(state => state.stream === 'refs'));
   store.commitPage({
     repoId: 'one',
     stream: 'refs',
@@ -1116,11 +1139,11 @@ test('tags join the refs snapshot without announcing the tags that already exist
   advance(600001);
   await sync.tick();
   const tags = store.listEvents().filter(event => event.kind === 'tag');
-  assert.deepEqual(tags.map(event => [event.branch, event.data.change, event.data.evidence]).sort(), [
+  assert.deepEqual(tags.map(event => [event.branch, dataOf(event).change, dataOf(event).evidence]).sort(), [
     ['old', 'deleted', 'snapshot'],
     ['v2', 'created', 'snapshot'],
   ]);
-  assert.equal(tags.find(event => event.branch === 'v2').data.peeledObjectId, 'c');
+  assert.equal(dataOf(tags.find(event => event.branch === 'v2')).peeledObjectId, 'c');
   assert.equal(
     store.listEvents().some(event => event.kind.startsWith('branch-')),
     false,
@@ -1138,7 +1161,7 @@ test('a fork PR keeps where it came from without changing the fingerprint of PRs
     targetRefName: 'refs/heads/main',
     repository: { id: 'a' },
   };
-  let items = [pr];
+  let items: object[] = [pr];
   const { store, sync, advance } = setup(
     {
       async read() {
@@ -1149,9 +1172,9 @@ test('a fork PR keeps where it came from without changing the fingerprint of PRs
   );
   await sync.tick();
   assert.equal(store.listEvents().length, 1);
-  assert.equal(store.listEvents()[0].data.fork, undefined);
-  assert.equal(store.listEvents()[0].data.sourceRepositoryId, 'a', 'an active PR records where its source branch lives');
-  assert.equal(store.listEvents()[0].data.targetRepositoryId, 'a');
+  assert.equal(dataOf(store.listEvents()[0]).fork, undefined);
+  assert.equal(dataOf(store.listEvents()[0]).sourceRepositoryId, 'a', 'an active PR records where its source branch lives');
+  assert.equal(dataOf(store.listEvents()[0]).targetRepositoryId, 'a');
   items = [{ ...pr, forkSource: { name: 'refs/heads/fix', repository: { id: 'f', name: 'One-fork', project: { name: 'Q' } } } }];
   advance(600001);
   await sync.tick();
@@ -1159,14 +1182,14 @@ test('a fork PR keeps where it came from without changing the fingerprint of PRs
   items = [{ ...items[0], title: 'Fix, retitled' }];
   advance(600001);
   await sync.tick();
-  const latest = store.listEvents().find(event => event.data.fork);
-  assert.deepEqual(latest.data.fork, { repository: 'One-fork', project: 'Q' });
-  assert.equal(latest.data.sourceRepositoryId, 'f');
+  const latest = present(store.listEvents().find(event => dataOf(event).fork));
+  assert.deepEqual(dataOf(latest).fork, { repository: 'One-fork', project: 'Q' });
+  assert.equal(dataOf(latest).sourceRepositoryId, 'f');
   store.close();
 });
 
 test('a reviewer vote is PR activity, and PRs saved before votes were recorded adopt them quietly', async () => {
-  const reviewer = (id, vote, displayName = id) => ({ id, displayName, vote });
+  const reviewer = (id: string, vote: number, displayName = id) => ({ id, displayName, vote });
   const pr = {
     pullRequestId: 6,
     title: 'Fix',
@@ -1177,7 +1200,7 @@ test('a reviewer vote is PR activity, and PRs saved before votes were recorded a
     repository: { id: 'a' },
     reviewers: [reviewer('ana', 0, 'Ana'), reviewer('sam', -5, 'Sam')],
   };
-  let items = [pr];
+  let items: object[] = [pr];
   const { store, sync, advance } = setup(
     {
       async read() {
@@ -1187,7 +1210,7 @@ test('a reviewer vote is PR activity, and PRs saved before votes were recorded a
     ['prs'],
   );
   // A snapshot from before votes were part of the fingerprint.
-  const prs = store.getStreams().find(state => state.stream === 'prs');
+  const prs = present(store.getStreams().find(state => state.stream === 'prs'));
   const old = { status: 'active', isDraft: false, title: 'Fix', target: 'refs/heads/main' };
   store.commitPage({
     repoId: 'one',
@@ -1206,12 +1229,11 @@ test('a reviewer vote is PR activity, and PRs saved before votes were recorded a
   const changes = store
     .listEvents()
     .sort((a, b) => a.observedAt.localeCompare(b.observedAt))
-    .map(event => event.data.voteChanges);
+    .map(event => dataOf(event).voteChanges);
   assert.deepEqual(changes, [[{ name: 'Ana', vote: 10 }], [{ name: 'Ana', vote: 0 }]]);
   assert.deepEqual(
-    store
-      .listEvents()[0]
-      .data.reviewers.map(item => [item.name, item.vote])
+    present(dataOf(store.listEvents()[0]).reviewers)
+      .map(item => [item.name, item.vote])
       .sort(),
     [
       ['Ana', 0],
@@ -1224,7 +1246,7 @@ test('a reviewer vote is PR activity, and PRs saved before votes were recorded a
 test('a historical PR import keeps the event ID it had before votes were recorded', () => {
   const store = createStore();
   store.saveRepo(repo);
-  const sync = createSync({ store, provider: {} });
+  const sync = createSync({ store, provider: stub<SyncProvider>({}) });
   const closed = {
     pullRequestId: 8,
     title: 'Fix',
@@ -1252,7 +1274,7 @@ test('adding a reviewer who has not voted is not PR activity', async () => {
     repository: { id: 'a' },
     reviewers: [{ id: 'ana', displayName: 'Ana', vote: 10 }],
   };
-  let items = [pr];
+  let items: object[] = [pr];
   const { store, sync, advance } = setup(
     {
       async read() {
@@ -1273,14 +1295,15 @@ test('a refs snapshot saved before tags restarts and still notices a branch dele
   let cursorSeen;
   const { store, sync } = setup(
     {
-      async read(_repo, _stream, { cursor }) {
+      async read(_repo, _stream, given) {
+        const { cursor } = present(given);
         cursorSeen = cursor;
         return { items: [{ name: 'refs/heads/main', objectId: 'a' }], nextCursor: null, restarted: true };
       },
     },
     ['refs'],
   );
-  const refs = store.getStreams().find(state => state.stream === 'refs');
+  const refs = present(store.getStreams().find(state => state.stream === 'refs'));
   store.commitPage({
     repoId: 'one',
     stream: 'refs',
@@ -1298,7 +1321,7 @@ test('a refs snapshot saved before tags restarts and still notices a branch dele
   });
   await sync.tick();
   assert.deepEqual(cursorSeen, { token: 'heads-only' });
-  assert.equal(store.getEntity('one', 'ref', 'refs/heads/old').active, false);
+  assert.equal(fieldsOf(store.getEntity('one', 'ref', 'refs/heads/old')).active, false);
   store.close();
 });
 
@@ -1308,7 +1331,7 @@ for (const [order, first, second] of [
 ]) {
   test(`a completed PR links to the push that is its result with no merge call, ${order}`, async () => {
     const result = 'c'.repeat(40);
-    const items = {
+    const items: Record<string, object[]> = {
       pushes: [{ ...push(30), refUpdates: [{ name: 'refs/heads/main', oldObjectId: 'a'.repeat(40), newObjectId: result }] }],
       closedPrs: [
         {
@@ -1324,7 +1347,7 @@ for (const [order, first, second] of [
         },
       ],
     };
-    const offered = { pushes: [], closedPrs: [] };
+    const offered: Record<string, object[]> = { pushes: [], closedPrs: [] };
     const store = createStore();
     store.saveRepo(repo);
     let time = BASE;
@@ -1352,7 +1375,7 @@ for (const [order, first, second] of [
     );
     assert.equal(activityMergeBadge(pushed), 'PR evidence');
     assert.deepEqual(
-      pushed.data.mergeEvidence.prs.map(pr => [pr.pullRequestId, pr.targetRefName, pr.mergeCommit, pr.relationship]),
+      dataOf(pushed).mergeEvidence?.prs?.map(pr => [pr.pullRequestId, pr.targetRefName, pr.mergeCommit, pr.relationship]),
       [[91, 'refs/heads/main', result.toUpperCase(), 'result-introduced']],
     );
     store.close();
@@ -1361,24 +1384,21 @@ for (const [order, first, second] of [
 
 /**
  * Records every provider method a run calls. Pushes come in pages; every other call answers empty.
- * @param {Record<string, object[][]>} pages pages per stream, chained by a `skip` cursor
+ * @param pages pages per stream, chained by a `skip` cursor
  */
-function recordingProvider(pages) {
-  const calls = [];
-  const provider = new Proxy(
-    {},
-    {
-      get(_target, name) {
-        if (typeof name !== 'string' || name === 'then') return undefined;
-        return async (_repo, stream, options) => {
-          calls.push(name === 'read' ? `read:${stream}` : name);
-          const list = (name === 'read' && pages[stream]) || [];
-          const index = options?.cursor?.skip || 0;
-          return { items: list[index] || [], nextCursor: index + 1 < list.length ? { skip: index + 1 } : null };
-        };
-      },
+function recordingProvider(pages: Record<string, object[][]>) {
+  const calls: string[] = [];
+  const provider = new Proxy(stub<AzureProvider>({}), {
+    get(_target, name) {
+      if (typeof name !== 'string' || name === 'then') return undefined;
+      return async (_repo: unknown, stream: string, options?: ReadOptions) => {
+        calls.push(name === 'read' ? `read:${stream}` : name);
+        const list = (name === 'read' && pages[stream]) || [];
+        const index = options?.cursor?.skip || 0;
+        return { items: list[index] || [], nextCursor: index + 1 < list.length ? { skip: index + 1 } : null };
+      };
     },
-  );
+  });
   return { provider, calls };
 }
 
@@ -1409,8 +1429,7 @@ test('a history import page makes only stream reads and queues no merge work', a
   const { provider, calls } = recordingProvider({
     pushes: [[push(5, new Date(BASE - day).toISOString()), push(6, new Date(BASE - 2 * day).toISOString())]],
   });
-  /** @type {ReturnType<typeof createBackfill>} */
-  let backfill;
+  let backfill: ReturnType<typeof createBackfill>;
   const sync = createSync({
     store,
     provider,

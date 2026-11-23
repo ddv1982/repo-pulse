@@ -3,6 +3,7 @@
 // the real signature, while the members left out need no placeholder.
 import assert from 'node:assert/strict';
 import type { request } from '../../src/api.ts';
+import type { AzureRepo, Repository } from '../../src/contract.ts';
 
 /**
  * A T built from the members a test supplies, like the object literal it replaces. Calling a member left out throws;
@@ -36,6 +37,12 @@ export function fieldsOf(value: unknown): Record<string, unknown> {
   assert.ok(typeof value === 'object' && value !== null, 'expected an object');
   return value as Record<string, unknown>;
 }
+
+/**
+ * The ID of the repository the app passes to a provider method. The method is typed with the Azure fields only; the
+ * app passes the watched repository, which carries its ID.
+ */
+export const watchedIdOf = (repo: AzureRepo | undefined) => (repo as Repository | undefined)?.id;
 
 /** What a rejection or throw check reads from the error it is given; a check whose property is missing fails. */
 export type Thrown = Error & { code?: string; status?: number };

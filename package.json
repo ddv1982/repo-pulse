@@ -15,7 +15,7 @@
     "demo": "node server.ts --demo",
     "doctor": "node scripts/doctor.ts",
     "pretest": "npm run build:web",
-    "test": "node --test \"test/*.test.js\" \"test/*.test.ts\"",
+    "test": "node --test \"test/*.test.ts\"",
     "check": "node scripts/check.ts",
     "pretest:ui": "npm run build:web",
     "test:ui": "node --test e2e/*.test.js",

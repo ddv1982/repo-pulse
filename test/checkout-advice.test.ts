@@ -5,7 +5,12 @@ import { join } from 'node:path';
 import { createCheckoutGit } from '../server/checkout-git.ts';
 import { createCheckoutLookup } from '../server/checkout-advice.ts';
 import { createStore } from '../server/store.ts';
-import { checkoutFixture, git, squashFixture } from './fixtures/checkout.ts';
+import type { CheckoutPull } from '../server/azure-client.ts';
+import type { Observation } from '../server/checkout-observations.ts';
+import type { Thrown } from './fixtures/typed.ts';
+
+type CheckoutGitOptions = Parameters<typeof createCheckoutGit>[0];
+import { actions, adviceOf, checkoutFixture, comparisonOf, diagnosticOf, expectedOf, git, squashFixture } from './fixtures/checkout.ts';
 
 test('missing upstream gives verified squash target advice without changing the checkout', async t => {
   const { repo, pr, remote, local } = squashFixture(t);
@@ -14,19 +19,19 @@ test('missing upstream gives verified squash target advice without changing the 
     findPulls: async () => [pr],
   });
   const status = await adapter.status(repo);
-  const { checkout, updated } = await adapter.update(repo, 'check', status);
+  const { checkout, updated } = await adapter.update(repo, 'check', expectedOf(status));
   assert.equal(checkout.state, 'upstream-missing');
-  assert.equal(checkout.canPull, false);
+  assert.equal(actions(checkout).canPull, false);
   assert.equal(updated, false);
-  assert.equal(checkout.diagnostic.advice.verified, true);
-  assert.match(checkout.diagnostic.suggestion, /Fetch and check out release/);
+  assert.equal(adviceOf(checkout).verified, true);
+  assert.match(diagnosticOf(checkout).suggestion, /Fetch and check out release/);
   git(local, 'fetch', 'origin', 'release');
   git(local, 'branch', '--track', 'release', 'origin/release');
-  const { checkout: localTarget } = await adapter.update(repo, 'check', checkout);
-  assert.match(localTarget.diagnostic.suggestion, /Switch to release/);
+  const { checkout: localTarget } = await adapter.update(repo, 'check', expectedOf(checkout));
+  assert.match(diagnosticOf(localTarget).suggestion, /Switch to release/);
   git(local, 'worktree', 'add', join(local, '..', 'release-worktree'), 'release');
-  const { checkout: worktreeTarget } = await adapter.update(repo, 'check', localTarget);
-  assert.match(worktreeTarget.diagnostic.suggestion, /existing worktree for release/);
+  const { checkout: worktreeTarget } = await adapter.update(repo, 'check', expectedOf(localTarget));
+  assert.match(diagnosticOf(worktreeTarget).suggestion, /existing worktree for release/);
   assert.equal(git(local, 'branch', '--show-current'), 'topic');
   assert.equal(git(local, 'rev-parse', 'HEAD'), pr.head);
 });
@@ -35,28 +40,29 @@ test('same branch name, foreign source identity, dirty checkout and missing targ
   const { repo, pr, remote, local, original } = squashFixture(t);
   git(local, 'fetch', 'origin', 'release');
   git(local, 'branch', '--track', 'release', 'origin/release');
-  for (const [candidate, targetVerified] of [
+  const candidates: [CheckoutPull, boolean][] = [
     [{ ...pr, head: original }, true],
     [{ ...pr, sourceId: 'fork' }, false],
-  ]) {
+  ];
+  for (const [candidate, targetVerified] of candidates) {
     const adapter = createCheckoutGit({ matchesRemote: url => url === remote, findPulls: async () => [candidate] });
-    const { checkout } = await adapter.update(repo, 'check', await adapter.status(repo));
-    assert.equal(checkout.diagnostic.advice.verified, false);
-    assert.match(checkout.diagnostic.suggestion, /Keep your local branch/);
-    assert.equal(Boolean(checkout.diagnostic.advice.targetVerified), targetVerified);
-    if (targetVerified) assert.match(checkout.diagnostic.suggestion, /To test the merged PR: Switch to release/);
-    else assert.doesNotMatch(checkout.diagnostic.suggestion, /Switch to release/);
+    const { checkout } = await adapter.update(repo, 'check', expectedOf(await adapter.status(repo)));
+    assert.equal(adviceOf(checkout).verified, false);
+    assert.match(diagnosticOf(checkout).suggestion, /Keep your local branch/);
+    assert.equal(Boolean(adviceOf(checkout).targetVerified), targetVerified);
+    if (targetVerified) assert.match(diagnosticOf(checkout).suggestion, /To test the merged PR: Switch to release/);
+    else assert.doesNotMatch(diagnosticOf(checkout).suggestion, /Switch to release/);
   }
   const adapter = createCheckoutGit({ matchesRemote: url => url === remote, findPulls: async () => [pr] });
-  const { checkout: suggested } = await adapter.update(repo, 'check', await adapter.status(repo));
-  assert.equal(suggested.diagnostic.advice.verified, true);
+  const { checkout: suggested } = await adapter.update(repo, 'check', expectedOf(await adapter.status(repo)));
+  assert.equal(adviceOf(suggested).verified, true);
   writeFileSync(join(local, 'uncommitted.txt'), 'keep my local edits');
-  const dirty = await adapter.update(repo, 'check', suggested);
-  assert.match(dirty.checkout.diagnostic.suggestion, /Save your local changes/);
+  const dirty = await adapter.update(repo, 'check', expectedOf(suggested));
+  assert.match(diagnosticOf(dirty.checkout).suggestion, /Save your local changes/);
   git(remote, 'update-ref', '-d', 'refs/heads/release');
-  const { checkout: missingTarget } = await adapter.update(repo, 'check', dirty.checkout);
-  assert.equal(missingTarget.diagnostic.advice.verified, false);
-  assert.doesNotMatch(missingTarget.diagnostic.suggestion, /Switch to release/);
+  const { checkout: missingTarget } = await adapter.update(repo, 'check', expectedOf(dirty.checkout));
+  assert.equal(adviceOf(missingTarget).verified, false);
+  assert.doesNotMatch(diagnosticOf(missingTarget).suggestion, /Switch to release/);
   assert.equal(git(local, 'rev-parse', 'HEAD'), pr.head);
 });
 
@@ -98,28 +104,32 @@ test('Check and Pull detect a rewritten upstream and keep comparison across adap
   const previous = advance();
   const store = createStore();
   t.after(() => store.close());
-  const options = {
+  const options: CheckoutGitOptions = {
     matchesRemote: url => url === remote,
-    observations: { get: id => store.getSetting('checkout:' + id), save: (id, value) => store.setSetting('checkout:' + id, value) },
+    // Read back as server.ts does: the store keeps observations as JSON settings.
+    observations: {
+      get: id => store.getSetting('checkout:' + id) as Observation | undefined,
+      save: (id, value) => store.setSetting('checkout:' + id, value),
+    },
   };
   const adapter = createCheckoutGit(options);
-  const before = await adapter.update(repo, 'check', await adapter.status(repo));
-  assert.equal(before.checkout.canPull, true);
+  const before = await adapter.update(repo, 'check', expectedOf(await adapter.status(repo)));
+  assert.equal(actions(before.checkout).canPull, true);
   git(source, 'switch', '--detach', original);
   const tip = commit(source, 'different.txt', 'rewritten commit');
   git(source, 'push', '--force', 'origin', 'HEAD:refs/heads/main');
-  const { checkout, updated } = await adapter.update(repo, 'pull', before.checkout);
+  const { checkout, updated } = await adapter.update(repo, 'pull', expectedOf(before.checkout));
   assert.equal(updated, false);
   assert.equal(checkout.state, 'upstream-rewritten');
-  assert.equal(checkout.canPull, false);
-  assert.equal(checkout.diagnostic.comparison.previous, previous);
-  assert.equal(checkout.diagnostic.comparison.tip, tip);
-  assert.deepEqual(new Set(checkout.diagnostic.comparison.commits.map(commit => commit.side)), new Set(['old', 'new']));
+  assert.equal(actions(checkout).canPull, false);
+  assert.equal(comparisonOf(checkout).previous, previous);
+  assert.equal(comparisonOf(checkout).tip, tip);
+  assert.deepEqual(new Set(comparisonOf(checkout).commits.map(commit => commit.side)), new Set(['old', 'new']));
   assert.equal(git(local, 'rev-parse', 'HEAD'), original);
   const restarted = createCheckoutGit(options);
   assert.equal((await restarted.status(repo)).state, 'upstream-rewritten');
-  assert.equal((await restarted.update(repo, 'check', checkout)).checkout.state, 'upstream-rewritten');
-  await assert.rejects(restarted.update(repo, 'pull', checkout), /no longer eligible/);
+  assert.equal((await restarted.update(repo, 'check', expectedOf(checkout))).checkout.state, 'upstream-rewritten');
+  await assert.rejects(restarted.update(repo, 'pull', expectedOf(checkout)), /no longer eligible/);
 });
 
 test('a local rebase in progress names the operation and blocks update actions', async t => {
@@ -133,21 +143,21 @@ test('a local rebase in progress names the operation and blocks update actions',
   git(local, 'switch', 'topic');
   assert.throws(
     () => git(local, 'rebase', 'main'),
-    error => error.status === 1,
+    (error: Thrown) => error.status === 1,
   );
   const checkout = await checkoutGit.status(repo);
   assert.equal(checkout.state, 'in-progress');
-  assert.equal(checkout.diagnostic.title, 'Rebase in progress');
-  assert.match(checkout.diagnostic.suggestion, /Finish or abort/);
-  assert.equal(checkout.canCheck, false);
-  assert.equal(checkout.canPull, false);
+  assert.equal(diagnosticOf(checkout).title, 'Rebase in progress');
+  assert.match(diagnosticOf(checkout).suggestion, /Finish or abort/);
+  assert.equal(actions(checkout).canCheck, false);
+  assert.equal(actions(checkout).canPull, false);
 });
 
 test('a rewrite fetched outside Repo Pulse still compares to the saved baseline', async t => {
   const { repo, local, original, remote, advance } = checkoutFixture(t);
   const previous = advance();
-  const rows = new Map();
-  const options = {
+  const rows = new Map<string, Observation>();
+  const options: CheckoutGitOptions = {
     matchesRemote: url => url === remote,
     observations: {
       get: id => rows.get(id),
@@ -157,14 +167,14 @@ test('a rewrite fetched outside Repo Pulse still compares to the saved baseline'
     },
   };
   const adapter = createCheckoutGit(options);
-  await adapter.update(repo, 'check', await adapter.status(repo));
+  await adapter.update(repo, 'check', expectedOf(await adapter.status(repo)));
   git(remote, 'update-ref', 'refs/heads/main', original);
   git(local, 'fetch', 'origin', 'main');
   const restarted = createCheckoutGit(options);
-  const { checkout } = await restarted.update(repo, 'check', await restarted.status(repo));
+  const { checkout } = await restarted.update(repo, 'check', expectedOf(await restarted.status(repo)));
   assert.equal(checkout.state, 'upstream-rewritten');
-  assert.equal(checkout.diagnostic.comparison.previous, previous);
-  assert.equal(checkout.diagnostic.comparison.tip, original);
+  assert.equal(comparisonOf(checkout).previous, previous);
+  assert.equal(comparisonOf(checkout).tip, original);
 });
 
 test('authentication failures stay distinct from a missing ref and redact Git stderr', async t => {
@@ -177,11 +187,11 @@ test('authentication failures stay distinct from a missing ref and redact Git st
       return git(path, ...args);
     },
   });
-  const { checkout } = await adapter.update(repo, 'check', await adapter.status(repo));
+  const { checkout } = await adapter.update(repo, 'check', expectedOf(await adapter.status(repo)));
   assert.equal(checkout.state, 'fetch-failed');
-  assert.equal(checkout.diagnostic.title, 'Git authentication failed');
-  assert.equal(checkout.canCheck, true);
-  assert.equal(checkout.canPull, false);
+  assert.equal(diagnosticOf(checkout).title, 'Git authentication failed');
+  assert.equal(actions(checkout).canCheck, true);
+  assert.equal(actions(checkout).canPull, false);
   assert.doesNotMatch(JSON.stringify(checkout), /credential-bearing fixture/);
 });
 
@@ -189,7 +199,7 @@ test('an external advance followed by a rewrite of that tip cannot fast-forward 
   const { repo, local, original, remote, source, advance, commit } = checkoutFixture(t);
   const a = advance();
   const adapter = createCheckoutGit({ matchesRemote: url => url === remote });
-  const { checkout: atA } = await adapter.update(repo, 'check', await adapter.status(repo));
+  const { checkout: atA } = await adapter.update(repo, 'check', expectedOf(await adapter.status(repo)));
   const b = commit(source, 'external.txt', 'external advance');
   git(source, 'push', 'origin', 'main');
   git(local, 'fetch', 'origin', 'main');
@@ -197,11 +207,11 @@ test('an external advance followed by a rewrite of that tip cannot fast-forward 
   git(source, 'switch', '--detach', a);
   const c = commit(source, 'replacement.txt', 'replacement after A');
   git(source, 'push', '--force', 'origin', 'HEAD:refs/heads/main');
-  const { checkout, updated } = await adapter.update(repo, 'pull', atA);
+  const { checkout, updated } = await adapter.update(repo, 'pull', expectedOf(atA));
   assert.equal(updated, false);
   assert.equal(checkout.state, 'upstream-rewritten');
-  assert.equal(checkout.diagnostic.comparison.previous, b);
-  assert.equal(checkout.diagnostic.comparison.tip, c);
+  assert.equal(comparisonOf(checkout).previous, b);
+  assert.equal(comparisonOf(checkout).tip, c);
   assert.equal(git(local, 'rev-parse', 'HEAD'), original);
 });
 
@@ -218,10 +228,10 @@ test('a verified target with the wrong local upstream gets review advice, not a 
       git(local, 'fetch', 'other', 'release');
     }
     git(local, 'branch', '--set-upstream-to', upstream, 'release');
-    const { checkout } = await adapter.update(repo, 'check', await adapter.status(repo));
-    assert.equal(checkout.diagnostic.advice.verified, true);
-    assert.match(checkout.diagnostic.suggestion, /Review the upstream of your local release branch/);
-    assert.doesNotMatch(checkout.diagnostic.suggestion, /Switch to release/);
+    const { checkout } = await adapter.update(repo, 'check', expectedOf(await adapter.status(repo)));
+    assert.equal(adviceOf(checkout).verified, true);
+    assert.match(diagnosticOf(checkout).suggestion, /Review the upstream of your local release branch/);
+    assert.doesNotMatch(diagnosticOf(checkout).suggestion, /Switch to release/);
   }
 });
 
@@ -230,8 +240,8 @@ test('an unresolved ancestor check survives repeated checks even when HEAD match
   const previous = advance();
   let unavailable = true;
   let attempts = 0;
-  const rows = new Map();
-  const options = {
+  const rows = new Map<string, Observation>();
+  const options: CheckoutGitOptions = {
     matchesRemote: url => url === remote,
     observations: {
       get: id => rows.get(id),
@@ -248,23 +258,23 @@ test('an unresolved ancestor check survives repeated checks even when HEAD match
     },
   };
   const adapter = createCheckoutGit(options);
-  await adapter.update(repo, 'check', await adapter.status(repo));
+  await adapter.update(repo, 'check', expectedOf(await adapter.status(repo)));
   git(remote, 'update-ref', 'refs/heads/main', original);
-  const first = await adapter.update(repo, 'check', await adapter.status(repo));
+  const first = await adapter.update(repo, 'check', expectedOf(await adapter.status(repo)));
   assert.equal(first.checkout.state, 'upstream-rewritten');
-  assert.equal(first.checkout.diagnostic.comparison.verified, false);
+  assert.equal(comparisonOf(first.checkout).verified, false);
   assert.equal(git(local, 'rev-parse', 'HEAD'), original);
   const restarted = createCheckoutGit(options);
-  const repeated = await restarted.update(repo, 'check', first.checkout);
+  const repeated = await restarted.update(repo, 'check', expectedOf(first.checkout));
   assert.equal(repeated.checkout.state, 'upstream-rewritten');
-  assert.equal(repeated.checkout.canPull, false);
-  assert.equal(repeated.checkout.diagnostic.comparison.verified, false);
+  assert.equal(actions(repeated.checkout).canPull, false);
+  assert.equal(comparisonOf(repeated.checkout).verified, false);
   assert.equal(attempts, 2);
   unavailable = false;
-  const resolved = await restarted.update(repo, 'check', repeated.checkout);
+  const resolved = await restarted.update(repo, 'check', expectedOf(repeated.checkout));
   assert.equal(attempts, 3);
-  assert.equal(resolved.checkout.diagnostic.comparison.verified, true);
-  assert.equal(resolved.checkout.canPull, false);
-  const acknowledged = await restarted.update(repo, 'check', resolved.checkout);
+  assert.equal(comparisonOf(resolved.checkout).verified, true);
+  assert.equal(actions(resolved.checkout).canPull, false);
+  const acknowledged = await restarted.update(repo, 'check', expectedOf(resolved.checkout));
   assert.equal(acknowledged.checkout.state, 'current');
 });

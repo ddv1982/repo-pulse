@@ -57,7 +57,8 @@ function setup(
 test('historical imports mark only new history read without changing live state', async () => {
   const calls: ReadCall[] = [];
   const provider: Provider = {
-    async read(_repo, stream, options = {}) {
+    async read(_repo, stream, given) {
+      const options = present(given);
       calls.push({ stream, ...options });
       return { items: [{ id: stream === 'pushes' ? 1 : stream === 'closedPrs' ? 2 : 3, date: iso(BASE - DAY) }], nextCursor: null };
     },
@@ -106,7 +107,8 @@ test('failed pages retain durable fixed windows and cursors across restart and r
     fail = true;
   const calls: ReadCall[] = [];
   const provider: Provider = {
-    async read(_repo, stream, options = {}) {
+    async read(_repo, stream, given) {
+      const options = present(given);
       calls.push({ stream, ...options });
       if (options.cursor && fail) throw Object.assign(new Error('Connection unavailable'), { code: 'UNAVAILABLE' });
       return { items: [{ id: options.cursor ? 2 : 1, date: iso(BASE - DAY) }], nextCursor: options.cursor ? null : { skip: 100 } };
@@ -138,7 +140,8 @@ test('a page cut off by closing the queue is not a failed attempt and resumes wi
   let closed = true;
   const calls: ReadCall[] = [];
   const provider: Provider = {
-    async read(_repo, stream, options = {}) {
+    async read(_repo, stream, given) {
+      const options = present(given);
       calls.push({ stream, ...options });
       if (closed) throw Object.assign(new Error('Azure CLI queue is closed.'), { code: 'CLOSED' });
       return { items: [], nextCursor: null };
@@ -163,7 +166,8 @@ test('all available history uses explicit 2010 boundary and keeps scanning older
   const calls: ReadCall[] = [];
   const { store, backfill } = setup(
     {
-      async read(_repo, stream, options = {}) {
+      async read(_repo, stream, given) {
+        const options = present(given);
         calls.push({ stream, ...options });
         return { items: [], nextCursor: null };
       },
@@ -294,7 +298,8 @@ test('a build queued before an internal window boundary and completed after it r
     definition: { name: 'CI' },
   };
   const provider: Provider = {
-    async read(_repo, stream, options = {}) {
+    async read(_repo, stream, given) {
+      const options = present(given);
       return { items: stream === 'builds' && options.until === boundary ? [build] : [], nextCursor: null };
     },
   };
