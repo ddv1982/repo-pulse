@@ -14,7 +14,7 @@ export { branchName } from '../events.ts';
 import { safeAzureUrl } from '../events.ts';
 
 const entities: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
-const escape = (value: unknown) => String(value ?? '').replace(/[&<>"']/g, c => entities[c] ?? c);
+const escape = (value: unknown) => String(value ?? '').replace(/[&<>"']/g, c => entities[c] ?? `&#${c.charCodeAt(0)};`);
 
 const SAFE_HTML = Symbol('SafeHtml');
 

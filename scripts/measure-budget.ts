@@ -17,6 +17,8 @@ const pushesPerHour = Number(option('pushes-per-hour', 4));
 const callMs = Number(option('call-ms', 1500));
 const minutes = Number(option('minutes', 60));
 const LIMIT_PER_MINUTE = Number(option('limit', 12));
+// A limit below 1 can never admit a call; the simulation failed with a RangeError for it before as well.
+if (!(LIMIT_PER_MINUTE >= 1)) throw new RangeError('--limit must be at least 1.');
 const activePrs = Number(option('active-prs', 0));
 const prEveryMs = Number(option('pr-every', 3)) * 60000;
 const sha = (value: string) => createHash('sha1').update(value).digest('hex');
