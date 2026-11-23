@@ -26,6 +26,8 @@ npm start
 
 To try it without Azure, run `npm run demo` instead. Demo data is fictional and stored separately.
 
+Repo Pulse has zero runtime npm dependencies and no bundler. Its browser TypeScript is compiled with `tsc` to `dist/` (`npm run build:web`, which runs automatically before `npm start`, `npm run demo`, `npm test` and `npm run test:ui`; run it yourself before calling `node --test` directly).
+
 ## Set up the Azure CLI
 
 1. Install the [Azure CLI](https://learn.microsoft.com/cli/azure/install-azure-cli).

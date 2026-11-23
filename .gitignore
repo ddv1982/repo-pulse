@@ -17,3 +17,6 @@ playwright-report/
 .eslintcache
 *.tsbuildinfo
 npm-debug.log*
+
+# Browser code compiled by npm run build:web
+/dist/

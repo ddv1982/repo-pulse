@@ -7,13 +7,19 @@
     "node": ">=26.0.0"
   },
   "scripts": {
+    "build:web": "node -e \"process.getBuiltinModule('node:fs').rmSync('dist',{recursive:true,force:true})\" && tsc -p tsconfig.web.json",
+    "watch:web": "tsc -p tsconfig.web.json --watch",
+    "prestart": "npm run build:web",
     "start": "node server.js",
+    "predemo": "npm run build:web",
     "demo": "node server.js --demo",
     "doctor": "node scripts/doctor.js",
+    "pretest": "npm run build:web",
     "test": "node --test test/*.test.js",
     "check": "node scripts/check.js",
+    "pretest:ui": "npm run build:web",
     "test:ui": "node --test e2e/*.test.js",
-    "check:types": "tsc -p tsconfig.web.json && tsc -p tsconfig.json",
+    "check:types": "tsc -p tsconfig.web.json --noEmit && tsc -p tsconfig.json",
     "lint": "oxlint --deny-warnings . && prettier --check .",
     "format": "prettier --write ."
   },

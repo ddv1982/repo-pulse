@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, rm, writeFile, stat, chmod } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile, stat, chmod, readFile, readdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { request as httpRequest } from 'node:http';
@@ -100,7 +100,34 @@ test('serves real UI and blocks other origins, DNS rebinding, and API requests w
     assert.equal(part.headers.get('content-type'), 'text/css; charset=utf-8', `${href} should have text/css content-type`);
   }
   assert.equal((await fetch(url + '/package.json')).status, 404);
-  assert.equal((await fetch(url + '/server/store.js')).status, 404);
+  // Name a module that exists, so the check still means something after the server is renamed to TypeScript.
+  const serverModule = (await readdir(new URL('../server/', import.meta.url))).find(name => /^store\.[cm]?[jt]s$/.test(name));
+  assert.ok(serverModule, 'server/store should exist');
+  assert.equal((await fetch(`${url}/server/${serverModule}`)).status, 404);
+  assert.equal((await fetch(url + '/src/web.ts')).status, 404);
+  assert.equal((await fetch(url + '/dist/src/web.js')).status, 404);
+});
+
+test('browser modules come from the build in dist/, and stylesheets, icons and vendored code from web/', async t => {
+  const { url } = await fixture(t);
+  const file = path => readFile(new URL(`../${path}`, import.meta.url), 'utf8');
+  await assert.doesNotReject(stat(new URL('../dist/src/web.js', import.meta.url)), 'dist/ is missing: run npm run build:web');
+  for (const [route, source] of [
+    ['/src/web.js', 'dist/src/web.js'],
+    ['/src/ui/dom.js', 'dist/src/ui/dom.js'],
+    ['/web/theme.js', 'dist/web/theme.js'],
+    ['/theme.js', 'dist/web/theme.js'],
+    ['/web/vendor/idiomorph.esm.js', 'web/vendor/idiomorph.esm.js'],
+    ['/web/favicon.svg', 'web/favicon.svg'],
+    ['/web/app.css', 'web/app.css'],
+  ]) {
+    const response = await globalThis.fetch(url + route);
+    assert.equal(response.status, 200, `${route} should be served`);
+    const type = { '.js': 'text/javascript', '.svg': 'image/svg+xml', '.css': 'text/css' }[route.slice(route.lastIndexOf('.'))];
+    assert.equal(response.headers.get('content-type'), `${type}; charset=utf-8`, `${route} content type`);
+    // Compare without printing two whole files when they differ.
+    assert.ok((await response.text()) === (await file(source)), `${route} should be ${source}`);
+  }
 });
 
 test('state reports no merge queue', async t => {
