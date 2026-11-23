@@ -152,8 +152,11 @@ async function staticFile(pathname, res) {
   let relative = alias[pathname];
   if (!relative && /^\/(src|web)\/[a-zA-Z0-9_./-]+\.(js|css|svg)$/.test(pathname)) relative = pathname.slice(1);
   if (!relative) return false;
-  const path = resolve(ROOT, relative);
-  if (![resolve(ROOT, 'web') + sep, resolve(ROOT, 'src') + sep].some(prefix => path.startsWith(prefix))) return false;
+  // Browser modules are compiled into dist/ by `npm run build:web`; markup, styles, icons and vendored code are served as written.
+  const built = extname(relative) === '.js' && !relative.startsWith('web/vendor/');
+  const root = built ? resolve(ROOT, 'dist') : ROOT;
+  const path = resolve(root, relative);
+  if (!(built ? ['src', 'web'] : ['web']).some(dir => path.startsWith(resolve(root, dir) + sep))) return false;
   try {
     const content = await readFile(path);
     res.writeHead(200, { 'content-type': `${TYPES[extname(path)]}; charset=utf-8` }).end(content);
