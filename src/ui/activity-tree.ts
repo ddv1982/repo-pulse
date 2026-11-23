@@ -1,10 +1,8 @@
-// @ts-check
-
 import { emptyHtml, html } from './format.ts';
 
-/** @typedef {import('../activity-tree.ts').TreeRow} TreeRow */
-/** @typedef {import('../activity-tree.ts').TreeLine} TreeLine */
-/** @typedef {import('../activity-tree.ts').TreeFork} TreeFork */
+export type TreeRow = import('../activity-tree.ts').TreeRow;
+export type TreeLine = import('../activity-tree.ts').TreeLine;
+export type TreeFork = import('../activity-tree.ts').TreeFork;
 
 // Geometry in CSS pixels. web/styles/feed.css places y = 0 on the row's type label and sizes a lane as PITCH wide.
 const PITCH = 10;
@@ -12,13 +10,11 @@ const JOIN = 18;
 const ABOVE = -40;
 const TAIL = 9;
 
-/** @param {number} slot */
-const x = slot => PITCH / 2 + slot * PITCH;
-/** @param {number} color */
-const lane = color => (color < 0 ? 'lane-none' : `lane-${color + 1}`);
+const x = (slot: number) => PITCH / 2 + slot * PITCH;
+const lane = (color: number) => (color < 0 ? 'lane-none' : `lane-${color + 1}`);
 
-/** The part of a lane inside one row. `anchor` is where a lane that stops here ends. @param {TreeLine} line @param {number} anchor */
-function segment(line, anchor) {
+/** The part of a lane inside one row. `anchor` is where a lane that stops here ends. */
+function segment(line: TreeLine, anchor: number) {
   if (!line.up && !line.down) return emptyHtml;
   return html`<line class="${lane(line.color)}" x1="${x(line.slot)}" x2="${x(line.slot)}" y1="${line.up ? ABOVE : anchor}" y2="${line.down ? '100%' : anchor}"/>`;
 }
@@ -26,9 +22,8 @@ function segment(line, anchor) {
 /**
  * A fork or merge: the other lane, and the curve between it and this row's node. A lane with nothing below it in
  * the list ends in a short faded tail, because its history goes on.
- * @param {TreeLine} other @param {TreeRow['node']} node @param {string} style
  */
-function join(other, node, style) {
+function join(other: TreeLine, node: TreeRow['node'], style: string) {
   const [from, to] = [x(other.slot), x(node.slot)];
   const tail = other.down
     ? emptyHtml
@@ -36,8 +31,8 @@ function join(other, node, style) {
   return html`${segment(other, JOIN)}${tail}<path class="${style}" d="M${from} ${JOIN}C${from} ${JOIN / 2} ${to} ${JOIN / 2} ${to} 0"/>`;
 }
 
-/** Every marker stays inside its lane, PITCH wide: the cell clips what leaves it. @param {TreeRow['node']} node @param {string} color */
-function marker(node, color) {
+/** Every marker stays inside its lane, PITCH wide: the cell clips what leaves it. */
+function marker(node: TreeRow['node'], color: string) {
   const at = html`cx="${x(node.slot)}" cy="0"`;
   if (node.shape === 'ring') return html`<circle class="${color} hole" ${at} r="3.75"/>`;
   if (node.shape === 'merge') return html`<circle class="${color} hole" ${at} r="4.1"/><circle class="${color}" ${at} r="1.9"/>`;
@@ -47,9 +42,8 @@ function marker(node, color) {
 /**
  * The tree cell of one Activity row. It is decoration: the row text already names the branch, the status and the
  * fork evidence.
- * @param {TreeRow} row @param {string} tone
  */
-export function renderTreeCell(row, tone) {
+export function renderTreeCell(row: TreeRow, tone: string) {
   const { node, forkFrom, mergeFrom } = row;
   return html`<svg class="tree" aria-hidden="true" focusable="false"><g>${row.through.map(line => segment({ ...line, up: true, down: true }, 0))}${segment(node, 0)}${
     forkFrom ? join(forkFrom, node, `${lane(node.color)}${forkFrom.evidence === 'pr' ? ' assumed' : ''}`) : emptyHtml
@@ -59,9 +53,8 @@ export function renderTreeCell(row, tone) {
 /**
  * The row text for a fork origin. Git records no branch parentage, so no text says a branch was branched from another:
  * it names the commit the branch started at and which branch held it.
- * @param {TreeFork | null} fork
  */
-export function forkText(fork) {
+export function forkText(fork: TreeFork | null) {
   if (!fork) return '';
   const base = (fork.base ?? '').slice(0, 7);
   switch (fork.evidence) {

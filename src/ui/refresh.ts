@@ -1,36 +1,53 @@
-// @ts-check
+import { createActivityData, activityEvents } from './activity-data.ts';
+import { isActivity } from './navigation.ts';
 
-import { createActivityData, activityEvents } from './activity-data.js';
-import { isActivity } from './navigation.js';
+export type ActivityEvent = import('../activity.ts').ActivityEvent;
 
-/**
- * @typedef {import('../activity.ts').ActivityEvent} ActivityEvent
- * @typedef {import('../activity.ts').ActivityPage} ActivityPage
- * @typedef {import('./activity-data.js').EventDetail} EventDetail
- * @typedef {import('./activity-data.js').ActivityView & {eventId: string|null, generation: number}} View
- * @typedef {import('../api.ts').StateResponse} StateResponse
- * @typedef {typeof import('../api.ts').request} Request
- * @typedef {StateResponse['repos'][number]} Repo
- * @typedef {Partial<Omit<StateResponse, 'settings' | 'diagnostics'>> & { watched?: Repo[],
- *   settings?: Partial<StateResponse['settings']>, diagnostics?: Partial<StateResponse['diagnostics']> }} Metadata
- * @typedef {Pick<ActivityPage, 'items'> & Partial<Omit<ActivityPage, 'items'>> & { loading?: boolean, error?: string }} DisplayActivity
- *   Before the first page arrives only `items` and `loading` are set.
- * @typedef {Omit<Metadata, 'syncStatus'> & {repos: Repo[], watched: Repo[], streams: StateResponse['streams'], settings: Partial<StateResponse['settings']>,
- *   diagnostics: Partial<StateResponse['diagnostics']>, syncStatus: PageSyncStatus, activity: DisplayActivity,
- *   events: ActivityEvent[], detailLoading?: boolean}} PageState
- * @typedef {{ overall: import('./health.js').ShownSyncStatus, repos: StateResponse['syncStatus']['repos'] }} PageSyncStatus
- * @typedef {{ view: View, force: boolean, more: boolean }} RefreshJob
- * @typedef {{ type: 'applied'|'superseded' } | { type: 'failed', error: Error }} RefreshOutcome
- */
+export type ActivityPage = import('../activity.ts').ActivityPage;
 
-/** @type {PageSyncStatus} */
-const noSyncStatus = { overall: { state: 'unavailable' }, repos: {} };
+export type EventDetail = import('./activity-data.ts').EventDetail;
 
-/** @param {unknown} value */
-function readMetadata(value) {
+export type View = import('./activity-data.ts').ActivityView & { eventId: string | null; generation: number };
+
+export type StateResponse = import('../api.ts').StateResponse;
+
+export type Request = typeof import('../api.ts').request;
+
+export type Repo = StateResponse['repos'][number];
+
+export type Metadata = Partial<Omit<StateResponse, 'settings' | 'diagnostics'>> & {
+  watched?: Repo[];
+  settings?: Partial<StateResponse['settings']>;
+  diagnostics?: Partial<StateResponse['diagnostics']>;
+};
+
+/** Before the first page arrives only `items` and `loading` are set. */
+export type DisplayActivity = Pick<ActivityPage, 'items'> & Partial<Omit<ActivityPage, 'items'>> & { loading?: boolean; error?: string };
+
+export type PageState = Omit<Metadata, 'syncStatus'> & {
+  repos: Repo[];
+  watched: Repo[];
+  streams: StateResponse['streams'];
+  settings: Partial<StateResponse['settings']>;
+  diagnostics: Partial<StateResponse['diagnostics']>;
+  syncStatus: PageSyncStatus;
+  activity: DisplayActivity;
+  events: ActivityEvent[];
+  detailLoading?: boolean;
+};
+
+export type PageSyncStatus = { overall: import('./health.ts').ShownSyncStatus; repos: StateResponse['syncStatus']['repos'] };
+
+export type RefreshJob = { view: View; force: boolean; more: boolean };
+
+export type RefreshOutcome = { type: 'applied' | 'superseded' } | { type: 'failed'; error: Error };
+
+const noSyncStatus: PageSyncStatus = { overall: { state: 'unavailable' }, repos: {} };
+
+function readMetadata(value: unknown) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Local state is unreadable.');
   // Relies on the /api/state response contract; the runtime checks cover the top-level object, repository IDs and the activity revision.
-  const data = /** @type {Metadata} */ (value);
+  const data = value as Metadata;
   if (data.repos !== undefined && (!Array.isArray(data.repos) || data.repos.some(repo => typeof repo?.id !== 'string'))) {
     throw new Error('Local repository data is unreadable.');
   }
@@ -45,21 +62,24 @@ function readMetadata(value) {
   return { ...data, watched, repos, streams, settings: data.settings || {}, diagnostics: data.diagnostics || {}, syncStatus };
 }
 
-/** @param {View} view */
-const viewKey = ({ route, eventId, repoIds, search, kind, generation }) =>
+const viewKey = ({ route, eventId, repoIds, search, kind, generation }: View) =>
   JSON.stringify([route, eventId, repoIds, search, kind, generation]);
 
-/**
- * @param {{
- *   request: Request,
- *   getView: () => View, reconcileRepositories: (repos: Repo[]) => void,
- *   onUpdate: (event: {metadata: string, force: boolean}) => void, onError: (error: Error, force: boolean) => void
- * }} options
- */
-export function createRefreshController({ request, getView, reconcileRepositories, onUpdate, onError }) {
+export function createRefreshController({
+  request,
+  getView,
+  reconcileRepositories,
+  onUpdate,
+  onError,
+}: {
+  request: Request;
+  getView: () => View;
+  reconcileRepositories: (repos: Repo[]) => void;
+  onUpdate: (event: { metadata: string; force: boolean }) => void;
+  onError: (error: Error, force: boolean) => void;
+}) {
   const activityData = createActivityData(request);
-  /** @type {PageState} */
-  let state = {
+  let state: PageState = {
     repos: [],
     watched: [],
     activity: { items: [], loading: true },
@@ -69,26 +89,19 @@ export function createRefreshController({ request, getView, reconcileRepositorie
     diagnostics: {},
     syncStatus: noSyncStatus,
   };
-  /** @type {EventDetail|null|undefined} */
-  let detailResult;
-  /** @type {string|undefined} */
-  let detailRevision;
-  /** @type {{view: View, promise: Promise<RefreshOutcome>}|null|undefined} */
-  let active;
-  /** @type {(RefreshJob & PromiseWithResolvers<RefreshOutcome>) | null | undefined} */
-  let queued;
-  /** @param {View} view */
-  const isCurrent = view => viewKey(view) === viewKey(getView());
+  let detailResult: EventDetail | null | undefined;
+  let detailRevision: string | undefined;
+  let active: { view: View; promise: Promise<RefreshOutcome> } | null | undefined;
+  let queued: (RefreshJob & PromiseWithResolvers<RefreshOutcome>) | null | undefined;
+  const isCurrent = (view: View) => viewKey(view) === viewKey(getView());
 
-  /** @param {RefreshJob} job @returns {Promise<RefreshOutcome>} */
-  async function read({ view, force, more }) {
+  async function read({ view, force, more }: RefreshJob): Promise<RefreshOutcome> {
     if (!isCurrent(view)) return { type: 'superseded' };
     let savedFilters;
     try {
       const payload = await request('/api/state');
       if (!isCurrent(view)) return { type: 'superseded' };
-      /** @type {PageState} */
-      const next = { ...readMetadata(payload), activity: state.activity, events: state.events };
+      const next: PageState = { ...readMetadata(payload), activity: state.activity, events: state.events };
       savedFilters = next.savedFilters;
       const metadata = JSON.stringify(payload);
       reconcileRepositories(next.watched);
@@ -127,8 +140,7 @@ export function createRefreshController({ request, getView, reconcileRepositorie
     }
   }
 
-  /** @param {RefreshJob} job */
-  function start(job) {
+  function start(job: RefreshJob) {
     const current = Promise.resolve().then(() => read(job));
     active = { view: job.view, promise: current };
     const finish = () => {
@@ -147,14 +159,12 @@ export function createRefreshController({ request, getView, reconcileRepositorie
       return state;
     },
     capacity: activityData.capacity,
-    /** @param {number} [capacity] */
-    resetActivity(capacity) {
+    resetActivity(capacity?: number) {
       activityData.reset(capacity);
       detailResult = null;
       state = { ...state, activity: { items: [], loading: true }, events: [] };
     },
-    /** @param {string|null} id */
-    prepareDetail(id) {
+    prepareDetail(id: string | null) {
       state = { ...state, detailLoading: !state.events.some(event => event.id === id) };
     },
     load({ force = false, more = false } = {}) {

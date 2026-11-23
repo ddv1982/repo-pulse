@@ -1,10 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { renderMergeEvidence as renderMergeEvidenceHtml, mergeEvidenceBadge as mergeEvidenceBadgeHtml } from '../src/ui/merge-evidence.js';
+import { renderMergeEvidence as renderMergeEvidenceHtml, mergeEvidenceBadge as mergeEvidenceBadgeHtml } from '../src/ui/merge-evidence.ts';
 import {
   renderHistoryButton as renderHistoryButtonHtml,
   renderHistoryProgress as renderHistoryProgressHtml,
-} from '../src/ui/history-import.js';
+} from '../src/ui/history-import.ts';
 import { parse, one, all, text } from './fixtures/dom.js';
 
 const renderMergeEvidence = (...args) => String(renderMergeEvidenceHtml(...args));

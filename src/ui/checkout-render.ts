@@ -1,12 +1,9 @@
-// @ts-check
-
 import { azureLink, emptyHtml, html, joinHtml } from './format.ts';
 
-/** @typedef {import('./checkout.js').CheckoutSnapshot} CheckoutSnapshot */
-/** @typedef {import('../contract.ts').CheckoutDiagnostic} CheckoutDiagnostic */
+export type CheckoutSnapshot = import('./checkout.ts').CheckoutSnapshot;
+export type CheckoutDiagnostic = import('../contract.ts').CheckoutDiagnostic;
 
-/** @type {Record<string, string | undefined>} */
-const statusLabels = {
+const statusLabels: Record<string, string | undefined> = {
   'not-linked': 'No local checkout linked',
   unavailable: 'Checkout unavailable',
   detached: 'Detached HEAD',
@@ -21,27 +18,22 @@ const statusLabels = {
   current: 'Matches last fetched upstream',
   diverged: 'Branches diverged',
 };
-/** @type {Set<string | undefined>} */
-const attention = new Set(['diverged', 'unavailable', 'in-progress', 'different-remote', 'upstream-rewritten']);
-/** @type {Set<string | undefined>} */
-const errors = new Set(['upstream-missing', 'fetch-failed']);
+const attention: Set<string | undefined> = new Set(['diverged', 'unavailable', 'in-progress', 'different-remote', 'upstream-rewritten']);
+const errors: Set<string | undefined> = new Set(['upstream-missing', 'fetch-failed']);
 const exactCheckTime = new Intl.DateTimeFormat([], { dateStyle: 'medium', timeStyle: 'medium' });
 const relativeCheckTime = new Intl.RelativeTimeFormat([], { numeric: 'always' });
-/** States whose ahead and behind counts compare the branch with its upstream. @type {Set<string | undefined>} */
-const comparableStates = new Set(['current', 'behind', 'ahead', 'diverged', 'dirty']);
+/** States whose ahead and behind counts compare the branch with its upstream. */
+const comparableStates: Set<string | undefined> = new Set(['current', 'behind', 'ahead', 'diverged', 'dirty']);
 
-/** @param {string} at */
-export function checkAge(at) {
+export function checkAge(at: string) {
   const minutes = Math.max(0, Math.floor((Date.now() - Date.parse(at)) / 60000));
   if (minutes === 0) return 'Checked just now';
-  /** @type {[number, Intl.RelativeTimeFormatUnit]} */
-  const [count, unit] =
+  const [count, unit]: [number, Intl.RelativeTimeFormatUnit] =
     minutes < 60 ? [minutes, 'minute'] : minutes < 1440 ? [Math.floor(minutes / 60), 'hour'] : [Math.floor(minutes / 1440), 'day'];
   return `Checked ${relativeCheckTime.format(-count, unit)}`;
 }
 
-/** @param {CheckoutSnapshot} checkout @param {boolean} countsKnown */
-function uncheckedStatus(checkout, countsKnown) {
+function uncheckedStatus(checkout: CheckoutSnapshot, countsKnown: boolean) {
   const { ahead, behind, lastBranchCheck } = checkout;
   if (lastBranchCheck && !lastBranchCheck.matchesFetchedTip) return 'Remote changed since last check';
   if (checkout.state === 'behind') return `${behind} behind last fetch`;
@@ -50,8 +42,7 @@ function uncheckedStatus(checkout, countsKnown) {
   return checkout.canCheck && countsKnown ? 'Not checked yet' : '';
 }
 
-/** @param {CheckoutSnapshot | undefined} checkout */
-function branchStatus(checkout) {
+function branchStatus(checkout: CheckoutSnapshot | undefined) {
   if (checkout?.diagnostic?.title) return checkout.diagnostic.title;
   if (checkout?.state === 'upstream-missing' || checkout?.state === 'fetch-failed') return statusLabels[checkout.state];
   const comparable = checkout !== undefined && comparableStates.has(checkout.state);
@@ -66,11 +57,13 @@ function branchStatus(checkout) {
   return 'Up to date';
 }
 
-/** @type {Record<string, string | undefined>} */
-const strategyNames = { rebase: ' via rebase', rebaseMerge: ' via rebase and merge', squash: ' via squash' };
+const strategyNames: Record<string, string | undefined> = {
+  rebase: ' via rebase',
+  rebaseMerge: ' via rebase and merge',
+  squash: ' via squash',
+};
 
-/** @param {string} id @param {CheckoutDiagnostic | undefined} diagnostic @param {unknown} canSwitch */
-function diagnosticMarkup(id, diagnostic, canSwitch) {
+function diagnosticMarkup(id: string, diagnostic: CheckoutDiagnostic | undefined, canSwitch: unknown) {
   if (!diagnostic) return emptyHtml;
   const { message, suggestion, advice, comparison } = diagnostic;
   const adviceLink = advice ? azureLink(advice.url, `PR #${advice.id}`) : emptyHtml;
@@ -126,12 +119,13 @@ const reviewMessages = {
   occupied: 'The old branch is checked out in another worktree.',
 };
 
-/** @param {string} id @param {CheckoutSnapshot} checkout */
-function reviewMarkup(id, checkout) {
+function reviewMarkup(id: string, checkout: CheckoutSnapshot) {
   const { followup, review } = checkout;
   if (!followup) return emptyHtml;
-  /** @param {'review' | 'carry' | 'remove'} name @param {string} label */
-  const action = (name, label) => html`<button class="btn sm" type="button" id="checkout-${name}-${id}"
+  const action = (
+    name: 'review' | 'carry' | 'remove',
+    label: string,
+  ) => html`<button class="btn sm" type="button" id="checkout-${name}-${id}"
     data-action="${name}-checkout-branch" data-id="${id}">${label}</button>`;
   const workspace = followup.workspace
     ? html`<p class="checkout-diagnostic help">Follow-up worktree <code>${followup.workspace}</code></p>`
@@ -155,8 +149,7 @@ function reviewMarkup(id, checkout) {
   </div>`;
 }
 
-/** @param {string} id @param {CheckoutSnapshot | undefined} checkout */
-function updateOptions(id, checkout) {
+function updateOptions(id: string, checkout: CheckoutSnapshot | undefined) {
   if (!checkout?.canPull || !checkout.dirty) return emptyHtml;
   return html`<details class="checkout-update-options help" data-group="checkout-update-${id}">
     <summary id="checkout-update-${id}" aria-label="Update options" aria-describedby="checkout-update-reason-${id}">
@@ -167,14 +160,12 @@ function updateOptions(id, checkout) {
   </details>`;
 }
 
-/** @param {CheckoutSnapshot | undefined} checkout */
-function lastCheckMarkup(checkout) {
+function lastCheckMarkup(checkout: CheckoutSnapshot | undefined) {
   const at = checkout?.lastBranchCheck?.at;
   return at ? html`Last successful Git check <time datetime="${at}">${exactCheckTime.format(new Date(at))}</time>` : emptyHtml;
 }
 
-/** @param {string} id @param {CheckoutSnapshot | undefined} checkout */
-function guidanceMarkup(id, checkout) {
+function guidanceMarkup(id: string, checkout: CheckoutSnapshot | undefined) {
   return joinHtml([
     updateOptions(id, checkout),
     diagnosticMarkup(
@@ -190,16 +181,14 @@ function guidanceMarkup(id, checkout) {
   ]);
 }
 
-/** @param {string | undefined} state @param {string | undefined} label */
-function statusTone(state, label) {
+function statusTone(state: string | undefined, label: string | undefined) {
   if (errors.has(state)) return 'crit';
   if (attention.has(state)) return 'warn';
   if (label === 'Up to date') return 'ok';
   return state === 'behind' ? 'info' : 'neutral';
 }
 
-/** @param {CheckoutSnapshot | undefined} checkout */
-function checkTimeMarkup(checkout) {
+function checkTimeMarkup(checkout: CheckoutSnapshot | undefined) {
   const last = checkout?.lastBranchCheck;
   const showTime =
     last?.matchesFetchedTip &&
@@ -211,12 +200,11 @@ function checkTimeMarkup(checkout) {
     : emptyHtml;
 }
 
-/** A switch needs a named branch and a verified Git directory, and no Git operation in progress. @param {CheckoutSnapshot | undefined} checkout */
-const canSwitch = checkout =>
+/** A switch needs a named branch and a verified Git directory, and no Git operation in progress. */
+const canSwitch = (checkout: CheckoutSnapshot | undefined) =>
   Boolean(checkout?.branch && checkout.head && checkout.identity && checkout.switchIdentity && checkout.state !== 'in-progress');
 
-/** @param {string} id @param {CheckoutSnapshot | undefined} checkout */
-function statusMarkup(id, checkout) {
+function statusMarkup(id: string, checkout: CheckoutSnapshot | undefined) {
   const branch = checkout?.branch || (checkout?.state === 'detached' ? checkout.head?.slice(0, 8) : '');
   const label = branchStatus(checkout);
   const tone = statusTone(checkout?.state, label);
@@ -230,8 +218,7 @@ function statusMarkup(id, checkout) {
     ${canSwitch(checkout) ? html`<button type="button" class="ghost sm" id="checkout-switch-${id}" data-action="open-branch-picker" data-id="${id}">Switch branch…</button>` : emptyHtml}`;
 }
 
-/** @param {string} id @param {CheckoutSnapshot | undefined} checkout @param {string | undefined} part */
-export function renderCheckout(id, checkout, part) {
+export function renderCheckout(id: string, checkout: CheckoutSnapshot | undefined, part: string | undefined) {
   if (part === 'last-check') return lastCheckMarkup(checkout);
   if (part === 'guidance') return guidanceMarkup(id, checkout);
   return statusMarkup(id, checkout);

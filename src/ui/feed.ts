@@ -1,5 +1,3 @@
-// @ts-check
-
 import {
   emptyHtml,
   html,
@@ -13,29 +11,30 @@ import {
   activitySummary,
   buildState,
 } from './format.ts';
-import { syncRepoName } from './health.js';
+import { syncRepoName } from './health.ts';
 import { worstStatus } from '../sync-worst.ts';
-import { emptyActivityMessage, renderSummary } from './activity-summary.js';
-import { icons } from './icons.js';
-import { renderTrail } from './activity-trail.js';
-import { activityHref } from './navigation.js';
-import { renderTypeFilter } from './type-filter.js';
-import { activityScopeQuery } from './activity-data.js';
+import { emptyActivityMessage, renderSummary } from './activity-summary.ts';
+import { icons } from './icons.ts';
+import { renderTrail } from './activity-trail.ts';
+import { activityHref } from './navigation.ts';
+import { renderTypeFilter } from './type-filter.ts';
+import { activityScopeQuery } from './activity-data.ts';
 import { activityFilterLabel, activityRef, prForkSource, prTarget, prVoteChanges } from '../activity-text.ts';
-import { scopeName } from './header.js';
-import { currentActivityFilters, isSavedFilterModified, renderSavedFilters } from './saved-filters.js';
-import { mergeEvidenceBadge } from './merge-evidence.js';
+import { scopeName } from './header.ts';
+import { currentActivityFilters, isSavedFilterModified, renderSavedFilters } from './saved-filters.ts';
+import { mergeEvidenceBadge } from './merge-evidence.ts';
 import { buildActivityTree } from '../activity-tree.ts';
-import { forkText, renderTreeCell, treeLegend } from './activity-tree.js';
-export { renderDetail } from './activity-detail.js';
+import { forkText, renderTreeCell, treeLegend } from './activity-tree.ts';
+export { renderDetail } from './activity-detail.ts';
 
-/** @typedef {import('./refresh.js').PageState} PageState */
-/** @typedef {import('../activity.ts').ActivityItem} ActivityItem */
+export type PageState = import('./refresh.ts').PageState;
+export type ActivityItem = import('../activity.ts').ActivityItem;
 /** `openMenu` is the panel ID of the open toolbar menu, if any. */
-/** @typedef {Pick<import('./navigation.js').NavigationState, 'route' | 'repoIds' | 'search' | 'kind' | 'filtersOpen'> & { openMenu?: string }} FeedView */
+export type FeedView = Pick<import('./navigation.ts').NavigationState, 'route' | 'repoIds' | 'search' | 'kind' | 'filtersOpen'> & {
+  openMenu?: string;
+};
 
-/** @param {FeedView & {savedFilterId: string}} ui @param {PageState} state */
-export function filterControls(ui, state) {
+export function filterControls(ui: FeedView & { savedFilterId: string }, state: PageState) {
   const desktop = globalThis.matchMedia?.('(min-width: 640px)').matches ?? true;
   const active = Number(Boolean(ui.search)) + Number(Boolean(ui.kind));
   const open = desktop || ui.filtersOpen === true;
@@ -55,8 +54,8 @@ export function filterControls(ui, state) {
   </div>`;
 }
 
-/** What the named person did, per kind. A branch or tag event comes from a push. @type {Record<import('../activity.ts').ActivityKind, string>} */
-const actorRoles = {
+/** What the named person did, per kind. A branch or tag event comes from a push. */
+const actorRoles: Record<import('../activity.ts').ActivityKind, string> = {
   pr: 'Created by',
   build: 'Requested by',
   push: 'Pushed by',
@@ -65,8 +64,8 @@ const actorRoles = {
   tag: 'Pushed by',
 };
 
-/** Who and when. An unknown actor has no role to name. @param {ActivityItem} record */
-function renderMeta(record) {
+/** Who and when. An unknown actor has no role to name. */
+function renderMeta(record: ActivityItem) {
   const actor = activityActor(record);
   const shown = Boolean(actor);
   const role = actor === 'Unknown' ? '' : `${actorRoles[record.kind]} `;
@@ -75,9 +74,8 @@ function renderMeta(record) {
 
 /**
  * The event column in tiers: what happened with its evidence chips, then who and when, then where the branch started.
- * @param {ActivityItem} record @param {string} origin
  */
-function renderEvent(record, origin) {
+function renderEvent(record: ActivityItem, origin: string) {
   const pr =
     record.kind === 'pr' && record.data && (record.data.targetRefName || record.data.voteChanges?.length) ? record.data : undefined;
   const votes = pr ? prVoteChanges(pr) : [];
@@ -98,15 +96,14 @@ function renderEvent(record, origin) {
   }</div>`;
 }
 
-/** A reviewer vote's tone; the words carry the meaning, the color repeats it. @param {number} vote */
-const voteTone = vote => (vote > 0 ? 'ok' : vote === -5 ? 'warn' : vote < 0 ? 'crit' : 'neutral');
+/** A reviewer vote's tone; the words carry the meaning, the color repeats it. */
+const voteTone = (vote: number) => (vote > 0 ? 'ok' : vote === -5 ? 'warn' : vote < 0 ? 'crit' : 'neutral');
 
 /**
  * A CI run without a known trigger has nothing to summarise in its row, and a branch a push created or deleted would only
  * repeat its label. The detail page still says both. A branch read from a ref list keeps its caveat.
- * @param {ActivityItem} record
  */
-function rowSummary(record) {
+function rowSummary(record: ActivityItem) {
   const summary = activitySummary(record);
   if (record.kind === 'build' && summary === 'Not supplied') return '';
   return ['branch-created', 'branch-deleted'].includes(record.kind) && ['New remote branch', 'Remote branch deleted'].includes(summary)
@@ -114,16 +111,16 @@ function rowSummary(record) {
     : summary;
 }
 
-/** Whether the title names the ref as a whole word, so `main` is not found inside `main-old`. @param {string} title @param {string} ref */
-const namesRef = (title, ref) => new RegExp(`(^|[\\s,(])${ref.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}($|[\\s,)])`).test(title);
+/** Whether the title names the ref as a whole word, so `main` is not found inside `main-old`. */
+const namesRef = (title: string, ref: string) =>
+  new RegExp(`(^|[\\s,(])${ref.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}($|[\\s,)])`).test(title);
 
 /**
  * A branch row's title without its branch and pusher, which the ref line and the meta line show instead, so every
  * branch row reads the same way. Only a title that ends with the row's single branch loses it; one that names several
  * branches keeps them.
- * @param {ActivityItem} record @param {string} title
  */
-function rowTitle(record, title) {
+function rowTitle(record: ActivityItem, title: string) {
   if (!['push', 'branch-created', 'branch-deleted'].includes(record.kind)) return title;
   const branch = record.branch ? activityRef(record).branch : '';
   if (branch && title === branch) return activityLabel(record);
@@ -138,10 +135,10 @@ function rowTitle(record, title) {
  * The line under a row's title says where it happened: repository, branch and pull request as separate tokens.
  * The hidden words keep the button's accessible name readable after its title. A push, branch or tag title already
  * names its ref, so the line leaves it out; a PR or CI title can contain a branch name by accident, so those keep it.
- * @param {ActivityItem} record @param {string} title the row's shown title
- * @param {string} repoName empty when the row needs no repository name
+ * @param title the row's shown title
+ * @param repoName empty when the row needs no repository name
  */
-function renderRefLine(record, title, repoName) {
+function renderRefLine(record: ActivityItem, title: string, repoName: string) {
   const ref = record.branch ? activityRef(record) : { branch: '' };
   const named = !['pr', 'build'].includes(record.kind) && Boolean(ref.branch) && namesRef(title, ref.branch);
   const { branch, pullRequestId } = named ? { ...ref, branch: '' } : ref;
@@ -159,10 +156,9 @@ function renderRefLine(record, title, repoName) {
 }
 
 /**
- * @param {ActivityItem} record @param {PageState} state @param {import('../activity-tree.ts').TreeRow | undefined} tree
- * @param {boolean} showRepo whether more than one repository is in view, so the row has to say which one it belongs to
+ * @param showRepo whether more than one repository is in view, so the row has to say which one it belongs to
  */
-function row(record, state, tree, showRepo) {
+function row(record: ActivityItem, state: PageState, tree: import('../activity-tree.ts').TreeRow | undefined, showRepo: boolean) {
   const repo = state.repos.find(item => item.id === record.repoId);
   const tone = activityTone(record);
   const failed = record.kind === 'build' && buildState(record).tone === 'crit';
@@ -179,17 +175,25 @@ function row(record, state, tree, showRepo) {
     <div class="rowact">${azureLink(record.url)}${record.imported ? emptyHtml : html`<button class="ghost sm seen-toggle" type="button" id="seen-${record.groupKey}" data-action="ack-item" data-id="${record.id}" data-mark-seen="${record.unseen}" data-event-ids="${ackIds}" aria-pressed="${!record.unseen}" aria-label="Seen: ${fullTitle}">${icons.seenBox}Seen</button>`}</div></li>`;
 }
 
-/** @param {string} title @param {ActivityItem[]} records @param {PageState} state @param {{ open?: boolean, description?: string, tree?: import('../activity-tree.ts').ActivityTree, showRepo: boolean }} options */
-function group(title, records, state, { open = true, description = '', tree, showRepo }) {
+function group(
+  title: string,
+  records: ActivityItem[],
+  state: PageState,
+  {
+    open = true,
+    description = '',
+    tree,
+    showRepo,
+  }: { open?: boolean; description?: string; tree?: import('../activity-tree.ts').ActivityTree; showRepo: boolean },
+) {
   if (!records.length) return emptyHtml;
   return html`<section class="group"><details data-group="${title}" ${open ? html`open` : emptyHtml}><summary class="ghead">${title} <span class="pill u">${records.length}</span><span class="note">${description}</span></summary><ul class="rows${tree ? ' with-tree' : ''}" ${tree ? html`data-tree-lanes="${tree.width}"` : emptyHtml}>${records.map((record, index) => row(record, state, tree?.rows[index], showRepo))}</ul></details></section>`;
 }
 
 /**
  * All activity: both groups carry a branch tree. They share one width so their columns line up.
- * @param {ActivityItem[]} records @param {PageState} state @param {boolean} hasQuery @param {boolean} showRepo
  */
-function historyGroups(records, state, hasQuery, showRepo) {
+function historyGroups(records: ActivityItem[], state: PageState, hasQuery: boolean, showRepo: boolean) {
   const lists = [records.filter(record => !record.imported), records.filter(record => record.imported)];
   const trees = lists.map(list => buildActivityTree(list));
   const width = Math.max(...trees.map(tree => tree.width));
@@ -199,9 +203,8 @@ function historyGroups(records, state, hasQuery, showRepo) {
 
 /**
  * One banner when the shown repositories need the reader's attention. Plain text: #sync-live already announces sync changes.
- * @param {PageState} state @param {import('./health.js').SyncStatus & { repoId: string } | undefined} status
  */
-function statusBanner(state, status) {
+function statusBanner(state: PageState, status: (import('./health.ts').SyncStatus & { repoId: string }) | undefined) {
   if (!status) return emptyHtml;
   const name = syncRepoName(state.repos, status);
   const where = name ? `${name}: ` : '';
@@ -214,8 +217,7 @@ function statusBanner(state, status) {
   return emptyHtml;
 }
 
-/** @param {PageState} state @param {FeedView} ui @param {string[]} repoIds */
-function matchingAction(state, ui, repoIds) {
+function matchingAction(state: PageState, ui: FeedView, repoIds: string[]) {
   const total = state.activity.newUpdates;
   if (!total) return emptyHtml;
   const query = activityScopeQuery({ ...ui, repoIds });
@@ -227,8 +229,7 @@ function matchingAction(state, ui, repoIds) {
   return html`<button class="btn sm" type="button" data-action="ack-matching" data-query="${query.toString()}" data-scope="${scope}">${label} (${total})</button>`;
 }
 
-/** @param {PageState} state @param {FeedView & {savedFilterId: string}} ui */
-export function renderFeed(state, ui) {
+export function renderFeed(state: PageState, ui: FeedView & { savedFilterId: string }) {
   const records = state.activity.items;
   const hasQuery = Boolean(ui.search || ui.kind);
   const shown = state.repos.filter(repo => ui.repoIds === null || ui.repoIds.includes(repo.id));

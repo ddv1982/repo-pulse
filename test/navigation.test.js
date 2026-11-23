@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parseRoute, activityHref, isActivity } from '../src/ui/navigation.js';
+import { parseRoute, activityHref, isActivity } from '../src/ui/navigation.ts';
 
 test('new/all activity routes and legacy bookmarks map to the intended view', () => {
   assert.equal(parseRoute('#activity/new').route, 'catchup');

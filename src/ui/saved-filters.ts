@@ -1,39 +1,40 @@
-// @ts-check
-
 import { required } from './dom.ts';
 import { canonicalActivityFilter } from '../activity-text.ts';
-import { splitActivitySearch } from './activity-search.js';
+import { splitActivitySearch } from './activity-search.ts';
 import { emptyHtml, html } from './format.ts';
 
-/** @typedef {import('../contract.ts').SavedActivityFilter} SavedActivityFilter */
+export type SavedActivityFilter = import('../contract.ts').SavedActivityFilter;
 
-/** @typedef {SavedActivityFilter['filters']} ActivityFilters */
+export type ActivityFilters = SavedActivityFilter['filters'];
 
-/** @param {string[]|null} ids @param {{id: string}[]} watched */
-export function savedRepositoryScope(ids, watched) {
+export function savedRepositoryScope(ids: string[] | null, watched: { id: string }[]) {
   return ids?.filter(id => watched.some(repo => repo.id === id)) ?? null;
 }
 
-/** @param {{search: string, kind: string, repoIds: string[]|null, route: string}} view */
-export function currentActivityFilters({ search, kind, repoIds, route }) {
-  /** @type {ActivityFilters} */
+export function currentActivityFilters({
+  search,
+  kind,
+  repoIds,
+  route,
+}: {
+  search: string;
+  kind: string;
+  repoIds: string[] | null;
+  route: string;
+}): ActivityFilters {
   return { ...splitActivitySearch(search), kind, repoIds, view: route === 'activity' ? 'all' : 'new' };
 }
 
-/** @param {ActivityFilters} saved @param {ActivityFilters} current @param {{id: string}[]} watched */
-export function isSavedFilterModified(saved, current, watched) {
-  /** @param {ActivityFilters} filters */
-  const normalized = ({ search, people, kind, repoIds, view }) => {
+export function isSavedFilterModified(saved: ActivityFilters, current: ActivityFilters, watched: { id: string }[]) {
+  const normalized = ({ search, people, kind, repoIds, view }: ActivityFilters) => {
     const scope = savedRepositoryScope(repoIds, watched);
     return [search.trim(), people.trim(), canonicalActivityFilter(kind), scope === null ? null : [...new Set(scope)].sort(), view];
   };
   return JSON.stringify(normalized(saved)) !== JSON.stringify(normalized(current));
 }
 
-/** @param {SavedActivityFilter[]} filters @param {string} selectedId @param {boolean} modified @param {string} [openMenu] */
-export function renderSavedFilters(filters, selectedId, modified, openMenu = '') {
-  /** @param {string} id */
-  const panel = id => (openMenu === id ? emptyHtml : html`hidden`);
+export function renderSavedFilters(filters: SavedActivityFilter[], selectedId: string, modified: boolean, openMenu: string = '') {
+  const panel = (id: string) => (openMenu === id ? emptyHtml : html`hidden`);
   const selected = filters.find(filter => filter.id === selectedId);
   const title = selected?.name ?? 'Saved filters';
   const label = selected ? `Saved filter: ${title}${modified ? ', modified' : ''}` : title;
@@ -72,21 +73,18 @@ export function renderSavedFilters(filters, selectedId, modified, openMenu = '')
   </div>`;
 }
 
-/** @param {string} action @param {string} label */
-function filterAction(action, label) {
+function filterAction(action: string, label: string) {
   return html`<button class="type-option" role="menuitem" type="button" data-filter-action="${action}" tabindex="-1">${label}</button>`;
 }
 
-/** @param {HTMLDialogElement} dialog */
-export function createFilterNameDialog(dialog) {
+export function createFilterNameDialog(dialog: HTMLDialogElement) {
   const form = required('form', HTMLFormElement, dialog);
   const title = required('#filter-name-title', HTMLElement, dialog);
   const input = required('#filter-name', HTMLInputElement, dialog);
   const scope = required('#filter-name-scope', HTMLElement, dialog);
   const error = required('[role="alert"]', HTMLElement, dialog);
   const submit = required('button[type="submit"]', HTMLButtonElement, dialog);
-  /** @type {((name: string) => Promise<void>) | undefined} */
-  let save;
+  let save: ((name: string) => Promise<void>) | undefined;
   let openerId = '';
   dialog.addEventListener('close', () => {
     save = undefined;
@@ -118,8 +116,7 @@ export function createFilterNameDialog(dialog) {
     get open() {
       return dialog.open;
     },
-    /** @param {string} heading @param {string} name @param {(name: string) => Promise<void>} callback @param {string} [summary] */
-    show(heading, name, callback, summary = '') {
+    show(heading: string, name: string, callback: (name: string) => Promise<void>, summary: string = '') {
       openerId = document.activeElement?.id || '';
       title.textContent = heading;
       scope.hidden = !summary;

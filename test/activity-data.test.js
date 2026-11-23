@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { joinActivitySearch, splitActivitySearch } from '../src/ui/activity-search.js';
-import { createActivityData, activityEvents } from '../src/ui/activity-data.js';
+import { joinActivitySearch, splitActivitySearch } from '../src/ui/activity-search.ts';
+import { createActivityData, activityEvents } from '../src/ui/activity-data.ts';
 
 const ui = { route: 'activity', repoIds: null, kind: '', search: '' };
 const record = index => {

@@ -1,28 +1,23 @@
-// @ts-check
+import { splitActivitySearch } from './activity-search.ts';
 
-import { splitActivitySearch } from './activity-search.js';
-
-/** @typedef {import('../activity.ts').ActivityEvent} ActivityEvent */
-/** @typedef {import('../activity.ts').ActivityItem} ActivityItem */
-/** @typedef {import('../activity.ts').ActivityPage} ActivityPage */
-/** @typedef {import('../api.ts').EventResponse} EventDetail */
-/** @typedef {typeof import('../api.ts').request} Request */
-/** @typedef {{ route: string, repoIds: string[]|null, kind?: string, search?: string }} ActivityView */
+export type ActivityEvent = import('../activity.ts').ActivityEvent;
+export type ActivityItem = import('../activity.ts').ActivityItem;
+export type ActivityPage = import('../activity.ts').ActivityPage;
+export type EventDetail = import('../api.ts').EventResponse;
+export type Request = typeof import('../api.ts').request;
+export type ActivityView = { route: string; repoIds: string[] | null; kind?: string; search?: string };
 
 const PAGE_SIZE = 50;
-/** @param {ActivityView} ui */
-const keyFor = ui =>
+const keyFor = (ui: ActivityView) =>
   JSON.stringify({
     view: ui.route === 'activity' ? 'all' : 'new',
     repoIds: ui.repoIds === null ? null : [...ui.repoIds].sort(),
     kind: ui.kind || '',
     search: ui.search || '',
   });
-/** @param {ActivityItem} item */
-const itemKey = item => item.groupKey;
+const itemKey = (item: ActivityItem) => item.groupKey;
 
-/** @param {ActivityView} ui */
-export function activityScopeQuery(ui) {
+export function activityScopeQuery(ui: ActivityView) {
   const query = new URLSearchParams();
   if (ui.repoIds !== null) query.set('repoIds', ui.repoIds.join(','));
   if (ui.kind) query.set('kind', ui.kind);
@@ -32,8 +27,7 @@ export function activityScopeQuery(ui) {
   return query;
 }
 
-/** @param {ActivityView} ui @param {number} limit @param {string|null} [cursor] @returns {`/api/activity?${string}`} */
-function activityUrl(ui, limit, cursor) {
+function activityUrl(ui: ActivityView, limit: number, cursor?: string | null): `/api/activity?${string}` {
   const query = activityScopeQuery(ui);
   query.set('view', ui.route === 'activity' ? 'all' : 'new');
   query.set('limit', String(limit));
@@ -43,20 +37,16 @@ function activityUrl(ui, limit, cursor) {
 
 /**
  * Local database paging. The loaded history window survives routine polling.
- * @param {Request} request
  */
-export function createActivityData(request) {
-  /** @type {string|undefined} */
-  let key;
-  /** @type {string|undefined} */
-  let revision;
-  /** @type {ActivityPage|undefined} */
-  let result;
+export function createActivityData(request: Request) {
+  let key: string | undefined;
+  let revision: string | undefined;
+  let result: ActivityPage | undefined;
   let capacity = PAGE_SIZE,
     generation = 0;
 
-  /** A different view drops the loaded window. @param {string} nextKey */
-  function useKey(nextKey) {
+  /** A different view drops the loaded window. */
+  function useKey(nextKey: string) {
     if (key !== undefined && key !== nextKey) {
       result = undefined;
       capacity = PAGE_SIZE;
@@ -64,16 +54,22 @@ export function createActivityData(request) {
     key = nextKey;
   }
 
-  /** @param {ActivityView} ui @param {{more?: boolean, force?: boolean, activityRevision?: string, restart?: boolean}} [options] */
-  async function read(ui, { more = false, force = false, activityRevision, restart } = {}) {
+  async function read(
+    ui: ActivityView,
+    {
+      more = false,
+      force = false,
+      activityRevision,
+      restart,
+    }: { more?: boolean; force?: boolean; activityRevision?: string; restart?: boolean } = {},
+  ) {
     ui = { ...ui };
     useKey(keyFor(ui));
     const current = ++generation;
     if (ui.repoIds?.length === 0) return (result = { items: [], nextCursor: null, total: 0, newItems: 0, newUpdates: 0 });
     const sameRevision = !restart && revision === activityRevision;
     if (!more && !force && result && activityRevision !== undefined && sameRevision) return result;
-    /** @param {number} limit @param {string|null} cursor */
-    async function fetchPage(limit, cursor) {
+    async function fetchPage(limit: number, cursor: string | null) {
       try {
         const value = await request(activityUrl(ui, limit, cursor));
         if (current !== generation) return null;
@@ -94,12 +90,10 @@ export function createActivityData(request) {
       return result;
     }
     // Re-read the current window after sync/ack changes instead of snapping back to page one.
-    /** @type {Map<string, ActivityItem>} */
-    const items = new Map();
+    const items: Map<string, ActivityItem> = new Map();
     const cursors = new Set();
     const requested = more && result?.nextCursor ? capacity + PAGE_SIZE : capacity;
-    /** @type {string|null} */
-    let cursor = null;
+    let cursor: string | null = null;
     let first, last;
     do {
       const page = await fetchPage(Math.min(200, requested - items.size), cursor);
@@ -126,8 +120,7 @@ export function createActivityData(request) {
       capacity = Number.isSafeInteger(size) && size >= PAGE_SIZE ? size : PAGE_SIZE;
     },
     capacity: () => capacity,
-    /** @param {ActivityView} ui @param {Parameters<typeof read>[1]} options */
-    async read(ui, options) {
+    async read(ui: ActivityView, options: Parameters<typeof read>[1]) {
       try {
         return await read(ui, options);
       } catch (error) {
@@ -135,15 +128,13 @@ export function createActivityData(request) {
         return read(ui, { ...options, force: true, restart: true });
       }
     },
-    /** @param {string} id */
-    async event(id) {
+    async event(id: string) {
       return await request(`/api/events/${encodeURIComponent(id)}`);
     },
   };
 }
 
-/** @param {Pick<ActivityPage, 'items'>|undefined} activity @param {EventDetail} [detail] */
-export function activityEvents(activity, detail) {
+export function activityEvents(activity: Pick<ActivityPage, 'items'> | undefined, detail?: EventDetail) {
   const values = new Map();
   for (const item of activity?.items || []) for (const event of item.events) values.set(event.id, event);
   for (const event of detail?.events || []) values.set(event.id, event);

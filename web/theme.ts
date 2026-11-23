@@ -1,7 +1,6 @@
-// @ts-check
-
 // Apply before first paint; System follows the operating system even when it changes while open.
-/** The modules read this through window (see src/ui/icons.js). @typedef {{ get: () => string, set: (value: string) => void, apply: () => void }} RepoPulseTheme */
+/** The modules read this through window (see src/ui/icons.ts). */
+type RepoPulseTheme = { get: () => string; set: (value: string) => void; apply: () => void };
 (() => {
   const key = 'repo-pulse-theme';
   const query = matchMedia('(prefers-color-scheme: dark)');
@@ -16,7 +15,7 @@
       button.setAttribute('aria-pressed', String(button.getAttribute('data-theme') === choice));
     });
   }
-  /** @type {Window & { repoPulseTheme?: RepoPulseTheme }} */ (window).repoPulseTheme = {
+  (window as Window & { repoPulseTheme?: RepoPulseTheme }).repoPulseTheme = {
     get: () => choice,
     set(value) {
       if (!['system', 'light', 'dark'].includes(value)) return;

@@ -1,14 +1,13 @@
-import { renderHeader, scopeLabel, scopeName } from './header.js';
-import { syncAnnouncement, syncRepoName } from './health.js';
-import { renderFeed, renderDetail } from './feed.js';
-import { renderRepositories } from './repositories.js';
-import { renderSettings } from './settings.js';
-import { eventIds } from './seen-actions.js';
+import { renderHeader, scopeLabel, scopeName } from './header.ts';
+import { syncAnnouncement, syncRepoName } from './health.ts';
+import { renderFeed, renderDetail } from './feed.ts';
+import { renderRepositories } from './repositories.ts';
+import { renderSettings } from './settings.ts';
+import { eventIds } from './seen-actions.ts';
 import { required, setHtml } from './dom.ts';
 import { emptyHtml, html } from './format.ts';
 
-/** @param {string} id */
-export function replacementFocus(id) {
+export function replacementFocus(id: string) {
   const current = document.getElementById(id);
   if (current instanceof HTMLButtonElement && current.disabled && current.matches('[data-action="open-history-import"]'))
     return document.getElementById(`history-${current.dataset.id}`);
@@ -26,9 +25,8 @@ export function replacementFocus(id) {
 /**
  * Focus the control that had focus, or a neighbour of a Seen toggle whose row left. A neighbour can sit off screen,
  * so focusing it may scroll; the same control stays where it was.
- * @param {string} id @param {string[]} neighbours
  */
-function restoreFocus(id, neighbours) {
+function restoreFocus(id: string, neighbours: string[]) {
   const same = replacementFocus(id);
   const neighbour = same ? null : neighbours.map(other => document.getElementById(other)).find(element => element instanceof HTMLElement);
   const replacement = same ?? neighbour ?? null;
@@ -39,46 +37,68 @@ function restoreFocus(id, neighbours) {
 /**
  * A row's Seen toggle can leave with its row (New updates). Its neighbours, nearest first and following rows before
  * earlier ones, take focus in that case.
- * @param {HTMLElement} element
  */
-function seenToggleNeighbours(element) {
+function seenToggleNeighbours(element: HTMLElement) {
   if (!element.matches('.seen-toggle')) return [];
   const toggles = [...(element.closest('ul.rows')?.querySelectorAll('.seen-toggle') ?? [])];
   const index = toggles.indexOf(element);
   return [...toggles.slice(index + 1), ...toggles.slice(0, index).reverse()].map(toggle => toggle.id);
 }
 
-/** @param {Element} element */
-function focusedControlId(element) {
+function focusedControlId(element: Element) {
   return element.id || element.closest('.saved-filter-menu, .saved-filter-actions')?.querySelector('[aria-expanded]')?.id || '';
 }
 
-/** @typedef {import('./refresh.js').PageState} PageState */
-/** @typedef {import('./navigation.js').ResultsContext} ResultsContext */
+export type PageState = import('./refresh.ts').PageState;
+export type ResultsContext = import('./navigation.ts').ResultsContext;
 /** web.js owns this object: navigation state plus the connection panel state and the refresh flag the header reads. */
-/** @typedef {import('./navigation.js').NavigationState & { connection: import('./connection.js').ConnectionState, refreshing?: boolean, openMenu?: string }} BrowserUi */
-/**
- * @typedef {{ restored: ResultsContext | null, returnRoute: string, matchingIds?: string[], commits: import('./activity-detail.js').LoadedView | undefined,
- *   checkouts: Record<string, import('./checkout.js').CheckoutSnapshot>, checkoutFocus?: string|null, isCurrent: () => boolean }} RenderOptions
- */
-/** web/theme.js publishes this before the modules load. @typedef {Window & { repoPulseTheme?: { apply: () => void } }} ThemedWindow */
+export type BrowserUi = import('./navigation.ts').NavigationState & {
+  connection: import('./connection.ts').ConnectionState;
+  refreshing?: boolean;
+  openMenu?: string;
+};
+export type RenderOptions = {
+  restored: ResultsContext | null;
+  returnRoute: string;
+  matchingIds?: string[];
+  commits: import('./activity-detail.ts').LoadedView | undefined;
+  checkouts: Record<string, import('./checkout.ts').CheckoutSnapshot>;
+  checkoutFocus?: string | null;
+  isCurrent: () => boolean;
+};
+/** web/theme.js publishes this before the modules load. */
+export type ThemedWindow = Window & { repoPulseTheme?: { apply: () => void } };
 
 /**
  * `syncLive` sits outside the header so re-rendering the header never replaces it.
- * @param {{ page: HTMLElement, header: HTMLElement, demo: HTMLElement, syncLive: HTMLElement, picker: { mount: (element: HTMLElement | null) => void },
- *   toolbarMenus: Record<string, { mount: (element: HTMLElement | null) => void }> }} options
  */
-export function createBrowserView({ page, header, demo, syncLive, picker, toolbarMenus }) {
+export function createBrowserView({
+  page,
+  header,
+  demo,
+  syncLive,
+  picker,
+  toolbarMenus,
+}: {
+  page: HTMLElement;
+  header: HTMLElement;
+  demo: HTMLElement;
+  syncLive: HTMLElement;
+  picker: { mount: (element: HTMLElement | null) => void };
+  toolbarMenus: Record<string, { mount: (element: HTMLElement | null) => void }>;
+}) {
   const groupElements = () => [...page.querySelectorAll('details[data-group]')].filter(element => element instanceof HTMLDetailsElement);
 
-  /** @returns {[string, boolean][]} */
-  function captureGroups() {
+  function captureGroups(): [string, boolean][] {
     // The selector guarantees data-group, so the fallback never applies.
     return groupElements().map(element => [element.dataset.group ?? '', element.open]);
   }
 
-  /** @param {PageState} state @param {BrowserUi} ui @param {RenderOptions} options */
-  function renderPage(state, ui, { restored, returnRoute, matchingIds, commits, checkouts, checkoutFocus, isCurrent }) {
+  function renderPage(
+    state: PageState,
+    ui: BrowserUi,
+    { restored, returnRoute, matchingIds, commits, checkouts, checkoutFocus, isCurrent }: RenderOptions,
+  ) {
     const groups = restored?.groups || captureGroups();
     const focused = document.activeElement;
     const focusId = focused && page.contains(focused) ? focusedControlId(focused) : '';
@@ -118,7 +138,7 @@ export function createBrowserView({ page, header, demo, syncLive, picker, toolba
     // needs a replacement.
     if (focusId && (document.activeElement !== focused || !focused?.checkVisibility())) restoreFocus(focusId, neighbours);
     // web/theme.js defines repoPulseTheme on window before the modules load; the optional call covers its absence.
-    /** @type {ThemedWindow} */ (window).repoPulseTheme?.apply();
+    (window as ThemedWindow).repoPulseTheme?.apply();
     if (checkoutFocus) {
       requestAnimationFrame(() => {
         if (!isCurrent()) return;
@@ -140,8 +160,7 @@ export function createBrowserView({ page, header, demo, syncLive, picker, toolba
     }
   }
 
-  /** @param {boolean} force @param {boolean} interacting @returns {'full' | null} */
-  function refreshTarget(force, interacting) {
+  function refreshTarget(force: boolean, interacting: boolean): 'full' | null {
     if (force) return 'full';
     // A focused form control holds a choice the markup may not carry yet, such as a ticked commit, unless its state lives
     // in ui (search, repository scope) or the settings it renders from.
@@ -160,8 +179,7 @@ export function createBrowserView({ page, header, demo, syncLive, picker, toolba
     captureGroups,
     refreshTarget,
     renderPage,
-    /** @param {PageState} state @param {BrowserUi} ui @param {RenderOptions} options */
-    render(state, ui, options) {
+    render(state: PageState, ui: BrowserUi, options: RenderOptions) {
       const menu = header.querySelector('.header-overflow');
       const menuOpen = menu instanceof HTMLDetailsElement && menu.open;
       setHtml(header, renderHeader(state, ui));
@@ -170,7 +188,7 @@ export function createBrowserView({ page, header, demo, syncLive, picker, toolba
       if (syncLive.textContent !== sentence) syncLive.textContent = sentence;
       if (menuOpen) required('.header-overflow', HTMLDetailsElement, header).open = true;
       // As in renderPage: theme.js runs first, and the optional call covers its absence.
-      /** @type {ThemedWindow} */ (window).repoPulseTheme?.apply();
+      (window as ThemedWindow).repoPulseTheme?.apply();
       renderPage(state, ui, options);
       setHtml(
         demo,
@@ -179,8 +197,7 @@ export function createBrowserView({ page, header, demo, syncLive, picker, toolba
           : emptyHtml,
       );
     },
-    /** @param {PageState} state @param {BrowserUi} ui */
-    updateScopeLabel(state, ui) {
+    updateScopeLabel(state: PageState, ui: BrowserUi) {
       const toggle = required('#repo-toggle', HTMLElement, header);
       setHtml(toggle, scopeLabel(state, ui));
       toggle.setAttribute('aria-label', scopeName(state, ui));

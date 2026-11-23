@@ -1,58 +1,54 @@
 import { emptyHtml, html } from './format.ts';
 import { required, setHtml } from './dom.ts';
 
-/** @typedef {import('../contract.ts').FoldersResponse} FoldersResponse */
-/** @typedef {import('../contract.ts').Repository} Repository */
-/** @typedef {import('../contract.ts').DiscoveredRemote} DiscoveredRemote */
-/** A subfolder row, or the row that leads up to the parent folder. @typedef {FoldersResponse['folders'][number] & { up?: boolean }} FolderOption */
-/** One remote of a local checkout: a checkout with several remotes gets one row per remote. @typedef {{ localPath: string, remote: DiscoveredRemote, multiple: boolean }} CheckoutItem */
-/** Whether the listed checkouts span several organizations or projects, so rows must name them. @typedef {{ organizations: boolean, projects: boolean }} Mixed */
-/**
- * @typedef {object} PickerHost
- * @property {typeof import('../api.ts').request} request
- * @property {() => Repository[]} getRepos The watched repositories; their checkouts are shown as already watched.
- * @property {(count: number) => unknown} onAdded Called after at least one repository was added.
- */
+export type FoldersResponse = import('../contract.ts').FoldersResponse;
+export type Repository = import('../contract.ts').Repository;
+export type DiscoveredRemote = import('../contract.ts').DiscoveredRemote;
+/** A subfolder row, or the row that leads up to the parent folder. */
+export type FolderOption = FoldersResponse['folders'][number] & { up?: boolean };
+/** One remote of a local checkout: a checkout with several remotes gets one row per remote. */
+export type CheckoutItem = { localPath: string; remote: DiscoveredRemote; multiple: boolean };
+/** Whether the listed checkouts span several organizations or projects, so rows must name them. */
+export type Mixed = { organizations: boolean; projects: boolean };
+export interface PickerHost {
+  request: typeof import('../api.ts').request;
+  /** The watched repositories; their checkouts are shown as already watched. */
+  getRepos: () => Repository[];
+  /** Called after at least one repository was added. */
+  onAdded: (count: number) => unknown;
+}
 
 const KEY = 'repo-pulse-picker-folder';
-/** @param {CheckoutItem} item */
-const keyOf = item => JSON.stringify([item.localPath, item.remote.name]);
-/** @param {unknown} value */
-const lower = value => String(value || '').toLowerCase();
-/** @param {string} [path] */
-const homePrefix = path => String(path || '').match(/^(\/home\/[^/]+|\/Users\/[^/]+)(?=\/|$)|^([A-Za-z]:\\Users\\[^\\]+)(?=\\|$)/)?.[0];
+const keyOf = (item: CheckoutItem) => JSON.stringify([item.localPath, item.remote.name]);
+const lower = (value: unknown) => String(value || '').toLowerCase();
+const homePrefix = (path?: string) =>
+  String(path || '').match(/^(\/home\/[^/]+|\/Users\/[^/]+)(?=\/|$)|^([A-Za-z]:\\Users\\[^\\]+)(?=\\|$)/)?.[0];
 
-/** @param {string} path @param {string} [root] */
-export function displayLocalPath(path, root) {
+export function displayLocalPath(path: string, root?: string) {
   const value = String(path || '');
   const home = homePrefix(value);
   if (home) return `~${value.slice(home.length)}`;
   if (root && (value.startsWith(`${root}/`) || value.startsWith(`${root}\\`))) return `.${value.slice(root.length)}`;
   return value;
 }
-/** @param {string} text @param {string} query */
-function highlight(text, query) {
+function highlight(text: string, query: string) {
   const index = lower(text).indexOf(lower(query));
   return !query || index < 0
     ? html`${text}`
     : html`${text.slice(0, index)}<mark>${text.slice(index, index + query.length)}</mark>${text.slice(index + query.length)}`;
 }
 
-/** @param {unknown} cause */
-const messageOf = cause => (cause instanceof Error ? cause.message : String(cause));
+const messageOf = (cause: unknown) => (cause instanceof Error ? cause.message : String(cause));
 
-/** Self-contained local picker: no Azure reads until the explicit commit action. @param {PickerHost} callbacks */
-export function createRepositoryPicker({ request, getRepos, onAdded }) {
-  /** @type {HTMLElement | undefined} */
-  let host;
-  /** @type {HTMLElement | undefined} */
-  let boundHost;
-  /** @type {FoldersResponse | undefined} The folder whose checkouts are listed, or the one being browsed. */
-  let data;
-  /** @type {FoldersResponse | undefined} The listed folder before browsing started, restored on Cancel. */
-  let beforeBrowse;
-  /** @type {'checkouts' | 'folders'} */
-  let mode = 'checkouts';
+/** Self-contained local picker: no Azure reads until the explicit commit action. */
+export function createRepositoryPicker({ request, getRepos, onAdded }: PickerHost) {
+  let host: HTMLElement | undefined;
+  let boundHost: HTMLElement | undefined;
+  /** The folder whose checkouts are listed, or the one being browsed. */
+  let data: FoldersResponse | undefined;
+  /** The listed folder before browsing started, restored on Cancel. */
+  let beforeBrowse: FoldersResponse | undefined;
+  let mode: 'checkouts' | 'folders' = 'checkouts';
   let query = '',
     open = false,
     active = 0;
@@ -61,22 +57,18 @@ export function createRepositoryPicker({ request, getRepos, onAdded }) {
     error = '',
     message = '',
     generation = 0;
-  /** @type {string | undefined} */
-  let remembered;
-  /** @type {Map<string, CheckoutItem>} */
-  const selected = new Map();
+  let remembered: string | undefined;
+  const selected: Map<string, CheckoutItem> = new Map();
   try {
     remembered = localStorage.getItem(KEY) || undefined;
   } catch {
     /* Optional browser preference. */
   }
-  /** @returns {CheckoutItem[]} */
-  const items = () =>
+  const items = (): CheckoutItem[] =>
     (data?.repositories || []).flatMap(repo =>
       repo.remotes.map(remote => ({ localPath: repo.localPath, remote, multiple: repo.remotes.length > 1 })),
     );
-  /** @param {CheckoutItem} item */
-  const watched = item =>
+  const watched = (item: CheckoutItem) =>
     getRepos().some(
       repo =>
         repo.localPath &&
@@ -84,8 +76,7 @@ export function createRepositoryPicker({ request, getRepos, onAdded }) {
         lower(repo.project) === lower(item.remote.project) &&
         lower(repo.name) === lower(item.remote.repoName),
     );
-  /** @param {Event} event */
-  function closeOutside(event) {
+  function closeOutside(event: Event) {
     const target = event.target;
     if (!open || adding || !host?.isConnected || !(target instanceof Node) || !target.isConnected || host.contains(target)) return;
     open = false;
@@ -94,12 +85,10 @@ export function createRepositoryPicker({ request, getRepos, onAdded }) {
   // One listener per picker instance, not one per mount/re-render.
   document.addEventListener('pointerdown', closeOutside);
   document.addEventListener('focusin', closeOutside);
-  /** @returns {FolderOption[] | CheckoutItem[]} */
-  function options() {
+  function options(): FolderOption[] | CheckoutItem[] {
     return mode === 'folders' ? folderOptions() : checkoutOptions();
   }
-  /** @returns {FolderOption[]} */
-  function folderOptions() {
+  function folderOptions(): FolderOption[] {
     return [
       ...(data?.parent ? [{ name: 'Up one folder', path: data.parent, up: true }] : []),
       ...(data?.folders || []).filter(folder => lower(folder.name).includes(lower(query))),
@@ -121,8 +110,7 @@ export function createRepositoryPicker({ request, getRepos, onAdded }) {
       /* Picking still works without storage. */
     }
   }
-  /** @param {string} [path] */
-  async function readFolder(path) {
+  async function readFolder(path?: string) {
     const current = ++generation;
     loading = true;
     error = '';
@@ -160,12 +148,10 @@ export function createRepositoryPicker({ request, getRepos, onAdded }) {
         html`${index > 0 && !/^(?:\/|[A-Za-z]:[\\/])$/.test(crumbs[index - 1].path) ? html`<span aria-hidden="true">/</span>` : emptyHtml}${index === crumbs.length - 1 ? html`<span aria-current="location" title="${crumb.path}">${crumb.name}</span>` : html`<button class="ghost sm" type="button" data-picker="navigate" data-path="${crumb.path}" title="${crumb.path}">${crumb.name}</button>`}`,
     )}`;
   }
-  /** @param {FolderOption} item @param {number} index */
-  function folderOption(item, index) {
+  function folderOption(item: FolderOption, index: number) {
     return html`<li id="checkout-option-${index}" role="option" aria-selected="false" data-picker-option="${index}" class="picker-option ${index === active ? 'active' : ''}"><span aria-hidden="true">${item.up ? '↑' : '▸'}</span><span><b>${highlight(item.name, query)}</b><small title="${item.path}">${displayLocalPath(item.path, data?.path)}</small></span>${data?.repositories.some(repo => repo.localPath === item.path) ? html`<span class="chip">Git</span>` : emptyHtml}</li>`;
   }
-  /** @param {CheckoutItem} item @param {number} index @param {Mixed} mixed */
-  function checkoutOption(item, index, mixed) {
+  function checkoutOption(item: CheckoutItem, index: number, mixed: Mixed) {
     const disabled = watched(item),
       checked = selected.has(keyOf(item));
     const context = [
@@ -176,8 +162,8 @@ export function createRepositoryPicker({ request, getRepos, onAdded }) {
       .join(' · ');
     return html`<li id="checkout-option-${index}" role="option" aria-selected="${checked}" aria-disabled="${disabled || adding}" data-picker-option="${index}" title="${`${item.localPath} · ${item.remote.project} · ${item.remote.organization}`}" class="picker-option ${index === active ? 'active' : ''}"><span class="picker-check" aria-hidden="true">${disabled || checked ? '☑' : '☐'}</span><span><b>${highlight(item.remote.repoName, query)}</b><small title="${item.localPath}">${highlight(displayLocalPath(item.localPath, data?.path), query)}</small>${context ? html`<small>${context}</small>` : emptyHtml}</span><span class="picker-badges">${item.multiple ? html`<span class="chip">${item.remote.name}</span>` : emptyHtml}${disabled ? html`<span class="chip">Watched</span>` : emptyHtml}</span></li>`;
   }
-  /** @param {FolderOption[] | CheckoutItem[]} list The rows options() returned for the current mode. */
-  function optionsMarkup(list) {
+  /** @param list The rows options() returned for the current mode. */
+  function optionsMarkup(list: FolderOption[] | CheckoutItem[]) {
     if (loading) return html`<li class="picker-empty" role="presentation">Reading local folders…</li>`;
     if (!list.length) {
       const empty =
@@ -216,8 +202,7 @@ export function createRepositoryPicker({ request, getRepos, onAdded }) {
       <p class="help" role="status" aria-live="polite">${message || (!loading && open ? `${list.length} matches. ${selected.size} selected.` : '')}</p>`,
     );
   }
-  /** @param {number} index */
-  async function choose(index) {
+  async function choose(index: number) {
     if (loading || adding) return;
     if (mode === 'folders') {
       const folder = folderOptions()[index];
@@ -251,8 +236,7 @@ export function createRepositoryPicker({ request, getRepos, onAdded }) {
     message = '';
     render();
     let added = 0;
-    /** @type {string[]} */
-    const failures = [];
+    const failures: string[] = [];
     for (const [key, item] of [...selected]) {
       try {
         await request('/api/repos', { method: 'POST', body: { path: item.localPath, remote: item.remote.name } });
@@ -281,8 +265,8 @@ export function createRepositoryPicker({ request, getRepos, onAdded }) {
     error = '';
     render();
   }
-  /** The buttons' data-picker actions. @type {Record<string, (button: HTMLButtonElement) => unknown>} */
-  const actions = {
+  /** The buttons' data-picker actions. */
+  const actions: Record<string, (button: HTMLButtonElement) => unknown> = {
     toggle() {
       open = !open;
       render();
@@ -316,8 +300,7 @@ export function createRepositoryPicker({ request, getRepos, onAdded }) {
   };
   return {
     active: () => adding || open,
-    /** @param {HTMLElement | null} element */
-    mount(element) {
+    mount(element: HTMLElement | null) {
       host = element ?? undefined;
       if (!host) return;
       render();

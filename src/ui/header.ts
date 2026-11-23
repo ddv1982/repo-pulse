@@ -1,43 +1,39 @@
-// @ts-check
-
 import { emptyHtml, html } from './format.ts';
-import { syncPill, syncRepoName } from './health.js';
-import { icons, themeSwitch } from './icons.js';
-import { activityHref, isActivity } from './navigation.js';
+import { syncPill, syncRepoName } from './health.ts';
+import { icons, themeSwitch } from './icons.ts';
+import { activityHref, isActivity } from './navigation.ts';
 
-/** @typedef {Pick<import('./refresh.js').PageState, 'repos'>} ScopeState */
-/** @typedef {ScopeState & Pick<import('./refresh.js').PageState, 'settings' | 'syncStatus'>} HeaderState */
-/** @typedef {Pick<import('./navigation.js').NavigationState, 'repoIds'>} ScopeView */
-/** web.js sets `refreshing` while a refresh runs; `openMenu` is `repo-panel` while the scope panel is open. @typedef {ScopeView & Pick<import('./navigation.js').NavigationState, 'route' | 'activityRoute'> & { refreshing?: boolean, openMenu?: string }} HeaderView */
+export type ScopeState = Pick<import('./refresh.ts').PageState, 'repos'>;
+export type HeaderState = ScopeState & Pick<import('./refresh.ts').PageState, 'settings' | 'syncStatus'>;
+export type ScopeView = Pick<import('./navigation.ts').NavigationState, 'repoIds'>;
+/** web.js sets `refreshing` while a refresh runs; `openMenu` is `repo-panel` while the scope panel is open. */
+export type HeaderView = ScopeView &
+  Pick<import('./navigation.ts').NavigationState, 'route' | 'activityRoute'> & { refreshing?: boolean; openMenu?: string };
 
-/** @param {ScopeState} state @param {ScopeView} ui */
-function selectedRepos(state, ui) {
+function selectedRepos(state: ScopeState, ui: ScopeView) {
   return state.repos.filter(repo => ui.repoIds === null || ui.repoIds.includes(repo.id));
 }
 
-/** @param {ScopeState} state @param {ScopeView} ui */
-export function scopeName(state, ui) {
+export function scopeName(state: ScopeState, ui: ScopeView) {
   const count = ui.repoIds === null ? state.repos.length : selectedRepos(state, ui).length;
   return `${ui.repoIds === null && count > 1 ? 'All ' : ''}${count} repositor${count === 1 ? 'y' : 'ies'}${ui.repoIds === null ? '' : ' shown'}`;
 }
 
-/** @param {ScopeState} state @param {ScopeView} ui */
-export function scopeLabel(state, ui) {
+export function scopeLabel(state: ScopeState, ui: ScopeView) {
   const selected = selectedRepos(state, ui);
   return html`<span class="scope-label-long">${scopeName(state, ui)}</span><span class="scope-label-short" aria-hidden="true">${selected.length} repo${selected.length === 1 ? '' : 's'}</span> ▾`;
 }
 
-/** @param {HeaderState} state @param {HeaderView} ui */
-export function renderHeader(state, ui) {
+export function renderHeader(state: HeaderState, ui: HeaderView) {
   const automatic = state.settings.refreshEnabled !== false;
   const pill = syncPill(state.syncStatus.overall, syncRepoName(state.repos, state.syncStatus.overall));
   const switchInput = (
-    /** @type {'desktop' | 'mobile'} */ suffix,
+    suffix: 'desktop' | 'mobile',
   ) => html`<input class="setting-switch" type="checkbox" role="switch" id="header-auto-${suffix}" data-auto-toggle
     aria-label="Automatic checks" ${automatic ? html`checked` : emptyHtml}>`;
   const refreshTitle = 'Refresh activity across selected repositories.';
   const refresh = (
-    /** @type {'desktop' | 'mobile'} */ suffix,
+    suffix: 'desktop' | 'mobile',
   ) => html`<button type="button" class="${suffix === 'mobile' ? 'ghost mobile-refresh' : 'monitor-refresh'}"
     id="header-refresh-${suffix}" data-action="refresh"
     aria-label="Refresh activity" aria-busy="${Boolean(ui.refreshing)}" aria-disabled="${Boolean(ui.refreshing)}"

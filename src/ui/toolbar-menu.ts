@@ -1,23 +1,30 @@
-// @ts-check
-
 import { required } from './dom.ts';
 
 /**
  * The open menu is kept in `state.openMenu` (its panel ID), so a render draws it open and incoming activity can render
  * while a person is choosing.
- * @param {{ toggleId: string, panelId: string, itemSelector: string, state: { openMenu?: string }, onSelect: (item: HTMLElement) => void }} config
  */
-export function createToolbarMenu({ toggleId, panelId, itemSelector, state, onSelect }) {
-  /** @type {HTMLElement | null | undefined} */
-  let root;
+export function createToolbarMenu({
+  toggleId,
+  panelId,
+  itemSelector,
+  state,
+  onSelect,
+}: {
+  toggleId: string;
+  panelId: string;
+  itemSelector: string;
+  state: { openMenu?: string };
+  onSelect: (item: HTMLElement) => void;
+}) {
+  let root: HTMLElement | null | undefined;
   let pointerDown = false;
   function menu() {
     const panel = root?.querySelector(`#${panelId}`);
     if (!root || !(panel instanceof HTMLElement)) return null;
     return { root, panel, toggle: required(`#${toggleId}`, HTMLElement, root) };
   }
-  /** @param {HTMLElement} host */
-  const options = host => [...host.querySelectorAll(itemSelector)].filter(option => option instanceof HTMLElement);
+  const options = (host: HTMLElement) => [...host.querySelectorAll(itemSelector)].filter(option => option instanceof HTMLElement);
   function close(restore = false) {
     const current = menu();
     if (state.openMenu === panelId) state.openMenu = '';
@@ -26,8 +33,7 @@ export function createToolbarMenu({ toggleId, panelId, itemSelector, state, onSe
     current.toggle.setAttribute('aria-expanded', 'false');
     if (restore) current.toggle.focus({ preventScroll: true });
   }
-  /** @param {HTMLElement} panel @param {HTMLElement | undefined} option */
-  function focusOption(panel, option) {
+  function focusOption(panel: HTMLElement, option: HTMLElement | undefined) {
     if (!option) return;
     option.focus({ preventScroll: true });
     const bounds = panel.getBoundingClientRect(),
@@ -50,8 +56,7 @@ export function createToolbarMenu({ toggleId, panelId, itemSelector, state, onSe
     const selected = current.root.querySelector('[aria-selected="true"]');
     focusOption(current.panel, selected instanceof HTMLElement ? selected : options(current.root)[0]);
   }
-  /** @param {Event} event */
-  const outside = event => {
+  const outside = (event: Event) => {
     const target = event.target;
     if (target instanceof Node && target.isConnected && root?.isConnected && !root.contains(target)) close();
   };
@@ -75,8 +80,7 @@ export function createToolbarMenu({ toggleId, panelId, itemSelector, state, onSe
     get expanded() {
       return menu()?.panel.hidden === false;
     },
-    /** @param {HTMLElement | null} element */
-    mount(element) {
+    mount(element: HTMLElement | null) {
       root = element;
       // A menu that left the page, such as on another route, is not open when it comes back.
       if (!root && state.openMenu === panelId) state.openMenu = '';

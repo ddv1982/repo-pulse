@@ -1,18 +1,36 @@
-import { joinActivitySearch } from './activity-search.js';
+import { joinActivitySearch } from './activity-search.ts';
 
-/**
- * @typedef {{ route: string, eventId: string|null, repoIds: string[]|null, search: string, kind: string,
- *   filtersOpen: boolean|undefined, activityRoute: string, savedFilterId: string }} NavigationState
- * @typedef {{ route: string, search: string, kind: string, repoIds: string[]|null, groups: [string, boolean][],
- *   filtersOpen: boolean|undefined, savedFilterId: string, scrollY: number, eventId: string|null, matchingIds?: string[], activityCapacity: number }} ResultsContext
- * @typedef {{ id: string, disabled?: boolean }} WatchedRepo
- */
+export type NavigationState = {
+  route: string;
+  eventId: string | null;
+  repoIds: string[] | null;
+  search: string;
+  kind: string;
+  filtersOpen: boolean | undefined;
+  activityRoute: string;
+  savedFilterId: string;
+};
+
+export type ResultsContext = {
+  route: string;
+  search: string;
+  kind: string;
+  repoIds: string[] | null;
+  groups: [string, boolean][];
+  filtersOpen: boolean | undefined;
+  savedFilterId: string;
+  scrollY: number;
+  eventId: string | null;
+  matchingIds?: string[];
+  activityCapacity: number;
+};
+
+export type WatchedRepo = { id: string; disabled?: boolean };
 
 /**
  * Keep old bookmarks working while exposing one Activity page with two clear views.
- * @param {unknown} hash
  */
-export function parseRoute(hash) {
+export function parseRoute(hash: unknown) {
   const [name, value] = String(hash || '')
     .replace(/^#/, '')
     .split('/');
@@ -30,15 +48,15 @@ export function parseRoute(hash) {
   return { route: name === 'settings' ? 'settings' : 'catchup', eventId: null };
 }
 
-export const activityHref = (/** @type {string} */ route) => `#activity/${route === 'activity' ? 'all' : 'new'}`;
-export const isActivity = (/** @type {unknown} */ route) => route === 'catchup' || route === 'activity';
-export const repositoryHref = (/** @type {string} */ id) => `#repositories/${encodeURIComponent(id)}`;
+export const activityHref = (route: string) => `#activity/${route === 'activity' ? 'all' : 'new'}`;
+export const isActivity = (route: unknown) => route === 'catchup' || route === 'activity';
+export const repositoryHref = (id: string) => `#repositories/${encodeURIComponent(id)}`;
 
 const RESULTS_KEY = 'repo-pulse-results-context';
 const RESULTS_VERSION = 2;
 
-/** Session storage is untrusted JSON, so every field is checked. @returns {ResultsContext | null} */
-function readResultsContext() {
+/** Session storage is untrusted JSON, so every field is checked. */
+function readResultsContext(): ResultsContext | null {
   try {
     const value = JSON.parse(sessionStorage.getItem(RESULTS_KEY) ?? 'null');
     if (!value || !isActivity(value.route)) return null;
@@ -47,19 +65,15 @@ function readResultsContext() {
       route: value.route,
       search: value.version === RESULTS_VERSION ? search : joinActivitySearch(search, typeof value.people === 'string' ? value.people : ''),
       kind: typeof value.kind === 'string' ? value.kind : '',
-      repoIds: Array.isArray(value.repoIds) ? value.repoIds.filter((/** @type {unknown} */ id) => typeof id === 'string') : null,
+      repoIds: Array.isArray(value.repoIds) ? value.repoIds.filter((id: unknown) => typeof id === 'string') : null,
       groups: Array.isArray(value.groups)
-        ? value.groups.filter(
-            (/** @type {unknown} */ entry) => Array.isArray(entry) && typeof entry[0] === 'string' && typeof entry[1] === 'boolean',
-          )
+        ? value.groups.filter((entry: unknown) => Array.isArray(entry) && typeof entry[0] === 'string' && typeof entry[1] === 'boolean')
         : [],
       filtersOpen: typeof value.filtersOpen === 'boolean' ? value.filtersOpen : undefined,
       savedFilterId: typeof value.savedFilterId === 'string' ? value.savedFilterId : '',
       scrollY: Number.isFinite(value.scrollY) ? Math.max(0, value.scrollY) : 0,
       eventId: typeof value.eventId === 'string' ? value.eventId : null,
-      matchingIds: Array.isArray(value.matchingIds)
-        ? value.matchingIds.filter((/** @type {unknown} */ id) => typeof id === 'string')
-        : undefined,
+      matchingIds: Array.isArray(value.matchingIds) ? value.matchingIds.filter((id: unknown) => typeof id === 'string') : undefined,
       activityCapacity: Number.isSafeInteger(value.activityCapacity) && value.activityCapacity >= 50 ? value.activityCapacity : 50,
     };
   } catch {
@@ -75,19 +89,21 @@ function canonicalRoute() {
   return parsed;
 }
 
-/**
- * @param {{ ui: NavigationState, captureGroups: () => [string, boolean][], activityCapacity: () => number }} options
- */
-export function createNavigation({ ui, captureGroups, activityCapacity }) {
+export function createNavigation({
+  ui,
+  captureGroups,
+  activityCapacity,
+}: {
+  ui: NavigationState;
+  captureGroups: () => [string, boolean][];
+  activityCapacity: () => number;
+}) {
   let results = readResultsContext();
-  /** @type {ResultsContext | null | undefined} */
-  let pending;
-  /** @type {string|null|undefined} */
-  let checkoutRepoId;
+  let pending: ResultsContext | null | undefined;
+  let checkoutRepoId: string | null | undefined;
   let generation = 0;
 
-  /** @param {string|null} eventId @param {string[]} [matchingIds] */
-  function remember(eventId, matchingIds) {
+  function remember(eventId: string | null, matchingIds?: string[]) {
     if (!isActivity(ui.route)) return;
     results = {
       route: ui.route,
@@ -115,8 +131,7 @@ export function createNavigation({ ui, captureGroups, activityCapacity }) {
   }
 
   // Disabled repositories keep their place in an explicit scope so enabling one restores it.
-  /** @param {WatchedRepo[]} watched */
-  function reconcileRepositories(watched) {
+  function reconcileRepositories(watched: WatchedRepo[]) {
     if (ui.repoIds !== null) ui.repoIds = ui.repoIds.filter(id => watched.some(repo => repo.id === id));
     if (!watched.some(repo => !repo.disabled) && isActivity(ui.route)) {
       ui.route = 'repositories';
@@ -144,22 +159,19 @@ export function createNavigation({ ui, captureGroups, activityCapacity }) {
     invalidate,
     reconcileRepositories,
     remember,
-    /** @param {WatchedRepo[]} repos */
-    takeCheckoutFocus(repos) {
+    takeCheckoutFocus(repos: WatchedRepo[]) {
       if (ui.route !== 'repositories' || !repos.some(repo => repo.id === checkoutRepoId && !repo.disabled)) return null;
       const id = checkoutRepoId;
       checkoutRepoId = null;
       return id;
     },
-    /** @param {unknown} loading */
-    takeRestoration(loading) {
+    takeRestoration(loading: unknown) {
       if (loading || pending?.route !== ui.route) return null;
       const restored = pending;
       pending = null;
       return restored;
     },
-    /** @param {WatchedRepo[]} repos */
-    enter(repos) {
+    enter(repos: WatchedRepo[]) {
       const previous = ui.route;
       const { checkoutRepoId: id, ...parsed } = canonicalRoute();
       checkoutRepoId = id;
