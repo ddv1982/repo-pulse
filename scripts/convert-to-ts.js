@@ -7,10 +7,10 @@
 // 2. points every relative specifier that resolves to a renamed file at the .ts name, in every tracked JS and TS
 //    file: `from '...'`, `import '...'`, `import('...')` and JSDoc `import('...')` types;
 // 3. turns JSDoc into TypeScript in the renamed files with TypeScript 6.0.3's language service (TypeScript 7 has no
-//    JavaScript API): the `convertTypedefToType` and `annotateWithTypeFromJSDoc` fixes (working around a defect of the
-//    former and three of the latter, see arrowEdits, templateEdits and optionalEdits), then JSDoc casts, nested ones
-//    included (`/** @type {T} */ (x)` and `@satisfies`), which TypeScript ignores in a .ts file, become `as` and
-//    `satisfies`;
+//    JavaScript API): the `convertTypedefToType` and `annotateWithTypeFromJSDoc` fixes (working around two defects of
+//    the former and four of the latter, see typedefEdits, arrowEdits, templateEdits, optionalEdits and bindingEdits),
+//    then JSDoc casts, nested ones included (`/** @type {T} */ (x)` and `@satisfies`), which TypeScript ignores in a
+//    .ts file, become `as` and `satisfies`;
 // 4. exports the top-level type aliases and interfaces, as JSDoc typedefs were;
 // 5. removes the JSDoc types the TypeScript now carries and `// @ts-check`, keeping the prose (see jsdocEdits), and
 //    formats the files with Prettier.
@@ -121,6 +121,23 @@ function arrowEdits(file) {
 }
 
 /**
+ * Ends each JSDoc comment that holds a `@typedef` and is followed by another JSDoc comment with an empty statement:
+ * TypeScript 6.0.3's convertTypedefToType does nothing for a typedef whose statement has a later JSDoc comment, such as
+ * the `@param` block of the function below it. Prettier removes the empty statements again.
+ * @param {string} file
+ */
+function typedefEdits(file) {
+  const source = parse(file);
+  /** @type {{ span: { start: number, length: number }, newText: string }[]} */
+  const edits = [];
+  walk(source, node => {
+    for (const doc of node.jsDoc?.slice(0, -1) ?? [])
+      if (doc.tags?.some(ts.isJSDocTypedefTag)) edits.push({ span: { start: doc.end, length: 0 }, newText: ';' });
+  });
+  return edits;
+}
+
+/**
  * Restores `@template {C} T` constraints, which annotateWithTypeFromJSDoc drops, and the `@template` parameters of a
  * generic `@typedef`, which convertTypedefToType drops altogether.
  * @param {string} file
@@ -168,6 +185,19 @@ function optionalEdits(file) {
     if (!ts.isParameter(node) || node.questionToken || node.initializer || node.dotDotDotToken || !ts.isIdentifier(node.name)) return;
     if (ts.getJSDocParameterTags(node).some(/** @param {any} tag */ tag => tag.isBracketed))
       edits.push({ span: { start: node.name.end, length: 0 }, newText: '?' });
+  });
+  return edits;
+}
+
+/** Adds the `@type` of a destructuring declaration, which annotateWithTypeFromJSDoc leaves out. @param {string} file */
+function bindingEdits(file) {
+  const source = parse(file);
+  /** @type {{ span: { start: number, length: number }, newText: string }[]} */
+  const edits = [];
+  walk(source, node => {
+    if (!ts.isVariableDeclaration(node) || node.type || ts.isIdentifier(node.name)) return;
+    const tag = ts.getJSDocTypeTag(node);
+    if (tag) edits.push({ span: { start: node.name.end, length: 0 }, newText: `: ${tag.typeExpression.type.getText(source)}` });
   });
   return edits;
 }
@@ -250,7 +280,7 @@ function jsdocEdits(file) {
       const tag = ts.getJSDocReturnTag(node);
       if (tag?.typeExpression && node.type) strip(tag);
     }
-    if (ts.isVariableDeclaration(node) || ts.isPropertyDeclaration(node) || ts.isPropertySignature(node)) {
+    if (ts.isVariableDeclaration(node) || ts.isPropertyDeclaration(node) || ts.isPropertySignature(node) || ts.isParameter(node)) {
       const tag = ts.getJSDocTypeTag(node);
       if (tag && node.type) strip(tag);
     }
@@ -275,10 +305,15 @@ function jsdocEdits(file) {
   return edits;
 }
 
-/** Tidies the comments jsdocEdits emptied or shortened, and drops `// @ts-check`, which a .ts file does not need. @param {string} text */
+/**
+ * Tidies the comments jsdocEdits emptied or shortened, joins the one-line comments that convertTypedefToType
+ * splits over two lines, and drops `// @ts-check`, which a .ts file does not need.
+ * @param {string} text
+ */
 const tidyComments = text =>
   text
     .replace(/^\/\/ @ts-check\n\n?/, '')
+    .replace(/\/\*\* ([^\n]*?)\n[ \t]*\*\//g, '/** $1 */')
     .replace(/^[ \t]*\/\*\*[\s*]*\*\/[ \t]*\n/gm, '')
     .replace(/\/\*\*[\s*]*\*\/[ \t]*/g, '')
     .replace(/\n([ \t]*)\* \*\//g, '\n$1*/')
@@ -286,12 +321,14 @@ const tidyComments = text =>
 
 for (const file of targets) {
   apply(file, arrowEdits(file));
+  apply(file, typedefEdits(file));
   for (const fix of ['convertTypedefToType', 'annotateWithTypeFromJSDoc']) {
     const { changes } = service.getCombinedCodeFix({ type: 'file', fileName: file }, fix, ts.getDefaultFormatCodeSettings(), {});
     for (const change of changes) apply(change.fileName, change.textChanges);
   }
   apply(file, templateEdits(file));
   apply(file, optionalEdits(file));
+  apply(file, bindingEdits(file));
   for (let edits = castEdits(file); edits.length; edits = castEdits(file)) apply(file, edits);
   apply(file, exportEdits(file));
   apply(file, jsdocEdits(file));
