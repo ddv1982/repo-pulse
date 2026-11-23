@@ -7,11 +7,14 @@
 // 2. points every relative specifier that resolves to a renamed file at the .ts name, in every tracked JS and TS
 //    file: `from '...'`, `import '...'`, `import('...')` and JSDoc `import('...')` types;
 // 3. turns JSDoc into TypeScript in the renamed files with TypeScript 6.0.3's language service (TypeScript 7 has no
-//    JavaScript API): the `convertTypedefToType` and `annotateWithTypeFromJSDoc` fixes (working around three of the
-//    latter's defects, see arrowEdits, templateEdits and optionalEdits), then JSDoc casts (`/** @type {T} */ (x)` and
-//    `@satisfies`), which TypeScript ignores in a .ts file, become `as` and `satisfies`;
-// 4. exports the top-level type aliases and interfaces, as JSDoc typedefs were, and formats the files with Prettier.
-// Review the diff and run `npm run check:types` afterwards; the fixes leave the old JSDoc comments in place.
+//    JavaScript API): the `convertTypedefToType` and `annotateWithTypeFromJSDoc` fixes (working around a defect of the
+//    former and three of the latter, see arrowEdits, templateEdits and optionalEdits), then JSDoc casts, nested ones
+//    included (`/** @type {T} */ (x)` and `@satisfies`), which TypeScript ignores in a .ts file, become `as` and
+//    `satisfies`;
+// 4. exports the top-level type aliases and interfaces, as JSDoc typedefs were;
+// 5. removes the JSDoc types the TypeScript now carries and `// @ts-check`, keeping the prose (see jsdocEdits), and
+//    formats the files with Prettier.
+// Review the diff, check any JSDoc tag it reports as kept, and run `npm run check:types` afterwards.
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
@@ -117,12 +120,32 @@ function arrowEdits(file) {
   return edits;
 }
 
-/** Restores `@template {C} T` constraints, which annotateWithTypeFromJSDoc drops. @param {string} file */
+/**
+ * Restores `@template {C} T` constraints, which annotateWithTypeFromJSDoc drops, and the `@template` parameters of a
+ * generic `@typedef`, which convertTypedefToType drops altogether.
+ * @param {string} file
+ */
 function templateEdits(file) {
   const source = parse(file);
   /** @type {{ span: { start: number, length: number }, newText: string }[]} */
   const edits = [];
   walk(source, node => {
+    if (ts.isTypeAliasDeclaration(node) && !node.typeParameters) {
+      const parameters = ts
+        .getJSDocTags(node)
+        .filter(ts.isJSDocTemplateTag)
+        .flatMap(
+          /** @param {any} tag */ tag =>
+            tag.typeParameters.map(
+              /** @param {any} p */ p =>
+                p.name.text +
+                (tag.constraint ? ` extends ${tag.constraint.type.getText(source)}` : '') +
+                (p.default ? ` = ${p.default.getText(source)}` : ''),
+            ),
+        );
+      if (parameters.length) edits.push({ span: { start: node.name.end, length: 0 }, newText: `<${parameters.join(', ')}>` });
+      return;
+    }
     if (!node.typeParameters || !ts.isFunctionLike(node)) return;
     for (const tag of ts.getJSDocTags(node).filter(ts.isJSDocTemplateTag)) {
       if (!tag.constraint) continue;
@@ -161,7 +184,8 @@ function castEdits(file) {
     if (!tag) return ts.forEachChild(node, visit);
     const start = doc.pos;
     const operator = ts.isJSDocTypeTag(tag) ? 'as' : 'satisfies';
-    const newText = `(${node.expression.getText(source)} ${operator} ${tag.typeExpression.type.getText(source)})`;
+    // The full text keeps the JSDoc of a nested cast, which getText would drop, for the next pass to convert.
+    const newText = `(${node.expression.getFullText(source).trim()} ${operator} ${tag.typeExpression.type.getText(source)})`;
     edits.push({ span: { start, length: node.end - start }, newText });
   };
   visit(source);
@@ -194,6 +218,72 @@ function exportEdits(file) {
     .map(/** @param {any} node */ node => ({ span: { start: node.getStart(source), length: 0 }, newText: 'export ' }));
 }
 
+/**
+ * Removes the JSDoc types that the TypeScript now carries, which TypeScript ignores in a .ts file: the `{T}` of
+ * `@param`, `@returns` and `@type` whose declaration has a type annotation, and `@template` tags of declarations with
+ * type parameters. A tag without prose goes entirely; prose stays. A tag whose declaration has no annotation is kept and
+ * printed, to be checked by hand.
+ * @param {string} file
+ */
+function jsdocEdits(file) {
+  const source = parse(file);
+  /** @type {{ span: { start: number, length: number }, newText: string }[]} */
+  const edits = [];
+  /** @type {Set<any>} */
+  const handled = new Set();
+  /** @param {any} tag */
+  const strip = tag => {
+    if (handled.has(tag)) return;
+    handled.add(tag);
+    const start = tag.pos;
+    const prose = tag.comment && !ts.isJSDocTemplateTag(tag);
+    if (!prose) return edits.push({ span: { start, length: tag.end - start }, newText: '' });
+    // Keep `@param name` and `@returns`; a `@type` tag keeps only its prose.
+    const from = ts.isJSDocTypeTag(tag) ? start : tag.typeExpression.pos;
+    let to = tag.typeExpression.end;
+    while (/\s/.test(source.text[to])) to++;
+    edits.push({ span: { start: from, length: to - from }, newText: '' });
+  };
+  walk(source, node => {
+    if (ts.isParameter(node)) for (const tag of ts.getJSDocParameterTags(node)) if (tag.typeExpression && node.type) strip(tag);
+    if (ts.isFunctionLike(node)) {
+      const tag = ts.getJSDocReturnTag(node);
+      if (tag?.typeExpression && node.type) strip(tag);
+    }
+    if (ts.isVariableDeclaration(node) || ts.isPropertyDeclaration(node) || ts.isPropertySignature(node)) {
+      const tag = ts.getJSDocTypeTag(node);
+      if (tag && node.type) strip(tag);
+    }
+    if (node.typeParameters)
+      for (const tag of ts.getJSDocTags(node).filter(ts.isJSDocTemplateTag))
+        if (
+          tag.typeParameters.every(
+            /** @param {any} p */ p => node.typeParameters.some(/** @param {any} q */ q => q.name.text === p.name.text),
+          )
+        )
+          strip(tag);
+  });
+  walk(source, node => {
+    for (const doc of node.jsDoc ?? [])
+      for (const tag of doc.tags ?? [])
+        if (!handled.has(tag) && (tag.typeExpression || ts.isJSDocTemplateTag(tag))) {
+          handled.add(tag);
+          const { line } = source.getLineAndCharacterOfPosition(tag.pos);
+          console.warn(`${file}:${line + 1}: kept JSDoc @${tag.tagName.text}; check it by hand`);
+        }
+  });
+  return edits;
+}
+
+/** Tidies the comments jsdocEdits emptied or shortened, and drops `// @ts-check`, which a .ts file does not need. @param {string} text */
+const tidyComments = text =>
+  text
+    .replace(/^\/\/ @ts-check\n\n?/, '')
+    .replace(/^[ \t]*\/\*\*[\s*]*\*\/[ \t]*\n/gm, '')
+    .replace(/\/\*\*[\s*]*\*\/[ \t]*/g, '')
+    .replace(/\n([ \t]*)\* \*\//g, '\n$1*/')
+    .replace(/\n[ \t]*\*[ \t]*\n([ \t]*\*\/)/g, '\n$1');
+
 for (const file of targets) {
   apply(file, arrowEdits(file));
   for (const fix of ['convertTypedefToType', 'annotateWithTypeFromJSDoc']) {
@@ -204,7 +294,8 @@ for (const file of targets) {
   apply(file, optionalEdits(file));
   for (let edits = castEdits(file); edits.length; edits = castEdits(file)) apply(file, edits);
   apply(file, exportEdits(file));
-  writeFileSync(file, /** @type {any} */ (sources.get(file)).text);
+  apply(file, jsdocEdits(file));
+  writeFileSync(file, tidyComments(/** @type {any} */ (sources.get(file)).text));
 }
 execFileSync('npx', ['prettier', '--write', ...targets], { stdio: 'inherit', shell });
 console.log(`Converted ${targets.length} files. Run npm run check:types and review the diff.`);
