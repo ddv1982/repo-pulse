@@ -29,7 +29,7 @@ async function worktreeUsesBranch(run, path, ref) {
   }
   return false;
 }
-exports.worktreeUsesBranch = /** @satisfies {typeof import('./checkout-delete-guard.d.cts').worktreeUsesBranch} */ (worktreeUsesBranch);
+exports.worktreeUsesBranch = worktreeUsesBranch;
 
 /** @param {RunGit} run @param {string} path @param {string} ref */
 async function isSymbolicRef(run, path, ref) {
@@ -41,7 +41,9 @@ async function isSymbolicRef(run, path, ref) {
     throw error;
   }
 }
-exports.isSymbolicRef = /** @satisfies {typeof import('./checkout-delete-guard.d.cts').isSymbolicRef} */ (isSymbolicRef);
+exports.isSymbolicRef = isSymbolicRef;
+// tsconfig.hook.json fails when an export is missing or no longer matches checkout-delete-guard.d.cts.
+/** @satisfies {typeof import('./checkout-delete-guard.d.cts')} */ (module.exports);
 
 if (require.main === module && process.argv[2] === 'prepared') {
   // Git has both refs locked while this hook checks their types and the worktrees.
