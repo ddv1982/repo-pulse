@@ -69,7 +69,7 @@ CI runs the first four on Linux and Windows, and the browser tests on Linux only
 
 ## Match review to risk
 
-Copy, CSS and layout changes get the checks above plus one review round. Changes to `server/checkout-*.js`, migrations in `server/store.js`, `server/sync.js` and `server/azure-*.js` keep the full cross-model review, because a mistake there can move a local branch, lose stored rows or stall the feed.
+Copy, CSS and layout changes get the checks above plus one review round. Changes to `server/checkout-*.ts`, migrations in `server/store.ts`, `server/sync.ts` and `server/azure-*.ts` keep the full cross-model review, because a mistake there can move a local branch, lose stored rows or stall the feed.
 
 Before changing wording or a default, agree one representative row with the owner, and any search the change gives up, and state both in the PR description. When search terms change, raise `SEARCH_INDEX_VERSION` in `src/activity-text.js` so stored rows are reindexed.
 

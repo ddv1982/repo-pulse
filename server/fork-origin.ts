@@ -1,4 +1,4 @@
-export type AzureProvider = import('./azure-client.js').AzureProvider;
+export type AzureProvider = import('./azure-client.ts').AzureProvider;
 export type ForkOrigin = import('../src/activity.ts').ForkOrigin;
 /**
  * One live branch creation, checked for the commit it started from and the branch that held it. Until `base` is known,
@@ -23,7 +23,7 @@ export type ForkJob = {
   unanswered?: string[];
 };
 export type ForkStore = Pick<
-  ReturnType<typeof import('./store.js').createStore>,
+  ReturnType<typeof import('./store.ts').createStore>,
   'listRepos' | 'listJobs' | 'saveJob' | 'getEvent' | 'saveForkResult' | 'branchTipsBefore' | 'forkCandidates' | 'getStreams'
 >;
 
@@ -101,7 +101,7 @@ export function createForkOriginCheck({
     return { ...job, base, checks, on: [], notOn: [] };
   }
 
-  async function step(job: ForkJob, repo: import('./azure-client.js').AzureRepo): Promise<ForkJob | ForkOrigin> {
+  async function step(job: ForkJob, repo: import('./azure-client.ts').AzureRepo): Promise<ForkJob | ForkOrigin> {
     if (!job.base) {
       const commit = await provider.commit(repo, job.at);
       // The first commit an earlier push brought is where the branch started. Without a push order there is no base.
@@ -151,7 +151,7 @@ export function createForkOriginCheck({
         .filter(repo => !repo.disabled)
         .map(repo => [repo.id, repo]),
     );
-    // Rows of type 'fork' are only written by server/normalize.js and this check, as a ForkJob.
+    // Rows of type 'fork' are only written by server/normalize.ts and this check, as a ForkJob.
     const jobs = store.listJobs({ type: 'fork', dueBefore: iso(now()) }) as unknown as ForkJob[];
     const job = jobs.find(item => repos.has(item.repoId) && !((deferred.get(item.id)?.at ?? 0) > now()) && !waits(item));
     const repo = job && repos.get(job.repoId);

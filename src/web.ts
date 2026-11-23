@@ -21,7 +21,7 @@ import { required, setHtml } from './ui/dom.ts';
 
 export type PageState = import('./ui/refresh.ts').PageState;
 export type Action = import('./ui/checkout-actions.ts').Action;
-/** web/theme.js publishes this before the modules load. */
+/** web/theme.ts publishes this before the modules load. */
 export type ThemedWindow = Window & { repoPulseTheme?: { set: (value: string) => void } };
 
 const page = required('#page');
@@ -596,7 +596,7 @@ document.addEventListener('click', event => {
   if (!(target instanceof Element)) return;
   const theme = target.closest('[data-theme]');
   if (theme instanceof HTMLElement) {
-    // web/theme.js defines repoPulseTheme on window before this module loads; the optional call covers its absence.
+    // web/theme.ts defines repoPulseTheme on window before this module loads; the optional call covers its absence.
     (window as ThemedWindow).repoPulseTheme?.set(theme.dataset.theme ?? '');
     return;
   }

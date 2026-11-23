@@ -1,8 +1,8 @@
 import test from 'node:test';
 import { request } from 'node:http';
 import assert from 'node:assert/strict';
-import { createStore } from '../server/store.js';
-import { createSync } from '../server/sync.js';
+import { createStore } from '../server/store.ts';
+import { createSync } from '../server/sync.ts';
 import { seedDemo } from '../server/demo.ts';
 import { createBackfill } from '../server/backfill.ts';
 import { createApp } from '../server.ts';

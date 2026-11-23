@@ -1,4 +1,4 @@
-export type AzureProvider = import('./azure-client.js').AzureProvider;
+export type AzureProvider = import('./azure-client.ts').AzureProvider;
 /** One moved branch of a live push, checked once for commits the new tip no longer reaches. */
 export type RewriteJob = {
   id: string;
@@ -13,7 +13,7 @@ export type RewriteJob = {
 };
 export type RewriteResult = import('../src/activity.ts').RewriteResult;
 export type RewriteStore = Pick<
-  ReturnType<typeof import('./store.js').createStore>,
+  ReturnType<typeof import('./store.ts').createStore>,
   'listRepos' | 'listJobs' | 'saveJob' | 'getEvent' | 'saveRewriteResult'
 >;
 
@@ -43,7 +43,7 @@ export function createRewriteCheck({
         .filter(repo => !repo.disabled)
         .map(repo => [repo.id, repo]),
     );
-    // Rows of type 'rewrite' are only written by server/normalize.js, as a RewriteJob.
+    // Rows of type 'rewrite' are only written by server/normalize.ts, as a RewriteJob.
     const jobs = store.listJobs({ type: 'rewrite', dueBefore: iso(now()) }) as unknown as RewriteJob[];
     const job = jobs.find(item => repos.has(item.repoId) && !((deferred.get(item.id)?.at ?? 0) > now()));
     const repo = job && repos.get(job.repoId);

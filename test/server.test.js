@@ -4,10 +4,10 @@ import { mkdtemp, rm, writeFile, stat, chmod, readFile, readdir } from 'node:fs/
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { request as httpRequest } from 'node:http';
-import { createStore } from '../server/store.js';
+import { createStore } from '../server/store.ts';
 import { createApp, startApp } from '../server.ts';
 import { seedDemo } from '../server/demo.ts';
-import { createAzureClient } from '../server/azure-client.js';
+import { createAzureClient } from '../server/azure-client.ts';
 import { TEST_KEY, keyedFetch } from './fixtures/access.js';
 
 const fetch = keyedFetch();

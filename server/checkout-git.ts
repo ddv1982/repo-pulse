@@ -1,40 +1,57 @@
-// @ts-check
-
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { access, realpath, stat } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { promisify } from 'node:util';
 import { hasRemoteCredentials, parseRemote } from './repositories.ts';
-import { adviseMissingUpstream, isCommit } from './checkout-advice.js';
-import { branchFollowups, branchProblem, memoryFollowups } from './checkout-branches.js';
+import { adviseMissingUpstream, isCommit } from './checkout-advice.ts';
+import { branchFollowups, branchProblem, memoryFollowups } from './checkout-branches.ts';
 import { isSymbolicRef } from './checkout-delete-guard.cjs';
-import { checkoutDiagnostic, memoryObservations, observedRewrite } from './checkout-observations.js';
-import { createActivitySwitch } from './checkout-activity-switch.js';
-import { createCheckoutUpdater } from './checkout-update.js';
-import { archivedSwitchRewrite, readDirectCommit } from './checkout-switch-refs.js';
+import { checkoutDiagnostic, memoryObservations, observedRewrite } from './checkout-observations.ts';
+import { createActivitySwitch } from './checkout-activity-switch.ts';
+import { createCheckoutUpdater } from './checkout-update.ts';
+import { archivedSwitchRewrite, readDirectCommit } from './checkout-switch-refs.ts';
 
 /**
  * Checkouts belong to watched repositories, so their Azure identity is always present.
- * @typedef {import('./store.js').Repository} LinkedRepo
- * @typedef {import('../src/contract.ts').GitStatus} GitStatus
- * @typedef {import('../src/contract.ts').CheckoutSelection} CheckoutSelection
- * @typedef {import('../src/contract.ts').SwitchIntent} SwitchIntent
- * @typedef {import('../src/contract.ts').CheckoutIntent} CheckoutIntent
- * @typedef {import('../src/contract.ts').CheckoutReading} CheckoutReading
- * @typedef {{ remote: string, source: string, tracking: string, url: string }} Upstream
- * @typedef {import('../src/contract.ts').ActivitySwitchReview} ActivitySwitchReview
- * @typedef {import('../src/contract.ts').BlockedState} BlockedState
- * @typedef {(path: string, repo: LinkedRepo) => Promise<{ snapshot: ActiveCheckout, target: Upstream|null, gitDirectory: string|null }>} ReadCheckoutStatus
- * @typedef {import('../src/contract.ts').ActiveCheckout} ActiveCheckout
- * @typedef {import('../src/contract.ts').DecoratedCheckout} DecoratedCheckout
- * @typedef {import('../src/contract.ts').CheckoutStatus} CheckoutStatus
- * @typedef {(path: string, args: string[], options?: { guard?: NodeJS.ProcessEnv, input?: string, prepare?: () => Promise<void>, maxBuffer?: number }) => Promise<string>} GitRunner
  */
+export type LinkedRepo = import('./store.ts').Repository;
+
+export type GitStatus = import('../src/contract.ts').GitStatus;
+
+export type CheckoutSelection = import('../src/contract.ts').CheckoutSelection;
+
+export type SwitchIntent = import('../src/contract.ts').SwitchIntent;
+
+export type CheckoutIntent = import('../src/contract.ts').CheckoutIntent;
+
+export type CheckoutReading = import('../src/contract.ts').CheckoutReading;
+
+export type Upstream = { remote: string; source: string; tracking: string; url: string };
+
+export type ActivitySwitchReview = import('../src/contract.ts').ActivitySwitchReview;
+
+export type BlockedState = import('../src/contract.ts').BlockedState;
+
+export type ReadCheckoutStatus = (
+  path: string,
+  repo: LinkedRepo,
+) => Promise<{ snapshot: ActiveCheckout; target: Upstream | null; gitDirectory: string | null }>;
+
+export type ActiveCheckout = import('../src/contract.ts').ActiveCheckout;
+
+export type DecoratedCheckout = import('../src/contract.ts').DecoratedCheckout;
+
+export type CheckoutStatus = import('../src/contract.ts').CheckoutStatus;
+
+export type GitRunner = (
+  path: string,
+  args: string[],
+  options?: { guard?: NodeJS.ProcessEnv; input?: string; prepare?: () => Promise<void>; maxBuffer?: number },
+) => Promise<string>;
 
 const exec = promisify(execFile);
-/** @param {string} message */
-const problem = (message, status = 409) => Object.assign(new Error(message), { status });
+const problem = (message: string, status = 409) => Object.assign(new Error(message), { status });
 const operations = [
   ['rebase-merge', 'Rebase'],
   ['rebase-apply/applying', 'Patch apply'],
@@ -46,19 +63,16 @@ const operations = [
   ['sequencer', 'Git operation'],
 ];
 const hooks = process.platform === 'win32' ? 'NUL' : '/dev/null';
-/** @param {string} path @param {Upstream|null} target @param {string|null} [gitDirectory] */
-const upstreamIdentity = (path, target, gitDirectory) =>
+const upstreamIdentity = (path: string, target: Upstream | null, gitDirectory?: string | null) =>
   createHash('sha256')
     .update(JSON.stringify(gitDirectory === undefined ? [path, target] : [path, target, gitDirectory]))
     .digest('hex');
-/** @param {string} path */
-const directoryIdentity = path =>
+const directoryIdentity = (path: string) =>
   stat(path).then(
     info => `${info.dev}:${info.ino}:${info.birthtimeMs}`,
     () => null,
   );
-/** @param {string|null} directory */
-const opaqueDirectory = directory => directory && createHash('sha256').update(directory).digest('hex');
+const opaqueDirectory = (directory: string | null) => directory && createHash('sha256').update(directory).digest('hex');
 // Keys in a checkout's own config that make Git run a command, change where or how it connects, or load more config
 // later (conditional includes can switch on after a branch switch).
 const commandKeys = new RegExp(
@@ -89,8 +103,7 @@ const commandKeys = new RegExp(
 );
 
 function gitEnvironment() {
-  /** @type {NodeJS.ProcessEnv} */
-  const env = {
+  const env: NodeJS.ProcessEnv = {
     ...process.env,
     LC_ALL: 'C',
     GIT_TERMINAL_PROMPT: '0',
@@ -103,8 +116,7 @@ function gitEnvironment() {
   return env;
 }
 
-/** @type {GitRunner} */
-export const runGit = async (path, args, { guard, input, prepare, maxBuffer = 2 * 1024 * 1024 } = {}) => {
+export const runGit: GitRunner = async (path, args, { guard, input, prepare, maxBuffer = 2 * 1024 * 1024 } = {}) => {
   const env = { ...gitEnvironment(), ...guard };
   const command = exec('git', ['-C', path, '-c', 'core.fsmonitor=false', ...args], {
     env,
@@ -143,8 +155,7 @@ export const runGit = async (path, args, { guard, input, prepare, maxBuffer = 2 
   return (await command).stdout;
 };
 
-/** @param {unknown} failure */
-function fetchFailure(failure) {
+function fetchFailure(failure: unknown) {
   const stderr = failure instanceof Error && 'stderr' in failure ? String(failure.stderr) : '';
   if (/could(?:n't| not) find remote ref/i.test(stderr)) return 'missing-ref';
   if (
@@ -166,20 +177,17 @@ function fetchFailure(failure) {
   return { title: 'Git could not fetch the tracked branch', suggestion: 'Check the upstream from your terminal and try again.' };
 }
 
-/** @param {string} url @param {LinkedRepo} repo */
-function matchesWatchedRemote(url, repo) {
+function matchesWatchedRemote(url: string, repo: LinkedRepo) {
   try {
     const target = parseRemote(url);
-    return /** @type {const} */ (['organization', 'project', 'name']).every(key => target[key].toLowerCase() === repo[key]?.toLowerCase());
+    return (['organization', 'project', 'name'] as const).every(key => target[key].toLowerCase() === repo[key]?.toLowerCase());
   } catch {
     return false;
   }
 }
 
-/** @param {string} output */
-function readStatus(output) {
-  /** @type {GitStatus} */
-  const result = { branch: null, head: null, upstream: null, ahead: null, behind: null, dirty: false };
+function readStatus(output: string) {
+  const result: GitStatus = { branch: null, head: null, upstream: null, ahead: null, behind: null, dirty: false };
   for (const record of output.split('\0')) {
     if (!record) continue;
     if (!record.startsWith('# ')) {
@@ -205,10 +213,24 @@ function readStatus(output) {
 
 /**
  * The first matching check names the checkout state; order is significant, and later facts are read only if needed.
- * @param {GitStatus & { operation: string|undefined, observation: import('./checkout-observations.js').Observation|undefined, rewrite: unknown, target: Upstream|null }} facts
- * @returns {BlockedState|'behind'}
  */
-function checkoutState({ operation, observation, rewrite, target, branch, head, upstream, ahead, behind, dirty }) {
+function checkoutState({
+  operation,
+  observation,
+  rewrite,
+  target,
+  branch,
+  head,
+  upstream,
+  ahead,
+  behind,
+  dirty,
+}: GitStatus & {
+  operation: string | undefined;
+  observation: import('./checkout-observations.ts').Observation | undefined;
+  rewrite: unknown;
+  target: Upstream | null;
+}): BlockedState | 'behind' {
   if (operation) return 'in-progress';
   if (!branch) return 'detached';
   if (!head) return 'unborn';
@@ -225,30 +247,23 @@ function checkoutState({ operation, observation, rewrite, target, branch, head, 
   return 'current';
 }
 
-/** @param {unknown} value @returns {value is CheckoutIntent} */
-export function isCheckoutIntent(value) {
+export function isCheckoutIntent(value: unknown): value is CheckoutIntent {
   return hasCheckoutSelection(value) && typeof value.upstream === 'string';
 }
 
-/** @param {unknown} value @returns {value is SwitchIntent} */
-export function isSwitchIntent(value) {
+export function isSwitchIntent(value: unknown): value is SwitchIntent {
   return hasCheckoutSelection(value) && 'switchIdentity' in value && typeof value.switchIdentity === 'string';
 }
 
-/** @param {unknown} value @returns {value is CheckoutSelection} */
-function hasCheckoutSelection(value) {
+function hasCheckoutSelection(value: unknown): value is CheckoutSelection {
   if (!value || typeof value !== 'object') return false;
-  const candidate = /** @type {Record<string, unknown>} */ (value);
+  const candidate = value as Record<string, unknown>;
   return (
     ['branch', 'head', 'identity'].every(key => typeof candidate[key] === 'string') &&
     (candidate.upstream === null || typeof candidate.upstream === 'string')
   );
 }
 
-/**
- * @param {{ run?: GitRunner, matchesRemote?: typeof matchesWatchedRemote, now?: () => number,
- *   followups?: import('./checkout-branches.js').Followups, findPulls?: import('./checkout-advice.js').FindCheckoutPulls, observations?: import('./checkout-observations.js').Observations }} [options]
- */
 export function createCheckoutGit({
   run = runGit,
   matchesRemote = matchesWatchedRemote,
@@ -256,13 +271,18 @@ export function createCheckoutGit({
   findPulls = async () => [],
   observations = memoryObservations(),
   followups = memoryFollowups(),
+}: {
+  run?: GitRunner;
+  matchesRemote?: typeof matchesWatchedRemote;
+  now?: () => number;
+  followups?: import('./checkout-branches.ts').Followups;
+  findPulls?: import('./checkout-advice.ts').FindCheckoutPulls;
+  observations?: import('./checkout-observations.ts').Observations;
 } = {}) {
-  /** @type {Map<string, { path: string, until: number, value: Promise<CheckoutStatus> }>} */
-  const readings = new Map();
-  /** Active checkout write locks: repo IDs and canonical Git common directories currently updating. @type {Set<string>} */
-  const updatingRepos = new Set();
-  /** @type {Set<string>} */
-  const updatingGitDirs = new Set();
+  const readings: Map<string, { path: string; until: number; value: Promise<CheckoutStatus> }> = new Map();
+  /** Active checkout write locks: repo IDs and canonical Git common directories currently updating. */
+  const updatingRepos: Set<string> = new Set();
+  const updatingGitDirs: Set<string> = new Set();
   const updateAt = createCheckoutUpdater({
     run,
     hooks,
@@ -302,8 +322,7 @@ export function createCheckoutGit({
     verifyCheckoutDirectory,
   });
 
-  /** @param {LinkedRepo} repo @param {string} path @param {Upstream|null} target @param {string|null} gitDirectory */
-  function observedAt(repo, path, target, gitDirectory) {
+  function observedAt(repo: LinkedRepo, path: string, target: Upstream | null, gitDirectory: string | null) {
     if (!gitDirectory) return undefined;
     const identity = upstreamIdentity(path, target, gitDirectory);
     const saved = observations.get(repo.id, identity);
@@ -319,14 +338,13 @@ export function createCheckoutGit({
     return undefined;
   }
 
-  /** Config keys the checkout or one of its submodules sets itself that would make Git run a command. @param {string} path */
-  async function configuredCommands(path) {
-    const keys = new Set();
+  /** Config keys the checkout or one of its submodules sets itself that would make Git run a command. */
+  async function configuredCommands(path: string) {
+    const keys = new Set<string>();
     // Nothing in this scan needs the network; no transport may run while the config is still untrusted.
     const offline = { GIT_ALLOW_PROTOCOL: '' };
     const visited = new Set();
-    /** @param {string} folder */
-    const visit = async folder => {
+    const visit = async (folder: string) => {
       visited.add(await realpath(folder));
       // NUL-separated pairs of scope and key, so a subsection with a tab or newline stays one key.
       const listing = await run(folder, ['config', '--show-scope', '--includes', '--name-only', '--null', '--list'], { guard: offline });
@@ -356,8 +374,7 @@ export function createCheckoutGit({
     return [...keys];
   }
 
-  /** @param {LinkedRepo} repo */
-  async function checkoutPath(repo) {
+  async function checkoutPath(repo: LinkedRepo) {
     if (!repo.localPath) throw problem('No local checkout linked.', 404);
     let path, keys;
     try {
@@ -366,15 +383,14 @@ export function createCheckoutGit({
       if ((await realpath(root)) === path) keys = await configuredCommands(path);
     } catch (error) {
       // The linked folder may have moved or Git may not be available; keep a reason this module gave itself.
-      if (/** @type {{ status?: number }} */ (error).status) throw error;
+      if ((error as { status?: number }).status) throw error;
     }
     if (!path || !keys) throw problem('The linked checkout is unavailable.', 404);
     refuseConfiguredCommands(keys);
     return path;
   }
 
-  /** @param {string[]} keys */
-  function refuseConfiguredCommands(keys) {
+  function refuseConfiguredCommands(keys: string[]) {
     if (!keys.length) return;
     // Subsections of these families can hold a URL with a token (url.<base>, includeIf.hasconfig:remote.*.url:<url>), so
     // they are not shown.
@@ -386,11 +402,11 @@ export function createCheckoutGit({
     });
   }
 
-  /**
-   * @param {string} path @param {LinkedRepo} repo @param {string|null} branch
-   * @returns {Promise<{ target: Upstream|null, passwordInUrl?: boolean }>}
-   */
-  async function upstreamFor(path, repo, branch) {
+  async function upstreamFor(
+    path: string,
+    repo: LinkedRepo,
+    branch: string | null,
+  ): Promise<{ target: Upstream | null; passwordInUrl?: boolean }> {
     if (!branch) return { target: null };
     const raw = await run(path, [
       'for-each-ref',
@@ -403,8 +419,7 @@ export function createCheckoutGit({
     return remoteTarget(path, repo, remote, source);
   }
 
-  /** @param {string} path @param {LinkedRepo} repo @param {string} remote @param {string} source */
-  async function remoteTarget(path, repo, remote, source) {
+  async function remoteTarget(path: string, repo: LinkedRepo, remote: string, source: string) {
     const urls = (await run(path, ['remote', 'get-url', '--all', '--', remote])).trimEnd().split('\n');
     // Git would receive the URL on its command line, where other local users can read it.
     if (urls.some(hasRemoteCredentials)) return { target: null, passwordInUrl: true };
@@ -412,8 +427,8 @@ export function createCheckoutGit({
     return { target: urls.length === 1 && matchesRemote(urls[0], repo) ? { remote, source, tracking, url: urls[0] } : null };
   }
 
-  /** Finds an in-progress Git operation and a stable identity for the Git directory. @param {string} path */
-  async function gitMarkers(path) {
+  /** Finds an in-progress Git operation and a stable identity for the Git directory. */
+  async function gitMarkers(path: string) {
     const markers = (await run(path, ['rev-parse', ...operations.flatMap(([marker]) => ['--git-path', marker]), '--git-dir']))
       .trimEnd()
       .split('\n');
@@ -430,8 +445,11 @@ export function createCheckoutGit({
     return { operation: operations[found.indexOf(true)]?.[1], gitDirectory };
   }
 
-  /** @param {string} path @param {LinkedRepo} repo @param {{ configChecked?: boolean }} [options] @returns {ReturnType<ReadCheckoutStatus>} */
-  async function statusAt(path, repo, { configChecked = false } = {}) {
+  async function statusAt(
+    path: string,
+    repo: LinkedRepo,
+    { configChecked = false }: { configChecked?: boolean } = {},
+  ): ReturnType<ReadCheckoutStatus> {
     // Checked again here because a Pull or branch switch can bring in a gitlink over a nested checkout.
     // Callers that just verified the checkout in checkoutPath without mutating it can skip the duplicate scan.
     if (!configChecked) refuseConfiguredCommands(await configuredCommands(path));
@@ -497,22 +515,27 @@ export function createCheckoutGit({
     };
   }
 
-  /** @param {string} path @param {Upstream|null} target @param {import('./checkout-observations.js').Observation|undefined} observation */
-  async function pendingRewrite(path, target, observation) {
+  async function pendingRewrite(
+    path: string,
+    target: Upstream | null,
+    observation: import('./checkout-observations.ts').Observation | undefined,
+  ) {
     if (!target || observation?.rewrite || !observation?.pending?.length) return undefined;
     const tracked = await trackingTip(path, target.tracking, true);
     return tracked ? (await observedRewrite(run, path, observation.pending, tracked)).rewrite : undefined;
   }
 
-  /** @param {string} path @param {string} tracking @param {boolean} [before] */
-  async function trackingTip(path, tracking, before = false) {
+  async function trackingTip(path: string, tracking: string, before: boolean = false) {
     const args = before ? ['rev-parse', '--quiet', '--verify'] : ['rev-parse', '--verify'];
     const hash = (await run(path, [...args, `${tracking}^{commit}`]).catch(() => '')).trim();
     return isCommit(hash) ? hash : null;
   }
 
-  /** @param {string} path @param {LinkedRepo} repo @param {{ configChecked?: boolean }} [options] @returns {Promise<CheckoutStatus>} */
-  async function inspect(path, repo, { configChecked = false } = {}) {
+  async function inspect(
+    path: string,
+    repo: LinkedRepo,
+    { configChecked = false }: { configChecked?: boolean } = {},
+  ): Promise<CheckoutStatus> {
     try {
       const { snapshot } = await statusAt(path, repo, { configChecked });
       return await branches.decorate(repo, path, snapshot);
@@ -521,22 +544,20 @@ export function createCheckoutGit({
     }
   }
 
-  /** @param {LinkedRepo} repo @returns {Promise<CheckoutStatus>} */
-  function status(repo) {
+  function status(repo: LinkedRepo): Promise<CheckoutStatus> {
     if (!repo.localPath) return Promise.resolve({ state: 'not-linked' });
     const previous = readings.get(repo.id);
     if (previous?.path === repo.localPath && previous.until > now()) return previous.value;
     const value = checkoutPath(repo).then(
       path => inspect(path, repo, { configChecked: true }),
-      /** @param {{ diagnostic?: import('./checkout-observations.js').CheckoutDiagnostic }} error @returns {CheckoutStatus} */
-      error => (error.diagnostic ? { state: 'unavailable', diagnostic: error.diagnostic } : { state: 'unavailable' }),
+      (error: { diagnostic?: import('./checkout-observations.ts').CheckoutDiagnostic }): CheckoutStatus =>
+        error.diagnostic ? { state: 'unavailable', diagnostic: error.diagnostic } : { state: 'unavailable' },
     );
     readings.set(repo.id, { path: repo.localPath, until: now() + 5000, value });
     return value;
   }
 
-  /** @param {string} path @param {LinkedRepo} repo @param {Upstream} target @param {ActiveCheckout} snapshot */
-  async function readMissing(path, repo, target, snapshot) {
+  async function readMissing(path: string, repo: LinkedRepo, target: Upstream, snapshot: ActiveCheckout) {
     return snapshot.head
       ? adviseMissingUpstream({
           run,
@@ -551,25 +572,21 @@ export function createCheckoutGit({
       : undefined;
   }
 
-  /** @param {CheckoutReading} snapshot @param {Pick<CheckoutReading, 'branch'|'head'|'upstream'|'identity'>} expected */
-  function matchesIntent(snapshot, expected) {
-    return /** @type {const} */ (['branch', 'head', 'upstream', 'identity']).every(key => snapshot[key] === expected[key]);
+  function matchesIntent(snapshot: CheckoutReading, expected: Pick<CheckoutReading, 'branch' | 'head' | 'upstream' | 'identity'>) {
+    return (['branch', 'head', 'upstream', 'identity'] as const).every(key => snapshot[key] === expected[key]);
   }
 
-  /** @param {string} path @param {string|null} expected */
-  async function verifyCheckoutDirectory(path, expected) {
+  async function verifyCheckoutDirectory(path: string, expected: string | null) {
     const gitDir = (await run(path, ['rev-parse', '--absolute-git-dir'])).trimEnd();
     if (!expected || !gitDir || opaqueDirectory(await directoryIdentity(gitDir)) !== expected)
       throw problem('The checkout changed. Review the current branch and try again.');
   }
 
-  /** @template T @param {LinkedRepo} repo @param {(path: string) => Promise<T>} action */
-  async function exclusively(repo, action) {
+  async function exclusively<T>(repo: LinkedRepo, action: (path: string) => Promise<T>) {
     if (updatingRepos.has(repo.id)) throw problem('This checkout is already updating. Try again in a moment.');
     updatingRepos.add(repo.id);
     readings.delete(repo.id);
-    /** @type {string | null} */
-    let commonDir = null;
+    let commonDir: string | null = null;
     try {
       const path = await checkoutPath(repo);
       const rawCommonDir = (await run(path, ['rev-parse', '--path-format=absolute', '--git-common-dir'])).trimEnd();
@@ -587,8 +604,7 @@ export function createCheckoutGit({
     }
   }
 
-  /** @param {string} path @param {Upstream} target */
-  async function validateUpstream(path, target) {
+  async function validateUpstream(path: string, target: Upstream) {
     await run(path, ['check-ref-format', target.source]);
     await run(path, ['check-ref-format', target.tracking]);
     // Use the already validated URL, independent of a later remote-name edit.
@@ -597,8 +613,7 @@ export function createCheckoutGit({
     if (await isSymbolicRef(run, path, target.tracking)) throw problem('The upstream tracking ref is symbolic. Review it in Git.');
   }
 
-  /** @param {string} path @param {Upstream} target @param {string|null} [destination] */
-  async function fetchUpstream(path, target, destination = target.tracking) {
+  async function fetchUpstream(path: string, target: Upstream, destination: string | null = target.tracking) {
     await run(path, [
       '-c',
       `core.hooksPath=${hooks}`,
@@ -616,22 +631,22 @@ export function createCheckoutGit({
     ]);
   }
 
-  /**
-   * @param {LinkedRepo} repo @param {'check'|'pull'} operation @param {CheckoutIntent} expected
-   * @returns {Promise<import('../src/contract.ts').CheckoutUpdateResult>}
-   */
-  function update(repo, operation, expected) {
+  function update(
+    repo: LinkedRepo,
+    operation: 'check' | 'pull',
+    expected: CheckoutIntent,
+  ): Promise<import('../src/contract.ts').CheckoutUpdateResult> {
     return exclusively(repo, async path => {
       const result = await updateAt(path, repo, operation, expected);
       return { ...result, checkout: await inspect(path, repo) };
     });
   }
 
-  /**
-   * @param {LinkedRepo} repo @param {import('./checkout-branches.js').BranchAction} action @param {CheckoutIntent} expected
-   * @returns {Promise<import('../src/contract.ts').BranchActionResult>}
-   */
-  function branchAction(repo, action, expected) {
+  function branchAction(
+    repo: LinkedRepo,
+    action: import('./checkout-branches.ts').BranchAction,
+    expected: CheckoutIntent,
+  ): Promise<import('../src/contract.ts').BranchActionResult> {
     return exclusively(repo, async path => {
       const current = await statusAt(path, repo);
       if (!matchesIntent(current.snapshot, expected)) {
@@ -647,16 +662,17 @@ export function createCheckoutGit({
     });
   }
 
-  /** @param {LinkedRepo} repo @param {string} name @param {SwitchIntent} expected
-   * @param {{ eventId?: string, confirmation?: string }} [options]
-   * @returns {Promise<import('../src/contract.ts').ActivitySwitchResult>}
-   */
-  function switchToActivityBranch(repo, name, expected, { eventId, confirmation } = {}) {
+  function switchToActivityBranch(
+    repo: LinkedRepo,
+    name: string,
+    expected: SwitchIntent,
+    { eventId, confirmation }: { eventId?: string; confirmation?: string } = {},
+  ): Promise<import('../src/contract.ts').ActivitySwitchResult> {
     return exclusively(repo, path => switchAt(path, repo, name, expected, { eventId, confirmation }));
   }
 
-  /** Local branch names, read without the update lock. @param {LinkedRepo} repo */
-  async function localBranches(repo) {
+  /** Local branch names, read without the update lock. */
+  async function localBranches(repo: LinkedRepo) {
     const path = await checkoutPath(repo);
     const refs = await run(path, ['for-each-ref', '--format=%(refname)', 'refs/heads/']);
     return refs

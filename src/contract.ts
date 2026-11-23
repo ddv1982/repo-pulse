@@ -1,6 +1,6 @@
 // The JSON the server sends and the browser reads. Nothing here imports server code, so browser modules can type
 // their responses without pulling Node modules into their program. Server modules alias these types, and the
-// handlers in server.js check each response against its type with `@satisfies`.
+// handlers in server.ts check each response against its type with `satisfies`.
 
 export type ActivityEvent = import('./activity.ts').ActivityEvent;
 export type EventData = import('./activity.ts').EventData;
@@ -267,7 +267,7 @@ export type StateResponse = {
   syncStatus: SyncStatusReport;
   demo: boolean;
 };
-/** GET /api/activity, built by server/activity-query.js. */
+/** GET /api/activity, built by server/activity-query.ts. */
 export type ActivityResponse = import('./activity.ts').ActivityPage;
 /** GET /api/events/:id: the event and every event grouped with it. */
 export type EventResponse = { event: HydratedEvent; events: HydratedEvent[] };

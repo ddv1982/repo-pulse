@@ -1,55 +1,49 @@
-// @ts-check
 import { createNormalizer } from './normalize.ts';
 
-/** @typedef {import('./normalize.ts').ActivityKind} ActivityKind */
-/** @typedef {import('./azure-client.js').AzureStream} StreamName */
-/** @typedef {import('./azure-client.js').AzureProvider} AzureProvider */
-/** @typedef {import('./azure-client.js').PageCursor} PageCursor */
-/** @typedef {import('./azure-client.js').AzureRecord} AzureRecord */
-/** @typedef {import('./normalize.ts').WatchedRepo} WatchedRepo */
-/** @typedef {import('./normalize.ts').NormalizeState} NormalizeState */
-/** @typedef {import('./normalize.ts').SyncEvent} SyncEvent */
-/** @typedef {import('./normalize.ts').EventDetail} EventDetail */
-/** @typedef {import('./normalize.ts').Entity} Entity */
-/** @typedef {import('./normalize.ts').RewriteJob} RewriteJob */
-/** @typedef {import('./normalize.ts').SyncBatch} SyncBatch */
+export type ActivityKind = import('./normalize.ts').ActivityKind;
+export type StreamName = import('./azure-client.ts').AzureStream;
+export type AzureProvider = import('./azure-client.ts').AzureProvider;
+export type PageCursor = import('./azure-client.ts').PageCursor;
+export type AzureRecord = import('./azure-client.ts').AzureRecord;
+export type WatchedRepo = import('./normalize.ts').WatchedRepo;
+export type NormalizeState = import('./normalize.ts').NormalizeState;
+export type SyncEvent = import('./normalize.ts').SyncEvent;
+export type EventDetail = import('./normalize.ts').EventDetail;
+export type Entity = import('./normalize.ts').Entity;
+export type RewriteJob = import('./normalize.ts').RewriteJob;
+export type SyncBatch = import('./normalize.ts').SyncBatch;
 /** The time range one read covers. It stays fixed across the pages of that read. */
-/** @typedef {import('../src/contract.ts').StreamWindow} StreamWindow */
-/** @typedef {import('../src/contract.ts').StreamState} StreamState */
+export type StreamWindow = import('../src/contract.ts').StreamWindow;
+export type StreamState = import('../src/contract.ts').StreamState;
 /** A stream while a read is in flight: the window and the refresh generation it answers are fixed. */
-/** @typedef {StreamState & { window: StreamWindow, windowGeneration: number, lastAttempt: string, pending: true }} StartedStream */
-/**
- * @typedef {{
- *   listRepos: () => WatchedRepo[],
- *   getSetting: (key: string, fallback: unknown) => unknown,
- *   setSetting: (key: string, value: string) => void,
- *   getStreams: () => StreamState[],
- *   saveStream: (state: StreamState) => void,
- *   getEntity: (repoId: string, type: string, id: string) => any,
- *   listEntities: (repoId: string, type: string) => {id: string, data: any}[],
- *   commitPage: (page: SyncBatch & { repoId: string, stream: StreamName, state: StreamState }) => void
- * }} SyncStore
- */
+export type StartedStream = StreamState & { window: StreamWindow; windowGeneration: number; lastAttempt: string; pending: true };
+export type SyncStore = {
+  listRepos: () => WatchedRepo[];
+  getSetting: (key: string, fallback: unknown) => unknown;
+  setSetting: (key: string, value: string) => void;
+  getStreams: () => StreamState[];
+  saveStream: (state: StreamState) => void;
+  getEntity: (repoId: string, type: string, id: string) => any;
+  listEntities: (repoId: string, type: string) => { id: string; data: any }[];
+  commitPage: (page: SyncBatch & { repoId: string; stream: StreamName; state: StreamState }) => void;
+};
 /** GET /api/state reports this as `diagnostics.sync`. */
-/** @typedef {import('../src/contract.ts').SyncEngineStatus} SyncStatus */
-/** @typedef {import('../src/contract.ts').RefreshStatus} RefreshStatus */
+export type SyncStatus = import('../src/contract.ts').SyncEngineStatus;
+export type RefreshStatus = import('../src/contract.ts').RefreshStatus;
 /** Sync needs `read`; the active-build and PR follow-ups run only when the provider offers them. */
-/** @typedef {Pick<AzureProvider, 'read'> & Partial<Pick<AzureProvider, 'buildsById'|'pullRequest'>>} SyncProvider */
-/** @typedef {'rewrite'|'history'} BackgroundKind */
+export type SyncProvider = Pick<AzureProvider, 'read'> & Partial<Pick<AzureProvider, 'buildsById' | 'pullRequest'>>;
+export type BackgroundKind = 'rewrite' | 'history';
 
-/** @type {StreamName[]} */
-const STREAMS = ['pushes', 'refs', 'prs', 'closedPrs', 'builds', 'activeBuilds'];
+const STREAMS: StreamName[] = ['pushes', 'refs', 'prs', 'closedPrs', 'builds', 'activeBuilds'];
 const DAY = 86400000;
 const LIVE_TURNS = 6;
-/** @param {number} ms */
-const iso = ms => new Date(ms).toISOString();
+const iso = (ms: number) => new Date(ms).toISOString();
 
 /**
  * Opens a read. A stream resuming a paged read keeps its window and the generation it
  * opened with; a window persisted before generations existed counts as generation zero.
- * @param {StreamState} state @param {number} at @param {number} overlapMs @returns {StartedStream}
  */
-function startPage(state, at, overlapMs) {
+function startPage(state: StreamState, at: number, overlapMs: number): StartedStream {
   const window = state.window || {
     since: iso(state.lastSuccess ? Date.parse(state.lastSuccess) - overlapMs : at - 7 * DAY),
     until: iso(at),
@@ -62,11 +56,12 @@ function startPage(state, at, overlapMs) {
 /**
  * Stores the cursor for the next page of the same window. `latest` is the stored state,
  * whose refresh request may be newer than the one this page started with.
- * @param {StartedStream} state @param {StreamState} latest
- * @param {{ at: number, cursor: PageCursor|null, pendingItems?: AzureRecord[], activeIds?: string[] }} page
- * @returns {StreamState}
  */
-function nextPage(state, latest, { at, cursor, pendingItems, activeIds }) {
+function nextPage(
+  state: StartedStream,
+  latest: StreamState,
+  { at, cursor, pendingItems, activeIds }: { at: number; cursor: PageCursor | null; pendingItems?: AzureRecord[]; activeIds?: string[] },
+): StreamState {
   return {
     ...state,
     refreshGeneration: latest.refreshGeneration,
@@ -82,11 +77,12 @@ function nextPage(state, latest, { at, cursor, pendingItems, activeIds }) {
 /**
  * Ends a read. The window, cursor and per-read fields are dropped. A refresh requested
  * after the window opened schedules another read now and keeps its manual flag.
- * @param {StartedStream} state @param {StreamState} latest
- * @param {{ at: number, delayMs: number, quietCycles: number }} result
- * @returns {StreamState}
  */
-function completePage(state, latest, { at, delayMs, quietCycles }) {
+function completePage(
+  state: StartedStream,
+  latest: StreamState,
+  { at, delayMs, quietCycles }: { at: number; delayMs: number; quietCycles: number },
+): StreamState {
   const refreshDue = (latest.refreshGeneration || 0) > state.windowGeneration;
   return {
     repoId: state.repoId,
@@ -109,14 +105,12 @@ function completePage(state, latest, { at, delayMs, quietCycles }) {
  * is left to the user while automatic checks are off. A refresh requested after the window
  * opened stays due as a manual request, and the retry restarts at page one of a window that keeps the
  * old lower bound and ends at this failure, after the request.
- * @param {StartedStream} state @param {StreamState} latest @param {number} at @param {unknown} error @param {number} intervalMs
- * @returns {StreamState}
  */
-function failPage(state, latest, at, error, intervalMs) {
+function failPage(state: StartedStream, latest: StreamState, at: number, error: unknown, intervalMs: number): StreamState {
   const failures = (state.failures || 0) + 1;
   const delay = Math.min(30 * 60000, intervalMs * 2 ** Math.min(failures - 1, 4));
   // Caught values are untyped; provider errors carry a user-facing message only when they have a code.
-  const { code, message } = /** @type {{ code?: string, message: string }} */ (error);
+  const { code, message } = error as { code?: string; message: string };
   const failed = {
     ...state,
     manual: false,
@@ -138,17 +132,13 @@ function failPage(state, latest, at, error, intervalMs) {
 
 /**
  * Asks for a read now. The generation lets a read already in flight tell that it started too early.
- * @param {StreamState} state @param {number} at @param {boolean} manual @returns {StreamState}
  */
-function requestRefresh(state, at, manual) {
+function requestRefresh(state: StreamState, at: number, manual: boolean): StreamState {
   return { ...state, nextAt: iso(at), refreshGeneration: (state.refreshGeneration || 0) + 1, manual };
 }
 
 /**
  * Every tick does one bounded page, so busy streams cannot monopolize catch-up.
- * @param {{ store: SyncStore, provider: SyncProvider, now?: () => number, intervalMs?: number,
- *   isForeground?: () => boolean, refsIntervalMs?: number, pollMs?: number, overlapMs?: number,
- *   background?: Partial<Record<BackgroundKind, () => unknown>> }} options
  */
 export function createSync({
   store,
@@ -160,36 +150,38 @@ export function createSync({
   pollMs = 1000,
   overlapMs = 120000,
   background = {},
+}: {
+  store: SyncStore;
+  provider: SyncProvider;
+  now?: () => number;
+  intervalMs?: number;
+  isForeground?: () => boolean;
+  refsIntervalMs?: number;
+  pollMs?: number;
+  overlapMs?: number;
+  background?: Partial<Record<BackgroundKind, () => unknown>>;
 }) {
   const { normalize, reconcileRefs } = createNormalizer({ store, now });
-  /** @type {ReturnType<typeof setTimeout>|undefined} */
-  let timer;
-  /** @type {Promise<void>|null|undefined} */
-  let active;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let active: Promise<void> | null | undefined;
   // `stopped` is whether stop() asked the scheduler to end; `resetting` only pauses it, so a stop during a reset still wins.
   let stopped = false;
   let resetting = false;
   const halted = () => stopped || resetting;
-  /** @type {Map<string, number>} */
-  const refreshedAt = new Map();
-  /** @type {{ repoId: string, stream: StreamName } | null} */
-  let reading = null;
+  const refreshedAt: Map<string, number> = new Map();
+  let reading: { repoId: string; stream: StreamName } | null = null;
   /**
    * User refreshes not yet answered, by `repoId:stream`, with the refresh generation each asked for.
    * Kept here because the persisted manual flag only marks them while automatic checks are off.
-   * @type {Map<string, { repoId: string, stream: StreamName, generation: number }>}
    */
-  const requested = new Map();
-  /** @type {string|undefined} */
-  let lastKey;
+  const requested: Map<string, { repoId: string; stream: StreamName; generation: number }> = new Map();
+  let lastKey: string | undefined;
   let liveTurns = 0;
-  /** @type {BackgroundKind} */
-  let nextBackground = 'rewrite';
-  /** @type {Partial<Record<BackgroundKind|'live', string>>} */
-  const lastTurn = {};
+  let nextBackground: BackgroundKind = 'rewrite';
+  const lastTurn: Partial<Record<BackgroundKind | 'live', string>> = {};
   const counters = { pages: 0, errors: 0 };
-  /** The last cached active PR looked up by ID, per repository, so missing PRs take turns. @type {Map<string, string>} */
-  const prLookedUp = new Map();
+  /** The last cached active PR looked up by ID, per repository, so missing PRs take turns. */
+  const prLookedUp: Map<string, string> = new Map();
 
   function ensureStreams() {
     const current = store.getStreams();
@@ -205,11 +197,9 @@ export function createSync({
   /**
    * Rewrite checks and history import alternate, so neither queue can take every background turn.
    * History import is explicit, so it also runs while automatic checks are off; rewrite checks wait for them.
-   * @param {boolean} automatic
    */
-  async function runBackground(automatic) {
-    /** @type {BackgroundKind} */
-    const other = nextBackground === 'rewrite' ? 'history' : 'rewrite';
+  async function runBackground(automatic: boolean) {
+    const other: BackgroundKind = nextBackground === 'rewrite' ? 'history' : 'rewrite';
     for (const kind of [nextBackground, other]) {
       if (kind === 'rewrite' && !automatic) continue;
       if (!(await background[kind]?.())) continue;
@@ -220,13 +210,11 @@ export function createSync({
     }
     return false;
   }
-  /** @param {WatchedRepo} repo */
-  function watching(repo) {
+  function watching(repo: WatchedRepo) {
     return !halted() && store.listRepos().some(entry => entry.id === repo.id && !entry.disabled);
   }
   // Least recently attempted first, limited to enabled repositories and, with automatic refresh off, manual requests.
-  /** @param {boolean} automatic */
-  function dueStreams(automatic) {
+  function dueStreams(automatic: boolean) {
     const repos = new Map(
       store
         .listRepos()
@@ -239,36 +227,32 @@ export function createSync({
     due.sort((a, b) => (Date.parse(String(a.lastAttempt || 0)) || 0) - (Date.parse(String(b.lastAttempt || 0)) || 0));
     return { due, repos };
   }
-  /** @param {StreamState[]} due @param {Map<string, WatchedRepo>} repos */
-  function takeLiveTurn(due, repos) {
+  function takeLiveTurn(due: StreamState[], repos: Map<string, WatchedRepo>) {
     liveTurns = Math.min(liveTurns + 1, LIVE_TURNS);
     lastTurn.live = iso(now());
     // Rotating equal-priority entries avoids repeatedly selecting a multi-page first stream.
     const index = due.findIndex(state => `${state.repoId}:${state.stream}` === lastKey);
     const state = due[index === 0 && due.length > 1 ? 1 : 0];
     // `due` only holds streams of enabled repositories in `repos`.
-    const repo = /** @type {WatchedRepo} */ (repos.get(state.repoId));
+    const repo = repos.get(state.repoId) as WatchedRepo;
     lastKey = `${state.repoId}:${state.stream}`;
     return { state, repo };
   }
   /**
    * Reads one page plus, on the last page of a snapshot stream, the entities it no longer lists.
    * Returns null when the repository stopped being watched during a read.
-   * @param {WatchedRepo} repo @param {StreamState} state @param {StreamWindow} window
    */
-  async function readPage(repo, state, window) {
+  async function readPage(repo: WatchedRepo, state: StreamState, window: StreamWindow) {
     const page = await provider.read(repo, state.stream, { since: window.since, until: window.until, cursor: state.cursor || null });
     if (!page || !Array.isArray(page.items)) throw new Error('Azure returned an invalid page.');
     // Removal while the provider was in flight must not resurrect a local watch.
     if (!watching(repo)) return null;
     const complete = !page.nextCursor;
-    /** @type {string[]|undefined} */
-    const activeIds = ['activeBuilds', 'prs'].includes(state.stream)
+    const activeIds: string[] | undefined = ['activeBuilds', 'prs'].includes(state.stream)
       ? [...(state.activeIds || []), ...page.items.map(item => String(item.id || item.pullRequestId))]
       : undefined;
     let items = page.items;
-    /** @type {Entity[]} */
-    let gone = [];
+    let gone: Entity[] = [];
     if (complete && state.stream === 'activeBuilds' && provider.buildsById) {
       const missing = store
         .listEntities(repo.id, 'build')
@@ -305,29 +289,25 @@ export function createSync({
           items = [...items, await provider.pullRequest(repo, id)];
         } catch (error) {
           // Only "this PR cannot be read" (deleted, or now in another repository) is left for a later turn.
-          if (!['NOT_FOUND', 'WRONG_REPOSITORY'].includes(/** @type {{ code?: string }} */ (error)?.code || '')) throw error;
+          if (!['NOT_FOUND', 'WRONG_REPOSITORY'].includes((error as { code?: string })?.code || '')) throw error;
         }
       }
     }
     return { page, complete, activeIds, items, gone };
   }
-  /**
-   * @param {WatchedRepo} repo @param {StreamState} state @param {StartedStream} working
-   * @param {{ page: { items: AzureRecord[], restarted?: boolean }, complete: boolean, items: AzureRecord[] }} read
-   */
-  function pageBatch(repo, state, working, { page, complete, items }) {
+  function pageBatch(
+    repo: WatchedRepo,
+    state: StreamState,
+    working: StartedStream,
+    { page, complete, items }: { page: { items: AzureRecord[]; restarted?: boolean }; complete: boolean; items: AzureRecord[] },
+  ) {
     if (state.stream !== 'refs') return { output: normalize(repo, state.stream, items, working), pendingItems: undefined };
-    // A provider that restarted the snapshot at page one (see azure-client.js refs) invalidates the pages saved so far.
+    // A provider that restarted the snapshot at page one (see azure-client.ts refs) invalidates the pages saved so far.
     const pendingItems = [...(page.restarted ? [] : state.pendingItems || []), ...page.items];
-    /** @type {SyncBatch} */
-    const output = complete ? reconcileRefs(repo, pendingItems, working) : { events: [], entities: [] };
+    const output: SyncBatch = complete ? reconcileRefs(repo, pendingItems, working) : { events: [], entities: [] };
     return { output, pendingItems };
   }
-  /**
-   * @param {WatchedRepo} repo @param {StreamState} state @param {StartedStream} working
-   * @param {Awaited<ReturnType<typeof readPage>> & {}} read
-   */
-  function commitRead(repo, state, working, read) {
+  function commitRead(repo: WatchedRepo, state: StreamState, working: StartedStream, read: Awaited<ReturnType<typeof readPage>> & {}) {
     const { page, complete, activeIds } = read;
     const { output, pendingItems } = pageBatch(repo, state, working, read);
     output.entities = [...output.entities, ...read.gone];
@@ -426,9 +406,8 @@ export function createSync({
     normalize,
     /**
      * Runs `clear` with no turn in flight, then forgets the refreshes and rotation the cleared data asked for.
-     * @param {() => void} clear
      */
-    async reset(clear) {
+    async reset(clear: () => void) {
       const scheduled = Boolean(timer);
       resetting = true;
       clearTimeout(timer);
@@ -447,8 +426,7 @@ export function createSync({
         if (scheduled) schedule();
       }
     },
-    /** @param {string[]} [repoIds] @returns {RefreshStatus} */
-    refresh(repoIds) {
+    refresh(repoIds?: string[]): RefreshStatus {
       const repos = store.listRepos();
       if (repoIds && repoIds.some(id => !repos.some(repo => repo.id === id)))
         throw Object.assign(new Error('Repository is not watched.'), { code: 'NOT_FOUND' });
@@ -472,11 +450,9 @@ export function createSync({
       }
       return { scheduled: true };
     },
-    /** @returns {SyncStatus} */
-    status() {
+    status(): SyncStatus {
       // The page in flight and unanswered user refreshes are not visible in the persisted streams.
-      /** @type {{ repoId: string, stream: StreamName }[]} */
-      const inProgress = [];
+      const inProgress: { repoId: string; stream: StreamName }[] = [];
       const enabled = new Set(
         store
           .listRepos()

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { win32 } from 'node:path';
-import { createAzureCli } from '../server/azure-cli.js';
+import { createAzureCli } from '../server/azure-cli.ts';
 
 const flush = () => new Promise(resolve => setImmediate(resolve));
 const read = repo => [
@@ -20,7 +20,7 @@ const read = repo => [
 ];
 
 test('budget-delayed reads keep a standalone caller alive until completion', async () => {
-  const moduleUrl = new URL('../server/azure-cli.js', import.meta.url).href;
+  const moduleUrl = new URL('../server/azure-cli.ts', import.meta.url).href;
   const script = `import {createAzureCli} from ${JSON.stringify(moduleUrl)};
     let offset=0;
     const cli=createAzureCli({limitPerMinute:1,now:()=>Date.now()+offset,executor:async()=>({ok:true})});
@@ -173,7 +173,7 @@ test('closing the CLI reports running reads as closed, not timed out', async () 
 });
 
 test('Windows runs the interpreter each official az launcher calls, never through a shell', async () => {
-  const { resolveAzCommand } = await import('../server/azure-cli.js');
+  const { resolveAzCommand } = await import('../server/azure-cli.ts');
   const on =
     (...files) =>
     async path =>

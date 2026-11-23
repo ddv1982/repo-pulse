@@ -10,10 +10,10 @@ import { TEST_KEY, fetchWithKey, rememberKey, rememberRuntime } from '../test/fi
 import { checkoutFixture, git } from '../test/fixtures/checkout.js';
 
 const fetch = fetchWithKey;
-import { createStore } from '../server/store.js';
-import { createSync } from '../server/sync.js';
-import { createAzureCli } from '../server/azure-cli.js';
-import { createAzureClient } from '../server/azure-client.js';
+import { createStore } from '../server/store.ts';
+import { createSync } from '../server/sync.ts';
+import { createAzureCli } from '../server/azure-cli.ts';
+import { createAzureClient } from '../server/azure-client.ts';
 
 async function browserPath() {
   if (process.env.CHROME) return process.env.CHROME;

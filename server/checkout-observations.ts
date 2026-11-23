@@ -1,18 +1,25 @@
-// @ts-check
+import { ancestry } from './checkout-advice.ts';
 
-import { ancestry } from './checkout-advice.js';
+export type PullAdvice = import('./checkout-advice.ts').PullAdvice;
+export type GitRunner = import('./checkout-git.ts').GitRunner;
+export type Rewrite = import('../src/contract.ts').Rewrite;
+export type Observation = {
+  identity: string;
+  tracking?: string;
+  lastCheck?: { branch: string; at: string; tip: string; gitDirectory: string };
+  pending?: string[];
+  missing?: { head: string; advice?: PullAdvice };
+  rewrite?: Rewrite;
+  failure?: { title: string; suggestion: string };
+};
+export type Observations = {
+  get: (id: string, identity: string) => Observation | undefined;
+  save: (id: string, value: Observation) => void;
+};
+export type CheckoutDiagnostic = import('../src/contract.ts').CheckoutDiagnostic;
 
-/** @typedef {import('./checkout-advice.js').PullAdvice} PullAdvice */
-/** @typedef {import('./checkout-git.js').GitRunner} GitRunner */
-/** @typedef {import('../src/contract.ts').Rewrite} Rewrite */
-/** @typedef {{ identity: string, tracking?: string, lastCheck?: { branch: string, at: string, tip: string, gitDirectory: string }, pending?: string[], missing?: { head: string, advice?: PullAdvice }, rewrite?: Rewrite, failure?: { title: string, suggestion: string } }} Observation */
-/** @typedef {{ get: (id: string, identity: string) => Observation|undefined, save: (id: string, value: Observation) => void }} Observations */
-/** @typedef {import('../src/contract.ts').CheckoutDiagnostic} CheckoutDiagnostic */
-
-/** @returns {Observations} */
-export function memoryObservations() {
-  /** @type {Map<string, Observation>} */
-  const values = new Map();
+export function memoryObservations(): Observations {
+  const values: Map<string, Observation> = new Map();
   return {
     get: (id, identity) => values.get(JSON.stringify([id, identity])),
     save: (id, value) => {
@@ -21,8 +28,7 @@ export function memoryObservations() {
   };
 }
 
-/** @param {GitRunner} run @param {string} path @param {string} previous @param {string} tip @param {boolean} verified */
-export async function compareUpstream(run, path, previous, tip, verified) {
+export async function compareUpstream(run: GitRunner, path: string, previous: string, tip: string, verified: boolean) {
   const output = await run(path, [
     'log',
     '--no-show-signature',
@@ -34,8 +40,7 @@ export async function compareUpstream(run, path, previous, tip, verified) {
     '--',
   ]).catch(() => '');
   const parts = output.split('\0');
-  /** @type {Rewrite['commits']} */
-  const commits = [];
+  const commits: Rewrite['commits'] = [];
   for (let i = 0; i + 2 < parts.length && commits.length < 12; i += 3) {
     const [side, id, subject] = parts.slice(i, i + 3);
     if ((side === '<' || side === '>') && /^[0-9a-f]{4,64}$/.test(id)) {
@@ -45,11 +50,9 @@ export async function compareUpstream(run, path, previous, tip, verified) {
   return { previous, tip, verified, commits };
 }
 
-/** @param {GitRunner} run @param {string} path @param {string[]} baselines @param {string} tip */
-export async function observedRewrite(run, path, baselines, tip) {
+export async function observedRewrite(run: GitRunner, path: string, baselines: string[], tip: string) {
   const pending = [];
-  /** @type {string|undefined} */
-  let rewritten;
+  let rewritten: string | undefined;
   for (const previous of baselines) {
     const fastForwarded = await ancestry(run, path, previous, tip);
     if (fastForwarded === false) rewritten ??= previous;
@@ -59,12 +62,13 @@ export async function observedRewrite(run, path, baselines, tip) {
   return { pending, rewrite: previous ? await compareUpstream(run, path, previous, tip, Boolean(rewritten)) : undefined };
 }
 
-/**
- * @param {string} state @param {import('./checkout-git.js').GitStatus} status
- * @param {Observation|undefined} observed @param {string|undefined} operation @param {Rewrite|undefined} rewrite
- * @returns {CheckoutDiagnostic|undefined}
- */
-export function checkoutDiagnostic(state, status, observed, operation, rewrite) {
+export function checkoutDiagnostic(
+  state: string,
+  status: import('./checkout-git.ts').GitStatus,
+  observed: Observation | undefined,
+  operation: string | undefined,
+  rewrite: Rewrite | undefined,
+): CheckoutDiagnostic | undefined {
   if (state === 'in-progress' && operation)
     return {
       title: `${operation} in progress`,

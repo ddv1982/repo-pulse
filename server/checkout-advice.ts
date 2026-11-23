@@ -1,17 +1,24 @@
-// @ts-check
-
 import { branchName, safeAzureUrl } from '../src/events.ts';
 
-/** @typedef {import('./checkout-git.js').LinkedRepo} LinkedRepo */
-/** @typedef {import('./checkout-git.js').GitRunner} GitRunner */
-/** @typedef {{ id: number, source: string, target: string, sourceId?: string, targetId?: string, head?: string, result?: string, strategy?: string, url?: string }} CheckoutPull */
-/** @typedef {import('../src/contract.ts').PullAdvice} PullAdvice */
-/** @typedef {(repo: LinkedRepo, source: string, head: string) => Promise<CheckoutPull[]>} FindCheckoutPulls */
-export const isCommit = (/** @type {unknown} */ value) =>
+export type LinkedRepo = import('./checkout-git.ts').LinkedRepo;
+export type GitRunner = import('./checkout-git.ts').GitRunner;
+export type CheckoutPull = {
+  id: number;
+  source: string;
+  target: string;
+  sourceId?: string;
+  targetId?: string;
+  head?: string;
+  result?: string;
+  strategy?: string;
+  url?: string;
+};
+export type PullAdvice = import('../src/contract.ts').PullAdvice;
+export type FindCheckoutPulls = (repo: LinkedRepo, source: string, head: string) => Promise<CheckoutPull[]>;
+export const isCommit = (value: unknown) =>
   typeof value === 'string' && /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i.test(value) && !/^0+$/.test(value);
 
-/** @param {LinkedRepo} repo @param {CheckoutPull} pr */
-function hasSameRepoResult(repo, pr) {
+function hasSameRepoResult(repo: LinkedRepo, pr: CheckoutPull) {
   return Boolean(
     typeof repo.azureId === 'string' &&
     repo.azureId &&
@@ -23,13 +30,11 @@ function hasSameRepoResult(repo, pr) {
   );
 }
 
-/** @param {LinkedRepo} repo @param {CheckoutPull} pr @param {string} head */
-export function isExactCheckoutPull(repo, pr, head) {
+export function isExactCheckoutPull(repo: LinkedRepo, pr: CheckoutPull, head: string) {
   return pr.head === head && hasSameRepoResult(repo, pr);
 }
 
-/** @param {GitRunner} run @param {string} path @param {string} ancestor @param {string} tip */
-export async function ancestry(run, path, ancestor, tip) {
+export async function ancestry(run: GitRunner, path: string, ancestor: string, tip: string) {
   if (ancestor === tip) return true;
   try {
     await run(path, ['merge-base', '--is-ancestor', ancestor, tip]);
@@ -42,12 +47,25 @@ export async function ancestry(run, path, ancestor, tip) {
   }
 }
 
-/**
- * @param {{ run: GitRunner, find: FindCheckoutPulls, path: string, url: string,
- *   repo: LinkedRepo, source: string, head: string, branch: string|null }} context
- * @returns {Promise<PullAdvice|undefined>}
- */
-export async function adviseMissingUpstream({ run, find, path, url, repo, source, head, branch }) {
+export async function adviseMissingUpstream({
+  run,
+  find,
+  path,
+  url,
+  repo,
+  source,
+  head,
+  branch,
+}: {
+  run: GitRunner;
+  find: FindCheckoutPulls;
+  path: string;
+  url: string;
+  repo: LinkedRepo;
+  source: string;
+  head: string;
+  branch: string | null;
+}): Promise<PullAdvice | undefined> {
   const candidates = (await find(repo, source, head)).filter(
     pr =>
       Number.isSafeInteger(pr?.id) &&
@@ -62,8 +80,7 @@ export async function adviseMissingUpstream({ run, find, path, url, repo, source
   const eligible = exact.length ? exact : sameRepo;
   const choice = eligible[0] || candidates[0];
   if (!choice) return undefined;
-  /** @type {PullAdvice} */
-  const advice = {
+  const advice: PullAdvice = {
     branch: branchName(choice.target),
     id: choice.id,
     url: safeAzureUrl(choice.url),
@@ -115,9 +132,13 @@ export async function adviseMissingUpstream({ run, find, path, url, repo, source
   return advice;
 }
 
-/** @param {GitRunner} run @param {string} path @param {string} target @param {string|null} branch @param {string} url
- * @returns {Promise<PullAdvice['destination']>} */
-async function checkoutDestination(run, path, target, branch, url) {
+async function checkoutDestination(
+  run: GitRunner,
+  path: string,
+  target: string,
+  branch: string | null,
+  url: string,
+): Promise<PullAdvice['destination']> {
   if (branchName(target) === branch) return 'different-upstream';
   try {
     await run(path, ['show-ref', '--verify', '--quiet', target]);
@@ -136,9 +157,13 @@ async function checkoutDestination(run, path, target, branch, url) {
   return worktrees.split('\0').includes(`branch ${target}`) ? 'other-worktree' : 'local';
 }
 
-/** @param {{ cached: (id: string, source: string) => CheckoutPull[], lookup?: (repo: LinkedRepo, source: string) => Promise<CheckoutPull[]> }} options */
-export function createCheckoutLookup({ cached, lookup }) {
-  /** @type {FindCheckoutPulls} */
+export function createCheckoutLookup({
+  cached,
+  lookup,
+}: {
+  cached: (id: string, source: string) => CheckoutPull[];
+  lookup?: (repo: LinkedRepo, source: string) => Promise<CheckoutPull[]>;
+}): FindCheckoutPulls {
   return async (repo, source, head) => {
     const local = cached(repo.id, source);
     if (!lookup || local.some(pr => isExactCheckoutPull(repo, pr, head))) return local;

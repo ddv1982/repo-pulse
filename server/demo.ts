@@ -1,8 +1,8 @@
-export type Store = ReturnType<typeof import('./store.js').createStore>;
+export type Store = ReturnType<typeof import('./store.ts').createStore>;
 export type ActivityEvent = import('../src/activity.ts').ActivityEvent;
 /** Fixtures carry provider fields beyond EventData, as stored events do. */
 export type DemoEvent = ActivityEvent & { data?: import('../src/activity.ts').EventData & Record<string, unknown> };
-export type AzureStream = import('./azure-client.js').AzureStream;
+export type AzureStream = import('./azure-client.ts').AzureStream;
 
 const STREAMS: AzureStream[] = ['pushes', 'refs', 'prs', 'closedPrs', 'builds', 'activeBuilds'];
 const ago = (minutes: number) => new Date(Date.now() - minutes * 60_000).toISOString();
@@ -290,11 +290,11 @@ export function addDemoEvent(store: Store): ActivityEvent {
 
 export const demoProvider = {
   /** Like the live client, the check never claims an identity. */
-  async checkConnection(): Promise<import('./azure-client.js').ConnectionStatus> {
+  async checkConnection(): Promise<import('./azure-client.ts').ConnectionStatus> {
     return { available: true, identity: null, identityVerified: false, message: 'Isolated demo mode. Azure CLI is never invoked.' };
   },
   /** Fictional review data for the demo PR; no Azure read. */
-  async prReview(): Promise<import('./azure-client.js').PullRequestReview> {
+  async prReview(): Promise<import('./azure-client.ts').PullRequestReview> {
     return {
       threads: { open: 2, resolved: 3 },
       policies: [

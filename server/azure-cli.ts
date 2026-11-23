@@ -1,41 +1,36 @@
-// @ts-check
-
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { stat } from 'node:fs/promises';
 import { win32 } from 'node:path';
 
-/**
- * @typedef {Error & { code: string }} CliError
- * @typedef {{ code?: string, name?: string, stderr?: unknown, killed?: boolean, message?: string }} ExecFailure
- * @typedef {{ signal: AbortSignal, timeoutMs: number, retryAfter?: (ms: number) => void, throttledUntil?: () => number }} ExecutorOptions
- * @typedef {(args: string[], options: ExecutorOptions) => Promise<unknown>} Executor
- * @typedef {{ file: string, prefix: string[], env: Record<string, string>, cwd?: string }} AzCommand
- * @typedef {{ args: string[], key: string, resolve: (value: unknown) => void, reject: (reason: unknown) => void }} QueueJob
- * @typedef {import('../src/contract.ts').CliLastError} LastError
- */
+export type CliError = Error & { code: string };
+
+export type ExecFailure = { code?: string; name?: string; stderr?: unknown; killed?: boolean; message?: string };
+
+export type ExecutorOptions = { signal: AbortSignal; timeoutMs: number; retryAfter?: (ms: number) => void; throttledUntil?: () => number };
+
+export type Executor = (args: string[], options: ExecutorOptions) => Promise<unknown>;
+
+export type AzCommand = { file: string; prefix: string[]; env: Record<string, string>; cwd?: string };
+
+export type QueueJob = { args: string[]; key: string; resolve: (value: unknown) => void; reject: (reason: unknown) => void };
+
+export type LastError = import('../src/contract.ts').CliLastError;
 
 const exec = promisify(execFile);
 const MAX_RETRY_AFTER_MS = 10 * 60000;
-/** @type {Record<string, Set<string>>} */
-const RESOURCES = {
+const RESOURCES: Record<string, Set<string>> = {
   git: new Set(['pushes', 'refs', 'pullrequests', 'pullrequestthreads', 'commits']),
   build: new Set(['builds']),
   policy: new Set(['evaluations']),
   location: new Set(['connectiondata']),
 };
 
-/**
- * @param {string} code
- * @param {string} message
- * @returns {CliError}
- */
-export function cliError(code, message) {
+export function cliError(code: string, message: string): CliError {
   return Object.assign(new Error(message), { code });
 }
 
-/** @param {ExecFailure | null | undefined} error */
-export function classifyCliError(error) {
+export function classifyCliError(error: ExecFailure | null | undefined) {
   if (error?.code === 'CLOSED') return error;
   // execFile's message repeats the command line, whose arguments must not drive classification.
   const text = String(error?.stderr || '');
@@ -60,8 +55,7 @@ export function classifyCliError(error) {
   return cliError('CLI_ERROR', 'Azure CLI could not complete this read. Check access and try again.');
 }
 
-/** @param {unknown} args */
-function allowed(args) {
+function allowed(args: unknown) {
   if (!Array.isArray(args) || args.some(a => typeof a !== 'string' || a.includes('\0'))) return false;
   if (args.some(a => ['--debug', '--verbose', '--query', '--in-file', '--out-file', '--subscription'].includes(a))) return false;
   const command = args.slice(0, 3).join(' ');
@@ -71,14 +65,12 @@ function allowed(args) {
   if (args.slice(0, 3).join(' ') === 'repos pr show' && args.includes('--id')) return true;
   if (['repos show --repository', 'devops project list'].includes(command)) return true;
   if (args.slice(0, 2).join(' ') !== 'devops invoke') return false;
-  /** @param {string} flag */
-  const value = flag => args[args.indexOf(flag) + 1];
+  const value = (flag: string) => args[args.indexOf(flag) + 1];
   if (!args.includes('--http-method') || value('--http-method') !== 'GET') return false;
   return RESOURCES[value('--area')]?.has(value('--resource')?.toLowerCase()) === true && args.includes('--api-version');
 }
 
-/** @param {string} path */
-const isFile = path =>
+const isFile = (path: string) =>
   stat(path).then(
     entry => entry.isFile(),
     () => false,
@@ -88,10 +80,12 @@ const isFile = path =>
  * Windows ships az as a batch file, which Node runs only through cmd.exe, and cmd.exe would
  * reparse arguments such as project names (CVE-2024-27980). Instead run the interpreter each
  * official launcher calls, with the same flags, so arguments go to Python unparsed.
- * @param {{ platform?: NodeJS.Platform, env?: NodeJS.ProcessEnv, exists?: (path: string) => Promise<boolean> }} [options]
- * @returns {Promise<AzCommand>}
  */
-export async function resolveAzCommand({ platform = process.platform, env = process.env, exists = isFile } = {}) {
+export async function resolveAzCommand({
+  platform = process.platform,
+  env = process.env,
+  exists = isFile,
+}: { platform?: NodeJS.Platform; env?: NodeJS.ProcessEnv; exists?: (path: string) => Promise<boolean> } = {}): Promise<AzCommand> {
   if (platform !== 'win32') return { file: 'az', prefix: [], env: {} };
   const pathKey = Object.keys(env).find(key => key.toUpperCase() === 'PATH');
   const dirs = String(env[String(pathKey)] || '')
@@ -126,10 +120,8 @@ export async function resolveAzCommand({ platform = process.platform, env = proc
   throw Object.assign(new Error('Azure CLI was not found on PATH.'), { code: 'ENOENT' });
 }
 
-/** @type {Promise<AzCommand> | undefined} */
-let azCommand;
-/** @type {(args: string[], options: ExecutorOptions) => Promise<string>} */
-export async function defaultExecutor(args, { signal, timeoutMs }) {
+let azCommand: Promise<AzCommand> | undefined;
+export async function defaultExecutor(args: string[], { signal, timeoutMs }: ExecutorOptions): Promise<string> {
   // Resolve once per process; a failed lookup is retried so a later install is picked up.
   azCommand ||= resolveAzCommand().catch(error => {
     azCommand = undefined;
@@ -149,10 +141,6 @@ export async function defaultExecutor(args, { signal, timeoutMs }) {
 
 /**
  * One process-wide queue: callers cannot bypass rate or concurrency limits.
- * @param {{
- *   limitPerMinute?: number, concurrency?: number, timeoutMs?: number, executor?: Executor, now?: () => number,
- *   setTimer?: (callback: () => void, ms: number) => NodeJS.Timeout, clearTimer?: (timer: NodeJS.Timeout) => void,
- * }} [options]
  */
 export function createAzureCli({
   limitPerMinute = 12,
@@ -162,30 +150,28 @@ export function createAzureCli({
   now = Date.now,
   setTimer = setTimeout,
   clearTimer = clearTimeout,
+}: {
+  limitPerMinute?: number;
+  concurrency?: number;
+  timeoutMs?: number;
+  executor?: Executor;
+  now?: () => number;
+  setTimer?: (callback: () => void, ms: number) => NodeJS.Timeout;
+  clearTimer?: (timer: NodeJS.Timeout) => void;
 } = {}) {
   if (!Number.isInteger(limitPerMinute) || limitPerMinute < 1 || !Number.isInteger(concurrency) || concurrency < 1)
     throw new Error('Invalid CLI limits');
-  /** @type {QueueJob[]} */
-  const pending = [],
-    /** @type {Map<string, Promise<unknown>>} */
-    inFlight = new Map(),
-    /** @type {Set<AbortController>} */
-    running = new Set(),
-    /** @type {number[]} */
-    starts = [];
-  /** @type {NodeJS.Timeout | undefined} */
-  let timer,
+  const pending: QueueJob[] = [],
+    inFlight: Map<string, Promise<unknown>> = new Map(),
+    running: Set<AbortController> = new Set(),
+    starts: number[] = [];
+  let timer: NodeJS.Timeout | undefined,
     closed = false,
     totalStarts = 0,
     // Azure DevOps asks for this wait in a Retry-After header, which any response can carry.
     throttledUntil = 0,
-    /** @type {LastError | null} */
-    lastError = null;
-  /**
-   * @param {string[]} args
-   * @returns {Promise<unknown>}
-   */
-  function enqueue(args) {
+    lastError: LastError | null = null;
+  function enqueue(args: string[]): Promise<unknown> {
     const key = JSON.stringify(args);
     const existing = inFlight.get(key);
     if (existing) return existing;
@@ -194,8 +180,7 @@ export function createAzureCli({
     pump();
     return promise;
   }
-  /** @param {number} ms */
-  function retryAfter(ms) {
+  function retryAfter(ms: number) {
     if (ms > 0) throttledUntil = Math.max(throttledUntil, now() + Math.min(ms, MAX_RETRY_AFTER_MS));
   }
   function pump() {
@@ -212,7 +197,7 @@ export function createAzureCli({
     while (starts.length && starts[0] <= time - 60_000) starts.shift();
     while (pending.length && running.size < concurrency && starts.length < limitPerMinute) {
       // The loop condition guarantees a job.
-      const job = /** @type {QueueJob} */ (pending.shift());
+      const job = pending.shift() as QueueJob;
       const controller = new AbortController();
       running.add(controller);
       starts.push(now());
@@ -243,14 +228,12 @@ export function createAzureCli({
     }
   }
   return {
-    /** @param {string[]} args */
-    run(args) {
+    run(args: string[]) {
       if (closed) return Promise.reject(cliError('CLOSED', 'Azure CLI queue is closed.'));
       if (!allowed(args)) return Promise.reject(cliError('READ_ONLY', 'This Azure CLI operation is not allowed.'));
       return enqueue(args);
     },
-    /** @returns {import('../src/contract.ts').CliDiagnostics} */
-    diagnostics() {
+    diagnostics(): import('../src/contract.ts').CliDiagnostics {
       const recent = starts.filter(time => time > now() - 60_000);
       return {
         startsLastMinute: recent.length,

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { copyBeforeUpgrade, createStore } from '../server/store.js';
+import { copyBeforeUpgrade, createStore } from '../server/store.ts';
 import { SEARCH_INDEX_VERSION } from '../src/activity-text.ts';
 import { DatabaseSync } from 'node:sqlite';
 import { spawn } from 'node:child_process';

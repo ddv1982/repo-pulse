@@ -35,7 +35,7 @@ function readFilters(value: unknown): ActivityFilters {
   return { search, people, kind: canonicalActivityFilter(kind), repoIds: repoIds === null ? null : [...new Set(repoIds)], view };
 }
 
-export function createSavedActivityFilters(store: Pick<ReturnType<typeof import('./store.js').createStore>, 'getSetting' | 'setSetting'>) {
+export function createSavedActivityFilters(store: Pick<ReturnType<typeof import('./store.ts').createStore>, 'getSetting' | 'setSetting'>) {
   // The settings entry is written only here. Read and write synchronously on the server's SQLite connection.
   const list = () => store.getSetting(setting, []) as SavedActivityFilter[];
   return {

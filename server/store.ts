@@ -1,4 +1,3 @@
-// @ts-check
 import { DatabaseSync } from 'node:sqlite';
 import { chmodSync, mkdirSync, readdirSync, renameSync, rmSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
@@ -14,64 +13,58 @@ import { createActivityQuery } from './activity-query.ts';
 import { localPrLink, mergeUpdates } from './merge-evidence.ts';
 import { forkJob } from './fork-origin.ts';
 
-/** @typedef {import('node:sqlite').SQLOutputValue} SqlValue */
-/** @typedef {Record<string, SqlValue>} SqlRow */
-/** @typedef {import('../src/activity.ts').ActivityEvent} ActivityEvent */
-/** @typedef {import('../src/activity.ts').EventData} EventData */
-/** @typedef {import('./sync.js').StreamState} StreamState */
-/** @typedef {import('./sync.js').StreamName} StreamName */
-/** @typedef {import('../src/contract.ts').StoredEvent} StoredEvent */
-/** @typedef {import('../src/contract.ts').HydratedEvent} HydratedEvent */
-/** @typedef {import('../src/contract.ts').Repository} Repository */
+export type SqlValue = import('node:sqlite').SQLOutputValue;
+export type SqlRow = Record<string, SqlValue>;
+export type ActivityEvent = import('../src/activity.ts').ActivityEvent;
+export type EventData = import('../src/activity.ts').EventData;
+export type StreamState = import('./sync.ts').StreamState;
+export type StreamName = import('./sync.ts').StreamName;
+export type StoredEvent = import('../src/contract.ts').StoredEvent;
+export type HydratedEvent = import('../src/contract.ts').HydratedEvent;
+export type Repository = import('../src/contract.ts').Repository;
 /** Jobs share the indexed columns; every other field belongs to the job type. */
-/** @typedef {{ id: string, type: string, repoId: string, nextAt?: string, status?: string, eventId?: string, [field: string]: unknown }} Job */
+export type Job = {
+  id: string;
+  type: string;
+  repoId: string;
+  nextAt?: string;
+  status?: string;
+  eventId?: string;
+  [field: string]: unknown;
+};
 /** Settings hold any JSON value, written with JSON.stringify. */
-/** @typedef {null | boolean | number | string | SettingValue[] | { [key: string]: SettingValue }} SettingValue */
-/** @typedef {{ type: string, id: string | number, data: unknown }} EntityInput */
+export type SettingValue = null | boolean | number | string | SettingValue[] | { [key: string]: SettingValue };
+export type EntityInput = { type: string; id: string | number; data: unknown };
 /**
  * Reads one JSON `data` column. A present row yields T; a possibly missing row yields T or undefined.
- * @template T
- * @typedef {<R extends SqlRow | undefined>(row: R) => R extends SqlRow ? T : T | undefined} Reader
  */
+export type Reader<T> = <R extends SqlRow | undefined>(row: R) => R extends SqlRow ? T : T | undefined;
 
 /**
  * node:sqlite rows are untyped. Every JSON `data` column is read here, and the readers below assert
  * which stored shape each table holds, so the rest of the module works with typed values.
- * @param {SqlRow | undefined} row
- * @returns {any}
  */
-const parse = row => (row ? JSON.parse(/** @type {string} */ (row.data)) : undefined);
-/** @type {Reader<Repository>} */
-const readRepo = parse;
-/** @type {Reader<StoredEvent>} */
-const readEvent = parse;
+const parse = (row: SqlRow | undefined): any => (row ? JSON.parse(row.data as string) : undefined);
+const readRepo: Reader<Repository> = parse;
+const readEvent: Reader<StoredEvent> = parse;
 /** Rows selected with `json_extract(data,'$.data.status')`, so `data` is present. */
-/** @type {Reader<StoredEvent & { data: EventData & Record<string, unknown> }>} */
-const readEventWithData = parse;
-/** @type {Reader<Job>} */
-const readJob = parse;
-/** @type {Reader<StreamState>} */
-const readStream = parse;
-/** @type {Reader<SettingValue>} */
-const readSetting = parse;
-/** @type {Reader<Record<string, unknown>>} */
-const readEnrichment = parse;
+const readEventWithData: Reader<StoredEvent & { data: EventData & Record<string, unknown> }> = parse;
+const readJob: Reader<Job> = parse;
+const readStream: Reader<StreamState> = parse;
+const readSetting: Reader<SettingValue> = parse;
+const readEnrichment: Reader<Record<string, unknown>> = parse;
 /** Entity data depends on the entity type, so callers check its shape. */
-/** @type {Reader<unknown>} */
-const readEntity = parse;
-/** The first sync imports this far back from its baseline (server/sync.js, the first window's `since`). */
+const readEntity: Reader<unknown> = parse;
+/** The first sync imports this far back from its baseline (server/sync.ts, the first window's `since`). */
 const FIRST_SYNC_MS = 7 * 86400000;
-/** @param {string} message */
-const badRequest = message => Object.assign(new Error(message), { code: 'BAD_REQUEST' });
-/** @param {string} value */
-const stamp = value => (Number.isFinite(Date.parse(value)) ? Date.parse(value) : 0);
+const badRequest = (message: string) => Object.assign(new Error(message), { code: 'BAD_REQUEST' });
+const stamp = (value: string) => (Number.isFinite(Date.parse(value)) ? Date.parse(value) : 0);
 /**
  * Writes a copy of a database about to be upgraded from `version` next to it, as `<name>.pre-v<version>`, and removes
  * older copies. The copy goes to a temporary name first: if another opener upgraded the file since `version` was read,
  * the copy is not at `version`, so it is dropped and the copy that opener made stays.
- * @param {DatabaseSync} db @param {string} path @param {number} version
  */
-export function copyBeforeUpgrade(db, path, version) {
+export function copyBeforeUpgrade(db: DatabaseSync, path: string, version: number) {
   const name = `${basename(path)}.pre-v${version}`;
   const copy = join(dirname(path), name);
   const temporary = `${copy}.tmp-${process.pid}`;
@@ -79,7 +72,7 @@ export function copyBeforeUpgrade(db, path, version) {
     rmSync(temporary, { force: true });
     db.prepare('VACUUM INTO ?').run(temporary);
     const check = new DatabaseSync(temporary, { readOnly: true });
-    const copied = /** @type {{ user_version: number }} */ (check.prepare('PRAGMA user_version').get()).user_version;
+    const copied = (check.prepare('PRAGMA user_version').get() as { user_version: number }).user_version;
     check.close();
     if (copied !== version) return;
     chmodSync(temporary, 0o600);
@@ -100,10 +93,9 @@ export function createStore(path = ':memory:') {
   if (path !== ':memory:') chmodSync(path, 0o600);
   // Another process reading or writing the file, such as a probe script, makes a write wait briefly instead of failing.
   db.exec('PRAGMA busy_timeout = 5000');
-  /** @type {Map<string, import('node:sqlite').StatementSync>} */
-  const statements = new Map();
-  /** Prepares and caches static SQL statements for the lifetime of this connection. @param {string} sql */
-  const q = sql => {
+  const statements: Map<string, import('node:sqlite').StatementSync> = new Map();
+  /** Prepares and caches static SQL statements for the lifetime of this connection. */
+  const q = (sql: string) => {
     let statement = statements.get(sql);
     if (!statement) {
       statement = db.prepare(sql);
@@ -112,12 +104,11 @@ export function createStore(path = ':memory:') {
     return statement;
   };
   // `settings.data` is a TEXT column, so the incremented counter reads back as a string.
-  const activityRevision = () => /** @type {string} */ (q("SELECT data FROM settings WHERE key='activityRevision'").get()?.data || '0');
+  const activityRevision = () => (q("SELECT data FROM settings WHERE key='activityRevision'").get()?.data || '0') as string;
   const bumpActivity = () =>
     q(`INSERT INTO settings(key,data) VALUES('activityRevision','1')
     ON CONFLICT(key) DO UPDATE SET data=CAST(data AS INTEGER)+1`).run();
-  /** @template T @param {() => T} fn @returns {T} */
-  const transaction = fn => {
+  const transaction = <T>(fn: () => T): T => {
     db.exec('BEGIN IMMEDIATE');
     try {
       const result = fn();
@@ -128,25 +119,21 @@ export function createStore(path = ':memory:') {
       throw error;
     }
   };
-  /** @param {string} id */
-  const requireRepo = id => {
+  const requireRepo = (id: string) => {
     const repo = readRepo(q('SELECT data FROM repositories WHERE id=?').get(id));
     if (!repo) throw Object.assign(new Error('Repository is not watched.'), { code: 'NOT_FOUND' });
     return repo;
   };
   /**
    * The boundary for event rows: `enrichment` is the JSON overlay column joined from the enrichment table.
-   * @type {Reader<HydratedEvent>}
    */
-  const hydrate = row => {
-    if (!row) return /** @type {any} */ (undefined);
+  const hydrate: Reader<HydratedEvent> = row => {
+    if (!row) return undefined as any;
     const event = readEvent(row);
-    /** @type {Record<string, unknown>} */
-    const overlay = row.enrichment ? JSON.parse(/** @type {string} */ (row.enrichment)) : {};
+    const overlay: Record<string, unknown> = row.enrichment ? JSON.parse(row.enrichment as string) : {};
     return { ...event, data: { ...event.data, ...overlay }, seen: Boolean(row.seen), imported: Boolean(row.imported) };
   };
-  /** @param {ActivityEvent} event */
-  function indexLabels(event) {
+  function indexLabels(event: ActivityEvent) {
     q(`UPDATE activity_members SET status_id=?, evidence_id=?, search_text=? WHERE event_id=?`).run(
       activityStatusId(event),
       activityEvidenceId(event),
@@ -154,8 +141,7 @@ export function createStore(path = ':memory:') {
       event.id,
     );
   }
-  /** @param {StoredEvent} event */
-  function saveMembership(event) {
+  function saveMembership(event: StoredEvent) {
     let key = activityKey(event);
     const candidate = supportingPushKey(event);
     if (candidate && q('SELECT 1 FROM activity_members WHERE group_key=? AND kind=?').get(candidate, 'branch-deleted')) key = candidate;
@@ -183,8 +169,7 @@ export function createStore(path = ':memory:') {
           q('UPDATE activity_members SET group_key=? WHERE event_id=?').run(key, readEvent(row).id);
     }
   }
-  /** @param {Job} job */
-  function saveJob(job) {
+  function saveJob(job: Job) {
     requireRepo(job.repoId);
     if (typeof job.id !== 'string' || !job.id || typeof job.type !== 'string' || !job.type)
       throw badRequest('Job ID and type are required.');
@@ -201,12 +186,11 @@ export function createStore(path = ':memory:') {
   /**
    * Adds each stored completed PR whose merge commit is the new tip of the PR's target ref in this push. An absent match
    * writes nothing.
-   * @param {string} id
    */
-  function linkPush(id) {
+  function linkPush(id: string) {
     const push = hydrate(q(`${selectEvents} WHERE e.id=?`).get(id));
     if (!push) return;
-    const evidence = /** @type {import('../src/activity.ts').MergeEvidenceData} */ (push.data?.mergeEvidence || {});
+    const evidence = (push.data?.mergeEvidence || {}) as import('../src/activity.ts').MergeEvidenceData;
     const prs = [...(evidence.prs || [])];
     // Saved complete analysis that proves which commits the push introduced outranks tip identity: a branch reset back
     // to an old merge commit matches the tip without introducing it.
@@ -229,7 +213,7 @@ export function createStore(path = ':memory:') {
         }
         // The tip identity is the strongest relationship; a saved entry for the same PR keeps its metadata and gains
         // the fields only the stored PR has.
-        const existing = /** @type {Record<string, unknown>} */ (prs[index]);
+        const existing = prs[index] as Record<string, unknown>;
         const filled = Object.fromEntries(Object.entries(local).filter(([field, value]) => value != null && existing[field] == null));
         if (existing.relationship === 'result-introduced' && !Object.keys(filled).length) continue;
         prs[index] = { ...prs[index], ...filled, relationship: 'result-introduced' };
@@ -238,14 +222,12 @@ export function createStore(path = ':memory:') {
     }
     if (changed) enrichEvent(id, { mergeEvidence: { ...evidence, prs } });
   }
-  /** @param {StoredEvent} push */
-  function indexPush(push) {
+  function indexPush(push: StoredEvent) {
     const insert = q('INSERT OR IGNORE INTO push_tips(event_id,ref,repo_id,tip) VALUES(?,?,?,?)');
     for (const ref of mergeUpdates(push)) insert.run(push.id, ref.name, push.repoId, ref.newObjectId.toLowerCase());
     linkPush(push.id);
   }
-  /** @param {StoredEvent} pr */
-  function linkPr(pr) {
+  function linkPr(pr: StoredEvent) {
     const { status, targetRefName, mergeCommit } = pr.data || {};
     if (status !== 'completed' || !targetRefName || !mergeCommit) return;
     for (const row of q('SELECT event_id FROM push_tips WHERE repo_id=? AND ref=? AND tip=?').all(
@@ -257,8 +239,7 @@ export function createStore(path = ':memory:') {
   }
   // Each step upgrades a database below its version and is recorded in user_version once it has run.
   // A fresh database runs every step against empty tables and ends at the last version.
-  /** @type {[number, () => void][]} */
-  const migrations = [
+  const migrations: [number, () => void][] = [
     [
       2,
       () => {
@@ -303,13 +284,12 @@ export function createStore(path = ':memory:') {
         const rows = q(`SELECT event_id,data FROM enrichment WHERE json_extract(data,'$.mergeEvidence.status')='enriching'
           OR event_id IN (SELECT json_extract(data,'$.eventId') FROM jobs WHERE type='merge')`).all();
         q("DELETE FROM jobs WHERE type='merge'").run();
-        /** @param {string} text */
-        const settled = text => text.replace(/\s*Retrying later\.$/, '');
+        const settled = (text: string) => text.replace(/\s*Retrying later\.$/, '');
         for (const row of rows) {
           const evidence = JSON.parse(String(row.data)).mergeEvidence;
           if (!evidence || ['complete', 'not-applicable'].includes(evidence.status)) continue;
           const limitations = (evidence.limitations || [])
-            .filter((/** @type {string} */ item) => item !== 'Merge enrichment is still in progress.')
+            .filter((item: string) => item !== 'Merge enrichment is still in progress.')
             .map(settled);
           const error =
             evidence.error && typeof evidence.error === 'object'
@@ -380,7 +360,7 @@ export function createStore(path = ':memory:') {
       },
     ],
   ];
-  const version = /** @type {{ user_version: number }} */ (q('PRAGMA user_version').get()).user_version;
+  const version = (q('PRAGMA user_version').get() as { user_version: number }).user_version;
   if (version > migrations[migrations.length - 1][0]) {
     db.close();
     throw new Error('This database was created by a newer Repo Pulse version.');
@@ -394,7 +374,7 @@ export function createStore(path = ':memory:') {
       db.close();
       // Upgrading without the copy would leave nothing to recover rows a faulty migration deletes.
       throw new Error(
-        `Could not copy the database before upgrading it, so it was left unchanged. Free disk space and start again. (${String(/** @type {Error} */ (error)?.message || error)})`,
+        `Could not copy the database before upgrading it, so it was left unchanged. Free disk space and start again. (${String((error as Error)?.message || error)})`,
       );
     }
   }
@@ -476,8 +456,7 @@ export function createStore(path = ':memory:') {
     }
   };
   compact();
-  /** @param {ActivityEvent[]} events */
-  function insertEvents(events) {
+  function insertEvents(events: ActivityEvent[]) {
     const statement = q('INSERT OR IGNORE INTO events(id,repo_id,time,observed_at,seen,imported,data) VALUES(?,?,?,?,?,?,?)');
     let inserted = false;
     for (const event of events) {
@@ -505,8 +484,7 @@ export function createStore(path = ':memory:') {
     }
     if (inserted) bumpActivity();
   }
-  /** @param {StreamState} state */
-  function saveStream(state) {
+  function saveStream(state: StreamState) {
     requireRepo(state.repoId);
     q('INSERT INTO streams(repo_id,stream,data) VALUES(?,?,?) ON CONFLICT(repo_id,stream) DO UPDATE SET data=excluded.data').run(
       state.repoId,
@@ -514,15 +492,13 @@ export function createStore(path = ':memory:') {
       JSON.stringify(state),
     );
   }
-  /** @param {string} repoId @param {EntityInput[]} entities */
-  function saveEntities(repoId, entities) {
+  function saveEntities(repoId: string, entities: EntityInput[]) {
     const upsert = q(
       'INSERT INTO entities(repo_id,type,id,data) VALUES(?,?,?,?) ON CONFLICT(repo_id,type,id) DO UPDATE SET data=excluded.data',
     );
     for (const entity of entities) upsert.run(repoId, entity.type, String(entity.id), JSON.stringify(entity.data));
   }
-  /** @param {string} id @param {unknown} data */
-  function enrichEvent(id, data) {
+  function enrichEvent(id: string, data: unknown) {
     const event = hydrate(q(`${selectEvents} WHERE e.id=?`).get(id));
     if (!event) throw Object.assign(new Error('Event is no longer available.'), { code: 'NOT_FOUND' });
     if (!data || typeof data !== 'object' || Array.isArray(data)) throw badRequest('Enrichment must be an object.');
@@ -537,14 +513,12 @@ export function createStore(path = ':memory:') {
     return { ...event, data: { ...event.data, ...overlay } };
   }
   const queryActivity = createActivityQuery(db, hydrate, requireRepo, activityRevision);
-  /** @template [F=undefined] @param {string} key @param {F} [fallback] @returns {SettingValue | F} */
-  function getSetting(key, fallback) {
+  function getSetting<F = undefined>(key: string, fallback?: F): SettingValue | F {
     const row = q('SELECT data FROM settings WHERE key=?').get(key);
-    return row ? readSetting(row) : /** @type {F} */ (fallback);
+    return row ? readSetting(row) : (fallback as F);
   }
 
-  /** @param {string} key @param {SettingValue} value */
-  function setSetting(key, value) {
+  function setSetting(key: string, value: SettingValue) {
     q('INSERT INTO settings(key,data) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET data=excluded.data').run(key, JSON.stringify(value));
   }
 
@@ -552,8 +526,7 @@ export function createStore(path = ':memory:') {
     activityRevision,
     listRepos: () => q('SELECT data FROM repositories ORDER BY rowid').all().map(readRepo),
     getRepo: requireRepo,
-    /** @param {Repository} repo */
-    saveRepo(repo) {
+    saveRepo(repo: Repository) {
       if (!repo.id || !repo.name) throw badRequest('Repository ID and name are required.');
       const old = readRepo(q('SELECT data FROM repositories WHERE id=?').get(repo.id));
       const value = { disabled: false, ...old, ...repo };
@@ -566,8 +539,7 @@ export function createStore(path = ':memory:') {
       });
       return value;
     },
-    /** @param {string} id */
-    removeRepo(id) {
+    removeRepo(id: string) {
       requireRepo(id);
       transaction(() => {
         q('DELETE FROM repositories WHERE id=?').run(id);
@@ -589,14 +561,11 @@ export function createStore(path = ':memory:') {
       });
       compact();
     },
-    /** @param {{ repoIds?: string[], limit?: number, unseen?: boolean }} [options] */
-    listEvents({ repoIds, limit = 1000, unseen = false } = {}) {
+    listEvents({ repoIds, limit = 1000, unseen = false }: { repoIds?: string[]; limit?: number; unseen?: boolean } = {}) {
       const capped = Math.max(1, Math.min(Number(limit) || 1000, 5000));
       if (repoIds?.length === 0) return [];
-      /** @type {string[]} */
-      const where = [],
-        /** @type {(string | number)[]} */
-        params = [];
+      const where: string[] = [],
+        params: (string | number)[] = [];
       if (repoIds) {
         repoIds.forEach(requireRepo);
         where.push(`e.repo_id IN (${repoIds.map(() => '?').join(',')})`);
@@ -611,10 +580,8 @@ export function createStore(path = ':memory:') {
         .map(hydrate);
     },
     queryActivity,
-    /** @param {string} id */
-    getEvent: id => hydrate(q(`${selectEvents} WHERE e.id=?`).get(id)),
-    /** @param {string} id */
-    getEventGroup(id) {
+    getEvent: (id: string) => hydrate(q(`${selectEvents} WHERE e.id=?`).get(id)),
+    getEventGroup(id: string) {
       const member = q('SELECT group_key FROM activity_members WHERE event_id=?').get(id);
       return member
         ? q(`${selectEvents} JOIN activity_members m ON m.event_id=e.id WHERE m.group_key=? ORDER BY m.observed DESC,m.time DESC,e.id DESC`)
@@ -622,8 +589,7 @@ export function createStore(path = ':memory:') {
             .map(hydrate)
         : [];
     },
-    /** @param {string} repoId @param {string} source */
-    completedCheckoutPulls(repoId, source) {
+    completedCheckoutPulls(repoId: string, source: string) {
       const rows = q(`SELECT data FROM events WHERE repo_id=? AND json_extract(data,'$.kind')='pr'
         AND json_extract(data,'$.data.status')='completed' AND json_extract(data,'$.data.sourceRefName')=?
         ORDER BY time DESC LIMIT 40`).all(repoId, source);
@@ -646,12 +612,10 @@ export function createStore(path = ':memory:') {
       }
       return [...candidates.values()];
     },
-    /** @param {string} id @param {unknown} data */
-    enrichEvent(id, data) {
+    enrichEvent(id: string, data: unknown) {
       return transaction(() => enrichEvent(id, data));
     },
-    /** @param {unknown} ids @param {boolean} [seen] */
-    acknowledge(ids, seen = true) {
+    acknowledge(ids: unknown, seen: boolean = true) {
       if (!Array.isArray(ids) || ids.length > 5000) throw badRequest('An explicit list of up to 5000 event IDs is required.');
       return transaction(() => {
         const value = Number(Boolean(seen));
@@ -661,26 +625,30 @@ export function createStore(path = ':memory:') {
         return changedIds;
       });
     },
-    /** @param {ActivityEvent[]} events */
-    insertEvents(events) {
+    insertEvents(events: ActivityEvent[]) {
       return transaction(() => insertEvents(events));
     },
     getStreams: () => q('SELECT data FROM streams').all().map(readStream),
     saveStream,
-    /** @param {string} repoId @param {string} type @param {string | number} id */
-    getEntity: (repoId, type, id) =>
+    getEntity: (repoId: string, type: string, id: string | number) =>
       readEntity(q('SELECT data FROM entities WHERE repo_id=? AND type=? AND id=?').get(repoId, type, String(id))),
-    /** @param {string} repoId @param {string} type */
-    listEntities: (repoId, type) =>
+    listEntities: (repoId: string, type: string) =>
       q('SELECT id,data FROM entities WHERE repo_id=? AND type=?')
         .all(repoId, type)
-        .map(r => ({ id: /** @type {string} */ (r.id), data: readEntity(r) })),
+        .map(r => ({ id: r.id as string, data: readEntity(r) })),
     /**
      * Sync pages carry their stream state; backfill pages carry none.
-     * @param {{ repoId: string, events?: ActivityEvent[], entities?: EntityInput[], jobs?: Job[] }
-     *   & ({ stream: StreamName, state: StreamState } | { stream?: StreamName, state?: undefined })} page
      */
-    commitPage({ repoId, stream, state, events = [], entities = [], jobs = [] }) {
+    commitPage({
+      repoId,
+      stream,
+      state,
+      events = [],
+      entities = [],
+      jobs = [],
+    }: { repoId: string; events?: ActivityEvent[]; entities?: EntityInput[]; jobs?: Job[] } & (
+      { stream: StreamName; state: StreamState } | { stream?: StreamName; state?: undefined }
+    )) {
       return transaction(() => {
         requireRepo(repoId);
         insertEvents(events);
@@ -689,16 +657,16 @@ export function createStore(path = ':memory:') {
         if (state) saveStream({ ...state, repoId, stream });
       });
     },
-    /**
-     * @template {string} [T=string]
-     * @param {{ type?: T, repoId?: string, status?: string, dueBefore?: string }} [filter]
-     * @returns {T extends 'backfill' ? import('./backfill.ts').HistoryJob[] : Job[]}
-     */
-    listJobs({ type, repoId, status, dueBefore } = {}) {
-      /** @type {string[]} */
-      const where = [],
-        /** @type {string[]} */
-        params = [];
+    listJobs<T extends string = string>({
+      type,
+      repoId,
+      status,
+      dueBefore,
+    }: { type?: T; repoId?: string; status?: string; dueBefore?: string } = {}): T extends 'backfill'
+      ? import('./backfill.ts').HistoryJob[]
+      : Job[] {
+      const where: string[] = [],
+        params: string[] = [];
       if (type) {
         where.push('type=?');
         params.push(type);
@@ -719,20 +687,27 @@ export function createStore(path = ':memory:') {
       const jobs = q(`SELECT data FROM jobs ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY next_at,id`)
         .all(...params)
         .map(readJob);
-      // Persisted JSON: rows of type 'backfill' are only ever written by server/backfill.js, as a HistoryJob.
-      return /** @type {T extends 'backfill' ? import('./backfill.ts').HistoryJob[] : Job[]} */ (jobs);
+      // Persisted JSON: rows of type 'backfill' are only ever written by server/backfill.ts, as a HistoryJob.
+      return jobs as T extends 'backfill' ? import('./backfill.ts').HistoryJob[] : Job[];
     },
     saveJob,
     /**
      * Replaces the result for this ref and removes the job in one write, so a finished check is never run again.
      * A missing event (its repository was removed) only removes the job.
-     * @param {{ eventId: string, jobId: string, rewrite: import('../src/activity.ts').RewriteResult }} result
      */
-    saveRewriteResult({ eventId, jobId, rewrite }) {
+    saveRewriteResult({
+      eventId,
+      jobId,
+      rewrite,
+    }: {
+      eventId: string;
+      jobId: string;
+      rewrite: import('../src/activity.ts').RewriteResult;
+    }) {
       transaction(() => {
         const event = hydrate(q(`${selectEvents} WHERE e.id=?`).get(eventId));
         if (event) {
-          const evidence = /** @type {import('../src/activity.ts').MergeEvidenceData} */ (event.data?.mergeEvidence || {});
+          const evidence = (event.data?.mergeEvidence || {}) as import('../src/activity.ts').MergeEvidenceData;
           const results = [...(evidence.rewrite || []).filter(item => item.ref !== rewrite.ref), rewrite];
           enrichEvent(eventId, { mergeEvidence: { ...evidence, rewrite: results } });
         }
@@ -742,9 +717,16 @@ export function createStore(path = ':memory:') {
     /**
      * Replaces the fork origin of a branch creation and removes its job in one write. A missing event (its repository
      * was removed) only removes the job.
-     * @param {{ eventId: string, jobId: string, forkOrigin: import('../src/activity.ts').ForkOrigin }} result
      */
-    saveForkResult({ eventId, jobId, forkOrigin }) {
+    saveForkResult({
+      eventId,
+      jobId,
+      forkOrigin,
+    }: {
+      eventId: string;
+      jobId: string;
+      forkOrigin: import('../src/activity.ts').ForkOrigin;
+    }) {
       transaction(() => {
         if (q('SELECT 1 FROM events WHERE id=?').get(eventId)) enrichEvent(eventId, { forkOrigin });
         q('DELETE FROM jobs WHERE id=?').run(jobId);
@@ -753,11 +735,9 @@ export function createStore(path = ':memory:') {
     /**
      * The latest tip each branch had in the stored pushes before push `pushId`, by full ref name. A branch whose latest
      * update deleted it is left out. Pushes missing from the store leave older tips in place.
-     * @param {string} repoId @param {number} pushId @returns {Map<string, string>}
      */
-    branchTipsBefore(repoId, pushId) {
-      /** @type {Map<string, string>} */
-      const tips = new Map();
+    branchTipsBefore(repoId: string, pushId: number): Map<string, string> {
+      const tips: Map<string, string> = new Map();
       const rows = q(`SELECT json_extract(u.value,'$.name') AS ref,lower(json_extract(u.value,'$.newObjectId')) AS tip
         FROM events e, json_each(e.data,'$.data.refUpdates') u
         WHERE e.repo_id=? AND json_extract(e.data,'$.kind')='push' AND json_extract(e.data,'$.data.pushId')<?
@@ -774,16 +754,14 @@ export function createStore(path = ':memory:') {
     /**
      * Branches worth checking as the origin of `ref`: the targets of its stored pull requests, oldest first, then the
      * repository's most common pull request target. Pull requests from forks are left out.
-     * @param {string} repoId @param {string} ref @returns {string[]}
      */
-    forkCandidates(repoId, ref) {
+    forkCandidates(repoId: string, ref: string): string[] {
       const rows = q(`SELECT json_extract(data,'$.data.sourceRefName') AS source,json_extract(data,'$.data.targetRefName') AS target,
         json_extract(data,'$.data.pullRequestId') AS id FROM events WHERE repo_id=? AND json_extract(data,'$.kind')='pr' AND json_extract(data,'$.data.fork') IS NULL
         ORDER BY time,observed_at,json_extract(data,'$.data.pullRequestId')`).all(repoId);
-      /** Pull request IDs by target. A PR has a row per change, so it is counted once. @type {Map<string, Set<string>>} */
-      const targets = new Map();
-      /** @type {string[]} */
-      const own = [];
+      /** Pull request IDs by target. A PR has a row per change, so it is counted once. */
+      const targets: Map<string, Set<string>> = new Map();
+      const own: string[] = [];
       for (const row of rows) {
         const target = String(row.target ?? '');
         if (!target.startsWith('refs/heads/')) continue;

@@ -11,8 +11,8 @@ import { tmpdir, homedir } from 'node:os';
 import { join } from 'node:path';
 import { chromium, expect } from '@playwright/test';
 import { startApp, createApp } from '../server.ts';
-import { createStore } from '../server/store.js';
-import { createSync } from '../server/sync.js';
+import { createStore } from '../server/store.ts';
+import { createSync } from '../server/sync.ts';
 import { TEST_KEY, rememberKey } from '../test/fixtures/access.js';
 
 /** @typedef {import('../server.ts').FoldersResponse} FoldersResponse */

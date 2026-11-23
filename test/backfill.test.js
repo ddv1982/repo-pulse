@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { createStore } from '../server/store.js';
-import { createSync } from '../server/sync.js';
+import { createStore } from '../server/store.ts';
+import { createSync } from '../server/sync.ts';
 import { createBackfill } from '../server/backfill.ts';
 
 const BASE = Date.parse('2026-11-17T10:00:00Z');

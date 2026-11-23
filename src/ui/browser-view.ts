@@ -51,7 +51,7 @@ function focusedControlId(element: Element) {
 
 export type PageState = import('./refresh.ts').PageState;
 export type ResultsContext = import('./navigation.ts').ResultsContext;
-/** web.js owns this object: navigation state plus the connection panel state and the refresh flag the header reads. */
+/** web.ts owns this object: navigation state plus the connection panel state and the refresh flag the header reads. */
 export type BrowserUi = import('./navigation.ts').NavigationState & {
   connection: import('./connection.ts').ConnectionState;
   refreshing?: boolean;
@@ -66,7 +66,7 @@ export type RenderOptions = {
   checkoutFocus?: string | null;
   isCurrent: () => boolean;
 };
-/** web/theme.js publishes this before the modules load. */
+/** web/theme.ts publishes this before the modules load. */
 export type ThemedWindow = Window & { repoPulseTheme?: { apply: () => void } };
 
 /**
@@ -137,7 +137,7 @@ export function createBrowserView({
     // A control that survived the render keeps focus; one that left, or that the render hid (a closed menu's option),
     // needs a replacement.
     if (focusId && (document.activeElement !== focused || !focused?.checkVisibility())) restoreFocus(focusId, neighbours);
-    // web/theme.js defines repoPulseTheme on window before the modules load; the optional call covers its absence.
+    // web/theme.ts defines repoPulseTheme on window before the modules load; the optional call covers its absence.
     (window as ThemedWindow).repoPulseTheme?.apply();
     if (checkoutFocus) {
       requestAnimationFrame(() => {
@@ -187,7 +187,7 @@ export function createBrowserView({
       // Writing the same text again would replace the text node and could repeat the announcement.
       if (syncLive.textContent !== sentence) syncLive.textContent = sentence;
       if (menuOpen) required('.header-overflow', HTMLDetailsElement, header).open = true;
-      // As in renderPage: theme.js runs first, and the optional call covers its absence.
+      // As in renderPage: theme.ts runs first, and the optional call covers its absence.
       (window as ThemedWindow).repoPulseTheme?.apply();
       renderPage(state, ui, options);
       setHtml(

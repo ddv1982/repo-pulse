@@ -236,7 +236,7 @@ const delayed = {
   },
 };
 
-/** @param {string} field @param {string} branch @returns {import('../server/checkout-advice.js').PullAdvice} */
+/** @param {string} field @param {string} branch @returns {import('../server/checkout-advice.ts').PullAdvice} */
 const advice = (field, branch) => ({
   branch,
   id: 12,

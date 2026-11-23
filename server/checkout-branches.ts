@@ -1,34 +1,37 @@
-// @ts-check
-
 import { randomUUID } from 'node:crypto';
 import { access, chmod, copyFile, mkdtemp, rm, rmdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { ancestry, isCommit } from './checkout-advice.js';
+import { ancestry, isCommit } from './checkout-advice.ts';
 import { isSymbolicRef, worktreeUsesBranch } from './checkout-delete-guard.cjs';
 
-/** @typedef {import('./checkout-git.js').GitRunner} GitRunner */
-/** @typedef {import('./checkout-git.js').LinkedRepo} LinkedRepo */
-/** @typedef {import('./checkout-git.js').ActiveCheckout} ActiveCheckout */
-/** @typedef {import('./checkout-git.js').Upstream} Upstream */
-/** @typedef {import('./checkout-advice.js').PullAdvice} PullAdvice */
-/** @typedef {{ snapshot: ActiveCheckout, target: Upstream|null }} Reading */
-/** @typedef {import('../src/contract.ts').FollowupSummary} FollowupSummary */
-/** @typedef {FollowupSummary & { path: string, sourceHead: string, targetRef: string,
- *   result: string, recordedSource?: string, targetIdentity?: string, archive?: string }} Followup */
-/** @typedef {{ get: (id: string) => Followup|undefined, save: (id: string, plan: Followup) => void }} Followups */
-/** @typedef {{ operation: 'switch-update', prId: number, result: string } |
- *   { operation: 'review'|'remove', planId: string } |
- *   { operation: 'carry', planId: string, commits: string[] }} BranchAction */
-/** @typedef {import('../src/contract.ts').Review} Review */
+export type GitRunner = import('./checkout-git.ts').GitRunner;
+export type LinkedRepo = import('./checkout-git.ts').LinkedRepo;
+export type ActiveCheckout = import('./checkout-git.ts').ActiveCheckout;
+export type Upstream = import('./checkout-git.ts').Upstream;
+export type PullAdvice = import('./checkout-advice.ts').PullAdvice;
+export type Reading = { snapshot: ActiveCheckout; target: Upstream | null };
+export type FollowupSummary = import('../src/contract.ts').FollowupSummary;
+export type Followup = FollowupSummary & {
+  path: string;
+  sourceHead: string;
+  targetRef: string;
+  result: string;
+  recordedSource?: string;
+  targetIdentity?: string;
+  archive?: string;
+};
+export type Followups = { get: (id: string) => Followup | undefined; save: (id: string, plan: Followup) => void };
+export type BranchAction =
+  | { operation: 'switch-update'; prId: number; result: string }
+  | { operation: 'review' | 'remove'; planId: string }
+  | { operation: 'carry'; planId: string; commits: string[] };
+export type Review = import('../src/contract.ts').Review;
 
-/** @param {string} message */
-export const branchProblem = message => Object.assign(new Error(message), { status: 409 });
+export const branchProblem = (message: string) => Object.assign(new Error(message), { status: 409 });
 
-/** @returns {Followups} */
-export function memoryFollowups() {
-  /** @type {Map<string, Followup>} */
-  const values = new Map();
+export function memoryFollowups(): Followups {
+  const values: Map<string, Followup> = new Map();
   return {
     get: id => values.get(id),
     save: (id, plan) => {
@@ -37,8 +40,7 @@ export function memoryFollowups() {
   };
 }
 
-/** @param {unknown} input @returns {input is BranchAction} */
-export function isBranchAction(input) {
+export function isBranchAction(input: unknown): input is BranchAction {
   if (!input || typeof input !== 'object' || !('operation' in input)) return false;
   if (input.operation === 'switch-update')
     return 'prId' in input && Number.isSafeInteger(input.prId) && 'result' in input && isCommit(input.result);
@@ -54,8 +56,7 @@ export function isBranchAction(input) {
   return input.operation === 'review' || input.operation === 'remove';
 }
 
-/** @param {GitRunner} run @param {string} path @param {string} ref */
-export async function readRef(run, path, ref) {
+export async function readRef(run: GitRunner, path: string, ref: string) {
   try {
     const tip = (await run(path, ['show-ref', '--hash', '--verify', '--', ref])).trim();
     if (isCommit(tip)) return tip;
@@ -77,8 +78,7 @@ export async function readRef(run, path, ref) {
   throw branchProblem('Git could not verify the local branch or its recovery reference.');
 }
 
-/** @param {GitRunner} run @param {string} path @param {string} hooks @param {string} name @param {string} [start] */
-export async function switchLocalBranch(run, path, hooks, name, start) {
+export async function switchLocalBranch(run: GitRunner, path: string, hooks: string, name: string, start?: string) {
   try {
     await run(path, [
       '-c',
@@ -96,28 +96,41 @@ export async function switchLocalBranch(run, path, hooks, name, start) {
   }
 }
 
-/**
- * @param {{ run: GitRunner, hooks: string, followups: Followups,
- *   statusAt: (path: string, repo: LinkedRepo) => Promise<Reading>,
- *   updateAt: (path: string, repo: LinkedRepo, op: 'update-target', expected: ActiveCheckout, result: string) =>
- *     Promise<{ checkout: ActiveCheckout, updated: boolean }>,
- *   readMissing: (path: string, repo: LinkedRepo, target: Upstream, snapshot: ActiveCheckout) => Promise<PullAdvice|undefined>,
- *   matchesIntent: (snapshot: ActiveCheckout, expected: ActiveCheckout) => boolean }} dependencies
- */
-export function branchFollowups({ run, hooks, followups, statusAt, updateAt, readMissing, matchesIntent }) {
-  /** @param {LinkedRepo} repo @param {string} path @param {ActiveCheckout} snapshot */
-  function eligiblePlan(repo, path, snapshot) {
+export function branchFollowups({
+  run,
+  hooks,
+  followups,
+  statusAt,
+  updateAt,
+  readMissing,
+  matchesIntent,
+}: {
+  run: GitRunner;
+  hooks: string;
+  followups: Followups;
+  statusAt: (path: string, repo: LinkedRepo) => Promise<Reading>;
+  updateAt: (
+    path: string,
+    repo: LinkedRepo,
+    op: 'update-target',
+    expected: ActiveCheckout,
+    result: string,
+  ) => Promise<{ checkout: ActiveCheckout; updated: boolean }>;
+  readMissing: (path: string, repo: LinkedRepo, target: Upstream, snapshot: ActiveCheckout) => Promise<PullAdvice | undefined>;
+  matchesIntent: (snapshot: ActiveCheckout, expected: ActiveCheckout) => boolean;
+}) {
+  function eligiblePlan(repo: LinkedRepo, path: string, snapshot: ActiveCheckout) {
     const plan = followups.get(repo.id);
     return plan?.path === path && plan.targetRef === `refs/heads/${snapshot.branch}` && snapshot.identity === plan.targetIdentity
       ? plan
       : undefined;
   }
 
-  /**
-   * @param {LinkedRepo} repo @param {string} path @param {ActiveCheckout} snapshot
-   * @returns {Promise<import('./checkout-git.js').DecoratedCheckout>}
-   */
-  async function decorate(repo, path, snapshot) {
+  async function decorate(
+    repo: LinkedRepo,
+    path: string,
+    snapshot: ActiveCheckout,
+  ): Promise<import('./checkout-git.ts').DecoratedCheckout> {
     const plan = eligiblePlan(repo, path, snapshot);
     if (!plan || (plan.archive && (await readRef(run, path, `refs/heads/${plan.source}`).catch(() => undefined)) === null)) return snapshot;
     const workspace =
@@ -129,16 +142,19 @@ export function branchFollowups({ run, hooks, followups, statusAt, updateAt, rea
     return { ...snapshot, followup: { id: plan.id, source: plan.source, workspace } };
   }
 
-  /** @param {LinkedRepo} repo @param {string} path @param {ActiveCheckout} expected */
-  async function unchangedClean(repo, path, expected) {
+  async function unchangedClean(repo: LinkedRepo, path: string, expected: ActiveCheckout) {
     const { snapshot, target } = await statusAt(path, repo);
     if (!matchesIntent(snapshot, expected) || snapshot.dirty || snapshot.state === 'in-progress' || !target)
       throw branchProblem('The checkout changed or has local work. Review it in Git and try again.');
     return { snapshot, target };
   }
 
-  /** @param {LinkedRepo} repo @param {string} path @param {Reading} current @param {Extract<BranchAction, {operation: 'switch-update'}>} action */
-  async function switchAndUpdate(repo, path, { snapshot, target }, action) {
+  async function switchAndUpdate(
+    repo: LinkedRepo,
+    path: string,
+    { snapshot, target }: Reading,
+    action: Extract<BranchAction, { operation: 'switch-update' }>,
+  ) {
     if (snapshot.state !== 'upstream-missing' || !snapshot.branch || !snapshot.head || snapshot.dirty || !target) {
       throw branchProblem('Switching requires a clean checkout with a missing upstream.');
     }
@@ -150,8 +166,7 @@ export function branchFollowups({ run, hooks, followups, statusAt, updateAt, rea
     const { branch, head } = snapshot;
     await unchangedClean(repo, path, snapshot);
     const name = advice.branch;
-    /** @type {Followup} */
-    const plan = {
+    const plan: Followup = {
       id: randomUUID(),
       path,
       source: branch,
@@ -180,8 +195,7 @@ export function branchFollowups({ run, hooks, followups, statusAt, updateAt, rea
     }
   }
 
-  /** @param {string} path @param {Followup} plan @param {ActiveCheckout} snapshot @returns {Promise<Review>} */
-  async function review(path, plan, snapshot) {
+  async function review(path: string, plan: Followup, snapshot: ActiveCheckout): Promise<Review> {
     const ref = `refs/heads/${plan.source}`;
     const tip = await readRef(run, path, ref);
     if (tip !== plan.sourceHead) return { kind: 'changed' };
@@ -216,8 +230,7 @@ export function branchFollowups({ run, hooks, followups, statusAt, updateAt, rea
     return { kind: 'local-followup', canRemove, commits, branch: `repo-pulse/follow-up-${plan.id.slice(0, 12)}` };
   }
 
-  /** @param {string} path @param {Followup & {archive: string}} plan @param {string} ref */
-  async function remove(path, plan, ref) {
+  async function remove(path: string, plan: Followup & { archive: string }, ref: string) {
     const folder = await mkdtemp(join(tmpdir(), 'repo-pulse-ref-'));
     try {
       const hook = join(folder, 'reference-transaction');
@@ -234,8 +247,7 @@ export function branchFollowups({ run, hooks, followups, statusAt, updateAt, rea
     }
   }
 
-  /** @param {LinkedRepo} repo @param {string} path @param {Reading} current @param {BranchAction} action */
-  async function act(repo, path, current, action) {
+  async function act(repo: LinkedRepo, path: string, current: Reading, action: BranchAction) {
     if (action.operation === 'switch-update') return switchAndUpdate(repo, path, current, action);
     const { snapshot } = current;
     const plan = eligiblePlan(repo, path, snapshot);

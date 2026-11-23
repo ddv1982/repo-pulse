@@ -83,9 +83,9 @@ at compile time. Moving from A to B later only touches `staticFile` and the buil
 ## Phase 4: server and scripts (about 8,200 lines)
 
 - [x] 4a: lower-risk `server/*` modules, `server.ts`, `scripts/*.ts`; `start`, `demo`, `doctor` point at `.ts`; add `scripts/**` to the node config and fix the 93 strict errors it surfaces
-- [ ] 4b: `server/store`, `sync`, `azure-*` and `checkout-*` to `.ts`, with the full cross-model review `docs/MAINTAINING.md:72` requires for these paths
-- [ ] `server/checkout-delete-guard.cjs` stays CommonJS JavaScript: it is copied as an extensionless Git hook, and Node cannot strip types there (verified)
-- [ ] Audit `new URL(..., import.meta.url)` and dynamic imports for `.js` paths
+- [x] 4b: `server/store`, `sync`, `azure-*` and `checkout-*` to `.ts`, with the full cross-model review `docs/MAINTAINING.md:72` requires for these paths (GPT-6.2 Sol, Claude Opus 5.5 9/10, Gemini 4 Neon 9.5/10: all approved)
+- [x] `server/checkout-delete-guard.cjs` stays CommonJS JavaScript: it is copied as an extensionless Git hook, and Node cannot strip types there (verified)
+- [x] Audit `new URL(..., import.meta.url)` and dynamic imports for `.js` paths
 - [ ] Full CI green on both OSes; `npm start`, `npm run demo` and `npm run doctor` run
 
 ## Phase 5: unit tests (40 files, about 12,000 lines, 2 to 3 PRs)
@@ -106,7 +106,7 @@ Scope depends on **D2**.
 
 - [ ] Remove `allowJs`/`checkJs` and the `.js` include globs; keep the `.cjs` hook checked explicitly
 - [ ] Delete the codemod script
-- [ ] Update `.js` paths and commands in the living docs: `docs/MAINTAINING.md` (66 references), README (4), `PLAN.md` (2). Leave dated records (`docs/probe-results.md`, `docs/IMPROVEMENT-PLAN.md`, `docs/FULL-COVERAGE-RESEARCH.md`) as written
+- [ ] Update `.js` paths and commands in the living docs: `docs/MAINTAINING.md` (66 references), README (4), `PLAN.md` (2). Leave dated records (`docs/probe-results.md`, `docs/IMPROVEMENT-PLAN.md`, `docs/FULL-COVERAGE-RESEARCH.md`) as written; also rename `.js` file names in comments under `test/` and `e2e/` (`server/`, `src/` and `scripts/` were done in Phase 4b, and `docs/MAINTAINING.md`'s review-tier paths too)
 - [ ] Clean-clone `npm ci` plus the full check matrix; no `.js` outside `dist/` and `web/vendor/` except the hook
 
 ## Phase 8: stricter compiler flags (one PR each)

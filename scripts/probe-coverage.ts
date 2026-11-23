@@ -7,7 +7,7 @@ import { writeFile } from 'node:fs/promises';
 import { DatabaseSync } from 'node:sqlite';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
-import { AZURE_DEVOPS_RESOURCE } from '../server/azure-rest.js';
+import { AZURE_DEVOPS_RESOURCE } from '../server/azure-rest.ts';
 import { normalizeOrganization } from '../server/repositories.ts';
 import type { AzureRecord } from '../src/contract.ts';
 

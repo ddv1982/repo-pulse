@@ -14,7 +14,7 @@ import { renderRepositories as renderRepositoriesHtml } from '../src/ui/reposito
 import { renderFeed as renderPagedFeedHtml, renderDetail as renderDetailHtml } from '../src/ui/feed.ts';
 import { forkText, treeLegend } from '../src/ui/activity-tree.ts';
 import { scopeName } from '../src/ui/header.ts';
-import { createStore } from '../server/store.js';
+import { createStore } from '../server/store.ts';
 import { parse, one, all, row, text, srText } from './fixtures/dom.js';
 
 const renderRepositories = (...args) => String(renderRepositoriesHtml(...args));

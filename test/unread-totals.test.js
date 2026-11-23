@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createStore } from '../server/store.js';
+import { createStore } from '../server/store.ts';
 
 const repo = { id: 'repo', name: 'Repo', azureId: 'a' };
 const base = Date.parse('2026-11-20T08:00:00Z');

@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createStore } from '../server/store.js';
-import { createSync } from '../server/sync.js';
-import { syncStatus } from '../server/sync-status.js';
+import { createStore } from '../server/store.ts';
+import { createSync } from '../server/sync.ts';
+import { syncStatus } from '../server/sync-status.ts';
 
 const NOW = Date.parse('2026-11-19T12:00:00Z');
 const MINUTE = 60000;
