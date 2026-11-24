@@ -54,9 +54,10 @@ function isTimeout(error: unknown) {
 
 function errorText(error: unknown) {
   if (!error || typeof error !== 'object') return '';
-  const stderr = 'stderr' in error ? String(error.stderr || '') : '';
-  const message = 'message' in error ? String(error.message || '') : '';
-  return `${stderr}\n${message}`;
+  const stderr = 'stderr' in error ? error.stderr : undefined;
+  const output = Buffer.isBuffer(stderr) ? stderr.toString() : typeof stderr === 'string' ? stderr : '';
+  const message = 'message' in error && typeof error.message === 'string' ? error.message : '';
+  return `${output}\n${message}`;
 }
 
 function runAz(az: AzCommand, runCommand: CommandRunner, args: string[]) {

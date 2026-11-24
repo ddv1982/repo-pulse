@@ -1,7 +1,8 @@
 import { azureLink, emptyHtml, html, joinHtml } from './format.ts';
+import type { CheckoutSnapshot } from './checkout.ts';
+import type { CheckoutDiagnostic } from '../contract.d.ts';
 
-export type CheckoutSnapshot = import('./checkout.ts').CheckoutSnapshot;
-export type CheckoutDiagnostic = import('../contract.ts').CheckoutDiagnostic;
+export type { CheckoutSnapshot, CheckoutDiagnostic };
 
 const statusLabels: Record<string, string | undefined> = {
   'not-linked': 'No local checkout linked',
@@ -73,7 +74,7 @@ function diagnosticMarkup(id: string, diagnostic: CheckoutDiagnostic | undefined
     ${
       advice
         ? html`<p>${adviceLink.toString() ? adviceLink : `PR #${advice.id}`} was completed into
-      <code>${advice.branch}</code>${strategyNames[String(advice.strategy ?? '')] || ''}.
+      <code>${advice.branch}</code>${(typeof advice.strategy === 'string' && strategyNames[advice.strategy]) || ''}.
       ${
         canSwitch && !advice.verified
           ? 'You can review your local commits after switching.'

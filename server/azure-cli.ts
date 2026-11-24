@@ -2,6 +2,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { stat } from 'node:fs/promises';
 import { win32 } from 'node:path';
+import type { CliLastError as LastError } from '../src/contract.d.ts';
 
 export type CliError = Error & { code: string };
 
@@ -15,7 +16,7 @@ export type AzCommand = { file: string; prefix: string[]; env: Record<string, st
 
 export type QueueJob = { args: string[]; key: string; resolve: (value: unknown) => void; reject: (reason: unknown) => void };
 
-export type LastError = import('../src/contract.ts').CliLastError;
+export type { LastError };
 
 const exec = promisify(execFile);
 const MAX_RETRY_AFTER_MS = 10 * 60000;
@@ -33,7 +34,8 @@ export function cliError(code: string, message: string): CliError {
 export function classifyCliError(error: ExecFailure | null | undefined) {
   if (error?.code === 'CLOSED') return error;
   // execFile's message repeats the command line, whose arguments must not drive classification.
-  const text = String(error?.stderr || '');
+  const stderr = error?.stderr;
+  const text = Buffer.isBuffer(stderr) ? stderr.toString() : typeof stderr === 'string' ? stderr : '';
   if (error?.code === 'ENOENT')
     return cliError('CLI_MISSING', 'Azure CLI was not found. Install Azure CLI and its azure-devops extension.');
   // Reads are aborted only by close(); the timeout option kills the process instead.
@@ -235,7 +237,7 @@ export function createAzureCli({
       if (!allowed(args)) return Promise.reject(cliError('READ_ONLY', 'This Azure CLI operation is not allowed.'));
       return enqueue(args);
     },
-    diagnostics(): import('../src/contract.ts').CliDiagnostics {
+    diagnostics(): import('../src/contract.d.ts').CliDiagnostics {
       const recent = starts.filter(time => time > now() - 60_000);
       return {
         startsLastMinute: recent.length,

@@ -1,17 +1,26 @@
 import { addUnreadable, warningOf } from './sync.ts';
+import type { ActivityEvent } from '../src/activity.ts';
+import type { AzureStreamRecord, HistoryStream, HistoryWindow, HistoryJob, HistoryWarning, UnreadableRecords } from '../src/contract.d.ts';
+import type { AzureRepo, AzurePage as SourcePage } from './azure-client.ts';
+import type { Entity } from './normalize.ts';
+import type { JobType, JobOf } from './store-records.ts';
 
-export type ActivityEvent = import('../src/activity.ts').ActivityEvent;
-export type AzureStreamRecord = import('../src/contract.ts').AzureStreamRecord;
-export type HistoryStream = import('../src/contract.ts').HistoryStream;
-export type HistoryWindow = import('../src/contract.ts').HistoryWindow;
-export type WatchedRepo = import('./azure-client.ts').AzureRepo & { id: string; disabled?: boolean };
-export type SourcePage = import('./azure-client.ts').AzurePage;
-export type HistoryJob = import('../src/contract.ts').HistoryJob;
-export type HistoryWarning = import('../src/contract.ts').HistoryWarning;
-export type UnreadableRecords = import('../src/contract.ts').UnreadableRecords;
-export type Entity = import('./normalize.ts').Entity;
-export type JobType = import('./store-records.ts').JobType;
-export type JobOf<T extends JobType> = import('./store-records.ts').JobOf<T>;
+export type {
+  ActivityEvent,
+  AzureStreamRecord,
+  HistoryStream,
+  HistoryWindow,
+  SourcePage,
+  HistoryJob,
+  HistoryWarning,
+  UnreadableRecords,
+  Entity,
+  JobType,
+  JobOf,
+};
+
+export type WatchedRepo = AzureRepo & { id: string; disabled?: boolean };
+
 export type HistoryBatch = { events?: ActivityEvent[]; entities?: Entity[] };
 export type HistoryStore = {
   listRepos: () => WatchedRepo[];

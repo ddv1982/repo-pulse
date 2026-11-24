@@ -1,5 +1,7 @@
-export function branchName(ref: unknown) {
-  return String(ref || '').replace(/^refs\/heads\//, '');
+export function branchName(ref: string | null | undefined) {
+  const name = String(ref || '');
+  // Saved merge enrichment can still carry unchecked provider fields.
+  return typeof ref !== 'string' && name === '[object Object]' ? '' : name.replace(/^refs\/heads\//, '');
 }
 /** A person's display name, else their name, else Unknown. Azure may send any value, which is returned as it is. */
 export function actorName(identity: unknown): unknown {

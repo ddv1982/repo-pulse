@@ -2,14 +2,32 @@ import { normalizeOrganization, parseRemote, repositoryKey } from './repositorie
 import { safeAzureUrl } from '../src/events.ts';
 import { cliError } from './azure-cli.ts';
 import { isRecord, readRecord, recordId, unreadableField } from './azure-records.ts';
+import type {
+  AzureRepo,
+  AzureStream,
+  AzureStreamRecord,
+  AzureBuild,
+  AzurePullRequest,
+  UnreadableRecords,
+  PageCursor,
+  ConnectionStatus,
+  PullRequestReview,
+} from '../src/contract.d.ts';
+import type { UnreadableCheckoutPull } from './checkout-advice.ts';
 
-export type AzureRepo = import('../src/contract.ts').AzureRepo;
-export type AzureStream = import('../src/contract.ts').AzureStream;
-export type AzureStreamRecord = import('../src/contract.ts').AzureStreamRecord;
-export type AzureBuild = import('../src/contract.ts').AzureBuild;
-export type AzurePullRequest = import('../src/contract.ts').AzurePullRequest;
-export type UnreadableRecords = import('../src/contract.ts').UnreadableRecords;
-export type PageCursor = import('../src/contract.ts').PageCursor;
+export type {
+  AzureRepo,
+  AzureStream,
+  AzureStreamRecord,
+  AzureBuild,
+  AzurePullRequest,
+  UnreadableRecords,
+  PageCursor,
+  UnreadableCheckoutPull,
+  ConnectionStatus,
+  PullRequestReview,
+};
+
 /**
  * `restarted` marks a first page read in place of the saved cursor's page. `unreadable` counts the records left out
  * of `items` because a field they need is missing or malformed; it is absent when there were none. `unreadableIds`
@@ -37,9 +55,9 @@ export type CheckoutPull = {
   strategy?: string;
   url: string;
 };
-export type UnreadableCheckoutPull = import('./checkout-advice.ts').UnreadableCheckoutPull;
-export type AccessCheck = import('../src/contract.ts').AccessCheck;
-export type ConnectionStatus = import('../src/contract.ts').ConnectionStatus;
+
+export type { AccessCheck } from '../src/contract.d.ts';
+
 export type ResolvedRepository = {
   id: string;
   organization: string;
@@ -55,7 +73,7 @@ export type RepositoryInput = { organization: string; project: string; repoName?
 export type AzureClientCli = { run: (args: string[]) => Promise<unknown> };
 /** The provider contract. Sync and backfill type their provider as the subset of it they call. */
 export type AzureProvider = ReturnType<typeof createAzureClient>;
-export type PullRequestReview = import('../src/contract.ts').PullRequestReview;
+
 const RESOLVED = new Set(['fixed', 'wontFix', 'closed', 'byDesign']);
 export function reviewOf(threads: unknown, evaluations: unknown): PullRequestReview {
   if (!Array.isArray(threads) || !Array.isArray(evaluations))
@@ -100,6 +118,9 @@ function pageOf<T>(
   const list: unknown = Array.isArray(response) ? response : isRecord(response) ? response.value : undefined;
   if (!Array.isArray(list)) throw cliError('INVALID_RESPONSE', 'Azure CLI did not return an activity list.');
   const token = isRecord(response) ? response.continuation_token || response.continuationToken : undefined;
+  const continuation = typeof token === 'string' || typeof token === 'number' ? String(token) : null;
+  if (mode !== 'skip' && token && continuation === null)
+    throw cliError('INVALID_RESPONSE', 'Azure CLI returned an invalid continuation token.');
   const items: T[] = [];
   const fields: Set<string> = new Set();
   const unreadableIds: { id: string; field: string }[] = [];
@@ -118,7 +139,8 @@ function pageOf<T>(
   }
   return {
     items,
-    nextCursor: mode === 'skip' ? (list.length === PAGE ? { skip: skip + PAGE } : null) : token ? { token: String(token) } : null,
+    nextCursor:
+      mode === 'skip' ? (list.length === PAGE ? { skip: skip + PAGE } : null) : token && continuation ? { token: continuation } : null,
     ...(skipped ? { unreadable: { count: skipped, fields: [...fields] } } : {}),
     ...(unreadableIds.length ? { unreadableIds } : {}),
   };
@@ -463,7 +485,9 @@ export function createAzureClient({ cli, now = Date.now }: { cli?: AzureClientCl
         },
       );
     },
-    async completedCheckoutPulls(repo: AzureRepo, source: string): Promise<(CheckoutPull | UnreadableCheckoutPull)[]> {
+    async completedCheckoutPulls(this: void, repo: AzureRepo, source: string): Promise<(CheckoutPull | UnreadableCheckoutPull)[]> {
+      // A source ref with control characters cannot name a checkout branch.
+      // oxlint-disable-next-line no-control-regex
       if (typeof source !== 'string' || !/^refs\/heads\/[^\s\x00-\x1f]+$/.test(source) || source.length > 1024) return [];
       const response = await invoke(
         repo,

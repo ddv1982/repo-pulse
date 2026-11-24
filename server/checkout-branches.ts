@@ -4,14 +4,14 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { ancestry, isCommit } from './checkout-advice.ts';
 import { isSymbolicRef, worktreeUsesBranch } from './checkout-delete-guard.cjs';
+import type { GitRunner, LinkedRepo, ActiveCheckout, Upstream } from './checkout-git.ts';
+import type { PullAdvice } from './checkout-advice.ts';
+import type { FollowupSummary, Review } from '../src/contract.d.ts';
 
-export type GitRunner = import('./checkout-git.ts').GitRunner;
-export type LinkedRepo = import('./checkout-git.ts').LinkedRepo;
-export type ActiveCheckout = import('./checkout-git.ts').ActiveCheckout;
-export type Upstream = import('./checkout-git.ts').Upstream;
-export type PullAdvice = import('./checkout-advice.ts').PullAdvice;
+export type { GitRunner, LinkedRepo, ActiveCheckout, Upstream, PullAdvice, FollowupSummary, Review };
+
 export type Reading = { snapshot: ActiveCheckout; target: Upstream | null };
-export type FollowupSummary = import('../src/contract.ts').FollowupSummary;
+
 export type Followup = FollowupSummary & {
   path: string;
   sourceHead: string;
@@ -26,7 +26,6 @@ export type BranchAction =
   | { operation: 'switch-update'; prId: number; result: string }
   | { operation: 'review' | 'remove'; planId: string }
   | { operation: 'carry'; planId: string; commits: string[] };
-export type Review = import('../src/contract.ts').Review;
 
 export const branchProblem = (message: string) => Object.assign(new Error(message), { status: 409 });
 

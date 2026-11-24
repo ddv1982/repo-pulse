@@ -1,7 +1,8 @@
 import { emptyHtml, html } from './format.ts';
 import { required, setHtml } from './dom.ts';
+import type { CheckoutBranchesResponse } from '../contract.d.ts';
 
-export type CheckoutBranch = import('../contract.ts').CheckoutBranchesResponse['branches'][number];
+export type CheckoutBranch = CheckoutBranchesResponse['branches'][number];
 export type PickerRepo = { id: string; name: string; localPath?: string | undefined };
 
 /**

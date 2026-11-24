@@ -1,9 +1,10 @@
 import { splitActivitySearch } from './activity-search.ts';
+import type { ActivityItem, ActivityPage } from '../activity.ts';
+import type { EventResponse as EventDetail } from '../api.ts';
 
-export type ActivityEvent = import('../activity.ts').ActivityEvent;
-export type ActivityItem = import('../activity.ts').ActivityItem;
-export type ActivityPage = import('../activity.ts').ActivityPage;
-export type EventDetail = import('../api.ts').EventResponse;
+export type { ActivityEvent } from '../activity.ts';
+export type { ActivityItem, ActivityPage, EventDetail };
+
 export type Request = typeof import('../api.ts').request;
 export type ActivityView = { route: string; repoIds: string[] | null; kind?: string; search?: string };
 

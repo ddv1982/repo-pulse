@@ -1,7 +1,8 @@
 import { dateTime, emptyHtml, html } from './format.ts';
+import type { ConnectionResponse as ConnectionStatus } from '../api.ts';
 
 /** A connection check's answer; a failed request is recorded as an unavailable status. */
-export type ConnectionStatus = import('../api.ts').ConnectionResponse;
+export type { ConnectionStatus };
 export type ConnectionState = {
   results: Map<string, ConnectionStatus>;
   local: ConnectionStatus | null;

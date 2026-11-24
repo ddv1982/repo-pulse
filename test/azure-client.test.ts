@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { createAzureClient, reviewOf } from '../server/azure-client.ts';
 import { createNormalizer } from '../server/normalize.ts';
 import { createStore } from '../server/store.ts';
-import type { AzureStream, Repository } from '../src/contract.ts';
+import type { AzureStream, Repository } from '../src/contract.d.ts';
 import { present, stub } from './fixtures/typed.ts';
 const repo = stub<Repository>({
   id: 'local1',
@@ -575,3 +575,33 @@ test('a skip-paged read with an unreadable record on a full page still pages on'
   assert.deepEqual(page.unreadable, { count: 1, fields: ['pushId'] });
   assert.deepEqual(page.nextCursor, { skip: 100 });
 });
+
+test('a malformed Azure continuation token is reported instead of paging with object text', async () => {
+  const cli = { run: async () => ({ value: [], continuationToken: {} }) };
+  await assert.rejects(createAzureClient({ cli }).read(repo, 'refs', window), {
+    code: 'INVALID_RESPONSE',
+    message: 'Azure CLI returned an invalid continuation token.',
+  });
+});
+
+const objectTitle = { unexpected: 'PR title' };
+const objectDisplayCases = [
+  { stream: 'prs', patch: { title: objectTitle }, field: 'title', expected: 'PR 1 · Untitled' },
+  { stream: 'pushes', patch: { pushedBy: { displayName: {} } }, field: 'actor', expected: 'Unknown' },
+  { stream: 'builds', patch: { definition: { name: {} } }, field: 'title', expected: 'Pipeline' },
+] satisfies { stream: AzureStream; patch: Record<string, unknown>; field: 'title' | 'actor'; expected: string }[];
+
+for (const { stream, patch, field, expected } of objectDisplayCases) {
+  test(`a plain Azure object in ${stream} falls back to readable ${field} text`, async t => {
+    const cli = { run: async () => ({ value: [{ ...readable[stream], ...patch }] }) };
+    const page = await createAzureClient({ cli }).read(repo, stream, window);
+    const store = createStore();
+    t.after(() => store.close());
+    const result = createNormalizer({ store }).normalize(watched, stream, page.items, { initialized: true });
+    assert.equal(result.events[0]?.[field], expected);
+    if (stream === 'prs') {
+      const entity = result.entities.find(entity => entity.type === 'pr');
+      assert.deepEqual(entity?.data.fingerprint?.title, objectTitle);
+    }
+  });
+}

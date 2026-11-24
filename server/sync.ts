@@ -2,31 +2,45 @@ import { createNormalizer } from './normalize.ts';
 import { isRecord, recordId, recordsOf, unreadableField } from './azure-records.ts';
 import { READS } from './sync-status.ts';
 import { isCorruptRow } from './store-records.ts';
+import type { AzureStream as StreamName, AzureProvider, PageCursor, AzureStreamRecord, AzurePage } from './azure-client.ts';
+import type {
+  AzureRef,
+  UnreadableRecords,
+  UnreadableIds,
+  StreamWarning,
+  StreamWindow,
+  StreamState,
+  SyncEngineStatus as SyncStatus,
+  RefreshStatus,
+} from '../src/contract.d.ts';
+import type { WatchedRepo, Entity, EntityData, EntityType, SyncBatch } from './normalize.ts';
+import type { Settings, SettingKey } from './store-records.ts';
 
-export type ActivityKind = import('./normalize.ts').ActivityKind;
-export type StreamName = import('./azure-client.ts').AzureStream;
-export type AzureProvider = import('./azure-client.ts').AzureProvider;
-export type PageCursor = import('./azure-client.ts').PageCursor;
-export type AzureStreamRecord = import('./azure-client.ts').AzureStreamRecord;
-export type AzurePage = import('./azure-client.ts').AzurePage;
-export type AzureRef = import('../src/contract.ts').AzureRef;
-export type UnreadableRecords = import('../src/contract.ts').UnreadableRecords;
-export type UnreadableIds = import('../src/contract.ts').UnreadableIds;
-export type StreamWarning = import('../src/contract.ts').StreamWarning;
-export type WatchedRepo = import('./normalize.ts').WatchedRepo;
-export type NormalizeState = import('./normalize.ts').NormalizeState;
-export type SyncEvent = import('./normalize.ts').SyncEvent;
-export type EventDetail = import('./normalize.ts').EventDetail;
-export type Entity = import('./normalize.ts').Entity;
-export type EntityData = import('./normalize.ts').EntityData;
-export type EntityType = import('./normalize.ts').EntityType;
-export type Settings = import('./store-records.ts').Settings;
-export type SettingKey = import('./store-records.ts').SettingKey;
-export type RewriteJob = import('./normalize.ts').RewriteJob;
-export type SyncBatch = import('./normalize.ts').SyncBatch;
+export type { ActivityKind, NormalizeState, SyncEvent, EventDetail, RewriteJob } from './normalize.ts';
+export type {
+  StreamName,
+  AzureProvider,
+  PageCursor,
+  AzureStreamRecord,
+  AzurePage,
+  AzureRef,
+  UnreadableRecords,
+  UnreadableIds,
+  StreamWarning,
+  WatchedRepo,
+  Entity,
+  EntityData,
+  EntityType,
+  Settings,
+  SettingKey,
+  SyncBatch,
+  StreamState,
+  RefreshStatus,
+};
+
 /** The time range one read covers. It stays fixed across the pages of that read. */
-export type StreamWindow = import('../src/contract.ts').StreamWindow;
-export type StreamState = import('../src/contract.ts').StreamState;
+export type { StreamWindow };
+
 type UnreadableLookups = StreamState['unreadableLookups'];
 /** A stream while a read is in flight: the window and the refresh generation it answers are fixed. */
 export type StartedStream = StreamState & { window: StreamWindow; windowGeneration: number; lastAttempt: string; pending: true };
@@ -41,8 +55,8 @@ export type SyncStore = {
   commitPage: (page: SyncBatch & { repoId: string; stream: StreamName; state: StreamState }) => void;
 };
 /** GET /api/state reports this as `diagnostics.sync`. */
-export type SyncStatus = import('../src/contract.ts').SyncEngineStatus;
-export type RefreshStatus = import('../src/contract.ts').RefreshStatus;
+export type { SyncStatus };
+
 /** Sync needs `read`; the active-build and PR follow-ups run only when the provider offers them. */
 export type SyncProvider = { read: import('./azure-client.ts').StreamRead } & Partial<Pick<AzureProvider, 'buildsById' | 'pullRequest'>>;
 export type BackgroundKind = 'rewrite' | 'history';

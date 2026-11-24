@@ -14,7 +14,12 @@ export { branchName } from '../events.ts';
 import { safeAzureUrl } from '../events.ts';
 
 const entities: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
-const escape = (value: unknown) => String(value ?? '').replace(/[&<>"']/g, c => entities[c] ?? `&#${c.charCodeAt(0)};`);
+function escape(value: string | number | boolean) {
+  const text = String(value);
+  // Older provider data can carry a plain object despite the display type.
+  if (typeof value !== 'string' && text === '[object Object]') return '';
+  return text.replace(/[&<>"']/g, c => entities[c] ?? `&#${c.charCodeAt(0)};`);
+}
 
 const SAFE_HTML = Symbol('SafeHtml');
 

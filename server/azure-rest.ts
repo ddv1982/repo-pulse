@@ -3,10 +3,9 @@ import tls from 'node:tls';
 import { normalizeOrganization } from './repositories.ts';
 import { cliError } from './azure-cli.ts';
 import { isRecord } from './azure-records.ts';
+import type { Executor, ExecutorOptions } from './azure-cli.ts';
 
-export type Executor = import('./azure-cli.ts').Executor;
-
-export type ExecutorOptions = import('./azure-cli.ts').ExecutorOptions;
+export type { Executor, ExecutorOptions };
 
 export type RestRequest = { url: URL };
 

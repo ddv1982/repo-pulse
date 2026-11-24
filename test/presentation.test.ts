@@ -17,7 +17,7 @@ import type { TreeFork } from '../src/activity-tree.ts';
 import { scopeName } from '../src/ui/header.ts';
 import { createStore } from '../server/store.ts';
 import type { ActivityEvent, ActivityKind, EventData, EvidencePr } from '../src/activity.ts';
-import type { Repository, StreamError, StreamState } from '../src/contract.ts';
+import type { Repository, StreamError, StreamState } from '../src/contract.d.ts';
 import type { CheckoutSnapshot } from '../src/ui/checkout.ts';
 import type { PageState } from '../src/ui/refresh.ts';
 import { parse, one, all, row, text, srText } from './fixtures/dom.ts';

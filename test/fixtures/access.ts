@@ -6,7 +6,7 @@ import type { AddressInfo } from 'node:net';
 export const TEST_KEY = 'test-access-key-0123456789abcdefghijklmnopqrstuvwxyz';
 
 /** Request options whose headers, if any, are a plain object, so the key header can be added beside them. */
-type KeyedInit = RequestInit & { headers?: Record<string, string> };
+type KeyedInit = Omit<RequestInit, 'headers'> & { headers?: Record<string, string> };
 
 /** fetch that adds the access key header. */
 export function keyedFetch(key = TEST_KEY) {

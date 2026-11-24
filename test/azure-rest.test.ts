@@ -74,7 +74,7 @@ function harness({
   const fetch = async (url: string | URL | Request, options?: RequestInit) => {
     // The executor always passes its options, with the headers as a plain object.
     const init = options as SentInit;
-    requests.push({ url: String(url), init });
+    requests.push({ url: url instanceof Request ? url.url : String(url), init });
     const next = (typeof responses === 'function' ? responses(init) : responses.shift()) || { status: 200, body: { count: 0, value: [] } };
     if (next.error) throw next.error;
     if (next.raw) return next.raw;
@@ -91,7 +91,7 @@ function harness({
     cli,
     requests,
     cliCalls,
-    advance(ms: number) {
+    advance(this: void, ms: number) {
       time += ms;
     },
   };

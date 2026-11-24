@@ -19,17 +19,19 @@ import {
 } from './format.ts';
 import { renderTrail } from './activity-trail.ts';
 import { activityHref, repositoryHref } from './navigation.ts';
+import type { ActivityEvent, ActivityItem, EventData } from '../activity.ts';
+import type { StateResponse, PushCommitsResponse, PrReviewResponse } from '../api.ts';
+import type { HtmlValue } from './format.ts';
 
-export type ActivityEvent = import('../activity.ts').ActivityEvent;
-export type ActivityItem = import('../activity.ts').ActivityItem;
-export type EventData = import('../activity.ts').EventData;
-export type Repo = import('../api.ts').StateResponse['repos'][number];
+export type { ActivityEvent, ActivityItem, EventData, HtmlValue };
+
+export type Repo = StateResponse['repos'][number];
 export type PushId = number | string | undefined;
-export type HtmlValue = import('./format.ts').HtmlValue;
+
 /** What the detail page shows after "Load push commits": the response, or the error the request threw. */
-export type CommitsView = import('../api.ts').PushCommitsResponse | { error: string };
+export type CommitsView = PushCommitsResponse | { error: string };
 /** What a PR detail shows after "Load discussion and policies". */
-export type ReviewView = import('../api.ts').PrReviewResponse | { error: string };
+export type ReviewView = PrReviewResponse | { error: string };
 /** Data a detail page loaded on request: push commits for a push, review data for a PR. */
 export type LoadedView = CommitsView | ReviewView;
 export type DetailState = { events: ActivityEvent[]; repos: Repo[]; demo?: boolean };

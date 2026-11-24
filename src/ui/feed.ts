@@ -25,10 +25,12 @@ import { currentActivityFilters, isSavedFilterModified, renderSavedFilters } fro
 import { mergeEvidenceBadge } from './merge-evidence.ts';
 import { buildActivityTree } from '../activity-tree.ts';
 import { forkText, renderTreeCell, treeLegend } from './activity-tree.ts';
+import type { PageState } from './refresh.ts';
+import type { ActivityItem } from '../activity.ts';
 export { renderDetail } from './activity-detail.ts';
 
-export type PageState = import('./refresh.ts').PageState;
-export type ActivityItem = import('../activity.ts').ActivityItem;
+export type { PageState, ActivityItem };
+
 /** `openMenu` is the panel ID of the open toolbar menu, if any. */
 export type FeedView = Pick<import('./navigation.ts').NavigationState, 'route' | 'repoIds' | 'search' | 'kind' | 'filtersOpen'> & {
   openMenu?: string;

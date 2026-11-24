@@ -58,10 +58,12 @@ export function createSeenActions({
       }
     }
     const errors = [];
-    if (failure)
-      errors.push(
-        `Stopped after processing ${processed} of ${ids.length} updates. ${failure instanceof Error ? failure.message : String(failure)}`,
-      );
+    if (failure) {
+      // The browser request rejects with an Error. Keep primitive rejection text from injected callers.
+      // oxlint-disable-next-line typescript/no-base-to-string
+      const message = failure instanceof Error ? failure.message : String(failure);
+      errors.push(`Stopped after processing ${processed} of ${ids.length} updates. ${message}`);
+    }
     try {
       await reload();
     } catch (error) {

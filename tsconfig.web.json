@@ -3,11 +3,6 @@
   "compilerOptions": {
     "lib": ["ES2024", "DOM", "DOM.Iterable"],
     "types": [],
-    "noEmit": false,
-    "noEmitOnError": true,
-    "rootDir": ".",
-    "outDir": "dist",
-    "rewriteRelativeImportExtensions": true,
     "moduleDetection": "legacy"
   },
   "include": ["src/**/*.ts", "web/**/*.ts"],

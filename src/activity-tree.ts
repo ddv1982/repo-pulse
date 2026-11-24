@@ -1,6 +1,7 @@
 import { branchName } from './events.ts';
+import type { ActivityEvent } from './activity.ts';
 
-export type ActivityEvent = import('./activity.ts').ActivityEvent;
+export type { ActivityEvent };
 /**
  * How a fork origin is known. Unchecked, from the rows on the page: `tip`, the new branch started at a revision an
  * older row shows on another branch; `pr`, a pull request from the branch names a target, which is an assumption.

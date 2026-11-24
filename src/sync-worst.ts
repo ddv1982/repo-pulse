@@ -1,4 +1,6 @@
-export type SyncStatus = import('./contract.ts').SyncStatus;
+import type { SyncStatus } from './contract.d.ts';
+
+export type { SyncStatus };
 
 const RANK: Record<SyncStatus['state'], number> = { synced: 0, paused: 1, syncing: 2, delayed: 3, problem: 4 };
 /** A repository that never finished a read counts as oldest. */

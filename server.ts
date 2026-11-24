@@ -24,14 +24,66 @@ import { createCheckoutGit, isCheckoutIntent, isSwitchIntent } from './server/ch
 import { activityBranch } from './src/activity-branch.ts';
 import { browseFolders } from './server/folders.ts';
 import { canOpenBrowser, openBrowser } from './server/open-browser.ts';
+import type { IncomingMessage as Request, ServerResponse as Response } from 'node:http';
+import type { AzureProvider } from './server/azure-client.ts';
+// The JSON each route answers with is defined in src/contract.d.ts, which src/api.ts maps request paths to, so the
+// browser modules that read a response are checked against what the handler below produces.
+import type {
+  DemoSyncStatus,
+  Repository,
+  SessionResponse,
+  ErrorResponse,
+  OkResponse,
+  StateResponse,
+  ActivityResponse,
+  EventResponse,
+  CheckoutsResponse,
+  CheckoutStatusResponse,
+  CheckoutBranchesResponse,
+  CheckoutUpdateResponse,
+  ConnectionResponse,
+  PushCommitsResponse,
+  PrReviewResponse,
+  BackfillResponse,
+  RefreshResponse,
+  ResetResponse,
+  DiscoverResponse,
+  FoldersResponse,
+  DemoEventResponse,
+} from './src/contract.d.ts';
 
-export type Request = import('node:http').IncomingMessage;
-export type Response = import('node:http').ServerResponse;
+export type {
+  Request,
+  Response,
+  AzureProvider,
+  DemoSyncStatus,
+  Repository,
+  SessionResponse,
+  ErrorResponse,
+  OkResponse,
+  StateResponse,
+  ActivityResponse,
+  EventResponse,
+  CheckoutsResponse,
+  CheckoutStatusResponse,
+  CheckoutBranchesResponse,
+  CheckoutUpdateResponse,
+  ConnectionResponse,
+  PushCommitsResponse,
+  PrReviewResponse,
+  BackfillResponse,
+  RefreshResponse,
+  ResetResponse,
+  DiscoverResponse,
+  FoldersResponse,
+  DemoEventResponse,
+};
+
 export type Store = ReturnType<typeof createStore>;
-export type AzureProvider = import('./server/azure-client.ts').AzureProvider;
+
 /** Live mode passes the Azure client; demo mode passes demoProvider, which answers only the routes demo serves. */
 export type AppProvider = AzureProvider | typeof demoProvider;
-export type DemoSyncStatus = import('./src/contract.ts').DemoSyncStatus;
+
 /**
  * Demo mode passes a stub, so the app relies only on the two calls both share with createSync, and reset and forget
  * in live mode.
@@ -59,29 +111,6 @@ export type AppOptions = {
   accessKey: string;
   launchToken?: string;
 };
-
-// The JSON each route answers with is defined in src/contract.ts, which src/api.ts maps request paths to, so the
-// browser modules that read a response are checked against what the handler below produces.
-export type Repository = import('./src/contract.ts').Repository;
-export type SessionResponse = import('./src/contract.ts').SessionResponse;
-export type ErrorResponse = import('./src/contract.ts').ErrorResponse;
-export type OkResponse = import('./src/contract.ts').OkResponse;
-export type StateResponse = import('./src/contract.ts').StateResponse;
-export type ActivityResponse = import('./src/contract.ts').ActivityResponse;
-export type EventResponse = import('./src/contract.ts').EventResponse;
-export type CheckoutsResponse = import('./src/contract.ts').CheckoutsResponse;
-export type CheckoutStatusResponse = import('./src/contract.ts').CheckoutStatusResponse;
-export type CheckoutBranchesResponse = import('./src/contract.ts').CheckoutBranchesResponse;
-export type CheckoutUpdateResponse = import('./src/contract.ts').CheckoutUpdateResponse;
-export type ConnectionResponse = import('./src/contract.ts').ConnectionResponse;
-export type PushCommitsResponse = import('./src/contract.ts').PushCommitsResponse;
-export type PrReviewResponse = import('./src/contract.ts').PrReviewResponse;
-export type BackfillResponse = import('./src/contract.ts').BackfillResponse;
-export type RefreshResponse = import('./src/contract.ts').RefreshResponse;
-export type ResetResponse = import('./src/contract.ts').ResetResponse;
-export type DiscoverResponse = import('./src/contract.ts').DiscoverResponse;
-export type FoldersResponse = import('./src/contract.ts').FoldersResponse;
-export type DemoEventResponse = import('./src/contract.ts').DemoEventResponse;
 
 const ROOT = dirname(fileURLToPath(import.meta.url));
 const TYPES: Record<string, string> = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml' };
@@ -207,8 +236,8 @@ export function createApp({
   let resetting: Promise<void> | null = null;
   /** Set when the last reset failed, until another starts, so the page can say so instead of looking unchanged. */
   let resetFailed = false;
-  const matches = (value: unknown, expected: Buffer) => {
-    const given = Buffer.from(String(value ?? ''));
+  const matches = (value: string | string[] | undefined, expected: Buffer) => {
+    const given = Buffer.from(Array.isArray(value) ? value.join(',') : (value ?? ''));
     return given.length === expected.length && timingSafeEqual(given, expected);
   };
   const hasAccessKey = (req: Request) => matches(req.headers['x-repo-pulse-key'], expectedKey);
@@ -815,7 +844,7 @@ async function startLocked(
   const close = async () => {
     const syncStopped = sync.stop();
     // Abort budget-queued CLI work before waiting for a sync that might be waiting on it.
-    await cli?.close();
+    cli?.close();
     await syncStopped;
     await closeListener();
     store.close();

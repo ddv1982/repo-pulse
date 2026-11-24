@@ -2,7 +2,7 @@ import { emptyHtml, html, dateTime } from './format.ts';
 import { required } from './dom.ts';
 
 /** /api/state lists backfill jobs; these are the fields the Repositories page shows. */
-export type HistoryJob = Pick<import('../contract.ts').HistoryJob, 'status' | 'error' | 'pages' | 'lastProgressAt' | 'warnings'>;
+export type HistoryJob = Pick<import('../contract.d.ts').HistoryJob, 'status' | 'error' | 'pages' | 'lastProgressAt' | 'warnings'>;
 export type HistoryRepo = Pick<import('./refresh.ts').Repo, 'id' | 'name'>;
 
 function statusFor(job: HistoryJob): [string, string] {
@@ -39,9 +39,11 @@ export function createHistoryImport(
   {
     start,
     onStarted,
+    onFollowupError,
   }: {
     start: (repoId: string | undefined, days: number | 'all') => Promise<unknown>;
     onStarted: (repoId: string | undefined) => Promise<void>;
+    onFollowupError: (failure: unknown) => void;
   },
 ) {
   const form = required('form', HTMLFormElement, dialog);
@@ -81,9 +83,12 @@ export function createHistoryImport(
       if (!error.hidden) required('[type="submit"]', HTMLElement, form).focus();
     }
     dialog.close();
-    await onStarted(id);
+    try {
+      await onStarted(id);
+    } catch (failure) {
+      onFollowupError(failure);
+    }
   };
-  // A failed start is caught above and shown in the dialog; anything onStarted throws reaches the console as an unhandled rejection.
   form.addEventListener('submit', event => void submitImport(event));
 
   return {

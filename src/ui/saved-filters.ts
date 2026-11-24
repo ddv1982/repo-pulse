@@ -2,8 +2,9 @@ import { required } from './dom.ts';
 import { canonicalActivityFilter } from '../activity-text.ts';
 import { splitActivitySearch } from './activity-search.ts';
 import { emptyHtml, html } from './format.ts';
+import type { SavedActivityFilter } from '../contract.d.ts';
 
-export type SavedActivityFilter = import('../contract.ts').SavedActivityFilter;
+export type { SavedActivityFilter };
 
 export type ActivityFilters = SavedActivityFilter['filters'];
 

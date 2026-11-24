@@ -1,7 +1,8 @@
 import { html, dateTime } from './format.ts';
+import type { SyncStatus, OverallSyncStatus } from '../contract.d.ts';
 
-export type SyncStatus = import('../contract.ts').SyncStatus;
-export type OverallSyncStatus = import('../contract.ts').OverallSyncStatus;
+export type { SyncStatus, OverallSyncStatus };
+
 /** `unavailable` is a state response without a sync status, as from an older server. */
 export type ShownSyncStatus = OverallSyncStatus | { state: 'unavailable' };
 export type AnySyncStatus = SyncStatus | ShownSyncStatus;

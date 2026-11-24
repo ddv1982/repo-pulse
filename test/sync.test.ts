@@ -8,7 +8,7 @@ import { activityMergeBadge } from '../src/activity-text.ts';
 import type { SyncProvider } from '../server/sync.ts';
 import { createAzureClient } from '../server/azure-client.ts';
 import type { AzureProvider, AzurePage, ReadOptions } from '../server/azure-client.ts';
-import type { AzureStreamRecord, Repository } from '../src/contract.ts';
+import type { AzureStreamRecord, Repository } from '../src/contract.d.ts';
 import { dataOf, fieldsOf, present, stub, watchedIdOf } from './fixtures/typed.ts';
 const repo = {
   id: 'one',
@@ -31,7 +31,7 @@ function setup(provider: SyncProvider, streams: string[] = ['pushes']) {
   return {
     store,
     sync,
-    advance(ms = 2000) {
+    advance(this: void, ms = 2000) {
       time += ms;
     },
   };
@@ -1223,12 +1223,15 @@ test('tag pushes become tag rows with their own change, and a tag-only push make
   });
   await sync.tick();
   const tags = store.listEvents().filter(event => event.kind === 'tag');
-  assert.deepEqual(tags.map(event => [dataOf(event).pushId, event.branch, dataOf(event).change]).sort(), [
-    [1, 'v1', 'created'],
-    [2, 'annotated', 'created'],
-    [3, 'v1', 'moved'],
-    [4, 'v2', 'deleted'],
-  ]);
+  assert.deepEqual(
+    tags.map(event => [dataOf(event).pushId, event.branch, dataOf(event).change]).sort(([a], [b]) => Number(a) - Number(b)),
+    [
+      [1, 'v1', 'created'],
+      [2, 'annotated', 'created'],
+      [3, 'v1', 'moved'],
+      [4, 'v2', 'deleted'],
+    ],
+  );
   const pushes = store.listEvents().filter(event => event.kind === 'push');
   assert.deepEqual(
     pushes.map(event => dataOf(event).pushId),
@@ -1269,10 +1272,13 @@ test('tags join the refs snapshot without announcing the tags that already exist
   advance(600001);
   await sync.tick();
   const tags = store.listEvents().filter(event => event.kind === 'tag');
-  assert.deepEqual(tags.map(event => [event.branch, dataOf(event).change, dataOf(event).evidence]).sort(), [
-    ['old', 'deleted', 'snapshot'],
-    ['v2', 'created', 'snapshot'],
-  ]);
+  assert.deepEqual(
+    tags.map(event => [event.branch, dataOf(event).change, dataOf(event).evidence]).sort(([a], [b]) => String(a).localeCompare(String(b))),
+    [
+      ['old', 'deleted', 'snapshot'],
+      ['v2', 'created', 'snapshot'],
+    ],
+  );
   assert.equal(dataOf(tags.find(event => event.branch === 'v2')).peeledObjectId, 'c');
   assert.equal(
     store.listEvents().some(event => event.kind.startsWith('branch-')),
@@ -1366,7 +1372,7 @@ test('a reviewer vote is PR activity, and PRs saved before votes were recorded a
   assert.deepEqual(
     present(dataOf(store.listEvents()[0]).reviewers)
       .map(item => [item.name, item.vote])
-      .sort(),
+      .sort(([a], [b]) => String(a).localeCompare(String(b))),
     [
       ['Ana', 0],
       ['Sam', -5],
@@ -2660,7 +2666,7 @@ test('a branch and tag a push recorded and an incomplete snapshot listed are rep
   advance(600001);
   await sync.tick();
   assert.deepEqual(
-    titles().sort(),
+    titles().sort((a, b) => (a ?? '').localeCompare(b ?? '')),
     ['Branch no longer listed · feature', 'Tag no longer listed · v1'],
     'as on main, the next complete snapshot reports both',
   );
@@ -2772,7 +2778,7 @@ test('before the tag baseline, a tag a push records after an incomplete snapshot
   await sync.tick();
   assert.ok(store.getEntity(repo.id, 'ref-baseline', 'tags'));
   assert.deepEqual(
-    titles().sort(),
+    titles().sort((a, b) => (a ?? '').localeCompare(b ?? '')),
     ['Tag no longer listed · v1', 'Tag no longer listed · v3'],
     'main took the incomplete snapshot for the tag baseline and reports v3; v1 is reported too, since the unreadable record may have been it',
   );

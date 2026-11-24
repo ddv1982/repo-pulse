@@ -18,9 +18,11 @@ import { scopeName } from './ui/header.ts';
 import { createHistoryImport } from './ui/history-import.ts';
 import { createBranchPicker } from './ui/branch-picker.ts';
 import { required, setHtml } from './ui/dom.ts';
+import type { PageState } from './ui/refresh.ts';
+import type { Action } from './ui/checkout-actions.ts';
 
-export type PageState = import('./ui/refresh.ts').PageState;
-export type Action = import('./ui/checkout-actions.ts').Action;
+export type { PageState, Action };
+
 /** web/theme.ts publishes this before the modules load. */
 export type ThemedWindow = Window & { repoPulseTheme?: { set: (value: string) => void } };
 
@@ -103,11 +105,18 @@ const branchPicker = createBranchPicker(required('#branch-dialog', HTMLDialogEle
 const historyImport = createHistoryImport(required('#history-dialog', HTMLDialogElement), {
   start: (repoId, days) => request('/api/backfill', { method: 'POST', body: { repoId, days } }),
   onStarted: async id => {
-    await load({ force: true });
-    if (document.activeElement === document.body || document.activeElement?.id === `import-${id}`) {
-      document.getElementById(`history-${id}`)?.focus({ preventScroll: true });
+    try {
+      await load({ force: true });
+      if (document.activeElement === document.body || document.activeElement?.id === `import-${id}`) {
+        document.getElementById(`history-${id}`)?.focus({ preventScroll: true });
+      }
+    } finally {
+      toast('Older activity sync requested.');
     }
-    toast('Older activity sync requested.');
+  },
+  onFollowupError: failure => {
+    const detail = failure instanceof Error ? failure.message : typeof failure === 'string' ? failure : '';
+    showError(`Older activity sync was requested, but its status could not be shown.${detail ? ` ${detail}` : ''}`);
   },
 });
 

@@ -3,7 +3,7 @@ import type { AddressInfo } from 'node:net';
 import { createApp, type AppProvider, type AppSync } from '../server.ts';
 import { createStore } from '../server/store.ts';
 import type { ActivityEvent } from '../src/activity.ts';
-import type { Repository } from '../src/contract.ts';
+import type { Repository } from '../src/contract.d.ts';
 
 const samples = 20;
 const scenarios: { repositories: number; events: number; mixedRuns?: boolean }[] = [

@@ -11,38 +11,33 @@ import { checkoutDiagnostic, memoryObservations, observedRewrite } from './check
 import { createActivitySwitch } from './checkout-activity-switch.ts';
 import { createCheckoutUpdater } from './checkout-update.ts';
 import { archivedSwitchRewrite, readDirectCommit } from './checkout-switch-refs.ts';
+import type { Repository as LinkedRepo } from './store.ts';
+import type {
+  GitStatus,
+  CheckoutSelection,
+  SwitchIntent,
+  CheckoutIntent,
+  CheckoutReading,
+  BlockedState,
+  ActiveCheckout,
+  CheckoutStatus,
+} from '../src/contract.d.ts';
 
 /**
  * Checkouts belong to watched repositories, so their Azure identity is always present.
  */
-export type LinkedRepo = import('./store.ts').Repository;
+export type { LinkedRepo };
 
-export type GitStatus = import('../src/contract.ts').GitStatus;
-
-export type CheckoutSelection = import('../src/contract.ts').CheckoutSelection;
-
-export type SwitchIntent = import('../src/contract.ts').SwitchIntent;
-
-export type CheckoutIntent = import('../src/contract.ts').CheckoutIntent;
-
-export type CheckoutReading = import('../src/contract.ts').CheckoutReading;
+export type { GitStatus, CheckoutSelection, SwitchIntent, CheckoutIntent, CheckoutReading, BlockedState, ActiveCheckout, CheckoutStatus };
 
 export type Upstream = { remote: string; source: string; tracking: string; url: string };
 
-export type ActivitySwitchReview = import('../src/contract.ts').ActivitySwitchReview;
-
-export type BlockedState = import('../src/contract.ts').BlockedState;
+export type { ActivitySwitchReview, DecoratedCheckout } from '../src/contract.d.ts';
 
 export type ReadCheckoutStatus = (
   path: string,
   repo: LinkedRepo,
 ) => Promise<{ snapshot: ActiveCheckout; target: Upstream | null; gitDirectory: string | null }>;
-
-export type ActiveCheckout = import('../src/contract.ts').ActiveCheckout;
-
-export type DecoratedCheckout = import('../src/contract.ts').DecoratedCheckout;
-
-export type CheckoutStatus = import('../src/contract.ts').CheckoutStatus;
 
 export type GitRunner = (
   path: string,
@@ -639,7 +634,7 @@ export function createCheckoutGit({
     repo: LinkedRepo,
     operation: 'check' | 'pull',
     expected: CheckoutIntent,
-  ): Promise<import('../src/contract.ts').CheckoutUpdateResult> {
+  ): Promise<import('../src/contract.d.ts').CheckoutUpdateResult> {
     return exclusively(repo, async path => {
       const result = await updateAt(path, repo, operation, expected);
       return { ...result, checkout: await inspect(path, repo) };
@@ -650,7 +645,7 @@ export function createCheckoutGit({
     repo: LinkedRepo,
     action: import('./checkout-branches.ts').BranchAction,
     expected: CheckoutIntent,
-  ): Promise<import('../src/contract.ts').BranchActionResult> {
+  ): Promise<import('../src/contract.d.ts').BranchActionResult> {
     return exclusively(repo, async path => {
       const current = await statusAt(path, repo);
       if (!matchesIntent(current.snapshot, expected)) {
@@ -671,7 +666,7 @@ export function createCheckoutGit({
     name: string,
     expected: SwitchIntent,
     { eventId, confirmation }: { eventId?: string | undefined; confirmation?: string | undefined } = {},
-  ): Promise<import('../src/contract.ts').ActivitySwitchResult> {
+  ): Promise<import('../src/contract.d.ts').ActivitySwitchResult> {
     return exclusively(repo, path => switchAt(path, repo, name, expected, { eventId, confirmation }));
   }
 

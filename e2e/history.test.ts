@@ -14,7 +14,7 @@ import type { AppSync } from '../server.ts';
 import type { AzureProvider } from '../server/azure-client.ts';
 import { present, stub } from '../test/fixtures/typed.ts';
 import { historyJob } from '../test/fixtures/jobs.ts';
-import type { ActivityEvent, ConnectionStatus, DemoSyncStatus, HistoryJob, Repository, SavedActivityFilter } from '../src/contract.ts';
+import type { ActivityEvent, ConnectionStatus, DemoSyncStatus, HistoryJob, Repository, SavedActivityFilter } from '../src/contract.d.ts';
 
 type Store = ReturnType<typeof createStore>;
 
@@ -332,7 +332,7 @@ test('one long build history keeps every constituent and acknowledges explicit b
   await expect(page.getByRole('button', { name: 'Mark all seen (1051)', exact: true })).toBeVisible();
 });
 
-test('repository history import scopes the confirmed range and keeps progress visible through polls', async t => {
+test('repository history import keeps the accepted request visible even if its follow-up fails', async t => {
   const store = createStore();
   for (const [id, name] of [
     ['orders', 'Orders'],
@@ -413,9 +413,24 @@ test('repository history import scopes the confirmed range and keeps progress vi
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
   await billing.getByRole('button', { name: 'Sync older activity…' }).click();
   await dialog.getByRole('radio', { name: 'All available since 2010' }).check();
+  const pageErrors: string[] = [];
+  page.on('pageerror', error => pageErrors.push(error.message));
+  await page.evaluate(() => {
+    // The wrapper forwards its original receiver for all other focus calls.
+    // oxlint-disable-next-line typescript/unbound-method
+    const focus = HTMLElement.prototype.focus;
+    HTMLElement.prototype.focus = function (options) {
+      if (this.id === 'history-billing') throw new Error('Synthetic history focus failure');
+      focus.call(this, options);
+    };
+  });
   await dialog.getByRole('button', { name: 'Start sync' }).click();
+  await expect(dialog).not.toBeVisible();
   await expect(billing.getByText('History sync queued', { exact: true })).toBeVisible();
   assert.deepEqual(calls.at(-1), { repoId: 'billing', days: 'all' });
+  await expect(page.locator('#notice [role="alert"]')).toContainText('Synthetic history focus failure');
+  await expect(page.locator('#toast')).toContainText('Older activity sync requested.');
+  assert.deepEqual(pageErrors, []);
 });
 
 test('compact Settings keeps diagnostics closed until needed and copies the diagnostics alone', async t => {
@@ -861,7 +876,7 @@ test('verified PR follow-up switches, reviews and removes the old branch from Re
   await row.getByRole('button', { name: 'Remove old local branch…' }).click();
   const removal = page.getByRole('dialog', { name: 'Remove local branch?' });
   await expect(removal.locator('code')).toHaveText(oldBranch);
-  await expect(removal).toHaveAccessibleDescription(new RegExp(oldBranch.replace('/', '\/')));
+  await expect(removal).toHaveAccessibleDescription(new RegExp(oldBranch));
   for (const [width, colorScheme] of [
     [1280, 'dark'],
     [320, 'light'],
@@ -1228,7 +1243,7 @@ test('saving selects the new filter after an older state response arrives', asyn
 
 test('an Activity response renders while a saved-filter menu stays open, and deletes keep newer selections', async t => {
   const { runtime, page } = await demo(t);
-  const filters = (search: string): import('../src/contract.ts').ActivityFilters => ({
+  const filters = (search: string): import('../src/contract.d.ts').ActivityFilters => ({
     search,
     people: '',
     kind: '',
@@ -1464,4 +1479,16 @@ test('New updates offers one bulk action that clears a fully shown list without 
   // With nothing to mark there is no empty action bar.
   await expect(page.locator('.feed-actions')).toHaveCount(0);
   assert.equal(runtime.store.queryActivity({ view: 'new' }).newUpdates, 0);
+});
+
+test('a malformed API error message falls back to the nested message or HTTP status', async t => {
+  const { page } = await demo(t);
+  let response: Record<string, unknown> = { message: {}, error: { message: 'Refresh is unavailable.' } };
+  await page.route('**/api/state', route => route.fulfill({ status: 500, json: response }));
+  await page.reload();
+  const notice = page.locator('#notice');
+  await expect(notice).toContainText('Refresh is unavailable.');
+  response = { message: {}, error: { message: {} } };
+  await page.reload();
+  await expect(notice).toContainText('Request failed (500).');
 });

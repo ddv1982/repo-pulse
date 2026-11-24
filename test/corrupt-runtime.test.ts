@@ -14,7 +14,7 @@ import { demoProvider } from '../server/demo.ts';
 import { createRewriteCheck } from '../server/rewrite-check.ts';
 import { createStore } from '../server/store.ts';
 import { createSync } from '../server/sync.ts';
-import type { StateResponse } from '../src/contract.ts';
+import type { StateResponse } from '../src/contract.d.ts';
 import { keyedFetch, portOf, TEST_KEY } from './fixtures/access.ts';
 import { historyJob, rewriteJob } from './fixtures/jobs.ts';
 import { present, watchedIdOf } from './fixtures/typed.ts';
@@ -143,6 +143,8 @@ test('a corrupt stream during startup leaves the port free for a same-process re
 
   // Keep the regression test able to close a listener leaked by a failed start.
   const listeners = new Set<Server>();
+  // The wrapper below forwards the original receiver through Reflect.apply.
+  // oxlint-disable-next-line typescript/unbound-method
   const listen = Server.prototype.listen;
   t.mock.method(Server.prototype, 'listen', function (this: Server, ...args: unknown[]) {
     if (args[0] === port) listeners.add(this);

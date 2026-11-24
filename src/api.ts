@@ -1,15 +1,32 @@
-export type StateResponse = import('./contract.ts').StateResponse;
-export type ActivityResponse = import('./contract.ts').ActivityResponse;
-export type EventResponse = import('./contract.ts').EventResponse;
-export type CheckoutsResponse = import('./contract.ts').CheckoutsResponse;
-export type CheckoutUpdateResponse = import('./contract.ts').CheckoutUpdateResponse;
-export type ConnectionResponse = import('./contract.ts').ConnectionResponse;
-export type PushCommitsResponse = import('./contract.ts').PushCommitsResponse;
-export type PrReviewResponse = import('./contract.ts').PrReviewResponse;
-export type ErrorResponse = import('./contract.ts').ErrorResponse;
-export type OkResponse = import('./contract.ts').OkResponse;
-export type DiscoverResponse = import('./contract.ts').DiscoverResponse;
-export type FoldersResponse = import('./contract.ts').FoldersResponse;
+import type {
+  StateResponse,
+  ActivityResponse,
+  EventResponse,
+  CheckoutsResponse,
+  CheckoutUpdateResponse,
+  ConnectionResponse,
+  PushCommitsResponse,
+  PrReviewResponse,
+  ErrorResponse,
+  OkResponse,
+  DiscoverResponse,
+  FoldersResponse,
+} from './contract.d.ts';
+
+export type {
+  StateResponse,
+  ActivityResponse,
+  EventResponse,
+  CheckoutsResponse,
+  CheckoutUpdateResponse,
+  ConnectionResponse,
+  PushCommitsResponse,
+  PrReviewResponse,
+  ErrorResponse,
+  OkResponse,
+  DiscoverResponse,
+  FoldersResponse,
+};
 
 /**
  * The response body for a request path, matched on the path's shape. More specific shapes come first.
@@ -21,21 +38,21 @@ export type ResponseFor<P extends string> = P extends '/api/state'
     : P extends `/api/activity/unseen?${string}`
       ? { ids: string[] }
       : P extends '/api/activity-filters'
-        ? import('./contract.ts').SavedActivityFilter
+        ? import('./contract.d.ts').SavedActivityFilter
         : P extends `/api/activity-filters/${string}`
-          ? import('./contract.ts').SavedActivityFilter | OkResponse
+          ? import('./contract.d.ts').SavedActivityFilter | OkResponse
           : P extends `/api/events/${string}`
             ? EventResponse
             : P extends '/api/checkouts'
               ? CheckoutsResponse
               : P extends `/api/repos/${string}/checkout/branches`
-                ? import('./contract.ts').CheckoutBranchesResponse
+                ? import('./contract.d.ts').CheckoutBranchesResponse
                 : P extends `/api/repos/${string}/checkout/status`
-                  ? import('./contract.ts').CheckoutStatusResponse
+                  ? import('./contract.d.ts').CheckoutStatusResponse
                   : P extends `/api/repos/${string}/checkout`
                     ? CheckoutUpdateResponse
                     : P extends '/api/repos'
-                      ? import('./contract.ts').Repository
+                      ? import('./contract.d.ts').Repository
                       : P extends `/api/repos/${string}`
                         ? OkResponse
                         : P extends '/api/connection' | `/api/connection?${string}`
@@ -45,17 +62,17 @@ export type ResponseFor<P extends string> = P extends '/api/state'
                             : P extends `/api/pr/${string}/${string}/review`
                               ? PrReviewResponse
                               : P extends '/api/backfill'
-                                ? import('./contract.ts').BackfillResponse
+                                ? import('./contract.d.ts').BackfillResponse
                                 : P extends '/api/refresh'
-                                  ? import('./contract.ts').RefreshResponse
+                                  ? import('./contract.d.ts').RefreshResponse
                                   : P extends '/api/reset'
-                                    ? import('./contract.ts').ResetResponse
+                                    ? import('./contract.d.ts').ResetResponse
                                     : P extends '/api/discover'
                                       ? DiscoverResponse
                                       : P extends '/api/folders'
                                         ? FoldersResponse
                                         : P extends '/api/demo/event'
-                                          ? import('./contract.ts').DemoEventResponse
+                                          ? import('./contract.d.ts').DemoEventResponse
                                           : P extends '/api/ack'
                                             ? OkResponse & { changedIds: string[] }
                                             : P extends '/api/settings'
@@ -131,10 +148,9 @@ export async function request<P extends string>(path: P, { method = 'GET', body 
     const body: Partial<Record<string, unknown>> = typeof value === 'object' && value !== null ? value : {};
     const error = body.error;
     const nested = typeof error === 'object' && error !== null && 'message' in error ? error.message : undefined;
-    throw Object.assign(
-      new Error(String(body.message || nested || (typeof error === 'string' ? error : `Request failed (${response.status}).`))),
-      { code: body.code },
-    );
+    const message = [body.message, nested].find(text => typeof text === 'string' && text);
+    const fallback = typeof error === 'string' ? error : `Request failed (${response.status}).`;
+    throw Object.assign(new Error(typeof message === 'string' ? message : fallback), { code: body.code });
   }
   // The local server answers this path with ResponseFor<P> (server.ts checks each handler with `satisfies`); checking
   // the body here waits for the shared route table the post-migration plan leaves for the next new route.

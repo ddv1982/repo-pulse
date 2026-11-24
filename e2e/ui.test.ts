@@ -19,7 +19,7 @@ import { createAzureClient } from '../server/azure-client.ts';
 import type { AppSync } from '../server.ts';
 import type { AzureProvider, RepositoryInput, ResolvedRepository } from '../server/azure-client.ts';
 import type { ActivityKind } from '../src/activity.ts';
-import type { ActivityEvent, ConnectionStatus, EventData, Repository, SyncEngineStatus, SyncStatus } from '../src/contract.ts';
+import type { ActivityEvent, ConnectionStatus, EventData, Repository, SyncEngineStatus, SyncStatus } from '../src/contract.d.ts';
 import { present, stub } from '../test/fixtures/typed.ts';
 
 type Runtime = Awaited<ReturnType<typeof startApp>>;
@@ -452,7 +452,7 @@ async function renderInBackground(page: Page) {
 
 test('a focused saved-filter option keeps focus while incoming activity renders', async t => {
   const { page, runtime } = await setup(t);
-  const filters = (search: string): import('../src/contract.ts').ActivityFilters => ({
+  const filters = (search: string): import('../src/contract.d.ts').ActivityFilters => ({
     search,
     people: '',
     kind: '',
@@ -475,7 +475,7 @@ test('a focused saved-filter option keeps focus while incoming activity renders'
 
 test('a focused saved-filter option stays on its preset when another preset is deleted, and falls back to the toggle', async t => {
   const { page, runtime } = await setup(t);
-  const filters = (search: string): import('../src/contract.ts').ActivityFilters => ({
+  const filters = (search: string): import('../src/contract.d.ts').ActivityFilters => ({
     search,
     people: '',
     kind: '',

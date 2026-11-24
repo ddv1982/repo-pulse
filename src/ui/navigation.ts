@@ -30,7 +30,7 @@ export type WatchedRepo = { id: string; disabled?: boolean };
 /**
  * Keep old bookmarks working while exposing one Activity page with two clear views.
  */
-export function parseRoute(hash: unknown) {
+export function parseRoute(hash: string) {
   const [name, value] = String(hash || '')
     .replace(/^#/, '')
     .split('/');
@@ -146,7 +146,7 @@ export function createNavigation({
       checkoutRepoId = id;
       ui.activityRoute = isActivity(ui.route) ? ui.route : results?.route || 'catchup';
     },
-    view() {
+    view(this: void) {
       const { route, eventId, search, kind, repoIds } = ui;
       return { route, eventId, search, kind, repoIds, generation };
     },

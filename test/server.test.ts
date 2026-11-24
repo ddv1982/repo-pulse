@@ -23,7 +23,7 @@ import type {
   PushCommitsResponse,
   StateResponse,
   SyncEngineStatus,
-} from '../src/contract.ts';
+} from '../src/contract.d.ts';
 import type { ActivityEvent } from '../src/activity.ts';
 import { TEST_KEY, keyedFetch, portOf } from './fixtures/access.ts';
 import { fieldsOf, present, stub, watchedIdOf, type Thrown } from './fixtures/typed.ts';
@@ -562,7 +562,7 @@ test('Load push commits pages through the Azure client by push ID', async t => {
   assert.deepEqual(first.items[0], { commitId: '0-0', comment: 'Change' });
   assert.deepEqual(first.nextCursor, { skip: 100 });
   const second: PushCommitsResponse = await (
-    await fetch(`${url}/api/push/demo-billing/7/commits?skip=${fieldsOf(first.nextCursor).skip}`)
+    await fetch(`${url}/api/push/demo-billing/7/commits?skip=${String(fieldsOf(first.nextCursor).skip)}`)
   ).json();
   assert.deepEqual(
     second.items.map(item => item.commitId),

@@ -1,9 +1,9 @@
 import { emptyHtml, html } from './format.ts';
 import { required, setHtml } from './dom.ts';
+import type { FoldersResponse, Repository, DiscoveredRemote } from '../contract.d.ts';
 
-export type FoldersResponse = import('../contract.ts').FoldersResponse;
-export type Repository = import('../contract.ts').Repository;
-export type DiscoveredRemote = import('../contract.ts').DiscoveredRemote;
+export type { FoldersResponse, Repository, DiscoveredRemote };
+
 /** A subfolder row, or the row that leads up to the parent folder. */
 export type FolderOption = FoldersResponse['folders'][number] & { up?: boolean };
 /** One remote of a local checkout: a checkout with several remotes gets one row per remote. */
@@ -20,7 +20,7 @@ export interface PickerHost {
 
 const KEY = 'repo-pulse-picker-folder';
 const keyOf = (item: CheckoutItem) => JSON.stringify([item.localPath, item.remote.name]);
-const lower = (value: unknown) => String(value || '').toLowerCase();
+const lower = (value: string | null | undefined) => String(value || '').toLowerCase();
 const homePrefix = (path?: string) =>
   String(path || '').match(/^(\/home\/[^/]+|\/Users\/[^/]+)(?=\/|$)|^([A-Za-z]:\\Users\\[^\\]+)(?=\\|$)/)?.[0];
 

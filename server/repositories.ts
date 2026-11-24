@@ -4,11 +4,11 @@ import { promisify } from 'node:util';
 import { stat, readdir, realpath } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { homedir } from 'node:os';
+import type { DiscoveredRemote as ParsedRemote, DiscoveredRemote, Discovery } from '../src/contract.d.ts';
 
-export type ParsedRemote = import('../src/contract.ts').DiscoveredRemote;
-export type DiscoveredRemote = import('../src/contract.ts').DiscoveredRemote;
-export type DiscoveredCheckout = import('../src/contract.ts').DiscoveredCheckout;
-export type Discovery = import('../src/contract.ts').Discovery;
+export type { ParsedRemote, DiscoveredRemote, Discovery };
+
+export type { DiscoveredCheckout } from '../src/contract.d.ts';
 
 const exec = promisify(execFile);
 const invalid = () => Object.assign(new Error('Use an Azure DevOps Services HTTPS or SSH repository URL.'), { code: 'INVALID_REPOSITORY' });
@@ -20,6 +20,8 @@ const component = (value: string | undefined) => {
   } catch {
     throw invalid();
   }
+  // These bytes are forbidden within decoded repository URL segments.
+  // oxlint-disable-next-line no-control-regex
   if (!decoded || /[\x00-\x1f/\\?#]/.test(decoded) || decoded === '.' || decoded === '..' || /^[-@]/.test(decoded)) throw invalid();
   return decoded;
 };
@@ -63,6 +65,8 @@ function refuseCredentials(url: URL, organization: string) {
 }
 
 export function parseRemote(value: unknown): ParsedRemote {
+  // Reject control characters before the URL parser can trim them.
+  // oxlint-disable-next-line no-control-regex
   if (typeof value !== 'string' || value.length > 4096 || /[\x00-\x1f]/.test(value)) throw invalid();
   let organization, project, name;
   const ssh = value.match(/^(?:[^-@/:][^@/:]*@)?(?:ssh\.dev\.azure\.com|vs-ssh\.visualstudio\.com):v3\/([^/]+)\/([^/]+)\/([^/]+)\/?$/i);

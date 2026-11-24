@@ -1,10 +1,10 @@
 import { connectionStatus } from './connection.ts';
 import { emptyHtml, html } from './format.ts';
 import { syncRepoName, syncSentence } from './health.ts';
+import type { PageState } from './refresh.ts';
+import type { ConnectionState, ConnectionStatus } from './connection.ts';
 
-export type PageState = import('./refresh.ts').PageState;
-export type ConnectionState = import('./connection.ts').ConnectionState;
-export type ConnectionStatus = import('./connection.ts').ConnectionStatus;
+export type { PageState, ConnectionState, ConnectionStatus };
 
 function repositorySelect(repos: PageState['repos'], repoId: string) {
   if (!repos.length) return emptyHtml;

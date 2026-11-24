@@ -18,14 +18,14 @@ import { renderRepositories } from '../src/ui/repositories.ts';
 import { renderSettings } from '../src/ui/settings.ts';
 import { renderHeader } from '../src/ui/header.ts';
 import { renderCheckout } from '../src/ui/checkout-render.ts';
+import type { ActivityEvent } from '../src/activity.ts';
+import type { PageState, Repo } from '../src/ui/refresh.ts';
+import type { CheckoutSnapshot } from '../src/ui/checkout.ts';
+import type { ConnectionState, ConnectionStatus } from '../src/ui/connection.ts';
+import type { CommitsView } from '../src/ui/activity-detail.ts';
 
-export type ActivityEvent = import('../src/activity.ts').ActivityEvent;
-export type PageState = import('../src/ui/refresh.ts').PageState;
-export type Repo = import('../src/ui/refresh.ts').Repo;
-export type CheckoutSnapshot = import('../src/ui/checkout.ts').CheckoutSnapshot;
-export type ConnectionState = import('../src/ui/connection.ts').ConnectionState;
-export type ConnectionStatus = import('../src/ui/connection.ts').ConnectionStatus;
-export type CommitsView = import('../src/ui/activity-detail.ts').CommitsView;
+export type { ActivityEvent, PageState, Repo, CheckoutSnapshot, ConnectionState, ConnectionStatus, CommitsView };
+
 /** A transformed value and the exact escaped markup expected where it is rendered. */
 export type Sink = { field: string; html: string };
 export type View = { render: () => (string | SafeHtml)[]; shows: string[]; sinks: Sink[] };
@@ -671,7 +671,7 @@ test('html auto-escapes plain values, composes SafeHtml, and setHtml refuses pla
   setHtml(element, rendered);
   assert.equal(element.firstElementChild, kept, 'setHtml updates the matching element in place');
   // The attributes are updated in place, so compare what the markup means rather than its serialized order.
-  assert.deepEqual({ ...kept.dataset }, { flag: 'false', on: 'true' });
+  assert.deepEqual(Object.fromEntries(Object.entries(kept.dataset)), { flag: 'false', on: 'true' });
   assert.equal(kept.textContent, '<img src=x onerror=alert(1)> & "quotes"');
   assert.equal(element.querySelector('img'), null);
   // @ts-expect-error A raw string is refused by the type too.
@@ -694,4 +694,9 @@ test('setHtml in src/ui/dom.ts is the only innerHTML sink across browser source 
     }
   }
   assert.deepEqual(offenders, []);
+});
+
+test('an unexpected plain object in rendered provider data never appears as object text', () => {
+  // @ts-expect-error Older or malformed provider data can violate the display type.
+  assert.equal(String(safeHtml`<p>${{ unexpected: 'data' }}</p>`), '<p></p>');
 });

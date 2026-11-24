@@ -6,7 +6,7 @@ import {
   renderHistoryProgress as renderHistoryProgressHtml,
 } from '../src/ui/history-import.ts';
 import type { ActivityEvent, EventData, MergeEvidenceData } from '../src/activity.ts';
-import type { HistoryJob, JobError } from '../src/contract.ts';
+import type { HistoryJob, JobError } from '../src/contract.d.ts';
 import { parse, one, all, text } from './fixtures/dom.ts';
 import { stub } from './fixtures/typed.ts';
 
@@ -113,4 +113,15 @@ test('the repository import chip says how many records the import skipped, since
   assert.equal(chip({ status: 'retrying', warnings }), 'History sync retrying · 2 records skipped');
   assert.equal(chip({ status: 'completed', warnings: [warning('pushes', 1)] }), 'History sync finished · 1 record skipped');
   assert.equal(chip({ status: 'completed', warnings: [] }), 'History sync finished', 'a clean import says nothing more');
+});
+
+test('legacy merge evidence without an error message shows a generic explanation', () => {
+  const doc = parse(renderMergeEvidence({ mergeEvidence: { status: 'incomplete', error: {} } }));
+  assert.equal(text(one(doc, '.status-text')), 'Merge evidence could not be checked.');
+});
+
+test('legacy merge evidence omits a non-text branch name', () => {
+  // @ts-expect-error Old enrichment rows can contain unchecked provider fields.
+  const doc = parse(renderMergeEvidence({ mergeEvidence: { prs: [{ pullRequestId: 1, sourceRefName: {} }] } }));
+  assert.equal(text(one(doc, 'li')), 'PR #1 · Related PR evidence');
 });

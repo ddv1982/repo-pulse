@@ -1,7 +1,7 @@
 {
   "$schema": "./node_modules/oxlint/configuration_schema.json",
   "plugins": ["typescript"],
-  "categories": { "correctness": "off" },
+  "categories": { "correctness": "warn" },
   "jsPlugins": [{ "name": "eslint-js", "specifier": "oxlint-plugin-eslint" }],
   "env": { "builtin": true, "es2024": true },
   "ignorePatterns": [

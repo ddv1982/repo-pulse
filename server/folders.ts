@@ -7,7 +7,7 @@ import { discoverRepositories } from './repositories.ts';
 export async function browseFolders(
   input: unknown,
   { home = homedir(), discover = discoverRepositories }: { home?: string; discover?: typeof discoverRepositories } = {},
-): Promise<import('../src/contract.ts').FoldersResponse> {
+): Promise<import('../src/contract.d.ts').FoldersResponse> {
   let path;
   if (input === undefined || input === '') {
     const projects = join(home, 'projects');
