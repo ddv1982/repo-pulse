@@ -294,7 +294,11 @@ export function createSync({
 
   function ensureStreams() {
     const current = store.getStreams();
-    for (const repo of store.listRepos()) {
+    const repos = store.listRepos();
+    // A repository removed and added again starts its lookup order afresh.
+    const watched = new Set(repos.map(repo => repo.id));
+    for (const turns of [prTurns, buildTurns]) for (const repoId of turns.keys()) if (!watched.has(repoId)) turns.delete(repoId);
+    for (const repo of repos) {
       if (store.getSetting(`baseline:${repo.id}`, null) === null) store.setSetting(`baseline:${repo.id}`, iso(now()));
       for (const stream of STREAMS) {
         if (!current.some(state => state.repoId === repo.id && state.stream === stream)) {

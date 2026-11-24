@@ -316,6 +316,53 @@ const cachedPr = (id: number, status = 'active') => ({
   sourceRefName: `refs/heads/feature/${id}`,
 });
 
+test('a repository removed and added again starts its PR lookup order afresh', async () => {
+  let listed: ReturnType<typeof cachedPr>[] = [];
+  const lookups: string[] = [];
+  const provider: SyncProvider = {
+    async read(_r, stream) {
+      return { items: stream === 'prs' ? listed : [], nextCursor: null };
+    },
+    async pullRequest(_repo, id) {
+      lookups.push(String(id));
+      return cachedPr(Number(id));
+    },
+  };
+  const { store, sync, advance } = setup(provider, ['prs']);
+  const onlyPrs = () => {
+    for (const state of store.getStreams()) if (state.stream !== 'prs') store.saveStream({ ...state, nextAt: '2099-01-01T00:00:00Z' });
+  };
+  // PRs 1 to 4 leave the active list, and one read looks up three of them.
+  const lookUpOnce = async () => {
+    listed = [1, 2, 3, 4].map(id => cachedPr(id));
+    advance(600000);
+    await sync.tick();
+    listed = [];
+    advance(600000);
+    await sync.tick();
+  };
+  await lookUpOnce();
+  assert.deepEqual(lookups, ['1', '2', '3']);
+  store.removeRepo(repo.id);
+  advance(600000);
+  await sync.tick();
+  store.saveRepo(repo);
+  sync.refresh();
+  onlyPrs();
+  // Removal deleted the PRs, and a read that misses none empties the order, so the old order could only resume for
+  // active PRs saved before the re-added watch's first lookup.
+  store.commitPage({
+    repoId: repo.id,
+    stream: 'prs',
+    entities: [1, 2, 3, 4].map(id => ({ type: 'pr', id: String(id), data: { status: 'active', revision: 1 } })),
+  });
+  lookups.length = 0;
+  advance(600000);
+  await sync.tick();
+  assert.deepEqual(lookups, ['1', '2', '3'], 'the order the removed watch left is not resumed');
+  store.close();
+});
+
 test('a cached active PR that Azure can no longer read does not stall the prs stream or its later siblings', async () => {
   let listed = [1, 2, 3, 4, 5].map(id => cachedPr(id));
   const lookups: (number | string)[] = [];
