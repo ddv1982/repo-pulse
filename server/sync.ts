@@ -53,6 +53,18 @@ const listedIds = (stream: 'prs' | 'activeBuilds', items: readonly AzureStreamRe
   stream === 'prs'
     ? recordsOf('prs', items).map(item => String(item.pullRequestId))
     : recordsOf('activeBuilds', items).map(item => String(item.id));
+/**
+ * Up to `size` of the missing IDs in numeric order, starting after `last`, the one looked up last time, so IDs that
+ * stay missing cannot hold every turn.
+ */
+function lookupTurn(missing: string[], last: string | undefined, size: number) {
+  const sorted = [...missing].sort((a, b) => Number(a) - Number(b));
+  const after = Math.max(
+    sorted.findIndex(id => Number(id) > Number(last ?? -1)),
+    0,
+  );
+  return [...sorted.slice(after), ...sorted.slice(0, after)].slice(0, size);
+}
 /** The warning for records a read left out, or undefined when it left none out. */
 function warningOf(stream: StreamName, unreadable: UnreadableRecords | undefined): StreamWarning | undefined {
   if (!unreadable?.count) return undefined;
@@ -223,8 +235,9 @@ export function createSync({
   let nextBackground: BackgroundKind = 'rewrite';
   const lastTurn: Partial<Record<BackgroundKind | 'live', string>> = {};
   const counters = { pages: 0, errors: 0 };
-  /** The last cached active PR looked up by ID, per repository, so missing PRs take turns. */
+  /** The last cached active PR and in-progress build looked up by ID, per repository, so missing ones take turns. */
   const prLookedUp: Map<string, string> = new Map();
+  const buildLookedUp: Map<string, string> = new Map();
 
   function ensureStreams() {
     const current = store.getStreams();
@@ -300,38 +313,34 @@ export function createSync({
     let unreadable = addUnreadable(page.restarted ? undefined : state.unreadable, page.unreadable);
     let gone: Entity[] = [];
     if (complete && state.stream === 'activeBuilds' && provider.buildsById) {
-      const missing = store
-        .listEntities(repo.id, 'build')
-        .filter(entry => entry.data.status !== 'completed' && !activeIds?.includes(entry.id))
-        .slice(0, 20);
-      if (missing.length) {
-        const byId = await provider.buildsById(
-          repo,
-          missing.map(entry => entry.id),
-        );
+      const missing = new Map(
+        store
+          .listEntities(repo.id, 'build')
+          .filter(entry => entry.data.status !== 'completed' && !activeIds?.includes(entry.id))
+          .map(entry => [entry.id, entry.data]),
+      );
+      const turn = lookupTurn([...missing.keys()], buildLookedUp.get(repo.id), 20);
+      if (turn.length) {
+        buildLookedUp.set(repo.id, String(turn.at(-1)));
+        const byId = await provider.buildsById(repo, turn);
         const found = byId.items;
         items = [...items, ...found];
         unreadable = addUnreadable(unreadable, byId.unreadable);
         // Azure omits a build it no longer has (removed by retention, see docs/probe-results.md), so stop asking for it.
         // The fingerprint stays, so no event is made for it and a later sighting still compares against its last state.
-        // With more pages to read, an omitted build may only be on a later one, and a build Azure returned unreadable is
-        // not omitted, so none is given up this turn.
-        if (!byId.nextCursor && !byId.unreadable)
-          gone = missing
-            .filter(entry => !found.some(item => String(item?.id) === entry.id))
-            .map(entry => ({ type: 'build', id: entry.id, data: { ...entry.data, status: 'completed' } }));
+        // With more pages to read, an omitted build may only be on a later one, so none is given up this turn. A build
+        // Azure returned unreadable is not omitted.
+        const answered = new Set([...found.map(item => String(item.id)), ...(byId.unreadableIds || [])]);
+        if (!byId.nextCursor)
+          gone = turn.filter(id => !answered.has(id)).map(id => ({ type: 'build', id, data: { ...missing.get(id), status: 'completed' } }));
       }
     }
     if (complete && state.stream === 'prs' && provider.pullRequest) {
       const missing = store
         .listEntities(repo.id, 'pr')
         .filter(entry => entry.data.status === 'active' && !activeIds?.includes(entry.id))
-        .map(entry => entry.id)
-        .sort((a, b) => Number(a) - Number(b));
-      // Lookups resume after the last ID checked, so PRs that stay unreadable cannot hold every turn.
-      const after = missing.findIndex(id => Number(id) > Number(prLookedUp.get(repo.id) ?? -1));
-      const turn = [...missing.slice(Math.max(after, 0)), ...missing.slice(0, Math.max(after, 0))].slice(0, 3);
-      for (const id of turn) {
+        .map(entry => entry.id);
+      for (const id of lookupTurn(missing, prLookedUp.get(repo.id), 3)) {
         if (!watching(repo)) return null;
         prLookedUp.set(repo.id, id);
         try {
@@ -492,6 +501,7 @@ export function createSync({
         requested.clear();
         refreshedAt.clear();
         prLookedUp.clear();
+        buildLookedUp.clear();
         lastKey = undefined;
         liveTurns = 0;
         resetting = false;

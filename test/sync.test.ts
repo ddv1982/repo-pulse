@@ -1794,3 +1794,95 @@ test('an active build that the active list returns unreadable is counted once an
   assert.equal(fieldsOf(store.getEntity(repo.id, 'build', '42')).status, 'inProgress');
   store.close();
 });
+
+const inProgressBuild = (id: number) => ({
+  id,
+  repository: { id: 'a' },
+  status: 'inProgress',
+  queueTime: '2026-11-01T00:00:00Z',
+  sourceVersion: 'a',
+});
+/**
+ * Sync over the live client after cached in-progress builds left the active list. `answer` gives what a lookup by ID
+ * returns for each build, undefined when Azure omits it.
+ */
+async function leftActiveBuilds(ids: number[], answer: (id: number) => unknown) {
+  let listed = true;
+  const asked: number[][] = [];
+  // Build reads are cached for 45 seconds of the client's clock, so each turn starts a minute later.
+  let clientTime = 0;
+  const client = createAzureClient({
+    now: () => clientTime,
+    cli: {
+      run: async args => {
+        const query = args.find(arg => arg.startsWith('buildIds='));
+        if (!query) return { value: listed ? ids.map(inProgressBuild) : [] };
+        const wanted = query.slice('buildIds='.length).split(',').map(Number);
+        asked.push(wanted);
+        const value: unknown[] = [];
+        for (const id of wanted) {
+          const found = answer(id);
+          if (found !== undefined) value.push(found);
+        }
+        return { value };
+      },
+    },
+  });
+  const { store, sync, advance } = setup(client, ['activeBuilds']);
+  await sync.tick();
+  listed = false;
+  return {
+    asked,
+    store,
+    async turn() {
+      advance(600000);
+      clientTime += 60000;
+      await sync.tick();
+    },
+    status: (id: number) => fieldsOf(store.getEntity(repo.id, 'build', String(id))).status,
+  };
+}
+const finishedBuild = (id: number) => ({
+  ...inProgressBuild(id),
+  status: 'completed',
+  result: 'succeeded',
+  finishTime: '2026-11-17T10:01:00Z',
+});
+
+test('a build omitted from a lookup is given up even when another build in that lookup is unreadable', async () => {
+  const builds = await leftActiveBuilds([42, 43], id => (id === 42 ? { ...inProgressBuild(42), status: 7 } : undefined));
+  await builds.turn();
+  assert.equal(builds.status(43), 'completed', 'Azure omitted 43, so it is gone');
+  assert.equal(builds.status(42), 'inProgress', 'Azure returned 42 unreadable, so it is not');
+  await builds.turn();
+  assert.deepEqual(builds.asked, [[42, 43], [42]]);
+  builds.store.close();
+});
+
+test('builds beyond the first lookup batch get a turn when one build stays unreadable and the rest were removed', async () => {
+  const ids = Array.from({ length: 21 }, (_, index) => 101 + index);
+  const builds = await leftActiveBuilds(ids, id =>
+    id === 101 ? { ...inProgressBuild(101), status: 7 } : id === 121 ? finishedBuild(121) : undefined,
+  );
+  for (let turn = 0; turn < 3; turn++) await builds.turn();
+  assert.ok(
+    builds.asked.some(batch => batch.includes(121)),
+    'build 121 is looked up',
+  );
+  assert.equal(builds.status(121), 'completed');
+  builds.store.close();
+});
+
+test('builds beyond the first lookup batch get a turn when every build in it stays unreadable', async () => {
+  const ids = Array.from({ length: 21 }, (_, index) => 101 + index);
+  const builds = await leftActiveBuilds(ids, id => (id === 121 ? finishedBuild(121) : { ...inProgressBuild(id), status: 7 }));
+  await builds.turn();
+  await builds.turn();
+  assert.equal(present(builds.asked[0]).length, 20, 'one lookup asks for at most 20 builds');
+  assert.ok(
+    builds.asked.some(batch => batch.includes(121)),
+    'the next lookup starts after the last build asked for',
+  );
+  assert.equal(builds.status(121), 'completed');
+  builds.store.close();
+});
