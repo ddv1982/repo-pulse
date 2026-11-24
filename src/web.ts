@@ -105,11 +105,18 @@ const branchPicker = createBranchPicker(required('#branch-dialog', HTMLDialogEle
 const historyImport = createHistoryImport(required('#history-dialog', HTMLDialogElement), {
   start: (repoId, days) => request('/api/backfill', { method: 'POST', body: { repoId, days } }),
   onStarted: async id => {
-    await load({ force: true });
-    if (document.activeElement === document.body || document.activeElement?.id === `import-${id}`) {
-      document.getElementById(`history-${id}`)?.focus({ preventScroll: true });
+    try {
+      await load({ force: true });
+      if (document.activeElement === document.body || document.activeElement?.id === `import-${id}`) {
+        document.getElementById(`history-${id}`)?.focus({ preventScroll: true });
+      }
+    } finally {
+      toast('Older activity sync requested.');
     }
-    toast('Older activity sync requested.');
+  },
+  onFollowupError: failure => {
+    const detail = failure instanceof Error ? failure.message : typeof failure === 'string' ? failure : '';
+    showError(`Older activity sync was requested, but its status could not be shown.${detail ? ` ${detail}` : ''}`);
   },
 });
 

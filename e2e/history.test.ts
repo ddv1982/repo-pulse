@@ -332,7 +332,7 @@ test('one long build history keeps every constituent and acknowledges explicit b
   await expect(page.getByRole('button', { name: 'Mark all seen (1051)', exact: true })).toBeVisible();
 });
 
-test('repository history import scopes the confirmed range and keeps progress visible through polls', async t => {
+test('repository history import keeps the accepted request visible even if its follow-up fails', async t => {
   const store = createStore();
   for (const [id, name] of [
     ['orders', 'Orders'],
@@ -413,9 +413,24 @@ test('repository history import scopes the confirmed range and keeps progress vi
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
   await billing.getByRole('button', { name: 'Sync older activity…' }).click();
   await dialog.getByRole('radio', { name: 'All available since 2010' }).check();
+  const pageErrors: string[] = [];
+  page.on('pageerror', error => pageErrors.push(error.message));
+  await page.evaluate(() => {
+    // The wrapper forwards its original receiver for all other focus calls.
+    // oxlint-disable-next-line typescript/unbound-method
+    const focus = HTMLElement.prototype.focus;
+    HTMLElement.prototype.focus = function (options) {
+      if (this.id === 'history-billing') throw new Error('Synthetic history focus failure');
+      focus.call(this, options);
+    };
+  });
   await dialog.getByRole('button', { name: 'Start sync' }).click();
+  await expect(dialog).not.toBeVisible();
   await expect(billing.getByText('History sync queued', { exact: true })).toBeVisible();
   assert.deepEqual(calls.at(-1), { repoId: 'billing', days: 'all' });
+  await expect(page.locator('#notice [role="alert"]')).toContainText('Synthetic history focus failure');
+  await expect(page.locator('#toast')).toContainText('Older activity sync requested.');
+  assert.deepEqual(pageErrors, []);
 });
 
 test('compact Settings keeps diagnostics closed until needed and copies the diagnostics alone', async t => {
