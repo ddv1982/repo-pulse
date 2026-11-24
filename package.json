@@ -7,8 +7,8 @@
     "node": ">=26.0.0"
   },
   "scripts": {
-    "build:web": "node -e \"process.getBuiltinModule('node:fs').rmSync('dist',{recursive:true,force:true})\" && tsc -p tsconfig.web-build.json",
-    "watch:web": "tsc -p tsconfig.web-build.json --watch",
+    "build:web": "node -e \"process.getBuiltinModule('node:fs').rmSync('dist',{recursive:true,force:true})\" && tsc -p tsconfig.web.json",
+    "watch:web": "tsc -p tsconfig.web.json --watch",
     "prestart": "npm run build:web",
     "start": "node server.ts",
     "predemo": "npm run build:web",
@@ -19,7 +19,7 @@
     "check": "node scripts/check.ts",
     "pretest:ui": "npm run build:web",
     "test:ui": "node --test \"e2e/*.test.ts\"",
-    "check:types": "tsc -p tsconfig.web.json && tsc -p tsconfig.node.json && tsc -p tsconfig.test.json && tsc -p tsconfig.hook.json",
+    "check:types": "tsc -p tsconfig.web.json --noEmit && tsc -p tsconfig.node.json && tsc -p tsconfig.test.json && tsc -p tsconfig.hook.json",
     "lint": "oxlint --type-aware --deny-warnings . && prettier --check .",
     "format": "prettier --write ."
   },
