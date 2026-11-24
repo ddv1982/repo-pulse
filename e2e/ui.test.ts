@@ -54,11 +54,11 @@ async function selectActivityType(page: Page, label: string) {
   await page.getByRole('option', { name: label, exact: true }).click();
 }
 
-async function setup(t: TestContext, demo = true) {
+async function setup(t: TestContext, demo = true, options: { hasTouch?: boolean } = {}) {
   const directory = await mkdtemp(join(tmpdir(), 'repo-pulse-ui-'));
   let runtime: Runtime = rememberRuntime(await startApp({ demo, port: 0, dataDir: directory }));
   const browser = await chromium.launch({ executablePath: await browserPath(), headless: true });
-  const page = await browser.newPage({ viewport: { width: 1280, height: 900 }, colorScheme: 'light' });
+  const page = await browser.newPage({ viewport: { width: 1280, height: 900 }, colorScheme: 'light', ...options });
   const errors: string[] = [];
   page.on('pageerror', error => errors.push(error.message));
   page.on('console', message => {
@@ -1278,7 +1278,7 @@ test('healthy phone catch-up shows first activity and theme icons before the fol
 });
 
 test('CI summary shortcuts filter the full activity scope on desktop and compact layouts', async t => {
-  const { page, runtime } = await setup(t);
+  const { page, runtime } = await setup(t, true, { hasTouch: true });
   const ci = (id: string, buildId: number, result: string, second: number, extra: Partial<ActivityEvent> = {}): ActivityEvent => ({
     id,
     repoId: 'demo-orders',
@@ -1307,32 +1307,56 @@ test('CI summary shortcuts filter the full activity scope on desktop and compact
   const search = page.getByRole('searchbox', { name: 'Search activity' });
   await search.fill('Summary CI fixture');
   const summary = page.getByRole('region', { name: 'Activity summary' });
-  const allRuns = summary.getByRole('button', { name: '53 unread CI runs' });
+  const allRuns = summary.getByRole('button', { name: 'CI runs, 53 unread' });
   const failed = summary.getByRole('button', { name: '1 failed CI run' });
   const failureRow = page.locator('li[data-event-id="summary-failure"]');
   await expect(summary).toContainText('Showing 50 of 55 items');
   await expect(failureRow).toHaveCount(0);
   await expect(failed).toBeVisible();
-  await summary.screenshot({ path: 'test-results/ci-summary-desktop.png' });
-
-  await allRuns.press('Enter');
-  await expect(page.getByRole('button', { name: 'Activity type: CI run', exact: true })).toBeFocused();
+  await allRuns.getByText('CI runs', { exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Activity type: CI runs', exact: true })).toBeFocused();
   await expect(summary).toContainText('Showing 50 of 54 items');
+  await page.screenshot({ path: 'test-results/activity-filter-desktop.png' });
   await expect(page.locator('li[data-event-id="summary-push"]')).toHaveCount(0);
 
   await page.setViewportSize({ width: 375, height: 900 });
+  const filters = page.locator('#activity-filters-toggle');
+  await filters.tap();
+  await expect(search).toBeHidden();
   await expect(failed).toBeVisible();
   for (const shortcut of [allRuns, failed]) {
     const box = await shortcut.boundingBox();
     assert.ok(box && box.width >= 24 && box.height >= 24, 'The compact shortcut has a usable touch target');
   }
-  await summary.screenshot({ path: 'test-results/ci-summary-compact.png' });
-  await failed.click();
-  await expect(page.getByRole('button', { name: 'Activity type: Failed', exact: true })).toBeVisible();
+  await failed.tap();
+  const failedType = page.getByRole('button', { name: 'Activity type: Failed CI runs', exact: true });
+  const clear = page.getByRole('button', { name: 'Clear filter', exact: true });
+  await expect(failedType).toBeVisible();
+  await expect(failedType).toHaveAttribute('aria-expanded', 'false');
+  await expect(clear).toBeVisible();
   await expect(failureRow).toBeVisible();
   await expect(page.locator('li[data-event-id]')).toHaveCount(2);
   await expect(page.locator('li[data-event-id="summary-failure-seen"]')).toBeVisible();
+  const showAll = summary.getByRole('button', { name: 'Show all CI runs', exact: true });
+  await expect(showAll).toBeVisible();
+  await expect(summary.getByRole('button', { name: 'CI runs, 1 unread' })).toHaveCount(0);
+  await page.screenshot({ path: 'test-results/activity-filter-compact.png' });
+  await failedType.tap();
+  await expect(page.getByRole('option', { name: 'Failed CI runs', exact: true })).toHaveAttribute('aria-selected', 'true');
+  await expect(page.getByRole('option', { name: 'CI runs', exact: true })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await showAll.press('Space');
+  await expect(page.getByRole('button', { name: 'Activity type: CI runs', exact: true })).toBeFocused();
+  await expect(allRuns).toBeVisible();
   await expect(search).toHaveValue('Summary CI fixture');
+  await search.fill('No matching CI fixture');
+  await expect(page.getByText('No activity matches these filters').first()).toBeVisible();
+  await clear.press('Enter');
+  await expect(search).toBeFocused();
+  await expect(search).toHaveValue('');
+  await expect(page.getByRole('button', { name: 'Activity type: All types', exact: true })).toBeVisible();
+  await expect(clear).toHaveCount(0);
+  await expect(page.locator('li[data-event-id="summary-push"]')).toBeVisible();
   await expect(repoPicker).toHaveAccessibleName('1 repository shown');
   await expect(page.getByRole('link', { name: 'All activity', exact: true })).toHaveAttribute('aria-current', 'page');
 });
@@ -1342,7 +1366,7 @@ test('detail reload and back restore Activity filters, open trail and source row
   await page.getByRole('link', { name: 'Activity', exact: true }).click();
   await page.getByRole('link', { name: 'All activity', exact: true }).click();
   await page.getByRole('searchbox', { name: 'Search activity' }).fill('Orders');
-  await selectActivityType(page, 'CI run');
+  await selectActivityType(page, 'CI runs');
   await page.locator('.trail > summary').click();
   await page.locator('li.row .feed-title').click();
   await expect(page.getByRole('link', { name: '← Back to All activity', exact: true })).toBeVisible();
@@ -1352,7 +1376,7 @@ test('detail reload and back restore Activity filters, open trail and source row
   await page.reload();
   await page.getByRole('link', { name: '← Back to All activity', exact: true }).click();
   await expect(page.getByRole('searchbox', { name: 'Search activity' })).toHaveValue('Orders');
-  await expect(page.getByRole('button', { name: 'Activity type: CI run', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Activity type: CI runs', exact: true })).toBeVisible();
   await expect(page.getByRole('link', { name: 'All activity', exact: true })).toHaveAttribute('aria-current', 'page');
   await expect(page.locator('.trail')).toHaveAttribute('open', '');
   await expect(page.locator('li.row .feed-title')).toBeFocused();
@@ -1689,9 +1713,9 @@ test('the app-owned type dropdown is themed, keyboard accessible and stable duri
     await page.screenshot({ path: `test-results/type-filter-${theme.toLowerCase()}.png` });
     await page.keyboard.press('End');
     await expect(panel.getByRole('option').last()).toBeFocused();
-    await panel.getByRole('option', { name: 'CI run', exact: true }).focus();
+    await panel.getByRole('option', { name: 'CI runs', exact: true }).focus();
     await page.keyboard.press('Enter');
-    await expect(page.getByRole('button', { name: 'Activity type: CI run', exact: true })).toBeFocused();
+    await expect(page.getByRole('button', { name: 'Activity type: CI runs', exact: true })).toBeFocused();
     await expect(panel).not.toBeVisible();
     await expect(page.locator('li.row')).toHaveCount(1);
     if (theme === 'Light') {
@@ -1711,7 +1735,7 @@ test('the app-owned type dropdown is themed, keyboard accessible and stable duri
       await expect(toggle).toBeFocused();
     }
     await toggle.press('ArrowDown');
-    await expect(panel.getByRole('option', { name: 'CI run', exact: true })).toHaveAttribute('aria-selected', 'true');
+    await expect(panel.getByRole('option', { name: 'CI runs', exact: true })).toHaveAttribute('aria-selected', 'true');
     await page.keyboard.press('Shift+Tab');
     await expect(toggle).toBeFocused();
     await expect(panel).not.toBeVisible();
