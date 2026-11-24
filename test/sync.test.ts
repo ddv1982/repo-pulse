@@ -2007,6 +2007,52 @@ test('a build whose lookup came back unreadable leaves the warning once it reads
   }
 });
 
+for (const inconclusive of ['more pages', 'unreadable builds without an ID']) {
+  test(`a build whose lookup came back unreadable stays in the warning when a later lookup of it is inconclusive (${inconclusive})`, async () => {
+    let listed = true;
+    const asked: string[][] = [];
+    const provider: SyncProvider = {
+      async read() {
+        return { items: listed ? [inProgressBuild(42), inProgressBuild(43)] : [], nextCursor: null };
+      },
+      async buildsById(_repo, ids) {
+        asked.push(ids);
+        if (asked.length === 1)
+          return {
+            items: [inProgressBuild(43)],
+            nextCursor: null,
+            unreadable: { count: 1, fields: ['status'] },
+            unreadableIds: [{ id: '42', field: 'status' }],
+          };
+        return inconclusive === 'more pages'
+          ? { items: [inProgressBuild(43)], nextCursor: { skip: 1 } }
+          : { items: [inProgressBuild(43)], nextCursor: null, unreadable: { count: 1, fields: ['status'] } };
+      },
+    };
+    const { store, sync, advance } = setup(provider, ['activeBuilds']);
+    const state = () => present(store.getStreams().find(entry => entry.stream === 'activeBuilds'));
+    await sync.tick();
+    listed = false;
+    advance(600000);
+    await sync.tick();
+    assert.deepEqual(state().unreadableLookups, [{ id: '42', field: 'status' }]);
+    advance(600000);
+    await sync.tick();
+    assert.deepEqual(
+      asked.map(ids => [...ids].sort()),
+      [
+        ['42', '43'],
+        ['42', '43'],
+      ],
+    );
+    assert.equal(state().error, null, 'the second lookup is a successful read');
+    assert.equal(fieldsOf(store.getEntity(repo.id, 'build', '42')).status, 'inProgress');
+    assert.deepEqual(state().unreadableLookups, [{ id: '42', field: 'status' }], 'build 42 is still remembered');
+    assert.ok(state().warning, 'and still counted in the warning');
+    store.close();
+  });
+}
+
 test('a PR lookup that comes back without a pullRequestId is counted and does not stop a readable sibling', async () => {
   let listed: unknown[] = [cachedPr(1), cachedPr(2)];
   const client = createAzureClient({

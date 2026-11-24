@@ -378,7 +378,9 @@ export function createSync({
       byId.nextCursor || unnamed > 0
         ? []
         : turn.filter(id => !answered.has(id)).map(id => ({ type: 'build', id, data: { ...missing.get(id), status: 'completed' } }));
-    for (const id of turn) lookups.delete(id);
+    // A remembered build leaves the warning only when this lookup read it or found it gone, not when the answer had
+    // more pages or unreadable builds without an ID, either of which may be it.
+    for (const id of [...byId.items.map(item => String(item.id)), ...gone.map(entry => entry.id)]) lookups.delete(id);
     for (const { id, field } of named) lookups.set(id, field);
     // An unreadable build without a readable ID cannot be remembered, so it counts only in this read.
     const unreadable = addUnreadable(
