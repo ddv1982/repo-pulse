@@ -114,3 +114,8 @@ test('the repository import chip says how many records the import skipped, since
   assert.equal(chip({ status: 'completed', warnings: [warning('pushes', 1)] }), 'History sync finished · 1 record skipped');
   assert.equal(chip({ status: 'completed', warnings: [] }), 'History sync finished', 'a clean import says nothing more');
 });
+
+test('legacy merge evidence without an error message shows a generic explanation', () => {
+  const doc = parse(renderMergeEvidence({ mergeEvidence: { status: 'incomplete', error: {} } }));
+  assert.equal(text(one(doc, '.status-text')), 'Merge evidence could not be checked.');
+});

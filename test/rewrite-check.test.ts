@@ -79,10 +79,10 @@ function setup({
     calls,
     offered,
     backfill,
-    advance(ms: number) {
+    advance(this: void, ms: number) {
       time += ms;
     },
-    async run(turns = 6) {
+    async run(this: void, turns = 6) {
       for (let i = 0; i < turns; i++) await sync.tick();
     },
   };
@@ -95,7 +95,7 @@ test('a live force-push checks each moved branch with one call and shows History
   });
   await run(8);
   assert.deepEqual(
-    calls.sort(),
+    calls.sort(([a], [b]) => a.localeCompare(b)),
     [
       [A, B],
       [C, D],

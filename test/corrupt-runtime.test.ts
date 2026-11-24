@@ -143,6 +143,8 @@ test('a corrupt stream during startup leaves the port free for a same-process re
 
   // Keep the regression test able to close a listener leaked by a failed start.
   const listeners = new Set<Server>();
+  // The wrapper below forwards the original receiver through Reflect.apply.
+  // oxlint-disable-next-line typescript/unbound-method
   const listen = Server.prototype.listen;
   t.mock.method(Server.prototype, 'listen', function (this: Server, ...args: unknown[]) {
     if (args[0] === port) listeners.add(this);

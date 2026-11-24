@@ -20,7 +20,7 @@ export interface PickerHost {
 
 const KEY = 'repo-pulse-picker-folder';
 const keyOf = (item: CheckoutItem) => JSON.stringify([item.localPath, item.remote.name]);
-const lower = (value: unknown) => String(value || '').toLowerCase();
+const lower = (value: string | null | undefined) => String(value || '').toLowerCase();
 const homePrefix = (path?: string) =>
   String(path || '').match(/^(\/home\/[^/]+|\/Users\/[^/]+)(?=\/|$)|^([A-Za-z]:\\Users\\[^\\]+)(?=\\|$)/)?.[0];
 

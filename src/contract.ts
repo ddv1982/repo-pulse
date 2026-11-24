@@ -419,5 +419,3 @@ export type FoldersResponse = {
 };
 /** POST /api/demo/event. */
 export type DemoEventResponse = ActivityEvent;
-
-export {};

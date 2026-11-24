@@ -20,6 +20,8 @@ const component = (value: string | undefined) => {
   } catch {
     throw invalid();
   }
+  // These bytes are forbidden within decoded repository URL segments.
+  // oxlint-disable-next-line no-control-regex
   if (!decoded || /[\x00-\x1f/\\?#]/.test(decoded) || decoded === '.' || decoded === '..' || /^[-@]/.test(decoded)) throw invalid();
   return decoded;
 };
@@ -63,6 +65,8 @@ function refuseCredentials(url: URL, organization: string) {
 }
 
 export function parseRemote(value: unknown): ParsedRemote {
+  // Reject control characters before the URL parser can trim them.
+  // oxlint-disable-next-line no-control-regex
   if (typeof value !== 'string' || value.length > 4096 || /[\x00-\x1f]/.test(value)) throw invalid();
   let organization, project, name;
   const ssh = value.match(/^(?:[^-@/:][^@/:]*@)?(?:ssh\.dev\.azure\.com|vs-ssh\.visualstudio\.com):v3\/([^/]+)\/([^/]+)\/([^/]+)\/?$/i);

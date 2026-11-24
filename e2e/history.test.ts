@@ -861,7 +861,7 @@ test('verified PR follow-up switches, reviews and removes the old branch from Re
   await row.getByRole('button', { name: 'Remove old local branch…' }).click();
   const removal = page.getByRole('dialog', { name: 'Remove local branch?' });
   await expect(removal.locator('code')).toHaveText(oldBranch);
-  await expect(removal).toHaveAccessibleDescription(new RegExp(oldBranch.replace('/', '\/')));
+  await expect(removal).toHaveAccessibleDescription(new RegExp(oldBranch));
   for (const [width, colorScheme] of [
     [1280, 'dark'],
     [320, 'light'],
@@ -1464,4 +1464,16 @@ test('New updates offers one bulk action that clears a fully shown list without 
   // With nothing to mark there is no empty action bar.
   await expect(page.locator('.feed-actions')).toHaveCount(0);
   assert.equal(runtime.store.queryActivity({ view: 'new' }).newUpdates, 0);
+});
+
+test('a malformed API error message falls back to the nested message or HTTP status', async t => {
+  const { page } = await demo(t);
+  let response: Record<string, unknown> = { message: {}, error: { message: 'Refresh is unavailable.' } };
+  await page.route('**/api/state', route => route.fulfill({ status: 500, json: response }));
+  await page.reload();
+  const notice = page.locator('#notice');
+  await expect(notice).toContainText('Refresh is unavailable.');
+  response = { message: {}, error: { message: {} } };
+  await page.reload();
+  await expect(notice).toContainText('Request failed (500).');
 });

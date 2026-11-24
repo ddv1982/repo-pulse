@@ -238,6 +238,8 @@ test('a reset whose compaction fails still clears the data and compacts on the n
   let store = createStore(path);
   store.saveRepo(repo);
   store.insertEvents([event('one')]);
+  // The wrapper below calls the original with its database receiver.
+  // oxlint-disable-next-line typescript/unbound-method
   const exec = DatabaseSync.prototype.exec;
   DatabaseSync.prototype.exec = function (sql) {
     if (sql === 'VACUUM') throw new Error('database or disk is full');
@@ -539,4 +541,34 @@ test('file-backed stores use WAL mode and index push and pull request lookups', 
   raw.close();
   store.close();
   rmSync(folder, { recursive: true });
+});
+
+test('upgrading incomplete merge evidence does not persist an object as its error message', t => {
+  const folder = mkdtempSync(join(tmpdir(), 'pulse-store-'));
+  t.after(() => rmSync(folder, { recursive: true, force: true }));
+  const path = join(folder, 'state.sqlite');
+  {
+    const store = createStore(path);
+    try {
+      store.saveRepo(repo);
+      store.insertEvents([event('one')]);
+    } finally {
+      store.close();
+    }
+  }
+  {
+    using db = new DatabaseSync(path);
+    db.prepare('INSERT INTO enrichment(event_id,data) VALUES(?,?)').run(
+      'one',
+      JSON.stringify({ mergeEvidence: { status: 'enriching', error: { message: {} } } }),
+    );
+    db.exec('PRAGMA user_version = 10');
+  }
+  const upgraded = createStore(path);
+  try {
+    assert.equal(upgraded.getEvent('one')?.data?.mergeEvidence?.status, 'incomplete');
+    assert.deepEqual(upgraded.getEvent('one')?.data?.mergeEvidence?.error, { message: '' });
+  } finally {
+    upgraded.close();
+  }
 });

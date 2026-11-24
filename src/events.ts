@@ -1,4 +1,4 @@
-export function branchName(ref: unknown) {
+export function branchName(ref: string | null | undefined) {
   return String(ref || '').replace(/^refs\/heads\//, '');
 }
 /** A person's display name, else their name, else Unknown. Azure may send any value, which is returned as it is. */

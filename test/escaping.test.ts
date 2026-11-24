@@ -671,7 +671,7 @@ test('html auto-escapes plain values, composes SafeHtml, and setHtml refuses pla
   setHtml(element, rendered);
   assert.equal(element.firstElementChild, kept, 'setHtml updates the matching element in place');
   // The attributes are updated in place, so compare what the markup means rather than its serialized order.
-  assert.deepEqual({ ...kept.dataset }, { flag: 'false', on: 'true' });
+  assert.deepEqual(Object.fromEntries(Object.entries(kept.dataset)), { flag: 'false', on: 'true' });
   assert.equal(kept.textContent, '<img src=x onerror=alert(1)> & "quotes"');
   assert.equal(element.querySelector('img'), null);
   // @ts-expect-error A raw string is refused by the type too.
@@ -694,4 +694,9 @@ test('setHtml in src/ui/dom.ts is the only innerHTML sink across browser source 
     }
   }
   assert.deepEqual(offenders, []);
+});
+
+test('an unexpected plain object in rendered provider data never appears as object text', () => {
+  // @ts-expect-error Older or malformed provider data can violate the display type.
+  assert.equal(String(safeHtml`<p>${{ unexpected: 'data' }}</p>`), '<p></p>');
 });

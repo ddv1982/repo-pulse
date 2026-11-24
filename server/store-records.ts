@@ -327,7 +327,7 @@ function checked<T>(table: string, id: string, column: unknown, check: Check, gu
   throw corruptRow(table, id, check(value) || 'data');
 }
 
-const text = (value: unknown) => String(value ?? '');
+const text = (value: SqlRow[string] | undefined) => String(value ?? '');
 const isRepository = readsAs<Repository>(repository);
 const isEvent = readsAs<StoredEvent>(event);
 const isStream = readsAs<StreamState>(stream);

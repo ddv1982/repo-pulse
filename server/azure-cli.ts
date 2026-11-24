@@ -34,7 +34,8 @@ export function cliError(code: string, message: string): CliError {
 export function classifyCliError(error: ExecFailure | null | undefined) {
   if (error?.code === 'CLOSED') return error;
   // execFile's message repeats the command line, whose arguments must not drive classification.
-  const text = String(error?.stderr || '');
+  const stderr = error?.stderr;
+  const text = Buffer.isBuffer(stderr) ? stderr.toString() : typeof stderr === 'string' ? stderr : '';
   if (error?.code === 'ENOENT')
     return cliError('CLI_MISSING', 'Azure CLI was not found. Install Azure CLI and its azure-devops extension.');
   // Reads are aborted only by close(); the timeout option kills the process instead.

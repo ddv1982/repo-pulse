@@ -112,10 +112,10 @@ function setup({
     backfill,
     check,
     sync,
-    advance(ms: number) {
+    advance(this: void, ms: number) {
       time += ms;
     },
-    async run(turns = 12) {
+    async run(this: void, turns = 12) {
       for (let i = 0; i < turns; i++) await sync.tick();
     },
   };

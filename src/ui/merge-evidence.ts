@@ -13,6 +13,8 @@ export function renderMergeEvidence(data: EventData = {}) {
   const prLabel = matchingPushResults(data).length ? 'Completed PR linked' : 'Related PR evidence';
   // A rewrite check alone says nothing about how the push was merged.
   const merge = prs.length || commits.length || evidence.status;
+  const error = typeof evidence.error === 'string' ? evidence.error : evidence.error?.message;
+  const errorText = typeof error === 'string' && error ? error : 'Merge evidence could not be checked.';
   return html`<section class="activity-history stack-gap" aria-label="Push evidence"><h2>Push evidence</h2>
     ${
       merge
@@ -23,7 +25,7 @@ export function renderMergeEvidence(data: EventData = {}) {
     ${commits.length ? html`<ul>${commits.map(item => html`<li><code>${(item.commitId || '').slice(0, 8)}</code> · ${item.parents?.length || 0} parents${item.branches?.length ? ` · ${item.branches.map(branchName).join(', ')}` : ''}</li>`)}</ul><p class="help">Multiple parents establish a graph merge; they do not identify the original branch name or Git command.</p>` : emptyHtml}
     ${renderHistory(data)}
     ${(evidence.limitations || []).map(item => html`<p class="help">${item}</p>`)}
-    ${evidence.error ? html`<p class="status-text warn">${(typeof evidence.error === 'object' && evidence.error.message) || String(evidence.error)}</p>` : emptyHtml}
+    ${evidence.error ? html`<p class="status-text warn">${errorText}</p>` : emptyHtml}
   </section>`;
 }
 

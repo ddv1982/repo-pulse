@@ -148,10 +148,10 @@ export async function request<P extends string>(path: P, { method = 'GET', body 
     const body: Partial<Record<string, unknown>> = typeof value === 'object' && value !== null ? value : {};
     const error = body.error;
     const nested = typeof error === 'object' && error !== null && 'message' in error ? error.message : undefined;
-    throw Object.assign(
-      new Error(String(body.message || nested || (typeof error === 'string' ? error : `Request failed (${response.status}).`))),
-      { code: body.code },
-    );
+    const message = [body.message, nested, error].find(text => typeof text === 'string' && text);
+    throw Object.assign(new Error(typeof message === 'string' ? message : `Request failed (${response.status}).`), {
+      code: body.code,
+    });
   }
   // The local server answers this path with ResponseFor<P> (server.ts checks each handler with `satisfies`); checking
   // the body here waits for the shared route table the post-migration plan leaves for the next new route.

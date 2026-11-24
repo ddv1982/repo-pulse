@@ -306,8 +306,10 @@ export function createStore(path = ':memory:') {
           const stored = evidence.error;
           const error =
             stored && typeof stored === 'object'
-              ? { ...stored, message: settled(String(('message' in stored && stored.message) || '')) }
-              : stored && settled(String(stored));
+              ? { ...stored, message: settled('message' in stored && typeof stored.message === 'string' ? stored.message : '') }
+              : // JSON values other than objects have no default object representation.
+                // oxlint-disable-next-line typescript/no-base-to-string
+                stored && settled(String(stored));
           enrichEvent(id, {
             mergeEvidence: { ...evidence, status: 'incomplete', limitations: [...new Set(limitations)], ...(error ? { error } : {}) },
           });
@@ -643,7 +645,7 @@ export function createStore(path = ':memory:') {
             .map(hydrate)
         : [];
     },
-    completedCheckoutPulls(repoId: string, source: string) {
+    completedCheckoutPulls(this: void, repoId: string, source: string) {
       const rows = q(`SELECT id,data FROM events WHERE repo_id=? AND json_extract(data,'$.kind')='pr'
         AND json_extract(data,'$.data.status')='completed' AND json_extract(data,'$.data.sourceRefName')=?
         ORDER BY time DESC LIMIT 40`).all(repoId, source);
@@ -696,16 +698,19 @@ export function createStore(path = ':memory:') {
     /**
      * Sync pages carry their stream state; backfill pages carry none.
      */
-    commitPage({
-      repoId,
-      stream,
-      state,
-      events = [],
-      entities = [],
-      jobs = [],
-    }: { repoId: string; events?: ActivityEvent[]; entities?: Entity[]; jobs?: Job[] } & (
-      { stream: StreamName; state: StreamState } | { stream?: StreamName; state?: undefined }
-    )) {
+    commitPage(
+      this: void,
+      {
+        repoId,
+        stream,
+        state,
+        events = [],
+        entities = [],
+        jobs = [],
+      }: { repoId: string; events?: ActivityEvent[]; entities?: Entity[]; jobs?: Job[] } & (
+        { stream: StreamName; state: StreamState } | { stream?: StreamName; state?: undefined }
+      ),
+    ) {
       return transaction(() => {
         requireRepo(repoId);
         insertEvents(events);

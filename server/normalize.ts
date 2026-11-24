@@ -117,7 +117,8 @@ const webLink = (links: unknown) => fieldOf(fieldOf(links, 'web'), 'href');
 const text = (value: unknown, fallback: string) => {
   if (typeof value === 'string') return value;
   try {
-    return String(value);
+    const rendered = String(value);
+    return rendered === '[object Object]' ? fallback : rendered;
   } catch {
     return fallback;
   }
@@ -131,6 +132,8 @@ const reviewers = (pr: AzurePullRequest): { id: string; name: unknown; vote: num
   }));
 /** Reviewers without a vote are left out, so adding or removing one is not a vote change. */
 const reviewerVotes = (pr: AzurePullRequest): [string, number][] =>
+  // Keep the default tuple string order; it contributes to persisted PR fingerprints and event IDs.
+  // oxlint-disable-next-line typescript/require-array-sort-compare
   reviewers(pr)
     .filter(({ vote }) => vote)
     .map(({ id, vote }) => [id, vote] as [string, number])
@@ -330,7 +333,7 @@ export function createNormalizer({ store, now = Date.now }: { store: NormalizeSt
       const { previous, changed, sourceId, entity } = snapshot(repo, 'pr', key, prState(item), historical);
       if (changed) {
         add('pr', sourceId, {
-          title: `PR ${key} · ${item.title || 'Untitled'}`,
+          title: `PR ${key} · ${text(item.title || 'Untitled', 'Untitled')}`,
           branch: branchName(item.sourceRefName),
           actor: text(actorName(item.createdBy), 'Unknown'),
           time: prEventTime(item, previous, historical),

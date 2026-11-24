@@ -236,8 +236,8 @@ export function createApp({
   let resetting: Promise<void> | null = null;
   /** Set when the last reset failed, until another starts, so the page can say so instead of looking unchanged. */
   let resetFailed = false;
-  const matches = (value: unknown, expected: Buffer) => {
-    const given = Buffer.from(String(value ?? ''));
+  const matches = (value: string | string[] | undefined, expected: Buffer) => {
+    const given = Buffer.from(Array.isArray(value) ? value.join(',') : (value ?? ''));
     return given.length === expected.length && timingSafeEqual(given, expected);
   };
   const hasAccessKey = (req: Request) => matches(req.headers['x-repo-pulse-key'], expectedKey);
@@ -844,7 +844,7 @@ async function startLocked(
   const close = async () => {
     const syncStopped = sync.stop();
     // Abort budget-queued CLI work before waiting for a sync that might be waiting on it.
-    await cli?.close();
+    cli?.close();
     await syncStopped;
     await closeListener();
     store.close();

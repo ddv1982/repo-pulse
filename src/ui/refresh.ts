@@ -170,7 +170,7 @@ export function createRefreshController({
     prepareDetail(id: string | null) {
       state = { ...state, detailLoading: !state.events.some(event => event.id === id) };
     },
-    load({ force = false, more = false } = {}) {
+    load(this: void, { force = false, more = false } = {}) {
       const view = getView();
       if (!active) return start({ view, force, more });
       if (!force && !more && viewKey(active.view) === viewKey(view)) return active.promise;

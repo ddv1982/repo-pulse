@@ -118,6 +118,9 @@ function pageOf<T>(
   const list: unknown = Array.isArray(response) ? response : isRecord(response) ? response.value : undefined;
   if (!Array.isArray(list)) throw cliError('INVALID_RESPONSE', 'Azure CLI did not return an activity list.');
   const token = isRecord(response) ? response.continuation_token || response.continuationToken : undefined;
+  const continuation = typeof token === 'string' || typeof token === 'number' ? String(token) : null;
+  if (mode !== 'skip' && token && continuation === null)
+    throw cliError('INVALID_RESPONSE', 'Azure CLI returned an invalid continuation token.');
   const items: T[] = [];
   const fields: Set<string> = new Set();
   const unreadableIds: { id: string; field: string }[] = [];
@@ -136,7 +139,8 @@ function pageOf<T>(
   }
   return {
     items,
-    nextCursor: mode === 'skip' ? (list.length === PAGE ? { skip: skip + PAGE } : null) : token ? { token: String(token) } : null,
+    nextCursor:
+      mode === 'skip' ? (list.length === PAGE ? { skip: skip + PAGE } : null) : token && continuation ? { token: continuation } : null,
     ...(skipped ? { unreadable: { count: skipped, fields: [...fields] } } : {}),
     ...(unreadableIds.length ? { unreadableIds } : {}),
   };
@@ -481,7 +485,9 @@ export function createAzureClient({ cli, now = Date.now }: { cli?: AzureClientCl
         },
       );
     },
-    async completedCheckoutPulls(repo: AzureRepo, source: string): Promise<(CheckoutPull | UnreadableCheckoutPull)[]> {
+    async completedCheckoutPulls(this: void, repo: AzureRepo, source: string): Promise<(CheckoutPull | UnreadableCheckoutPull)[]> {
+      // A source ref with control characters cannot name a checkout branch.
+      // oxlint-disable-next-line no-control-regex
       if (typeof source !== 'string' || !/^refs\/heads\/[^\s\x00-\x1f]+$/.test(source) || source.length > 1024) return [];
       const response = await invoke(
         repo,
