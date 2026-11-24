@@ -100,7 +100,9 @@ Every behaviour fix starts with a failing test. These touch `server/sync.ts`, `s
       skipped, since its warnings show only in Details". It removed the `throws once` variant of the older build
       test, which passes with the turn order disabled. The `unreadable once` variant also passes with the turn order
       disabled, since build 1 sorts first; it stays as the guard that a build whose lookup came back unreadable is
-      asked for again. `npm test` 520/520 and `npm run test:ui` 86/86.
+      asked for again. The turn order's own guard is "an older build that sorts after the newer ones is still looked
+      up while 20 of them leave the active list every read": with numeric order only, build 1000 was never asked for
+      again; with the turn order it completes. `npm test` 521/521 and `npm run test:ui` 86/86.
 - [x] 1.3 A malformed `refUpdates` must fail with a named error, not the generic `SYNC_FAILED`, and follow the
       1.2 handling. Check: a failing-first test with `refUpdates` set to an object. (S reproduced) Done: "a push
       whose refUpdates is not a list is skipped with a warning instead of failing the page" failed first with

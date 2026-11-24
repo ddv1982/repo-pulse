@@ -1999,6 +1999,40 @@ test('an older build is still looked up while 20 newer builds leave the active l
   store.close();
 });
 
+test('an older build that sorts after the newer ones is still looked up while 20 of them leave the active list every read', async () => {
+  // Numeric order alone would always pick the 20 newcomers below 1000; only the turn order gives build 1000 its turn.
+  const batch = (cycle: number) => Array.from({ length: 20 }, (_, index) => String(20 * (cycle - 1) + index + 1));
+  let cycle = 0;
+  let failed = false;
+  const asked: string[][] = [];
+  const provider: SyncProvider = {
+    async read() {
+      return { items: (cycle === 0 ? ['1000'] : batch(cycle)).map(id => inProgressBuild(Number(id))), nextCursor: null };
+    },
+    async buildsById(_repo, ids) {
+      asked.push(ids);
+      if (!failed) {
+        failed = true;
+        const unreadableIds = ids.map(id => ({ id, field: 'status' }));
+        return { items: [], nextCursor: null, unreadable: { count: ids.length, fields: ['status'] }, unreadableIds };
+      }
+      return { items: ids.map(id => finishedBuild(Number(id))), nextCursor: null };
+    },
+  };
+  const { store, sync, advance } = setup(provider, ['activeBuilds']);
+  await sync.tick();
+  for (cycle = 1; cycle <= 6; cycle++) {
+    advance(600000);
+    await sync.tick();
+  }
+  assert.equal(
+    fieldsOf(store.getEntity(repo.id, 'build', '1000')).status,
+    'completed',
+    `build 1000 was looked up in ${JSON.stringify(asked)}`,
+  );
+  store.close();
+});
+
 test('a build whose lookup came back unreadable stays in the warning on reads whose lookups skip it', async () => {
   const ids = Array.from({ length: 21 }, (_, index) => 101 + index);
   const builds = await leftActiveBuilds(ids, id =>
