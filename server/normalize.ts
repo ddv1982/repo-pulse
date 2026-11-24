@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { actorName, branchName, safeAzureUrl } from '../src/events.ts';
 import { mergeUpdates } from './merge-evidence.ts';
 import { forkJob } from './fork-origin.ts';
-import { recordsOf } from './azure-records.ts';
+import { isRecord, recordsOf } from './azure-records.ts';
 
 export type ActivityKind = import('../src/activity.ts').ActivityKind;
 export type StreamName = import('./azure-client.ts').AzureStream;
@@ -52,7 +52,14 @@ const fingerprint = (value: unknown) => createHash('sha256').update(JSON.stringi
 const tagName = (name: string) => name.replace(/^refs\/tags\//, '');
 const tagTitles: Record<'created' | 'moved' | 'deleted', string> = { created: 'New tag', moved: 'Tag moved', deleted: 'Tag deleted' };
 const iso = (ms: number) => new Date(ms).toISOString();
-const reviewers = (pr: AzurePullRequest): { id: string; name: string; vote: number; required: boolean }[] =>
+// Display fields reach the normalizers as Azure sent them, so their fallbacks see what main saw.
+/** A field of a value that is not an object reads as absent, as optional chaining read it on main. */
+const fieldOf = (value: unknown, key: string): unknown => (isRecord(value) ? value[key] : undefined);
+/** The web link Azure gives a record; safeAzureUrl checks it. */
+const webLink = (links: unknown) => fieldOf(fieldOf(links, 'web'), 'href');
+/** An event's text field, which main filled with whatever value Azure sent. */
+const text = (value: unknown) => (typeof value === 'string' ? value : String(value));
+const reviewers = (pr: AzurePullRequest): { id: string; name: unknown; vote: number; required: boolean }[] =>
   (pr.reviewers || []).map(reviewer => ({
     id: String(reviewer.id),
     name: reviewer.displayName || 'Unknown reviewer',
@@ -175,9 +182,9 @@ export function createNormalizer({ store, now = Date.now }: { store: NormalizeSt
       const branches = updates.filter(named).filter(ref => ref.name.startsWith('refs/heads/'));
       const tags = updates.filter(named).filter(ref => ref.name.startsWith('refs/tags/'));
       const time = item.date || iso(now());
-      const actor = actorName(item.pushedBy);
+      const actor = text(actorName(item.pushedBy));
       const data = { pushId: item.pushId, refUpdates: branches, commits: item.commits || [] };
-      const url = safeAzureUrl(item._links?.web?.href, `${repo.webUrl}/pushes?pushId=${encodeURIComponent(source)}`);
+      const url = safeAzureUrl(webLink(item._links), `${repo.webUrl}/pushes?pushId=${encodeURIComponent(source)}`);
       entities.push({ type: 'push', id: source, data: { date: time } });
       // Azure lists pushes newest first. Keep a source watermark across pages/snapshots,
       // while retaining every historical event independently of the current ref state.
@@ -253,10 +260,10 @@ export function createNormalizer({ store, now = Date.now }: { store: NormalizeSt
         add('pr', sourceId, {
           title: `PR ${key} · ${item.title || 'Untitled'}`,
           branch: branchName(item.sourceRefName),
-          actor: actorName(item.createdBy),
+          actor: text(actorName(item.createdBy)),
           time: prEventTime(item, previous, historical),
           summary: `${item.isDraft ? 'Draft · ' : ''}${item.status || 'unknown'} → ${branchName(item.targetRefName)}`,
-          url: safeAzureUrl(item._links?.web?.href, `${repo.webUrl}/pullrequest/${encodeURIComponent(key)}`),
+          url: safeAzureUrl(webLink(item._links), `${repo.webUrl}/pullrequest/${encodeURIComponent(key)}`),
           data: {
             pullRequestId: item.pullRequestId,
             status: item.status,
@@ -285,13 +292,13 @@ export function createNormalizer({ store, now = Date.now }: { store: NormalizeSt
       const { changed, sourceId, entity } = snapshot(repo, 'build', key, buildState(item), historical);
       if (changed) {
         add('build', sourceId, {
-          title: item.definition?.name || 'Pipeline',
+          title: text(fieldOf(item.definition, 'name') || 'Pipeline'),
           branch: branchName(item.sourceBranch),
-          actor: actorName(item.requestedFor || item.requestedBy),
+          actor: text(actorName(item.requestedFor || item.requestedBy)),
           time: item.finishTime || item.startTime || item.queueTime || iso(now()),
           summary: `${item.status || 'unknown'}${item.result ? ` · ${item.result}` : ''} · ${(item.sourceVersion || '').slice(0, 7)}`,
           url: safeAzureUrl(
-            item._links?.web?.href,
+            webLink(item._links),
             `${repo.organization}/${encodeURIComponent(repo.project)}/_build/results?buildId=${encodeURIComponent(key)}`,
           ),
           data: {

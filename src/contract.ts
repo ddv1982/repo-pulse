@@ -11,28 +11,26 @@ export type EventData = import('./activity.ts').EventData;
 export type AzureRepo = { organization: string; project: string; projectId?: string; azureId: string; webUrl: string };
 export type AzureStream = 'pushes' | 'refs' | 'prs' | 'closedPrs' | 'builds' | 'activeBuilds';
 
-// Azure DevOps records as Repo Pulse reads them. Each type names only the fields the code reads; the readers in
-// server/azure-records.ts check those fields when a page is read, and leave out a malformed display field. Records
-// keep every other field Azure sends, and the code stores some of them whole.
+// Azure DevOps records as Repo Pulse reads them. Each type names only the fields the code reads; the checks in
+// server/azure-records.ts check those fields when a page is read. A display field the code shows with a fallback is
+// `unknown`: it is passed on as Azure sent it. Records keep every other field Azure sends, and the code stores some of
+// them whole.
 
 /** An optional Azure field: absent, null, or of its type. */
 type Maybe<T> = T | null | undefined;
 
-export type AzureIdentity = { displayName?: Maybe<string>; name?: Maybe<string> };
-/** `href` is checked by safeAzureUrl, so any value is readable. */
-export type AzureLinks = { web?: Maybe<{ href?: unknown }> };
 export type AzureCommitRef = { commitId?: Maybe<string> };
 export type AzureRefUpdate = { name?: Maybe<string>; oldObjectId?: Maybe<string>; newObjectId?: Maybe<string> };
 export type AzurePush = {
   pushId: number;
   date?: Maybe<string>;
-  pushedBy?: Maybe<AzureIdentity>;
+  pushedBy?: unknown;
   refUpdates?: Maybe<AzureRefUpdate[]>;
   commits?: Maybe<unknown[]>;
-  _links?: Maybe<AzureLinks>;
+  _links?: unknown;
 };
 export type AzureRef = { name: string; objectId: string; peeledObjectId?: Maybe<string> };
-export type AzureReviewer = { id?: Maybe<string>; displayName?: Maybe<string>; vote?: Maybe<number>; isRequired?: Maybe<boolean> };
+export type AzureReviewer = { id?: Maybe<string>; displayName?: unknown; vote?: Maybe<number>; isRequired?: Maybe<boolean> };
 export type AzureForkSource = {
   repository?: Maybe<{ id?: Maybe<string>; name?: Maybe<string>; project?: Maybe<{ name?: Maybe<string> }> }>;
 };
@@ -40,38 +38,38 @@ export type AzurePullRequest = {
   pullRequestId: number;
   repository?: Maybe<{ id?: Maybe<string> }>;
   forkSource?: Maybe<AzureForkSource>;
-  title?: Maybe<string>;
+  title?: unknown;
   status?: Maybe<string>;
   isDraft?: Maybe<boolean>;
   sourceRefName?: Maybe<string>;
   targetRefName?: Maybe<string>;
   creationDate?: Maybe<string>;
   closedDate?: Maybe<string>;
-  createdBy?: Maybe<AzureIdentity>;
-  closedBy?: Maybe<AzureIdentity>;
+  createdBy?: unknown;
+  closedBy?: unknown;
   lastMergeSourceCommit?: Maybe<AzureCommitRef>;
   lastMergeTargetCommit?: Maybe<AzureCommitRef>;
   lastMergeCommit?: Maybe<AzureCommitRef>;
   mergeStatus?: Maybe<string>;
   completionOptions?: Maybe<{ mergeStrategy?: Maybe<string> }>;
   reviewers?: Maybe<AzureReviewer[]>;
-  _links?: Maybe<AzureLinks>;
+  _links?: unknown;
 };
 export type AzureBuild = {
   id: number;
   repository: { id: string };
   status?: Maybe<string>;
   result?: Maybe<string>;
-  reason?: Maybe<string>;
+  reason?: unknown;
   queueTime?: Maybe<string>;
   startTime?: Maybe<string>;
   finishTime?: Maybe<string>;
   sourceVersion?: Maybe<string>;
   sourceBranch?: Maybe<string>;
-  definition?: Maybe<{ name?: Maybe<string> }>;
-  requestedFor?: Maybe<AzureIdentity>;
-  requestedBy?: Maybe<AzureIdentity>;
-  _links?: Maybe<AzureLinks>;
+  definition?: unknown;
+  requestedFor?: unknown;
+  requestedBy?: unknown;
+  _links?: unknown;
 };
 /** The record each stream reads. */
 export type AzureStreamRecords = {

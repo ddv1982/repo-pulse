@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createAzureClient, reviewOf } from '../server/azure-client.ts';
+import { createNormalizer } from '../server/normalize.ts';
+import { createStore } from '../server/store.ts';
 import type { AzureStream, Repository } from '../src/contract.ts';
 import { present, stub } from './fixtures/typed.ts';
 const repo = stub<Repository>({
@@ -151,9 +153,9 @@ test('active PR reads are explicitly repo-scoped and exact PR reconciliation use
   // Azure GUIDs differ in case between APIs, as elsewhere in the app.
   const upper = createAzureClient({ cli: { run: async () => ({ pullRequestId: 123, repository: { id: 'REPO1' } }) } });
   assert.equal((await upper.pullRequest(repo, 123)).pullRequestId, 123);
-  // A malformed display field is left out rather than making the pull request unreadable.
+  // A malformed display field does not make the pull request unreadable; it is passed on as Azure sent it.
   const oddLink = createAzureClient({ cli: { run: async () => ({ pullRequestId: 123, repository: { id: 'repo1' }, _links: 'link' }) } });
-  assert.deepEqual(await oddLink.pullRequest(repo, 123), { pullRequestId: 123, repository: { id: 'repo1' } });
+  assert.deepEqual(await oddLink.pullRequest(repo, 123), { pullRequestId: 123, repository: { id: 'repo1' }, _links: 'link' });
   // An identity that cannot be read is skipped and counted like any unreadable record.
   for (const [payload, field] of [
     [{ repository: { id: 'repo1' } }, 'pullRequestId'],
@@ -468,54 +470,79 @@ for (const [stream, record, field] of malformed)
   });
 
 /**
- * For each stream, fields read for identity or meaning and display fields the code has a fallback for. A malformed
- * display field is left out and the record kept, as main read it as absent; a malformed required field still makes
- * the record unreadable. The refs stream has no display field.
+ * For each stream, fields read for identity or meaning and display fields the code shows with a fallback. A malformed
+ * display field keeps the record as Azure sent it, and the event shows what origin/main 844c7b6 shows, with the same
+ * IDs; where main put a value that is not text into an event's actor or title, the event holds its text. A malformed
+ * required field still makes the record unreadable. The refs stream has no display field.
  */
-const fieldRules: { stream: AzureStream; patch: Record<string, unknown>; kept?: Record<string, unknown>; unreadable?: string }[] = [
-  { stream: 'pushes', patch: { _links: { web: 'https://dev.azure.com/x' } }, kept: { _links: {} } },
-  { stream: 'pushes', patch: { _links: 'link' }, kept: {} },
-  { stream: 'pushes', patch: { pushedBy: 'A' }, kept: {} },
-  { stream: 'pushes', patch: { pushedBy: { displayName: 7, name: 'a' } }, kept: { pushedBy: { name: 'a' } } },
+const watched = { ...repo, webUrl: 'https://dev.azure.com/example/Project/_git/repo' };
+const pushUrl = `${watched.webUrl}/pushes?pushId=1`;
+const fieldRules: { stream: AzureStream; patch: Record<string, unknown>; shown?: Record<string, unknown>; unreadable?: string }[] = [
+  { stream: 'pushes', patch: { _links: { web: 'https://dev.azure.com/x' } }, shown: { url: pushUrl } },
+  { stream: 'pushes', patch: { _links: 'link' }, shown: { url: pushUrl } },
+  { stream: 'pushes', patch: { pushedBy: 'A' }, shown: { title: 'Unknown pushed to main', actor: 'Unknown' } },
+  { stream: 'pushes', patch: { pushedBy: { displayName: 7, name: 'a' } }, shown: { title: '7 pushed to main', actor: '7' } },
   { stream: 'pushes', patch: { pushId: '1' }, unreadable: 'pushId' },
   { stream: 'pushes', patch: { date: 7 }, unreadable: 'date' },
   { stream: 'pushes', patch: { commits: {} }, unreadable: 'commits' },
   { stream: 'pushes', patch: { refUpdates: [{ name: 'refs/tags/v1', oldObjectId: 7 }] }, unreadable: 'refUpdates.oldObjectId' },
   { stream: 'refs', patch: { name: 7 }, unreadable: 'name' },
   { stream: 'refs', patch: { peeledObjectId: 7 }, unreadable: 'peeledObjectId' },
-  { stream: 'prs', patch: { title: 7 }, kept: {} },
-  { stream: 'prs', patch: { createdBy: ['A'] }, kept: {} },
-  { stream: 'prs', patch: { reviewers: [{ id: 'r', vote: 10, displayName: 7 }] }, kept: { reviewers: [{ id: 'r', vote: 10 }] } },
-  { stream: 'prs', patch: { _links: { web: 7 } }, kept: { _links: {} } },
+  { stream: 'prs', patch: { title: 7 }, shown: { id: 'local1:pr:1:1:072e2b627223a969a109c058', title: 'PR 1 · 7' } },
+  { stream: 'prs', patch: { createdBy: ['A'] }, shown: { actor: 'Unknown' } },
+  {
+    stream: 'prs',
+    patch: { reviewers: [{ id: 'r', vote: 10, displayName: 7 }] },
+    shown: { 'data.reviewers': [{ id: 'r', name: 7, vote: 10, required: false }] },
+  },
+  { stream: 'prs', patch: { _links: { web: 7 } }, shown: { url: `${watched.webUrl}/pullrequest/1` } },
   { stream: 'prs', patch: { status: 7 }, unreadable: 'status' },
   { stream: 'prs', patch: { isDraft: 'yes' }, unreadable: 'isDraft' },
   { stream: 'prs', patch: { creationDate: 7 }, unreadable: 'creationDate' },
   { stream: 'prs', patch: { reviewers: [{ id: 7, vote: 10 }] }, unreadable: 'reviewers.id' },
   { stream: 'prs', patch: { forkSource: { repository: { id: 'f', name: 7 } } }, unreadable: 'forkSource.repository.name' },
-  { stream: 'closedPrs', patch: { closedBy: { displayName: 7 } }, kept: { closedBy: {} } },
+  { stream: 'closedPrs', patch: { closedBy: { displayName: 7 } }, shown: { 'data.closedBy': 7 } },
   { stream: 'closedPrs', patch: { lastMergeCommit: { commitId: 7 } }, unreadable: 'lastMergeCommit.commitId' },
   { stream: 'closedPrs', patch: { completionOptions: { mergeStrategy: 7 } }, unreadable: 'completionOptions.mergeStrategy' },
-  { stream: 'builds', patch: { definition: { name: 7, id: 3 } }, kept: { definition: { id: 3 } } },
-  { stream: 'builds', patch: { definition: 'CI' }, kept: {} },
-  { stream: 'builds', patch: { reason: 7 }, kept: {} },
-  { stream: 'builds', patch: { requestedBy: 7 }, kept: {} },
+  { stream: 'builds', patch: { definition: { name: 7, id: 3 } }, shown: { title: '7', 'data.definition': { name: 7, id: 3 } } },
+  { stream: 'builds', patch: { definition: 'CI' }, shown: { title: 'Pipeline', 'data.definition': 'CI' } },
+  { stream: 'builds', patch: { reason: 7 }, shown: { 'data.reason': 7 } },
+  { stream: 'builds', patch: { requestedBy: 7 }, shown: { actor: 'Unknown' } },
   { stream: 'builds', patch: { result: 7 }, unreadable: 'result' },
   { stream: 'builds', patch: { finishTime: 7 }, unreadable: 'finishTime' },
-  { stream: 'activeBuilds', patch: { requestedFor: { displayName: ['A'] } }, kept: { requestedFor: {} } },
-  { stream: 'activeBuilds', patch: { _links: { web: [] } }, kept: { _links: {} } },
+  { stream: 'activeBuilds', patch: { requestedFor: { displayName: ['A'] } }, shown: { actor: 'A' } },
+  {
+    stream: 'activeBuilds',
+    patch: { _links: { web: [] } },
+    shown: { url: `${watched.organization}/Project/_build/results?buildId=2` },
+  },
   { stream: 'activeBuilds', patch: { sourceBranch: 7 }, unreadable: 'sourceBranch' },
 ];
-for (const { stream, patch, kept, unreadable } of fieldRules)
-  test(`a ${stream} record with ${JSON.stringify(patch)} is ${kept ? 'kept without it' : `unreadable for ${unreadable}`}`, async () => {
-    const base = readable[stream];
-    const page = await createAzureClient({ cli: { run: async () => ({ value: [{ ...base, ...patch }] }) } }).read(repo, stream, window);
-    if (kept) {
-      const without = Object.fromEntries(Object.entries(base).filter(([key]) => !(key in patch)));
-      assert.deepEqual(page.items, [{ ...without, ...kept }]);
-      assert.equal(page.unreadable, undefined);
-    } else {
+for (const { stream, patch, shown, unreadable } of fieldRules)
+  test(`a ${stream} record with ${JSON.stringify(patch)} is ${shown ? 'kept and shown as on main' : `unreadable for ${unreadable}`}`, async () => {
+    const record = { ...readable[stream], ...patch };
+    const page = await createAzureClient({ cli: { run: async () => ({ value: [record] }) } }).read(repo, stream, window);
+    if (!shown) {
       assert.deepEqual(page.items, []);
       assert.deepEqual(page.unreadable, { count: 1, fields: [unreadable] });
+      return;
+    }
+    assert.deepEqual(page.items, [record], 'as Azure sent it');
+    assert.equal(page.unreadable, undefined);
+    const store = createStore();
+    try {
+      const event = present(createNormalizer({ store }).normalize(watched, stream, page.items, { initialized: true }).events[0]);
+      const data = Object.entries(event.data ?? {}).map(([key, value]) => [`data.${key}`, value]);
+      const seen: Record<string, unknown> = {
+        id: event.id,
+        title: event.title,
+        actor: event.actor,
+        url: event.url,
+        ...Object.fromEntries(data),
+      };
+      for (const [key, value] of Object.entries(shown)) assert.deepEqual(seen[key], value, key);
+    } finally {
+      store.close();
     }
   });
 
