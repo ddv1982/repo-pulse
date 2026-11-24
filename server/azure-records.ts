@@ -45,7 +45,8 @@ const text = optional(is(value => typeof value === 'string'));
 /** A string with more than white space in it. */
 const filled = is(value => typeof value === 'string' && value.trim() !== '');
 const flag = optional(is(value => typeof value === 'boolean'));
-const number = optional(is(value => typeof value === 'number'));
+/** A finite number: NaN or an infinity is no count or vote. */
+const number = optional(is(value => Number.isFinite(value)));
 /** Azure numbers pushes, pull requests and builds from 1. */
 const id = is(value => Number.isSafeInteger(value) && Number(value) > 0);
 /** A display field: the code shows it with a fallback, so any value reads. */

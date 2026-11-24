@@ -500,6 +500,7 @@ const fieldRules: { stream: AzureStream; patch: Record<string, unknown>; shown?:
   { stream: 'prs', patch: { isDraft: 'yes' }, unreadable: 'isDraft' },
   { stream: 'prs', patch: { creationDate: 7 }, unreadable: 'creationDate' },
   { stream: 'prs', patch: { reviewers: [{ id: 7, vote: 10 }] }, unreadable: 'reviewers.id' },
+  { stream: 'prs', patch: { reviewers: [{ id: 'r', vote: Number.NaN }] }, unreadable: 'reviewers.vote' },
   { stream: 'prs', patch: { forkSource: { repository: { id: 'f', name: 7 } } }, unreadable: 'forkSource.repository.name' },
   { stream: 'closedPrs', patch: { closedBy: { displayName: 7 } }, shown: { 'data.closedBy': 7 } },
   { stream: 'closedPrs', patch: { lastMergeCommit: { commitId: 7 } }, unreadable: 'lastMergeCommit.commitId' },
@@ -519,7 +520,7 @@ const fieldRules: { stream: AzureStream; patch: Record<string, unknown>; shown?:
   { stream: 'activeBuilds', patch: { sourceBranch: 7 }, unreadable: 'sourceBranch' },
 ];
 for (const { stream, patch, shown, unreadable } of fieldRules)
-  test(`a ${stream} record with ${JSON.stringify(patch)} is ${shown ? 'kept and shown as on main' : `unreadable for ${unreadable}`}`, async () => {
+  test(`a ${stream} record with ${JSON.stringify(patch, (_key, value: unknown) => (Number.isNaN(value) ? 'NaN' : value))} is ${shown ? 'kept and shown as on main' : `unreadable for ${unreadable}`}`, async () => {
     const record = { ...readable[stream], ...patch };
     const page = await createAzureClient({ cli: { run: async () => ({ value: [record] }) } }).read(repo, stream, window);
     if (!shown) {
