@@ -181,7 +181,8 @@ export function supportingPushKey(event: ActivityEvent) {
     data.commits.length
   )
     return null;
-  const ref = data.refUpdates[0];
+  const [ref] = data.refUpdates;
+  if (!ref) return null;
   const kind = /^0+$/.test(ref.oldObjectId || '') ? 'branch-created' : 'branch-deleted';
   // Push-list commit coverage is incomplete. A new branch may carry real work even
   // when its cached commits array is empty; only a deletion is unambiguously lifecycle-only.
@@ -208,8 +209,13 @@ export function groupActivity(events: ActivityEvent[]): ActivityItem[] {
     else groups.set(groupKey, [event]);
   }
   return [...groups]
-    .flatMap(([groupKey, items]) => projectActivity(groupKey, items) || [])
-    .sort((a, b) => newestFirst(a.events[0], b.events[0]));
+    .flatMap(([groupKey, items]) => {
+      const item = projectActivity(groupKey, items);
+      const [newest] = item?.events ?? [];
+      return item && newest ? [{ item, newest }] : [];
+    })
+    .sort((a, b) => newestFirst(a.newest, b.newest))
+    .map(({ item }) => item);
 }
 
 export function projectActivity(groupKey: string, items: ActivityEvent[], representativeId?: string): ActivityItem | undefined {

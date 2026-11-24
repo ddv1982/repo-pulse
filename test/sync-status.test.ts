@@ -63,8 +63,8 @@ test('automatic checks off pause every repository unless a manual refresh is out
   assert.deepEqual(paused.overall, { state: 'paused', since: ago(300), repoId: 'a' });
 
   const manual = status({ settings, a: { pushes: { manual: true, nextAt: ago(0) } } });
-  assert.equal(manual.repos.a.state, 'syncing');
-  assert.equal(manual.repos.b.state, 'paused');
+  assert.equal(present(manual.repos.a).state, 'syncing');
+  assert.equal(present(manual.repos.b).state, 'paused');
   assert.equal(manual.overall.state, 'syncing');
 });
 
@@ -72,12 +72,12 @@ test('with automatic checks off a running history import is not paused: it syncs
   const settings = { refreshEnabled: false, refreshResumedAt: null };
   const jobs: SyncStatusInput['jobs'] = [{ repoId: 'a', status: 'running' }];
   const importing = status({ settings, jobs });
-  assert.equal(importing.repos.a.state, 'syncing');
-  assert.equal(importing.repos.b.state, 'paused');
+  assert.equal(present(importing.repos.a).state, 'syncing');
+  assert.equal(present(importing.repos.b).state, 'paused');
   const throttled = status({ settings, jobs, throttledUntil: iso(NOW + 30000) });
   assert.deepEqual(throttled.repos.a, { state: 'delayed', reason: 'Azure DevOps asked us to slow down', since: ago(1) });
-  assert.equal(throttled.repos.b.state, 'paused');
-  assert.equal(status({ settings, jobs: [{ repoId: 'a', status: 'completed' }] }).repos.a.state, 'paused');
+  assert.equal(present(throttled.repos.b).state, 'paused');
+  assert.equal(present(status({ settings, jobs: [{ repoId: 'a', status: 'completed' }] }).repos.a).state, 'paused');
 });
 
 test('an access, sign-in or missing CLI error is a problem at once and says in plain words what to do', () => {
@@ -117,21 +117,21 @@ test('an access, sign-in or missing CLI error is a problem at once and says in p
     since: ago(1),
   });
   const unknown = status({ jobs: [{ repoId: 'a', status: 'running', error: forbidden, failures: 1 }] });
-  assert.equal(unknown.repos.a.reason, "Your Azure account has no access to this repository's history.");
+  assert.equal(present(unknown.repos.a).reason, "Your Azure account has no access to this repository's history.");
 });
 
 test('overall Synced shows the newest check across repositories, not that of the one with the oldest data', () => {
   const result = status({
     a: { ...Object.fromEntries(STREAMS.map(stream => [stream, { lastSuccess: ago(5) }])), refs: { lastSuccess: ago(8) } },
   });
-  assert.equal(result.repos.a.lastCheck, ago(5));
+  assert.equal(present(result.repos.a).lastCheck, ago(5));
   assert.deepEqual(result.overall, { state: 'synced', since: ago(8), lastCheck: ago(1), repoId: 'a' });
 });
 
 test('long delays are stated in hours from 120 minutes and in days from 48 hours', () => {
   const settings = { refreshEnabled: true, refreshResumedAt: null };
   const startedAt = NOW - 10 * 24 * 60 * MINUTE;
-  const behind = (minutes: number) => status({ settings, startedAt, a: { pushes: { lastSuccess: ago(minutes) } } }).repos.a.reason;
+  const behind = (minutes: number) => present(status({ settings, startedAt, a: { pushes: { lastSuccess: ago(minutes) } } }).repos.a).reason;
   assert.equal(behind(119), 'about 119 minutes behind');
   assert.equal(behind(119.5), 'about 120 minutes behind');
   assert.equal(behind(47.5 * 60), 'about 48 hours behind');
@@ -145,7 +145,7 @@ test('long delays are stated in hours from 120 minutes and in days from 48 hours
 test('a single failed read is not a problem; a second one is', () => {
   const error = { code: 'UNAVAILABLE', message: 'Azure DevOps could not be reached. Check your connection or VPN.' };
   const once = status({ a: { prs: { error, failures: 1, pending: true } } });
-  assert.equal(once.repos.a.state, 'syncing');
+  assert.equal(present(once.repos.a).state, 'syncing');
   const twice = status({ a: { prs: { error, failures: 2, pending: true } } });
   assert.deepEqual(twice.repos.a, { state: 'problem', reason: error.message, stream: 'prs', since: ago(1) });
 });
@@ -154,7 +154,7 @@ test('throttling is a delay, never a problem', () => {
   const error = { code: 'THROTTLED', message: 'Azure DevOps asked us to slow down. Retrying later.' };
   const result = status({ a: { pushes: { error, failures: 5, pending: true, lastSuccess: ago(4) } } });
   assert.deepEqual(result.repos.a, { state: 'delayed', reason: 'about 4 minutes behind', stream: 'pushes', since: ago(4) });
-  assert.equal(result.repos.b.state, 'synced');
+  assert.equal(present(result.repos.b).state, 'synced');
   const now = status({ a: { pushes: { error, failures: 1, lastSuccess: ago(0) } } });
   assert.deepEqual(now.repos.a, { state: 'delayed', reason: 'about 1 minute behind', stream: 'pushes', since: ago(1) });
   const first = status({ a: Object.fromEntries(STREAMS.map(stream => [stream, { initialized: false, lastSuccess: undefined, error }])) });
@@ -168,49 +168,52 @@ test('a read older than 10 minutes, or 20 for branches, is delayed', () => {
     stream: 'prs',
     since: ago(11),
   });
-  assert.equal(status({ a: { refs: { lastSuccess: ago(15) } } }).repos.a.state, 'synced');
-  assert.equal(status({ a: { refs: { lastSuccess: ago(21) } } }).repos.a.state, 'delayed');
+  assert.equal(present(status({ a: { refs: { lastSuccess: ago(15) } } }).repos.a).state, 'synced');
+  assert.equal(present(status({ a: { refs: { lastSuccess: ago(21) } } }).repos.a).state, 'delayed');
 });
 
 test('old reads are catching up, not delayed, until the app or resumed checks have run that long', () => {
   // A stream backing off after a failed read is old but not yet due.
   const old = { a: { pushes: { lastSuccess: ago(120), nextAt: ago(-1) } } };
-  assert.equal(status({ ...old, startedAt: NOW - 5 * MINUTE }).repos.a.state, 'syncing');
-  assert.equal(status({ ...old, settings: { refreshEnabled: true, refreshResumedAt: NOW - 5 * MINUTE } }).repos.a.state, 'syncing');
-  assert.equal(status({ ...old, startedAt: NOW - 11 * MINUTE }).repos.a.state, 'delayed');
+  assert.equal(present(status({ ...old, startedAt: NOW - 5 * MINUTE }).repos.a).state, 'syncing');
+  assert.equal(
+    present(status({ ...old, settings: { refreshEnabled: true, refreshResumedAt: NOW - 5 * MINUTE } }).repos.a).state,
+    'syncing',
+  );
+  assert.equal(present(status({ ...old, startedAt: NOW - 11 * MINUTE }).repos.a).state, 'delayed');
 });
 
 test('a restart catches up for three minutes, then a check still not started is delayed by its own lateness', () => {
   const closed = Object.fromEntries(STREAMS.map(stream => [stream, { lastSuccess: ago(243), nextAt: ago(240) }]));
   const catchingUp = status({ a: closed, b: closed, startedAt: NOW - MINUTE });
-  assert.deepEqual([catchingUp.repos.a.state, catchingUp.repos.b.state], ['syncing', 'syncing']);
+  assert.deepEqual([present(catchingUp.repos.a).state, present(catchingUp.repos.b).state], ['syncing', 'syncing']);
 
   const unread = status({ a: { pushes: { lastSuccess: ago(200), nextAt: ago(15) } }, startedAt: NOW - 5 * MINUTE });
   assert.deepEqual(unread.repos.a, { state: 'delayed', reason: 'about 15 minutes behind', stream: 'pushes', since: ago(200) });
-  assert.equal(unread.repos.b.state, 'synced');
+  assert.equal(present(unread.repos.b).state, 'synced');
 });
 
 test('checks starting over 3 minutes late delay only the repository they belong to', () => {
   const late = status({ a: { builds: { nextAt: ago(4), lastSuccess: ago(6) }, refs: { lastSuccess: ago(15) } } });
   assert.deepEqual(late.repos.a, { state: 'delayed', reason: 'about 4 minutes behind', stream: 'builds', since: ago(15) });
-  assert.equal(late.repos.b.state, 'synced');
-  assert.equal(status({ a: { builds: { nextAt: ago(2) } } }).repos.a.state, 'synced');
+  assert.equal(present(late.repos.b).state, 'synced');
+  assert.equal(present(status({ a: { builds: { nextAt: ago(2) } } }).repos.a).state, 'synced');
 });
 
 test('a first import, an open page, a manual refresh or a running history import is syncing', () => {
   assert.deepEqual(status({ a: { refs: { initialized: false, lastSuccess: undefined } } }).repos.a, { state: 'syncing' });
-  assert.equal(status({ a: { pushes: { pending: true, cursor: { skip: 100 } } } }).repos.a.state, 'syncing');
-  assert.equal(status({ a: { pushes: { manual: true } } }).repos.a.state, 'syncing');
+  assert.equal(present(status({ a: { pushes: { pending: true, cursor: { skip: 100 } } } }).repos.a).state, 'syncing');
+  assert.equal(present(status({ a: { pushes: { manual: true } } }).repos.a).state, 'syncing');
   const importing = status({ jobs: [{ repoId: 'a', status: 'running' }] });
-  assert.equal(importing.repos.a.state, 'syncing');
-  assert.equal(importing.repos.b.state, 'synced');
-  assert.equal(status({ jobs: [{ repoId: 'a', status: 'completed' }] }).repos.a.state, 'synced');
+  assert.equal(present(importing.repos.a).state, 'syncing');
+  assert.equal(present(importing.repos.b).state, 'synced');
+  assert.equal(present(status({ jobs: [{ repoId: 'a', status: 'completed' }] }).repos.a).state, 'synced');
 });
 
 test('problem beats delayed beats syncing, within a repository and overall', () => {
   const stale = { lastSuccess: ago(30) };
-  assert.equal(status({ a: { pushes: stale, builds: { error: forbidden, failures: 2 } } }).repos.a.state, 'problem');
-  assert.equal(status({ a: { pushes: stale, refs: { initialized: false } } }).repos.a.state, 'delayed');
+  assert.equal(present(status({ a: { pushes: stale, builds: { error: forbidden, failures: 2 } } }).repos.a).state, 'problem');
+  assert.equal(present(status({ a: { pushes: stale, refs: { initialized: false } } }).repos.a).state, 'delayed');
 
   const problemAndDelay = status({ a: { pushes: stale }, b: { builds: { error: forbidden, failures: 2 } } });
   assert.deepEqual([problemAndDelay.overall.state, repoOf(problemAndDelay.overall)], ['problem', 'b']);
@@ -250,7 +253,7 @@ test('a disabled repository is ignored, and no enabled repository gives an empty
 
 test('demo mode is synced whatever its seeded streams say', () => {
   const result = status({ demo: true, a: { builds: { error: forbidden, failures: 3, lastSuccess: ago(45) } } });
-  assert.equal(result.repos.a.state, 'synced');
+  assert.equal(present(result.repos.a).state, 'synced');
   assert.equal(result.overall.state, 'synced');
 });
 
@@ -279,15 +282,17 @@ test('through createSync: first import syncs, a refused stream is a problem, and
     },
   });
   const current = () =>
-    syncStatus({
-      repos: store.listRepos(),
-      streams: store.getStreams(),
-      jobs: store.listJobs({ type: 'backfill' }),
-      inProgress: sync.status().inProgress,
-      settings: { refreshEnabled: true, refreshResumedAt: null },
-      startedAt: BASE,
-      now: time,
-    }).repos.one;
+    present(
+      syncStatus({
+        repos: store.listRepos(),
+        streams: store.getStreams(),
+        jobs: store.listJobs({ type: 'backfill' }),
+        inProgress: sync.status().inProgress,
+        settings: { refreshEnabled: true, refreshResumedAt: null },
+        startedAt: BASE,
+        now: time,
+      }).repos.one,
+    );
   /** Ticks until every due stream has been read once. */
   async function drain() {
     for (let i = 0; i < 12; i++) {
@@ -360,15 +365,17 @@ function blockedSync() {
     },
   });
   const current = () =>
-    syncStatus({
-      repos: store.listRepos(),
-      streams: store.getStreams(),
-      jobs: [],
-      inProgress: sync.status().inProgress,
-      settings: { refreshEnabled: true, refreshResumedAt: null },
-      startedAt: NOW - 60 * MINUTE,
-      now: time,
-    }).repos.one.state;
+    present(
+      syncStatus({
+        repos: store.listRepos(),
+        streams: store.getStreams(),
+        jobs: [],
+        inProgress: sync.status().inProgress,
+        settings: { refreshEnabled: true, refreshResumedAt: null },
+        startedAt: NOW - 60 * MINUTE,
+        now: time,
+      }).repos.one,
+    ).state;
   async function readAll() {
     for (let i = 0; i < STREAMS.length; i++) {
       const page = sync.tick();
@@ -418,7 +425,7 @@ test('a refresh the user asked for is syncing with automatic checks on until eve
 
 test('a repository removed and re-added inside the refresh cooldown does not stay syncing on its old refresh', async () => {
   const { store, sync, current, readAll, advance } = blockedSync();
-  const repo = store.listRepos()[0];
+  const repo = present(store.listRepos()[0]);
   sync.refresh();
   await readAll();
   advance(MINUTE);
@@ -433,7 +440,7 @@ test('a repository removed and re-added inside the refresh cooldown does not sta
 
 test('a disabled repository or a stopped sync lists no queued refresh', async () => {
   const { store, sync, readAll, advance } = blockedSync();
-  const repo = store.listRepos()[0];
+  const repo = present(store.listRepos()[0]);
   sync.refresh();
   await readAll();
   advance(MINUTE);
@@ -449,7 +456,7 @@ test('a disabled repository or a stopped sync lists no queued refresh', async ()
 
 test('a history import that keeps failing is a problem, not endless syncing', () => {
   const error = { code: 'FAILED', message: 'Azure DevOps could not list pushes.' };
-  assert.equal(status({ jobs: [{ repoId: 'a', status: 'retrying', failures: 1, error }] }).repos.a.state, 'syncing');
+  assert.equal(present(status({ jobs: [{ repoId: 'a', status: 'retrying', failures: 1, error }] }).repos.a).state, 'syncing');
   assert.deepEqual(status({ jobs: [{ repoId: 'a', status: 'retrying', failures: 2, error }] }).repos.a, {
     state: 'problem',
     reason: error.message,
@@ -457,9 +464,9 @@ test('a history import that keeps failing is a problem, not endless syncing', ()
     since: ago(1),
   });
   const throttled = { code: 'THROTTLED', message: 'Azure DevOps asked us to slow down. Retrying later.' };
-  assert.equal(status({ jobs: [{ repoId: 'a', status: 'retrying', failures: 5, error: throttled }] }).repos.a.state, 'syncing');
+  assert.equal(present(status({ jobs: [{ repoId: 'a', status: 'retrying', failures: 5, error: throttled }] }).repos.a).state, 'syncing');
   const denied = { code: 'FORBIDDEN', message: 'No access to this repository.' };
-  assert.equal(status({ jobs: [{ repoId: 'a', status: 'retrying', failures: 1, error: denied }] }).repos.a.state, 'problem');
+  assert.equal(present(status({ jobs: [{ repoId: 'a', status: 'retrying', failures: 1, error: denied }] }).repos.a).state, 'problem');
 });
 
 test('a queue paused by Azure throttling makes every running repository delayed with that reason', () => {
@@ -469,7 +476,7 @@ test('a queue paused by Azure throttling makes every running repository delayed 
   assert.equal(status({ throttledUntil: iso(NOW - 1) }).overall.state, 'synced');
   assert.equal(status({ throttledUntil: null }).overall.state, 'synced');
   const problem = status({ throttledUntil: iso(NOW + 30000), a: { builds: { error: forbidden, failures: 1 } } });
-  assert.equal(problem.repos.a.state, 'problem');
+  assert.equal(present(problem.repos.a).state, 'problem');
 });
 
 test('a failed reset shows overall even with no enabled repository', () => {

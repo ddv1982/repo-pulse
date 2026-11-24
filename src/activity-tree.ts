@@ -150,8 +150,9 @@ function checkedFork(origin: import('./activity.ts').ForkOrigin | undefined, pr:
   if (origin.status === 'found') {
     const branches = (origin.on ?? []).map(ref => branchName(ref));
     // A candidate that went unanswered could also hold the base, so one match beside it draws no fork either.
-    if (branches.length === 1 && !origin.unanswered?.length)
-      return { evidence: origin.via === 'contained' ? 'contained' : 'recorded', parent: branches[0], base };
+    const [only] = branches;
+    if (only !== undefined && branches.length === 1 && !origin.unanswered?.length)
+      return { evidence: origin.via === 'contained' ? 'contained' : 'recorded', parent: only, base };
     if (branches.length) return { evidence: 'ambiguous', parent: null, base, branches };
   }
   if (pr && (origin.notOn ?? []).some(ref => branchName(ref) === pr.target))
@@ -164,13 +165,13 @@ function rowBranch(item: ActivityEvent, prs: Map<string, PullRequest>) {
   if (item.kind === 'tag') return '';
   const pr = pullRequest(item);
   if (pr) return (item.data?.status === 'completed' && pr.target) || pr.source;
-  const prRef = item.kind === 'build' ? PR_REF.exec(item.branch ?? '') : null;
-  if (!prRef) return item.branch || '';
+  const prNumber = item.kind === 'build' ? PR_REF.exec(item.branch ?? '')?.[1] : undefined;
+  if (prNumber === undefined) return item.branch || '';
   // A CI run on a pull request ref belongs to the PR source branch: from the stored PR the server attached, or from a
   // PR row in the list. With neither, the runs of that pull request still share a lane of their own.
   const stored = item.data?.pullRequest;
   const attached = stored && pullRequestRefs(stored.id, stored.sourceRefName, stored.targetRefName, stored.fork).source;
-  return attached || prs.get(laneKey(item.repoId, prRef[1]))?.source || `refs/pull/${prRef[1]}`;
+  return attached || prs.get(laneKey(item.repoId, prNumber))?.source || `refs/pull/${prNumber}`;
 }
 
 function nodeShape(item: ActivityEvent): TreeNode['shape'] {
@@ -243,7 +244,8 @@ export function buildActivityTree(
     entry.rows.add(row);
     return key;
   };
-  const rowKeys = items.map((item, row) => mark(item.repoId, rowBranch(item, prs.byId), row));
+  const keyed = items.map((item, row) => ({ item, key: mark(item.repoId, rowBranch(item, prs.byId), row) }));
+  const rowKeys = keyed.map(({ key }) => key);
 
   /**
    * The oldest row of a new branch. The push that created a branch is a row of its own and may sort below it, after
@@ -252,8 +254,11 @@ export function buildActivityTree(
   const startRow = (item: ActivityEvent, row: number) => {
     const pushId = item.data?.pushId;
     let start = row;
-    for (let below = row + 1; pushId !== undefined && items[below]?.data?.pushId === pushId; below++)
-      if (items[below].kind === 'push' && rowKeys[below] === rowKeys[row]) start = below;
+    for (let below = row + 1; pushId !== undefined; below++) {
+      const next = keyed[below];
+      if (next?.item.data?.pushId !== pushId) break;
+      if (next.item.kind === 'push' && next.key === rowKeys[row]) start = below;
+    }
     return start;
   };
   /**
@@ -275,14 +280,14 @@ export function buildActivityTree(
   /** The fork curve sits on the oldest row of the branch: row index to the fork and the parent it joins. */
   const forkJoins: Map<number, { fork: TreeFork; key: string }> = new Map();
   const createdAbove: Map<string, number> = new Map();
-  items.forEach((item, row) => {
-    const entry = branches.get(rowKeys[row]);
+  keyed.forEach(({ item, key }, row) => {
+    const entry = branches.get(key);
     if (item.kind !== 'branch-created' || !entry?.branch) return;
     const start = startRow(item, row);
     // Only a push proves a new branch. A snapshot discovery has no creation time, so older rows stay on its lane.
     if (createdAt(item)) entry.starts.add(start);
-    const fork = forkOrigin(item, entry.branch, row, start, createdAbove.get(rowKeys[row]) ?? -1);
-    createdAbove.set(rowKeys[row], row);
+    const fork = forkOrigin(item, entry.branch, row, start, createdAbove.get(key) ?? -1);
+    createdAbove.set(key, row);
     forks[row] = fork;
     if (fork?.parent) forkJoins.set(start, { fork, key: mark(item.repoId, fork.parent, start) });
   });
@@ -315,7 +320,7 @@ export function buildActivityTree(
       through: drawn
         .filter(lane => lane !== own && lane !== forkLane && lane !== mergeLane && lane.top < row && lane.bottom > row)
         .map(lane => ({ slot: lane.slot, color: lane.color })),
-      fork: forks[row],
+      fork: forks[row] ?? null,
       forkFrom: join && forkLane ? { ...line(forkLane, row), evidence: join.fork.evidence } : null,
       mergeFrom: mergeLane ? line(mergeLane, row) : null,
     };

@@ -227,12 +227,11 @@ export function createSync({
     due.sort((a, b) => (Date.parse(String(a.lastAttempt || 0)) || 0) - (Date.parse(String(b.lastAttempt || 0)) || 0));
     return { due, repos };
   }
-  function takeLiveTurn(due: StreamState[], repos: Map<string, WatchedRepo>) {
+  function takeLiveTurn(first: StreamState, second: StreamState | undefined, repos: Map<string, WatchedRepo>) {
     liveTurns = Math.min(liveTurns + 1, LIVE_TURNS);
     lastTurn.live = iso(now());
     // Rotating equal-priority entries avoids repeatedly selecting a multi-page first stream.
-    const index = due.findIndex(state => `${state.repoId}:${state.stream}` === lastKey);
-    const state = due[index === 0 && due.length > 1 ? 1 : 0];
+    const state = second && `${first.repoId}:${first.stream}` === lastKey ? second : first;
     // `due` only holds streams of enabled repositories in `repos`.
     const repo = repos.get(state.repoId) as WatchedRepo;
     lastKey = `${state.repoId}:${state.stream}`;
@@ -328,12 +327,13 @@ export function createSync({
     ensureStreams();
     const automatic = store.getSetting('refreshEnabled', true) !== false;
     const { due, repos } = dueStreams(automatic);
-    if (!due.length) {
+    const [first, second] = due;
+    if (!first) {
       await runBackground(automatic);
       return;
     }
     if (liveTurns >= LIVE_TURNS && (await runBackground(automatic))) return;
-    const { state, repo } = takeLiveTurn(due, repos);
+    const { state, repo } = takeLiveTurn(first, second, repos);
     const working = startPage(state, now(), overlapMs);
     reading = { repoId: state.repoId, stream: state.stream };
     try {

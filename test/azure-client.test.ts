@@ -26,10 +26,10 @@ test('push pagination keeps fixed window and includes all refs without branch fi
   assert.deepEqual(first.nextCursor, { skip: 100 });
   const second = await client.read(repo, 'pushes', { ...window, cursor: first.nextCursor });
   assert.equal(second.nextCursor, null);
-  assert(calls[1].includes('$skip=100'));
-  assert(calls[1].includes('searchCriteria.fromDate=2026-11-10T11:12:13.000Z'));
-  assert(calls[1].includes('searchCriteria.includeRefUpdates=true'));
-  assert(!calls[1].some(value => value.startsWith('searchCriteria.refName=')));
+  assert(present(calls[1]).includes('$skip=100'));
+  assert(present(calls[1]).includes('searchCriteria.fromDate=2026-11-10T11:12:13.000Z'));
+  assert(present(calls[1]).includes('searchCriteria.includeRefUpdates=true'));
+  assert(!present(calls[1]).some(value => value.startsWith('searchCriteria.refName=')));
 });
 
 test('closed PR stream uses closed time and pagination instead of creation time', async () => {
@@ -62,16 +62,16 @@ test('refs use continuation token and build cache isolates repositories while co
   const refs = await client.read(repo, 'refs', window);
   assert.deepEqual(refs.nextCursor, { token: 'page2', allRefs: true });
   await client.read(repo, 'refs', { ...window, cursor: refs.nextCursor });
-  assert(calls[1].includes('continuationToken=page2'));
+  assert(present(calls[1]).includes('continuationToken=page2'));
   const [a, b] = await Promise.all([
     client.read(repo, 'builds', window),
     client.read({ ...repo, azureId: 'repo2' }, 'builds', { ...window, since: '2026-11-10T11:13:13Z' }),
   ]);
   assert.equal(calls.length, 4);
   assert.deepEqual(a, b);
-  assert(calls[2].includes('repositoryId=repo1'));
-  assert(calls[3].includes('repositoryId=repo2'));
-  assert(calls[2].includes('repositoryType=TfsGit'));
+  assert(present(calls[2]).includes('repositoryId=repo1'));
+  assert(present(calls[3]).includes('repositoryId=repo2'));
+  assert(present(calls[2]).includes('repositoryType=TfsGit'));
   await client.read(repo, 'builds', window);
   assert.equal(calls.length, 4);
   assert.equal(a.nextCursor?.from, '2026-11-10T11:10:00.000Z');
@@ -136,9 +136,9 @@ test('active PR reads are explicitly repo-scoped and exact PR reconciliation use
     },
   });
   await client.read(repo, 'prs', window);
-  assert(calls[0].includes('searchCriteria.repositoryId=repo1'));
+  assert(present(calls[0]).includes('searchCriteria.repositoryId=repo1'));
   assert.equal((await client.pullRequest(repo, 123)).pullRequestId, 123);
-  assert.deepEqual(calls[1].slice(0, 3), ['repos', 'pr', 'show']);
+  assert.deepEqual(present(calls[1]).slice(0, 3), ['repos', 'pr', 'show']);
   const foreign = createAzureClient({ cli: { run: async () => ({ pullRequestId: 123, repository: { id: 'different' } }) } });
   await assert.rejects(foreign.pullRequest(repo, 123), { code: 'WRONG_REPOSITORY' });
   const malformed = createAzureClient({ cli: { run: async () => ({ repository: { id: 'repo1' } }) } });
@@ -222,7 +222,7 @@ test('dropped commits read one page from the old tip that the new tip does not r
   assert.equal(page.items.length, 100);
   assert.deepEqual(page.nextCursor, { skip: 100 }, 'a full page says more were dropped');
   assert.equal(calls.length, 1);
-  const args = calls[0];
+  const args = present(calls[0]);
   assert(args?.includes(`searchCriteria.compareVersion.version=${old}`));
   assert(args?.includes(`searchCriteria.itemVersion.version=${tip}`));
   assert(args?.includes('searchCriteria.compareVersion.versionType=commit'));
@@ -248,7 +248,7 @@ test('ref creation/deletion/equal tips cannot scan historical ancestry and malfo
     [zero, tip],
     [old, zero],
     [old, old],
-  ])
+  ] satisfies [string, string][])
     assert.deepEqual(await client.droppedCommits(repo, from, to), { items: [], nextCursor: null });
   assert.equal(calls, 0);
   await assert.rejects(client.droppedCommits(repo, 'refs/heads/main', tip), { code: 'INVALID_QUERY' });
@@ -283,15 +283,15 @@ test('checkout PR lookup is bounded and accepts completed PRs in the same source
       },
     },
   });
-  const [pull] = await client.completedCheckoutPulls(repo, sourceRefName);
+  const pull = present((await client.completedCheckoutPulls(repo, sourceRefName))[0]);
   assert.equal(pull.id, 1);
   assert.equal(pull.strategy, 'rebase');
   assert.equal((await client.completedCheckoutPulls(repo, sourceRefName)).length, 1);
   assert.equal(calls.length, 1);
-  assert.ok(calls[0].includes('$top=20'));
-  assert.ok(calls[0].includes('searchCriteria.sourceRepositoryId=repo1'));
-  assert.ok(calls[0].includes('searchCriteria.repositoryId=repo1'));
-  assert.ok(calls[0].includes('searchCriteria.sourceRefName=' + sourceRefName));
+  assert.ok(present(calls[0]).includes('$top=20'));
+  assert.ok(present(calls[0]).includes('searchCriteria.sourceRepositoryId=repo1'));
+  assert.ok(present(calls[0]).includes('searchCriteria.repositoryId=repo1'));
+  assert.ok(present(calls[0]).includes('searchCriteria.sourceRefName=' + sourceRefName));
 });
 
 test('repository connection check preserves local CLI state when the scoped read fails', async () => {
@@ -394,10 +394,10 @@ test('refs restart a snapshot saved by the branch-only query and ask policies fo
     },
   });
   const restarted = await client.read(repo, 'refs', { cursor: { token: 'from-heads-only' } });
-  assert(!calls[0].some(arg => arg.startsWith('continuationToken=')));
+  assert(!present(calls[0]).some(arg => arg.startsWith('continuationToken=')));
   assert.equal(restarted.restarted, true);
   await client.read(repo, 'refs', { cursor: { token: 'all', allRefs: true } });
-  assert(calls[1].includes('continuationToken=all'));
+  assert(present(calls[1]).includes('continuationToken=all'));
   await client.prReview(repo, 4);
   assert(present(calls.at(-1)).includes('includeNotApplicable=true'));
 });
@@ -416,8 +416,8 @@ test('a single commit read returns its parents and the push that brought it, and
     },
   });
   assert.deepEqual(await client.commit(repo, id.toUpperCase()), { parents: [parent], pushId: 41 });
-  assert(calls[0].includes(`commitId=${id}`));
-  assert(calls[0].includes('changeCount=0'));
+  assert(present(calls[0]).includes(`commitId=${id}`));
+  assert(present(calls[0]).includes('changeCount=0'));
   body = { commitId: id, parents: [] };
   assert.deepEqual(await client.commit(repo, id), { parents: [], pushId: null });
   await assert.rejects(client.commit(repo, 'main'), { code: 'INVALID_QUERY' });

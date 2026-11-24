@@ -72,7 +72,7 @@ export function createActivitySwitch({
 
   async function activityRemoteTip(path: string, target: Upstream) {
     const refs = await run(path, ['ls-remote', '--exit-code', '--refs', '--', target.url, target.source]);
-    const [tip] =
+    const [tip = ''] =
       refs
         .split('\n')
         .find(line => line.endsWith(`\t${target.source}`))
@@ -143,8 +143,9 @@ export function createActivitySwitch({
       if (!forward) replaced.push(baseline);
     }
     const counts = localTip ? (await run(path, ['rev-list', '--left-right', '--count', `${localTip}...${tip}`])).trim() : '0\t0';
-    if (!/^\d+\s+\d+$/.test(counts)) throw problem('Git could not compare the local branch with the remote tip.');
-    const [ahead, behind] = counts.split(/\s+/).map(Number);
+    const [, aheadCount, behindCount] = /^(\d+)\s+(\d+)$/.exec(counts) ?? [];
+    if (aheadCount === undefined || behindCount === undefined) throw problem('Git could not compare the local branch with the remote tip.');
+    const [ahead, behind] = [Number(aheadCount), Number(behindCount)];
     return { previous, tip, replaced, retained, ahead, behind };
   }
 

@@ -70,7 +70,7 @@ test('page transaction rolls back events and checkpoint together', () => {
   assert.equal(store.listEvents().length, 0);
   assert.equal(store.getStreams().length, 0);
   store.commitPage({ repoId: 'one', stream: 'pushes', state: stub<StreamState>({ cursor: { skip: 2 } }), events: [event('good')] });
-  assert.deepEqual(store.getStreams()[0].cursor, { skip: 2 });
+  assert.deepEqual(present(store.getStreams()[0]).cursor, { skip: 2 });
   store.close();
 });
 
@@ -161,7 +161,7 @@ test('a saved complete analysis proving the push did not introduce the merge com
   const weaker = { pullRequestId: 'old', targetRefName: 'refs/heads/main', relationship: 'constituent-related' };
   store.enrichEvent('reset', { mergeEvidence: { status: 'complete', introducedCommitIds: [], prs: [weaker] } });
   store.insertEvents([completedPr('old')]);
-  assert.equal(dataOf(store.getEvent('reset')).mergeEvidence?.prs?.[0].relationship, 'constituent-related');
+  assert.equal(present(dataOf(store.getEvent('reset')).mergeEvidence?.prs?.[0]).relationship, 'constituent-related');
   store.close();
 });
 
@@ -467,7 +467,7 @@ test('upgrading queues a fork check once for each stored branch creation a sync 
       .map(job => job.eventId)
       .sort();
   assert.deepEqual(queued(), ['in-window', 'live']);
-  const [job] = store.listJobs({ type: 'fork' }).filter(item => item.eventId === 'live');
+  const job = present(store.listJobs({ type: 'fork' }).filter(item => item.eventId === 'live')[0]);
   assert.deepEqual(
     { ref: job.ref, pushId: job.pushId, at: job.at, reads: job.reads, attempts: job.attempts },
     { ref: 'refs/heads/live', pushId: 7, at: tip, reads: 0, attempts: 0 },

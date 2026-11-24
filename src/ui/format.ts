@@ -14,7 +14,7 @@ export { branchName } from '../events.ts';
 import { safeAzureUrl } from '../events.ts';
 
 const entities: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
-const escape = (value: unknown) => String(value ?? '').replace(/[&<>"']/g, c => entities[c]);
+const escape = (value: unknown) => String(value ?? '').replace(/[&<>"']/g, c => entities[c] ?? `&#${c.charCodeAt(0)};`);
 
 const SAFE_HTML = Symbol('SafeHtml');
 
@@ -54,8 +54,8 @@ function renderValue(value: HtmlValue): string {
  * Tagged template that auto-escapes interpolated values unless they are already SafeHtml.
  */
 export function html(strings: TemplateStringsArray, ...values: HtmlValue[]): SafeHtml {
-  let out = strings[0];
-  for (let i = 0; i < values.length; i++) out += renderValue(values[i]) + strings[i + 1];
+  let out = '';
+  for (const [i, chunk] of strings.entries()) out += (i ? renderValue(values[i - 1]) : '') + chunk;
   return new SafeHtml(out, SAFE_HTML);
 }
 

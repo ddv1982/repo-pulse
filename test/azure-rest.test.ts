@@ -100,15 +100,15 @@ test('invoke reads go to the matching REST URL with a bearer token and keep the 
   });
   const result = await cli.run(invoke('git', 'refs', ['project=Proj Id', 'repositoryId=repo-1'], ['filter=heads/', '$top=100']));
   assert.deepEqual(result, { count: 1, value: [{ name: 'refs/heads/main' }], continuationToken: 'next-page' });
-  const url = new URL(requests[0].url);
+  const url = new URL(present(requests[0]).url);
   assert.equal(url.origin + url.pathname, `${ORG}/Proj%20Id/_apis/git/repositories/repo-1/refs`);
   assert.equal(url.searchParams.get('filter'), 'heads/');
   assert.equal(url.searchParams.get('$top'), '100');
   assert.equal(url.searchParams.get('api-version'), '7.1');
-  assert.equal(requests[0].init.method, 'GET');
-  assert.equal(requests[0].init.headers.authorization, `Bearer ${TOKEN}-1`);
+  assert.equal(present(requests[0]).init.method, 'GET');
+  assert.equal(present(requests[0]).init.headers.authorization, `Bearer ${TOKEN}-1`);
   assert.equal(
-    requests[0].init.headers['x-tfs-fedauthredirect'],
+    present(requests[0]).init.headers['x-tfs-fedauthredirect'],
     'Suppress',
     'a rejected token is answered with 401, not a sign-in redirect',
   );
@@ -220,7 +220,7 @@ test('an unusable token response is not cached and does not leak into the error'
 test('concurrent 401s for one token share a single renewal', async () => {
   const { cli, cliCalls } = harness({
     tokenDelay: true,
-    responses: init => (init.headers.authorization.endsWith('-1') ? { status: 401 } : { status: 200 }),
+    responses: init => (present(init.headers.authorization).endsWith('-1') ? { status: 401 } : { status: 200 }),
   });
   await Promise.all([0, 1].map(skip => cli.run(invoke('git', 'pushes', ['project=P', 'repositoryId=r'], [`$skip=${skip}`]))));
   assert.equal(cliCalls.length, 2, 'one initial token and one shared renewal');
@@ -257,7 +257,9 @@ test('a token with an unusable expiry is reported as a sign-in problem', async (
 });
 
 test('a replacement token rejected on the retry is not sent again', async () => {
-  const { cli, requests } = harness({ responses: init => (init.headers.authorization.endsWith('-3') ? { status: 200 } : { status: 401 }) });
+  const { cli, requests } = harness({
+    responses: init => (present(init.headers.authorization).endsWith('-3') ? { status: 200 } : { status: 401 }),
+  });
   await assert.rejects(cli.run(invoke('git', 'pushes', ['project=P', 'repositoryId=r'])), { code: 'AUTH_REQUIRED' });
   const before = requests.length;
   await cli.run(invoke('git', 'pushes', ['project=P', 'repositoryId=r'], ['$skip=1']));
@@ -332,7 +334,7 @@ test('PR thread and policy evaluation reads use their own routes and the policy 
     requests.map(request => new URL(request.url).pathname),
     ['/example/P/_apis/git/repositories/r/pullRequests/12/threads', '/example/P/_apis/policy/evaluations'],
   );
-  assert.equal(new URL(requests[1].url).searchParams.get('api-version'), '7.1-preview.1');
+  assert.equal(new URL(present(requests[1]).url).searchParams.get('api-version'), '7.1-preview.1');
   await assert.rejects(cli.run(invoke('git', 'pullRequestThreads', ['project=P', 'repositoryId=r', 'pullRequestId=..'])));
   cli.close();
 });

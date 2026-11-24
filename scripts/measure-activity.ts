@@ -22,7 +22,7 @@ async function measure(scenario: (typeof scenarios)[number]) {
     const isBuild = scenario.mixedRuns && run % 5 === 0;
     return {
       id: `${isBuild ? 'build' : 'push'}-${index}`,
-      repoId: ids[(isBuild ? run : index) % ids.length],
+      repoId: `repo-${(isBuild ? run : index) % scenario.repositories}`,
       kind: isBuild ? 'build' : 'push',
       seen: index % 11 !== 0,
       branch: `feature/${index % 100}`,
@@ -67,7 +67,8 @@ async function measure(scenario: (typeof scenarios)[number]) {
         times.push(performance.now() - started);
       }
       times.sort((a, b) => a - b);
-      result[name] = { p95Ms: Number(times[Math.ceil(samples * 0.95) - 1].toFixed(1)), bytes };
+      // samples is 20, so the 95th percentile is the 19th time.
+      result[name] = { p95Ms: Number(times[Math.ceil(samples * 0.95) - 1]?.toFixed(1)), bytes };
     }
     console.log(JSON.stringify(result));
   } finally {

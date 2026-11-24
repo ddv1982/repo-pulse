@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { parseRemote, normalizeOrganization, repositoryKey, discoverRepositories, hasRemoteCredentials } from '../server/repositories.ts';
 import type { Thrown } from './fixtures/typed.ts';
+import { present } from './fixtures/typed.ts';
 
 test('Azure remote formats normalize to a credential-free canonical identity', () => {
   const forms = [
@@ -80,8 +81,8 @@ test('explicit discovery reads local Azure remotes without modifying config and 
     const before = await readFile(join(root, 'azure', '.git', 'config'), 'utf8');
     const found = await discoverRepositories(root);
     assert.equal(found.repositories.length, 1);
-    assert.equal(found.repositories[0].remotes[0].name, 'origin');
-    assert.equal(found.repositories[0].remotes[0].repoName, 'Repo');
+    assert.equal(present(present(found.repositories[0]).remotes[0]).name, 'origin');
+    assert.equal(present(present(found.repositories[0]).remotes[0]).repoName, 'Repo');
     assert(!JSON.stringify(found).includes('secret'));
     assert.equal(await readFile(join(root, 'azure', '.git', 'config'), 'utf8'), before);
     assert.equal((await discoverRepositories(join(root, 'azure'))).repositories.length, 1);
@@ -104,7 +105,7 @@ test('discovery skips a remote with a password in its URL and says why', async (
     const found = await discoverRepositories(root);
     assert.equal(found.repositories.length, 0);
     assert.equal(found.warnings.length, 1);
-    assert.match(found.warnings[0], /\(origin\): Remove the credentials/);
+    assert.match(present(found.warnings[0]), /\(origin\): Remove the credentials/);
     assert(!JSON.stringify(found).includes('hunter2'));
   } finally {
     await rm(root, { recursive: true, force: true });

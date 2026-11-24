@@ -12,7 +12,8 @@ export type Discovery = import('../src/contract.ts').Discovery;
 
 const exec = promisify(execFile);
 const invalid = () => Object.assign(new Error('Use an Azure DevOps Services HTTPS or SSH repository URL.'), { code: 'INVALID_REPOSITORY' });
-const component = (value: string) => {
+const component = (value: string | undefined) => {
+  if (value === undefined) throw invalid();
   let decoded;
   try {
     decoded = decodeURIComponent(value);
@@ -35,9 +36,9 @@ export function normalizeOrganization(value: unknown) {
   if (url.protocol !== 'https:' || url.port || url.search || url.hash || url.username || url.password) throw invalid();
   if (url.hostname.toLowerCase() === 'dev.azure.com' && parts.length === 1)
     return `https://dev.azure.com/${encodeURIComponent(component(parts[0]).toLowerCase())}`;
-  const legacy = url.hostname.match(/^([a-z0-9][a-z0-9-]*)\.visualstudio\.com$/i);
-  if (legacy && (!parts.length || (parts.length === 1 && parts[0].toLowerCase() === 'defaultcollection')))
-    return `https://dev.azure.com/${legacy[1].toLowerCase()}`;
+  const [, account] = url.hostname.match(/^([a-z0-9][a-z0-9-]*)\.visualstudio\.com$/i) ?? [];
+  if (account !== undefined && (!parts.length || (parts.length === 1 && parts[0]?.toLowerCase() === 'defaultcollection')))
+    return `https://dev.azure.com/${account.toLowerCase()}`;
   throw invalid();
 }
 
@@ -86,13 +87,15 @@ export function parseRemote(value: unknown): ParsedRemote {
     else if (host === 'dev.azure.com' && url.protocol === 'https:' && parts.length === 4 && parts[2] === '_git')
       [organization, project, , name] = parts;
     else {
-      const legacy = host.match(/^([a-z0-9][a-z0-9-]*)\.visualstudio\.com$/i);
-      if (!legacy || url.protocol !== 'https:') throw invalid();
-      organization = legacy[1];
+      const [, account] = host.match(/^([a-z0-9][a-z0-9-]*)\.visualstudio\.com$/i) ?? [];
+      if (account === undefined || url.protocol !== 'https:') throw invalid();
+      organization = account;
       if (parts[0]?.toLowerCase() === 'defaultcollection') parts.shift();
       if (parts.length !== 3 || parts[1] !== '_git') throw invalid();
       [project, , name] = parts;
     }
+    // Each branch above checked the part count, so this never refuses a parsed URL.
+    if (organization === undefined) throw invalid();
     refuseCredentials(url, organization);
   }
   organization = `https://dev.azure.com/${encodeURIComponent(component(organization).toLowerCase())}`;
@@ -159,15 +162,15 @@ export async function discoverRepositories(inputPath: unknown): Promise<Discover
       }
       const remotes: DiscoveredRemote[] = [];
       for (const line of output.split('\n').filter(Boolean)) {
-        const match = line.match(/^remote\.(.+)\.url\s+(.+)$/);
-        if (!match) continue;
+        const [, remoteName, remoteUrl] = line.match(/^remote\.(.+)\.url\s+(.+)$/) ?? [];
+        if (remoteName === undefined) continue;
         try {
-          const remote = parseRemote(match[2]);
-          remotes.push({ ...remote, name: match[1], repoName: remote.name });
+          const remote = parseRemote(remoteUrl);
+          remotes.push({ ...remote, name: remoteName, repoName: remote.name });
         } catch (error) {
           // Other hosting providers are outside this watch list.
           if ((error as { code?: unknown }).code === 'REMOTE_PASSWORD')
-            result.warnings.push(`${localPath} (${match[1]}): ${(error as Error).message}`);
+            result.warnings.push(`${localPath} (${remoteName}): ${(error as Error).message}`);
         }
       }
       if (remotes.length) result.repositories.push({ localPath, remotes });

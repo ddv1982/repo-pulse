@@ -169,7 +169,10 @@ const events: ActivityEvent[] = [
   { id: 'deleted', repoId: repo.id, kind: 'branch-deleted', time, branch: probe('deleted.branch'), data: { evidence: 'push' } },
   { id: 'created', repoId: repo.id, kind: 'branch-created', time, title: probe('created.title'), branch: probe('created.branch') },
 ];
-const [, running, , pr, push, , newBranchPush] = events;
+const running = present(events[1]);
+const pr = present(events[3]);
+const push = present(events[4]);
+const newBranchPush = present(events[6]);
 
 const streamError = (field: string) => ({ code: 'FAILED', message: probe(field) });
 const streams: PageState['streams'] = [
@@ -366,7 +369,7 @@ const shortCommit = (id: string) => `<code title="${html(id)}">${html(id.slice(0
 /** The serialized event IDs a row and its buttons carry, ahead of the attribute that follows them. */
 const eventIds = (ids: string[], next: string) => `data-event-ids="${html(JSON.stringify(ids))}"${next}`;
 const idsField = (ids: string[]) => `eventIds ${ids.map(fieldOf).join(', ')}`;
-const summary = `Tip at ${html(String(newBranchPush.data?.refUpdates?.[0].newObjectId).slice(0, 7))}`;
+const summary = `Tip at ${html(String(present(newBranchPush.data?.refUpdates?.[0]).newObjectId).slice(0, 7))}`;
 const evidence = push.data?.mergeEvidence ?? {};
 
 const views: Record<string, View> = {
@@ -463,11 +466,11 @@ const views: Record<string, View> = {
       { field: 'pr.sourceCommit', html: shortCommit(String(pr.data?.sourceCommit)) },
       { field: 'pr.mergeCommit', html: shortCommit(String(pr.data?.mergeCommit)) },
       { field: 'push.commitId', html: shortCommit(String(push.data?.commitId)) },
-      { field: 'pushCommits.commitId', html: shortCommit(String(pushCommits.items[0].commitId)) },
-      { field: 'push.mergeEvidence.prs.mergeCommit', html: `result ${shortCommit(String(evidence.prs?.[0].mergeCommit))}` },
+      { field: 'pushCommits.commitId', html: shortCommit(String(present(pushCommits.items[0]).commitId)) },
+      { field: 'push.mergeEvidence.prs.mergeCommit', html: `result ${shortCommit(String(present(evidence.prs?.[0]).mergeCommit))}` },
       {
         field: 'push.mergeEvidence.commits.commitId',
-        html: `<li><code>${html(String(evidence.commits?.[0].commitId).slice(0, 8))}</code> ·`,
+        html: `<li><code>${html(String(present(evidence.commits?.[0]).commitId).slice(0, 8))}</code> ·`,
       },
       {
         field: 'push.mergeEvidence.commits.branches',
@@ -478,7 +481,7 @@ const views: Record<string, View> = {
   },
   repositories: {
     render: () => [
-      renderRepositories(state, { connection: { results: new Map([['', pickerConnection]]) } }, { [repo.id]: checkouts.blocked }),
+      renderRepositories(state, { connection: { results: new Map([['', pickerConnection]]) } }, { [repo.id]: present(checkouts.blocked) }),
     ],
     shows: [
       'pickerConnection.account.name',
@@ -576,7 +579,7 @@ const views: Record<string, View> = {
     sinks: [
       ...['switchable', 'blocked'].flatMap(name =>
         (['previous', 'tip'] as const).map(side => {
-          const value = String(checkouts[name].diagnostic?.comparison?.[side]);
+          const value = String(present(checkouts[name]).diagnostic?.comparison?.[side]);
           return {
             field: `${name}.diagnostic.comparison.${side}`,
             html: `<code title="${html(value)}">${html(value.slice(0, 12))}</code>`,
@@ -596,7 +599,7 @@ const views: Record<string, View> = {
 const fixtureFields = () => {
   const fixtures = { repo, disabledRepo, events, streams, state, delayed, checkouts, settingsConnections, pickerConnection, commitViews };
   const text = JSON.stringify(fixtures, (_, value) => (value instanceof Map ? [...value] : value));
-  return new Set([...text.matchAll(/<x-probe a=\\"([^"\\]*)\\">/g)].map(([, field]) => field));
+  return new Set([...text.matchAll(/<x-probe a=\\"([^"\\]*)\\">/g)].flatMap(([, field]) => (field === undefined ? [] : [field])));
 };
 
 test('no Azure or Git text reaches the rendered views unescaped', () => {

@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { activityBranch } from '../src/activity-branch.ts';
 import type { ActivityEvent, ActivityKind, EventData } from '../src/activity.ts';
-import { stub } from './fixtures/typed.ts';
+import { present, stub } from './fixtures/typed.ts';
 
 test('only explicit branch creation and single-branch pushes produce a checkout target', () => {
   const name = 'refs/heads/feature/topic';
@@ -40,5 +40,5 @@ test('pull requests, builds and merge pushes name the branch they leave behind',
   ];
   assert.equal(branchFor('push', { refUpdates: merge }), 'main');
   assert.equal(branchFor('push', { refUpdates: [...merge, { name: 'refs/heads/other', newObjectId: live }] }), null);
-  assert.equal(branchFor('push', { refUpdates: [{ name: 'refs/tags/v1', newObjectId: live }, merge[1]] }), null);
+  assert.equal(branchFor('push', { refUpdates: [{ name: 'refs/tags/v1', newObjectId: live }, present(merge[1])] }), null);
 });

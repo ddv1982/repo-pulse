@@ -100,7 +100,9 @@ test('a disabled repository row offers only enabling or removing it', () => {
   };
   const doc = parse(renderRepositories(state, {}));
   assert.match(text(doc), /2 watched · 1 disabled/);
-  const [enabled, disabled] = all(doc, 'article');
+  const articles = all(doc, 'article');
+  const enabled = present(articles[0]);
+  const disabled = present(articles[1]);
   const toggle = (article: Element) => one(article, 'input[role="switch"][data-repo-toggle]');
   assert.equal(toggle(enabled).getAttribute('data-id'), 'on');
   assert.ok(toggle(enabled).hasAttribute('checked'));
@@ -194,15 +196,19 @@ test('one running build counts as one item and two updates; zero summary values 
 
 test('search filtering never folds hidden raw updates into displayed acknowledgement IDs', () => {
   const state = fixture();
-  assert.deepEqual(activityPage(state, { ...view, search: 'Running' }).items[0].eventIds, ['running']);
-  state.events[1].seen = true;
-  assert.equal(activityPage(state, view).items[0].unseen, true, 'older queued update stays visible even if newest update was seen');
-  assert.deepEqual(activityPage(state, view).items[0].unseenIds, ['queued']);
+  assert.deepEqual(present(activityPage(state, { ...view, search: 'Running' }).items[0]).eventIds, ['running']);
+  present(state.events[1]).seen = true;
+  assert.equal(
+    present(activityPage(state, view).items[0]).unseen,
+    true,
+    'older queued update stays visible even if newest update was seen',
+  );
+  assert.deepEqual(present(activityPage(state, view).items[0]).unseenIds, ['queued']);
 });
 
 test('detail has readable labels, exact group IDs and abbreviated copyable commit', () => {
   const state = fixture();
-  const markup = renderDetail(state.events[1], state, null, { returnRoute: 'activity', label: 'Back to Activity' });
+  const markup = renderDetail(present(state.events[1]), state, null, { returnRoute: 'activity', label: 'Back to Activity' });
   const doc = parse(markup);
   assert.match(text(doc), /Back to Activity/);
   assert.match(text(doc), /Triggered manually/);
@@ -254,7 +260,7 @@ test('a CI run shows its pipeline name in feed and detail, also for a stored row
     title: 'Orders CI · 20261117.6',
     data: { ...event.data, buildId: 700, definition: { name: 'Orders CI' } },
   }));
-  const event = state.events[1];
+  const event = present(state.events[1]);
   assert.equal(activityTitle(event), 'Orders CI');
   assert.equal(activityTitle({ ...event, title: '' }), 'Orders CI');
   assert.equal(activityTitle({ ...event, title: 'Orders CI', data: { buildId: 700 } }), 'Orders CI');
@@ -319,7 +325,7 @@ test('row status washes are independent of unseen flags and failure classificati
   assert.equal(text(label), 'Branch deleted');
   assert.deepEqual(classes(row(doc, 'deleted')), ['new', 'row', 'tone-crit']);
   assert.deepEqual(classes(row(doc, 'failed')), ['crit', 'new', 'row', 'tone-crit']);
-  assert.equal(all(parse(renderDetail(state.events[0], state)), '.status-chip.crit').length, 1);
+  assert.equal(all(parse(renderDetail(present(state.events[0]), state)), '.status-chip.crit').length, 1);
 });
 
 test('completed PRs show Merged and target direction, while successful preview merges stay Open', () => {
@@ -589,7 +595,7 @@ test('a branch row shows its branch as the token under a title that no longer na
     ['other-ref', 'Pushed to main-old', 'main'],
     ['pr', 'PR 3 · Fix main menu', 'main'],
     ['build', 'main CI · 1', 'main'],
-  ]) {
+  ] satisfies [string, string, string][]) {
     assert.equal(text(one(row(doc, id), '.title')), title, id);
     assert.equal(text(one(row(doc, id), '.feed-title .ref-name')), name, id);
   }
@@ -717,7 +723,7 @@ test('a PR row lists each vote change on its own and names a fork source on the 
     assert.equal(all(origin, 'svg').length, 1, id);
   }
   // Search and the detail page keep the single summary sentence.
-  assert.equal(activitySummary(state.events[1]), 'From fork One-fork in Q · Target: main');
+  assert.equal(activitySummary(present(state.events[1])), 'From fork One-fork in Q · Target: main');
 });
 
 test('each fork origin has its own row text, and only an unchecked PR target is dotted', () => {
@@ -766,7 +772,7 @@ test('a grouped row counts its unread updates beside the title only when there i
   const count = one(one(doc, '.row'), '.title .new-count');
   assert.equal(text(count), '2 new');
   assert.deepEqual(classes(count), ['new-count', 'pill', 'u']);
-  state.events = [state.events[0]];
+  state.events = [present(state.events[0])];
   assert.equal(all(parse(renderFeed(state, view)), '.new-count').length, 0);
 });
 
@@ -786,7 +792,7 @@ test('a CI row without a known trigger shows no summary line, and the detail pag
   assert.equal(text(first('manual')), 'Triggered manually');
   // With no summary, who and when is the column's first line.
   for (const id of ['omitted', 'none']) assert.ok(first(id).matches('.help.event-meta'), id);
-  const trigger = present(all(parse(renderDetail(state.events[1], state)), 'dt').find(term => text(term) === 'Trigger'));
+  const trigger = present(all(parse(renderDetail(present(state.events[1]), state)), 'dt').find(term => text(term) === 'Trigger'));
   assert.equal(text(present(trigger.nextElementSibling)), 'Not supplied');
 });
 

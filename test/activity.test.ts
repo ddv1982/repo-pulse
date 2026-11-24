@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { groupActivity, type ActivityEvent, type ActivityKind, type EventData } from '../src/activity.ts';
-import { stub } from './fixtures/typed.ts';
+import { present, stub } from './fixtures/typed.ts';
 
 const at = (minute: number) => `2026-11-17T10:${String(minute).padStart(2, '0')}:00Z`;
 const build = (id: string, status: string, minute: number, extra: Partial<ActivityEvent> = {}): ActivityEvent => ({
@@ -43,7 +43,7 @@ function lifecycle(kind: ActivityKind = 'branch-deleted', repoId = 'one', pushId
 test('one build row represents queued/running/completed while keeping every exact raw event', () => {
   const input = [build('queued', 'notStarted', 1), build('completed', 'completed', 3), build('running', 'inProgress', 2)];
   const before = structuredClone(input);
-  const [item] = groupActivity(input);
+  const item = present(groupActivity(input)[0]);
   assert.equal(item.id, 'completed');
   assert.deepEqual(
     item.events.map(event => event.data?.status),
@@ -60,26 +60,26 @@ test('one build row represents queued/running/completed while keeping every exac
 test('an older unseen update remains unseen when its newest representative is seen', () => {
   const first = build('queued', 'notStarted', 1);
   const second = build('running', 'inProgress', 2, { seen: true });
-  const [item] = groupActivity([first, second]);
+  const item = present(groupActivity([first, second])[0]);
   assert.equal(item.id, 'running');
   assert.equal(item.unseen, true);
   assert.equal(item.seen, false);
   assert.deepEqual(item.unseenIds, ['queued']);
-  assert.equal(item.events[0].seen, true, 'raw per-event acknowledgement is not rewritten');
-  const [seen] = groupActivity([{ ...first, seen: true }, second]);
+  assert.equal(present(item.events[0]).seen, true, 'raw per-event acknowledgement is not rewritten');
+  const seen = present(groupActivity([{ ...first, seen: true }, second])[0]);
   assert.equal(seen.unseen, false);
   const later = build('completed', 'completed', 3);
-  const [updated] = groupActivity([{ ...first, seen: true }, second, later]);
+  const updated = present(groupActivity([{ ...first, seen: true }, second, later])[0]);
   assert.deepEqual(updated.unseenIds, ['completed']);
   assert.equal(updated.groupKey, item.groupKey, 'new updates keep the stable display identity');
 });
 
 test('imported history stays history and does not make a later live update read', () => {
   const imported = build('old', 'notStarted', 1, { imported: true, seen: true });
-  const [history] = groupActivity([imported]);
+  const history = present(groupActivity([imported])[0]);
   assert.equal(history.imported, true);
   assert.equal(history.unseen, false);
-  const [live] = groupActivity([imported, build('new', 'inProgress', 2)]);
+  const live = present(groupActivity([imported, build('new', 'inProgress', 2)])[0]);
   assert.equal(live.imported, false);
   assert.deepEqual(live.unseenIds, ['new']);
 });
@@ -112,7 +112,7 @@ test('missing or malformed run IDs do not merge unrelated records', () => {
 test('source observation time outranks old author/event time, with deterministic ties', () => {
   const older = build('a', 'notStarted', 1, { time: at(9) });
   const newer = build('b', 'inProgress', 2, { time: at(0) });
-  assert.equal(groupActivity([older, newer])[0].id, 'b');
+  assert.equal(present(groupActivity([older, newer])[0]).id, 'b');
   const same = build('c', 'inProgress', 2);
   assert.deepEqual(groupActivity([newer, same]), groupActivity([same, newer]));
 });
@@ -120,12 +120,12 @@ test('source observation time outranks old author/event time, with deterministic
 for (const kind of ['branch-deleted'] as const) {
   test(`${kind} absorbs only its exact lifecycle-only supporting push`, () => {
     const input = lifecycle(kind);
-    const [item] = groupActivity(input);
+    const item = present(groupActivity(input)[0]);
     assert.equal(item.kind, kind);
     assert.equal(item.events.length, 2);
     assert.deepEqual(new Set(item.eventIds), new Set(input.map(event => event.id)));
     assert.equal(item.unseen, true);
-    const [single] = groupActivity([input[1]]);
+    const single = present(groupActivity([input[1]])[0]);
     assert.equal(single.groupKey, item.groupKey, 'filtering away the push keeps the branch group identity');
   });
 }

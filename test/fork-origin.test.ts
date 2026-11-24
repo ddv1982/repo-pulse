@@ -21,7 +21,8 @@ const repo = {
 };
 const BASE = Date.parse('2026-11-17T10:00:00Z');
 const LIVE = '2026-11-17T10:00:01Z';
-const [A, B, C, D, E, F] = ['a', 'b', 'c', 'd', 'e', 'f'].map(char => char.repeat(40));
+const sha = (char: string) => char.repeat(40);
+const [A, B, C, D, E, F] = [sha('a'), sha('b'), sha('c'), sha('d'), sha('e'), sha('f')];
 const ZERO = '0'.repeat(40);
 const move = (name: string, oldObjectId: string, newObjectId: string) => ({ name: `refs/heads/${name}`, oldObjectId, newObjectId });
 const push = (id: number, refUpdates: ReturnType<typeof move>[], date = LIVE) => ({
@@ -74,7 +75,7 @@ function setup({
   const provider = stub<AzureProvider>({
     read: async (_repo, stream, { cursor } = {}) =>
       stream === 'pushes' && pages
-        ? { items: pages[cursor?.skip ? 1 : 0], nextCursor: cursor?.skip ? null : { skip: 100 } }
+        ? { items: present(pages[cursor?.skip ? 1 : 0]), nextCursor: cursor?.skip ? null : { skip: 100 } }
         : { items: offered[stream] || [], nextCursor: null },
     async commit(_repo, id) {
       reads.push(id);
@@ -296,7 +297,7 @@ test('a commit Azure no longer has ends the check as unknown after one read, and
   await busy.run();
   assert.equal(busy.reads.length, 1);
   assert.equal(origin(busy.store, 10, 'feature'), undefined);
-  assert.equal(busy.store.listJobs({ type: 'fork' })[0].attempts, 1);
+  assert.equal(present(busy.store.listJobs({ type: 'fork' })[0]).attempts, 1);
   for (let i = 0; i < 4; i++) {
     busy.advance(10 * 60000);
     await busy.run(4);

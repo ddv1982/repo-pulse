@@ -187,6 +187,8 @@ export function renderDetail(
   const back = html`<a class="ghost sm back" data-action="back-to-results" href="${activityHref(returnRoute)}">← ${label}</a>`;
   if (!event) return html`${back}<div class="card empty"><h1>Activity not found</h1></div>`;
   const record = groupActivity(state.events).find(item => item.eventIds.includes(event.id)) || groupActivity([event])[0];
+  // Grouping one event always yields its group.
+  if (!record) return html`${back}<div class="card empty"><h1>Activity not found</h1></div>`;
   const repo = state.repos.find(item => item.id === record.repoId);
   const data = record.data || {};
   const pushId = data.pushId || data.push?.pushId;

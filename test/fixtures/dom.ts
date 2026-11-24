@@ -10,8 +10,9 @@ export function parse(markup: unknown) {
 /** The one element that matches, or a failure naming the selector. */
 export function one(root: ParentNode, selector: string) {
   const found = root.querySelectorAll(selector);
-  if (found.length !== 1) throw new Error(`expected one ${selector}, found ${found.length}`);
-  return found[0];
+  const [match] = found;
+  if (!match || found.length !== 1) throw new Error(`expected one ${selector}, found ${found.length}`);
+  return match;
 }
 
 /** Every element that matches. */

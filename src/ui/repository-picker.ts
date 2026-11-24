@@ -143,10 +143,10 @@ export function createRepositoryPicker({ request, getRepos, onAdded }: PickerHos
   function crumbsMarkup() {
     if (!data) return html`<span class="dim">Your projects folder</span>`;
     const crumbs = breadcrumbs();
-    return html`${crumbs.map(
-      (crumb, index) =>
-        html`${index > 0 && !/^(?:\/|[A-Za-z]:[\\/])$/.test(crumbs[index - 1].path) ? html`<span aria-hidden="true">/</span>` : emptyHtml}${index === crumbs.length - 1 ? html`<span aria-current="location" title="${crumb.path}">${crumb.name}</span>` : html`<button class="ghost sm" type="button" data-picker="navigate" data-path="${crumb.path}" title="${crumb.path}">${crumb.name}</button>`}`,
-    )}`;
+    return html`${crumbs.map((crumb, index) => {
+      const previous = crumbs[index - 1];
+      return html`${previous && !/^(?:\/|[A-Za-z]:[\\/])$/.test(previous.path) ? html`<span aria-hidden="true">/</span>` : emptyHtml}${index === crumbs.length - 1 ? html`<span aria-current="location" title="${crumb.path}">${crumb.name}</span>` : html`<button class="ghost sm" type="button" data-picker="navigate" data-path="${crumb.path}" title="${crumb.path}">${crumb.name}</button>`}`;
+    })}`;
   }
   function folderOption(item: FolderOption, index: number) {
     return html`<li id="checkout-option-${index}" role="option" aria-selected="false" data-picker-option="${index}" class="picker-option ${index === active ? 'active' : ''}"><span aria-hidden="true">${item.up ? '↑' : '▸'}</span><span><b>${highlight(item.name, query)}</b><small title="${item.path}">${displayLocalPath(item.path, data?.path)}</small></span>${data?.repositories.some(repo => repo.localPath === item.path) ? html`<span class="chip">Git</span>` : emptyHtml}</li>`;

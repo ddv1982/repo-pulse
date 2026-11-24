@@ -383,7 +383,7 @@ for (const remoteAdvances of [false, true]) {
     assert.equal(message, undefined);
     assert.equal(checkout.state, remoteAdvances ? 'behind' : 'current');
     assert.equal(actions(checkout).canPull, remoteAdvances);
-    const [archive] = git(local, 'for-each-ref', '--format=%(refname)', 'refs/repo-pulse/upstream-rewrites').split('\n');
+    const archive = present(git(local, 'for-each-ref', '--format=%(refname)', 'refs/repo-pulse/upstream-rewrites').split('\n')[0]);
     assert.ok(archive.endsWith(`/${newTip}/${oldTip}`));
   });
 }

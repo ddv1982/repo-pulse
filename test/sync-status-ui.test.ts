@@ -9,7 +9,7 @@ import type { Repository, StreamState, SyncEngineStatus, SyncStatus } from '../s
 import type { ShownSyncStatus } from '../src/ui/health.ts';
 import type { PageState } from '../src/ui/refresh.ts';
 import { parse, one, all, text, srText } from './fixtures/dom.ts';
-import { fakeRequest, stub } from './fixtures/typed.ts';
+import { fakeRequest, present, stub } from './fixtures/typed.ts';
 
 const renderHeader = (...args: Parameters<typeof renderHeaderHtml>) => String(renderHeaderHtml(...args));
 const renderRepositories = (...args: Parameters<typeof renderRepositoriesHtml>) => String(renderRepositoriesHtml(...args));
@@ -129,21 +129,21 @@ test('Activity shows at most one status banner, and only for Problem, Delayed or
       status.state,
     );
   }
-  const [problem] = banners(renderFeed(page({ ...states[3][0], repoId: 'r' }, { r: states[3][0] }), view));
+  const problem = present(banners(renderFeed(page({ ...present(states[3])[0], repoId: 'r' }, { r: present(states[3])[0] }), view))[0]);
   assert.equal(problem.text, 'orders-api: Sign in to Azure again. See Repositories');
   assert.equal(one(problem.element, 'a').getAttribute('href'), '#repositories');
-  const [delayed] = banners(renderFeed(page({ ...states[2][0], repoId: 'r' }, { r: states[2][0] }), view));
+  const delayed = present(banners(renderFeed(page({ ...present(states[2])[0], repoId: 'r' }, { r: present(states[2])[0] }), view))[0]);
   assert.equal(delayed.text, 'orders-api: about 7 minutes behind. Showing the activity stored so far.');
-  const [paused] = banners(renderFeed(page({ ...states[4][0], repoId: 'r' }, { r: states[4][0] }), view));
+  const paused = present(banners(renderFeed(page({ ...present(states[4])[0], repoId: 'r' }, { r: present(states[4])[0] }), view))[0]);
   assert.equal(paused.text, 'Automatic checks are off. Turn them on or refresh manually.');
-  const problemDoc = parse(renderFeed(page({ ...states[3][0], repoId: 'r' }, { r: states[3][0] }), view));
+  const problemDoc = parse(renderFeed(page({ ...present(states[3])[0], repoId: 'r' }, { r: present(states[3])[0] }), view));
   assert.doesNotMatch(text(problemDoc), /checks need attention/);
   assert.equal(all(problemDoc, '.cell.sync').length, 0);
 });
 
 test('Settings states the sync status in one sentence without the Azure calls counters', () => {
   const connection = { results: new Map(), local: null, pending: null, repoId: 'r' };
-  const doc = parse(renderSettings(page({ ...states[3][0], repoId: 'r' }), connection));
+  const doc = parse(renderSettings(page({ ...present(states[3])[0], repoId: 'r' }), connection));
   assert.doesNotMatch(text(doc), /Azure calls|Checks behind|in the last minute|checks waiting/);
   assert.equal(text(one(doc, '.sync-sentence')), 'Problem in orders-api: Sign in to Azure again.');
   assert.equal(text(one(doc, '#copy-diagnostics')), 'Copy diagnostics');
@@ -210,7 +210,7 @@ test('with nothing loaded and a status other than Synced the summary does not cl
 });
 
 test('the Activity banner is plain text, not a second live region for sync changes', () => {
-  for (const status of [states[2][0], states[3][0]]) {
+  for (const status of [present(states[2])[0], present(states[3])[0]]) {
     const state = page({ ...status, repoId: 'r' }, { r: status });
     const [banner] = banners(renderFeed(state, feedView));
     assert.ok(banner, status.state);
@@ -221,7 +221,7 @@ test('the Activity banner is plain text, not a second live region for sync chang
 });
 
 test('with filters active and nothing found, the summary uses the same filter wording as the feed', () => {
-  const status = states[2][0];
+  const status = present(states[2])[0];
   for (const filters of [{ search: 'hotfix' }, { kind: 'build' }, { repoIds: [] }, { repoIds: ['r'] }]) {
     const markup = renderFeed(page({ ...status, repoId: 'r' }, { r: status }), { ...feedView, ...filters });
     assert.equal(zero(markup), 'No unread updates match these filters', JSON.stringify(filters));
@@ -243,7 +243,7 @@ test('sync pills are plain text with their name and title; none is a live region
 });
 
 test('a failed filtered load reads as a load failure in the summary, as in the feed', () => {
-  const status = states[2][0];
+  const status = present(states[2])[0];
   for (const filters of [{ search: 'hotfix' }, { kind: 'build' }, {}]) {
     const state = page({ ...status, repoId: 'r' }, { r: status });
     state.activity = { items: [], loading: false, error: 'Network down' };

@@ -31,7 +31,7 @@ test('local history appends cursor pages and polling retains the loaded window',
   );
   assert.equal(present(await client.read(ui, {})).items.length, 50);
   assert.equal(present(await client.read(ui, { more: true })).items.length, 100);
-  assert.equal(calls[1].get('cursor'), '50');
+  assert.equal(present(calls[1]).get('cursor'), '50');
   assert.equal(present(await client.read(ui, {})).items.length, 100);
   client.reset(450);
   assert.equal(present(await client.read(ui, {})).items.length, 450);
@@ -61,7 +61,7 @@ test('a changed filter cancels a stale page and an empty scope never queries all
   );
   const old = client.read(ui, {});
   client.reset();
-  assert.equal(present(await client.read({ ...ui, search: 'new' }, {})).items[0].id, 'event-2');
+  assert.equal(present(present(await client.read({ ...ui, search: 'new' }, {})).items[0]).id, 'event-2');
   assert.ok(resolve);
   resolve({ items: [record(1)], nextCursor: 'old', total: 1 });
   assert.equal(await old, null);
@@ -130,7 +130,7 @@ test('a failed response from a superseded filter does not replace the current vi
   assert.ok(reject);
   reject(new Error('Old query failed'));
   assert.equal(await previous, null);
-  assert.equal(current.items[0].id, 'event-2');
+  assert.equal(present(current.items[0]).id, 'event-2');
 });
 
 test('People paging restarts from the top if the underlying evidence changes after the metadata read', async () => {
@@ -146,10 +146,10 @@ test('People paging restarts from the top if the underlying evidence changes aft
     }),
   );
   const view = { ...ui, search: 'people:Alice, Bob' };
-  assert.equal(present(await client.read(view, { activityRevision: '4' })).items[0].id, 'event-1');
+  assert.equal(present(present(await client.read(view, { activityRevision: '4' })).items[0]).id, 'event-1');
   const more = present(await client.read(view, { activityRevision: '4', more: true }));
   assert.equal(more.items.length, 100);
-  assert.equal(more.items[0].id, 'event-0');
+  assert.equal(present(more.items[0]).id, 'event-0');
   assert.deepEqual(
     calls.map(query => query.get('cursor')),
     [null, '50', null],

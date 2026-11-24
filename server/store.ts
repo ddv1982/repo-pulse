@@ -361,13 +361,15 @@ export function createStore(path = ':memory:') {
     ],
   ];
   const version = (q('PRAGMA user_version').get() as { user_version: number }).user_version;
-  if (version > migrations[migrations.length - 1][0]) {
+  // The list above is never empty.
+  const latest = migrations.at(-1)?.[0] ?? 0;
+  if (version > latest) {
     db.close();
     throw new Error('This database was created by a newer Repo Pulse version.');
   }
   // Some migrations delete rows and commit even when their logic is wrong, so a database with data is copied first.
   // Only the copy from the latest upgrade is kept.
-  if (path !== ':memory:' && version < migrations[migrations.length - 1][0] && q('SELECT 1 FROM sqlite_master LIMIT 1').get()) {
+  if (path !== ':memory:' && version < latest && q('SELECT 1 FROM sqlite_master LIMIT 1').get()) {
     try {
       copyBeforeUpgrade(db, path, version);
     } catch (error) {
@@ -582,7 +584,8 @@ export function createStore(path = ':memory:') {
     queryActivity,
     getEvent: (id: string) => hydrate(q(`${selectEvents} WHERE e.id=?`).get(id)),
     getEventGroup(id: string) {
-      const member = q('SELECT group_key FROM activity_members WHERE event_id=?').get(id);
+      // The row has the one selected column.
+      const member = q('SELECT group_key FROM activity_members WHERE event_id=?').get(id) as { group_key: string } | undefined;
       return member
         ? q(`${selectEvents} JOIN activity_members m ON m.event_id=e.id WHERE m.group_key=? ORDER BY m.observed DESC,m.time DESC,e.id DESC`)
             .all(member.group_key)

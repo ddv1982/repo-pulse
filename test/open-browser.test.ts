@@ -7,6 +7,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { browserOpener, canOpenBrowser, openBrowser } from '../server/open-browser.ts';
+import { present } from './fixtures/typed.ts';
 
 type SpawnCall = { file: string; args: readonly string[]; options: SpawnOptions };
 /** A spawn stand-in: openBrowser only listens for the child's `error` and unrefs it. */
@@ -40,12 +41,12 @@ test('on Linux the opener gets a unique owner-only page, not the launch link, an
   const remove = await openBrowser(url, { dataDir, platform: 'linux', spawn: fakeSpawn(calls) });
   const second = await openBrowser(url, { dataDir, platform: 'linux', spawn: fakeSpawn(calls) });
   assert.equal(calls.length, 2);
-  assert.equal(calls[0].file, 'xdg-open');
-  assert.equal(calls[0].args.length, 1);
-  assert.equal(calls[0].args[0].includes('secret-token'), false);
-  assert.notEqual(calls[0].args[0], calls[1].args[0], 'each launch has its own page');
-  assert.deepEqual(calls[0].options, { detached: true, stdio: 'ignore', windowsHide: true });
-  const page = fileURLToPath(calls[0].args[0]);
+  assert.equal(present(calls[0]).file, 'xdg-open');
+  assert.equal(present(calls[0]).args.length, 1);
+  assert.equal(present(present(calls[0]).args[0]).includes('secret-token'), false);
+  assert.notEqual(present(calls[0]).args[0], present(calls[1]).args[0], 'each launch has its own page');
+  assert.deepEqual(present(calls[0]).options, { detached: true, stdio: 'ignore', windowsHide: true });
+  const page = fileURLToPath(present(present(calls[0]).args[0]));
   assert.match(
     await readFile(page, 'utf8'),
     /<meta http-equiv="refresh" content="0;url=http:\/\/127\.0\.0\.1:1234\/#launch=secret-token">/,
@@ -53,7 +54,7 @@ test('on Linux the opener gets a unique owner-only page, not the launch link, an
   if (process.platform !== 'win32') assert.equal((await stat(page)).mode & 0o777, 0o600);
   await remove();
   await assert.rejects(stat(page), { code: 'ENOENT' });
-  await stat(fileURLToPath(calls[1].args[0]));
+  await stat(fileURLToPath(present(present(calls[1]).args[0])));
   await second();
 });
 
@@ -67,9 +68,9 @@ test('Windows hands the launch link to the opener directly; macOS gets the priva
   const dataDir = await mkdtemp(join(tmpdir(), 'repo-pulse-open-'));
   t.after(() => rm(dataDir, { recursive: true, force: true }));
   const remove = await openBrowser('http://127.0.0.1:1234/#launch=abc', { dataDir, platform: 'darwin', spawn: fakeSpawn(calls) });
-  assert.equal(calls[1].file, 'open');
-  assert.match(calls[1].args[0], /^file:\/\/.*launch-[0-9a-f]{16}\.html$/);
-  assert.equal(calls[1].args[0].includes('launch=abc'), false);
+  assert.equal(present(calls[1]).file, 'open');
+  assert.match(present(present(calls[1]).args[0]), /^file:\/\/.*launch-[0-9a-f]{16}\.html$/);
+  assert.equal(present(present(calls[1]).args[0]).includes('launch=abc'), false);
   await remove();
 });
 

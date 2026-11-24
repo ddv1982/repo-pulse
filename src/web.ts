@@ -609,7 +609,7 @@ document.addEventListener('click', event => {
   const action = element instanceof HTMLElement ? element.dataset.action : undefined;
   if (element instanceof HTMLElement && action && actions[action]) {
     event.preventDefault();
-    void withAction(() => actions[action](element));
+    void withAction(() => actions[action]?.(element));
   }
 });
 

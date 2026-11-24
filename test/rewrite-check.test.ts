@@ -25,7 +25,8 @@ const repo = {
 };
 const BASE = Date.parse('2026-11-17T10:00:00Z');
 const LIVE = '2026-11-17T10:00:01Z';
-const [A, B, C, D, E] = ['a', 'b', 'c', 'd', 'e'].map(char => char.repeat(40));
+const sha = (char: string) => char.repeat(40);
+const [A, B, C, D, E] = [sha('a'), sha('b'), sha('c'), sha('d'), sha('e')];
 const ZERO = '0'.repeat(40);
 const move = (name: string, oldObjectId: string, newObjectId: string) => ({ name: `refs/heads/${name}`, oldObjectId, newObjectId });
 const push = (id: number, refUpdates: ReturnType<typeof move>[], date = LIVE) => ({
@@ -160,7 +161,7 @@ test('a failing check backs off, retries and gives up as unknown', async () => {
   });
   await run();
   assert.equal(calls.length, 1, 'no retry before the back-off ends');
-  const [job] = store.listJobs({ type: 'rewrite' });
+  const job = present(store.listJobs({ type: 'rewrite' })[0]);
   assert.equal(job.attempts, 1);
   assert.equal(present(present(store.getEvent('one:push:14')).data).mergeEvidence, undefined, 'nothing is saved while retrying');
   for (let i = 0; i < 40; i++) {
@@ -225,7 +226,7 @@ test('due rewrite checks and a history import share background turns', async () 
   backfill.start(repo.id, 'all');
   await run(10);
   assert.equal(calls.length, 5, 'rewrite checks take the first and every other turn');
-  assert.equal(store.listJobs({ type: 'backfill' })[0].pages, 5, 'history import takes the turns between them');
+  assert.equal(present(store.listJobs({ type: 'backfill' })[0]).pages, 5, 'history import takes the turns between them');
   store.close();
 });
 
@@ -294,7 +295,7 @@ test('a failed save waits instead of taking every turn, and a proven rewrite is 
   raw.close();
   time += 2 * 60000;
   assert.equal(await check.tick(), true);
-  assert.equal(store.getEvent('one:push:21')?.data?.mergeEvidence?.rewrite?.[0].status, 'rewrite');
+  assert.equal(present(store.getEvent('one:push:21')?.data?.mergeEvidence?.rewrite?.[0]).status, 'rewrite');
   assert.equal(calls, 1, 'the saved Azure answer is written, not asked for again');
   assert.equal(store.listJobs({ type: 'rewrite' }).length, 0);
   store.close();

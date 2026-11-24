@@ -22,5 +22,5 @@ export const icons = {
 export function themeSwitch() {
   // web/theme.ts defines repoPulseTheme on window before the modules load; the optional call covers its absence.
   const selected = (window as ThemedWindow).repoPulseTheme?.get() || 'system';
-  return html`<div class="seg theme" role="group" aria-label="Theme">${(['system', 'light', 'dark'] as const).map(value => html`<button type="button" data-theme="${value}" aria-label="${value[0].toUpperCase() + value.slice(1)}" title="${value[0].toUpperCase() + value.slice(1)}" aria-pressed="${value === selected}">${icons[value]}</button>`)}</div>`;
+  return html`<div class="seg theme" role="group" aria-label="Theme">${(['system', 'light', 'dark'] as const).map(value => html`<button type="button" data-theme="${value}" aria-label="${value.charAt(0).toUpperCase() + value.slice(1)}" title="${value.charAt(0).toUpperCase() + value.slice(1)}" aria-pressed="${value === selected}">${icons[value]}</button>`)}</div>`;
 }

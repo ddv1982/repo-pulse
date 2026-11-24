@@ -194,7 +194,7 @@ export function createAzureCli({
       timer = setTimer(pump, throttledUntil - time);
       return;
     }
-    while (starts.length && starts[0] <= time - 60_000) starts.shift();
+    while (starts[0] !== undefined && starts[0] <= time - 60_000) starts.shift();
     while (pending.length && running.size < concurrency && starts.length < limitPerMinute) {
       // The loop condition guarantees a job.
       const job = pending.shift() as QueueJob;
@@ -223,8 +223,10 @@ export function createAzureCli({
           pump();
         });
     }
-    if (pending.length && starts.length >= limitPerMinute && running.size < concurrency) {
-      timer = setTimer(pump, Math.max(1, starts[0] + 60_000 - now()));
+    // limitPerMinute is at least 1, so a full minute has an oldest start.
+    const [oldest] = starts;
+    if (pending.length && oldest !== undefined && starts.length >= limitPerMinute && running.size < concurrency) {
+      timer = setTimer(pump, Math.max(1, oldest + 60_000 - now()));
     }
   }
   return {

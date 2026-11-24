@@ -91,7 +91,9 @@ function problem(message: string, status = 400): RequestError {
   return Object.assign(new Error(message), { status });
 }
 
-function decodeParam(value: string) {
+/** Every route group is required, so a matched route always supplies its parameters. */
+function decodeParam(value: string | undefined) {
+  if (value === undefined) throw problem('Invalid request path.', 400);
   try {
     return decodeURIComponent(value);
   } catch {
@@ -399,8 +401,9 @@ export function createApp({
           const checkout = result.repositories.find(repo => resolve(repo.localPath) === enteredPath);
           if (!checkout) throw problem('This folder is not an Azure Git checkout. Choose a repository folder.');
           const remotes = input.remote ? checkout.remotes.filter(item => item.name === input.remote) : checkout.remotes;
-          if (remotes.length !== 1) throw problem('Choose the remote explicitly for a checkout with multiple Azure remotes.');
-          remote = { ...parseRemote(remotes[0].url), localPath: checkout.localPath };
+          const [only] = remotes;
+          if (!only || remotes.length !== 1) throw problem('Choose the remote explicitly for a checkout with multiple Azure remotes.');
+          remote = { ...parseRemote(only.url), localPath: checkout.localPath };
         } else throw problem('Enter an Azure repository URL or local checkout path.');
         const repo: import('./server/store.ts').Repository = await provider.resolveRepository(remote);
         if (remote.localPath) repo.localPath = remote.localPath;
@@ -630,7 +633,8 @@ export function createApp({
       path: /^\/api\/pr\/([^/]+)\/(\d+)\/review$/,
       handler: async ({ res, params: [rawId, pullRequestId] }) => {
         const repo = enabledRepoById(decodeParam(rawId));
-        return json(res, 200, (await provider.prReview(repo, pullRequestId)) satisfies PrReviewResponse);
+        // The ID is digits only, which decoding leaves unchanged.
+        return json(res, 200, (await provider.prReview(repo, decodeParam(pullRequestId))) satisfies PrReviewResponse);
       },
     },
   ];

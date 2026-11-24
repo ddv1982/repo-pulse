@@ -99,8 +99,9 @@ export async function adviseMissingUpstream({
       .map(line => line.split('\t'));
     if (refs.some(([, ref]) => ref === source)) return advice;
     const tips = refs.filter(([, ref]) => ref === choice.target);
-    if (tips.length !== 1 || !isCommit(tips[0][0])) return advice;
-    const tip = tips[0][0];
+    const [only, ...others] = tips;
+    const tip = only?.[0] ?? '';
+    if (others.length || !isCommit(tip)) return advice;
     let reachable = await ancestry(run, path, choice.result, tip);
     if (reachable === null) {
       // Read the target objects so an unfetched remote advance can still be verified.
