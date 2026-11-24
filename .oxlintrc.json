@@ -1,5 +1,6 @@
 {
   "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "options": { "typeAware": true, "reportUnusedDisableDirectives": "error" },
   "plugins": ["typescript"],
   "categories": { "correctness": "warn" },
   "jsPlugins": [{ "name": "eslint-js", "specifier": "oxlint-plugin-eslint" }],
@@ -40,7 +41,7 @@
     // UI tests read rendered markup through test/fixtures/dom.ts, so a markup change only breaks a test when what a person
     // sees changes. A regular expression over the HTML would pin its exact shape again. See docs/MAINTAINING.md.
     {
-      "files": ["test/merge-ui.test.{js,ts}", "test/sync-status-ui.test.{js,ts}", "test/presentation.test.{js,ts}"],
+      "files": ["test/merge-ui.test.ts", "test/sync-status-ui.test.ts", "test/presentation.test.ts"],
       "rules": {
         "eslint-js/no-restricted-syntax": [
           "error",

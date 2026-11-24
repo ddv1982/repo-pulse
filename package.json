@@ -20,7 +20,7 @@
     "pretest:ui": "npm run build:web",
     "test:ui": "node --test \"e2e/*.test.ts\"",
     "check:types": "tsc -p tsconfig.web.json --noEmit && tsc -p tsconfig.node.json && tsc -p tsconfig.test.json && tsc -p tsconfig.hook.json",
-    "lint": "oxlint --type-aware --deny-warnings . && prettier --check .",
+    "lint": "oxlint --deny-warnings . && prettier --check .",
     "format": "prettier --write ."
   },
   "devDependencies": {
