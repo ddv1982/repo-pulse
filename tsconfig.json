@@ -1,9 +1,20 @@
 {
-  "files": [],
-  "references": [
-    { "path": "./tsconfig.node.json" },
-    { "path": "./tsconfig.web.json" },
-    { "path": "./tsconfig.test.json" },
-    { "path": "./tsconfig.hook.json" }
-  ]
+  "compilerOptions": {
+    "noEmit": true,
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "erasableSyntaxOnly": true,
+    "verbatimModuleSyntax": true,
+    "allowImportingTsExtensions": true,
+    "allowJs": true,
+    "module": "NodeNext",
+    "moduleDetection": "legacy",
+    "target": "ES2024",
+    "lib": ["ES2024", "DOM", "DOM.Iterable"],
+    "types": ["node"]
+  },
+  "files": ["server/checkout-delete-guard.cjs"],
+  "include": ["server.ts", "server/**/*.ts", "scripts/**/*.ts", "src/**/*.ts", "web/**/*.ts", "test/**/*.ts", "e2e/**/*.ts"],
+  "exclude": ["web/vendor/**"]
 }
