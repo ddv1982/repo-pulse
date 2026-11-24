@@ -51,9 +51,9 @@ Pull checks the checkout, upstream and fetched tip before running `git merge --f
 
 UI rendering tests read markup in Chromium through [e2e/fixtures/dom.ts](../e2e/fixtures/dom.ts), so a test breaks when what a person sees changes, not when the HTML is rearranged.
 
-- Check text on the element that should hold it: `text(one(row(doc, 'listed'), '.event-main'))`. `text` leaves out screen-reader-only `.sr` text; `srText` includes it.
-- Check that something is there, or not, with a selector: `one(doc, '[data-action="remove-repo"]')`, `all(row, '.event-origin').length`. `data-action` attributes are what the click handlers use, so they are fair to select on.
-- Match exact markup only where the markup is the point: escaping in `test/escaping.test.ts`, and safety attributes such as `href` and `title`, read with `getAttribute`.
+- Check text on the element that should hold it: `await text(one(row(doc, 'listed'), '.event-main'))`. `text` leaves out screen-reader-only `.sr` text; `srText` includes it.
+- Check that something is there, or not, with a selector: `await one(doc, '[data-action="remove-repo"]').handle()`, `(await all(row, '.event-origin')).length`. `data-action` attributes are what the click handlers use, so they are fair to select on.
+- Match exact markup only where the markup is the point: escaping in `test/escaping.test.ts`, and safety attributes such as `href` and `title`, read with `await element.getAttribute(name)`.
 
 `npm run lint` rejects regular expressions over HTML (such as `/class="row/` or `/<div/`) in these test files.
 
