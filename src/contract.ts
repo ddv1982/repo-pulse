@@ -11,9 +11,9 @@ export type EventData = import('./activity.ts').EventData;
 export type AzureRepo = { organization: string; project: string; projectId?: string; azureId: string; webUrl: string };
 export type AzureStream = 'pushes' | 'refs' | 'prs' | 'closedPrs' | 'builds' | 'activeBuilds';
 
-// Azure DevOps records as Repo Pulse reads them. Each type names only the fields the code reads; the guards in
-// server/azure-records.ts check those fields when a page is read. Records keep every other field Azure sends, and
-// the code stores some of them whole.
+// Azure DevOps records as Repo Pulse reads them. Each type names only the fields the code reads; the readers in
+// server/azure-records.ts check those fields when a page is read, and leave out a malformed display field. Records
+// keep every other field Azure sends, and the code stores some of them whole.
 
 /** An optional Azure field: absent, null, or of its type. */
 type Maybe<T> = T | null | undefined;

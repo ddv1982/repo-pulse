@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { AZURE_DEVOPS_RESOURCE } from '../server/azure-rest.ts';
 import { normalizeOrganization } from '../server/repositories.ts';
-import { isAzurePush, isRecord } from '../server/azure-records.ts';
+import { isRecord, recordsOf } from '../server/azure-records.ts';
 
 const run = promisify(execFile);
 
@@ -69,8 +69,7 @@ export function probeRequests(repo: { organization: string; project: string; pro
  * Pushes that created a branch, newest first, at most three: the push and the revision the branch was created at.
  */
 export function creationPushes(body: any): { pushId: number; tip: string }[] {
-  return valueList(body)
-    .filter(isAzurePush)
+  return recordsOf('pushes', valueList(body))
     .flatMap(push =>
       (push.refUpdates || [])
         .flatMap(({ name, oldObjectId, newObjectId: tip }) =>

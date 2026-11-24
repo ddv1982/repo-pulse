@@ -151,6 +151,9 @@ test('active PR reads are explicitly repo-scoped and exact PR reconciliation use
   // Azure GUIDs differ in case between APIs, as elsewhere in the app.
   const upper = createAzureClient({ cli: { run: async () => ({ pullRequestId: 123, repository: { id: 'REPO1' } }) } });
   assert.equal((await upper.pullRequest(repo, 123)).pullRequestId, 123);
+  // A malformed display field is left out rather than making the pull request unreadable.
+  const oddLink = createAzureClient({ cli: { run: async () => ({ pullRequestId: 123, repository: { id: 'repo1' }, _links: 'link' }) } });
+  assert.deepEqual(await oddLink.pullRequest(repo, 123), { pullRequestId: 123, repository: { id: 'repo1' } });
   // An identity that cannot be read is skipped and counted like any unreadable record.
   for (const [payload, field] of [
     [{ repository: { id: 'repo1' } }, 'pullRequestId'],
@@ -461,6 +464,58 @@ for (const [stream, record, field] of malformed)
     const page = await client.read(repo, stream, window);
     assert.deepEqual(page.items, [readable[stream]]);
     assert.deepEqual(page.unreadable, { count: 1, fields: [field] });
+  });
+
+/**
+ * For each stream, fields read for identity or meaning and display fields the code has a fallback for. A malformed
+ * display field is left out and the record kept, as main read it as absent; a malformed required field still makes
+ * the record unreadable. The refs stream has no display field.
+ */
+const fieldRules: { stream: AzureStream; patch: Record<string, unknown>; kept?: Record<string, unknown>; unreadable?: string }[] = [
+  { stream: 'pushes', patch: { _links: { web: 'https://dev.azure.com/x' } }, kept: { _links: {} } },
+  { stream: 'pushes', patch: { _links: 'link' }, kept: {} },
+  { stream: 'pushes', patch: { pushedBy: 'A' }, kept: {} },
+  { stream: 'pushes', patch: { pushedBy: { displayName: 7, name: 'a' } }, kept: { pushedBy: { name: 'a' } } },
+  { stream: 'pushes', patch: { pushId: '1' }, unreadable: 'pushId' },
+  { stream: 'pushes', patch: { date: 7 }, unreadable: 'date' },
+  { stream: 'pushes', patch: { commits: {} }, unreadable: 'commits' },
+  { stream: 'pushes', patch: { refUpdates: [{ name: 'refs/tags/v1', oldObjectId: 7 }] }, unreadable: 'refUpdates.oldObjectId' },
+  { stream: 'refs', patch: { name: 7 }, unreadable: 'name' },
+  { stream: 'refs', patch: { peeledObjectId: 7 }, unreadable: 'peeledObjectId' },
+  { stream: 'prs', patch: { title: 7 }, kept: {} },
+  { stream: 'prs', patch: { createdBy: ['A'] }, kept: {} },
+  { stream: 'prs', patch: { reviewers: [{ id: 'r', vote: 10, displayName: 7 }] }, kept: { reviewers: [{ id: 'r', vote: 10 }] } },
+  { stream: 'prs', patch: { _links: { web: 7 } }, kept: { _links: {} } },
+  { stream: 'prs', patch: { status: 7 }, unreadable: 'status' },
+  { stream: 'prs', patch: { isDraft: 'yes' }, unreadable: 'isDraft' },
+  { stream: 'prs', patch: { creationDate: 7 }, unreadable: 'creationDate' },
+  { stream: 'prs', patch: { reviewers: [{ id: 7, vote: 10 }] }, unreadable: 'reviewers.id' },
+  { stream: 'prs', patch: { forkSource: { repository: { id: 'f', name: 7 } } }, unreadable: 'forkSource.repository.name' },
+  { stream: 'closedPrs', patch: { closedBy: { displayName: 7 } }, kept: { closedBy: {} } },
+  { stream: 'closedPrs', patch: { lastMergeCommit: { commitId: 7 } }, unreadable: 'lastMergeCommit.commitId' },
+  { stream: 'closedPrs', patch: { completionOptions: { mergeStrategy: 7 } }, unreadable: 'completionOptions.mergeStrategy' },
+  { stream: 'builds', patch: { definition: { name: 7, id: 3 } }, kept: { definition: { id: 3 } } },
+  { stream: 'builds', patch: { definition: 'CI' }, kept: {} },
+  { stream: 'builds', patch: { reason: 7 }, kept: {} },
+  { stream: 'builds', patch: { requestedBy: 7 }, kept: {} },
+  { stream: 'builds', patch: { result: 7 }, unreadable: 'result' },
+  { stream: 'builds', patch: { finishTime: 7 }, unreadable: 'finishTime' },
+  { stream: 'activeBuilds', patch: { requestedFor: { displayName: ['A'] } }, kept: { requestedFor: {} } },
+  { stream: 'activeBuilds', patch: { _links: { web: [] } }, kept: { _links: {} } },
+  { stream: 'activeBuilds', patch: { sourceBranch: 7 }, unreadable: 'sourceBranch' },
+];
+for (const { stream, patch, kept, unreadable } of fieldRules)
+  test(`a ${stream} record with ${JSON.stringify(patch)} is ${kept ? 'kept without it' : `unreadable for ${unreadable}`}`, async () => {
+    const base = readable[stream];
+    const page = await createAzureClient({ cli: { run: async () => ({ value: [{ ...base, ...patch }] }) } }).read(repo, stream, window);
+    if (kept) {
+      const without = Object.fromEntries(Object.entries(base).filter(([key]) => !(key in patch)));
+      assert.deepEqual(page.items, [{ ...without, ...kept }]);
+      assert.equal(page.unreadable, undefined);
+    } else {
+      assert.deepEqual(page.items, []);
+      assert.deepEqual(page.unreadable, { count: 1, fields: [unreadable] });
+    }
   });
 
 test('a ref with an empty name or objectId is unreadable', async () => {

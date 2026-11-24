@@ -1539,6 +1539,23 @@ test('a push whose refUpdates is not a list is skipped with a warning instead of
   store.close();
 });
 
+test('a push with a malformed web link still reports its tag deletion, without a warning, as on main', async () => {
+  const deletion = {
+    ...push(1),
+    refUpdates: [{ name: 'refs/tags/v1', oldObjectId: 'c'.repeat(40), newObjectId: '0'.repeat(40) }],
+    _links: { web: 'https://dev.azure.com/org/P/_git/One/pushes?pushId=1' },
+  };
+  const { store, sync } = setup(clientReturning([deletion]), ['pushes']);
+  await sync.tick();
+  const state = pushesState(store);
+  assert.equal(state.error, null);
+  assert.equal(state.warning ?? null, null);
+  const row = present(store.listEvents().find(event => event.title === 'Tag deleted · v1'));
+  assert.equal(row.url, `${repo.webUrl}/pushes?pushId=1`, 'the link falls back to the push page');
+  assert.ok(store.getEntity(repo.id, 'push', '1'));
+  store.close();
+});
+
 test('a stream warning stands until a later read of that stream completes with no unreadable records', async () => {
   let pushes: unknown[] = [push(2), { ...push(1), pushId: 'one' }, { ...push(3), pushId: null }];
   const client = createAzureClient({ cli: { run: async () => ({ value: pushes }) } });

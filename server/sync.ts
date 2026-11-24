@@ -1,5 +1,5 @@
 import { createNormalizer } from './normalize.ts';
-import { isAzureRef, isRecord, recordsOf, unreadableField } from './azure-records.ts';
+import { isRecord, recordsOf, unreadableField } from './azure-records.ts';
 
 export type ActivityKind = import('./normalize.ts').ActivityKind;
 export type StreamName = import('./azure-client.ts').AzureStream;
@@ -67,7 +67,7 @@ function snapshotRefs(state: StreamState, page: AzurePage): { refs?: AzureRef[];
     refs: [...recordsOf('refs', saved), ...recordsOf('refs', page.items)],
     unreadable: unreadableOf(
       'refs',
-      saved.filter(item => !isAzureRef(item)),
+      saved.filter(item => unreadableField('refs', item) !== null),
     ),
   };
 }

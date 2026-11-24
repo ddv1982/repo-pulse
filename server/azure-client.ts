@@ -1,7 +1,7 @@
 import { normalizeOrganization, parseRemote, repositoryKey } from './repositories.ts';
 import { safeAzureUrl } from '../src/events.ts';
 import { cliError } from './azure-cli.ts';
-import { isAzurePullRequest, isRecord, recordId, streamGuards, unreadableField } from './azure-records.ts';
+import { isRecord, readRecord, recordId, unreadableField } from './azure-records.ts';
 
 export type AzureRepo = import('../src/contract.ts').AzureRepo;
 export type AzureStream = import('../src/contract.ts').AzureStream;
@@ -85,14 +85,14 @@ const bucket = (value: string | undefined, round: 'floor' | 'ceil') =>
   value ? new Date(Math[round](new Date(iso(value) as string).getTime() / 300_000) * 300_000).toISOString() : undefined;
 
 /**
- * The records of one list response that `readable` accepts. The rest are counted with the fields `field` names, so
+ * The records of one list response as `read` reads them. The rest are counted with the fields `field` names, so
  * a record Azure returns in a changed shape is reported instead of failing the page or disappearing; `idOf` names
  * those whose ID can still be read. A skip-paged read counts every record Azure returned, so a page with unreadable
  * records still pages on.
  */
 function pageOf<T>(
   response: unknown,
-  readable: (value: unknown) => value is T,
+  read: (value: unknown) => T | undefined,
   field: (value: unknown) => string | null,
   { skip = 0, mode, idOf }: { skip?: number; mode?: 'skip' | 'token'; idOf?: (value: unknown) => string | undefined },
 ): AzurePage<T> {
@@ -104,8 +104,9 @@ function pageOf<T>(
   const unreadableIds: { id: string; field: string }[] = [];
   let skipped = 0;
   for (const item of list) {
-    if (readable(item)) {
-      items.push(item);
+    const record = read(item);
+    if (record !== undefined) {
+      items.push(record);
       continue;
     }
     skipped++;
@@ -122,7 +123,7 @@ function pageOf<T>(
   };
 }
 /** Pages whose items the caller checks itself. */
-const everyItem = (_value: unknown): _value is unknown => true;
+const everyItem = (value: unknown) => value;
 const noField = () => null;
 /** A field of a response that is not an object reads as absent. */
 const fieldOf = (value: unknown, key: string): unknown => (isRecord(value) ? value[key] : undefined);
@@ -293,9 +294,13 @@ export function createAzureClient({ cli, now = Date.now }: { cli?: AzureClientCl
     async read(repo: AzureRepo, stream: AzureStream, { since, until, cursor }: ReadOptions = {}): Promise<AzurePage> {
       const skip = Number(cursor?.skip || 0);
       if (!Number.isSafeInteger(skip) || skip < 0) throw new Error('Invalid page cursor');
-      const readable = (value: unknown): value is AzureStreamRecord => streamGuards[stream](value);
       const pageOfStream = (response: unknown, options: { skip?: number; mode?: 'skip' | 'token' }) =>
-        pageOf(response, readable, value => unreadableField(stream, value), { ...options, idOf: value => recordId(stream, value) });
+        pageOf(
+          response,
+          (value): AzureStreamRecord | undefined => readRecord(stream, value),
+          value => unreadableField(stream, value),
+          { ...options, idOf: value => recordId(stream, value) },
+        );
       let response: unknown,
         mode: 'skip' | 'token' = 'token';
       switch (stream) {
@@ -393,11 +398,16 @@ export function createAzureClient({ cli, now = Date.now }: { cli?: AzureClientCl
       if (!Array.isArray(ids) || ids.length > 100 || ids.some(id => !/^\d+$/.test(String(id)))) throw new Error('Invalid build IDs');
       if (!ids.length) return { items: [], nextCursor: null };
       const raw = await invoke(repo, 'build', 'builds', { buildIds: ids.join(',') }, {}, true);
-      return pageOf(raw, streamGuards.builds, value => unreadableField('builds', value), {
-        skip: 0,
-        mode: 'token',
-        idOf: value => recordId('builds', value),
-      });
+      return pageOf(
+        raw,
+        value => readRecord('builds', value),
+        value => unreadableField('builds', value),
+        {
+          skip: 0,
+          mode: 'token',
+          idOf: value => recordId('builds', value),
+        },
+      );
     },
     async completedCheckoutPulls(repo: AzureRepo, source: string): Promise<CheckoutPull[]> {
       if (typeof source !== 'string' || !/^refs\/heads\/[^\s\x00-\x1f]+$/.test(source) || source.length > 1024) return [];
@@ -416,7 +426,7 @@ export function createAzureClient({ cli, now = Date.now }: { cli?: AzureClientCl
         true,
       );
       // A pull request this lookup cannot read is not offered as advice.
-      return pageOf(response, isAzurePullRequest, noField, {}).items.flatMap(pr => {
+      return pageOf(response, value => readRecord('prs', value), noField, {}).items.flatMap(pr => {
         const targetId = pr.repository?.id;
         const sourceId = pr.forkSource ? pr.forkSource.repository?.id : targetId;
         const target = pr.targetRefName;
@@ -475,7 +485,8 @@ export function createAzureClient({ cli, now = Date.now }: { cli?: AzureClientCl
       if (repositoryId && repositoryId.toLowerCase() !== repo.azureId?.toLowerCase())
         throw cliError('WRONG_REPOSITORY', 'Azure returned this pull request for a different repository.');
       const unreadable = unreadableField('prs', raw) ?? (repositoryId ? null : 'repository.id');
-      if (unreadable !== null || !isAzurePullRequest(raw)) {
+      const record = readRecord('prs', raw);
+      if (unreadable !== null || record === undefined) {
         const field = unreadable ?? 'record';
         throw Object.assign(
           cliError('UNREADABLE_RECORD', `Azure returned pull request ${String(id)} without a readable value for ${field}.`),
@@ -484,7 +495,7 @@ export function createAzureClient({ cli, now = Date.now }: { cli?: AzureClientCl
           },
         );
       }
-      return raw;
+      return record;
     },
     /**
      * One page of commits reachable from the old tip but not from the new one. Empty means the old tip
@@ -550,7 +561,12 @@ export function createAzureClient({ cli, now = Date.now }: { cli?: AzureClientCl
       if (!Number.isSafeInteger(skip) || skip < 0) throw new Error('Invalid page cursor');
       const raw = await invoke(repo, 'git', 'commits', { pushId, top: PAGE, skip });
       // A commit that is not an object has nothing to show, so it is left out.
-      return pageOf(raw, isRecord, () => 'record', { skip, mode: 'skip' });
+      return pageOf(
+        raw,
+        value => (isRecord(value) ? value : undefined),
+        () => 'record',
+        { skip, mode: 'skip' },
+      );
     },
   };
 }
