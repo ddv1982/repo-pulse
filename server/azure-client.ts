@@ -483,7 +483,7 @@ export function createAzureClient({ cli, now = Date.now }: { cli?: AzureClientCl
     },
     /**
      * Throws UNREADABLE_RECORD, with the field that is missing or malformed, for a pull request that cannot be read,
-     * including one whose ID or repository cannot be read. An answer that is not an object, or whose readable ID names
+     * including one whose ID or repository cannot be read; `anonymous` is set when its ID cannot be read. An answer that is not an object, or whose readable ID names
      * another pull request, is INVALID_RESPONSE, and one whose readable repository is another is WRONG_REPOSITORY.
      */
     async pullRequest(repo: AzureRepo, id: string | number): Promise<AzurePullRequest> {
@@ -510,11 +510,10 @@ export function createAzureClient({ cli, now = Date.now }: { cli?: AzureClientCl
       const record = readRecord('prs', raw);
       if (unreadable !== null || record === undefined) {
         const field = unreadable ?? 'record';
+        // `anonymous` marks an answer whose own ID cannot be read, so it cannot be told apart from another PR's.
         throw Object.assign(
           cliError('UNREADABLE_RECORD', `Azure returned pull request ${String(id)} without a readable value for ${field}.`),
-          {
-            field,
-          },
+          { field, ...(prId === undefined ? { anonymous: true } : {}) },
         );
       }
       return record;

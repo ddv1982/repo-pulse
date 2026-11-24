@@ -2233,6 +2233,40 @@ test('a PR lookup that comes back without a pullRequestId is counted and does no
   store.close();
 });
 
+test('a PR lookup answer without a readable ID counts only in its own read and is not remembered', async () => {
+  // Sol's probe: six cached PRs leave the active list; the first batch's answer for PR 1 has no pullRequestId.
+  let listed: unknown[] = [1, 2, 3, 4, 5, 6].map(id => cachedPr(id));
+  const asked: string[] = [];
+  const client = createAzureClient({
+    cli: {
+      run: async args => {
+        if (args[0] !== 'repos') return { value: listed };
+        const id = String(args[args.indexOf('--id') + 1]);
+        asked.push(id);
+        const answer: Record<string, unknown> = { ...cachedPr(Number(id), 'completed'), repository: { id: 'a' } };
+        if (id === '1') delete answer.pullRequestId;
+        return answer;
+      },
+    },
+  });
+  const { store, sync, advance } = setup(client, ['prs']);
+  const prs = () => present(store.getStreams().find(state => state.stream === 'prs'));
+  await sync.tick();
+  listed = [];
+  advance();
+  await sync.tick();
+  assert.deepEqual(prs().warning && { fields: prs().warning?.fields, count: prs().warning?.count }, {
+    fields: ['pullRequestId'],
+    count: 1,
+  });
+  advance(600000);
+  await sync.tick();
+  assert.deepEqual(asked, ['1', '2', '3', '4', '5', '6']);
+  assert.equal(prs().warning ?? null, null, 'the second read looked up only readable PRs');
+  assert.equal(prs().unreadableLookups, undefined, 'nothing is remembered');
+  store.close();
+});
+
 test('a PR whose lookup came back unreadable stays in the warning on reads whose lookups skip it, until it reads', async () => {
   let listed = [1, 2, 3, 4, 5].map(id => cachedPr(id));
   let readable = false;

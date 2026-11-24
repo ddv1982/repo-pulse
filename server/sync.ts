@@ -458,6 +458,8 @@ export function createSync({
       // moved, or it is no longer missing, so a read whose turn skips it does not clear the warning.
       const lookups = rememberedLookups(state.unreadableLookups, id => missing.includes(id));
       const order = turnOrder(prTurns, repo.id);
+      // Answers whose own ID cannot be read count only in this read, and not again for a PR remembered already.
+      const anonymous: UnreadableRecords = { count: 0, fields: [] };
       for (const id of lookupTurn(order, missing, 3)) {
         if (!watching(repo)) return null;
         lookedUp(order, id);
@@ -467,13 +469,22 @@ export function createSync({
         } catch (error) {
           // Only "this PR cannot be read" (unreadable, deleted, or now in another repository) is left for a later turn.
           if (!isRecord(error) || !['UNREADABLE_RECORD', 'NOT_FOUND', 'WRONG_REPOSITORY'].includes(String(error.code))) throw error;
+          if (error.code !== 'UNREADABLE_RECORD') {
+            lookups.delete(id);
+            continue;
+          }
           // A PR Azure returned in a shape this code cannot read is skipped and counted like an unreadable page record.
-          if (error.code === 'UNREADABLE_RECORD') lookups.set(id, typeof error.field === 'string' ? error.field : 'record');
-          else lookups.delete(id);
+          const field = typeof error.field === 'string' ? error.field : 'record';
+          if (error.anonymous !== true) {
+            lookups.set(id, field);
+            continue;
+          }
+          anonymous.fields = [...new Set([...anonymous.fields, field])];
+          if (!lookups.has(id)) anonymous.count++;
         }
       }
       unreadableLookups = [...lookups].map(([id, field]) => ({ id, field }));
-      unreadable = addUnreadable(unreadable, lookupsUnreadable(lookups));
+      unreadable = addUnreadable(unreadable, addUnreadable(lookupsUnreadable(lookups), anonymous.fields.length ? anonymous : undefined));
     }
     return { page, complete, activeIds, items, gone, unreadable, unreadableIds, unreadableLookups, pendingItems: snapshot.refs };
   }
