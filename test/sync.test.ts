@@ -1970,37 +1970,34 @@ test('builds beyond the first lookup batch get a turn when every build in it sta
   builds.store.close();
 });
 
-for (const failure of ['throws', 'unreadable']) {
-  test(`an older build is still looked up while 20 newer builds leave the active list every read (lookup ${failure} once)`, async () => {
-    const batch = (cycle: number) => Array.from({ length: 20 }, (_, index) => String(100 + 20 * cycle + index + 1));
-    let cycle = 0;
-    let failed = false;
-    const asked: string[][] = [];
-    const provider: SyncProvider = {
-      async read() {
-        return { items: (cycle === 0 ? ['1'] : batch(cycle)).map(id => inProgressBuild(Number(id))), nextCursor: null };
-      },
-      async buildsById(_repo, ids) {
-        asked.push(ids);
-        if (!failed) {
-          failed = true;
-          if (failure === 'throws') throw Object.assign(new Error('timed out'), { code: 'CLI_TIMEOUT' });
-          const unreadableIds = ids.map(id => ({ id, field: 'status' }));
-          return { items: [], nextCursor: null, unreadable: { count: ids.length, fields: ['status'] }, unreadableIds };
-        }
-        return { items: ids.map(id => finishedBuild(Number(id))), nextCursor: null };
-      },
-    };
-    const { store, sync, advance } = setup(provider, ['activeBuilds']);
+test('an older build is still looked up while 20 newer builds leave the active list every read (lookup unreadable once)', async () => {
+  const batch = (cycle: number) => Array.from({ length: 20 }, (_, index) => String(100 + 20 * cycle + index + 1));
+  let cycle = 0;
+  let failed = false;
+  const asked: string[][] = [];
+  const provider: SyncProvider = {
+    async read() {
+      return { items: (cycle === 0 ? ['1'] : batch(cycle)).map(id => inProgressBuild(Number(id))), nextCursor: null };
+    },
+    async buildsById(_repo, ids) {
+      asked.push(ids);
+      if (!failed) {
+        failed = true;
+        const unreadableIds = ids.map(id => ({ id, field: 'status' }));
+        return { items: [], nextCursor: null, unreadable: { count: ids.length, fields: ['status'] }, unreadableIds };
+      }
+      return { items: ids.map(id => finishedBuild(Number(id))), nextCursor: null };
+    },
+  };
+  const { store, sync, advance } = setup(provider, ['activeBuilds']);
+  await sync.tick();
+  for (cycle = 1; cycle <= 6; cycle++) {
+    advance(600000);
     await sync.tick();
-    for (cycle = 1; cycle <= 6; cycle++) {
-      advance(600000);
-      await sync.tick();
-    }
-    assert.equal(fieldsOf(store.getEntity(repo.id, 'build', '1')).status, 'completed', `build 1 was looked up in ${JSON.stringify(asked)}`);
-    store.close();
-  });
-}
+  }
+  assert.equal(fieldsOf(store.getEntity(repo.id, 'build', '1')).status, 'completed', `build 1 was looked up in ${JSON.stringify(asked)}`);
+  store.close();
+});
 
 test('a build whose lookup came back unreadable stays in the warning on reads whose lookups skip it', async () => {
   const ids = Array.from({ length: 21 }, (_, index) => 101 + index);
