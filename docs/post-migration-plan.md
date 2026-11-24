@@ -47,16 +47,28 @@ Every behaviour fix starts with a failing test. These touch `server/sync.ts`, `s
       a restarted read (a refresh during the read, or a refs snapshot restarted at page one) leave the last completed
       warning as it was, and a restart drops what the discarded pages left out. Rules for records read by ID: a PR or
       build the active list returns unreadable but with a readable ID is still active, so it is counted once and not
-      looked up; a PR lookup whose ID or repository cannot be read is unreadable, while a readable ID of another PR
-      stays `INVALID_RESPONSE` and a readable other repository stays `WRONG_REPOSITORY`; a PR whose lookup came back
-      unreadable is kept in `unreadableLookups` and counted in every read until it reads, its lookup finds it deleted
-      or moved, or the active list holds it again; a looked-up build is given up only when Azure's answer leaves its
-      ID out, and the batch of 20 rotates like the PR lookups. A build without a `repository.id` is unreadable; a build
-      of another repository is still left out. A ref with an empty `name` or `objectId` is unreadable. A refs snapshot
-      with unreadable records is incomplete: it adds and updates its readable refs, reports none as no longer listed,
-      and is no baseline, so the stream stays uninitialized and no tag baseline is written until a complete snapshot.
-      Refs that appear meanwhile get no "first seen" event, which the standing warning makes visible. Refs saved
-      mid-snapshot are checked again when the snapshot resumes. Tests that failed first: the 1.1 test, "a stream
+      looked up; a PR lookup whose ID or repository cannot be read is unreadable, while an answer that is not an
+      object or a readable ID of another PR stays `INVALID_RESPONSE` and a readable other repository stays
+      `WRONG_REPOSITORY`; a PR or build whose lookup came back unreadable with a readable ID is kept in
+      `unreadableLookups` and counted in every read until it reads, its lookup finds it deleted, moved or gone, or
+      the active list holds it again, while an unreadable answer without a readable ID counts only in its own read; a
+      looked-up build is given up only when Azure's answer leaves its ID out, and no build is given up in a lookup
+      that returned a build whose ID cannot be read, since that answer may be any build asked for. Missing PRs (3 a
+      read) and builds (20 a read) are looked up least recently looked up first: an ID joins the end of the order when
+      it goes missing and moves to the end when it is looked up, so neither IDs that stay unreadable nor newer IDs
+      that keep going missing can hold every turn. A build without a `repository.id` is unreadable; a build of another
+      repository is still left out. A ref with an empty `name` or `objectId` is unreadable. A refs snapshot with
+      unreadable records is incomplete: it adds and updates its readable refs and reports none as no longer listed.
+      While the baseline is being established, an incomplete snapshot is no baseline, so the stream stays
+      uninitialized and no tag baseline is written; refs that appear meanwhile get no "first seen" event, which the
+      standing warning makes visible. The first complete snapshot establishes the baseline and marks the refs it does
+      not list inactive without an event, since they were saved by a push or an incomplete snapshot. This event
+      suppression applies only to establishing the baseline: once it is established, an incomplete snapshot still
+      announces the readable refs it is the first to list. Refs saved mid-snapshot are checked again when the snapshot
+      resumes. A history import that skips unreadable records keeps them on its job in `warnings`, one per stream with
+      the count and fields, and the repository's import status shows each message; the finished chip turns to a
+      warning. A repository's Details list a stream warning beside its failed checks. Tests that failed first: the
+      1.1 test, "a stream
       warning stands until a later read of that stream completes with no unreadable records", the sync-status "a
       stream that skipped unreadable Azure records is a problem naming the stream, not synced", "a warning found on
       any page of a read stands when the read completes, and only a later clean read clears it" and "a ref Azure
@@ -67,13 +79,26 @@ Every behaviour fix starts with a failing test. These touch `server/sync.ts`, `s
       without a pullRequestId is counted and does not stop a readable sibling", "a PR whose lookup came back
       unreadable stays in the warning on reads whose lookups skip it, until it reads", the `repository.id` build test,
       the empty ref test, the two "first refs snapshot" tests and "refs saved from a snapshot in progress are checked
-      again when the snapshot resumes".
+      again when the snapshot resumes". The second review round added, each failing first: "no build is given up in a
+      lookup that returns a build whose ID cannot be read", "a build whose lookup came back unreadable stays in the
+      warning on reads whose lookups skip it" (its counts were 1 twenty times, then none, then 1), "an older build is
+      still looked up while 20 newer builds leave the active list every read (lookup unreadable once)" (build 1 was
+      never asked for again), "a branch saved by an incomplete first snapshot and missing from the first complete one
+      is put away without an event", the non-object answers in the PR lookup client test, "the Details of a
+      repository list a stream warning the way they list a failed check", "records Azure returns unreadable during a
+      history import are counted on the job with their stream and fields" and "the repository import row shows the
+      records the import skipped as a warning". Two added tests passed before their change and stay as guards: the
+      `throws once` variant of the older build test (a failed lookup commits nothing, so the build is asked for again)
+      and "a build whose lookup came back unreadable leaves the warning once it reads, is gone, or is listed again".
+      `npm test` 516/516 and `npm run test:ui` 86/86.
 - [x] 1.3 A malformed `refUpdates` must fail with a named error, not the generic `SYNC_FAILED`, and follow the
       1.2 handling. Check: a failing-first test with `refUpdates` set to an object. (S reproduced) Done: "a push
       whose refUpdates is not a list is skipped with a warning instead of failing the page" failed first with
       `SYNC_FAILED`, and now passes with a warning naming `refUpdates`. The warning follows the 1.2 rules: only a
       completed read replaces or clears it, and an unreadable ref makes its refs snapshot incomplete, so it reports
-      no deletions and sets no baseline.
+      no deletions and sets no baseline. The first complete snapshot sets the baseline and puts away, without an
+      event, the refs it does not list. With an established baseline an incomplete snapshot still announces the
+      readable refs it is the first to list. `npm test` 516/516.
 - [ ] 1.4 A read still in flight must not write into a watch that was removed and added again. Today the old
       read inserts an event and initializes the replacement stream, and the re-add hits the old refresh
       cooldown (`server/sync.ts:218`, `server/sync.ts:434`, `server/store.ts:646`). Fix: tie each commit and the
@@ -104,8 +129,9 @@ and Azure code, so they get the full cross-model review.
       guard. (O, N, S; verified) Done: `git grep -n AzureRecord -- '*.ts'` finds nothing (`grep -rn` still finds
       this plan's own text and `docs/typescript-migration.md:134`); the guards are in `server/azure-records.ts`; the
       six per-stream tests in `test/azure-client.test.ts` fail on the code before this change and pass after; the
-      Phase 1 tests, 502 unit tests and 86 browser tests pass. A page also names the PRs and builds it left out whose
-      ID can be read (`unreadableIds`), and a build's `repository.id` and a ref's `name` and `objectId` are required.
+      Phase 1 tests, 516 unit tests and 86 browser tests pass. A page also names the PRs and builds it left out whose
+      ID can be read, with the field each could not be read for (`unreadableIds`), and a build's `repository.id` and
+      a ref's `name` and `objectId` are required. A PR lookup checks that the answer is an object before its fields.
 - [ ] 2.2 Replace the store's `parse = (...): any` (`server/store.ts:48`) and `undefined as any`
       (`server/store.ts:132`) with one reader per persisted type that reports a corrupt row by table and id.
       Check: no `any` left in `server/store.ts`, plus a test that a corrupt stored row gives that error. (O, N, S;
