@@ -2,6 +2,7 @@ import { setGlobalProxyFromEnv } from 'node:http';
 import tls from 'node:tls';
 import { normalizeOrganization } from './repositories.ts';
 import { cliError } from './azure-cli.ts';
+import { isRecord } from './azure-records.ts';
 
 export type Executor = import('./azure-cli.ts').Executor;
 
@@ -156,21 +157,24 @@ export function createRestExecutor({
       .then(() => cliExecutor(['account', 'get-access-token', '--resource', AZURE_DEVOPS_RESOURCE], options))
       .then(stdout => {
         /** Untrusted CLI output; each field is checked below before use. */
-        let data: any;
+        let parsed: unknown;
         try {
-          data = typeof stdout === 'string' ? JSON.parse(stdout) : stdout;
+          parsed = typeof stdout === 'string' ? JSON.parse(stdout) : stdout;
         } catch {
-          data = null;
+          parsed = null;
         }
-        const expiresAt = Number.isFinite(data?.expires_on)
-          ? data.expires_on * 1000
-          : typeof data?.expiresOn === 'string'
-            ? Date.parse(data.expiresOn)
-            : NaN;
-        if (typeof data?.accessToken !== 'string' || !data.accessToken || !Number.isFinite(expiresAt)) {
+        const data = isRecord(parsed) ? parsed : {};
+        const { expires_on: expiresOnSeconds, expiresOn, accessToken } = data;
+        const expiresAt =
+          typeof expiresOnSeconds === 'number' && Number.isFinite(expiresOnSeconds)
+            ? expiresOnSeconds * 1000
+            : typeof expiresOn === 'string'
+              ? Date.parse(expiresOn)
+              : NaN;
+        if (typeof accessToken !== 'string' || !accessToken || !Number.isFinite(expiresAt)) {
           throw Object.assign(new Error('Azure CLI did not return a usable token.'), { stderr: 'authentication unavailable' });
         }
-        token = { value: data.accessToken, expiresAt };
+        token = { value: accessToken, expiresAt };
         return token.value;
       })
       .finally(() => {

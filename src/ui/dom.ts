@@ -3,17 +3,19 @@ import { SafeHtml } from './format.ts';
 
 /**
  * Look up an element the UI cannot work without. A missing or mistyped element is a broken page, so fail with the
- * selector in the message instead of a later "cannot read properties of null".
- * The default Type is cast because HTMLElement fits T only when T keeps its default, which the signature cannot express.
+ * selector in the message instead of a later "cannot read properties of null". Without a Type it must be an HTMLElement.
  */
-export function required<T extends Element = HTMLElement>(
+export function required(selector: string): HTMLElement;
+export function required<T extends Element>(selector: string, Type: new (...args: never[]) => T, root?: ParentNode): T;
+export function required<T extends Element>(
   selector: string,
-  Type: new (...args: any[]) => T = HTMLElement as unknown as new () => T,
+  Type?: new (...args: never[]) => T,
   root: ParentNode = document,
-): T {
+): T | HTMLElement {
   const element = root.querySelector(selector);
-  if (!(element instanceof Type)) throw new Error(`Repo Pulse: missing required element ${selector}`);
-  return element;
+  if (Type && element instanceof Type) return element;
+  if (!Type && element instanceof HTMLElement) return element;
+  throw new Error(`Repo Pulse: missing required element ${selector}`);
 }
 
 /**
