@@ -6,6 +6,7 @@ import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { homedir } from 'node:os';
 import { createSavedActivityFilters } from './server/saved-activity-filters.ts';
 import { createStore } from './server/store.ts';
+import { lockDatabase } from './server/database-lock.ts';
 import { createSync } from './server/sync.ts';
 import { createAzureCli, defaultExecutor } from './server/azure-cli.ts';
 import { createRestExecutor, useSystemNetworkSettings } from './server/azure-rest.ts';
@@ -700,9 +701,31 @@ export async function startApp({
   dataDir = resolve(ROOT, '.repo-pulse'),
 }: { demo?: boolean; port?: number; dataDir?: string | undefined } = {}) {
   await secureDataDir(dataDir);
+  const database = resolve(dataDir, demo ? 'demo.sqlite' : 'live.sqlite');
+  const lock = await lockDatabase(database);
+  // A start that fails after this point releases what it opened, so a retry in this process is not refused.
+  let opened: { close(): void } | undefined;
+  try {
+    return await startLocked(database, dataDir, demo, port, lock, store => (opened = store));
+  } catch (error) {
+    opened?.close();
+    lock.close();
+    throw error;
+  }
+}
+
+async function startLocked(
+  database: string,
+  dataDir: string,
+  demo: boolean,
+  port: number,
+  lock: { close(): void },
+  onOpen: (store: { close(): void }) => void,
+) {
   // Earlier versions kept one key for good; every start now makes its own, so a key from a past run is useless.
   await rm(resolve(dataDir, 'access-key'), { force: true });
-  const store = createStore(resolve(dataDir, demo ? 'demo.sqlite' : 'live.sqlite'));
+  const store = createStore(database);
+  onOpen(store);
   // Reads go over HTTPS with one CLI token, so the shared budget can be far above the 12 az starts per minute.
   if (!demo) useSystemNetworkSettings();
   const cli = demo
@@ -774,6 +797,7 @@ export async function startApp({
     await syncStopped;
     await new Promise(resolveClose => app.close(resolveClose));
     store.close();
+    lock.close();
   };
   const url = `http://127.0.0.1:${(app.address() as import('node:net').AddressInfo).port}`;
   return { app, store, sync, provider, close, url, dataDir, accessKey, launchUrl: `${url}/#launch=${launchToken}` };
@@ -795,7 +819,15 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
   // service worker, applies to this run.
   const port = Number(process.env.PORT || 0);
   if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error('PORT must be an integer from 0 to 65535.');
-  const runtime = await startApp({ demo: process.argv.includes('--demo'), port, dataDir: process.env.REPO_PULSE_DATA_DIR || undefined });
+  const runtime = await startApp({
+    demo: process.argv.includes('--demo'),
+    port,
+    dataDir: process.env.REPO_PULSE_DATA_DIR || undefined,
+  }).catch((error: unknown) => {
+    if ((error as { code?: unknown }).code !== 'DATA_DIR_LOCKED') throw error;
+    console.error((error as Error).message);
+    return process.exit(1);
+  });
   console.log(`Repo Pulse${process.argv.includes('--demo') ? ' · demo data, no Azure calls' : ''}: ${runtime.launchUrl}`);
   const open = process.env.REPO_PULSE_NO_BROWSER !== '1' && canOpenBrowser(process.platform, process.env);
   console.log(
