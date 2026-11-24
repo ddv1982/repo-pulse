@@ -23,7 +23,7 @@ import { activityFilterLabel, activityRef, prForkSource, prTarget, prVoteChanges
 import { scopeName } from './header.ts';
 import { currentActivityFilters, isSavedFilterModified, renderSavedFilters } from './saved-filters.ts';
 import { mergeEvidenceBadge } from './merge-evidence.ts';
-import { buildActivityTree } from '../activity-tree.ts';
+import { buildActivityTree, type ActivityTree } from '../activity-tree.ts';
 import { forkText, renderTreeCell, treeLegend } from './activity-tree.ts';
 import type { PageState } from './refresh.ts';
 import type { ActivityItem } from '../activity.ts';
@@ -194,6 +194,9 @@ function group(
   return html`<section class="group"><details data-group="${title}" ${open ? html`open` : emptyHtml}><summary class="ghead">${title} <span class="pill u">${records.length}</span><span class="note">${description}</span></summary><ul class="rows${tree ? ' with-tree' : ''}" ${tree ? html`data-tree-lanes="${tree.width}"` : emptyHtml}>${records.map((record, index) => row(record, state, tree?.rows[index], showRepo))}</ul></details></section>`;
 }
 
+const hasTreeLegend = (tree: ActivityTree) =>
+  tree.rows.some(row => row.forkFrom || row.mergeFrom || row.node.shape === 'ring' || row.node.shape === 'merge' || row.node.down);
+
 /**
  * All activity: both groups carry a branch tree. They share one width so their columns line up.
  */
@@ -205,7 +208,16 @@ function historyGroups(records: ActivityItem[], state: PageState, hasQuery: bool
   const width = Math.max(recordedTree.width, importedTree.width);
   const recorded = { ...recordedTree, width };
   const imported = { ...importedTree, width };
-  return html`${group('Activity', recordedItems, state, { tree: recorded, showRepo })}${group('Imported history', importedItems, state, { open: hasQuery, description: 'Captured before monitoring started', tree: imported, showRepo })}`;
+  return {
+    content: html`${group('Activity', recordedItems, state, { tree: recorded, showRepo })}${group('Imported history', importedItems, state, { open: hasQuery, description: 'Captured before monitoring started', tree: imported, showRepo })}`,
+    legend: hasTreeLegend(recordedTree) || hasTreeLegend(importedTree),
+  };
+}
+
+function unseenGroup(records: ActivityItem[], state: PageState, showRepo: boolean) {
+  const unseen = records.filter(record => record.unseen);
+  const tree = buildActivityTree(unseen);
+  return { content: group('New updates', unseen, state, { tree, showRepo }), legend: hasTreeLegend(tree) };
 }
 
 /**
@@ -252,14 +264,10 @@ export function renderFeed(state: PageState, ui: FeedView & { savedFilterId: str
             return status ? [{ ...status, repoId: repo.id }] : [];
           }),
         );
-  const unseen = records
-    .filter(record => record.unseen)
-    .sort((a, b) => Number(b.kind === 'branch-created') - Number(a.kind === 'branch-created'));
   // With one repository in view every row would repeat its name, so rows name it only when several are shown.
   const showRepo = shown.length > 1;
-  // New updates lists new branches first, so its rows are not in time order and it gets no tree.
-  const content =
-    ui.route === 'activity' ? historyGroups(records, state, hasQuery, showRepo) : group('New updates', unseen, state, { showRepo });
+  const { content, legend } =
+    ui.route === 'activity' ? historyGroups(records, state, hasQuery, showRepo) : unseenGroup(records, state, showRepo);
   const current = html`aria-current="page"`;
   const emptyMessage = emptyActivityMessage(ui, partial);
   const bulk = matchingAction(
@@ -269,5 +277,5 @@ export function renderFeed(state: PageState, ui: FeedView & { savedFilterId: str
   );
   const viewControl = html`<h1 class="sr">Activity</h1><div class="activity-view"><nav class="seg" aria-label="Activity view" aria-describedby="activity-view-help"><a href="${activityHref('catchup')}" ${ui.route !== 'activity' ? current : emptyHtml}>New updates</a><a href="${activityHref('activity')}" ${ui.route === 'activity' ? current : emptyHtml}>All activity</a></nav><p class="help activity-view-help" id="activity-view-help">${ui.route === 'activity' ? 'Browse recorded updates, including seen and imported history.' : 'Updates you haven’t marked seen yet. Opening a page marks nothing.'}</p></div>`;
   return html`${viewControl}${renderSummary(records, state, ui, partial)}${statusBanner(state, attention)}${filterControls(ui, state)}
-    <section class="card feed" aria-label="Repository activity">${bulk === emptyHtml ? emptyHtml : html`<div class="foot feed-actions">${bulk}</div>`}${ui.route === 'activity' && records.length ? treeLegend : emptyHtml}${records.length ? content : html`<div class="empty"><p class="big">${state.activity?.loading ? 'Loading activity…' : state.activity?.error ? 'Activity could not load' : emptyMessage}</p><p class="dim">${state.activity?.error ? state.activity.error : state.activity?.loading ? 'Reading your locally stored history.' : partial ? 'This does not confirm that nothing changed. Check repository status.' : 'Use All activity to browse history, or adjust your filters.'}</p>${state.activity?.error ? html`<button class="btn sm" type="button" data-action="retry-activity">Try again</button>` : emptyHtml}</div>`}${state.activity?.nextCursor ? html`<div class="foot"><button class="btn" type="button" data-action="load-more-activity">Load more</button><span>Showing ${records.length} of ${state.activity.total} recorded items.</span></div>` : emptyHtml}</section>`;
+    <section class="card feed" aria-label="Repository activity">${bulk === emptyHtml ? emptyHtml : html`<div class="foot feed-actions">${bulk}</div>`}${legend ? treeLegend : emptyHtml}${records.length ? content : html`<div class="empty"><p class="big">${state.activity?.loading ? 'Loading activity…' : state.activity?.error ? 'Activity could not load' : emptyMessage}</p><p class="dim">${state.activity?.error ? state.activity.error : state.activity?.loading ? 'Reading your locally stored history.' : partial ? 'This does not confirm that nothing changed. Check repository status.' : 'Use All activity to browse history, or adjust your filters.'}</p>${state.activity?.error ? html`<button class="btn sm" type="button" data-action="retry-activity">Try again</button>` : emptyHtml}</div>`}${state.activity?.nextCursor ? html`<div class="foot"><button class="btn" type="button" data-action="load-more-activity">Load more</button><span>Showing ${records.length} of ${state.activity.total} recorded items.</span></div>` : emptyHtml}</section>`;
 }

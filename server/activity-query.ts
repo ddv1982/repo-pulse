@@ -1,8 +1,9 @@
 import { foldSearchText, matchesPeople, parsePeople } from './activity-people.ts';
 import { projectActivity } from '../src/activity.ts';
+import { treeBranchRefs, treePullRequestSource } from '../src/activity-tree.ts';
 import { activityFilterLabel, labels, parseActivityFilter } from '../src/activity-text.ts';
 import type { SQLInputValue as SqlValue } from 'node:sqlite';
-import type { ActivityEvent, ActivityRequest, ActivityPage } from '../src/activity.ts';
+import type { ActivityEvent, ActivityItem, ActivityRequest, ActivityPage } from '../src/activity.ts';
 
 export type { SqlValue, ActivityEvent, ActivityRequest, ActivityPage };
 export type SqlRow = Record<string, import('node:sqlite').SQLOutputValue>;
@@ -218,7 +219,7 @@ function attachPullRequests(db: import('node:sqlite').DatabaseSync, groups: Iter
     .prepare(
       `SELECT repo_id, CAST(json_extract(data,'$.data.pullRequestId') AS TEXT) AS id,
         COALESCE(json_extract(data,'$.data.sourceRefName'), NULLIF(json_extract(data,'$.branch'),'')) AS source, json_extract(data,'$.data.targetRefName') AS target,
-        json_extract(data,'$.data.fork') AS fork
+        json_extract(data,'$.data.fork') AS fork, json_extract(data,'$.data.pullRequestCreatedAt') AS created_at
       FROM events WHERE repo_id IN (${repoIds.map(() => '?').join(',')}) AND json_extract(data,'$.kind')='pr'
         AND CAST(json_extract(data,'$.data.pullRequestId') AS TEXT) IN (${ids.map(() => '?').join(',')})
         AND source IS NOT NULL
@@ -235,9 +236,67 @@ function attachPullRequests(db: import('node:sqlite').DatabaseSync, groups: Iter
       id: Number(row.id),
       sourceRefName: String(row.source),
       ...(row.target ? { targetRefName: String(row.target) } : {}),
+      ...(row.created_at ? { createdAt: String(row.created_at) } : {}),
       ...(row.fork ? { fork: JSON.parse(String(row.fork)) } : {}),
     };
     for (const event of events) event.data = { ...event.data, pullRequest };
+  }
+}
+
+/** Resolve boundaries from the cached events even when the corresponding rows are seen, filtered out, or off-page. */
+function attachBranchLifetimes(db: import('node:sqlite').DatabaseSync, items: ActivityItem[], maxSequence: number) {
+  const wanted = items.flatMap((item, index) => {
+    const pushId = Number(item.data?.pushId);
+    const sequence = Number.isSafeInteger(pushId) && pushId > 0 ? pushId : null;
+    const refs = treeBranchRefs(item).map((ref, position) => [
+      index,
+      item.repoId,
+      ref,
+      item.time,
+      false,
+      sequence,
+      position === 0 && item.kind === 'branch-created',
+    ]);
+    const source = treePullRequestSource(item);
+    if (source) refs.push([index, item.repoId, source.ref, source.createdAt, true, null, false]);
+    return refs;
+  });
+  if (!wanted.length) return;
+  const boundaries = db
+    .prepare(
+      `WITH refs AS (
+        SELECT json_extract(value,'$[0]') AS idx, json_extract(value,'$[1]') AS repo,
+          json_extract(value,'$[2]') AS ref, julianday(json_extract(value,'$[3]')) AS at,
+          json_extract(value,'$[4]') AS pr_source, json_extract(value,'$[5]') AS push_id,
+          json_extract(value,'$[6]') AS find_pr_targets
+        FROM json_each(?)
+      ), wanted AS (
+        SELECT idx,repo,ref,at,pr_source,push_id FROM refs
+        UNION
+        SELECT refs.idx,refs.repo,json_extract(p.data,'$.data.targetRefName'),refs.at,0,refs.push_id
+        FROM refs JOIN events p ON p.repo_id=refs.repo AND json_extract(p.data,'$.data.sourceRefName')=refs.ref
+        JOIN activity_members pm ON pm.event_id=p.id
+        WHERE refs.find_pr_targets AND json_extract(p.data,'$.kind')='pr' AND json_extract(p.data,'$.data.status')='active'
+          AND json_extract(p.data,'$.data.targetRefName') GLOB 'refs/heads/*' AND pm.sequence<=?
+      ) SELECT idx,ref,pr_source,COALESCE((
+        SELECT e.id FROM events e JOIN activity_members m ON m.event_id=e.id
+        WHERE e.repo_id=wanted.repo AND json_extract(e.data,'$.data.name')=wanted.ref
+          AND json_extract(e.data,'$.kind') IN ('branch-created','branch-deleted')
+          AND json_extract(e.data,'$.data.evidence')='push' AND m.sequence<=?
+          AND julianday(e.time)<=wanted.at
+          AND (julianday(e.time)<wanted.at OR CASE
+            WHEN wanted.push_id IS NULL OR json_extract(e.data,'$.data.pushId') IS NULL THEN m.kind='branch-created'
+            WHEN m.kind='branch-created' THEN CAST(json_extract(e.data,'$.data.pushId') AS INTEGER)<=wanted.push_id
+            ELSE CAST(json_extract(e.data,'$.data.pushId') AS INTEGER)<wanted.push_id END)
+        ORDER BY julianday(e.time) DESC, CAST(json_extract(e.data,'$.data.pushId') AS INTEGER) DESC, e.id DESC LIMIT 1
+      ),'') AS boundary FROM wanted`,
+    )
+    .all(JSON.stringify(wanted), maxSequence, maxSequence);
+  for (const { idx, ref, boundary, pr_source } of boundaries) {
+    const item = items[Number(idx)];
+    if (!item) continue;
+    if (pr_source) item.prSourceLifetime = String(boundary);
+    else (item.branchLifetimes ??= {})[String(ref)] = String(boundary);
   }
 }
 
@@ -337,6 +396,7 @@ export function createActivityQuery(
     const members = loadMembers(db, hydrate, member, filter, selectedGroups);
     attachPullRequests(db, members.values());
     const items = selectedGroups.flatMap(group => projectActivity(group.key, members.get(group.key) || [], group.representative) || []);
+    attachBranchLifetimes(db, items, maxSequence);
     const counts = summarizeCounts(countRows);
     const nextCursor = groups.length > pageSize ? encodeCursor(selectedGroups.at(-1), maxSequence, filterKey, revision) : null;
     return { items, nextCursor, ...counts, filterOptions: options, asOf: maxSequence };

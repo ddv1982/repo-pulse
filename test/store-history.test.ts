@@ -5,6 +5,7 @@ import { mkdtempSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createStore } from '../server/store.ts';
+import { buildActivityTree } from '../src/activity-tree.ts';
 import { renderMergeEvidence, mergeEvidenceBadge } from '../src/ui/merge-evidence.ts';
 import type { Job } from '../server/store.ts';
 import type { ActivityEvent, ActivityRequest, EventData } from '../src/activity.ts';
@@ -42,6 +43,164 @@ const setup = () => {
   store.saveRepo(repo);
   return store;
 };
+
+test('cached branch lifetimes separate pushes across seen, filtered and paginated boundaries', () => {
+  const store = setup();
+  try {
+    const ref = 'refs/heads/topic';
+    const time = (minute: number) => new Date(Date.UTC(2026, 10, 17, 10, minute)).toISOString();
+    const topic = (id: string, minute: number, extra: Partial<ActivityEvent> = {}) =>
+      event(id, { branch: 'topic', time: time(minute), ...extra });
+    store.insertEvents([
+      topic('old-push', 0),
+      topic('deletion', 1, { kind: 'branch-deleted', data: { name: ref, evidence: 'push' } }),
+      topic('recreation', 2, { kind: 'branch-created', data: { name: ref, evidence: 'push' } }),
+      topic('new-push', 3),
+    ]);
+    store.acknowledge(['deletion', 'recreation']);
+    for (const filters of [{ kind: 'push' }, { view: 'new' }] satisfies ActivityRequest[]) {
+      const first = store.queryActivity({ ...filters, limit: 1 });
+      const second = store.queryActivity({ ...filters, limit: 1, cursor: present(first.nextCursor) });
+      const items = [...first.items, ...second.items];
+      assert.deepEqual(
+        items.map(row => [row.id, row.branchLifetimes?.[ref]]),
+        [
+          ['new-push', 'recreation'],
+          ['old-push', ''],
+        ],
+      );
+      assert.ok(buildActivityTree(items).rows.every(row => !row.node.up && !row.node.down));
+    }
+  } finally {
+    store.close();
+  }
+});
+
+test('a merge cannot connect to a newer lifetime of its pull request source', () => {
+  const store = setup();
+  try {
+    const ref = 'refs/heads/topic';
+    store.insertEvents([
+      event('new-topic', {
+        kind: 'branch-created',
+        branch: 'topic',
+        time: '2026-11-17T10:01:00Z',
+        data: { name: ref, evidence: 'push' },
+      }),
+      event('new-work', { branch: 'topic', time: '2026-11-17T10:02:00Z' }),
+      event('old-merge', {
+        kind: 'pr',
+        branch: 'topic',
+        time: '2026-11-17T10:03:00Z',
+        data: {
+          pullRequestId: 2,
+          status: 'completed',
+          sourceRefName: ref,
+          targetRefName: 'refs/heads/main',
+          pullRequestCreatedAt: '2026-11-17T10:00:00Z',
+        },
+      }),
+    ]);
+    const { items } = store.queryActivity({ view: 'new' });
+    assert.equal(present(items[0]).prSourceLifetime, '');
+    assert.equal(present(items[0]).branchLifetimes?.[ref], 'new-topic');
+    const { rows } = buildActivityTree(items);
+    assert.equal(present(present(rows[0]).mergeFrom).down, false);
+    assert.equal(present(rows[1]).node.up, false);
+  } finally {
+    store.close();
+  }
+});
+
+test('both legacy merges and merges that auto-delete the source can join the source lane', () => {
+  const ref = 'refs/heads/topic';
+  for (const autoDeleted of [false, true]) {
+    const store = setup();
+    try {
+      store.insertEvents([
+        event('creation', { kind: 'branch-created', branch: 'topic', data: { name: ref, evidence: 'push' } }),
+        event('work', { branch: 'topic', time: '2026-11-17T10:02:00Z' }),
+        ...(autoDeleted
+          ? [
+              event('deletion', {
+                kind: 'branch-deleted',
+                branch: 'topic',
+                time: '2026-11-17T10:03:00Z',
+                data: { name: ref, evidence: 'push' },
+              }),
+            ]
+          : []),
+        event('merge', {
+          kind: 'pr',
+          branch: 'topic',
+          time: '2026-11-17T10:04:00Z',
+          data: {
+            pullRequestId: 7,
+            status: 'completed',
+            sourceRefName: ref,
+            targetRefName: 'refs/heads/main',
+            ...(autoDeleted ? { pullRequestCreatedAt: '2026-11-17T10:01:00Z' } : {}),
+          },
+        }),
+      ]);
+      const { rows } = buildActivityTree(store.queryActivity({ view: 'new' }).items);
+      assert.equal(present(present(rows[0]).mergeFrom).down, true);
+      assert.equal(present(rows[1]).node.up, true);
+    } finally {
+      store.close();
+    }
+  }
+});
+
+test('a dotted fork can reach its PR target when the PR is on an earlier activity page', () => {
+  const store = setup();
+  try {
+    store.insertEvents([
+      event('main-push'),
+      event('topic', { kind: 'branch-created', branch: 'topic', time: '2026-11-17T10:01:00Z' }),
+      event('open', {
+        kind: 'pr',
+        branch: 'topic',
+        time: '2026-11-17T10:02:00Z',
+        data: { pullRequestId: 7, status: 'active', sourceRefName: 'refs/heads/topic', targetRefName: 'refs/heads/main' },
+      }),
+    ]);
+    const first = store.queryActivity({ view: 'new', limit: 1 });
+    const second = store.queryActivity({ view: 'new', limit: 2, cursor: present(first.nextCursor) });
+    const { rows } = buildActivityTree([...first.items, ...second.items]);
+    const fork = present(present(rows[1]).forkFrom);
+    assert.equal(fork.evidence, 'pr');
+    assert.equal(fork.down, true);
+  } finally {
+    store.close();
+  }
+});
+
+test('same-second lifetime boundaries follow numeric push ID instead of insertion order', () => {
+  const store = setup();
+  try {
+    const ref = 'refs/heads/topic';
+    const sameSecond = { branch: 'topic', time: '2026-11-17T10:01:00Z' };
+    store.insertEvents([
+      event('recreated', { ...sameSecond, kind: 'branch-created', data: { name: ref, evidence: 'push', pushId: 102 } }),
+      event('deleted', { ...sameSecond, kind: 'branch-deleted', data: { name: ref, evidence: 'push', pushId: 101 } }),
+      event('first-life', { ...sameSecond, kind: 'branch-created', data: { name: ref, evidence: 'push', pushId: 99 } }),
+      event('old-push', { ...sameSecond, data: { pushId: 100 } }),
+      event('new-push', { ...sameSecond, data: { pushId: 103 } }),
+    ]);
+    const { items } = store.queryActivity();
+    const lifetime = Object.fromEntries(items.map(item => [item.id, item.branchLifetimes?.[ref]]));
+    assert.deepEqual(lifetime, {
+      'first-life': 'first-life',
+      'old-push': 'first-life',
+      deleted: 'first-life',
+      recreated: 'recreated',
+      'new-push': 'recreated',
+    });
+  } finally {
+    store.close();
+  }
+});
 
 test('v1 migration preserves raw events and acknowledgement and queues no merge work', () => {
   const dir = mkdtempSync(join(tmpdir(), 'pulse-migration-')),

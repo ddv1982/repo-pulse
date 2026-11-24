@@ -428,10 +428,14 @@ export function createStore(path = ':memory:') {
         lower(json_extract(data,'$.data.mergeCommit'))) WHERE json_extract(data,'$.kind')='pr' AND json_extract(data,'$.data.status')='completed';
       CREATE INDEX IF NOT EXISTS events_pr_source ON events(repo_id,json_extract(data,'$.data.sourceRefName'),time DESC)
         WHERE json_extract(data,'$.kind')='pr' AND json_extract(data,'$.data.status')='completed';
+      CREATE INDEX IF NOT EXISTS events_open_pr_source ON events(repo_id,json_extract(data,'$.data.sourceRefName'))
+        WHERE json_extract(data,'$.kind')='pr' AND json_extract(data,'$.data.status')='active';
       CREATE INDEX IF NOT EXISTS events_pr_id ON events(repo_id,CAST(json_extract(data,'$.data.pullRequestId') AS TEXT))
         WHERE json_extract(data,'$.kind')='pr';
       CREATE INDEX IF NOT EXISTS events_push_id ON events(repo_id,json_extract(data,'$.data.pushId'))
         WHERE json_extract(data,'$.kind')='push';
+      CREATE INDEX IF NOT EXISTS events_branch_boundary ON events(repo_id,json_extract(data,'$.data.name'),julianday(time) DESC)
+        WHERE json_extract(data,'$.kind') IN ('branch-created','branch-deleted') AND json_extract(data,'$.data.evidence')='push';
     `);
     if (version < 7) {
       // Databases from before version 7 have no status columns, or the older label and evidence names.

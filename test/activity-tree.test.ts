@@ -66,22 +66,30 @@ test('a new branch with a pull request forks from the PR target as an assumption
   assert.deepEqual([present(tree.rows[0]).fork, present(tree.rows[0]).forkFrom], [null, null]);
 });
 
-test('a new branch at a revision seen earlier on another branch forks from it as a fact', () => {
+test('a closed pull request can explain checked evidence and does not supply a dotted fork', () => {
+  const closed = pr(7, 'feature/a', 'completed');
+  const open = pr(7, 'feature/a');
+  const unchecked = buildActivityTree([closed, open, created('feature/a')]);
+  assert.equal(present(unchecked.rows[2]).fork, null);
+  const refuted = checked('feature/a', { status: 'none', notOn: ['refs/heads/main'], base: sha('x') });
+  assert.equal(present(buildActivityTree([closed, refuted]).rows[1]).fork?.evidence, 'refuted');
+});
+
+test('a partial active PR with no target does not supply a dotted fork', () => {
+  const partial = pr(7, 'feature/a', 'active', { targetRefName: '' });
+  const { rows } = buildActivityTree([partial, pr(7, 'feature/a'), created('feature/a')]);
+  assert.equal(present(rows[2]).fork, null);
+});
+
+test('a revision shared with an earlier branch does not confirm a fork without a checked origin', () => {
   const tree = buildActivityTree([push('main', sha('x'), sha('y')), created('hotfix/a', sha('x')), push('main', sha('w'), sha('x'))]);
-  assert.deepEqual(present(tree.rows[1]).fork, { evidence: 'tip', parent: 'main' });
-  const { evidence, up, down } = present(present(tree.rows[1]).forkFrom);
-  assert.deepEqual([evidence, up, down], ['tip', true, true]);
-  assert.deepEqual(present(tree.rows[1]).through, []);
+  assert.deepEqual([present(tree.rows[1]).fork, present(tree.rows[1]).forkFrom], [null, null]);
 });
 
-test('an older new-branch row at the same revision counts as a sighting', () => {
-  const tree = buildActivityTree([created('hotfix/b', sha('x')), created('hotfix/a', sha('x'))]);
-  assert.deepEqual(present(tree.rows[0]).fork, { evidence: 'tip', parent: 'hotfix/a' });
-});
-
-test('a revision that reaches another branch only later is not a fork origin', () => {
-  const tree = buildActivityTree([push('main', sha('w'), sha('x')), created('hotfix/a', sha('x'))]);
-  assert.equal(present(tree.rows[1]).fork, null);
+test('branches created by the same push at the same revision do not fork from one another', () => {
+  const samePush = { pushId: 5 };
+  const tree = buildActivityTree([created('hotfix/b', sha('x'), samePush), created('hotfix/a', sha('x'), samePush)]);
+  assert.ok(tree.rows.every(row => row.fork === null && row.forkFrom === null));
 });
 
 test('a branch discovered in a snapshot never gets a proven fork: its tip is not where it started', () => {
@@ -120,23 +128,17 @@ test('a branch found in a snapshot may be discovered after its pull request was 
   assert.deepEqual([present(tree.rows[0]).node.down, present(tree.rows[1]).node.up], [true, true]);
 });
 
-test('one push that creates two branches keeps each creation with that push', () => {
+test('a creation stays with its matching push across interleaved rows', () => {
   const samePush = { pushId: 5 };
   const both = push('feature/a', zero, sha('c'), { data: { ...samePush, refUpdates: [] } });
   const tree = buildActivityTree([
     pr(7, 'feature/a'),
     created('feature/a', sha('c'), samePush),
-    created('feature/b', sha('d'), samePush),
+    created('feature/b', sha('d'), { ...samePush, pushId: 3 }),
     both,
   ]);
   assert.deepEqual([present(tree.rows[1]).forkFrom, present(tree.rows[3]).forkFrom?.evidence], [null, 'pr']);
   assert.deepEqual([present(tree.rows[1]).node.down, present(tree.rows[3]).node.up], [true, true]);
-});
-
-test('a branch found earlier in a snapshot counts as a sighting of its tip', () => {
-  const found = event('branch-created', 'release', { data: { name: 'refs/heads/release', objectId: sha('x'), evidence: 'snapshot' } });
-  const tree = buildActivityTree([created('hotfix/a', sha('x')), found]);
-  assert.deepEqual(present(tree.rows[0]).fork, { evidence: 'tip', parent: 'release' });
 });
 
 test('a recreated branch does not take its fork from a pull request of the deleted one, or of a later one', () => {
@@ -238,10 +240,10 @@ test('a lone row with nothing attached stays neutral, a lone forked row keeps it
   assert.equal(present(lone.rows[0]).node.color, -1);
   assert.notEqual(present(lone.rows[1]).node.color, -1);
   const forked = buildActivityTree(
-    [pr(7, 'feature/a', 'abandoned'), push('main'), push('main'), created('feature/b', sha('x')), push('main', sha('w'), sha('x'))],
+    [pr(7, 'feature/a', 'abandoned'), push('main'), push('main'), checked('feature/b', { status: 'found', on: ['refs/heads/main'] })],
     { maxGap: 1 },
   );
-  assert.equal(present(forked.rows[3]).fork?.evidence, 'tip');
+  assert.equal(present(forked.rows[3]).fork?.evidence, 'recorded');
   assert.notEqual(present(forked.rows[3]).node.color, -1);
 });
 
@@ -251,7 +253,7 @@ test('branches beyond the lane limit show a node without lines', () => {
   assert.deepEqual(slots(tree), [0, 1, 2, 0, 1, 2]);
   assert.equal(tree.width, 3);
   const overflow = present(tree.rows[2]);
-  assert.deepEqual([overflow.node.overflow, overflow.node.up, overflow.node.down], [true, false, false]);
+  assert.deepEqual([overflow.node.overflow, overflow.node.up, overflow.node.down, overflow.node.color], [true, false, false, -1]);
   assert.equal(present(tree.rows[1]).node.overflow, false);
   assert.equal(present(tree.rows[2]).through.length, 2);
 });
@@ -263,6 +265,26 @@ test('a fork or merge that involves an undrawn lane is not drawn but stays descr
   assert.equal(fork?.parent, 'main');
   assert.equal(forkFrom, null);
   assert.equal(through.length, 1);
+});
+
+test('a hidden join never takes a slot from real lanes or leaves a lane beginning on an unrelated row', () => {
+  const branches = ['a', 'b', 'c', 'd'];
+  const hotfix = checked('hotfix', { status: 'found', on: ['refs/heads/main'], base: sha('x') });
+  const active = branches.map(name => push(name));
+  const tree = buildActivityTree([...active, hotfix, ...active, push('main')]);
+  const join = present(tree.rows[4]);
+  assert.equal(join.node.overflow, true);
+  assert.equal(join.forkFrom, null);
+  assert.equal(join.through.length, 4);
+  assert.equal(present(tree.rows[9]).node.up, false);
+});
+
+test('multi-branch pushes and builds on tags do not take an arbitrary branch lane', () => {
+  const many = push('main', undefined, undefined, { data: { refUpdates: [{ name: 'refs/heads/main' }, { name: 'refs/heads/release' }] } });
+  const tagBuild = event('build', 'refs/tags/v1', { data: { sourceBranch: 'refs/tags/v1' } });
+  const tagNamedBranch = push('refs/tags/v1');
+  const tree = buildActivityTree([many, tagBuild, push('main'), tagNamedBranch]);
+  assert.ok(tree.rows.every(row => !row.node.up && !row.node.down));
 });
 
 test('lanes that run side by side never share a colour', () => {

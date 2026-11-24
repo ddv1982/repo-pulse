@@ -343,6 +343,7 @@ export function createNormalizer({ store, now = Date.now }: { store: NormalizeSt
           url: safeAzureUrl(webLink(item._links), `${repo.webUrl}/pullrequest/${encodeURIComponent(key)}`),
           data: {
             pullRequestId: item.pullRequestId,
+            ...(item.creationDate ? { pullRequestCreatedAt: item.creationDate } : {}),
             status: item.status,
             isDraft: item.isDraft,
             sourceRefName: item.sourceRefName,
