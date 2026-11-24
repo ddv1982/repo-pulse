@@ -859,6 +859,28 @@ test('only the failed CI count uses the failure color in both summary layouts', 
   assert.equal(text(one(chip, 'button.t-info[data-kind="build"]')), 'CI runs 4');
 });
 
+test('the failed CI summary offers all CI runs even when no failures are unread', () => {
+  const state = fixture();
+  const failure = {
+    ...present(state.events[0]),
+    data: { buildId: 42, status: 'completed', result: 'failed' },
+  };
+  for (const seen of [false, true]) {
+    state.events = [{ ...failure, seen }];
+    const page = parse(renderFeed(state, { ...view, route: 'activity', kind: 'status:failed' }));
+    const count = seen ? '0' : '1';
+    const cell = one(page, '[data-summary-kind="CI runs"]');
+    const chip = one(page, '.summary-chips .chip');
+    assert.equal(text(one(cell, '.label')), 'Failed CI runs');
+    assert.equal(text(one(cell, '.val')), count);
+    assert.equal(text(chip), `Failed CI runs ${count} · Show all CI runs`);
+    for (const layout of [cell, chip]) {
+      assert.equal(text(one(layout, 'button[data-kind="build"]')), 'Show all CI runs');
+    }
+    assert.equal(one(page, '#kind-toggle').getAttribute('data-active'), 'true');
+  }
+});
+
 test('the scope reads 1 repository when only one exists, and All N repositories when there are more', () => {
   const repos = [stub<Repository>({ id: 'a' }), stub<Repository>({ id: 'b' })];
   assert.equal(scopeName({ repos: repos.slice(0, 1) }, { repoIds: null }), '1 repository');
