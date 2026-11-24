@@ -507,7 +507,7 @@ test('New activity offers the displayed run status even when only an earlier upd
   const store = setup();
   try {
     store.insertEvents([
-      build('a-running', 'Orders CI', { data: { buildId: 42, status: 'inProgress' } }),
+      build('a-failed', 'Orders CI', { data: { buildId: 42, status: 'completed', result: 'failed' } }),
       build('a-succeeded', 'Orders CI', {
         seen: true,
         observedAt: '2026-11-17T10:02:00Z',
@@ -518,13 +518,19 @@ test('New activity offers the displayed run status even when only an earlier upd
     const base: ActivityRequest = { view: 'new', repoIds: [repo.id], limit: 1 };
     const page = store.queryActivity(base);
     assert.deepEqual(page.filterOptions, ['build', 'status:failed', 'status:succeeded']);
+    assert.deepEqual(page.newBuildCounts, { running: 0, queued: 0, failed: 1 });
     assert.equal(present(page.items[0]).id, 'a-succeeded');
     assert.equal(present(store.queryActivity({ ...base, cursor: page.nextCursor ?? undefined }).items[0]).id, 'b-failed');
-    assert.equal(store.queryActivity({ ...base, kind: 'status:running' }).total, 0);
+    const failed = store.queryActivity({ ...base, kind: 'status:failed' });
+    assert.deepEqual(
+      failed.items.map(item => item.id),
+      ['b-failed'],
+    );
+    assert.deepEqual(failed.newBuildCounts, page.newBuildCounts);
     const succeeded = store.queryActivity({ ...base, kind: 'status:succeeded' });
     assert.equal(present(succeeded.items[0]).id, 'a-succeeded');
-    assert.deepEqual(present(succeeded.items[0]).unseenIds, ['a-running']);
-    assert.deepEqual(store.queryActivity.unseenIds({ ...base, kind: 'status:succeeded' }), ['a-running']);
+    assert.deepEqual(present(succeeded.items[0]).unseenIds, ['a-failed']);
+    assert.deepEqual(store.queryActivity.unseenIds({ ...base, kind: 'status:succeeded' }), ['a-failed']);
     store.acknowledge(present(succeeded.items[0]).unseenIds);
     assert.equal(store.queryActivity({ ...base, kind: 'status:succeeded' }).total, 0);
     assert.equal(present(store.getEvent('b-failed')).seen, false);

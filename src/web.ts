@@ -72,11 +72,7 @@ const picker = createRepositoryPicker({
 });
 const typeFilter = createTypeFilter({
   state: ui,
-  onChange: value => {
-    // Every type option carries data-kind, so the fallback never applies.
-    ui.kind = value ?? '';
-    activityChanged();
-  },
+  onChange: setActivityType,
 });
 const savedFilterPicker = createToolbarMenu({
   toggleId: 'saved-filter-toggle',
@@ -198,6 +194,11 @@ function refreshTarget(force: boolean) {
     force,
     busy || dialog.open || historyImport.open || filterName.open || branchPicker.open || (ui.route === 'repositories' && picker.active()),
   );
+}
+
+function setActivityType(kind: string | undefined) {
+  ui.kind = kind ?? '';
+  activityChanged();
 }
 
 function activityChanged({ debounce = false, header = false } = {}) {
@@ -527,6 +528,10 @@ const actions: Record<string, Action> = {
     ui.kind = '';
     ui.savedFilterId = '';
     activityChanged();
+  },
+  'filter-activity-type': element => {
+    ui.filtersOpen = true;
+    setActivityType(element.dataset.kind);
   },
   'toggle-activity-filters': () => {
     ui.filtersOpen = !ui.filtersOpen;

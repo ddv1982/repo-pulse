@@ -827,11 +827,33 @@ test('the summary counts every unread item in scope, not only the loaded rows', 
     const label = (name: string) => [['label'], name];
     assert.deepEqual(cell('Pushes'), [label('Pushes'), [['t-info', 'val'], '5']]);
     assert.deepEqual(cell('Branches'), [label('Branches'), [['t-info', 'val'], '1'], [['sub'], '1 new']]);
-    // The CI row is not loaded, so its status line would describe nothing on screen.
-    assert.deepEqual(cell('CI runs'), [label('CI runs'), [['t-info', 'val'], '1']]);
+    assert.deepEqual(cell('CI runs'), [label('CI runs'), [['t-info', 'val'], '1'], [['sub'], '1 running']]);
   } finally {
     store.close();
   }
+});
+
+test('only the failed CI count uses the failure color in both summary layouts', () => {
+  const state = fixture();
+  const base = { repoId: 'r', kind: 'build', title: 'CI', time: '2026-11-17T10:00:00Z' } satisfies Event;
+  state.events = [
+    { ...base, id: 'success', data: { buildId: 1, status: 'completed', result: 'succeeded' } },
+    { ...base, id: 'failed', data: { buildId: 2, status: 'completed', result: 'failed' } },
+    { ...base, id: 'running', data: { buildId: 3, status: 'inProgress' } },
+    { ...base, id: 'queued', data: { buildId: 4, status: 'notStarted' } },
+  ];
+
+  const summary = one(parse(renderFeed(state, view)), '[aria-label="Activity summary"]');
+  const cell = one(summary, '[data-summary-kind="CI runs"]');
+  assert.equal(text(one(cell, '.val.t-info')), '4');
+  assert.equal(text(one(cell, '.sub')), '1 running · 1 queued · 1 failed');
+  assert.equal(text(one(cell, 'button.t-crit[data-kind="status:failed"]')), '1 failed');
+  assert.equal(text(one(cell, 'button.t-info[data-kind="build"]')), '4');
+  const chip = one(summary, '.summary-chips .chip');
+  assert.deepEqual(classes(chip), ['chip']);
+  assert.equal(text(chip), 'CI runs 4 · 1 running · 1 queued · 1 failed');
+  assert.equal(text(one(chip, 'button.t-crit[data-kind="status:failed"]')), '1 failed');
+  assert.equal(text(one(chip, 'button.t-info[data-kind="build"]')), '4');
 });
 
 test('the scope reads 1 repository when only one exists, and All N repositories when there are more', () => {

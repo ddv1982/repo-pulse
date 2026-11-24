@@ -9,7 +9,15 @@ export type SqlRow = Record<string, import('node:sqlite').SQLOutputValue>;
 
 export type Group = { key: string; time: number; observed: number; representative: string };
 export type FilterRow = { kind: string; status: string; evidence: string };
-export type CountRow = { kind: string; count: number; newItems: number; newUpdates: number };
+export type CountRow = {
+  kind: string;
+  count: number;
+  newItems: number;
+  newUpdates: number;
+  running: number;
+  queued: number;
+  failed: number;
+};
 export type Position = { maxSequence: number; filterKey: string; revision?: string; after: Pick<Group, 'key' | 'time' | 'observed'> };
 
 const invalidFilter = () => Object.assign(new Error('Activity cursor does not match these filters.'), { code: 'BAD_REQUEST' });
@@ -140,8 +148,11 @@ function pageQuery(member: MemberScope, filter: ActivityFilter, view: string, po
       selected_page AS (SELECT * FROM matched ${boundary} ORDER BY time DESC,observed DESC,key DESC LIMIT ?)
       SELECT
         (SELECT json_group_array(json_object('key',key,'time',time,'observed',observed,'representative',representative)) FROM selected_page) AS groups,
-        (SELECT json_group_array(json_object('kind',kind,'count',count,'newItems',newItems,'newUpdates',newUpdates))
-          FROM (SELECT kind,COUNT(*) AS count,SUM(unseen>0) AS newItems,SUM(unseen) AS newUpdates FROM matched GROUP BY kind)) AS counts,
+        (SELECT json_group_array(json_object('kind',kind,'count',count,'newItems',newItems,'newUpdates',newUpdates,
+          'running',running,'queued',queued,'failed',failed))
+          FROM (SELECT kind,COUNT(*) AS count,SUM(unseen>0) AS newItems,SUM(unseen) AS newUpdates,
+            SUM(unseen>0 AND status='running') AS running,SUM(unseen>0 AND status='queued') AS queued,
+            SUM(unseen>0 AND status='failed') AS failed FROM matched GROUP BY kind)) AS counts,
         ${optionsQuery} AS options
     `;
   return { sql, params };
@@ -233,17 +244,19 @@ function attachPullRequests(db: import('node:sqlite').DatabaseSync, groups: Iter
 function summarizeCounts(countRows: CountRow[]) {
   const counts: Record<string, number> = {};
   const newCounts: Record<string, number> = {};
+  let newBuildCounts = { running: 0, queued: 0, failed: 0 };
   let total = 0,
     newItems = 0,
     newUpdates = 0;
   for (const row of countRows) {
     counts[row.kind] = row.count;
     newCounts[row.kind] = row.newItems;
+    if (row.kind === 'build') newBuildCounts = { running: row.running, queued: row.queued, failed: row.failed };
     total += row.count;
     newItems += row.newItems;
     newUpdates += row.newUpdates;
   }
-  return { counts, newCounts, total, newItems, newUpdates };
+  return { counts, newCounts, newBuildCounts, total, newItems, newUpdates };
 }
 
 function encodeCursor(last: Group | undefined, maxSequence: number, filterKey: string, revision: string | undefined) {
@@ -324,9 +337,9 @@ export function createActivityQuery(
     const members = loadMembers(db, hydrate, member, filter, selectedGroups);
     attachPullRequests(db, members.values());
     const items = selectedGroups.flatMap(group => projectActivity(group.key, members.get(group.key) || [], group.representative) || []);
-    const { counts, newCounts, total, newItems, newUpdates } = summarizeCounts(countRows);
+    const counts = summarizeCounts(countRows);
     const nextCursor = groups.length > pageSize ? encodeCursor(selectedGroups.at(-1), maxSequence, filterKey, revision) : null;
-    return { items, nextCursor, total, newItems, newUpdates, counts, newCounts, filterOptions: options, asOf: maxSequence };
+    return { items, nextCursor, ...counts, filterOptions: options, asOf: maxSequence };
   }
   // `through` is the snapshot a page was read at, so updates recorded after the user saw the page stay unread.
   queryActivity.unseenIds = (input: ActivityRequest & { through?: number | undefined }) => {

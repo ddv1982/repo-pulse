@@ -16,7 +16,7 @@ export function replacementFocus(id: string) {
   // A control the render hid, such as an option of a menu that closed, cannot take focus back.
   if (current?.checkVisibility()) return current;
   if (id === 'clear-filters') return document.getElementById('feed-search');
-  if (id.startsWith('kind-option-')) return document.getElementById('kind-toggle');
+  if (id.startsWith('kind-option-') || id.startsWith('summary-ci-')) return document.getElementById('kind-toggle');
   if (id.startsWith('saved-filter-option-'))
     return document.getElementById('saved-filter-toggle') ?? document.getElementById('save-filter');
   if (['saved-filter-toggle', 'saved-filter-actions-toggle', 'update-filter', 'save-filter'].includes(id))
