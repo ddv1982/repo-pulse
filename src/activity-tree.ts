@@ -303,7 +303,7 @@ export function buildActivityTree(
     const open = matching.findLast(({ pr }) => prs.byId.get(laneKey(item.repoId, String(pr.id)))?.status === 'active');
     const pr = open && prs.byId.get(laneKey(item.repoId, String(open.pr.id)));
     const fork =
-      checked === undefined && pr && pr.target !== entry.branch
+      checked === undefined && pr?.target && pr.target !== entry.branch
         ? { evidence: 'pr' as const, parent: branchName(pr.target), pullRequestId: pr.id }
         : (checked ?? null);
     starts.set(key, row);

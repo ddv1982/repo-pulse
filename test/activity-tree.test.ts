@@ -75,6 +75,12 @@ test('a closed pull request can explain checked evidence and does not supply a d
   assert.equal(present(buildActivityTree([closed, refuted]).rows[1]).fork?.evidence, 'refuted');
 });
 
+test('a partial active PR with no target does not supply a dotted fork', () => {
+  const partial = pr(7, 'feature/a', 'active', { targetRefName: '' });
+  const { rows } = buildActivityTree([partial, pr(7, 'feature/a'), created('feature/a')]);
+  assert.equal(present(rows[2]).fork, null);
+});
+
 test('a revision shared with an earlier branch does not confirm a fork without a checked origin', () => {
   const tree = buildActivityTree([push('main', sha('x'), sha('y')), created('hotfix/a', sha('x')), push('main', sha('w'), sha('x'))]);
   assert.deepEqual([present(tree.rows[1]).fork, present(tree.rows[1]).forkFrom], [null, null]);
