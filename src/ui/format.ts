@@ -108,3 +108,8 @@ export function azureLink(value: unknown, label = 'Azure ↗', className = 'ghos
 export function streamError(stream: { error?: string | { message?: string } | null }) {
   return typeof stream.error === 'string' ? stream.error : stream.error?.message;
 }
+
+/** The problems of a stream's last check: its error, then the warning about records it skipped. */
+export function streamProblems(stream: { error?: string | { message?: string } | null; warning?: { message: string } | null | undefined }) {
+  return [streamError(stream), stream.warning?.message].filter(message => message !== undefined && message !== '');
+}
