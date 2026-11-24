@@ -1492,7 +1492,7 @@ test('a push whose refUpdates is not a list is skipped with a warning instead of
   store.close();
 });
 
-test('a stream warning stands until a later page of that stream commits with no unreadable records', async () => {
+test('a stream warning stands until a later read of that stream completes with no unreadable records', async () => {
   let pushes: unknown[] = [push(2), { ...push(1), pushId: 'one' }, { ...push(3), pushId: null }];
   const client = createAzureClient({ cli: { run: async () => ({ value: pushes }) } });
   const { store, sync, advance } = setup(client, ['pushes']);
