@@ -58,16 +58,20 @@ Every behaviour fix starts with a failing test. These touch `server/sync.ts`, `s
       looked up least recently looked up first: an ID joins the end of the order when it goes missing and moves to
       the end when it is looked up, so neither IDs that stay unreadable nor newer IDs that keep going missing can
       hold every turn. The order is kept per repository and forgotten once the repository is no longer watched, so a
-      repository removed and added again starts it afresh. A build without a `repository.id` is unreadable; a build
+      repository removed and added again starts it afresh. The order is dropped on the next scheduler turn that finds
+      the repository unwatched, so a repository removed and added again before that turn inherits the old order until
+      item 1.4's `forget` lands, which clears it on removal. An unreadable build without a readable ID is not counted
+      again for a remembered build asked for in the same lookup: the count is the remembered builds plus the
+      anonymous ones beyond the remembered builds that lookup asked for. A build without a `repository.id` is unreadable; a build
       of another repository is still left out. A ref with an empty `name` or `objectId` is unreadable. A refs
       snapshot with unreadable records is incomplete: it adds and updates its readable refs and reports none as no
       longer listed. While the baseline is being established, an incomplete snapshot is no baseline, so the stream
-      stays uninitialized and no tag baseline is written; refs that appear meanwhile get no "first seen" event, which
-      the standing warning makes visible. The first complete snapshot establishes the baseline and marks the refs an
-      incomplete snapshot saved and it does not list inactive without an event, since nothing is known about when
-      they went. A ref a push recorded is left for the next complete snapshot, which reports it as no longer listed,
-      as on `main`. This event suppression applies only to establishing the baseline: once it is established, an
-      incomplete snapshot still announces the readable refs it is the first to list. Refs saved mid-snapshot are
+      stays uninitialized and no tag baseline is written. It also creates no ref: it updates the refs that exist,
+      which only a push can have recorded by then, and keeps their `evidence`. The first complete snapshot therefore
+      behaves as on `main`: it records every ref without a "first seen" event, which the standing warning makes
+      visible, reports none as no longer listed, and leaves a ref a push recorded for the next complete snapshot,
+      which reports it as no longer listed. Once the baseline is established, an incomplete snapshot still creates
+      the readable refs it is the first to list and announces them. Refs saved mid-snapshot are
       checked again when the snapshot resumes. A history import that skips unreadable records keeps them on its job
       in `warnings`, one per stream with the count and fields, and the repository's import status shows each message
       in Details; the always visible chip names the count while running, retrying or finished ("History sync finished
@@ -87,8 +91,8 @@ Every behaviour fix starts with a failing test. These touch `server/sync.ts`, `s
       build whose ID cannot be read", "a build whose lookup came back unreadable stays in the warning on reads whose
       lookups skip it" (its counts were 1 twenty times, then none, then 1), "an older build is still looked up while
       20 newer builds leave the active list every read (lookup unreadable once)" (build 1 was never asked for again),
-      "a branch saved by an incomplete first snapshot and missing from the first complete one is put away without an
-      event", the non-object answers in the PR lookup client test, "the Details of a repository list a stream warning
+      the earlier form of "a branch listed only by an incomplete first snapshot is not saved, and no event follows when
+      complete snapshots omit it", the non-object answers in the PR lookup client test, "the Details of a repository list a stream warning
       the way they list a failed check", "records Azure returns unreadable during a history import are counted on the
       job with their stream and fields" and "the repository import row shows the records the import skipped as a
       warning". One added test passed before its change and stays as a guard: "a build whose lookup came back
@@ -102,15 +106,21 @@ Every behaviour fix starts with a failing test. These touch `server/sync.ts`, `s
       disabled, since build 1 sorts first; it stays as the guard that a build whose lookup came back unreadable is
       asked for again. The turn order's own guard is "an older build that sorts after the newer ones is still looked
       up while 20 of them leave the active list every read": with numeric order only, build 1000 was never asked for
-      again; with the turn order it completes. `npm test` 521/521 and `npm run test:ui` 86/86.
+      again; with the turn order it completes. The fourth review round replaced the rule that put away, without an
+      event, the refs an incomplete snapshot saved before the baseline, since it hid a real deletion, with the rule
+      above, and added, each failing first: "a branch and tag a push recorded and an incomplete snapshot listed are
+      reported once complete snapshots omit them" (the snapshot dropped their push `evidence`, and no event followed;
+      `main` reports both) and "an unreadable build without an ID is not counted again for a remembered build asked in
+      the same lookup" (it counted 2). It adapted the put-away test to the new rule, which failed first because the
+      incomplete snapshot saved the branch. `npm test` 523/523 and `npm run test:ui` 86/86.
 - [x] 1.3 A malformed `refUpdates` must fail with a named error, not the generic `SYNC_FAILED`, and follow the
       1.2 handling. Check: a failing-first test with `refUpdates` set to an object. (S reproduced) Done: "a push
       whose refUpdates is not a list is skipped with a warning instead of failing the page" failed first with
       `SYNC_FAILED`, and now passes with a warning naming `refUpdates`. The warning follows the 1.2 rules: only a
       completed read replaces or clears it, and an unreadable ref makes its refs snapshot incomplete, so it reports
-      no deletions and sets no baseline. The first complete snapshot sets the baseline and puts away, without an
-      event, the refs it does not list. With an established baseline an incomplete snapshot still announces the
-      readable refs it is the first to list. `npm test` 516/516.
+      no deletions and sets no baseline. Before the baseline it creates no ref, so the first complete snapshot sets
+      the baseline as on `main`. With an established baseline an incomplete snapshot still announces the readable
+      refs it is the first to list. `npm test` 516/516.
 - [ ] 1.4 A read still in flight must not write into a watch that was removed and added again. Today the old
       read inserts an event and initializes the replacement stream, and the re-add hits the old refresh
       cooldown (`server/sync.ts:218`, `server/sync.ts:434`, `server/store.ts:646`). Fix: tie each commit and the
@@ -141,7 +151,7 @@ and Azure code, so they get the full cross-model review.
       guard. (O, N, S; verified) Done: `git grep -n AzureRecord -- '*.ts'` finds nothing (`grep -rn` still finds
       this plan's own text and `docs/typescript-migration.md:134`); the guards are in `server/azure-records.ts`; the
       six per-stream tests in `test/azure-client.test.ts` fail on the code before this change and pass after; the
-      Phase 1 tests, 520 unit tests and 86 browser tests pass. A page also names the PRs and builds it left out whose
+      Phase 1 tests, 523 unit tests and 86 browser tests pass. A page also names the PRs and builds it left out whose
       ID can be read, with the field each could not be read for (`unreadableIds`), and a build's `repository.id` and
       a ref's `name` and `objectId` are required. A PR lookup checks that the answer is an object before its fields.
 - [ ] 2.2 Replace the store's `parse = (...): any` (`server/store.ts:48`) and `undefined as any`
