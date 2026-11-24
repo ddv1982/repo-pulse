@@ -33,7 +33,12 @@ const rewrite = {
 /** A database holding one valid row per table, with `plant` run on it before the store opens it again. */
 function withRows(t: import('node:test').TestContext, plant: (db: DatabaseSync) => void): Store {
   const folder = mkdtempSync(join(tmpdir(), 'pulse-corrupt-'));
-  t.after(() => rmSync(folder, { recursive: true }));
+  let store: Store | undefined;
+  // Close before removing: Windows cannot delete a database file that is still open, and hooks run in order.
+  t.after(() => {
+    store?.close();
+    rmSync(folder, { recursive: true });
+  });
   const path = join(folder, 'state.sqlite');
   const seeded = createStore(path);
   seeded.saveRepo(repo);
@@ -50,8 +55,7 @@ function withRows(t: import('node:test').TestContext, plant: (db: DatabaseSync) 
   );
   plant(db);
   db.close();
-  const store = createStore(path);
-  t.after(() => store.close());
+  store = createStore(path);
   return store;
 }
 
