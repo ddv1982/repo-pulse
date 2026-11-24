@@ -163,9 +163,10 @@ export function createStore(path = ':memory:') {
         // lifecycleKey returned a key, so `data` is present; `?.` only satisfies the compiler.
         String(event.data?.pushId),
       );
-      for (const row of siblings)
-        if (supportingPushKey(readEvent(row)) === key)
-          q('UPDATE activity_members SET group_key=? WHERE event_id=?').run(key, readEvent(row).id);
+      for (const row of siblings) {
+        const sibling = readEvent(row);
+        if (supportingPushKey(sibling) === key) q('UPDATE activity_members SET group_key=? WHERE event_id=?').run(key, sibling.id);
+      }
     }
   }
   function saveJob(job: Job) {

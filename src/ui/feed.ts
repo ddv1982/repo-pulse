@@ -240,14 +240,14 @@ export function renderFeed(state: PageState, ui: FeedView & { savedFilterId: str
   const partial = shown.some(repo => state.syncStatus.repos[repo.id]?.state !== 'synced');
   const overall = state.syncStatus.overall;
   const attention =
-    worstStatus(
-      shown.flatMap(repo => {
-        const status = state.syncStatus.repos[repo.id];
-        return status ? [{ ...status, repoId: repo.id }] : [];
-      }),
-    ) ??
-    // A problem that belongs to no repository, such as a failed reset with none enabled, still needs the banner.
-    (overall.state === 'problem' && !('repoId' in overall) ? { ...overall, repoId: '' } : undefined);
+    overall.state === 'problem' && !('repoId' in overall)
+      ? { ...overall, repoId: '' }
+      : worstStatus(
+          shown.flatMap(repo => {
+            const status = state.syncStatus.repos[repo.id];
+            return status ? [{ ...status, repoId: repo.id }] : [];
+          }),
+        );
   const unseen = records
     .filter(record => record.unseen)
     .sort((a, b) => Number(b.kind === 'branch-created') - Number(a.kind === 'branch-created'));

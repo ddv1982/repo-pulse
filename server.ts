@@ -6,6 +6,7 @@ import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { homedir } from 'node:os';
 import { createSavedActivityFilters } from './server/saved-activity-filters.ts';
 import { createStore } from './server/store.ts';
+import { isCorruptRow } from './server/store-records.ts';
 import { lockDatabase } from './server/database-lock.ts';
 import { createSync } from './server/sync.ts';
 import { createAzureCli, defaultExecutor } from './server/azure-cli.ts';
@@ -255,7 +256,16 @@ export function createApp({
         const inProgress = 'inProgress' in status ? status.inProgress : [];
         const repos = store.listRepos();
         const streams = store.getStreams();
-        const jobs = store.listJobs({ type: 'backfill' });
+        const problems = 'backgroundProblems' in status ? status.backgroundProblems : undefined;
+        let backgroundProblem = problems?.history ?? problems?.rewrite;
+        let jobs: StateResponse['jobs'] = [];
+        try {
+          jobs = store.listJobs({ type: 'backfill' });
+        } catch (error) {
+          if (!isCorruptRow(error)) throw error;
+          // Keep state readable so the Activity banner can explain why history progress is unavailable.
+          backgroundProblem = error.message;
+        }
         const settings = {
           refreshEnabled: store.getSetting('refreshEnabled', true),
           refreshResumedAt: store.getSetting('refreshResumedAt', null),
@@ -281,6 +291,7 @@ export function createApp({
             throttledUntil: diagnostics.throttledUntil,
             resetting: Boolean(resetting),
             resetFailed,
+            backgroundProblem,
           }),
           demo,
         } satisfies StateResponse);
@@ -685,7 +696,7 @@ export function createApp({
               : 500);
       if (status === 500) console.error('Request failed:', error.name);
       return json(res, status, {
-        message: status === 500 ? 'Something went wrong. Try again; cached data is kept.' : error.message,
+        message: status === 500 && !isCorruptRow(error) ? 'Something went wrong. Try again; cached data is kept.' : error.message,
         code: error.code,
       } satisfies ErrorResponse);
     }
@@ -794,13 +805,19 @@ async function startLocked(
     app.once('error', reject);
     app.listen(port, '127.0.0.1', () => resolveListen(undefined));
   });
-  sync.start();
+  const closeListener = () => new Promise(resolveClose => app.close(resolveClose));
+  try {
+    sync.start();
+  } catch (error) {
+    await closeListener();
+    throw error;
+  }
   const close = async () => {
     const syncStopped = sync.stop();
     // Abort budget-queued CLI work before waiting for a sync that might be waiting on it.
     await cli?.close();
     await syncStopped;
-    await new Promise(resolveClose => app.close(resolveClose));
+    await closeListener();
     store.close();
     lock.close();
   };

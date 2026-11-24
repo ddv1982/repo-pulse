@@ -197,6 +197,7 @@ export type SyncEngineStatus = {
   errors: number;
   streams: number;
   lastTurn: { history?: string; live?: string; rewrite?: string };
+  backgroundProblems: { history?: string; rewrite?: string };
   lag: { overdueStreams: number; maxDelayMs: number };
   inProgress: { repoId: string; stream: AzureStream }[];
 };

@@ -1,6 +1,7 @@
 import { createNormalizer } from './normalize.ts';
 import { isRecord, recordId, recordsOf, unreadableField } from './azure-records.ts';
 import { READS } from './sync-status.ts';
+import { isCorruptRow } from './store-records.ts';
 
 export type ActivityKind = import('./normalize.ts').ActivityKind;
 export type StreamName = import('./azure-client.ts').AzureStream;
@@ -309,6 +310,7 @@ export function createSync({
   let nextBackground: BackgroundKind = 'rewrite';
   const lastTurn: Partial<Record<BackgroundKind | 'live', string>> = {};
   const counters = { pages: 0, errors: 0 };
+  const backgroundProblems: SyncStatus['backgroundProblems'] = {};
   /** The turn order of the cached active PRs and in-progress builds to look up by ID, per repository (see lookupTurn). */
   const prTurns: Map<string, Set<string>> = new Map();
   const buildTurns: Map<string, Set<string>> = new Map();
@@ -348,11 +350,24 @@ export function createSync({
     const other: BackgroundKind = nextBackground === 'rewrite' ? 'history' : 'rewrite';
     for (const kind of [nextBackground, other]) {
       if (kind === 'rewrite' && !automatic) continue;
-      if (!(await background[kind]?.())) continue;
-      lastTurn[kind] = iso(now());
+      let ran = false;
+      try {
+        ran = Boolean(await background[kind]?.());
+        delete backgroundProblems[kind];
+        if (!ran) continue;
+      } catch (error) {
+        counters.errors++;
+        backgroundProblems[kind] = isCorruptRow(error)
+          ? error.message
+          : kind === 'history'
+            ? 'Could not run history import.'
+            : 'Could not check branch rewrites and fork origins.';
+      }
       nextBackground = kind === 'rewrite' ? 'history' : 'rewrite';
       liveTurns = 0;
-      return true;
+      if (ran) lastTurn[kind] = iso(now());
+      // A failed worker gives live reads a turn and the other worker first choice next time.
+      return ran;
     }
     return false;
   }
@@ -664,6 +679,8 @@ export function createSync({
       await active?.catch(() => {});
       try {
         clear();
+        delete backgroundProblems.rewrite;
+        delete backgroundProblems.history;
       } finally {
         requested.clear();
         refreshedAt.clear();
@@ -736,6 +753,7 @@ export function createSync({
         ...counters,
         streams: store.getStreams().length,
         lastTurn: { ...lastTurn },
+        backgroundProblems: { ...backgroundProblems },
         lag: lag(),
         inProgress: halted() ? [] : inProgress,
       };

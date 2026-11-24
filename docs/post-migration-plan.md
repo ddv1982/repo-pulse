@@ -299,6 +299,10 @@ and Azure code, so they get the full cross-model review.
       fields, numeric source times, and legacy merge evidence. A saved refs page may still contain unchecked Azure
       entries, which sync checks again on resume. The existing migration tests pass, including the earlier activity
       index, paused repositories, merge queue and caches, Pull journal, service pushes and fork checks.
+      When a request fails on `CORRUPT_ROW`, the server logs the failure and returns HTTP 500 with the row message.
+      A startup that fails while reading streams closes its HTTP listener before releasing the store and lock.
+      The regression test repairs the row and restarts in the same process on the same port.
+      Activity membership reads each supporting push row once.
 - [x] 2.3 Type entity data per entity type instead of `data: any` (`server/normalize.ts:31`, `:38`, `:145`,
       `server/sync.ts:27`). Check: those `any`s are gone and `check:types` passes. (N, verified)
       `npm run check:types` passes. SQLite fixtures preserve omitted votes, null votes produced by older coercion,
@@ -309,6 +313,12 @@ and Azure code, so they get the full cross-model review.
       The fork and rewrite workers infer their specific job types. The backfill reader still accepts jobs without
       the later warnings field, and migration 11 clears queued merge jobs before current readers run. The production
       search for `as unknown as` was empty. The two existing test assertions remain.
+      The rebase retains the per-repository deferred results and removal hooks from item 1.4. A background
+      worker that throws counts as a sync error, resets the live turn count and gives the other worker the next
+      background turn. The overall sync problem shows the corrupt row message in Activity and clears after the
+      queue reads successfully again. The state endpoint can still report live status when history jobs cannot
+      be listed. The corrupt rewrite and backfill fixtures each stalled after 6 of 14 live reads before the fix.
+      Both now complete all 14 reads and report the affected row.
 - [x] 2.5 Type settings by key, including the template keys such as `checkout:${id}`, so `getSetting`
       returns the stored type. This removes the casts at `server.ts:183-190`, `server.ts:258-259` and
       `server/saved-activity-filters.ts:40`. Check: those casts are gone and `check:types` passes. (N, verified)
@@ -325,7 +335,8 @@ and Azure code, so they get the full cross-model review.
       ```
 
       `npm run check`, `npm run check:types` and `npm run lint` passed with the Oxlint complexity limit of 30.
-      `npm test` passed 592 tests and `npm run test:ui` passed 86 tests.
+      `npm test` passed 605 tests and `npm run test:ui` passed 86 tests. All five new regression tests failed on
+      the rebased code before the fixes and passed after them.
 
 ## Phase 3: Cleanup the migration left behind
 

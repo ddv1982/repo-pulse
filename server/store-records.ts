@@ -305,10 +305,15 @@ function settingCheck(key: SettingKey): Check {
 export function corruptRow(table: string, id: string, field: string, reason = 'is missing or malformed') {
   return Object.assign(new Error(`The stored ${table} row "${id}" cannot be read: ${field} ${reason}.`), {
     code: 'CORRUPT_ROW',
+    status: 500,
     table,
     id,
     field,
   });
+}
+
+export function isCorruptRow(error: unknown): error is Error & { code: 'CORRUPT_ROW' } {
+  return error instanceof Error && 'code' in error && error.code === 'CORRUPT_ROW';
 }
 
 /** The value of a JSON column, or a CORRUPT_ROW error when it is not text holding JSON. */
