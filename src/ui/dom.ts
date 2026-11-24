@@ -28,7 +28,9 @@ export function setHtml(element: Element, markup: SafeHtml) {
   // event, so the markup already carries it, and a value that differs is one the app chose, such as a cleared picker.
   // An element marked data-owned is filled by its own component (the repository picker), so an outer render leaves its
   // children alone instead of emptying them until the component renders again.
-  Idiomorph.morph(element, template.content, {
+  // morph returns a Promise only when config.head.block is set, which this call leaves unset, so it runs synchronously and
+  // throws to the caller.
+  void Idiomorph.morph(element, template.content, {
     morphStyle: 'innerHTML',
     callbacks: { beforeNodeMorphed: node => !(node !== element && node instanceof Element && node.hasAttribute('data-owned')) },
   });

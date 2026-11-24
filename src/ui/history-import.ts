@@ -50,7 +50,7 @@ export function createHistoryImport(
   dialog.addEventListener('cancel', event => {
     if (submitting) event.preventDefault();
   });
-  form.addEventListener('submit', async event => {
+  const submitImport = async (event: SubmitEvent) => {
     event.preventDefault();
     if (submitting) return;
     const range = new FormData(form).get('history-range');
@@ -75,7 +75,9 @@ export function createHistoryImport(
     }
     dialog.close();
     await onStarted(id);
-  });
+  };
+  // A failed start is caught above and shown in the dialog; anything onStarted throws reaches the console as an unhandled rejection.
+  form.addEventListener('submit', event => void submitImport(event));
 
   return {
     get open() {

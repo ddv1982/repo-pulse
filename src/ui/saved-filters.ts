@@ -96,7 +96,7 @@ export function createFilterNameDialog(dialog: HTMLDialogElement) {
   dialog.addEventListener('cancel', event => {
     if (submit.disabled) event.preventDefault();
   });
-  form.addEventListener('submit', async event => {
+  const submitName = async (event: SubmitEvent) => {
     event.preventDefault();
     if (submit.disabled || !save) return;
     submit.disabled = true;
@@ -110,7 +110,9 @@ export function createFilterNameDialog(dialog: HTMLDialogElement) {
     } finally {
       submit.disabled = false;
     }
-  });
+  };
+  // A failed save is caught above and shown in the dialog's alert, so this promise does not reject.
+  form.addEventListener('submit', event => void submitName(event));
 
   return {
     get open() {
