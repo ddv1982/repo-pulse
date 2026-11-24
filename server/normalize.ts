@@ -359,9 +359,9 @@ export function createNormalizer({ store, now = Date.now }: { store: NormalizeSt
    * Compares a complete refs snapshot with the stored refs. A snapshot with records Azure returned unreadable is
    * `incomplete`: its readable refs are added and updated, but a ref it does not list may be one of the unreadable
    * ones, so nothing is reported as no longer listed, and it is not the tag baseline, so an unreadable tag that
-   * reads later is not announced as first seen. Sync holds the stream's `initialized` back the same way. The first
-   * complete snapshot, with `initialized` still false, is the baseline: it marks the refs an incomplete snapshot saved
-   * and it does not list inactive without reporting them.
+   * reads later is not announced as first seen. Sync holds the stream's `initialized` back the same way. Before that
+   * baseline, an incomplete snapshot creates no ref and keeps the evidence of the refs it updates, so the first
+   * complete snapshot finds only refs a push recorded and treats them as on main.
    */
   function reconcileRefs(repo: WatchedRepo, records: AzureRef[], state: RefReconcileState, { incomplete = false } = {}): SyncBatch {
     const before = new Map(store.listEntities(repo.id, 'ref').map(entry => [entry.id, entry.data]));
@@ -388,8 +388,11 @@ export function createNormalizer({ store, now = Date.now }: { store: NormalizeSt
       );
     const events: SyncEvent[] = [];
     const entities: Entity[] = [];
+    const beforeBaseline = incomplete && !state.initialized;
     for (const [name, item] of current) {
       const previous = before.get(name);
+      if (beforeBaseline && !previous) continue;
+      const kept = beforeBaseline && previous?.evidence ? { evidence: previous.evidence } : {};
       const tag = name.startsWith('refs/tags/');
       const peeled = item.peeledObjectId ? { peeledObjectId: item.peeledObjectId } : {};
       if (tag) {
@@ -398,7 +401,7 @@ export function createNormalizer({ store, now = Date.now }: { store: NormalizeSt
         entities.push({
           type: 'ref',
           id: name,
-          data: { name, objectId: item.objectId, ...peeled, active: true, lastPushId: previous?.lastPushId },
+          data: { name, objectId: item.objectId, ...peeled, active: true, ...kept, lastPushId: previous?.lastPushId },
         });
         continue;
       }
@@ -420,18 +423,15 @@ export function createNormalizer({ store, now = Date.now }: { store: NormalizeSt
           ),
         );
       }
-      entities.push({ type: 'ref', id: name, data: { name, objectId: item.objectId, active: true, lastPushId: previous?.lastPushId } });
+      entities.push({
+        type: 'ref',
+        id: name,
+        data: { name, objectId: item.objectId, active: true, ...kept, lastPushId: previous?.lastPushId },
+      });
     }
-    if (!incomplete)
+    if (state.initialized && !incomplete)
       for (const [name, old] of before) {
         if (old.active === false || current.has(name)) continue;
-        // The complete snapshot that establishes the baseline puts away without an event the refs an incomplete
-        // snapshot saved and it does not list, since nothing is known about when they went. A ref a push recorded
-        // stays until a later complete snapshot, which reports it as no longer listed.
-        if (!state.initialized) {
-          if (old.evidence !== 'push') entities.push({ type: 'ref', id: name, data: { ...old, active: false } });
-          continue;
-        }
         entities.push({ type: 'ref', id: name, data: { ...old, active: false } });
         if (name.startsWith('refs/tags/')) {
           if (tagsKnown) events.push(tagEvent(name, 'deleted', { objectId: old.objectId }));

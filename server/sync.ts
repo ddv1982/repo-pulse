@@ -473,8 +473,9 @@ export function createSync({
           warning: warningOf(state.stream, read.unreadable),
           unreadableLookups: read.unreadableLookups,
           // An incomplete refs snapshot is no baseline: until a snapshot reads every ref, the stream stays uninitialized
-          // (and reconcileRefs writes no tag baseline), so refs that appear meanwhile, including one that stayed
-          // unreadable, are recorded without a "first seen" event. The warning the incomplete snapshot leaves shows this.
+          // (and reconcileRefs writes no tag baseline and saves no new ref), so the first complete snapshot records the
+          // refs, including one that was unreadable, without a "first seen" event. The warning the incomplete snapshot
+          // leaves shows this.
           initialized: working.initialized || !incomplete,
         })
       : nextPage(working, latest, { at: now(), cursor: page.nextCursor, pendingItems, activeIds, unreadable: read.unreadable });

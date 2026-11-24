@@ -2274,7 +2274,7 @@ test('a branch unreadable in the first refs snapshot is not announced as first s
   store.close();
 });
 
-test('a branch saved by an incomplete first snapshot and missing from the first complete one is put away without an event', async () => {
+test('a branch listed only by an incomplete first snapshot is not saved, and no event follows when complete snapshots omit it', async () => {
   let refs: unknown[] = [
     { name: 'refs/heads/main', objectId: 'a' },
     { name: 'refs/heads/gone', objectId: 'b' },
@@ -2282,12 +2282,16 @@ test('a branch saved by an incomplete first snapshot and missing from the first 
   ];
   const { store, sync, advance } = setup(createAzureClient({ cli: { run: async () => ({ value: refs }) } }), ['refs']);
   await sync.tick();
-  assert.equal(fieldsOf(store.getEntity(repo.id, 'ref', 'refs/heads/gone')).active, true, 'the incomplete snapshot saves it');
+  assert.equal(
+    store.getEntity(repo.id, 'ref', 'refs/heads/gone'),
+    undefined,
+    'an incomplete snapshot before the baseline saves no new ref',
+  );
   refs = [{ name: 'refs/heads/main', objectId: 'a' }];
   advance(600001);
   await sync.tick();
   assert.equal(present(store.getStreams().find(entry => entry.stream === 'refs')).initialized, true);
-  assert.equal(fieldsOf(store.getEntity(repo.id, 'ref', 'refs/heads/gone')).active, false, 'the first complete snapshot is the baseline');
+  assert.equal(store.getEntity(repo.id, 'ref', 'refs/heads/gone'), undefined);
   advance(600001);
   await sync.tick();
   assert.deepEqual(
@@ -2328,6 +2332,59 @@ test('a branch a push recorded before the first complete refs snapshot is report
   advance(600001);
   await sync.tick();
   assert.deepEqual(titles(), ['Branch no longer listed · feature'], 'as on main, a branch a push recorded is reported');
+  store.close();
+});
+
+test('a branch and tag a push recorded and an incomplete snapshot listed are reported once complete snapshots omit them', async () => {
+  const created = push(3);
+  created.refUpdates = [
+    { name: 'refs/heads/feature', oldObjectId: '0'.repeat(40), newObjectId: 'b'.repeat(40) },
+    { name: 'refs/tags/v1', oldObjectId: '0'.repeat(40), newObjectId: 'c'.repeat(40) },
+  ];
+  let snapshot: AzurePage = {
+    items: [
+      { name: 'refs/heads/main', objectId: 'a' },
+      { name: 'refs/heads/feature', objectId: 'b'.repeat(40) },
+      { name: 'refs/tags/v1', objectId: 'c'.repeat(40) },
+    ],
+    nextCursor: null,
+    unreadable: { count: 1, fields: ['objectId'] },
+  };
+  const { store, sync, advance } = setup(
+    {
+      async read(_r, stream) {
+        return stream === 'pushes' ? { items: [created], nextCursor: null } : snapshot;
+      },
+    },
+    ['pushes'],
+  );
+  await sync.tick();
+  const stream = (name: string) => present(store.getStreams().find(entry => entry.stream === name));
+  const refs = () => stream('refs');
+  store.saveStream({ ...stream('pushes'), nextAt: '2099-01-01T00:00:00Z' });
+  store.saveStream({ ...refs(), nextAt: new Date(BASE).toISOString() });
+  advance(600001);
+  await sync.tick();
+  assert.equal(refs().initialized, false, 'the incomplete snapshot is no baseline');
+  assert.equal(fieldsOf(store.getEntity(repo.id, 'ref', 'refs/heads/feature')).evidence, 'push', 'it keeps the evidence of the push');
+  assert.equal(fieldsOf(store.getEntity(repo.id, 'ref', 'refs/tags/v1')).evidence, 'push');
+  const titles = () =>
+    store
+      .listEvents()
+      .map(event => event.title)
+      .filter(title => /no longer listed/.test(title ?? ''));
+  snapshot = { items: [{ name: 'refs/heads/main', objectId: 'a' }], nextCursor: null };
+  advance(600001);
+  await sync.tick();
+  assert.equal(refs().initialized, true);
+  assert.deepEqual(titles(), [], 'the baseline reports nothing');
+  advance(600001);
+  await sync.tick();
+  assert.deepEqual(
+    titles().sort(),
+    ['Branch no longer listed · feature', 'Tag no longer listed · v1'],
+    'as on main, the next complete snapshot reports both',
+  );
   store.close();
 });
 
