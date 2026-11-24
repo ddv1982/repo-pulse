@@ -342,22 +342,32 @@ and Azure code, so they get the full cross-model review.
 
 One PR for the phase, after Phase 2 merges. CI plus one review.
 
-- [ ] 3.1 Replace the 220 inline `= import('…')` type aliases with `import type`. It is a JSDoc leftover, and
+- [x] 3.1 Replace the 220 inline `= import('…')` type aliases with `import type`. It is a JSDoc leftover, and
       the change is mechanical, so use a script. Check: `git ls-files '*.ts' | xargs grep -cE "= import\('"`
-      totals 0, and `check:types`, `lint` and all tests pass. (O, N; count verified)
-- [ ] 3.2 Turn on Oxlint's correctness category and fix or justify each of its 22 warnings. Triage the 11
+      totals 0, and `check:types`, `lint` and all tests pass. (O, N; count verified) The script converted 267 aliases across 50 files. The search
+      finds 0, and the browser build at this step matched the baseline byte for byte. Types, lint,
+      605 unit tests and 86 Chromium tests passed.
+- [x] 3.2 Turn on Oxlint's correctness category and fix or justify each of its 22 warnings. Triage the 11
       `no-base-to-string` warnings first: a value that can really print `[object Object]` gets a failing test.
       The `await cli?.close()` at `server.ts:773` awaits a method that returns nothing; drop the `await`.
-      Check: `npm run lint` is clean with the category on. (N; 22 verified)
-- [ ] 3.3 Keep `src/ui/dom.type-test.ts` type-checked but out of the browser build, and stop emitting an empty
+      Check: `npm run lint` is clean with the category on. (N; 22 verified) This checkout had 122 warnings, including 18
+      `no-base-to-string` warnings. Tests failed first on malformed continuation tokens, PR titles, push actors,
+      build titles, saved merge errors and refs, HTML interpolation, and API error messages. They pass, and
+      lint reports zero warnings with correctness enabled and a complexity limit of 30.
+- [x] 3.3 Keep `src/ui/dom.type-test.ts` type-checked but out of the browser build, and stop emitting an empty
       `dist/src/contract.js`. Check: neither file is in `dist/` after `npm run build:web`, the type test still
-      fails on a planted violation, and the e2e suite passes. (N, verified)
-- [ ] 3.4 A rejection from `onStarted` after a history import has started must be reported, not left
+      fails on a planted violation, and the e2e suite passes. (N, verified) The browser compiler still checks the type test.
+      Removing an expected-error directive produced TS2345 for a raw string passed to `setHtml`. Restoring it
+      passed. The build-only config and declaration file remove exactly `dom.type-test.js` and `contract.js`
+      from the prior output. Runtime imports did not reference either file. All 87 Chromium tests passed.
+- [x] 3.4 A rejection from `onStarted` after a history import has started must be reported, not left
       unhandled (`src/ui/history-import.ts:76`). Check: a failing-first test that the accepted import stays
-      acknowledged and the follow-up failure is shown. (S, from the Phase 9 review)
-- [ ] 3.5 Correct `docs/typescript-migration.md:8-10`, which says a greenfield design "would be close to this
+      acknowledged and the follow-up failure is shown. (S, from the Phase 9 review) The browser test queued the import
+      and closed the dialog, then failed because the focus rejection never reached the alert banner. It now
+      finds the alert and confirmation toast and sees no page error.
+- [x] 3.5 Correct `docs/typescript-migration.md:8-10`, which says a greenfield design "would be close to this
       one". The toolchain would be close; the data model would not, as this plan shows. Check: the paragraph
-      links here. (O)
+      links here. (O) The revised introduction explains the greenfield toolchain and data model and links here.
 
 ## When the code is next touched
 
@@ -376,6 +386,7 @@ Not scheduled. Do each one as part of a change that already touches the code, an
   (`test/fixtures/typed.ts`). (N, S)
 - Move commit checkbox selections into `ui` state so a refresh can proceed while they are ticked (`src/web.ts`,
   `src/ui/browser-view.ts:163`). (S)
+- `activityTitle` (`src/activity-text.ts:141`) renders the raw stored build `definition.name`, so a value that cannot be converted to text can break the page. Found in PR #106's review and already present on `main`.
 
 ## Only if use shows it
 
