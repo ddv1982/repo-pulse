@@ -10,7 +10,7 @@ import { setTimeout as sleep } from 'node:timers/promises';
  */
 export async function lockDatabase(database: string, { timeout = 2000 }: { timeout?: number } = {}) {
   const file = `${database}.lock`;
-  const deadline = Date.now() + timeout;
+  const deadline = performance.now() + timeout;
   for (;;) {
     const lock = new DatabaseSync(file);
     try {
@@ -23,7 +23,7 @@ export async function lockDatabase(database: string, { timeout = 2000 }: { timeo
     }
     // Two starts at once can each keep the shared lock the other needs, and SQLite then refuses both at once instead
     // of waiting. Closing drops that shared lock; a short random pause lets one of them win on the next try.
-    if (Date.now() >= deadline) {
+    if (performance.now() >= deadline) {
       throw Object.assign(new Error(`Another Repo Pulse is already running on this data (lock file ${file}). Stop it first.`), {
         code: 'DATA_DIR_LOCKED',
       });
