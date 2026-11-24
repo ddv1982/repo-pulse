@@ -62,7 +62,8 @@ Every behaviour fix starts with a failing test. These touch `server/sync.ts`, `s
       the repository unwatched, so a repository removed and added again before that turn inherits the old order until
       item 1.4's `forget` lands, which clears it on removal. An unreadable build without a readable ID is not counted
       again for a remembered build asked for in the same lookup: the count is the remembered builds plus the
-      anonymous ones beyond the remembered builds that lookup asked for. A build without a `repository.id` is unreadable; a build
+      anonymous ones beyond the remembered builds that lookup asked for, and the anonymous ones' fields join the
+      warning's fields either way. A build without a `repository.id` is unreadable; a build
       of another repository is still left out. A ref with an empty `name` or `objectId` is unreadable. A refs
       snapshot with unreadable records is incomplete: it adds and updates its readable refs and reports none as no
       longer listed. While the baseline is being established, an incomplete snapshot is no baseline, so the stream
@@ -70,8 +71,13 @@ Every behaviour fix starts with a failing test. These touch `server/sync.ts`, `s
       which only a push can have recorded by then, and keeps their `evidence`. The first complete snapshot therefore
       behaves as on `main`: it records every ref without a "first seen" event, which the standing warning makes
       visible, reports none as no longer listed, and leaves a ref a push recorded for the next complete snapshot,
-      which reports it as no longer listed. Once the baseline is established, an incomplete snapshot still creates
-      the readable refs it is the first to list and announces them. Refs saved mid-snapshot are
+      which reports it as no longer listed. Tags follow the same rule until the tag baseline, which a stream
+      initialized before tags were tracked lacks: an incomplete snapshot creates no tag, updates the existing ones
+      and keeps their `evidence`, and records that it was read (`ref-baseline:tags-incomplete`). The first complete
+      snapshot writes the tag baseline as on `main`; it announces no tag as first seen, and it reports a tag it omits
+      as no longer listed when an incomplete snapshot was read before it, which `main` would have taken for the
+      baseline, and otherwise puts that tag away without an event, as `main` does. Once the baseline is established,
+      an incomplete snapshot still creates the readable refs it is the first to list and announces them. Refs saved mid-snapshot are
       checked again when the snapshot resumes. A history import that skips unreadable records keeps them on its job
       in `warnings`, one per stream with the count and fields, and the repository's import status shows each message
       in Details; the always visible chip names the count while running, retrying or finished ("History sync finished
@@ -112,7 +118,16 @@ Every behaviour fix starts with a failing test. These touch `server/sync.ts`, `s
       reported once complete snapshots omit them" (the snapshot dropped their push `evidence`, and no event followed;
       `main` reports both) and "an unreadable build without an ID is not counted again for a remembered build asked in
       the same lookup" (it counted 2). It adapted the put-away test to the new rule, which failed first because the
-      incomplete snapshot saved the branch. `npm test` 523/523 and `npm run test:ui` 86/86.
+      incomplete snapshot saved the branch. The fifth review round applied the branch rule to tags before the tag
+      baseline and added, each failing first: "before the tag baseline, a tag a push recorded and an incomplete
+      snapshot listed is reported once a complete snapshot omits it" (the snapshot dropped the push `evidence`, and
+      no event followed; `main` reports it), "before the tag baseline, a tag a push records after an incomplete
+      snapshot is reported once a complete snapshot omits it" (no event; `main` reports v3, and puts v1 away at the
+      incomplete snapshot, which it reads as complete) and "an unreadable build without an ID that may be a remembered
+      build adds its fields to the warning without counting again" (the warning named only `status`). "before the tag
+      baseline, a tag a push recorded that the first complete snapshot omits is put away without an event, as on
+      main" passed before the change and stays as the guard that a complete-only sequence matches `main`. `npm test`
+      527/527 and `npm run test:ui` 86/86.
 - [x] 1.3 A malformed `refUpdates` must fail with a named error, not the generic `SYNC_FAILED`, and follow the
       1.2 handling. Check: a failing-first test with `refUpdates` set to an object. (S reproduced) Done: "a push
       whose refUpdates is not a list is skipped with a warning instead of failing the page" failed first with
