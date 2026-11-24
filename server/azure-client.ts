@@ -448,8 +448,9 @@ export function createAzureClient({ cli, now = Date.now }: { cli?: AzureClientCl
       });
     },
     /**
-     * Throws UNREADABLE_RECORD, with the field that is missing or malformed, for a pull request that is this
-     * repository's but cannot be read.
+     * Throws UNREADABLE_RECORD, with the field that is missing or malformed, for a pull request that cannot be read,
+     * including one whose ID or repository cannot be read. An answer whose readable ID names another pull request is
+     * INVALID_RESPONSE, and one whose readable repository is another is WRONG_REPOSITORY.
      */
     async pullRequest(repo: AzureRepo, id: string | number): Promise<AzurePullRequest> {
       if (!/^\d+$/.test(String(id))) throw new Error('Invalid PR ID');
@@ -464,20 +465,16 @@ export function createAzureClient({ cli, now = Date.now }: { cli?: AzureClientCl
         '--detect',
         'false',
       ]);
-      const prId = fieldOf(raw, 'pullRequestId');
-      const repositoryId = fieldOf(fieldOf(raw, 'repository'), 'id');
-      if (
-        !['string', 'number'].includes(typeof prId) ||
-        String(prId) !== String(id) ||
-        typeof repositoryId !== 'string' ||
-        !repositoryId.trim()
-      )
+      const prId = recordId('prs', raw);
+      if (prId !== undefined && prId !== String(id))
         throw cliError('INVALID_RESPONSE', 'Azure CLI did not return the requested repository pull request.');
+      const repositoryId = textOf(fieldOf(fieldOf(raw, 'repository'), 'id'))?.trim();
       // A PR that now belongs to another repository, for example after a move, cannot be read for this one.
-      if (repositoryId.toLowerCase() !== repo.azureId?.toLowerCase())
+      if (repositoryId && repositoryId.toLowerCase() !== repo.azureId?.toLowerCase())
         throw cliError('WRONG_REPOSITORY', 'Azure returned this pull request for a different repository.');
-      if (!isAzurePullRequest(raw)) {
-        const field = unreadableField('prs', raw) ?? 'record';
+      const unreadable = unreadableField('prs', raw) ?? (repositoryId ? null : 'repository.id');
+      if (unreadable !== null || !isAzurePullRequest(raw)) {
+        const field = unreadable ?? 'record';
         throw Object.assign(cliError('UNREADABLE_RECORD', `Azure returned pull request ${String(id)} without a readable ${field}.`), {
           field,
         });

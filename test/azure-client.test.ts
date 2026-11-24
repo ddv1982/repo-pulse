@@ -142,23 +142,25 @@ test('active PR reads are explicitly repo-scoped and exact PR reconciliation use
   assert.deepEqual(present(calls[1]).slice(0, 3), ['repos', 'pr', 'show']);
   const foreign = createAzureClient({ cli: { run: async () => ({ pullRequestId: 123, repository: { id: 'different' } }) } });
   await assert.rejects(foreign.pullRequest(repo, 123), { code: 'WRONG_REPOSITORY' });
-  const malformed = createAzureClient({ cli: { run: async () => ({ repository: { id: 'repo1' } }) } });
-  await assert.rejects(malformed.pullRequest(repo, 123), { code: 'INVALID_RESPONSE' });
-  const noRepository = createAzureClient({ cli: { run: async () => ({ pullRequestId: 123 }) } });
-  await assert.rejects(noRepository.pullRequest(repo, 123), { code: 'INVALID_RESPONSE' });
+  // A readable identity that names another pull request is a wrong answer, not an unreadable record.
   const otherId = createAzureClient({ cli: { run: async () => ({ pullRequestId: 124, repository: { id: 'repo1' } }) } });
   await assert.rejects(otherId.pullRequest(repo, 123), { code: 'INVALID_RESPONSE' });
   // Azure GUIDs differ in case between APIs, as elsewhere in the app.
   const upper = createAzureClient({ cli: { run: async () => ({ pullRequestId: 123, repository: { id: 'REPO1' } }) } });
   assert.equal((await upper.pullRequest(repo, 123)).pullRequestId, 123);
-  for (const payload of [
-    { pullRequestId: [123], repository: { id: 'repo1' } },
-    { pullRequestId: 123, repository: { id: 7 } },
-    { pullRequestId: 123, repository: { id: { id: 'repo1' } } },
-    { pullRequestId: 123, repository: { id: '  ' } },
-  ]) {
+  // An identity that cannot be read is skipped and counted like any unreadable record.
+  for (const [payload, field] of [
+    [{ repository: { id: 'repo1' } }, 'pullRequestId'],
+    [{ pullRequestId: [123], repository: { id: 'repo1' } }, 'pullRequestId'],
+    [{ pullRequestId: '123', repository: { id: 'repo1' } }, 'pullRequestId'],
+    [{ pullRequestId: '124', repository: { id: 'repo1' } }, 'pullRequestId'],
+    [{ pullRequestId: 123 }, 'repository.id'],
+    [{ pullRequestId: 123, repository: { id: 7 } }, 'repository.id'],
+    [{ pullRequestId: 123, repository: { id: { id: 'repo1' } } }, 'repository.id'],
+    [{ pullRequestId: 123, repository: { id: '  ' } }, 'repository.id'],
+  ] satisfies [object, string][]) {
     const odd = createAzureClient({ cli: { run: async () => payload } });
-    await assert.rejects(odd.pullRequest(repo, 123), { code: 'INVALID_RESPONSE' }, JSON.stringify(payload));
+    await assert.rejects(odd.pullRequest(repo, 123), { code: 'UNREADABLE_RECORD', field }, JSON.stringify(payload));
   }
 });
 

@@ -1886,3 +1886,31 @@ test('builds beyond the first lookup batch get a turn when every build in it sta
   assert.equal(builds.status(121), 'completed');
   builds.store.close();
 });
+
+test('a PR lookup that comes back without a pullRequestId is counted and does not stop a readable sibling', async () => {
+  let listed: unknown[] = [cachedPr(1), cachedPr(2)];
+  const client = createAzureClient({
+    cli: {
+      run: async args => {
+        if (args[0] !== 'repos') return { value: listed };
+        if (args.includes('1')) {
+          const withoutId: Record<string, unknown> = { ...cachedPr(1, 'completed'), repository: { id: 'a' } };
+          delete withoutId.pullRequestId;
+          return withoutId;
+        }
+        return { ...cachedPr(2, 'completed'), repository: { id: 'a' } };
+      },
+    },
+  });
+  const { store, sync, advance } = setup(client, ['prs']);
+  await sync.tick();
+  listed = [];
+  advance();
+  await sync.tick();
+  const prs = present(store.getStreams().find(state => state.stream === 'prs'));
+  assert.equal(prs.error, null, 'the unreadable answer does not fail the page');
+  assert.deepEqual(prs.warning && { fields: prs.warning.fields, count: prs.warning.count }, { fields: ['pullRequestId'], count: 1 });
+  assert.equal(fieldsOf(store.getEntity(repo.id, 'pr', '1')).status, 'active', 'the unreadable PR is left as it was');
+  assert.equal(fieldsOf(store.getEntity(repo.id, 'pr', '2')).status, 'completed', 'its readable sibling is looked up and commits');
+  store.close();
+});
