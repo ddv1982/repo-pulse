@@ -73,14 +73,17 @@ Every behaviour fix starts with a failing test. These touch `server/sync.ts`, `s
       which only a push can have recorded by then. The first complete snapshot therefore
       behaves as on `main`: it records every ref without a "first seen" event, which the standing warning makes
       visible, reports none as no longer listed, and leaves a ref a push recorded for the next complete snapshot,
-      which reports it as no longer listed. Tags follow the same rule until the tag baseline, which a stream
-      initialized before tags were tracked lacks: an incomplete snapshot creates no tag and updates the existing
-      ones, and records which tags its unreadable refs may be (`ref-baseline:tags-incomplete`): the tags they name,
-      or every tag once one had no readable name, joined across incomplete snapshots. The first complete snapshot
-      writes the tag baseline as on `main` and announces no tag as first seen. A tag it omits that one of those
-      unreadable refs may be is reported as no longer listed, as `main` reported it after taking the incomplete
-      snapshot, malformed tag included, for the baseline; any other tag it omits is put away without an event, as
-      `main` put it away at that incomplete snapshot. Once the baseline is established,
+      which reports it as no longer listed. A stream initialized before tags were tracked has no tag baseline, and
+      `main` took its next snapshot for that baseline even when it was incomplete. So an incomplete snapshot of such
+      a stream establishes the tag baseline from its readable tags exactly as `main` did: it writes
+      `ref-baseline:tags`, creates and updates its readable tags, puts away the tags it omits without an event and
+      announces no tag as first seen. The exception is an uncertain tag, one its unreadable refs may be: a tag one
+      of them names, or every tag once one has no readable name. That snapshot neither puts away a stored uncertain
+      tag nor creates an uncertain one, and keeps the set (`ref-baseline:tags-uncertain`, names or `all`). Further
+      incomplete snapshots before a complete one join their sets to it. The next complete snapshot creates an
+      uncertain tag it lists without a "first seen" event, reports a stored uncertain tag it omits as no longer
+      listed, as `main` does with a baseline, and clears the set. Later snapshots then behave as on `main` with an
+      established baseline. Once the baseline is established,
       an incomplete snapshot still creates the readable refs it is the first to list and announces them. Refs saved mid-snapshot are
       checked again when the snapshot resumes. A history import that skips unreadable records keeps them on its job
       in `warnings`, one per stream with the count and fields, and the repository's import status shows each message
@@ -156,17 +159,34 @@ Every behaviour fix starts with a failing test. These touch `server/sync.ts`, `s
       `evidence`, and with it removed only the three assertions on it failed, while every event those tests check
       still passed, so those assertions were dropped. A tag deletion can still show twice as described above.
       Display fields now pass through as Azure sent them (see 2.1), which "a push with a malformed web link still
-      reports its tag deletion, without a warning, as on main" still confirms. `npm test` 567/567 and
-      `npm run test:ui` 86/86.
+      reports its tag deletion, without a warning, as on main" still confirms. The eighth review round replaced the
+      `ref-baseline:tags-incomplete` marker with the rule above, since the marker kept a stream without the tag
+      baseline from reporting a tag that `main` reports. It added two tests that failed first on a61c444: "before the
+      tag baseline, an incomplete snapshot is the tag baseline for its readable tags, so a tag it listed is reported
+      once a complete snapshot omits it, as on main", and its variant where a push records the tag between the two
+      snapshots (Sol's probes: the incomplete snapshot lists v1 and its only unreadable ref is a named branch; both
+      gave no event, while `main` reports "Tag no longer listed · v1"). Four tag tests asserted that an incomplete
+      snapshot writes no tag baseline, which the new rule reverses, and failed on that assertion alone. They now
+      assert that it is the baseline, and check the new rule further. "a tag a push recorded and an incomplete
+      snapshot listed" checks that v2, uncertain, is not created, and that a later complete snapshot that lists v2
+      announces it, so the set was cleared (with the clear removed, that test fails). The round-7 guard "a tag that
+      no unreadable ref of an incomplete snapshot could be" checks that v1 is put away at the incomplete snapshot,
+      and that no event follows, as on `main`. "a tag that an unreadable ref of any incomplete snapshot may be"
+      checks that neither incomplete snapshot puts v1 away. "a tag unreadable in the first refs snapshot with
+      tags is not announced as first seen once it reads" checks that the incomplete snapshot records v0 but not v1,
+      and that v1 reappears without a "first seen" event. "a tag a push records after an incomplete snapshot" passed
+      unchanged; it now also checks that v1, uncertain, stays active. The same probes, the round-7 guard and the
+      reappearing tag were run on a throwaway `origin/main` 844c7b6 worktree, and each gives the same tag events
+      there. `npm test` 572/572 and `npm run test:ui` 86/86.
 - [x] 1.3 A malformed `refUpdates` must fail with a named error, not the generic `SYNC_FAILED`, and follow the
       1.2 handling. Check: a failing-first test with `refUpdates` set to an object. (S reproduced) Done: "a push
       whose refUpdates is not a list is skipped with a warning instead of failing the page" failed first with
       `SYNC_FAILED`, and now passes with a warning naming `refUpdates`. The warning follows the 1.2 rules: only a
       completed read replaces or clears it, and an unreadable ref makes its refs snapshot incomplete, so it reports
       no deletions and sets no baseline. Before the baseline it creates no ref, so the first complete snapshot sets
-      the baseline as on `main`, and before the tag baseline it reports a tag it omits only when one of the earlier
-      incomplete snapshots' unreadable refs may be that tag (see 1.2). With an established baseline an incomplete
-      snapshot still announces the readable refs it is the first to list. `npm test` 567/567.
+      the baseline as on `main`. On a stream without the tag baseline it is that baseline for its readable tags, as
+      on `main`, except the tags its unreadable refs may be (see 1.2). With an established baseline an incomplete
+      snapshot still announces the readable refs it is the first to list. `npm test` 572/572.
 - [ ] 1.4 A read still in flight must not write into a watch that was removed and added again. Today the old
       read inserts an event and initializes the replacement stream, and the re-add hits the old refresh
       cooldown (`server/sync.ts:218`, `server/sync.ts:434`, `server/store.ts:646`). Fix: tie each commit and the
@@ -197,7 +217,7 @@ and Azure code, so they get the full cross-model review.
       guard. (O, N, S; verified) Done: `git grep -n AzureRecord -- '*.ts'` finds nothing (`grep -rn` still finds
       this plan's own text and `docs/typescript-migration.md:134`); the guards are in `server/azure-records.ts`; the
       six per-stream tests in `test/azure-client.test.ts` fail on the code before this change and pass after; the
-      Phase 1 tests, 567 unit tests and 86 browser tests pass. A page also names the PRs and builds it left out whose
+      Phase 1 tests, 572 unit tests and 86 browser tests pass. A page also names the PRs and builds it left out whose
       ID can be read, with the field each could not be read for (`unreadableIds`), and a build's `repository.id` and
       a ref's `name` and `objectId` are required. A PR lookup checks that the answer is an object before its fields.
       Only a field the code needs for a record's identity or meaning makes it unreadable: IDs, ref names and object
@@ -210,11 +230,19 @@ and Azure code, so they get the full cross-model review.
       `closedBy`, `requestedFor`, `requestedBy`, shown as Unknown), a PR's `title` (Untitled, and part of the PR
       fingerprint) and a reviewer's `displayName` (Unknown reviewer), and a build's `definition` (Pipeline) and
       `reason`. Where `main` put a value that is not text into an event's actor or a build's title, the event holds
-      its text, since those fields are typed as text; the fingerprints and IDs do not use them. "a PR with a malformed
+      its text, since those fields are typed as text; the fingerprints and IDs do not use them. A value String()
+      cannot convert, such as `{"toString":null}`, failed the read with `SYNC_FAILED` on a61c444. `main` stored it,
+      but its page could not show it, since its HTML escape converts with String(). The event now holds the text
+      `main` shows for a missing value (Unknown, Pipeline). Three table rows (a tag-only push's `pushedBy`, a branch
+      push's `pushedBy` and a build's `definition.name`) failed first on a61c444 with "Cannot convert object to
+      primitive value". On `main` the tag-only push and the build are stored with the object, and the branch push
+      fails as well, since its title interpolates the actor. A build row still takes its title from
+      `data.definition.name`, which holds the object as on `main`, so that row still cannot be shown, on `main` and
+      here alike. "a PR with a malformed
       title keeps the fingerprint and IDs main gave it, so it is not reported again live or on re-import" failed on
       71ef4d6 (Sol's probe: the live ID hashed to `6f9e774806a44a3f8c0c1860` instead of `main`'s
       `6dd098039132df677cced0d5`, so a replay after the upgrade added a second row, and a re-import missed `main`'s
-      history row). The table in `test/azure-client.test.ts` checks both sides per stream: its 15 display rows keep
+      history row). The table in `test/azure-client.test.ts` checks both sides per stream: its first 15 display rows keep
       the record whole and show what `origin/main` 844c7b6 shows, checked by running the same rows there (12 match
       exactly; the 3 whose actor or build title `main` filled with `7`, `7` and `["A"]` hold `"7"`, `"7"` and `"A"`),
       and all 15 failed on 71ef4d6. Checkout advice reads completed PRs with its own reader of only the fields it uses
