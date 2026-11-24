@@ -1886,6 +1886,15 @@ test('a build omitted from a lookup is given up even when another build in that 
   builds.store.close();
 });
 
+test('no build is given up in a lookup that returns a build whose ID cannot be read', async () => {
+  const builds = await leftActiveBuilds([42], () => ({ ...inProgressBuild(42), id: '42' }));
+  await builds.turn();
+  assert.equal(builds.status(42), 'inProgress', 'the unreadable answer may be build 42, so it is not a removal');
+  await builds.turn();
+  assert.deepEqual(builds.asked, [[42], [42]], 'it is looked up again');
+  builds.store.close();
+});
+
 test('builds beyond the first lookup batch get a turn when one build stays unreadable and the rest were removed', async () => {
   const ids = Array.from({ length: 21 }, (_, index) => 101 + index);
   const builds = await leftActiveBuilds(ids, id =>

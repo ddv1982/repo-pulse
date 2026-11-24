@@ -332,6 +332,35 @@ export function createSync({
     return { state, repo };
   }
   /**
+   * Looks up by ID up to 20 cached in-progress builds that the active list no longer holds. Returns the builds Azure
+   * answered with, what it returned unreadable, and the builds it no longer has.
+   */
+  async function lookUpBuilds(repo: WatchedRepo, activeIds: string[]) {
+    if (!provider.buildsById) return { items: [], gone: [] };
+    const missing = new Map(
+      store
+        .listEntities(repo.id, 'build')
+        .filter(entry => entry.data.status !== 'completed' && !activeIds.includes(entry.id))
+        .map(entry => [entry.id, entry.data]),
+    );
+    const turn = lookupTurn([...missing.keys()], buildLookedUp.get(repo.id), 20);
+    if (!turn.length) return { items: [], gone: [] };
+    buildLookedUp.set(repo.id, String(turn.at(-1)));
+    const byId = await provider.buildsById(repo, turn);
+    // Azure omits a build it no longer has (removed by retention, see docs/probe-results.md), so stop asking for it.
+    // The fingerprint stays, so no event is made for it and a later sighting still compares against its last state.
+    // With more pages to read, an omitted build may only be on a later one, so none is given up this turn. A build
+    // Azure returned unreadable is not omitted, and when one of those has no readable ID it may be any build asked
+    // for, so none is given up either.
+    const answered = new Set([...byId.items.map(item => String(item.id)), ...(byId.unreadableIds || [])]);
+    const unnamed = (byId.unreadable?.count ?? 0) > (byId.unreadableIds?.length ?? 0);
+    const gone: Entity[] =
+      byId.nextCursor || unnamed
+        ? []
+        : turn.filter(id => !answered.has(id)).map(id => ({ type: 'build', id, data: { ...missing.get(id), status: 'completed' } }));
+    return { items: byId.items, unreadable: byId.unreadable, gone };
+  }
+  /**
    * Reads one page plus, on the last page of a snapshot stream, the entities it no longer lists.
    * Returns null when the repository stopped being watched during a read.
    */
@@ -353,28 +382,11 @@ export function createSync({
     let unreadableLookups: UnreadableLookups;
     const snapshot = snapshotRefs(state, page);
     unreadable = addUnreadable(unreadable, snapshot.unreadable);
-    if (complete && state.stream === 'activeBuilds' && provider.buildsById) {
-      const missing = new Map(
-        store
-          .listEntities(repo.id, 'build')
-          .filter(entry => entry.data.status !== 'completed' && !activeIds?.includes(entry.id))
-          .map(entry => [entry.id, entry.data]),
-      );
-      const turn = lookupTurn([...missing.keys()], buildLookedUp.get(repo.id), 20);
-      if (turn.length) {
-        buildLookedUp.set(repo.id, String(turn.at(-1)));
-        const byId = await provider.buildsById(repo, turn);
-        const found = byId.items;
-        items = [...items, ...found];
-        unreadable = addUnreadable(unreadable, byId.unreadable);
-        // Azure omits a build it no longer has (removed by retention, see docs/probe-results.md), so stop asking for it.
-        // The fingerprint stays, so no event is made for it and a later sighting still compares against its last state.
-        // With more pages to read, an omitted build may only be on a later one, so none is given up this turn. A build
-        // Azure returned unreadable is not omitted.
-        const answered = new Set([...found.map(item => String(item.id)), ...(byId.unreadableIds || [])]);
-        if (!byId.nextCursor)
-          gone = turn.filter(id => !answered.has(id)).map(id => ({ type: 'build', id, data: { ...missing.get(id), status: 'completed' } }));
-      }
+    if (complete && state.stream === 'activeBuilds') {
+      const builds = await lookUpBuilds(repo, activeIds || []);
+      items = [...items, ...builds.items];
+      unreadable = addUnreadable(unreadable, builds.unreadable);
+      gone = builds.gone;
     }
     if (complete && state.stream === 'prs' && provider.pullRequest) {
       const missing = store
