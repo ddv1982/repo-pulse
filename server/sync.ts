@@ -663,14 +663,16 @@ export function createSync({
       }
     },
     /**
-     * Ends the watch of a removed repository: a read still in flight for it is dropped when it completes, and its
-     * cooldown, PR lookup rotation and stream rotation do not carry over to a later re-add. Its requested refreshes
-     * need nothing here: status() drops them once the re-added streams are behind the generation they asked for.
+     * Ends the watch of a removed repository: a read still in flight for it is dropped when it completes, and none of
+     * its in-memory state (cooldown, PR and build lookup order, stream rotation, unanswered refreshes) carries over to a
+     * later re-add, even one made before the next turn would see the repository gone.
      */
     forget(repoId: string) {
       watches.set(repoId, watchOf(repoId) + 1);
       refreshedAt.delete(repoId);
       prTurns.delete(repoId);
+      buildTurns.delete(repoId);
+      for (const [key, entry] of requested) if (entry.repoId === repoId) requested.delete(key);
       if (STREAMS.some(stream => lastKey === `${repoId}:${stream}`)) lastKey = undefined;
     },
     refresh(repoIds?: string[]): RefreshStatus {

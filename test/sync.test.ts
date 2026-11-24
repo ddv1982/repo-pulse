@@ -2060,6 +2060,49 @@ test('an older build is still looked up while 20 newer builds leave the active l
   store.close();
 });
 
+test('a repository removed and added again with no read in between starts its build lookup order afresh', async () => {
+  const ids = Array.from({ length: 21 }, (_, index) => String(index + 1));
+  let listed = ids;
+  const asked: string[][] = [];
+  const provider: SyncProvider = {
+    async read(_repo, stream) {
+      return { items: stream === 'activeBuilds' ? listed.map(id => inProgressBuild(Number(id))) : [], nextCursor: null };
+    },
+    // Every build stays unreadable, so none is given up and the turn order alone decides which builds a lookup asks for.
+    async buildsById(_repo, wanted) {
+      asked.push(wanted);
+      const unreadableIds = wanted.map(id => ({ id, field: 'status' }));
+      return { items: [], nextCursor: null, unreadable: { count: wanted.length, fields: ['status'] }, unreadableIds };
+    },
+  };
+  const { store, sync, advance } = setup(provider, ['activeBuilds']);
+  await sync.tick();
+  listed = [];
+  advance(600000);
+  await sync.tick();
+  assert.deepEqual(asked, [ids.slice(0, 20)]);
+
+  // The remove route forgets the watch, and the repository is added again before any turn sees it gone.
+  store.removeRepo(repo.id);
+  sync.forget(repo.id);
+  store.saveRepo(repo);
+  sync.refresh();
+  for (const state of store.getStreams())
+    if (state.stream !== 'activeBuilds') store.saveStream({ ...state, nextAt: '2099-01-01T00:00:00Z' });
+  // Removal deleted the builds, and a read that misses none empties the order, so the old order could only resume for
+  // in-progress builds saved before the re-added watch's first lookup.
+  store.commitPage({
+    repoId: repo.id,
+    stream: 'activeBuilds',
+    entities: ids.map(id => ({ type: 'build', id, data: { status: 'inProgress' } })),
+  });
+  asked.length = 0;
+  advance(600000);
+  await sync.tick();
+  assert.deepEqual(asked, [ids.slice(0, 20)], 'the order the removed watch left is not resumed');
+  store.close();
+});
+
 test('an older build that sorts after the newer ones is still looked up while 20 of them leave the active list every read', async () => {
   // Numeric order alone would always pick the 20 newcomers below 1000; only the turn order gives build 1000 its turn.
   const batch = (cycle: number) => Array.from({ length: 20 }, (_, index) => String(20 * (cycle - 1) + index + 1));
