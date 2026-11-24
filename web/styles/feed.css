@@ -48,15 +48,13 @@
 .summary-filter {
   background: none;
   border: 0;
-  padding: 0;
+  border-radius: 4px;
+  padding: 2px 4px;
   cursor: pointer;
-  text-decoration: underline;
-  text-decoration-color: color-mix(in oklab, currentColor 65%, transparent);
-  text-underline-offset: 0.16em;
 }
 .summary-filter:hover,
 .summary-filter:focus-visible {
-  text-decoration-color: currentColor;
+  background: var(--accent);
 }
 .summary-chips .summary-filter {
   min-width: 24px;
@@ -93,8 +91,9 @@
 .cell .summary-filter {
   text-align: left;
 }
-.cell .summary-filter .label {
-  color: inherit;
+.cell[data-summary-kind='CI runs'] .label,
+.summary-chips .summary-filter .label {
+  color: var(--foreground);
 }
 .cell .sub {
   margin-top: 2px;

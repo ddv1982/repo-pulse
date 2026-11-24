@@ -97,7 +97,9 @@ export function renderSummary(
       }
       const breakdown = cell.build ? ciBreakdown('chip', state.activity.newBuildCounts) : cell.sub ? [cell.sub] : [];
       const title = `${cell.label} ${cell.count}`;
-      const value = cell.build ? ciFilterButton('chip', 'build', title, `CI runs, ${cell.count} unread`) : title;
+      const value = cell.build
+        ? ciFilterButton('chip', 'build', html`<span class="label">${cell.label}</span> ${cell.count}`, `CI runs, ${cell.count} unread`)
+        : title;
       return html`<span class="chip">${value}${breakdown.length ? html` · ${joinHtml(breakdown, ' · ')}` : emptyHtml}</span>`;
     })}</div></div><div class="cells c4">${counts.map(cell => {
     const failures = cell.build && filteredToFailures;
