@@ -451,8 +451,8 @@ export function createAzureClient({ cli, now = Date.now }: { cli?: AzureClientCl
     },
     /**
      * Throws UNREADABLE_RECORD, with the field that is missing or malformed, for a pull request that cannot be read,
-     * including one whose ID or repository cannot be read. An answer whose readable ID names another pull request is
-     * INVALID_RESPONSE, and one whose readable repository is another is WRONG_REPOSITORY.
+     * including one whose ID or repository cannot be read. An answer that is not an object, or whose readable ID names
+     * another pull request, is INVALID_RESPONSE, and one whose readable repository is another is WRONG_REPOSITORY.
      */
     async pullRequest(repo: AzureRepo, id: string | number): Promise<AzurePullRequest> {
       if (!/^\d+$/.test(String(id))) throw new Error('Invalid PR ID');
@@ -468,7 +468,7 @@ export function createAzureClient({ cli, now = Date.now }: { cli?: AzureClientCl
         'false',
       ]);
       const prId = recordId('prs', raw);
-      if (prId !== undefined && prId !== String(id))
+      if (!isRecord(raw) || (prId !== undefined && prId !== String(id)))
         throw cliError('INVALID_RESPONSE', 'Azure CLI did not return the requested repository pull request.');
       const repositoryId = textOf(fieldOf(fieldOf(raw, 'repository'), 'id'))?.trim();
       // A PR that now belongs to another repository, for example after a move, cannot be read for this one.

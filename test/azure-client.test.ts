@@ -165,6 +165,11 @@ test('active PR reads are explicitly repo-scoped and exact PR reconciliation use
     const odd = createAzureClient({ cli: { run: async () => payload } });
     await assert.rejects(odd.pullRequest(repo, 123), { code: 'UNREADABLE_RECORD', field }, JSON.stringify(payload));
   }
+  // An answer that is not an object at all is not a pull request, so it is a wrong answer as well.
+  for (const payload of [null, 'pull request 123', [{ pullRequestId: 123, repository: { id: 'repo1' } }], 123]) {
+    const notObject = createAzureClient({ cli: { run: async () => payload } });
+    await assert.rejects(notObject.pullRequest(repo, 123), { code: 'INVALID_RESPONSE' }, JSON.stringify(payload));
+  }
 });
 
 test('connection detection reuses local CLI sign-in without acquiring credentials or requiring setup', async () => {
