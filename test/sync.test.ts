@@ -2600,17 +2600,31 @@ test('before the tag baseline, a tag a push recorded and an incomplete snapshot 
   const { store, sync, advance, titles } = await legacyRefsWithPushedTag(() => snapshot);
   advance(600001);
   await sync.tick();
-  assert.equal(store.getEntity(repo.id, 'ref-baseline', 'tags'), undefined, 'the incomplete snapshot is no tag baseline');
-  assert.equal(store.getEntity(repo.id, 'ref', 'refs/tags/v2'), undefined, 'and saves no new tag');
+  assert.ok(store.getEntity(repo.id, 'ref-baseline', 'tags'), 'as on main, the incomplete snapshot is the tag baseline');
+  assert.equal(
+    store.getEntity(repo.id, 'ref', 'refs/tags/v2'),
+    undefined,
+    'its unreadable ref has no readable name, so every tag is uncertain and v2 is not created',
+  );
   snapshot = { items: [{ name: 'refs/heads/main', objectId: 'a' }], nextCursor: null };
   advance(600001);
   await sync.tick();
-  assert.ok(store.getEntity(repo.id, 'ref-baseline', 'tags'), 'the complete snapshot is the tag baseline');
   assert.equal(fieldsOf(store.getEntity(repo.id, 'ref', 'refs/tags/v1')).active, false);
   assert.deepEqual(titles(), ['Tag no longer listed · v1'], 'as on main');
+  snapshot = {
+    items: [
+      { name: 'refs/heads/main', objectId: 'a' },
+      { name: 'refs/tags/v2', objectId: 'd'.repeat(40) },
+    ],
+    nextCursor: null,
+  };
   advance(600001);
   await sync.tick();
-  assert.deepEqual(titles(), ['Tag no longer listed · v1'], 'and only once');
+  assert.deepEqual(
+    titles(),
+    ['Tag first seen · v2', 'Tag no longer listed · v1'],
+    'v1 is reported only once, and the complete snapshot cleared the uncertain tags, so v2 is announced as on main',
+  );
   store.close();
 });
 
@@ -2623,6 +2637,7 @@ test('before the tag baseline, a tag a push records after an incomplete snapshot
   const { store, sync, advance, titles, pushTag } = await legacyRefsWithPushedTag(() => snapshot);
   advance(600001);
   await sync.tick();
+  assert.equal(fieldsOf(store.getEntity(repo.id, 'ref', 'refs/tags/v1')).active, true, 'v1 is uncertain, so it is not put away');
   await pushTag(4, 'refs/tags/v3');
   assert.equal(fieldsOf(store.getEntity(repo.id, 'ref', 'refs/tags/v3')).evidence, 'push');
   snapshot = { items: [{ name: 'refs/heads/main', objectId: 'a' }], nextCursor: null };
@@ -2662,14 +2677,41 @@ test('before the tag baseline, a tag that no unreadable ref of an incomplete sna
   const { store, sync, advance, titles } = await legacyRefsWithPushedTag(() => client.read(repo, 'refs'));
   advance(600001);
   await sync.tick();
-  assert.equal(store.getEntity(repo.id, 'ref-baseline', 'tags'), undefined, 'the incomplete snapshot is no tag baseline');
+  assert.ok(store.getEntity(repo.id, 'ref-baseline', 'tags'), 'as on main, the incomplete snapshot is the tag baseline');
+  assert.equal(fieldsOf(store.getEntity(repo.id, 'ref', 'refs/tags/v1')).active, false, 'and puts v1 away there');
   refs = [{ name: 'refs/heads/main', objectId: 'a' }];
   advance(600001);
   await sync.tick();
-  assert.equal(fieldsOf(store.getEntity(repo.id, 'ref', 'refs/tags/v1')).active, false);
-  assert.deepEqual(titles(), [], 'main took the incomplete snapshot for the tag baseline and put v1 away there');
+  assert.deepEqual(titles(), [], 'as on main, no event follows');
   store.close();
 });
+
+for (const pushedBetween of [false, true])
+  test(`before the tag baseline, an incomplete snapshot is the tag baseline for its readable tags, so a tag it listed${pushedBetween ? ' and a push then recorded' : ''} is reported once a complete snapshot omits it, as on main`, async () => {
+    // Sol's probes: the incomplete snapshot lists v1 and its only unreadable ref is a named branch.
+    let refs: unknown[] = [
+      { name: 'refs/heads/main', objectId: 'a' },
+      { name: 'refs/tags/v1', objectId: 'c'.repeat(40) },
+      { name: 'refs/heads/feature', objectId: 7 },
+    ];
+    const client = createAzureClient({ cli: { run: async () => ({ value: refs }) } });
+    const { store, sync, advance, titles, pushTag } = await legacyRefsWithPushedTag(() => client.read(repo, 'refs'));
+    advance(600001);
+    await sync.tick();
+    assert.ok(store.getEntity(repo.id, 'ref-baseline', 'tags'), 'as on main, the incomplete snapshot is the tag baseline');
+    if (pushedBetween) await pushTag(4, 'refs/tags/v1');
+    refs = [
+      { name: 'refs/heads/main', objectId: 'a' },
+      { name: 'refs/heads/feature', objectId: 'f' },
+    ];
+    advance(600001);
+    await sync.tick();
+    assert.deepEqual(titles(), ['Tag no longer listed · v1'], 'main reports v1');
+    advance(600001);
+    await sync.tick();
+    assert.deepEqual(titles(), ['Tag no longer listed · v1'], 'and only once');
+    store.close();
+  });
 
 test('before the tag baseline, a tag that an unreadable ref of any incomplete snapshot may be is reported once a complete snapshot omits it', async () => {
   let refs: unknown[] = [
@@ -2687,7 +2729,7 @@ test('before the tag baseline, a tag that an unreadable ref of any incomplete sn
   ];
   advance(600001);
   await sync.tick();
-  assert.equal(store.getEntity(repo.id, 'ref-baseline', 'tags'), undefined);
+  assert.equal(fieldsOf(store.getEntity(repo.id, 'ref', 'refs/tags/v1')).active, true, 'neither incomplete snapshot puts v1 away');
   refs = [{ name: 'refs/heads/main', objectId: 'a' }];
   advance(600001);
   await sync.tick();
@@ -2711,7 +2753,9 @@ test('a tag unreadable in the first refs snapshot with tags is not announced as 
   });
   store.saveStream({ ...state(), initialized: true, lastSuccess: new Date(BASE - 600000).toISOString() });
   await sync.tick();
-  assert.equal(store.getEntity(repo.id, 'ref-baseline', 'tags'), undefined, 'an incomplete snapshot writes no tag baseline');
+  assert.ok(store.getEntity(repo.id, 'ref-baseline', 'tags'), 'as on main, the incomplete snapshot is the tag baseline');
+  assert.equal(fieldsOf(store.getEntity(repo.id, 'ref', 'refs/tags/v0')).active, true, 'it records its readable tags');
+  assert.equal(store.getEntity(repo.id, 'ref', 'refs/tags/v1'), undefined, 'but not v1, which its unreadable ref names');
   refs = [
     { name: 'refs/heads/main', objectId: 'a' },
     { name: 'refs/tags/v0', objectId: 'b' },
@@ -2719,7 +2763,7 @@ test('a tag unreadable in the first refs snapshot with tags is not announced as 
   ];
   advance(600001);
   await sync.tick();
-  assert.ok(store.getEntity(repo.id, 'ref-baseline', 'tags'), 'the complete snapshot writes it');
+  assert.equal(fieldsOf(store.getEntity(repo.id, 'ref', 'refs/tags/v1')).active, true);
   assert.deepEqual(
     store.listEvents().map(event => event.title),
     [],

@@ -120,6 +120,9 @@ const buildState = (build: AzureBuild) => ({
   sourceBranch: build.sourceBranch,
 });
 
+/** The tags an incomplete refs snapshot could not rule out (see tagBaseline): those named, or every tag. */
+type UncertainTags = { all: boolean; names: string[] };
+
 /** A ref update the push names, which every branch and tag update does. */
 const named = (ref: AzureRefUpdate): ref is AzureRefUpdate & { name: string } => typeof ref.name === 'string';
 
@@ -374,47 +377,52 @@ export function createNormalizer({ store, now = Date.now }: { store: NormalizeSt
   }
 
   /**
-   * The tag baseline of a refs stream. Tags joined the snapshot after branches. Until one complete snapshot has recorded
-   * them, every existing tag would look new, so a tag is announced as first seen only after that baseline (`known`).
-   * Main took an incomplete snapshot of the initialized stream for the baseline, which put away a tag it did not list,
-   * unless one of its malformed refs was that tag and the next snapshot reported it. So until the baseline, each such
-   * snapshot records (`ref-baseline:tags-incomplete`) the tags its unreadable refs may be: those named, or every tag
-   * once one had no readable name. A tag no longer listed is reported (`reported`) after the baseline, or when it is
-   * one of those tags. `write` is the baseline entity this snapshot records, if any.
+   * The tag baseline of a refs stream. Tags joined the snapshot after branches. Until one snapshot has recorded them,
+   * every existing tag would look new, so a tag is announced as first seen, or reported as no longer listed, only after
+   * that baseline (`known`). Main took the first snapshot of a stream initialized before then for the baseline, even one
+   * that left out unreadable refs, so such an incomplete snapshot (`establishes`) is the baseline here too, for its
+   * readable tags. A tag it cannot rule out is `uncertain`: one its unreadable refs name, or every tag once one has no
+   * readable name. The set is kept (`ref-baseline:tags-uncertain`), joined by the incomplete snapshots that follow, and
+   * cleared by the next complete snapshot. An incomplete snapshot neither creates nor puts away a tag it `holds`; a
+   * tag first listed is `announced` after the baseline unless uncertain; `retires` says whether this snapshot puts
+   * away the refs it omits. `write` is what this snapshot records.
    */
   function tagBaseline(repo: WatchedRepo, initialized: boolean, incomplete: boolean, unreadable: UnreadableIds | undefined) {
     const known = initialized && Boolean(store.getEntity(repo.id, 'ref-baseline', 'tags'));
-    const read: { all?: boolean; names?: string[] } | undefined = initialized
-      ? store.getEntity(repo.id, 'ref-baseline', 'tags-incomplete')
-      : undefined;
-    // An entry without names, or a snapshot whose unreadable refs are not all named, leaves every tag uncertain.
-    const uncertain = (data: typeof read) => (data ? data.all !== false || !Array.isArray(data.names) : false);
-    const reported = (name: string) => known || uncertain(read) || Boolean(read?.names?.includes(name));
-    const names = (unreadable?.ids ?? []).filter(name => name.startsWith('refs/tags/'));
-    const write: Entity | undefined = !incomplete
-      ? { type: 'ref-baseline', id: 'tags', data: { at: iso(now()) } }
-      : initialized && !known
-        ? {
-            type: 'ref-baseline',
-            id: 'tags-incomplete',
-            data: {
-              at: iso(now()),
-              all: uncertain(read) || !unreadable || unreadable.anonymous > 0,
-              names: [...new Set([...(read?.names ?? []), ...names])],
-            },
-          }
-        : undefined;
-    return { known, reported, write };
+    const establishes = initialized && incomplete && !known;
+    const kept: UncertainTags | undefined = initialized ? store.getEntity(repo.id, 'ref-baseline', 'tags-uncertain') : undefined;
+    const pending = Boolean(kept?.all || kept?.names.length);
+    const found = incomplete && (establishes || pending);
+    const all = Boolean(kept?.all) || (found && (!unreadable || unreadable.anonymous > 0));
+    const named = found ? (unreadable?.ids ?? []).filter(name => name.startsWith('refs/tags/')) : [];
+    const names = [...new Set([...(kept?.names ?? []), ...named])];
+    const at = iso(now());
+    const uncertain: UncertainTags = incomplete ? { all, names } : { all: false, names: [] };
+    const write: Entity[] = [
+      ...(!incomplete || establishes ? [{ type: 'ref-baseline', id: 'tags', data: { at } }] : []),
+      ...(pending || uncertain.all || uncertain.names.length
+        ? [{ type: 'ref-baseline', id: 'tags-uncertain', data: { at, ...uncertain } }]
+        : []),
+    ];
+    const isUncertain = (name: string) => all || names.includes(name);
+    return {
+      known,
+      retires: initialized && (!incomplete || establishes),
+      holds: (name: string) => incomplete && isUncertain(name),
+      announced: (name: string) => known && !isUncertain(name),
+      write,
+    };
   }
 
   /**
    * Compares a complete refs snapshot with the stored refs. A snapshot with records Azure returned unreadable is
    * `incomplete`: its readable refs are added and updated, but a ref it does not list may be one of the unreadable
-   * ones, so nothing is reported as no longer listed, and it is not the tag baseline, so an unreadable tag that
-   * reads later is not announced as first seen. Sync holds the stream's `initialized` back the same way. Before that
-   * baseline (the stream's for a branch, the tag baseline for a tag), an incomplete snapshot creates no ref and only
-   * updates the refs that exist, so the first complete snapshot finds only refs a push recorded and treats them as on
-   * main. Which tags it then reports as no longer listed follows tagBaseline.
+   * ones, so nothing is reported as no longer listed. Sync holds the stream's `initialized` back for it, and before
+   * that baseline it creates no ref and only updates the refs that exist, so the first complete snapshot finds only
+   * refs a push recorded and treats them as on main. On a stream initialized before the tag baseline, it is that
+   * baseline as main took it (see tagBaseline): it records its readable tags and puts away, without an event, the
+   * tags it omits, except an uncertain one, which it neither creates nor puts away. The next complete snapshot creates
+   * an uncertain tag it lists without a first-seen event, and reports one it omits as no longer listed.
    */
   function reconcileRefs(
     repo: WatchedRepo,
@@ -425,7 +433,6 @@ export function createNormalizer({ store, now = Date.now }: { store: NormalizeSt
     const before = new Map(store.listEntities(repo.id, 'ref').map(entry => [entry.id, entry.data]));
     const current = new Map(records.filter(item => /^refs\/(heads|tags)\//.test(item.name)).map(item => [item.name, item]));
     const tags = tagBaseline(repo, state.initialized, incomplete, unreadableIds);
-    const tagsKnown = tags.known;
     const tagEvent = (name: string, change: 'created' | 'deleted', data: Record<string, unknown>) =>
       makeEvent(
         repo,
@@ -447,13 +454,12 @@ export function createNormalizer({ store, now = Date.now }: { store: NormalizeSt
     const entities: Entity[] = [];
     for (const [name, item] of current) {
       const previous = before.get(name);
-      const tag = name.startsWith('refs/tags/');
-      const beforeBaseline = incomplete && !(tag ? tagsKnown : state.initialized);
-      if (beforeBaseline && !previous) continue;
+      if (incomplete && !state.initialized && !previous) continue;
       const peeled = item.peeledObjectId ? { peeledObjectId: item.peeledObjectId } : {};
-      if (tag) {
-        if (tagsKnown && (!previous || previous.active === false))
-          events.push(tagEvent(name, 'created', { objectId: item.objectId, ...peeled }));
+      if (name.startsWith('refs/tags/')) {
+        const unlisted = !previous || previous.active === false;
+        if (unlisted && tags.holds(name)) continue;
+        if (unlisted && tags.announced(name)) events.push(tagEvent(name, 'created', { objectId: item.objectId, ...peeled }));
         entities.push({
           type: 'ref',
           id: name,
@@ -485,12 +491,15 @@ export function createNormalizer({ store, now = Date.now }: { store: NormalizeSt
         data: { name, objectId: item.objectId, active: true, lastPushId: previous?.lastPushId },
       });
     }
-    if (state.initialized && !incomplete)
+    // An incomplete snapshot puts away only the tags it is the baseline for and can rule out.
+    const putsAway = (name: string) => !incomplete || (name.startsWith('refs/tags/') && !tags.holds(name));
+    if (tags.retires)
       for (const [name, old] of before) {
-        if (old.active === false || current.has(name)) continue;
+        if (old.active === false || current.has(name) || !putsAway(name)) continue;
+        const tag = name.startsWith('refs/tags/');
         entities.push({ type: 'ref', id: name, data: { ...old, active: false } });
-        if (name.startsWith('refs/tags/')) {
-          if (tags.reported(name)) events.push(tagEvent(name, 'deleted', { objectId: old.objectId }));
+        if (tag) {
+          if (tags.known) events.push(tagEvent(name, 'deleted', { objectId: old.objectId }));
           continue;
         }
         events.push(
@@ -509,7 +518,7 @@ export function createNormalizer({ store, now = Date.now }: { store: NormalizeSt
           ),
         );
       }
-    if (tags.write) entities.push(tags.write);
+    entities.push(...tags.write);
     return { events, entities };
   }
 
