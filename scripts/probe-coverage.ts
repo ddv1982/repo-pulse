@@ -9,12 +9,19 @@ import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { AZURE_DEVOPS_RESOURCE } from '../server/azure-rest.ts';
 import { normalizeOrganization } from '../server/repositories.ts';
-import type { AzureRecord } from '../src/contract.ts';
+import { isAzurePush, isRecord } from '../server/azure-records.ts';
 
 const run = promisify(execFile);
 
 export type Found = { prId?: number; sourceCommit?: string; targetCommit?: string; creations?: { pushId: number; tip: string }[] };
 const SHA = /^[0-9a-f]{40}$/i;
+/** The value at a path of object fields, or undefined where one is missing or not an object. */
+const field = (value: unknown, ...path: string[]): unknown => path.reduce((at, key) => (isRecord(at) ? at[key] : undefined), value);
+/** A response's `value` list, or an empty list when it has none. */
+const valueList = (body: unknown): unknown[] => {
+  const list = field(body, 'value');
+  return Array.isArray(list) ? list : [];
+};
 
 /**
  * The reads, in order. The per-PR reads use the first active PR the list returned; the fork evidence reads use the
@@ -62,16 +69,16 @@ export function probeRequests(repo: { organization: string; project: string; pro
  * Pushes that created a branch, newest first, at most three: the push and the revision the branch was created at.
  */
 export function creationPushes(body: any): { pushId: number; tip: string }[] {
-  const pushes: AzureRecord[] = Array.isArray(body?.value) ? body.value : [];
-  return pushes
+  return valueList(body)
+    .filter(isAzurePush)
     .flatMap(push =>
-      ((push.refUpdates || []) as AzureRecord[])
-        .filter(
-          update =>
-            String(update.name).startsWith('refs/heads/') && /^0+$/.test(update.oldObjectId ?? '') && SHA.test(update.newObjectId ?? ''),
+      (push.refUpdates || [])
+        .flatMap(({ name, oldObjectId, newObjectId: tip }) =>
+          String(name).startsWith('refs/heads/') && /^0+$/.test(oldObjectId ?? '') && typeof tip === 'string' && SHA.test(tip)
+            ? [{ pushId: push.pushId, tip }]
+            : [],
         )
-        .slice(0, 1)
-        .map(update => ({ pushId: push.pushId, tip: update.newObjectId })),
+        .slice(0, 1),
     )
     .slice(0, 3);
 }
@@ -120,56 +127,58 @@ const keys = (value: unknown) => (value && typeof value === 'object' ? Object.ke
 export function summarize(name: string, body: any, repo: { azureId: string; projectId: string }, context: { tip?: string } = {}) {
   if (name === 'created commit')
     return { fields: keys(body), parents: Array.isArray(body?.parents) ? body.parents.length : null, pushFields: keys(body?.push) };
-  const items: AzureRecord[] = Array.isArray(body?.value) ? body.value : [];
+  const items = valueList(body);
   const facts: { items: number; fields: string[]; [fact: string]: unknown } = { items: items.length, fields: keys(items[0]) };
+  const list = (value: unknown) => (Array.isArray(value) ? value : []);
   if (name === 'tag refs') {
-    facts.peeled = items.filter(ref => ref.peeledObjectId).length;
+    facts.peeled = items.filter(ref => field(ref, 'peeledObjectId')).length;
   } else if (name === 'pushes with ref updates') {
-    const updates = items.flatMap(push => push.refUpdates || []);
-    facts.tagUpdateFields = keys(updates.find(update => String(update.name).startsWith('refs/tags/')));
-    facts.tagUpdates = updates.filter(update => String(update.name).startsWith('refs/tags/')).length;
-    facts.branchUpdates = updates.filter(update => String(update.name).startsWith('refs/heads/')).length;
+    const updates = items.flatMap(push => field(push, 'refUpdates') || []);
+    facts.tagUpdateFields = keys(updates.find(update => String(field(update, 'name')).startsWith('refs/tags/')));
+    facts.tagUpdates = updates.filter(update => String(field(update, 'name')).startsWith('refs/tags/')).length;
+    facts.branchUpdates = updates.filter(update => String(field(update, 'name')).startsWith('refs/heads/')).length;
   } else if (name === 'active PRs') {
-    facts.reviewerFields = keys(items.flatMap(pr => pr.reviewers || [])[0]);
-    facts.withReviewers = items.filter(pr => pr.reviewers?.length).length;
-    facts.fromForks = items.filter(pr => pr.forkSource).length;
-    facts.timestampFields = facts.fields.filter(field => /date|time|updated/i.test(field));
+    facts.reviewerFields = keys(items.flatMap(pr => field(pr, 'reviewers') || [])[0]);
+    facts.withReviewers = items.filter(pr => list(field(pr, 'reviewers')).length).length;
+    facts.fromForks = items.filter(pr => field(pr, 'forkSource')).length;
+    facts.timestampFields = facts.fields.filter(key => /date|time|updated/i.test(key));
   } else if (name === 'PRs from this repository') {
-    const other = items.filter(pr => pr.repository?.id !== repo.azureId);
+    const other = items.filter(pr => field(pr, 'repository', 'id') !== repo.azureId);
     facts.targetOtherRepository = other.length;
-    facts.targetOtherProject = other.filter(pr => pr.repository?.project?.id !== repo.projectId).length;
+    facts.targetOtherProject = other.filter(pr => field(pr, 'repository', 'project', 'id') !== repo.projectId).length;
   } else if (name === 'PR threads') {
-    facts.commentFields = keys(items.flatMap(thread => thread.comments || [])[0]);
+    facts.commentFields = keys(items.flatMap(thread => field(thread, 'comments') || [])[0]);
     facts.statuses = named(
-      items.map(thread => thread.status),
+      items.map(thread => field(thread, 'status')),
       THREAD_STATUSES,
     );
-    facts.withThreadType = items.filter(thread => thread.properties?.CodeReviewThreadType).length;
+    facts.withThreadType = items.filter(thread => field(thread, 'properties', 'CodeReviewThreadType')).length;
     facts.threadTypes = named(
-      items.map(thread => thread.properties?.CodeReviewThreadType?.$value),
+      items.map(thread => field(thread, 'properties', 'CodeReviewThreadType', '$value')),
       THREAD_TYPES,
     );
   } else if (name === 'creation push commits') {
-    const ids = new Set(items.map(commit => commit.commitId));
-    facts.withParents = items.filter(commit => Array.isArray(commit.parents)).length;
-    facts.outsideParents = new Set(items.flatMap(commit => commit.parents || []).filter(parent => !ids.has(parent))).size;
-    facts.tipFirst = items.length ? items[0].commitId === context.tip : null;
-    facts.newestFirst = items.length > 1 ? items.slice(1).every((commit, i) => items[i].parents?.includes(commit.commitId)) : null;
+    const ids = new Set(items.map(commit => field(commit, 'commitId')));
+    facts.withParents = items.filter(commit => Array.isArray(field(commit, 'parents'))).length;
+    facts.outsideParents = new Set(items.flatMap(commit => field(commit, 'parents') || []).filter(parent => !ids.has(parent))).size;
+    facts.tipFirst = items.length ? field(items[0], 'commitId') === context.tip : null;
+    facts.newestFirst =
+      items.length > 1 ? items.slice(1).every((commit, i) => list(field(items[i], 'parents')).includes(field(commit, 'commitId'))) : null;
   } else if (name === 'PR iterations') {
     facts.reasons = named(
-      items.map(iteration => iteration.reason),
+      items.map(iteration => field(iteration, 'reason')),
       ITERATION_REASONS,
     );
-    facts.withCommonRefCommit = items.filter(iteration => iteration.commonRefCommit?.commitId).length;
-    facts.retargetFields = keys(items.find(iteration => iteration.reason === 'retarget'));
+    facts.withCommonRefCommit = items.filter(iteration => field(iteration, 'commonRefCommit', 'commitId')).length;
+    facts.retargetFields = keys(items.find(iteration => field(iteration, 'reason') === 'retarget'));
   } else if (name === 'PR policy evaluations') {
     facts.statuses = named(
-      items.map(evaluation => evaluation.status),
+      items.map(evaluation => field(evaluation, 'status')),
       POLICY_STATUSES,
     );
-    facts.configurationFields = keys(items[0]?.configuration);
+    facts.configurationFields = keys(field(items[0], 'configuration'));
     facts.policyTypes = named(
-      items.map(evaluation => evaluation.configuration?.type?.displayName),
+      items.map(evaluation => field(evaluation, 'configuration', 'type', 'displayName')),
       BUILT_IN_POLICIES,
     );
   }
@@ -198,7 +207,7 @@ async function send(request: { name: string; url: string; method: string }, bear
     redirect: 'manual',
     headers: { Authorization: `Bearer ${bearer}`, Accept: 'application/json', 'X-TFS-FedAuthRedirect': 'Suppress' },
   });
-  const body: AzureRecord = response.ok ? await response.json().catch(() => undefined) : undefined;
+  const body: unknown = response.ok ? await response.json().catch(() => undefined) : undefined;
   return { status: response.status, ms: Math.round(performance.now() - started), body };
 }
 
@@ -237,11 +246,11 @@ async function main() {
       const { status, ms, body } = await send(request, bearer);
       if (request.name === 'pushes with ref updates') found.creations = creationPushes(body);
       if (request.name === 'active PRs') {
-        const pr = body?.value?.[0];
+        const [pr] = valueList(body);
         Object.assign(found, {
-          prId: pr?.pullRequestId,
-          sourceCommit: pr?.lastMergeSourceCommit?.commitId,
-          targetCommit: pr?.lastMergeTargetCommit?.commitId,
+          prId: field(pr, 'pullRequestId'),
+          sourceCommit: field(pr, 'lastMergeSourceCommit', 'commitId'),
+          targetCommit: field(pr, 'lastMergeTargetCommit', 'commitId'),
         });
       }
       if (request.name === 'pushes with ref updates' || request.name === 'active PRs') requests = probeRequests(repo, found);

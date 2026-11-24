@@ -7,11 +7,84 @@ export type EventData = import('./activity.ts').EventData;
 
 // Azure
 
-/** Raw Azure DevOps JSON. Its shape is checked by the code that reads it, not by the compiler. */
-export type AzureRecord = any;
 /** The repository fields the client reads. Watched repositories carry more. */
 export type AzureRepo = { organization: string; project: string; projectId?: string; azureId: string; webUrl: string };
 export type AzureStream = 'pushes' | 'refs' | 'prs' | 'closedPrs' | 'builds' | 'activeBuilds';
+
+// Azure DevOps records as Repo Pulse reads them. Each type names only the fields the code reads; the guards in
+// server/azure-records.ts check those fields when a page is read. Records keep every other field Azure sends, and
+// the code stores some of them whole.
+
+/** An optional Azure field: absent, null, or of its type. */
+type Maybe<T> = T | null | undefined;
+
+export type AzureIdentity = { displayName?: Maybe<string>; name?: Maybe<string> };
+/** `href` is checked by safeAzureUrl, so any value is readable. */
+export type AzureLinks = { web?: Maybe<{ href?: unknown }> };
+export type AzureCommitRef = { commitId?: Maybe<string> };
+export type AzureRefUpdate = { name?: Maybe<string>; oldObjectId?: Maybe<string>; newObjectId?: Maybe<string> };
+export type AzurePush = {
+  pushId: number;
+  date?: Maybe<string>;
+  pushedBy?: Maybe<AzureIdentity>;
+  refUpdates?: Maybe<AzureRefUpdate[]>;
+  commits?: Maybe<unknown[]>;
+  _links?: Maybe<AzureLinks>;
+};
+export type AzureRef = { name: string; objectId: string; peeledObjectId?: Maybe<string> };
+export type AzureReviewer = { id?: Maybe<string>; displayName?: Maybe<string>; vote?: Maybe<number>; isRequired?: Maybe<boolean> };
+export type AzureForkSource = {
+  repository?: Maybe<{ id?: Maybe<string>; name?: Maybe<string>; project?: Maybe<{ name?: Maybe<string> }> }>;
+};
+export type AzurePullRequest = {
+  pullRequestId: number;
+  repository?: Maybe<{ id?: Maybe<string> }>;
+  forkSource?: Maybe<AzureForkSource>;
+  title?: Maybe<string>;
+  status?: Maybe<string>;
+  isDraft?: Maybe<boolean>;
+  sourceRefName?: Maybe<string>;
+  targetRefName?: Maybe<string>;
+  creationDate?: Maybe<string>;
+  closedDate?: Maybe<string>;
+  createdBy?: Maybe<AzureIdentity>;
+  closedBy?: Maybe<AzureIdentity>;
+  lastMergeSourceCommit?: Maybe<AzureCommitRef>;
+  lastMergeTargetCommit?: Maybe<AzureCommitRef>;
+  lastMergeCommit?: Maybe<AzureCommitRef>;
+  mergeStatus?: Maybe<string>;
+  completionOptions?: Maybe<{ mergeStrategy?: Maybe<string> }>;
+  reviewers?: Maybe<AzureReviewer[]>;
+  _links?: Maybe<AzureLinks>;
+};
+export type AzureBuild = {
+  id: number;
+  repository?: Maybe<{ id?: Maybe<string> }>;
+  status?: Maybe<string>;
+  result?: Maybe<string>;
+  reason?: Maybe<string>;
+  queueTime?: Maybe<string>;
+  startTime?: Maybe<string>;
+  finishTime?: Maybe<string>;
+  sourceVersion?: Maybe<string>;
+  sourceBranch?: Maybe<string>;
+  definition?: Maybe<{ name?: Maybe<string> }>;
+  requestedFor?: Maybe<AzureIdentity>;
+  requestedBy?: Maybe<AzureIdentity>;
+  _links?: Maybe<AzureLinks>;
+};
+/** The record each stream reads. */
+export type AzureStreamRecords = {
+  pushes: AzurePush;
+  refs: AzureRef;
+  prs: AzurePullRequest;
+  closedPrs: AzurePullRequest;
+  builds: AzureBuild;
+  activeBuilds: AzureBuild;
+};
+export type AzureStreamRecord = AzureStreamRecords[AzureStream];
+/** Records a page left out because a field they need is missing or malformed, and the fields that were. */
+export type UnreadableRecords = { count: number; fields: string[] };
 /**
  * Where the next page starts: `skip` for offset-paged reads, `token` for continuation reads.
  * Build reads also keep their coarse window in `from` and `to`.
@@ -24,8 +97,8 @@ export type ConnectionStatus = {
   identityVerified: boolean;
   message: string;
   code?: string;
-  version?: string;
-  extension?: string;
+  version?: string | undefined;
+  extension?: string | undefined;
   signedIn?: boolean;
   account?: { name: string };
   access?: AccessCheck;
@@ -89,7 +162,7 @@ export type StreamState = {
   refreshGeneration?: number | undefined;
   manual?: boolean | undefined;
   cursor?: PageCursor | null | undefined;
-  pendingItems?: AzureRecord[] | undefined;
+  pendingItems?: AzureRef[] | undefined;
   activeIds?: string[] | undefined;
 };
 /**

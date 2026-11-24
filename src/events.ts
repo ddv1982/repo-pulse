@@ -1,7 +1,7 @@
 export function branchName(ref: unknown) {
   return String(ref || '').replace(/^refs\/heads\//, '');
 }
-export function actorName(identity: { displayName?: string; name?: string } | null | undefined) {
+export function actorName(identity: { displayName?: string | null | undefined; name?: string | null | undefined } | null | undefined) {
   return identity?.displayName || identity?.name || 'Unknown';
 }
 export function safeAzureUrl(url: unknown, fallback = '') {

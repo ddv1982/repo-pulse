@@ -1,4 +1,5 @@
 export type ActivityEvent = import('../src/activity.ts').ActivityEvent;
+export type AzureStreamRecord = import('../src/contract.ts').AzureStreamRecord;
 export type HistoryStream = import('../src/contract.ts').HistoryStream;
 export type HistoryWindow = import('../src/contract.ts').HistoryWindow;
 export type WatchedRepo = import('./azure-client.ts').AzureRepo & { id: string; disabled?: boolean };
@@ -32,7 +33,7 @@ export function createBackfill({
   normalize: (
     repo: WatchedRepo,
     stream: HistoryStream,
-    records: unknown[],
+    records: AzureStreamRecord[],
     state: { initialized: false; historical: true; window: HistoryWindow },
   ) => HistoryBatch;
   now?: () => number;

@@ -1,10 +1,12 @@
 import { createNormalizer } from './normalize.ts';
+import { recordsOf } from './azure-records.ts';
 
 export type ActivityKind = import('./normalize.ts').ActivityKind;
 export type StreamName = import('./azure-client.ts').AzureStream;
 export type AzureProvider = import('./azure-client.ts').AzureProvider;
 export type PageCursor = import('./azure-client.ts').PageCursor;
-export type AzureRecord = import('./azure-client.ts').AzureRecord;
+export type AzureStreamRecord = import('./azure-client.ts').AzureStreamRecord;
+export type AzureRef = import('../src/contract.ts').AzureRef;
 export type WatchedRepo = import('./normalize.ts').WatchedRepo;
 export type NormalizeState = import('./normalize.ts').NormalizeState;
 export type SyncEvent = import('./normalize.ts').SyncEvent;
@@ -31,7 +33,7 @@ export type SyncStore = {
 export type SyncStatus = import('../src/contract.ts').SyncEngineStatus;
 export type RefreshStatus = import('../src/contract.ts').RefreshStatus;
 /** Sync needs `read`; the active-build and PR follow-ups run only when the provider offers them. */
-export type SyncProvider = Pick<AzureProvider, 'read'> & Partial<Pick<AzureProvider, 'buildsById' | 'pullRequest'>>;
+export type SyncProvider = { read: import('./azure-client.ts').StreamRead } & Partial<Pick<AzureProvider, 'buildsById' | 'pullRequest'>>;
 export type BackgroundKind = 'rewrite' | 'history';
 
 const STREAMS: StreamName[] = ['pushes', 'refs', 'prs', 'closedPrs', 'builds', 'activeBuilds'];
@@ -65,7 +67,7 @@ function nextPage(
     cursor,
     pendingItems,
     activeIds,
-  }: { at: number; cursor: PageCursor | null; pendingItems?: AzureRecord[] | undefined; activeIds?: string[] | undefined },
+  }: { at: number; cursor: PageCursor | null; pendingItems?: AzureRef[] | undefined; activeIds?: string[] | undefined },
 ): StreamState {
   return {
     ...state,
@@ -253,9 +255,12 @@ export function createSync({
     if (!watching(repo)) return null;
     const complete = !page.nextCursor;
     const activeIds: string[] | undefined = ['activeBuilds', 'prs'].includes(state.stream)
-      ? [...(state.activeIds || []), ...page.items.map(item => String(item.id || item.pullRequestId))]
+      ? [
+          ...(state.activeIds || []),
+          ...page.items.map(item => String(('id' in item && item.id) || ('pullRequestId' in item && item.pullRequestId) || undefined)),
+        ]
       : undefined;
-    let items = page.items;
+    let items: AzureStreamRecord[] = page.items;
     let gone: Entity[] = [];
     if (complete && state.stream === 'activeBuilds' && provider.buildsById) {
       const missing = store
@@ -303,11 +308,11 @@ export function createSync({
     repo: WatchedRepo,
     state: StreamState,
     working: StartedStream,
-    { page, complete, items }: { page: { items: AzureRecord[]; restarted?: boolean }; complete: boolean; items: AzureRecord[] },
+    { page, complete, items }: { page: { items: AzureStreamRecord[]; restarted?: boolean }; complete: boolean; items: AzureStreamRecord[] },
   ) {
     if (state.stream !== 'refs') return { output: normalize(repo, state.stream, items, working), pendingItems: undefined };
     // A provider that restarted the snapshot at page one (see azure-client.ts refs) invalidates the pages saved so far.
-    const pendingItems = [...(page.restarted ? [] : state.pendingItems || []), ...page.items];
+    const pendingItems = [...(page.restarted ? [] : state.pendingItems || []), ...recordsOf('refs', page.items)];
     const output: SyncBatch = complete ? reconcileRefs(repo, pendingItems, working) : { events: [], entities: [] };
     return { output, pendingItems };
   }

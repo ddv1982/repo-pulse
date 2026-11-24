@@ -2,10 +2,17 @@ import { createHash } from 'node:crypto';
 import { actorName, branchName, safeAzureUrl } from '../src/events.ts';
 import { mergeUpdates } from './merge-evidence.ts';
 import { forkJob } from './fork-origin.ts';
+import { recordsOf } from './azure-records.ts';
 
 export type ActivityKind = import('../src/activity.ts').ActivityKind;
 export type StreamName = import('./azure-client.ts').AzureStream;
-export type AzureRecord = import('./azure-client.ts').AzureRecord;
+export type AzureStreamRecords = import('../src/contract.ts').AzureStreamRecords;
+export type AzureStreamRecord = import('../src/contract.ts').AzureStreamRecord;
+export type AzurePush = import('../src/contract.ts').AzurePush;
+export type AzureRefUpdate = import('../src/contract.ts').AzureRefUpdate;
+export type AzureRef = import('../src/contract.ts').AzureRef;
+export type AzurePullRequest = import('../src/contract.ts').AzurePullRequest;
+export type AzureBuild = import('../src/contract.ts').AzureBuild;
 export type WatchedRepo = import('./azure-client.ts').AzureRepo & { id: string; disabled?: boolean };
 /** What `normalize` reads from a stream state; backfill passes `historical: true`. */
 export type NormalizeState = { initialized: boolean; historical?: boolean };
@@ -44,15 +51,15 @@ const fingerprint = (value: unknown) => createHash('sha256').update(JSON.stringi
 const tagName = (name: string) => name.replace(/^refs\/tags\//, '');
 const tagTitles: Record<'created' | 'moved' | 'deleted', string> = { created: 'New tag', moved: 'Tag moved', deleted: 'Tag deleted' };
 const iso = (ms: number) => new Date(ms).toISOString();
-const reviewers = (pr: AzureRecord): { id: string; name: string; vote: number; required: boolean }[] =>
-  (pr.reviewers || []).map((reviewer: AzureRecord) => ({
+const reviewers = (pr: AzurePullRequest): { id: string; name: string; vote: number; required: boolean }[] =>
+  (pr.reviewers || []).map(reviewer => ({
     id: String(reviewer.id),
     name: reviewer.displayName || 'Unknown reviewer',
     vote: Number(reviewer.vote) || 0,
     required: Boolean(reviewer.isRequired),
   }));
 /** Reviewers without a vote are left out, so adding or removing one is not a vote change. */
-const reviewerVotes = (pr: AzureRecord): [string, number][] =>
+const reviewerVotes = (pr: AzurePullRequest): [string, number][] =>
   reviewers(pr)
     .filter(({ vote }) => vote)
     .map(({ id, vote }) => [id, vote] as [string, number])
@@ -60,14 +67,14 @@ const reviewerVotes = (pr: AzureRecord): [string, number][] =>
 /**
  * Reviewers whose vote differs from the previous snapshot. A snapshot without votes, or a first sighting, has no changes.
  */
-const voteChanges = (before: [string, number][] | undefined, pr: AzureRecord) => {
+const voteChanges = (before: [string, number][] | undefined, pr: AzurePullRequest) => {
   if (!before) return [];
   const previous = new Map(before);
   return reviewers(pr)
     .filter(reviewer => (previous.get(reviewer.id) ?? 0) !== reviewer.vote)
     .map(({ name, vote }) => ({ name, vote }));
 };
-const prState = (pr: AzureRecord) => ({
+const prState = (pr: AzurePullRequest) => ({
   status: pr.status,
   isDraft: Boolean(pr.isDraft),
   title: pr.title,
@@ -77,7 +84,7 @@ const prState = (pr: AzureRecord) => ({
 });
 // Active PRs can expose a successful preview merge. Only completion establishes
 // the actual merge result; retain its metadata from this existing response.
-const prCompletion = (item: AzureRecord) =>
+const prCompletion = (item: AzurePullRequest) =>
   item.status === 'completed'
     ? {
         mergeCommit: item.lastMergeCommit?.commitId,
@@ -87,13 +94,16 @@ const prCompletion = (item: AzureRecord) =>
         closedBy: actorName(item.closedBy),
       }
     : {};
-const buildState = (build: AzureRecord) => ({
+const buildState = (build: AzureBuild) => ({
   status: build.status,
   result: build.result,
   finishTime: build.finishTime,
   sourceVersion: build.sourceVersion,
   sourceBranch: build.sourceBranch,
 });
+
+/** A ref update the push names, which every branch and tag update does. */
+const named = (ref: AzureRefUpdate): ref is AzureRefUpdate & { name: string } => typeof ref.name === 'string';
 
 /**
  * Turns Azure DevOps stream payloads and complete ref snapshots into stored events, entities, and rewrite jobs.
@@ -122,7 +132,7 @@ export function createNormalizer({ store, now = Date.now }: { store: NormalizeSt
     };
   }
   // PRs and builds are snapshots: an event is emitted only when their fingerprint changes.
-  function snapshot(repo: WatchedRepo, type: string, key: string, value: { status: string }, historical: boolean) {
+  function snapshot(repo: WatchedRepo, type: string, key: string, value: { status?: string | null | undefined }, historical: boolean) {
     const previous = store.getEntity(repo.id, type, key);
     // Snapshots saved before votes were recorded adopt the current votes instead of reporting them as a change.
     const comparable = previous?.fingerprint && !('votes' in previous.fingerprint) ? { ...value, votes: undefined } : value;
@@ -142,7 +152,7 @@ export function createNormalizer({ store, now = Date.now }: { store: NormalizeSt
    * A non-status change to a live PR is dated when observed; otherwise the event takes the
    * closure time Azure reports, or the creation time for a PR seen for the first time.
    */
-  function prEventTime(item: AzureRecord, previous: any, historical: boolean) {
+  function prEventTime(item: AzurePullRequest, previous: any, historical: boolean) {
     const unchangedStatus = previous?.fingerprint?.status === item.status;
     if (previous && !historical && unchangedStatus) return iso(now());
     return (item.status !== 'active' ? item.closedDate : null) || (!previous ? item.creationDate : null) || iso(now());
@@ -155,14 +165,14 @@ export function createNormalizer({ store, now = Date.now }: { store: NormalizeSt
     historical: boolean;
   };
 
-  type Normalizer = (item: AzureRecord, context: NormalizeContext) => void;
-  const normalizers: Record<'pushes' | 'prs' | 'builds', Normalizer> & Partial<Record<StreamName, Normalizer>> = {
+  type Normalizer<T> = (item: T, context: NormalizeContext) => void;
+  const byStream: { pushes: Normalizer<AzurePush>; prs: Normalizer<AzurePullRequest>; builds: Normalizer<AzureBuild> } = {
     pushes(item, { repo, add, entities, refs, historical }) {
       const source = String(item.pushId);
       if (!item.pushId || store.getEntity(repo.id, 'push', source)) return;
       const updates = item.refUpdates || [];
-      const branches: AzureRecord[] = updates.filter((ref: AzureRecord) => ref.name?.startsWith('refs/heads/'));
-      const tags: AzureRecord[] = updates.filter((ref: AzureRecord) => ref.name?.startsWith('refs/tags/'));
+      const branches = updates.filter(named).filter(ref => ref.name.startsWith('refs/heads/'));
+      const tags = updates.filter(named).filter(ref => ref.name.startsWith('refs/tags/'));
       const time = item.date || iso(now());
       const actor = actorName(item.pushedBy);
       const data = { pushId: item.pushId, refUpdates: branches, commits: item.commits || [] };
@@ -170,7 +180,7 @@ export function createNormalizer({ store, now = Date.now }: { store: NormalizeSt
       entities.push({ type: 'push', id: source, data: { date: time } });
       // Azure lists pushes newest first. Keep a source watermark across pages/snapshots,
       // while retaining every historical event independently of the current ref state.
-      const recordRef = (ref: AzureRecord) => {
+      const recordRef = (ref: AzureRefUpdate & { name: string }) => {
         const previous = refs?.get(ref.name);
         if (historical || (previous?.lastPushId && Number(item.pushId) <= previous.lastPushId)) return;
         const current = {
@@ -206,7 +216,7 @@ export function createNormalizer({ store, now = Date.now }: { store: NormalizeSt
       // A tag-only push has no branch work to show; its tag rows carry it.
       if (tags.length && !branches.length) return;
       // Azure records each refresh of a pull request's merge preview as a push of refs/pull/N/merge. It is not repository work.
-      if (updates.length && updates.every((ref: AzureRecord) => PULL_REF.test(ref.name || ''))) return;
+      if (updates.length && updates.every(ref => PULL_REF.test(ref.name || ''))) return;
       add('push', source, {
         title: `${actor} pushed${branches.length ? ` to ${branches.map(r => branchName(r.name)).join(', ')}` : ''}`,
         branch: branchName(branches[0]?.name),
@@ -298,10 +308,15 @@ export function createNormalizer({ store, now = Date.now }: { store: NormalizeSt
       if (entity) entities.push(entity);
     },
   };
-  normalizers.closedPrs = normalizers.prs;
-  normalizers.activeBuilds = normalizers.builds;
+  // Keyed by stream, so normalize() can pass each stream's records to its own normalizer without a cast.
+  const normalizers: { [S in StreamName]?: Normalizer<AzureStreamRecords[S]> } = {
+    ...byStream,
+    closedPrs: byStream.prs,
+    activeBuilds: byStream.builds,
+  };
 
-  function normalize(repo: WatchedRepo, stream: StreamName, records: AzureRecord[], state: NormalizeState): SyncBatch {
+  /** The records come from a page of `stream`; any that are not that stream's records are left out. */
+  function normalize(repo: WatchedRepo, stream: StreamName, records: readonly AzureStreamRecord[], state: NormalizeState): SyncBatch {
     const events: SyncEvent[] = [];
     const entities: Entity[] = [];
     const historical = Boolean(state.historical);
@@ -312,8 +327,12 @@ export function createNormalizer({ store, now = Date.now }: { store: NormalizeSt
       const imported = !state.initialized && Date.parse(time) <= Date.parse(baseline);
       events.push(makeEvent(repo, kind, sourceId, { ...detail, time }, historical || imported));
     };
-    const normalizeItem = normalizers[stream];
-    if (normalizeItem) for (const item of records) normalizeItem(item, { repo, add, entities, refs, historical });
+    // Generic over the stream, so the guard and the normalizer agree on the record type.
+    const normalizeAll = <S extends StreamName>(of: S) => {
+      const normalizeItem = normalizers[of];
+      if (normalizeItem) for (const item of recordsOf(of, records)) normalizeItem(item, { repo, add, entities, refs, historical });
+    };
+    normalizeAll(stream);
     // Only a live push that moved an existing branch is checked for a rewrite; history is not news.
     const jobs: RewriteJob[] = events
       .filter(event => event.kind === 'push' && !event.imported)
@@ -336,11 +355,9 @@ export function createNormalizer({ store, now = Date.now }: { store: NormalizeSt
     return { events, entities, jobs: [...jobs, ...forks] };
   }
 
-  function reconcileRefs(repo: WatchedRepo, records: AzureRecord[], state: RefReconcileState): SyncBatch {
+  function reconcileRefs(repo: WatchedRepo, records: AzureRef[], state: RefReconcileState): SyncBatch {
     const before = new Map(store.listEntities(repo.id, 'ref').map(entry => [entry.id, entry.data]));
-    const current: Map<string, AzureRecord> = new Map(
-      records.filter(item => /^refs\/(heads|tags)\//.test(item.name || '')).map(item => [item.name, item]),
-    );
+    const current = new Map(records.filter(item => /^refs\/(heads|tags)\//.test(item.name)).map(item => [item.name, item]));
     // Tags joined the snapshot after branches. Until one complete snapshot has recorded them,
     // every existing tag would look new, so tag changes are reported only after that baseline.
     const tagsKnown = state.initialized && Boolean(store.getEntity(repo.id, 'ref-baseline', 'tags'));

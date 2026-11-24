@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createAzureClient, reviewOf } from '../server/azure-client.ts';
-import type { Repository } from '../src/contract.ts';
+import type { AzureStream, Repository } from '../src/contract.ts';
 import { present, stub } from './fixtures/typed.ts';
 const repo = stub<Repository>({
   id: 'local1',
@@ -76,7 +76,8 @@ test('refs use continuation token and build cache isolates repositories while co
   assert.equal(calls.length, 4);
   assert.equal(a.nextCursor?.from, '2026-11-10T11:10:00.000Z');
   const active = await client.read(repo, 'activeBuilds', window);
-  assert.equal(active.items[0].id, 1);
+  const [build] = active.items;
+  assert.equal(build && 'id' in build && build.id, 1);
   assert(!present(calls.at(-1)).some(value => value.startsWith('minTime=')));
   assert(present(calls.at(-1)).includes('repositoryId=repo1'));
   // Numeric ids still reach the query as before; the type says string, so the number needs a cast.
@@ -426,4 +427,36 @@ test('a single commit read returns its parents and the push that brought it, and
   body = { commitId: id };
   await assert.rejects(client.commit(repo, id), { code: 'INVALID_RESPONSE' });
   assert.equal(calls.length, 4);
+});
+
+const readable: Record<AzureStream, Record<string, unknown>> = {
+  pushes: { pushId: 1, date: '2026-11-17T10:00:00Z', refUpdates: [{ name: 'refs/heads/main', oldObjectId: 'a', newObjectId: 'b' }] },
+  refs: { name: 'refs/heads/main', objectId: 'a' },
+  prs: { pullRequestId: 1, status: 'active', reviewers: [{ id: 'r', vote: 10 }] },
+  closedPrs: { pullRequestId: 2, status: 'completed', lastMergeCommit: { commitId: 'c' } },
+  builds: { id: 1, repository: { id: 'repo1' }, status: 'completed' },
+  activeBuilds: { id: 2, status: 'inProgress', requestedFor: { displayName: 'A' } },
+};
+const malformed: [AzureStream, Record<string, unknown>, string][] = [
+  ['pushes', { ...readable.pushes, refUpdates: { name: 'refs/heads/main' } }, 'refUpdates'],
+  ['refs', { ...readable.refs, objectId: 7 }, 'objectId'],
+  ['prs', { ...readable.prs, reviewers: [{ id: 'r', vote: '10' }] }, 'reviewers.vote'],
+  ['closedPrs', { ...readable.closedPrs, pullRequestId: undefined }, 'pullRequestId'],
+  ['builds', { ...readable.builds, repository: { id: 7 } }, 'repository.id'],
+  ['activeBuilds', { ...readable.activeBuilds, id: '2' }, 'id'],
+];
+for (const [stream, record, field] of malformed)
+  test(`a ${stream} page keeps its readable records and counts one with a malformed ${field}`, async () => {
+    const client = createAzureClient({ cli: { run: async () => ({ value: [readable[stream], record] }) } });
+    const page = await client.read(repo, stream, window);
+    assert.deepEqual(page.items, [readable[stream]]);
+    assert.deepEqual(page.unreadable, { count: 1, fields: [field] });
+  });
+
+test('a skip-paged read with an unreadable record on a full page still pages on', async () => {
+  const value = Array.from({ length: 100 }, (_, index) => ({ pushId: index }));
+  const page = await createAzureClient({ cli: { run: async () => ({ value }) } }).read(repo, 'pushes', window);
+  assert.equal(page.items.length, 99);
+  assert.deepEqual(page.unreadable, { count: 1, fields: ['pushId'] });
+  assert.deepEqual(page.nextCursor, { skip: 100 });
 });

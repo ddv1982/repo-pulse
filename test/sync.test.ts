@@ -7,7 +7,7 @@ import { createBackfill } from '../server/backfill.ts';
 import { activityMergeBadge } from '../src/activity-text.ts';
 import type { SyncProvider } from '../server/sync.ts';
 import type { AzureProvider, AzurePage, ReadOptions } from '../server/azure-client.ts';
-import type { Repository } from '../src/contract.ts';
+import type { AzureStreamRecord, Repository } from '../src/contract.ts';
 import { dataOf, fieldsOf, present, stub, watchedIdOf } from './fixtures/typed.ts';
 const repo = {
   id: 'one',
@@ -1115,7 +1115,7 @@ test('tag pushes become tag rows with their own change, and a tag-only push make
 });
 
 test('tags join the refs snapshot without announcing the tags that already existed', async () => {
-  let items: object[] = [{ name: 'refs/heads/main', objectId: 'a' }];
+  let items: AzureStreamRecord[] = [{ name: 'refs/heads/main', objectId: 'a' }];
   const { store, sync, advance } = setup(
     {
       async read() {
@@ -1161,7 +1161,7 @@ test('a fork PR keeps where it came from without changing the fingerprint of PRs
     targetRefName: 'refs/heads/main',
     repository: { id: 'a' },
   };
-  let items: object[] = [pr];
+  let items: AzureStreamRecord[] = [pr];
   const { store, sync, advance } = setup(
     {
       async read() {
@@ -1175,11 +1175,13 @@ test('a fork PR keeps where it came from without changing the fingerprint of PRs
   assert.equal(dataOf(store.listEvents()[0]).fork, undefined);
   assert.equal(dataOf(store.listEvents()[0]).sourceRepositoryId, 'a', 'an active PR records where its source branch lives');
   assert.equal(dataOf(store.listEvents()[0]).targetRepositoryId, 'a');
-  items = [{ ...pr, forkSource: { name: 'refs/heads/fix', repository: { id: 'f', name: 'One-fork', project: { name: 'Q' } } } }];
+  const forkSource = { name: 'refs/heads/fix', repository: { id: 'f', name: 'One-fork', project: { name: 'Q' } } };
+  const forked = { ...pr, forkSource };
+  items = [forked];
   advance(600001);
   await sync.tick();
   assert.equal(store.listEvents().length, 1, 'learning the fork source is not a PR update');
-  items = [{ ...items[0], title: 'Fix, retitled' }];
+  items = [{ ...forked, title: 'Fix, retitled' }];
   advance(600001);
   await sync.tick();
   const latest = present(store.listEvents().find(event => dataOf(event).fork));
@@ -1200,7 +1202,7 @@ test('a reviewer vote is PR activity, and PRs saved before votes were recorded a
     repository: { id: 'a' },
     reviewers: [reviewer('ana', 0, 'Ana'), reviewer('sam', -5, 'Sam')],
   };
-  let items: object[] = [pr];
+  let items: AzureStreamRecord[] = [pr];
   const { store, sync, advance } = setup(
     {
       async read() {
@@ -1274,7 +1276,7 @@ test('adding a reviewer who has not voted is not PR activity', async () => {
     repository: { id: 'a' },
     reviewers: [{ id: 'ana', displayName: 'Ana', vote: 10 }],
   };
-  let items: object[] = [pr];
+  let items: AzureStreamRecord[] = [pr];
   const { store, sync, advance } = setup(
     {
       async read() {
@@ -1331,7 +1333,7 @@ for (const [order, first, second] of [
 ] satisfies [string, string, string][]) {
   test(`a completed PR links to the push that is its result with no merge call, ${order}`, async () => {
     const result = 'c'.repeat(40);
-    const items: Record<string, object[]> = {
+    const items: Record<string, AzureStreamRecord[]> = {
       pushes: [{ ...push(30), refUpdates: [{ name: 'refs/heads/main', oldObjectId: 'a'.repeat(40), newObjectId: result }] }],
       closedPrs: [
         {
@@ -1347,7 +1349,7 @@ for (const [order, first, second] of [
         },
       ],
     };
-    const offered: Record<string, object[]> = { pushes: [], closedPrs: [] };
+    const offered: Record<string, AzureStreamRecord[]> = { pushes: [], closedPrs: [] };
     const store = createStore();
     store.saveRepo(repo);
     let time = BASE;
