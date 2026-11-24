@@ -1,16 +1,15 @@
 import { branchName } from './events.ts';
-import type { ActivityEvent } from './activity.ts';
+import type { ActivityEvent, ActivityItem } from './activity.ts';
 
 export type { ActivityEvent };
 /**
- * How a fork origin is known. Unchecked, from the rows on the page: `tip`, the new branch started at a revision an
- * older row shows on another branch; `pr`, a pull request from the branch names a target, which is an assumption.
+ * How a fork origin is known. Unchecked, from the rows on the page: `pr`, a pull request from the branch names a target, which is an assumption.
  * Checked by server/fork-origin.ts, from the commit the branch started at (`base`): `recorded`, the base was the
  * latest recorded tip of one other branch; `contained`, one checked candidate already held the base. The checked
  * outcomes with no parent draw nothing: `ambiguous` (several branches held the base), `refuted` (the PR target did
  * not hold it), `unplaced` (no recorded or checked branch held it), `orphan` and `merge`.
  */
-export type ForkEvidence = 'tip' | 'pr' | 'recorded' | 'contained' | 'ambiguous' | 'refuted' | 'unplaced' | 'orphan' | 'merge';
+export type ForkEvidence = 'pr' | 'recorded' | 'contained' | 'ambiguous' | 'refuted' | 'unplaced' | 'orphan' | 'merge';
 /** A drawn lane. `color` indexes the lane palette; -1 is neutral. */
 export type TreeLane = { slot: number; color: number };
 /** A lane in one row, and whether it runs on above and below. */
@@ -41,18 +40,18 @@ export type TreeRow = {
 };
 /** `width` counts lane positions, the overflow position included. */
 export type ActivityTree = { width: number; rows: TreeRow[] };
-export type PullRequest = { id: number | string; source: string; target: string };
+type TreeEvent = ActivityEvent & Pick<ActivityItem, 'branchLifetimes' | 'prSourceLifetime'>;
+type PullRequest = { id: number | string; source: string; target: string };
 /**
  * One stretch of a branch. `top` and `bottom` are row indexes, newest first. `target` marks a lane that others fork
- * from or merge into, `forked` one that starts with a fork.
+ * from or merge into.
  */
-export type Lane = {
+type Lane = {
   key: string;
   top: number;
   bottom: number;
   branch: string;
   target: boolean;
-  forked: boolean;
   slot: number;
   color: number;
 };
@@ -65,6 +64,9 @@ const PR_REF = /^refs\/pull\/(\d+)\//;
 const ZERO = /^0+$/;
 
 const laneKey = (repoId: string, branch: string) => `${repoId}\n${branch}`;
+
+const HEADS = 'refs/heads/';
+const headRef = (ref: string | undefined) => (ref ? (ref.startsWith(HEADS) ? ref : HEADS + ref) : '');
 
 function hash(text: string) {
   let value = 0;
@@ -81,9 +83,9 @@ function pullRequestRefs(
   targetRef: string | undefined,
   fork: { repository?: string; project?: string } | undefined,
 ): PullRequest {
-  const branch = branchName(sourceRef);
-  const source = fork && branch ? `${fork.project ?? ''}/${fork.repository ?? 'fork'}:${branch}` : branch;
-  return { id, source, target: branchName(targetRef) };
+  const branch = headRef(sourceRef);
+  const source = fork && branch ? JSON.stringify([fork.project ?? '', fork.repository ?? '', branch]) : branch;
+  return { id, source, target: headRef(targetRef) };
 }
 
 /** The refs one pull request row names. */
@@ -94,9 +96,9 @@ function pullRequest(item: ActivityEvent): PullRequest | undefined {
 }
 
 /** Pull requests by id, newest row first, and every PR row of each source branch in list order. */
-function pullRequests(items: ActivityEvent[]) {
+function pullRequests(items: TreeEvent[]) {
   const byId: Map<string, PullRequest> = new Map();
-  const bySource: Map<string, { row: number; pr: PullRequest }[]> = new Map();
+  const bySource: Map<string, { row: number; pr: PullRequest; item: TreeEvent }[]> = new Map();
   items.forEach((item, row) => {
     const pr = pullRequest(item);
     if (!pr) return;
@@ -105,8 +107,8 @@ function pullRequests(items: ActivityEvent[]) {
     if (!pr.source || !pr.target) return;
     const source = laneKey(item.repoId, pr.source);
     const rows = bySource.get(source);
-    if (rows) rows.push({ row, pr });
-    else bySource.set(source, [{ row, pr }]);
+    if (rows) rows.push({ row, pr, item });
+    else bySource.set(source, [{ row, pr, item }]);
   });
   return { byId, bySource };
 }
@@ -117,62 +119,68 @@ function createdAt(item: ActivityEvent) {
   return item.kind === 'branch-created' && evidence === 'push' && (!oldObjectId || ZERO.test(oldObjectId)) ? (newObjectId ?? '') : '';
 }
 
-/** Where each revision was seen as a branch tip: `repo, sha` to the rows and branches. */
-function tipSightings(items: ActivityEvent[]) {
-  const sightings: Map<string, { row: number; branch: string }[]> = new Map();
-  const add = (item: ActivityEvent, row: number, sha: string | undefined, ref: string | undefined) => {
-    if (!sha || ZERO.test(sha) || !ref?.startsWith('refs/heads/')) return;
-    const key = laneKey(item.repoId, sha.toLowerCase());
-    const seen = sightings.get(key);
-    if (seen) seen.push({ row, branch: branchName(ref) });
-    else sightings.set(key, [{ row, branch: branchName(ref) }]);
-  };
-  items.forEach((item, row) => {
-    if (item.kind === 'push')
-      for (const update of item.data?.refUpdates ?? []) {
-        add(item, row, update.newObjectId, update.name);
-        add(item, row, update.oldObjectId, update.name);
-      }
-    if (item.kind === 'pr') add(item, row, item.data?.mergeCommit, item.data?.targetRefName);
-    // A snapshot row records the tip the branch had when it was found.
-    if (item.kind === 'branch-created') add(item, row, createdAt(item) || item.data?.objectId, item.data?.name);
-  });
-  return sightings;
-}
-
 /**
  * The origin server/fork-origin.ts stored, or undefined when there is none or the check failed, so the unchecked
  * evidence applies. A checked origin never falls back to the pull request target.
  */
-function checkedFork(origin: import('./activity.ts').ForkOrigin | undefined, pr: PullRequest | undefined): TreeFork | null | undefined {
+function checkedFork(
+  origin: import('./activity.ts').ForkOrigin | undefined,
+  pr: PullRequest | undefined,
+  branch: string,
+): TreeFork | undefined {
   if (!origin || origin.status === 'unknown') return undefined;
   if (origin.status === 'orphan' || origin.status === 'merge') return { evidence: origin.status, parent: null };
   const base = origin.base ?? '';
   if (origin.status === 'found') {
-    const branches = (origin.on ?? []).map(ref => branchName(ref));
+    const branches = [...new Set((origin.on ?? []).map(headRef))].filter(ref => ref && ref !== branch);
     // A candidate that went unanswered could also hold the base, so one match beside it draws no fork either.
     const [only] = branches;
     if (only !== undefined && branches.length === 1 && !origin.unanswered?.length)
-      return { evidence: origin.via === 'contained' ? 'contained' : 'recorded', parent: only, base };
-    if (branches.length) return { evidence: 'ambiguous', parent: null, base, branches };
+      return { evidence: origin.via === 'contained' ? 'contained' : 'recorded', parent: branchName(only), base };
+    if (branches.length) return { evidence: 'ambiguous', parent: null, base, branches: branches.map(branchName) };
   }
-  if (pr && (origin.notOn ?? []).some(ref => branchName(ref) === pr.target))
-    return { evidence: 'refuted', parent: null, base, pullRequestId: pr.id, target: pr.target };
+  if (pr && (origin.notOn ?? []).some(ref => headRef(ref) === pr.target))
+    return { evidence: 'refuted', parent: null, base, pullRequestId: pr.id, target: branchName(pr.target) };
   return { evidence: 'unplaced', parent: null, base };
 }
 
 /** The branch a row sits on, or '' for a row that belongs to no branch. */
-function rowBranch(item: ActivityEvent, prs: Map<string, PullRequest>) {
+function rowBranch(item: ActivityEvent, prs?: Map<string, PullRequest>) {
   if (item.kind === 'tag') return '';
   const pr = pullRequest(item);
   if (pr) return (item.data?.status === 'completed' && pr.target) || pr.source;
-  const prNumber = item.kind === 'build' ? PR_REF.exec(item.branch ?? '')?.[1] : undefined;
-  if (prNumber === undefined) return item.branch || '';
+  const prNumber = item.kind === 'build' ? PR_REF.exec(item.data?.sourceBranch ?? item.branch ?? '')?.[1] : undefined;
+  if (prNumber === undefined) {
+    if (item.kind === 'build' && item.data?.sourceBranch) {
+      return item.data.sourceBranch.startsWith(HEADS) ? item.data.sourceBranch : '';
+    }
+    if (item.kind === 'push') {
+      const heads = [...new Set(item.data?.refUpdates?.map(ref => ref.name).filter(name => name?.startsWith(HEADS)))];
+      if (heads.length > 1) return '';
+      if (heads[0]) return heads[0];
+    }
+    return headRef(item.data?.name ?? item.branch);
+  }
   // A CI run on a pull request ref belongs to the PR source branch: from the stored PR the server attached, or from a
   // PR row in the list. With neither, the runs of that pull request still share a lane of their own.
   const stored = item.data?.pullRequest;
   const attached = stored && pullRequestRefs(stored.id, stored.sourceRefName, stored.targetRefName, stored.fork).source;
-  return attached || prs.get(laneKey(item.repoId, prNumber))?.source || `refs/pull/${prNumber}`;
+  return attached || prs?.get(laneKey(item.repoId, prNumber))?.source || `refs/pull/${prNumber}`;
+}
+
+/** Refs whose cached lifecycle can affect a row or one of its joins. */
+export function treeBranchRefs(item: ActivityEvent) {
+  const pr = pullRequest(item);
+  return [...new Set([rowBranch(item), pr?.source, pr?.target, ...(item.data?.forkOrigin?.on ?? []).map(headRef)])].filter(
+    (ref): ref is string => Boolean(ref?.startsWith(HEADS)),
+  );
+}
+
+export function treePullRequestSource(item: ActivityEvent) {
+  const pr = item.data?.pullRequest;
+  const ref = pullRequest(item)?.source ?? (pr && !pr.fork ? headRef(pr.sourceRefName) : undefined);
+  const createdAt = item.data?.pullRequestCreatedAt ?? pr?.createdAt;
+  return ref?.startsWith(HEADS) && createdAt && Number.isFinite(Date.parse(createdAt)) ? { ref, createdAt } : undefined;
 }
 
 function nodeShape(item: ActivityEvent): TreeNode['shape'] {
@@ -181,26 +189,31 @@ function nodeShape(item: ActivityEvent): TreeNode['shape'] {
 }
 
 /**
- * Gives each lane a position and a colour. Lanes that others fork from or merge into go first, so a trunk stays on
+ * Gives each lane a position. Lanes that others fork from or merge into go first, so a trunk stays on
  * the left. A lane that overlaps `maxLanes` others keeps slot -1.
  */
 function placeLanes(lanes: Lane[], maxLanes: number) {
-  const ordered = [...lanes].sort((a, b) => Number(b.target) - Number(a.target) || a.top - b.top);
+  const ordered = [...lanes].sort(
+    (a, b) => Number(b.target) - Number(a.target) || Number(Boolean(b.branch)) - Number(Boolean(a.branch)) || a.top - b.top,
+  );
   const placed: Lane[] = [];
   for (const lane of ordered) {
     const beside = placed.filter(other => other.bottom >= lane.top && other.top <= lane.bottom);
-    // A single row with nothing attached stays neutral: colour is for lanes a reader can follow.
-    if (lane.branch && (lane.top < lane.bottom || lane.target || lane.forked)) {
-      // A lane that ends in the row before this one starts counts as a neighbour too, so two branches in a row differ.
-      const near = placed.filter(other => other.bottom >= lane.top - 1 && other.top <= lane.bottom + 1);
-      const preferred = hash(lane.key) % LANE_COLORS;
-      const free = Array.from({ length: LANE_COLORS }, (_, step) => (preferred + step) % LANE_COLORS);
-      lane.color = free.find(color => near.every(other => other.color !== color)) ?? preferred;
-    }
     for (let slot = 0; slot < maxLanes && lane.slot < 0; slot++) if (beside.every(other => other.slot !== slot)) lane.slot = slot;
     if (lane.slot >= 0) placed.push(lane);
   }
-  return ordered.filter(lane => lane.slot >= 0);
+  return placed;
+}
+
+function colorLanes(lanes: Lane[], joined: Set<Lane>) {
+  for (const lane of lanes) {
+    // Colour is for lanes a reader can follow and real endpoints of visible joins.
+    if (!lane.branch || (lane.top === lane.bottom && !joined.has(lane))) continue;
+    const near = lanes.filter(other => other.bottom >= lane.top - 1 && other.top <= lane.bottom + 1);
+    const preferred = hash(lane.key) % LANE_COLORS;
+    const colors = Array.from({ length: LANE_COLORS }, (_, step) => (preferred + step) % LANE_COLORS);
+    lane.color = colors.find(color => near.every(other => other.color !== color)) ?? preferred;
+  }
 }
 
 /**
@@ -216,7 +229,7 @@ function splitLanes(branches: Map<string, { branch: string; rows: Set<number>; s
     let lane: Lane | undefined;
     for (const row of [...rows].sort((a, b) => a - b)) {
       if (!lane || row - lane.bottom - 1 > maxGap || starts.has(lane.bottom)) {
-        lane = { key, top: row, bottom: row, branch, target: false, forked: false, slot: -1, color: -1 };
+        lane = { key, top: row, bottom: row, branch, target: false, slot: -1, color: -1 };
         lanes.push(lane);
       }
       lane.bottom = row;
@@ -232,99 +245,154 @@ function splitLanes(branches: Map<string, { branch: string; rows: Set<number>; s
  * a lane runs between nearby rows that sit on a branch or refer to it.
  */
 export function buildActivityTree(
-  items: ActivityEvent[],
+  items: TreeEvent[],
   { maxLanes = MAX_LANES, maxGap = MAX_GAP }: { maxLanes?: number; maxGap?: number } = {},
 ): ActivityTree {
   const prs = pullRequests(items);
-  const sightings = tipSightings(items);
   const branches: Map<string, { branch: string; rows: Set<number>; starts: Set<number> }> = new Map();
-  const mark = (repoId: string, branch: string, row: number) => {
-    const key = branch ? laneKey(repoId, branch) : laneKey(repoId, `\n${row}`);
+  const keyOf = (item: TreeEvent, ref: string, lifetime = item.branchLifetimes?.[ref] ?? '') =>
+    laneKey(item.repoId, JSON.stringify([ref, lifetime]));
+  const mark = (item: TreeEvent, branch: string, row: number) => {
+    const source = item.kind === 'pr' && item.data?.status === 'completed' ? undefined : treePullRequestSource(item);
+    const key = branch ? keyOf(item, branch, source?.ref === branch ? item.prSourceLifetime : undefined) : laneKey(item.repoId, `\n${row}`);
     const entry = branches.get(key) ?? { branch, rows: new Set(), starts: new Set() };
     branches.set(key, entry);
     entry.rows.add(row);
     return key;
   };
-  const keyed = items.map((item, row) => ({ item, key: mark(item.repoId, rowBranch(item, prs.byId), row) }));
-  const rowKeys = keyed.map(({ key }) => key);
-
+  const keyed = items.map((item, row) => ({ item, key: mark(item, rowBranch(item, prs.byId), row) }));
   /**
    * The oldest row of a new branch. The push that created a branch is a row of its own and may sort below it, after
    * the other rows of the same push.
    */
-  const startRow = (item: ActivityEvent, row: number) => {
-    const pushId = item.data?.pushId;
-    let start = row;
-    for (let below = row + 1; pushId !== undefined; below++) {
-      const next = keyed[below];
-      if (next?.item.data?.pushId !== pushId) break;
-      if (next.item.kind === 'push' && next.key === rowKeys[row]) start = below;
-    }
-    return start;
-  };
-  /**
-   * `after` is the row where the same name was created again, or -1: a pull request above it belongs to that later branch.
-   */
-  const forkOrigin = (item: ActivityEvent, branch: string, row: number, start: number, after: number): TreeFork | null => {
-    const tip = createdAt(item).toLowerCase();
-    const requests = prs.bySource.get(laneKey(item.repoId, branch)) ?? [];
-    // A push dates the branch, so its pull request has every row above. A snapshot only dates the discovery.
-    const earlier = new Set(tip ? requests.filter(entry => entry.row > row).map(entry => entry.pr.id) : []);
-    const pr = requests.findLast(entry => entry.row > after && (!tip || (entry.row < row && !earlier.has(entry.pr.id))))?.pr;
-    const checked = checkedFork(item.data?.forkOrigin, pr);
-    if (checked !== undefined) return checked;
-    const seen = sightings.get(laneKey(item.repoId, tip))?.find(sighting => sighting.row > start && sighting.branch !== branch);
-    if (seen) return { evidence: 'tip', parent: seen.branch };
-    return pr && pr.target !== branch ? { evidence: 'pr', parent: pr.target, pullRequestId: pr.id } : null;
-  };
+  const creatingPushes = new Map<string, number>();
+  keyed.forEach(({ item, key }, row) => {
+    if (item.kind !== 'push' || item.data?.pushId === undefined) return;
+    creatingPushes.set(JSON.stringify([key, String(item.data.pushId)]), row);
+  });
+  const starts = new Map<string, number>();
   const forks: (TreeFork | null)[] = items.map(() => null);
-  /** The fork curve sits on the oldest row of the branch: row index to the fork and the parent it joins. */
-  const forkJoins: Map<number, { fork: TreeFork; key: string }> = new Map();
-  const createdAbove: Map<string, number> = new Map();
+  const joins = new Map<number, { key: string; fork?: TreeFork; isolated?: boolean }>();
   keyed.forEach(({ item, key }, row) => {
     const entry = branches.get(key);
-    if (item.kind !== 'branch-created' || !entry?.branch) return;
-    const start = startRow(item, row);
-    // Only a push proves a new branch. A snapshot discovery has no creation time, so older rows stay on its lane.
-    if (createdAt(item)) entry.starts.add(start);
-    const fork = forkOrigin(item, entry.branch, row, start, createdAbove.get(key) ?? -1);
-    createdAbove.set(key, row);
+    if (!entry?.branch) return;
+    if (item.kind === 'branch-deleted' && item.data?.evidence === 'push') {
+      // Walking backwards, the deletion is the first row of the older lifetime.
+      const previous = [...entry.rows].findLast(index => index < row);
+      if (previous !== undefined) entry.starts.add(previous);
+    }
+    if (item.kind !== 'branch-created') return;
+    const created = Boolean(createdAt(item));
+    const pushId = item.data?.pushId;
+    const pushRow = pushId === undefined ? undefined : creatingPushes.get(JSON.stringify([key, String(pushId)]));
+    const start = Math.max(row, pushRow ?? row);
+    if (created) entry.starts.add(start);
+    const after = starts.get(key) ?? -1;
+    const requests = prs.bySource.get(laneKey(item.repoId, entry.branch)) ?? [];
+    const older = new Set(created ? requests.filter(candidate => candidate.row > row).map(candidate => candidate.pr.id) : []);
+    const request = requests.findLast(
+      candidate =>
+        candidate.row > after &&
+        (!created || (candidate.row < row && !older.has(candidate.pr.id))) &&
+        keyOf(candidate.item, entry.branch, candidate.item.prSourceLifetime) === key &&
+        candidate.item.data?.status === 'active',
+    );
+    const pr = request?.pr;
+    const checked = checkedFork(item.data?.forkOrigin, pr, entry.branch);
+    const fork =
+      checked === undefined && pr && pr.target !== entry.branch
+        ? { evidence: 'pr' as const, parent: branchName(pr.target), pullRequestId: pr.id }
+        : (checked ?? null);
+    starts.set(key, row);
     forks[row] = fork;
-    if (fork?.parent) forkJoins.set(start, { fork, key: mark(item.repoId, fork.parent, start) });
+    if (fork?.parent) {
+      const ref = fork.evidence === 'pr' && pr ? pr.target : HEADS + fork.parent;
+      joins.set(start, { fork, key: keyOf(item, ref), isolated: Boolean(item.branchLifetimes && !(ref in item.branchLifetimes)) });
+    }
   });
-  const merges = items.map((item, row) => {
+  keyed.forEach(({ item, key }, row) => {
     const pr = nodeShape(item) === 'merge' ? pullRequest(item) : undefined;
-    return pr?.source && laneKey(item.repoId, pr.source) !== rowKeys[row] ? mark(item.repoId, pr.source, row) : null;
+    if (!pr?.source || !pr.target) return;
+    const source = keyOf(item, pr.source);
+    const lifetime = item.branchLifetimes?.[pr.source] ?? '';
+    if (source !== key) joins.set(row, { key: source, isolated: (item.prSourceLifetime ?? '') !== lifetime });
   });
 
   const { lanes, byRow } = splitLanes(branches, maxGap);
-  const laneOf = (key: string | null | undefined, row: number) => (key ? byRow.get(key)?.get(row) : undefined);
-  items.forEach((_, row) => {
-    const own = laneOf(rowKeys[row], row) as Lane;
-    const parent = laneOf(forkJoins.get(row)?.key, row);
-    if (parent) [parent.target, own.forked] = [true, true];
-    if (merges[row]) own.target = true;
-  });
+  const ownLanes = keyed.map(({ key }, row) => byRow.get(key)?.get(row) as Lane);
+  const candidates = new Map<string, Lane[]>();
+  for (const lane of lanes) {
+    const existing = candidates.get(lane.key);
+    if (existing) existing.push(lane);
+    else candidates.set(lane.key, [lane]);
+  }
+  const distance = (lane: Lane, row: number) => Math.max(lane.top - row, row - lane.bottom, 0);
+  const targets = new Map<number, Lane>();
+  for (const [row, join] of joins) {
+    const own = ownLanes[row] as Lane;
+    own.target ||= !join.fork;
+    if (join.isolated) continue;
+    const target = candidates
+      .get(join.key)
+      ?.reduce<Lane | undefined>((best, lane) => (!best || distance(lane, row) < distance(best, row) ? lane : best), undefined);
+    if (target && distance(target, row) <= maxGap + 1) {
+      targets.set(row, target);
+      target.target ||= Boolean(join.fork);
+    }
+  }
   const drawn = placeLanes(lanes, maxLanes);
+  const visibleJoins = new Map<number, Lane>();
+  const freeSlots = Array.from({ length: maxLanes }, (_, index) => index);
+  const rangeFree = (slot: number, top: number, bottom: number, target?: Lane) =>
+    drawn.every(lane => lane === target || lane.slot !== slot || lane.top > bottom || lane.bottom < top);
+  // Extend a real lane only after both endpoints fit. Otherwise show a short stub in a free slot.
+  for (const [row, join] of joins) {
+    const own = ownLanes[row] as Lane;
+    if (own.slot < 0) continue;
+    const target = targets.get(row);
+    if (target && target.slot >= 0) {
+      const top = Math.min(row, target.top);
+      const bottom = Math.max(row, target.bottom);
+      const slot = rangeFree(target.slot, top, bottom, target)
+        ? target.slot
+        : freeSlots.find(index => rangeFree(index, top, bottom, target));
+      if (slot !== undefined) {
+        target.slot = slot;
+        target.top = top;
+        target.bottom = bottom;
+        visibleJoins.set(row, target);
+        continue;
+      }
+    }
+    if (target && distance(target, row) === 0) continue;
+    const slot = freeSlots.find(index => rangeFree(index, row, row));
+    if (slot === undefined) continue;
+    const stub = { key: join.key, top: row, bottom: row, branch: '', target: false, slot, color: -1 };
+    drawn.push(stub);
+    visibleJoins.set(row, stub);
+  }
+  const joined = new Set(visibleJoins.values());
+  for (const row of visibleJoins.keys()) joined.add(ownLanes[row] as Lane);
+  colorLanes(drawn, joined);
   const width = drawn.reduce((most, lane) => Math.max(most, lane.slot + 1), 0);
   const line = (lane: Lane, row: number): TreeLine => ({ slot: lane.slot, color: lane.color, up: lane.top < row, down: lane.bottom > row });
-  const fits = (lane: Lane | undefined) => (lane && lane.slot >= 0 ? lane : null);
   const rows = items.map((item, row) => {
-    const own = laneOf(rowKeys[row], row) as Lane;
-    const join = forkJoins.get(row);
-    const forkLane = fits(own) && fits(laneOf(join?.key, row));
-    const mergeLane = fits(own) && fits(laneOf(merges[row], row));
+    const own = ownLanes[row] as Lane;
+    const other = visibleJoins.get(row);
+    const joined = other ? line(other, row) : null;
+    const fork = joins.get(row)?.fork;
     return {
-      node: fits(own)
-        ? { ...line(own, row), shape: nodeShape(item), overflow: false }
-        : { slot: width, color: own.color, up: false, down: false, shape: nodeShape(item), overflow: true },
+      node:
+        own.slot >= 0
+          ? { ...line(own, row), shape: nodeShape(item), overflow: false }
+          : { slot: width, color: -1, up: false, down: false, shape: nodeShape(item), overflow: true },
       through: drawn
-        .filter(lane => lane !== own && lane !== forkLane && lane !== mergeLane && lane.top < row && lane.bottom > row)
+        .filter(lane => lane !== own && lane !== other && lane.top < row && lane.bottom > row)
         .map(lane => ({ slot: lane.slot, color: lane.color })),
       fork: forks[row] ?? null,
-      forkFrom: join && forkLane ? { ...line(forkLane, row), evidence: join.fork.evidence } : null,
-      mergeFrom: mergeLane ? line(mergeLane, row) : null,
+      forkFrom: joined && fork ? { ...joined, evidence: fork.evidence } : null,
+      mergeFrom: fork ? null : joined,
     };
   });
-  return { width: width + Number(drawn.length < lanes.length), rows };
+  return { width: width + Number(lanes.some(lane => lane.slot < 0)), rows };
 }

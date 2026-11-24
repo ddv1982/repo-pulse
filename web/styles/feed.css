@@ -846,7 +846,7 @@ ol.rows {
   }
 }
 
-/* Branch tree of All activity, drawn in the left padding of each row's type label. src/ui/activity-tree.js draws one
+/* Activity branch tree, drawn in the left padding of each row's type label. src/ui/activity-tree.ts draws one
    cell per row, with y = 0 on the type label. Below 640px there is no tree, so rows keep their dot. */
 .tree,
 .tree-legend {
@@ -976,6 +976,9 @@ ol.rows {
 }
 .lane-none {
   color: var(--neutral-solid);
+}
+.tree-key .lane-none {
+  color: var(--muted-foreground);
 }
 .lane-crit {
   color: var(--critical);

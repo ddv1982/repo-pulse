@@ -82,6 +82,7 @@ export type EventData = RefUpdate & {
   mergeEvidence?: MergeEvidenceData;
   forkOrigin?: ForkOrigin;
   pullRequestId?: number | string;
+  pullRequestCreatedAt?: string;
   sourceRefName?: string;
   sourceCommit?: string;
   targetCommit?: string;
@@ -98,7 +99,13 @@ export type EventData = RefUpdate & {
   fork?: { repository?: string; project?: string };
   sourceRepositoryId?: string;
   targetRepositoryId?: string;
-  pullRequest?: { id: number | string; sourceRefName?: string; targetRefName?: string; fork?: { repository?: string; project?: string } };
+  pullRequest?: {
+    id: number | string;
+    sourceRefName?: string;
+    targetRefName?: string;
+    createdAt?: string;
+    fork?: { repository?: string; project?: string };
+  };
   reviewers?: { name: string; vote: number; required?: boolean }[];
   voteChanges?: { name: string; vote: number }[];
 };
@@ -123,6 +130,9 @@ export type ActivityItem = ActivityEvent & {
   eventIds: string[];
   unseenIds: string[];
   unseen: boolean;
+  /** Latest cached lifecycle boundary for each branch used by the tree, or an empty ID before any boundary. */
+  branchLifetimes?: Record<string, string>;
+  prSourceLifetime?: string;
 };
 
 export type ActivityRequest = {

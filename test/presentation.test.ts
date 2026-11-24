@@ -246,10 +246,10 @@ test('Activity shows ordinary pushes, hotfixes, and new branches in source-time 
   state.events = [
     { ...event, id: 'ordinary', branch: 'feature/new', title: 'Ordinary push', time: '2026-11-17T10:02:00Z' },
     { ...event, id: 'priority', branch: 'hotfix/fix', title: 'Priority push', time: '2026-11-17T10:01:00Z' },
-    { ...event, id: 'branch', kind: 'branch-created', branch: 'feature/newest', title: 'New branch', time: '2026-11-17T10:03:00Z' },
+    { ...event, id: 'branch', kind: 'branch-created', branch: 'feature/newest', title: 'New branch', time: '2026-11-17T10:00:00Z' },
   ];
-  assert.deepEqual(rowIds(renderFeed(state, view)), ['branch', 'ordinary', 'priority']);
-  assert.deepEqual(rowIds(renderFeed(state, { ...view, route: 'activity' })), ['branch', 'ordinary', 'priority']);
+  assert.deepEqual(rowIds(renderFeed(state, view)), ['ordinary', 'priority', 'branch']);
+  assert.deepEqual(rowIds(renderFeed(state, { ...view, route: 'activity' })), ['ordinary', 'priority', 'branch']);
   assert.doesNotMatch(text(parse(renderFeed(state, view))), /Prioritized|Muted|Show muted/);
 });
 
@@ -469,7 +469,7 @@ test('push headlines name a single matching PR result without inferring the caus
   assert.equal(activitySummary({ ...push, data: {} }), 'Branch details unavailable');
 });
 
-test('All activity draws a branch tree with the fork evidence in the row text; New updates stays a plain list', () => {
+test('both activity views draw a branch tree with the fork evidence in the row text', () => {
   const state = fixture();
   const base = { repoId: 'r', actor: 'Developer', seen: false, imported: false, branch: 'feature/a' };
   state.events = [
@@ -498,12 +498,12 @@ test('All activity draws a branch tree with the fork evidence in the row text; N
   assert.ok(cells.every(cell => cell.getAttribute('aria-hidden') === 'true'));
   const assumed = one(doc, 'svg.tree path.assumed');
   assert.ok(classes(assumed).some(name => /^lane-\d$/.test(name)));
-  assert.equal(assumed.getAttribute('d'), 'M5 18C5 9 15 9 15 0');
+  assert.equal(assumed.getAttribute('d'), 'M15 18C15 9 5 9 5 0');
   const ring = one(doc, 'svg.tree circle.hole');
   assert.ok(classes(ring).some(name => /^lane-\d$/.test(name)));
   assert.deepEqual(
     ['cx', 'cy', 'r'].map(name => ring.getAttribute(name)),
-    ['15', '0', '3.75'],
+    ['5', '0', '3.75'],
   );
   const origin = one(row(doc, 'branch'), '.event-origin');
   assert.equal(text(origin), 'PR 7 targets main, origin not checked');
@@ -511,8 +511,8 @@ test('All activity draws a branch tree with the fork evidence in the row text; N
   assert.match(text(one(doc, '.tree-legend')), /Lines can pass rows of other branches\./);
   const updates = parse(renderFeed(state, view));
   assert.equal(all(updates, '.row').length, 2);
-  assert.equal(all(updates, '.with-tree, .tree, .tree-legend').length, 0);
-  assert.doesNotMatch(text(updates), /origin not checked/);
+  assert.equal(all(updates, 'svg.tree').length, 2);
+  assert.equal(text(one(row(updates, 'branch'), '.event-origin')), 'PR 7 targets main, origin not checked');
 });
 
 test('a CI run on a pull request ref names the source branch and the pull request once the PR is known', () => {
@@ -731,7 +731,6 @@ test('each fork origin has its own row text, and only an unchecked PR target is 
   assert.deepEqual(
     (
       [
-        { evidence: 'tip', parent: 'main' },
         { evidence: 'recorded', parent: 'feature/a', base },
         { evidence: 'contained', parent: 'main', base },
         { evidence: 'pr', parent: 'main', pullRequestId: 7 },
@@ -743,7 +742,6 @@ test('each fork origin has its own row text, and only an unchecked PR target is 
       ] satisfies TreeFork[]
     ).map(forkText),
     [
-      'Started at a revision seen on main',
       'Started at ddddddd, the tip of feature/a',
       'Started at ddddddd, already on main',
       'PR 7 targets main, origin not checked',

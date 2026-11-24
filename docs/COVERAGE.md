@@ -50,8 +50,9 @@ Evidence saved before deeper analysis stopped also enumerated ref ranges, becaus
   "Repository push", because their saved record does not say which ref moved.
 - A snapshot discovery and a later push record can both describe the same branch. They remain
   separate observations when the app cannot prove a shared branch lifetime/source identity.
-- The branch tree in **All activity** is drawn from the rows on the page, plus the checked fork origin of each
-  new branch. A lane joins nearby rows of one branch and ends when the branch is quiet for more than 12 rows.
+- The branch tree in **All activity** and **New updates** follows the newest-first rows on the page. A lane joins
+  nearby rows in the same branch lifetime and ends when the branch is quiet for more than 12 rows. Cached push-confirmed
+  creations and deletions separate lifetimes even when those rows are hidden by filters, pagination, or seen state.
 - A branch created by a push, live or from the first sync's 7-day import, is checked in the background, during the automatic-check turns when no
   rewrite check is due, and waits while the repository's push stream is still paging through a window. Imported rows
   stored before fork checks existed stay unchecked in a repository that had run an explicit history import, because
@@ -66,16 +67,16 @@ Evidence saved before deeper analysis stopped also enumerated ref ranges, becaus
   store. Several matching branches, a pull request target that did not hold the commit, no matching
   branch, an orphan branch or a first commit that is a merge draw no fork and say so in the row text.
 - Branches the check did not cover (an explicit history import, snapshot
-  discoveries, and checks that failed before finding the start commit) keep the unchecked evidence: a solid fork when an older row on the
-  page shows the created revision as another branch's tip, otherwise a dotted fork to the target of a pull
-  request from the branch, labelled "origin not checked". A
+  discoveries, and checks that failed before finding the start commit) may show a dotted fork to the target of a visible
+  open pull request from the branch, labelled "origin not checked". A
   completed pull request draws a merge from its own source and target refs. A CI run on a pull
   request ref (`refs/pull/N/merge`) is placed on the source branch of that pull request, read from the
-  stored pull request records, and its row names that branch and the pull request. A branch with a single
+  stored pull request records, and its row names that branch and the pull request. Multi-branch pushes and builds on tags
+  use separate markers. A branch with a single
   row on the page keeps a grey dot, so a merge that restarts validation for many open pull requests shows
   as many separate dots. A line can pass rows of other branches. Filters, paging and
-  the four-lane limit can remove links, so a missing line never shows that branches are unrelated.
-  **New updates** has no tree because it lists new branches first.
+  the four-lane limit can remove links, so a missing line never shows that branches are unrelated. Below 640px the layout
+  uses the compact markers and retains the row's fork text.
 - A branch created and deleted entirely between readable observations may be missed. Loss of ref
   visibility cannot safely be presented as confirmed deletion without direct evidence.
 

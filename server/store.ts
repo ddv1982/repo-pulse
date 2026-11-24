@@ -432,6 +432,8 @@ export function createStore(path = ':memory:') {
         WHERE json_extract(data,'$.kind')='pr';
       CREATE INDEX IF NOT EXISTS events_push_id ON events(repo_id,json_extract(data,'$.data.pushId'))
         WHERE json_extract(data,'$.kind')='push';
+      CREATE INDEX IF NOT EXISTS events_branch_boundary ON events(repo_id,json_extract(data,'$.data.name'),julianday(time) DESC)
+        WHERE json_extract(data,'$.kind') IN ('branch-created','branch-deleted') AND json_extract(data,'$.data.evidence')='push';
     `);
     if (version < 7) {
       // Databases from before version 7 have no status columns, or the older label and evidence names.

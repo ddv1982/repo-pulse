@@ -22,12 +22,11 @@ function segment(line: TreeLine, anchor: number) {
  * A fork or merge: the other lane, and the curve between it and this row's node. A lane with nothing below it in
  * the list ends in a short faded tail, because its history goes on.
  */
-function join(other: TreeLine, node: TreeRow['node'], style: string) {
+function join(other: TreeLine, node: TreeRow['node'], color: string, assumed = false) {
   const [from, to] = [x(other.slot), x(node.slot)];
-  const tail = other.down
-    ? emptyHtml
-    : html`<line class="${lane(other.color)} tail" x1="${from}" x2="${from}" y1="${JOIN}" y2="${JOIN + TAIL}"/>`;
-  return html`${segment(other, JOIN)}${tail}<path class="${style}" d="M${from} ${JOIN}C${from} ${JOIN / 2} ${to} ${JOIN / 2} ${to} 0"/>`;
+  const tailColor = other.color < 0 ? color : lane(other.color);
+  const tail = other.down ? emptyHtml : html`<line class="${tailColor} tail" x1="${from}" x2="${from}" y1="${JOIN}" y2="${JOIN + TAIL}"/>`;
+  return html`${segment(other, JOIN)}${tail}<path class="${color}${assumed ? ' assumed' : ''}" d="M${from} ${JOIN}C${from} ${JOIN / 2} ${to} ${JOIN / 2} ${to} 0"/>`;
 }
 
 /** Every marker stays inside its lane, PITCH wide: the cell clips what leaves it. */
@@ -45,7 +44,7 @@ function marker(node: TreeRow['node'], color: string) {
 export function renderTreeCell(row: TreeRow, tone: string) {
   const { node, forkFrom, mergeFrom } = row;
   return html`<svg class="tree" aria-hidden="true" focusable="false"><g>${row.through.map(line => segment({ ...line, up: true, down: true }, 0))}${segment(node, 0)}${
-    forkFrom ? join(forkFrom, node, `${lane(node.color)}${forkFrom.evidence === 'pr' ? ' assumed' : ''}`) : emptyHtml
+    forkFrom ? join(forkFrom, node, lane(node.color), forkFrom.evidence === 'pr') : emptyHtml
   }${mergeFrom ? join(mergeFrom, node, lane(mergeFrom.color)) : emptyHtml}${marker(node, tone === 'crit' ? 'lane-crit' : lane(node.color))}</g></svg>`;
 }
 
@@ -57,8 +56,6 @@ export function forkText(fork: TreeFork | null) {
   if (!fork) return '';
   const base = (fork.base ?? '').slice(0, 7);
   switch (fork.evidence) {
-    case 'tip':
-      return `Started at a revision seen on ${fork.parent}`;
     case 'recorded':
       return `Started at ${base}, the tip of ${fork.parent}`;
     case 'contained':
@@ -78,4 +75,4 @@ export function forkText(fork: TreeFork | null) {
   }
 }
 
-export const treeLegend = html`<p class="help tree-legend"><span class="tree-key-item"><svg class="tree-key" aria-hidden="true" focusable="false"><path class="lane-none" d="M1 6H21"/></svg>Known fork point</span><span class="tree-key-item"><svg class="tree-key" aria-hidden="true" focusable="false"><path class="lane-none assumed" d="M1 6H21"/></svg>PR target, origin not checked</span><span class="tree-key-item"><svg class="tree-key ring" aria-hidden="true" focusable="false"><circle class="lane-none hole" cx="7" cy="6" r="4.1"/><circle class="lane-none" cx="7" cy="6" r="1.9"/></svg>Merge</span><span class="tree-note">Lines can pass rows of other branches.</span></p>`;
+export const treeLegend = html`<p class="help tree-legend" aria-hidden="true"><span class="tree-key-item"><svg class="tree-key" aria-hidden="true" focusable="false"><path class="lane-none" d="M1 6H21"/></svg>Known fork point</span><span class="tree-key-item"><svg class="tree-key" aria-hidden="true" focusable="false"><path class="lane-none assumed" d="M1 6H21"/></svg>PR target, origin not checked</span><span class="tree-key-item"><svg class="tree-key ring" aria-hidden="true" focusable="false"><circle class="lane-none hole" cx="7" cy="6" r="4.1"/><circle class="lane-none" cx="7" cy="6" r="1.9"/></svg>Merge</span><span class="tree-key-item"><svg class="tree-key ring" aria-hidden="true" focusable="false"><circle class="lane-none hole" cx="7" cy="6" r="3.75"/></svg>Open PR</span><span class="tree-note">Based on shown rows. Lines can pass rows of other branches.</span></p>`;

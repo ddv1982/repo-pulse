@@ -2145,7 +2145,7 @@ test('Start from scratch in Settings confirms, empties the feed and shows Syncin
   await expect(page.locator('[data-event-id="one:push:1"]')).toHaveCount(1, { timeout: 15000 });
 });
 
-test('All activity shows the branch tree beside the type label, and narrow screens and New updates keep the dot', async t => {
+test('both Activity views show the branch tree beside the type label and keep the dot on narrow screens', async t => {
   const { page } = await setup(t);
   await page.getByRole('link', { name: 'All activity', exact: true }).click();
   const rows = page.locator('.with-tree .row');
@@ -2178,8 +2178,13 @@ test('All activity shows the branch tree beside the type label, and narrow scree
   await expect(hotfix.locator('.kind > svg')).toBeVisible();
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.getByRole('link', { name: 'New updates', exact: true }).click();
-  await expect(page.locator('[data-event-id="demo-branch-1"]')).toBeVisible();
-  await expect(page.locator('svg.tree')).toHaveCount(0);
+  await expect(hotfix.locator('svg.tree')).toBeVisible();
+  await expect(hotfix.locator('.event-main')).toHaveText('Started at 3f9a2c1, the tip of main');
+  await page.setViewportSize({ width: 640, height: 900 });
+  await expect(hotfix.locator('svg.tree')).toBeVisible();
+  await page.setViewportSize({ width: 390, height: 900 });
+  await expect(hotfix.locator('svg.tree')).toBeHidden();
+  await expect(hotfix.locator('.kind > svg')).toBeVisible();
 });
 
 test('on desktop every row lines up its ref line with its meta line, and its summary with its title', async t => {
