@@ -89,6 +89,8 @@ export function createRefreshController({
     diagnostics: {},
     syncStatus: noSyncStatus,
   };
+  // Until the first state read lands, state.watched is a placeholder, not the watch list.
+  let loaded = false;
   let detailResult: EventDetail | null | undefined;
   let detailRevision: string | undefined;
   let active: { view: View; promise: Promise<RefreshOutcome> } | null | undefined;
@@ -127,6 +129,7 @@ export function createRefreshController({
       }
 
       state = next;
+      loaded = true;
       onUpdate({ metadata, force });
       return { type: 'applied' };
     } catch (failure) {
@@ -157,6 +160,9 @@ export function createRefreshController({
   return {
     get state() {
       return state;
+    },
+    get loaded() {
+      return loaded;
     },
     capacity: activityData.capacity,
     resetActivity(capacity?: number) {
