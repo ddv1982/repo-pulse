@@ -89,6 +89,7 @@
   font-variant-numeric: tabular-nums;
 }
 .cell .summary-filter {
+  margin: -2px -4px;
   text-align: left;
 }
 .cell[data-summary-kind='CI runs'] .label,

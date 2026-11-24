@@ -66,6 +66,15 @@ test('a new branch with a pull request forks from the PR target as an assumption
   assert.deepEqual([present(tree.rows[0]).fork, present(tree.rows[0]).forkFrom], [null, null]);
 });
 
+test('a closed pull request can explain checked evidence and does not supply a dotted fork', () => {
+  const closed = pr(7, 'feature/a', 'completed');
+  const open = pr(7, 'feature/a');
+  const unchecked = buildActivityTree([closed, open, created('feature/a')]);
+  assert.equal(present(unchecked.rows[2]).fork, null);
+  const refuted = checked('feature/a', { status: 'none', notOn: ['refs/heads/main'], base: sha('x') });
+  assert.equal(present(buildActivityTree([closed, refuted]).rows[1]).fork?.evidence, 'refuted');
+});
+
 test('a revision shared with an earlier branch does not confirm a fork without a checked origin', () => {
   const tree = buildActivityTree([push('main', sha('x'), sha('y')), created('hotfix/a', sha('x')), push('main', sha('w'), sha('x'))]);
   assert.deepEqual([present(tree.rows[1]).fork, present(tree.rows[1]).forkFrom], [null, null]);

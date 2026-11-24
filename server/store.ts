@@ -428,6 +428,8 @@ export function createStore(path = ':memory:') {
         lower(json_extract(data,'$.data.mergeCommit'))) WHERE json_extract(data,'$.kind')='pr' AND json_extract(data,'$.data.status')='completed';
       CREATE INDEX IF NOT EXISTS events_pr_source ON events(repo_id,json_extract(data,'$.data.sourceRefName'),time DESC)
         WHERE json_extract(data,'$.kind')='pr' AND json_extract(data,'$.data.status')='completed';
+      CREATE INDEX IF NOT EXISTS events_open_pr_source ON events(repo_id,json_extract(data,'$.data.sourceRefName'))
+        WHERE json_extract(data,'$.kind')='pr' AND json_extract(data,'$.data.status')='active';
       CREATE INDEX IF NOT EXISTS events_pr_id ON events(repo_id,CAST(json_extract(data,'$.data.pullRequestId') AS TEXT))
         WHERE json_extract(data,'$.kind')='pr';
       CREATE INDEX IF NOT EXISTS events_push_id ON events(repo_id,json_extract(data,'$.data.pushId'))

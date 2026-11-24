@@ -41,7 +41,7 @@ export type TreeRow = {
 /** `width` counts lane positions, the overflow position included. */
 export type ActivityTree = { width: number; rows: TreeRow[] };
 type TreeEvent = ActivityEvent & Pick<ActivityItem, 'branchLifetimes' | 'prSourceLifetime'>;
-type PullRequest = { id: number | string; source: string; target: string };
+type PullRequest = { id: number | string; source: string; target: string; status?: string | undefined };
 /**
  * One stretch of a branch. `top` and `bottom` are row indexes, newest first. `target` marks a lane that others fork
  * from or merge into.
@@ -92,7 +92,10 @@ function pullRequestRefs(
 function pullRequest(item: ActivityEvent): PullRequest | undefined {
   const id = item.kind === 'pr' ? item.data?.pullRequestId : undefined;
   if (id === undefined) return undefined;
-  return pullRequestRefs(id, item.data?.sourceRefName || item.branch, item.data?.targetRefName, item.data?.fork);
+  return {
+    ...pullRequestRefs(id, item.data?.sourceRefName || item.branch, item.data?.targetRefName, item.data?.fork),
+    status: item.data?.status,
+  };
 }
 
 /** Pull requests by id, newest row first, and every PR row of each source branch in list order. */
@@ -290,15 +293,15 @@ export function buildActivityTree(
     const after = starts.get(key) ?? -1;
     const requests = prs.bySource.get(laneKey(item.repoId, entry.branch)) ?? [];
     const older = new Set(created ? requests.filter(candidate => candidate.row > row).map(candidate => candidate.pr.id) : []);
-    const request = requests.findLast(
+    const matching = requests.filter(
       candidate =>
         candidate.row > after &&
         (!created || (candidate.row < row && !older.has(candidate.pr.id))) &&
-        keyOf(candidate.item, entry.branch, candidate.item.prSourceLifetime) === key &&
-        candidate.item.data?.status === 'active',
+        keyOf(candidate.item, entry.branch, candidate.item.prSourceLifetime) === key,
     );
-    const pr = request?.pr;
-    const checked = checkedFork(item.data?.forkOrigin, pr, entry.branch);
+    const checked = checkedFork(item.data?.forkOrigin, matching.at(-1)?.pr, entry.branch);
+    const open = matching.findLast(({ pr }) => prs.byId.get(laneKey(item.repoId, String(pr.id)))?.status === 'active');
+    const pr = open && prs.byId.get(laneKey(item.repoId, String(open.pr.id)));
     const fork =
       checked === undefined && pr && pr.target !== entry.branch
         ? { evidence: 'pr' as const, parent: branchName(pr.target), pullRequestId: pr.id }
@@ -313,9 +316,8 @@ export function buildActivityTree(
   keyed.forEach(({ item, key }, row) => {
     const pr = nodeShape(item) === 'merge' ? pullRequest(item) : undefined;
     if (!pr?.source || !pr.target) return;
-    const source = keyOf(item, pr.source);
-    const lifetime = item.branchLifetimes?.[pr.source] ?? '';
-    if (source !== key) joins.set(row, { key: source, isolated: (item.prSourceLifetime ?? '') !== lifetime });
+    const source = keyOf(item, pr.source, item.prSourceLifetime);
+    if (pr.source !== pr.target && source !== key) joins.set(row, { key: source });
   });
 
   const { lanes, byRow } = splitLanes(branches, maxGap);

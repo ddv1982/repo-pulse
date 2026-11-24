@@ -246,30 +246,52 @@ function attachPullRequests(db: import('node:sqlite').DatabaseSync, groups: Iter
 /** Resolve boundaries from the cached events even when the corresponding rows are seen, filtered out, or off-page. */
 function attachBranchLifetimes(db: import('node:sqlite').DatabaseSync, items: ActivityItem[], maxSequence: number) {
   const wanted = items.flatMap((item, index) => {
-    const refs = treeBranchRefs(item).map(ref => [index, item.repoId, ref, item.time, false]);
+    const pushId = Number(item.data?.pushId);
+    const sequence = Number.isSafeInteger(pushId) && pushId > 0 ? pushId : null;
+    const refs = treeBranchRefs(item).map((ref, position) => [
+      index,
+      item.repoId,
+      ref,
+      item.time,
+      false,
+      sequence,
+      position === 0 && item.kind === 'branch-created',
+    ]);
     const source = treePullRequestSource(item);
-    if (source) refs.push([index, item.repoId, source.ref, source.createdAt, true]);
+    if (source) refs.push([index, item.repoId, source.ref, source.createdAt, true, null, false]);
     return refs;
   });
   if (!wanted.length) return;
   const boundaries = db
     .prepare(
-      `WITH wanted AS (
+      `WITH refs AS (
         SELECT json_extract(value,'$[0]') AS idx, json_extract(value,'$[1]') AS repo,
           json_extract(value,'$[2]') AS ref, julianday(json_extract(value,'$[3]')) AS at,
-          json_extract(value,'$[4]') AS pr_source
+          json_extract(value,'$[4]') AS pr_source, json_extract(value,'$[5]') AS push_id,
+          json_extract(value,'$[6]') AS find_pr_targets
         FROM json_each(?)
+      ), wanted AS (
+        SELECT idx,repo,ref,at,pr_source,push_id FROM refs
+        UNION
+        SELECT refs.idx,refs.repo,json_extract(p.data,'$.data.targetRefName'),refs.at,0,refs.push_id
+        FROM refs JOIN events p ON p.repo_id=refs.repo AND json_extract(p.data,'$.data.sourceRefName')=refs.ref
+        JOIN activity_members pm ON pm.event_id=p.id
+        WHERE refs.find_pr_targets AND json_extract(p.data,'$.kind')='pr' AND json_extract(p.data,'$.data.status')='active'
+          AND json_extract(p.data,'$.data.targetRefName') GLOB 'refs/heads/*' AND pm.sequence<=?
       ) SELECT idx,ref,pr_source,COALESCE((
         SELECT e.id FROM events e JOIN activity_members m ON m.event_id=e.id
         WHERE e.repo_id=wanted.repo AND json_extract(e.data,'$.data.name')=wanted.ref
           AND json_extract(e.data,'$.kind') IN ('branch-created','branch-deleted')
           AND json_extract(e.data,'$.data.evidence')='push' AND m.sequence<=?
           AND julianday(e.time)<=wanted.at
-          AND (julianday(e.time)<wanted.at OR m.kind='branch-created')
-        ORDER BY julianday(e.time) DESC, m.sequence DESC LIMIT 1
+          AND (julianday(e.time)<wanted.at OR CASE
+            WHEN wanted.push_id IS NULL OR json_extract(e.data,'$.data.pushId') IS NULL THEN m.kind='branch-created'
+            WHEN m.kind='branch-created' THEN CAST(json_extract(e.data,'$.data.pushId') AS INTEGER)<=wanted.push_id
+            ELSE CAST(json_extract(e.data,'$.data.pushId') AS INTEGER)<wanted.push_id END)
+        ORDER BY julianday(e.time) DESC, CAST(json_extract(e.data,'$.data.pushId') AS INTEGER) DESC, e.id DESC LIMIT 1
       ),'') AS boundary FROM wanted`,
     )
-    .all(JSON.stringify(wanted), maxSequence);
+    .all(JSON.stringify(wanted), maxSequence, maxSequence);
   for (const { idx, ref, boundary, pr_source } of boundaries) {
     const item = items[Number(idx)];
     if (!item) continue;
