@@ -92,9 +92,25 @@ test('the repository import row shows the records the import skipped as a warnin
     warnings: [{ stream: 'pushes', code: 'UNREADABLE_RECORDS', count: 3, fields: ['pushId', 'date'], message }],
   };
   const progress = parse(renderHistoryProgress({ id: 'r' }, job));
-  assert.equal(text(one(progress, '.status-chip.warn')), 'History sync finished');
+  assert.equal(text(one(progress, '.status-chip.warn')), 'History sync finished · 3 records skipped');
   assert.deepEqual(
     all(progress, '.history-warning').map(item => text(item)),
     [message],
   );
+});
+
+test('the repository import chip says how many records the import skipped, since its warnings show only in Details', () => {
+  const warning = (stream: 'pushes' | 'builds', count: number) => ({
+    stream,
+    code: 'UNREADABLE_RECORDS' as const,
+    count,
+    fields: ['date'],
+    message: `Skipped ${count} in ${stream}.`,
+  });
+  const chip = (job: Partial<HistoryJob>) => text(one(parse(renderHistoryProgress({ id: 'r' }, job)), '.status-chip'));
+  const warnings = [warning('pushes', 1), warning('builds', 1)];
+  assert.equal(chip({ status: 'running', warnings }), 'History sync running · 2 records skipped');
+  assert.equal(chip({ status: 'retrying', warnings }), 'History sync retrying · 2 records skipped');
+  assert.equal(chip({ status: 'completed', warnings: [warning('pushes', 1)] }), 'History sync finished · 1 record skipped');
+  assert.equal(chip({ status: 'completed', warnings: [] }), 'History sync finished', 'a clean import says nothing more');
 });

@@ -17,11 +17,17 @@ export function renderHistoryButton(repo: Pick<HistoryRepo, 'id'>, job: HistoryJ
   return html`<button class="btn sm" type="button" id="import-${repo.id}" data-action="open-history-import" data-id="${repo.id}" ${busy ? html`disabled` : emptyHtml}>Sync older activity…</button>`;
 }
 
+/** The chip names the records the import skipped, since the warnings that explain them show only in Details. */
+function skippedNote(job: HistoryJob) {
+  const skipped = (job.warnings ?? []).reduce((total, warning) => total + warning.count, 0);
+  return skipped ? ` · ${skipped} ${skipped === 1 ? 'record' : 'records'} skipped` : '';
+}
+
 export function renderHistoryProgress(repo: Pick<HistoryRepo, 'id'>, job: HistoryJob | null | undefined) {
   if (!job) return emptyHtml;
   const [label, tone] = statusFor(job);
   return html`<div class="history-progress" id="history-${repo.id}" role="status" tabindex="-1">
-    <span class="chip status-chip ${tone}">${label}</span>
+    <span class="chip status-chip ${tone}">${label}${skippedNote(job)}</span>
     ${job.pages ? html`<span class="help history-extra">${job.pages} ${job.pages === 1 ? 'page' : 'pages'} read${job.lastProgressAt ? ` · Last page ${dateTime(job.lastProgressAt)}` : ''}</span>` : emptyHtml}
     ${job.error?.message ? html`<span class="help history-extra">${job.error.message}</span>` : emptyHtml}
     ${(job.warnings ?? []).map(warning => html`<span class="help history-extra history-warning">${warning.message}</span>`)}
