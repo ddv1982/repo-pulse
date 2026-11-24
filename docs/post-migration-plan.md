@@ -51,7 +51,7 @@ Every behaviour fix starts with a failing test. These touch `server/sync.ts`, `s
       recovery from a lock left by a crashed run. Check: a failing-first test that starts a second app on the
       same directory and expects a clear refusal, plus a test that a stale lock is taken over. (S reproduced,
       no lock verified) Done as SQLite's exclusive file lock on `live.sqlite.lock` or `demo.sqlite.lock`, which
-      the OS drops when the holder dies, so nothing goes stale and racing starts cannot both win. Live and demo
+      the OS drops when the holder dies, so nothing goes stale. Two starts at once could both be refused (Sol: 37 of 100 runs), because each kept the shared lock the other needed; the lock now closes and retries with a short random pause until a 2 s deadline, and a 12-round race test with two processes, which failed on round 0 before, expects exactly one winner each round. A start that fails after taking the lock now releases it and the store (a failing-first EADDRINUSE retry test). A database file symlinked into another data directory is not protected, as the code says. Live and demo
       keep separate locks: the `access-key` file that `startApp` removes is a leftover nothing reads, so they
       share no state. The three new tests in `test/server.test.ts` (second start refused, also from the CLI with
       exit code 1 and no stack trace; a SIGKILLed holder's lock taken over; close then restart) failed with

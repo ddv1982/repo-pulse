@@ -6,7 +6,8 @@ import { join } from 'node:path';
 import { execFile, spawn } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { promisify } from 'node:util';
-import { request as httpRequest } from 'node:http';
+import { request as httpRequest, createServer as createHttpServer } from 'node:http';
+import { once } from 'node:events';
 import { createStore } from '../server/store.ts';
 import { createApp, startApp } from '../server.ts';
 import { seedDemo } from '../server/demo.ts';
@@ -623,4 +624,40 @@ test('malformed percent-encoding in route parameters returns 400 and CSP forbids
     const response = await fetch(url + path, { method });
     assert.equal(response.status, 400, `${method} ${path}`);
   }
+});
+
+test('two starts racing for one database leave exactly one holder', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'repo-pulse-lock-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const lockModule = new URL('../server/database-lock.ts', import.meta.url).href;
+  // Each contender waits for the same moment, then holds a lock it wins for longer than the other may wait.
+  const contender = (database: string, startAt: number) =>
+    new Promise<string>((resolveRun, reject) => {
+      const script = `import { lockDatabase } from ${JSON.stringify(lockModule)};
+while (Date.now() < ${startAt});
+try { await lockDatabase(${JSON.stringify(database)}, { timeout: 300 }); console.log('won'); setTimeout(() => {}, 900); }
+catch (error) { console.log(error.code === 'DATA_DIR_LOCKED' ? 'refused' : 'error ' + error.message); }`;
+      execFile(process.execPath, ['--input-type=module', '-e', script], (error, stdout) =>
+        error ? reject(error) : resolveRun(stdout.trim()),
+      );
+    });
+  for (let round = 0; round < 12; round++) {
+    const database = join(directory, `race-${round}.sqlite`);
+    const startAt = Date.now() + 400;
+    const results = await Promise.all([contender(database, startAt), contender(database, startAt)]);
+    assert.deepEqual(results.toSorted(), ['refused', 'won'], `round ${round}`);
+  }
+});
+
+test('a start that fails after taking the lock releases it, so a retry in the same process starts', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'repo-pulse-lock-'));
+  const blocker = createHttpServer().listen(0, '127.0.0.1');
+  await once(blocker, 'listening');
+  t.after(async () => {
+    blocker.close();
+    await rm(directory, { recursive: true, force: true });
+  });
+  await assert.rejects(startApp({ demo: true, port: portOf(blocker), dataDir: directory }), { code: 'EADDRINUSE' });
+  const runtime = await startApp({ demo: true, port: 0, dataDir: directory });
+  await runtime.close();
 });
