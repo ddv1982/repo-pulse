@@ -2160,6 +2160,34 @@ test('an unreadable build without an ID is not counted again for a remembered bu
   store.close();
 });
 
+test('an unreadable build without an ID that may be a remembered build adds its fields to the warning without counting again', async () => {
+  let listed = true;
+  let lookups = 0;
+  const provider: SyncProvider = {
+    async read() {
+      return { items: listed ? [inProgressBuild(42)] : [], nextCursor: null };
+    },
+    async buildsById() {
+      lookups++;
+      return lookups === 1
+        ? { items: [], nextCursor: null, unreadable: { count: 1, fields: ['status'] }, unreadableIds: [{ id: '42', field: 'status' }] }
+        : { items: [], nextCursor: null, unreadable: { count: 1, fields: ['id'] } };
+    },
+  };
+  const { store, sync, advance } = setup(provider, ['activeBuilds']);
+  const state = () => present(store.getStreams().find(entry => entry.stream === 'activeBuilds'));
+  await sync.tick();
+  listed = false;
+  advance(600000);
+  await sync.tick();
+  advance(600000);
+  await sync.tick();
+  assert.equal(lookups, 2);
+  assert.equal(state().warning?.count, 1);
+  assert.deepEqual([...(state().warning?.fields ?? [])].sort(), ['id', 'status'], 'the warning names what this read found too');
+  store.close();
+});
+
 test('a PR lookup that comes back without a pullRequestId is counted and does not stop a readable sibling', async () => {
   let listed: unknown[] = [cachedPr(1), cachedPr(2)];
   const client = createAzureClient({

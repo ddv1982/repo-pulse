@@ -386,14 +386,15 @@ export function createSync({
     // more pages or unreadable builds without an ID, either of which may be it.
     for (const id of [...byId.items.map(item => String(item.id)), ...gone.map(entry => entry.id)]) lookups.delete(id);
     // An unreadable build without a readable ID cannot be remembered, so it counts only in this read, and not for a
-    // remembered build asked for in this lookup, which it may be and which the remembered entry already counts.
+    // remembered build asked for in this lookup, which it may be and which the remembered entry already counts. Its
+    // fields are named either way, since they are what this read found.
     const namedIds = new Set(named.map(entry => entry.id));
     const counted = turn.filter(id => lookups.has(id) && !namedIds.has(id)).length;
     const anonymous = Math.max(0, unnamed - counted);
     for (const { id, field } of named) lookups.set(id, field);
     const unreadable = addUnreadable(
       lookupsUnreadable(lookups),
-      anonymous > 0 && byId.unreadable ? { count: anonymous, fields: byId.unreadable.fields } : undefined,
+      unnamed > 0 && byId.unreadable ? { count: anonymous, fields: byId.unreadable.fields } : undefined,
     );
     return { items: byId.items, unreadable, gone, unreadableLookups: [...lookups].map(([id, field]) => ({ id, field })) };
   }
