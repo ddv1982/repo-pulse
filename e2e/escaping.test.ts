@@ -5,9 +5,9 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, rm, readdir } from 'node:fs/promises';
-import { existsSync } from 'node:fs';
-import { tmpdir, homedir } from 'node:os';
+import { browserPath } from './fixtures/browser.ts';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { chromium, expect } from '@playwright/test';
 import { startApp, createApp } from '../server.ts';
@@ -22,22 +22,6 @@ import type { AzureProvider } from '../server/azure-client.ts';
 import type { ConnectionStatus } from '../src/contract.d.ts';
 
 export type { FoldersResponse, DiscoverResponse, DiscoveredRemote, Page, AzureProvider, ConnectionStatus };
-
-async function browserPath() {
-  if (process.env.CHROME) return process.env.CHROME;
-  if (existsSync(chromium.executablePath())) return chromium.executablePath();
-  const cache = join(homedir(), '.cache', 'ms-playwright');
-  for (const name of (await readdir(cache).catch(() => []))
-    .filter(name => /^chromium-\d+$/.test(name))
-    .sort()
-    .reverse()) {
-    for (const relative of ['chrome-linux64/chrome', 'chrome-linux/chrome']) {
-      const candidate = join(cache, name, relative);
-      if (existsSync(candidate)) return candidate;
-    }
-  }
-  throw new Error('Install Chromium with npx playwright install chromium, or set CHROME.');
-}
 
 /**
  * Two tags, so a value the picker splits around a search match still has markup on both sides of the match.

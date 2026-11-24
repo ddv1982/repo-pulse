@@ -19,6 +19,8 @@
 
 The app uses Node 26, built-in SQLite, TypeScript, and CSS. Node runs the server, scripts and tests from `.ts` directly. It has no runtime npm dependencies and no bundler. Browser TypeScript is compiled with `tsc` to `dist/` (`npm run build:web`, which runs automatically before `npm start`, `npm run demo` and the tests; `npm run watch:web` rebuilds while editing), and the server serves `/src/` and `/web/theme.js` from there. The only third-party code is one vendored browser file (see [Vendored browser code](#vendored-browser-code)). Live and demo databases are separate and ignored by Git. `PORT` fixes the loopback port; by default each start gets a free port from the OS. `REPO_PULSE_NO_BROWSER=1` stops `npm start` from opening the browser. `REPO_PULSE_DATA_DIR` changes the storage directory. Use one Azure CLI account context for each local data directory.
 
+[`tsconfig.json`](../tsconfig.json) checks the full project without emitting files. Browser, server and shared modules are separated by scoped rules in [`.oxlintrc.json`](../.oxlintrc.json). [`scripts/build-web.ts`](../scripts/build-web.ts) compiles only browser sources and keeps the early theme script in classic-script mode. The extensionless Git hook stays CommonJS and opts into type checking with `@ts-check`.
+
 Keep Azure reads in the shared queue. `devops invoke` reads go over HTTPS with an Azure DevOps token from `az account get-access-token`, which is renewed five minutes before it expires and after a 401. The token stays inside `azure-rest.ts`: it is never returned, logged or put in an error, and `run()` still refuses token commands. Other commands, such as `repos show` and the local CLI checks, still start `az`. A repository connection check also makes one REST read, so it fails the way activity reads would; an organization-only check uses `az` only. A `Retry-After` header pauses the whole queue (see `retryAfter` in `azure-cli.ts`). Explicit Git operations must act on the linked checkout and its verified upstream. Store raw events and checkpoints together. Enrichment can add evidence to a record without changing its ID or seen state.
 
 The Activity page query and unread snapshot share the same repository, search, people, and group filters. Row actions take their IDs from the rendered page. Acknowledgement returns only the IDs it changed so that Undo can restore those updates.
@@ -47,11 +49,11 @@ Pull checks the checkout, upstream and fetched tip before running `git merge --f
 
 ## Test what the page shows
 
-UI unit tests render markup and read it through [test/fixtures/dom.ts](../test/fixtures/dom.ts), so a test breaks when what a person sees changes, not when the HTML is rearranged.
+UI rendering tests read markup in Chromium through [e2e/fixtures/dom.ts](../e2e/fixtures/dom.ts), so a test breaks when what a person sees changes, not when the HTML is rearranged.
 
-- Check text on the element that should hold it: `text(one(row(doc, 'listed'), '.event-main'))`. `text` leaves out screen-reader-only `.sr` text; `srText` includes it.
-- Check that something is there, or not, with a selector: `one(doc, '[data-action="remove-repo"]')`, `all(row, '.event-origin').length`. `data-action` attributes are what the click handlers use, so they are fair to select on.
-- Match exact markup only where the markup is the point: escaping in `test/escaping.test.ts`, and safety attributes such as `href` and `title`, read with `getAttribute`.
+- Check text on the element that should hold it: `await text(one(row(doc, 'listed'), '.event-main'))`. `text` leaves out screen-reader-only `.sr` text; `srText` includes it.
+- Check that something is there, or not, with a selector: `await one(doc, '[data-action="remove-repo"]').handle()`, `(await all(row, '.event-origin')).length`. `data-action` attributes are what the click handlers use, so they are fair to select on.
+- Match exact markup only where the markup is the point: escaping in `test/escaping.test.ts`, and safety attributes such as `href` and `title`, read with `await element.getAttribute(name)`.
 
 `npm run lint` rejects regular expressions over HTML (such as `/class="row/` or `/<div/`) in these test files.
 
@@ -65,7 +67,7 @@ npm test
 npm run test:ui
 ```
 
-CI runs the first four on Linux and Windows, and the browser tests on Linux only. Browser tests use Chromium. Run `npx playwright install chromium` if needed, or set `CHROME` to a local executable. Tests use isolated databases and temporary Git repositories. They verify workflows and failure cases without proving live Azure permissions. See [coverage and limits](COVERAGE.md) for the distinction.
+CI runs the first four on Linux and Windows. Linux runs the full browser suite, and Windows runs the rendered DOM suite (`npm run test:dom`). Browser tests use Chromium. Run `npx playwright install chromium` if needed, or set `CHROME` to a local executable. Tests use isolated databases and temporary Git repositories. They verify workflows and failure cases without proving live Azure permissions. See [coverage and limits](COVERAGE.md) for the distinction.
 
 ## Match review to risk
 

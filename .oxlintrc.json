@@ -1,7 +1,7 @@
 {
   "$schema": "./node_modules/oxlint/configuration_schema.json",
   "options": { "typeAware": true, "reportUnusedDisableDirectives": "error" },
-  "plugins": ["typescript"],
+  "plugins": ["typescript", "import"],
   "categories": { "correctness": "warn" },
   "jsPlugins": [{ "name": "eslint-js", "specifier": "oxlint-plugin-eslint" }],
   "env": { "builtin": true, "es2024": true },
@@ -38,16 +38,125 @@
     },
     { "files": ["**/*.cjs"], "env": { "node": true, "commonjs": true } },
     { "files": ["src/**/*.{js,ts}", "web/**/*.{js,ts}", "e2e/**/*.{js,ts}"], "env": { "browser": true } },
-    // UI tests read rendered markup through test/fixtures/dom.ts, so a markup change only breaks a test when what a person
+    {
+      "files": ["src/**/*.ts", "web/**/*.ts"],
+      "rules": {
+        "import/no-nodejs-modules": "error",
+        "no-restricted-globals": [
+          "error",
+          {
+            "globals": ["process", "Buffer", "global", "require", "module", "exports", "__dirname", "__filename"],
+            "checkGlobalObject": true
+          }
+        ],
+        "no-restricted-imports": [
+          "error",
+          { "patterns": [{ "regex": "^(?:node:|(?:\\.\\./)+(?:server(?:/|\\.ts$)|scripts/|test/|e2e/))" }] }
+        ]
+      }
+    },
+    {
+      // Top-level src modules are shared, with the browser entry points handled below.
+      "files": ["src/*.ts"],
+      "excludeFiles": ["src/api.ts", "src/web.ts"],
+      "rules": {
+        "no-restricted-globals": [
+          "error",
+          {
+            "globals": [
+              "process",
+              "Buffer",
+              "global",
+              "require",
+              "module",
+              "exports",
+              "__dirname",
+              "__filename",
+              "window",
+              "document",
+              "Document",
+              "Node",
+              "self",
+              "HTMLElement",
+              "Element",
+              "DOMParser",
+              "MutationObserver",
+              "ResizeObserver",
+              "IntersectionObserver",
+              "EventSource",
+              "XMLHttpRequest",
+              "localStorage",
+              "sessionStorage",
+              "indexedDB",
+              "location",
+              "history",
+              "matchMedia",
+              "requestAnimationFrame",
+              "cancelAnimationFrame",
+              "getComputedStyle",
+              "customElements"
+            ],
+            "checkGlobalObject": true
+          }
+        ],
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              { "regex": "^(?:node:|(?:\\.\\./)+(?:server(?:/|\\.ts$)|scripts/|test/|e2e/|web/)|\\./(?:ui/|(?:web|api)\\.ts$))" }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "files": ["server.ts", "server/**/*.{cjs,ts}", "scripts/**/*.ts"],
+      "rules": {
+        "no-restricted-globals": [
+          "error",
+          {
+            "globals": [
+              "window",
+              "document",
+              "Document",
+              "Node",
+              "self",
+              "HTMLElement",
+              "Element",
+              "DOMParser",
+              "MutationObserver",
+              "ResizeObserver",
+              "IntersectionObserver",
+              "EventSource",
+              "XMLHttpRequest",
+              "localStorage",
+              "sessionStorage",
+              "indexedDB",
+              "location",
+              "history",
+              "matchMedia",
+              "requestAnimationFrame",
+              "cancelAnimationFrame",
+              "getComputedStyle",
+              "customElements"
+            ],
+            "checkGlobalObject": true,
+            "globalObjects": ["global"]
+          }
+        ],
+        "no-restricted-imports": ["error", { "patterns": [{ "regex": "^(?:\\./|(?:\\.\\./)+)(?:web/|src/(?:ui/|(?:api|web)\\.ts$))" }] }]
+      }
+    },
+    // UI tests read rendered markup through e2e/fixtures/dom.ts, so a markup change only breaks a test when what a person
     // sees changes. A regular expression over the HTML would pin its exact shape again. See docs/MAINTAINING.md.
     {
-      "files": ["test/merge-ui.test.ts", "test/sync-status-ui.test.ts", "test/presentation.test.ts"],
+      "files": ["e2e/dom/merge-ui.ts", "e2e/dom/sync-status-ui.ts", "e2e/dom/presentation.ts", "test/presentation.test.ts"],
       "rules": {
         "eslint-js/no-restricted-syntax": [
           "error",
           {
             "selector": "Literal[regex.pattern=/class=[\"']|\\b(?:href|title|role|id|aria-[a-z-]+|data-[a-z-]+)=[\"']|<\\\\?\\/?(?:a|b|p|dd|dt|dl|h[1-6]|ul|ol|li|div|span|strong|time|code|svg|path|circle|line|section|article|details|summary|button|label|input)\\b/]",
-            "message": "Check rendered UI with test/fixtures/dom.ts (text, one, row) instead of a regular expression over its HTML."
+            "message": "Check rendered UI with e2e/fixtures/dom.ts (text, one, row) instead of a regular expression over its HTML."
           }
         ]
       }

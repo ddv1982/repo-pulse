@@ -10,8 +10,6 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { groupActivity } from '../src/activity.ts';
 import { SafeHtml, html as safeHtml, joinHtml } from '../src/ui/format.ts';
-import { setHtml } from '../src/ui/dom.ts';
-import { parse } from './fixtures/dom.ts';
 import { present, stub } from './fixtures/typed.ts';
 import { renderFeed, renderDetail } from '../src/ui/feed.ts';
 import { renderRepositories } from '../src/ui/repositories.ts';
@@ -639,7 +637,7 @@ test('every probed field is expected by a view, so the escaping test covers it',
   );
 });
 
-test('html auto-escapes plain values, composes SafeHtml, and setHtml refuses plain strings', t => {
+test('html auto-escapes plain values and composes only branded SafeHtml', () => {
   const untrusted = '<img src=x onerror=alert(1)>';
   const nested = safeHtml`<b>${untrusted}</b>`;
   const rendered = safeHtml`<div data-flag="${false}" data-on="${true}">${[nested, null, undefined, ' & "quotes"']}</div>`;
@@ -656,30 +654,6 @@ test('html auto-escapes plain values, composes SafeHtml, and setHtml refuses pla
   const hijackedArray = Object.assign(['<b>raw</b>'], { map: () => ({ join: () => '<b>hijacked</b>' }) });
   assert.equal(String(safeHtml`<div>${hijackedArray}</div>`), '<div>&lt;b&gt;raw&lt;/b&gt;</div>');
   assert.equal(String(joinHtml(hijackedArray, safeHtml`<br>`)), '&lt;b&gt;raw&lt;/b&gt;');
-  const document = parse('<main><div data-flag="true">old</div></main>');
-  // idiomorph reads the browser globals document, Node, Element and Document, which Node.js lacks.
-  const { Node, Element, Document } = present(document.defaultView);
-  Object.assign(globalThis, { document, Node, Element, Document });
-  t.after(() => {
-    for (const name of ['document', 'Node', 'Element', 'Document']) Reflect.deleteProperty(globalThis, name);
-  });
-  const element = document.querySelector('main');
-  assert.ok(element);
-  // The first child is the <div>, an HTMLElement; firstElementChild has the broader Element type.
-  const kept = element.firstElementChild as HTMLElement | null;
-  assert.ok(kept);
-  setHtml(element, rendered);
-  assert.equal(element.firstElementChild, kept, 'setHtml updates the matching element in place');
-  // The attributes are updated in place, so compare what the markup means rather than its serialized order.
-  assert.deepEqual(Object.fromEntries(Object.entries(kept.dataset)), { flag: 'false', on: 'true' });
-  assert.equal(kept.textContent, '<img src=x onerror=alert(1)> & "quotes"');
-  assert.equal(element.querySelector('img'), null);
-  // @ts-expect-error A raw string is refused by the type too.
-  assert.throws(() => setHtml(element, '<b>plain</b>'), TypeError);
-  // @ts-expect-error So is a lookalike with a toString.
-  assert.throws(() => setHtml(element, { toString: () => '<b>spoof</b>' }), TypeError);
-  assert.throws(() => setHtml(element, lookalike), TypeError);
-  assert.equal(kept.textContent, '<img src=x onerror=alert(1)> & "quotes"', 'a refused value leaves the element unchanged');
 });
 
 test('setHtml in src/ui/dom.ts is the only innerHTML sink across browser source files', () => {
