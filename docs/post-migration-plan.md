@@ -144,7 +144,12 @@ Every behaviour fix starts with a failing test. These touch `server/sync.ts`, `s
       complete snapshot that omits it and then its deletion push give both rows there as well, so no change was made.
       Known limit: a ref deleted and created again within one incomplete poll, with no push recording it, is not
       reported, since an incomplete snapshot reports nothing as no longer listed and Azure records ref deletions as
-      pushes. The seventh review round added, each failing first on 71ef4d6: "before the tag baseline, a tag that no
+      pushes. Known limit, dismissed in the eighth round: on a legacy refs stream (initialized before tags were
+      tracked, so without `ref-baseline:tags`), a sequence of incomplete snapshots can still miss one "Tag no longer
+      listed" or add one "Tag first seen" (Sol: an empty uncertain set is not kept between incomplete snapshots, and
+      an anonymous unreadable ref discards a readable tag's evidence). The state needs a database whose refs have not
+      synced since 2026-11-18 (cc75075), because main writes the tag baseline at every refs snapshot; the live
+      database has no such stream, and the worst case is one tag event while a Problem warning is showing. The seventh review round added, each failing first on 71ef4d6: "before the tag baseline, a tag that no
       unreadable ref of an incomplete snapshot could be is put away without an event, as on main" (Sol's probe: a
       named branch with a malformed `objectId` made every tag uncertain, so v1 was reported; `main` puts it away),
       "a PR lookup answer without a readable ID counts only in its own read and is not remembered" (the second read
