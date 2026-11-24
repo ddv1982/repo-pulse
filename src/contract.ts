@@ -174,6 +174,11 @@ export type StreamState = {
   activeIds?: string[] | undefined;
   /** The records the read in progress has left out so far, summed across its pages. */
   unreadable?: UnreadableRecords | undefined;
+  /**
+   * Cached active PRs whose lookup by ID came back unreadable, with the field, so every read counts them until one
+   * reads or the active list holds it again, not only the reads whose lookups reach it.
+   */
+  unreadableLookups?: { id: string; field: string }[] | undefined;
 };
 /**
  * The sync loop's counters, read for Copy diagnostics. `lastTurn` holds when each kind of turn last ran.

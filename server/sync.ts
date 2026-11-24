@@ -19,6 +19,7 @@ export type SyncBatch = import('./normalize.ts').SyncBatch;
 /** The time range one read covers. It stays fixed across the pages of that read. */
 export type StreamWindow = import('../src/contract.ts').StreamWindow;
 export type StreamState = import('../src/contract.ts').StreamState;
+type UnreadableLookups = StreamState['unreadableLookups'];
 /** A stream while a read is in flight: the window and the refresh generation it answers are fixed. */
 export type StartedStream = StreamState & { window: StreamWindow; windowGeneration: number; lastAttempt: string; pending: true };
 export type SyncStore = {
@@ -134,7 +135,13 @@ function nextPage(
 function completePage(
   state: StartedStream,
   latest: StreamState,
-  { at, delayMs, quietCycles, warning }: { at: number; delayMs: number; quietCycles: number; warning: StreamWarning | undefined },
+  {
+    at,
+    delayMs,
+    quietCycles,
+    warning,
+    unreadableLookups,
+  }: { at: number; delayMs: number; quietCycles: number; warning: StreamWarning | undefined; unreadableLookups: UnreadableLookups },
 ): StreamState {
   const refreshDue = (latest.refreshGeneration || 0) > state.windowGeneration;
   return {
@@ -151,6 +158,7 @@ function completePage(
     refreshGeneration: latest.refreshGeneration,
     ...(refreshDue ? { manual: latest.manual, nextAt: iso(at) } : {}),
     ...(warning ? { warning } : {}),
+    ...(unreadableLookups?.length ? { unreadableLookups } : {}),
   };
 }
 
@@ -312,6 +320,7 @@ export function createSync({
     // A provider that restarted the snapshot at page one invalidates what the pages read so far left out.
     let unreadable = addUnreadable(page.restarted ? undefined : state.unreadable, page.unreadable);
     let gone: Entity[] = [];
+    let unreadableLookups: UnreadableLookups;
     if (complete && state.stream === 'activeBuilds' && provider.buildsById) {
       const missing = new Map(
         store
@@ -340,23 +349,29 @@ export function createSync({
         .listEntities(repo.id, 'pr')
         .filter(entry => entry.data.status === 'active' && !activeIds?.includes(entry.id))
         .map(entry => entry.id);
+      // A lookup that came back unreadable counts in every read until that PR reads, its lookup finds it deleted or
+      // moved, or it is no longer missing, so a read whose turn skips it does not clear the warning.
+      const lookups = new Map(
+        (state.unreadableLookups || []).filter(entry => missing.includes(entry.id)).map(entry => [entry.id, entry.field]),
+      );
       for (const id of lookupTurn(missing, prLookedUp.get(repo.id), 3)) {
         if (!watching(repo)) return null;
         prLookedUp.set(repo.id, id);
         try {
           items = [...items, await provider.pullRequest(repo, id)];
+          lookups.delete(id);
         } catch (error) {
+          // Only "this PR cannot be read" (unreadable, deleted, or now in another repository) is left for a later turn.
+          if (!isRecord(error) || !['UNREADABLE_RECORD', 'NOT_FOUND', 'WRONG_REPOSITORY'].includes(String(error.code))) throw error;
           // A PR Azure returned in a shape this code cannot read is skipped and counted like an unreadable page record.
-          if (isRecord(error) && error.code === 'UNREADABLE_RECORD') {
-            unreadable = addUnreadable(unreadable, { count: 1, fields: [typeof error.field === 'string' ? error.field : 'record'] });
-            continue;
-          }
-          // Only "this PR cannot be read" (deleted, or now in another repository) is left for a later turn.
-          if (!['NOT_FOUND', 'WRONG_REPOSITORY'].includes((error as { code?: string })?.code || '')) throw error;
+          if (error.code === 'UNREADABLE_RECORD') lookups.set(id, typeof error.field === 'string' ? error.field : 'record');
+          else lookups.delete(id);
         }
       }
+      unreadableLookups = [...lookups].map(([id, field]) => ({ id, field }));
+      if (lookups.size) unreadable = addUnreadable(unreadable, { count: lookups.size, fields: [...new Set(lookups.values())] });
     }
-    return { page, complete, activeIds, items, gone, unreadable };
+    return { page, complete, activeIds, items, gone, unreadable, unreadableLookups };
   }
   function pageBatch(
     repo: WatchedRepo,
@@ -396,6 +411,7 @@ export function createSync({
           delayMs: state.stream === 'refs' ? refsIntervalMs : cadence,
           quietCycles,
           warning: warningOf(state.stream, read.unreadable),
+          unreadableLookups: read.unreadableLookups,
         })
       : nextPage(working, latest, { at: now(), cursor: page.nextCursor, pendingItems, activeIds, unreadable: read.unreadable });
     store.commitPage({ repoId: repo.id, stream: state.stream, state: next, ...output });

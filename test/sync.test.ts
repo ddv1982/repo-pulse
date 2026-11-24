@@ -1914,3 +1914,63 @@ test('a PR lookup that comes back without a pullRequestId is counted and does no
   assert.equal(fieldsOf(store.getEntity(repo.id, 'pr', '2')).status, 'completed', 'its readable sibling is looked up and commits');
   store.close();
 });
+
+test('a PR whose lookup came back unreadable stays in the warning on reads whose lookups skip it, until it reads', async () => {
+  let listed = [1, 2, 3, 4, 5].map(id => cachedPr(id));
+  let readable = false;
+  const lookups: string[] = [];
+  const provider: SyncProvider = {
+    async read() {
+      return { items: listed, nextCursor: null };
+    },
+    async pullRequest(_repo, id) {
+      lookups.push(String(id));
+      if (String(id) === '1' && readable) return cachedPr(1, 'completed');
+      if (String(id) === '1') throw Object.assign(new Error('unreadable'), { code: 'UNREADABLE_RECORD', field: 'reviewers' });
+      throw Object.assign(new Error('gone'), { code: 'NOT_FOUND' });
+    },
+  };
+  const { store, sync, advance } = setup(provider, ['prs']);
+  await sync.tick();
+  listed = [];
+  const warning = () => {
+    const found = present(store.getStreams().find(state => state.stream === 'prs')).warning;
+    return found ? { fields: found.fields, count: found.count } : null;
+  };
+  for (let turn = 0; turn < 3; turn++) {
+    advance(600000);
+    await sync.tick();
+    assert.deepEqual(warning(), { fields: ['reviewers'], count: 1 }, `read ${turn + 1}`);
+  }
+  assert.deepEqual(lookups, ['1', '2', '3', '4', '5', '1', '2', '3', '4'], 'the third read did not look up PR 1');
+  readable = true;
+  advance(600000);
+  await sync.tick();
+  assert.equal(lookups.at(-2), '1');
+  assert.equal(warning(), null, 'a lookup that reads it clears it');
+  store.close();
+});
+
+test('a PR whose lookup came back unreadable leaves the warning once the active list holds it again', async () => {
+  let listed = [1, 2, 3, 4].map(id => cachedPr(id));
+  const provider: SyncProvider = {
+    async read() {
+      return { items: listed, nextCursor: null };
+    },
+    async pullRequest(_repo, id) {
+      if (String(id) === '1') throw Object.assign(new Error('unreadable'), { code: 'UNREADABLE_RECORD', field: 'reviewers' });
+      throw Object.assign(new Error('gone'), { code: 'NOT_FOUND' });
+    },
+  };
+  const { store, sync, advance } = setup(provider, ['prs']);
+  await sync.tick();
+  listed = [];
+  advance(600000);
+  await sync.tick();
+  assert.equal(present(store.getStreams().find(state => state.stream === 'prs')).warning?.count, 1);
+  listed = [cachedPr(1)];
+  advance(600000);
+  await sync.tick();
+  assert.equal(present(store.getStreams().find(state => state.stream === 'prs')).warning ?? null, null);
+  store.close();
+});
