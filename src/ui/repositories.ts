@@ -1,4 +1,4 @@
-import { emptyHtml, html, dateTime, streamError, azureLink, streamLabel } from './format.ts';
+import { emptyHtml, html, dateTime, streamProblems, azureLink, streamLabel } from './format.ts';
 import { connectionResult } from './connection.ts';
 import { syncPill } from './health.ts';
 import { renderCheckout } from './checkout-render.ts';
@@ -80,7 +80,7 @@ function renderRepo(
   const automatic = settings.refreshEnabled !== false;
   const records = streams.filter(stream => stream.repoId === repo.id);
   const checked = records.map(stream => Date.parse(stream.lastSuccess ?? '')).filter(Number.isFinite);
-  const failed = records.map(stream => ({ label: streamLabel(stream.stream), message: streamError(stream) })).filter(item => item.message);
+  const failed = records.flatMap(stream => streamProblems(stream).map(message => ({ label: streamLabel(stream.stream), message })));
   const gitStatus = checkout ?? (repo.localPath ? undefined : { state: 'not-linked' });
   return html`<article class="repo-card repo-entry">
     <div class="repo-overview">
@@ -103,7 +103,7 @@ function renderRepo(
         ${!checked.length && automatic && !failed.length ? html`<p class="help">Waiting for the first check.</p>` : emptyHtml}
         ${
           failed.length
-            ? html`<ul class="repo-check-errors help" aria-label="Last check failures">${failed.map(
+            ? html`<ul class="repo-check-errors help" aria-label="Last check problems">${failed.map(
                 item => html`<li><strong>${item.label}</strong>: ${item.message}</li>`,
               )}</ul>`
             : emptyHtml

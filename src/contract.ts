@@ -7,11 +7,84 @@ export type EventData = import('./activity.ts').EventData;
 
 // Azure
 
-/** Raw Azure DevOps JSON. Its shape is checked by the code that reads it, not by the compiler. */
-export type AzureRecord = any;
 /** The repository fields the client reads. Watched repositories carry more. */
 export type AzureRepo = { organization: string; project: string; projectId?: string; azureId: string; webUrl: string };
 export type AzureStream = 'pushes' | 'refs' | 'prs' | 'closedPrs' | 'builds' | 'activeBuilds';
+
+// Azure DevOps records as Repo Pulse reads them. Each type names only the fields the code reads; the checks in
+// server/azure-records.ts check those fields when a page is read. A display field the code shows with a fallback is
+// `unknown`: it is passed on as Azure sent it. Records keep every other field Azure sends, and the code stores some of
+// them whole.
+
+/** An optional Azure field: absent, null, or of its type. */
+type Maybe<T> = T | null | undefined;
+
+export type AzureCommitRef = { commitId?: Maybe<string> };
+export type AzureRefUpdate = { name?: Maybe<string>; oldObjectId?: Maybe<string>; newObjectId?: Maybe<string> };
+export type AzurePush = {
+  pushId: number;
+  date?: Maybe<string>;
+  pushedBy?: unknown;
+  refUpdates?: Maybe<AzureRefUpdate[]>;
+  commits?: Maybe<unknown[]>;
+  _links?: unknown;
+};
+export type AzureRef = { name: string; objectId: string; peeledObjectId?: Maybe<string> };
+export type AzureReviewer = { id?: Maybe<string>; displayName?: unknown; vote?: Maybe<number>; isRequired?: Maybe<boolean> };
+export type AzureForkSource = {
+  repository?: Maybe<{ id?: Maybe<string>; name?: Maybe<string>; project?: Maybe<{ name?: Maybe<string> }> }>;
+};
+export type AzurePullRequest = {
+  pullRequestId: number;
+  repository?: Maybe<{ id?: Maybe<string> }>;
+  forkSource?: Maybe<AzureForkSource>;
+  title?: unknown;
+  status?: Maybe<string>;
+  isDraft?: Maybe<boolean>;
+  sourceRefName?: Maybe<string>;
+  targetRefName?: Maybe<string>;
+  creationDate?: Maybe<string>;
+  closedDate?: Maybe<string>;
+  createdBy?: unknown;
+  closedBy?: unknown;
+  lastMergeSourceCommit?: Maybe<AzureCommitRef>;
+  lastMergeTargetCommit?: Maybe<AzureCommitRef>;
+  lastMergeCommit?: Maybe<AzureCommitRef>;
+  mergeStatus?: Maybe<string>;
+  completionOptions?: Maybe<{ mergeStrategy?: Maybe<string> }>;
+  reviewers?: Maybe<AzureReviewer[]>;
+  _links?: unknown;
+};
+export type AzureBuild = {
+  id: number;
+  repository: { id: string };
+  status?: Maybe<string>;
+  result?: Maybe<string>;
+  reason?: unknown;
+  queueTime?: Maybe<string>;
+  startTime?: Maybe<string>;
+  finishTime?: Maybe<string>;
+  sourceVersion?: Maybe<string>;
+  sourceBranch?: Maybe<string>;
+  definition?: unknown;
+  requestedFor?: unknown;
+  requestedBy?: unknown;
+  _links?: unknown;
+};
+/** The record each stream reads. */
+export type AzureStreamRecords = {
+  pushes: AzurePush;
+  refs: AzureRef;
+  prs: AzurePullRequest;
+  closedPrs: AzurePullRequest;
+  builds: AzureBuild;
+  activeBuilds: AzureBuild;
+};
+export type AzureStreamRecord = AzureStreamRecords[AzureStream];
+/** Records a page left out because a field they need is missing or malformed, and the fields that were. */
+export type UnreadableRecords = { count: number; fields: string[] };
+/** Of some records left out, the IDs (a ref's name) that could still be read, and how many had none. */
+export type UnreadableIds = { ids: string[]; anonymous: number };
 /**
  * Where the next page starts: `skip` for offset-paged reads, `token` for continuation reads.
  * Build reads also keep their coarse window in `from` and `to`.
@@ -24,8 +97,8 @@ export type ConnectionStatus = {
   identityVerified: boolean;
   message: string;
   code?: string;
-  version?: string;
-  extension?: string;
+  version?: string | undefined;
+  extension?: string | undefined;
   signedIn?: boolean;
   account?: { name: string };
   access?: AccessCheck;
@@ -69,6 +142,13 @@ export type Repository = AzureRepo & { id: string; name: string; disabled?: bool
 export type StreamWindow = { since: string; until: string };
 export type StreamError = { code: string; message: string };
 /**
+ * What the last completed read skipped because it could not read the records, summed across its pages. Only a
+ * completed read replaces it, or clears it when it skipped none; pages in progress, failed reads and restarted reads
+ * leave it as it was. A retry cannot repair a changed response shape, so the read still succeeds; sync status shows
+ * this as a problem.
+ */
+export type StreamWarning = StreamError & UnreadableRecords & { code: 'UNREADABLE_RECORDS' };
+/**
  * Persisted per repository and stream. Optional fields are absent before the first read
  * or after a completed read, which keeps only the fields `completePage` writes. Demo seeds
  * leave `error` out entirely.
@@ -79,6 +159,7 @@ export type StreamState = {
   initialized: boolean;
   nextAt: string;
   error?: StreamError | null;
+  warning?: StreamWarning | null | undefined;
   lastAttempt?: string;
   lastSuccess?: string | undefined;
   pending?: boolean;
@@ -89,8 +170,21 @@ export type StreamState = {
   refreshGeneration?: number | undefined;
   manual?: boolean | undefined;
   cursor?: PageCursor | null | undefined;
-  pendingItems?: AzureRecord[] | undefined;
+  pendingItems?: AzureRef[] | undefined;
   activeIds?: string[] | undefined;
+  /** The records the read in progress has left out so far, summed across its pages. */
+  unreadable?: UnreadableRecords | undefined;
+  /**
+   * Of the records the read in progress has left out so far, the IDs that could still be read (a ref's name) and how
+   * many had none.
+   */
+  unreadableIds?: UnreadableIds | undefined;
+  /**
+   * Cached active PRs or in-progress builds whose lookup by ID came back unreadable, with the field, so every read
+   * counts them until one reads, its lookup finds it gone, or the active list holds it again, not only the reads whose
+   * lookups reach it.
+   */
+  unreadableLookups?: { id: string; field: string }[] | undefined;
 };
 /**
  * The sync loop's counters, read for Copy diagnostics. `lastTurn` holds when each kind of turn last ran.
@@ -120,6 +214,8 @@ export type SyncStatusReport = { overall: OverallSyncStatus; repos: Record<strin
 export type HistoryStream = 'pushes' | 'closedPrs' | 'builds';
 export type HistoryWindow = { since: string; until: string };
 export type JobError = { code: string; message: string };
+/** The records of one stream that a history import skipped because Azure returned them unreadable, summed across its pages. */
+export type HistoryWarning = StreamWarning & { stream: HistoryStream };
 export type HistoryJob = {
   id: string;
   type: 'backfill';
@@ -138,6 +234,8 @@ export type HistoryJob = {
   windowsCompleted: number;
   failures: number;
   error: JobError | null;
+  /** One per stream that had unreadable records, in the order the import first met them. */
+  warnings?: HistoryWarning[];
   note: string;
   lastAttempt?: string;
   lastProgressAt?: string;

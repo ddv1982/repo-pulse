@@ -1,13 +1,30 @@
 import { normalizeOrganization, parseRemote, repositoryKey } from './repositories.ts';
 import { safeAzureUrl } from '../src/events.ts';
 import { cliError } from './azure-cli.ts';
+import { isRecord, readRecord, recordId, unreadableField } from './azure-records.ts';
 
-export type AzureRecord = import('../src/contract.ts').AzureRecord;
 export type AzureRepo = import('../src/contract.ts').AzureRepo;
 export type AzureStream = import('../src/contract.ts').AzureStream;
+export type AzureStreamRecord = import('../src/contract.ts').AzureStreamRecord;
+export type AzureBuild = import('../src/contract.ts').AzureBuild;
+export type AzurePullRequest = import('../src/contract.ts').AzurePullRequest;
+export type UnreadableRecords = import('../src/contract.ts').UnreadableRecords;
 export type PageCursor = import('../src/contract.ts').PageCursor;
-/** `restarted` marks a first page read in place of the saved cursor's page. */
-export type AzurePage = { items: AzureRecord[]; nextCursor: PageCursor | null; restarted?: boolean };
+/**
+ * `restarted` marks a first page read in place of the saved cursor's page. `unreadable` counts the records left out
+ * of `items` because a field they need is missing or malformed; it is absent when there were none. `unreadableIds`
+ * names the pull requests and builds among them whose ID could still be read, with the field each could not be read
+ * for, so sync knows Azure listed them.
+ */
+export type AzurePage<T = AzureStreamRecord> = {
+  items: T[];
+  nextCursor: PageCursor | null;
+  restarted?: boolean;
+  unreadable?: UnreadableRecords;
+  unreadableIds?: { id: string; field: string }[];
+};
+/** One page of a stream, as sync and backfill read it. */
+export type StreamRead = (repo: AzureRepo, stream: AzureStream, options?: ReadOptions) => Promise<AzurePage>;
 export type ReadOptions = { since?: string; until?: string; cursor?: PageCursor | null };
 export type CheckoutPull = {
   id: number;
@@ -20,6 +37,7 @@ export type CheckoutPull = {
   strategy?: string;
   url: string;
 };
+export type UnreadableCheckoutPull = import('./checkout-advice.ts').UnreadableCheckoutPull;
 export type AccessCheck = import('../src/contract.ts').AccessCheck;
 export type ConnectionStatus = import('../src/contract.ts').ConnectionStatus;
 export type ResolvedRepository = {
@@ -34,7 +52,7 @@ export type ResolvedRepository = {
 };
 export type RepositoryInput = { organization: string; project: string; repoName?: string; name?: string };
 /** The Azure CLI queue the client reads through (see createAzureCli). */
-export type AzureClientCli = { run: (args: string[]) => Promise<AzureRecord> };
+export type AzureClientCli = { run: (args: string[]) => Promise<unknown> };
 /** The provider contract. Sync and backfill type their provider as the subset of it they call. */
 export type AzureProvider = ReturnType<typeof createAzureClient>;
 export type PullRequestReview = import('../src/contract.ts').PullRequestReview;
@@ -67,20 +85,108 @@ const bucket = (value: string | undefined, round: 'floor' | 'ceil') =>
   // A non-empty value always yields a date string (or throws).
   value ? new Date(Math[round](new Date(iso(value) as string).getTime() / 300_000) * 300_000).toISOString() : undefined;
 
-function pageOf(response: AzureRecord, { skip = 0, mode }: { skip?: number; mode?: 'skip' | 'token' }): AzurePage {
-  const items = Array.isArray(response) ? response : response?.value;
-  if (!Array.isArray(items)) throw cliError('INVALID_RESPONSE', 'Azure CLI did not return an activity list.');
-  const token = response?.continuation_token || response?.continuationToken;
+/**
+ * The records of one list response as `read` reads them. The rest are counted with the fields `field` names, so
+ * a record Azure returns in a changed shape is reported instead of failing the page or disappearing; `idOf` names
+ * those whose ID can still be read. A skip-paged read counts every record Azure returned, so a page with unreadable
+ * records still pages on.
+ */
+function pageOf<T>(
+  response: unknown,
+  read: (value: unknown) => T | undefined,
+  field: (value: unknown) => string | null,
+  { skip = 0, mode, idOf }: { skip?: number; mode?: 'skip' | 'token'; idOf?: (value: unknown) => string | undefined },
+): AzurePage<T> {
+  const list: unknown = Array.isArray(response) ? response : isRecord(response) ? response.value : undefined;
+  if (!Array.isArray(list)) throw cliError('INVALID_RESPONSE', 'Azure CLI did not return an activity list.');
+  const token = isRecord(response) ? response.continuation_token || response.continuationToken : undefined;
+  const items: T[] = [];
+  const fields: Set<string> = new Set();
+  const unreadableIds: { id: string; field: string }[] = [];
+  let skipped = 0;
+  for (const item of list) {
+    const record = read(item);
+    if (record !== undefined) {
+      items.push(record);
+      continue;
+    }
+    skipped++;
+    const fault = field(item) ?? 'record';
+    fields.add(fault);
+    const id = idOf?.(item);
+    if (id !== undefined) unreadableIds.push({ id, field: fault });
+  }
   return {
     items,
-    nextCursor: mode === 'skip' ? (items.length === PAGE ? { skip: skip + PAGE } : null) : token ? { token: String(token) } : null,
+    nextCursor: mode === 'skip' ? (list.length === PAGE ? { skip: skip + PAGE } : null) : token ? { token: String(token) } : null,
+    ...(skipped ? { unreadable: { count: skipped, fields: [...fields] } } : {}),
+    ...(unreadableIds.length ? { unreadableIds } : {}),
+  };
+}
+/** Pages whose items the caller checks itself. */
+const everyItem = (value: unknown) => value;
+const noField = () => null;
+/** A field of a response that is not an object reads as absent. */
+const fieldOf = (value: unknown, key: string): unknown => (isRecord(value) ? value[key] : undefined);
+const textOf = (value: unknown) => (typeof value === 'string' ? value : undefined);
+/** The text at `path` below `value`: undefined when a step is absent, null when a step or the text has another type. */
+function textAt(value: unknown, path: readonly string[]): string | undefined | null {
+  let current = value;
+  for (const key of path) {
+    if (current === undefined || current === null) return undefined;
+    if (!isRecord(current)) return null;
+    current = current[key];
+  }
+  if (current === undefined || current === null) return undefined;
+  return typeof current === 'string' ? current : null;
+}
+/**
+ * A completed PR from `source` within this repository as checkout advice reads it, or undefined for a PR of another
+ * status, source or repository. It reads only the fields checkout uses, so a field only the activity stream reads
+ * cannot hide a candidate. A candidate whose ID, target, head, merge result or strategy cannot be read may be another
+ * target, so it is returned as unreadable rather than left out.
+ */
+function checkoutPullOf(repo: AzureRepo, source: string, pr: unknown): CheckoutPull | UnreadableCheckoutPull | undefined {
+  const targetId = fieldOf(fieldOf(pr, 'repository'), 'id');
+  const fork = fieldOf(pr, 'forkSource');
+  const sourceId = fork ? fieldOf(fieldOf(fork, 'repository'), 'id') : targetId;
+  if (
+    fieldOf(pr, 'status') !== 'completed' ||
+    fieldOf(pr, 'sourceRefName') !== source ||
+    typeof targetId !== 'string' ||
+    typeof sourceId !== 'string' ||
+    targetId.toLowerCase() !== repo.azureId.toLowerCase() ||
+    sourceId.toLowerCase() !== repo.azureId.toLowerCase()
+  )
+    return undefined;
+  const id = fieldOf(pr, 'pullRequestId');
+  if (typeof id !== 'number' || !Number.isSafeInteger(id) || id <= 0) return { unreadable: 'pullRequestId' };
+  const target = textAt(pr, ['targetRefName']);
+  if (typeof target !== 'string') return { unreadable: 'targetRefName' };
+  const head = textAt(pr, ['lastMergeSourceCommit', 'commitId']);
+  const result = textAt(pr, ['lastMergeCommit', 'commitId']);
+  const strategy = textAt(pr, ['completionOptions', 'mergeStrategy']);
+  if (head === null) return { unreadable: 'lastMergeSourceCommit.commitId' };
+  if (result === null) return { unreadable: 'lastMergeCommit.commitId' };
+  if (strategy === null) return { unreadable: 'completionOptions.mergeStrategy' };
+  return {
+    id,
+    source,
+    target,
+    sourceId,
+    targetId,
+    // A field Azure did not send stays absent.
+    ...(head === undefined ? {} : { head }),
+    ...(result === undefined ? {} : { result }),
+    ...(strategy === undefined ? {} : { strategy }),
+    url: safeAzureUrl(fieldOf(fieldOf(fieldOf(pr, '_links'), 'web'), 'href'), `${repo.webUrl}/pullrequest/${encodeURIComponent(id)}`),
   };
 }
 
 export function createAzureClient({ cli, now = Date.now }: { cli?: AzureClientCli; now?: () => number } = {}) {
   if (!cli?.run) throw new Error('Azure CLI is required');
-  const cache: Map<string, { expires: number; promise: Promise<AzureRecord> }> = new Map();
-  function cached(key: string, work: () => Promise<AzureRecord>, ttl = 30_000): Promise<AzureRecord> {
+  const cache: Map<string, { expires: number; promise: Promise<unknown> }> = new Map();
+  function cached(key: string, work: () => Promise<unknown>, ttl = 30_000): Promise<unknown> {
     const found = cache.get(key);
     if (found && found.expires > now()) return found.promise;
     const promise = Promise.resolve().then(work);
@@ -98,7 +204,7 @@ export function createAzureClient({ cli, now = Date.now }: { cli?: AzureClientCl
     query: Record<string, string | number | null | undefined> = {},
     route: Record<string, string> = {},
     shared = false,
-  ): Promise<AzureRecord> => {
+  ): Promise<unknown> => {
     const org = normalizeOrganization(repo.organization);
     const routes: Record<string, string> = { project: repo.projectId || repo.project, ...route };
     if (area === 'git') routes.repositoryId = repo.azureId;
@@ -132,8 +238,8 @@ export function createAzureClient({ cli, now = Date.now }: { cli?: AzureClientCl
         const extension = await cached('cli-extension', () => cli.run(['extension', 'show', '--name', 'azure-devops']), 300_000);
         const result: ConnectionStatus = {
           available: true,
-          version: version['azure-cli'],
-          extension: extension.version,
+          version: textOf(fieldOf(version, 'azure-cli')),
+          extension: textOf(fieldOf(extension, 'version')),
           identity: null,
           identityVerified: false,
           signedIn: false,
@@ -143,9 +249,10 @@ export function createAzureClient({ cli, now = Date.now }: { cli?: AzureClientCl
         // account show reads local account metadata only; it never acquires, prints or returns a token.
         try {
           const account = await cached('cli-account', () => cli.run(['account', 'show']), 30_000);
-          if (account.user?.name) {
+          const name = fieldOf(fieldOf(account, 'user'), 'name');
+          if (typeof name === 'string' && name) {
             result.signedIn = true;
-            result.account = { name: account.user.name };
+            result.account = { name };
             result.message = 'Existing Azure CLI sign-in detected. No additional setup is needed; choose repositories to watch.';
           }
         } catch {
@@ -171,14 +278,15 @@ export function createAzureClient({ cli, now = Date.now }: { cli?: AzureClientCl
                   ]
                 : ['devops', 'project', 'list', '--organization', org, '--top', '1', '--detect', 'false'],
             );
-            if (repository && data?.id !== repository.azureId)
+            if (repository && fieldOf(data, 'id') !== repository.azureId)
               throw cliError('INVALID_RESPONSE', 'Azure CLI did not verify the watched repository.');
             // Activity reads use the Azure CLI's Entra token, which the extension's own credentials do not prove.
             if (repository) await invoke(repository, 'git', 'refs', { filter: 'heads/', $top: 1 });
             return new Date(now()).toISOString();
           };
           try {
-            const checkedAt = repository ? await verify() : await cached(`connection:${org}`, verify, 120_000);
+            // The cache holds what verify() returned, which is always the time as a string.
+            const checkedAt = repository ? await verify() : String(await cached(`connection:${org}`, verify, 120_000));
             result.access = { status: 'ok', checkedAt };
             if (!repository) {
               result.capabilities = { organizationRead: true };
@@ -220,22 +328,34 @@ export function createAzureClient({ cli, now = Date.now }: { cli?: AzureClientCl
         '--detect',
         'false',
       ]);
-      if (!raw?.id || !raw?.name || !raw?.project?.name) throw cliError('INVALID_RESPONSE', 'Azure CLI did not resolve this repository.');
+      const id = textOf(fieldOf(raw, 'id')),
+        resolved = textOf(fieldOf(raw, 'name')),
+        projectName = textOf(fieldOf(fieldOf(raw, 'project'), 'name')),
+        projectId = textOf(fieldOf(fieldOf(raw, 'project'), 'id'));
+      if (!id || !resolved || !projectName || projectId === undefined)
+        throw cliError('INVALID_RESPONSE', 'Azure CLI did not resolve this repository.');
       return {
-        id: repositoryKey(organization, raw.id),
+        id: repositoryKey(organization, id),
         organization,
-        project: raw.project.name,
-        projectId: raw.project.id,
-        azureId: raw.id,
-        name: raw.name,
-        webUrl: `${organization}/${encodeURIComponent(raw.project.name)}/_git/${encodeURIComponent(raw.name)}`,
+        project: projectName,
+        projectId,
+        azureId: id,
+        name: resolved,
+        webUrl: `${organization}/${encodeURIComponent(projectName)}/_git/${encodeURIComponent(resolved)}`,
         disabled: false,
       };
     },
     async read(repo: AzureRepo, stream: AzureStream, { since, until, cursor }: ReadOptions = {}): Promise<AzurePage> {
       const skip = Number(cursor?.skip || 0);
       if (!Number.isSafeInteger(skip) || skip < 0) throw new Error('Invalid page cursor');
-      let response: AzureRecord,
+      const pageOfStream = (response: unknown, options: { skip?: number; mode?: 'skip' | 'token' }) =>
+        pageOf(
+          response,
+          (value): AzureStreamRecord | undefined => readRecord(stream, value),
+          value => unreadableField(stream, value),
+          { ...options, idOf: value => recordId(stream, value) },
+        );
+      let response: unknown,
         mode: 'skip' | 'token' = 'token';
       switch (stream) {
         case 'pushes':
@@ -255,7 +375,7 @@ export function createAzureClient({ cli, now = Date.now }: { cli?: AzureClientCl
             $top: PAGE,
             continuationToken: cursor?.allRefs ? cursor.token : undefined,
           });
-          const page = pageOf(response, { skip, mode });
+          const page = pageOfStream(response, { skip, mode });
           if (page.nextCursor) page.nextCursor.allRefs = true;
           if (cursor?.token && !cursor.allRefs) page.restarted = true;
           return page;
@@ -301,7 +421,7 @@ export function createAzureClient({ cli, now = Date.now }: { cli?: AzureClientCl
             {},
             true,
           );
-          const page = pageOf(response, { skip, mode });
+          const page = pageOfStream(response, { skip, mode });
           if (page.nextCursor) Object.assign(page.nextCursor, { from, to });
           return page;
         }
@@ -325,16 +445,25 @@ export function createAzureClient({ cli, now = Date.now }: { cli?: AzureClientCl
         default:
           throw new Error('Unknown Azure activity stream');
       }
-      return pageOf(response, { skip, mode });
+      return pageOfStream(response, { skip, mode });
     },
     /** A next cursor means Azure has more of the requested builds than this page holds. */
-    async buildsById(repo: AzureRepo, ids: string[]): Promise<AzurePage> {
+    async buildsById(repo: AzureRepo, ids: string[]): Promise<AzurePage<AzureBuild>> {
       if (!Array.isArray(ids) || ids.length > 100 || ids.some(id => !/^\d+$/.test(String(id)))) throw new Error('Invalid build IDs');
       if (!ids.length) return { items: [], nextCursor: null };
       const raw = await invoke(repo, 'build', 'builds', { buildIds: ids.join(',') }, {}, true);
-      return pageOf(raw, { skip: 0, mode: 'token' });
+      return pageOf(
+        raw,
+        value => readRecord('builds', value),
+        value => unreadableField('builds', value),
+        {
+          skip: 0,
+          mode: 'token',
+          idOf: value => recordId('builds', value),
+        },
+      );
     },
-    async completedCheckoutPulls(repo: AzureRepo, source: string): Promise<CheckoutPull[]> {
+    async completedCheckoutPulls(repo: AzureRepo, source: string): Promise<(CheckoutPull | UnreadableCheckoutPull)[]> {
       if (typeof source !== 'string' || !/^refs\/heads\/[^\s\x00-\x1f]+$/.test(source) || source.length > 1024) return [];
       const response = await invoke(
         repo,
@@ -350,34 +479,14 @@ export function createAzureClient({ cli, now = Date.now }: { cli?: AzureClientCl
         {},
         true,
       );
-      return pageOf(response, {}).items.flatMap(pr => {
-        const targetId = pr?.repository?.id;
-        const sourceId = pr?.forkSource ? pr.forkSource.repository?.id : targetId;
-        if (
-          pr?.status !== 'completed' ||
-          pr.sourceRefName !== source ||
-          typeof targetId !== 'string' ||
-          typeof sourceId !== 'string' ||
-          targetId.toLowerCase() !== repo.azureId.toLowerCase() ||
-          sourceId.toLowerCase() !== repo.azureId.toLowerCase()
-        )
-          return [];
-        return [
-          {
-            id: pr.pullRequestId,
-            source,
-            target: pr.targetRefName,
-            sourceId,
-            targetId,
-            head: pr.lastMergeSourceCommit?.commitId,
-            result: pr.lastMergeCommit?.commitId,
-            strategy: pr.completionOptions?.mergeStrategy,
-            url: safeAzureUrl(pr._links?.web?.href, `${repo.webUrl}/pullrequest/${encodeURIComponent(pr.pullRequestId)}`),
-          },
-        ];
-      });
+      return pageOf(response, everyItem, noField, {}).items.flatMap(pr => checkoutPullOf(repo, source, pr) ?? []);
     },
-    async pullRequest(repo: AzureRepo, id: string | number): Promise<AzureRecord> {
+    /**
+     * Throws UNREADABLE_RECORD, with the field that is missing or malformed, for a pull request that cannot be read,
+     * including one whose ID or repository cannot be read; `anonymous` is set when its ID cannot be read. An answer that is not an object, or whose readable ID names
+     * another pull request, is INVALID_RESPONSE, and one whose readable repository is another is WRONG_REPOSITORY.
+     */
+    async pullRequest(repo: AzureRepo, id: string | number): Promise<AzurePullRequest> {
       if (!/^\d+$/.test(String(id))) throw new Error('Invalid PR ID');
       const raw = await cli.run([
         'repos',
@@ -390,24 +499,30 @@ export function createAzureClient({ cli, now = Date.now }: { cli?: AzureClientCl
         '--detect',
         'false',
       ]);
-      const prId = raw?.pullRequestId;
-      if (
-        !['string', 'number'].includes(typeof prId) ||
-        String(prId) !== String(id) ||
-        typeof raw.repository?.id !== 'string' ||
-        !raw.repository.id.trim()
-      )
+      const prId = recordId('prs', raw);
+      if (!isRecord(raw) || (prId !== undefined && prId !== String(id)))
         throw cliError('INVALID_RESPONSE', 'Azure CLI did not return the requested repository pull request.');
+      const repositoryId = textOf(fieldOf(fieldOf(raw, 'repository'), 'id'))?.trim();
       // A PR that now belongs to another repository, for example after a move, cannot be read for this one.
-      if (raw.repository.id.toLowerCase() !== repo.azureId?.toLowerCase())
+      if (repositoryId && repositoryId.toLowerCase() !== repo.azureId?.toLowerCase())
         throw cliError('WRONG_REPOSITORY', 'Azure returned this pull request for a different repository.');
-      return raw;
+      const unreadable = unreadableField('prs', raw) ?? (repositoryId ? null : 'repository.id');
+      const record = readRecord('prs', raw);
+      if (unreadable !== null || record === undefined) {
+        const field = unreadable ?? 'record';
+        // `anonymous` marks an answer whose own ID cannot be read, so it cannot be told apart from another PR's.
+        throw Object.assign(
+          cliError('UNREADABLE_RECORD', `Azure returned pull request ${String(id)} without a readable value for ${field}.`),
+          { field, ...(prId === undefined ? { anonymous: true } : {}) },
+        );
+      }
+      return record;
     },
     /**
      * One page of commits reachable from the old tip but not from the new one. Empty means the old tip
      * is an ancestor of the new one (a fast-forward); anything else means the update dropped history.
      */
-    async droppedCommits(repo: AzureRepo, oldSha: string, newSha: string): Promise<AzurePage> {
+    async droppedCommits(repo: AzureRepo, oldSha: string, newSha: string): Promise<AzurePage<unknown>> {
       if (![oldSha, newSha].every(sha => typeof sha === 'string' && /^[0-9a-f]{40}$/i.test(sha)))
         throw cliError('INVALID_QUERY', 'Commit queries require at most 100 complete commit IDs.');
       const old = oldSha.toLowerCase(),
@@ -422,8 +537,13 @@ export function createAzureClient({ cli, now = Date.now }: { cli?: AzureClientCl
         'searchCriteria.itemVersion.version': current,
         'searchCriteria.itemVersion.versionType': 'commit',
       });
-      const page = pageOf(raw, { mode: 'skip' });
-      if (page.items.some(item => typeof item?.commitId !== 'string' || !/^[0-9a-f]{40}$/i.test(item.commitId)))
+      const page = pageOf(raw, everyItem, noField, { mode: 'skip' });
+      if (
+        page.items.some(item => {
+          const commitId = fieldOf(item, 'commitId');
+          return typeof commitId !== 'string' || !/^[0-9a-f]{40}$/i.test(commitId);
+        })
+      )
         throw cliError('INVALID_RESPONSE', 'Azure returned invalid ref-range commit evidence.');
       return page;
     },
@@ -434,11 +554,14 @@ export function createAzureClient({ cli, now = Date.now }: { cli?: AzureClientCl
       if (typeof commitId !== 'string' || !/^[0-9a-f]{40}$/i.test(commitId))
         throw cliError('INVALID_QUERY', 'A commit read requires a complete commit ID.');
       const raw = await invoke(repo, 'git', 'commits', { changeCount: 0 }, { commitId: commitId.toLowerCase() });
-      const parents = raw?.parents;
-      if (!Array.isArray(parents) || parents.some(parent => typeof parent !== 'string' || !/^[0-9a-f]{40}$/i.test(parent)))
-        throw cliError('INVALID_RESPONSE', 'Azure returned an invalid commit.');
-      const pushId = raw?.push?.pushId;
-      return { parents: parents.map(parent => parent.toLowerCase()), pushId: Number.isSafeInteger(pushId) ? pushId : null };
+      const parents: unknown = fieldOf(raw, 'parents');
+      const ids = Array.isArray(parents) ? parents.filter(parent => typeof parent === 'string' && /^[0-9a-f]{40}$/i.test(parent)) : [];
+      if (!Array.isArray(parents) || ids.length !== parents.length) throw cliError('INVALID_RESPONSE', 'Azure returned an invalid commit.');
+      const pushId = fieldOf(fieldOf(raw, 'push'), 'pushId');
+      return {
+        parents: ids.map(parent => String(parent).toLowerCase()),
+        pushId: typeof pushId === 'number' && Number.isSafeInteger(pushId) ? pushId : null,
+      };
     },
     /**
      * Read when a PR detail asks for it, never by polling: one read for discussion threads, one for policy evaluations.
@@ -451,14 +574,20 @@ export function createAzureClient({ cli, now = Date.now }: { cli?: AzureClientCl
         artifactId: `vstfs:///CodeReview/CodeReviewId/${repo.projectId}/${id}`,
         includeNotApplicable: 'true',
       });
-      return reviewOf(threads.value, evaluations.value);
+      return reviewOf(fieldOf(threads, 'value'), fieldOf(evaluations, 'value'));
     },
-    async pushCommits(repo: AzureRepo, pushId: string | number, cursor: PageCursor = {}): Promise<AzurePage> {
+    async pushCommits(repo: AzureRepo, pushId: string | number, cursor: PageCursor = {}): Promise<AzurePage<Record<string, unknown>>> {
       if (!/^\d+$/.test(String(pushId))) throw new Error('Invalid push ID');
       const skip = Number(cursor?.skip || 0);
       if (!Number.isSafeInteger(skip) || skip < 0) throw new Error('Invalid page cursor');
       const raw = await invoke(repo, 'git', 'commits', { pushId, top: PAGE, skip });
-      return pageOf(raw, { skip, mode: 'skip' });
+      // A commit that is not an object has nothing to show, so it is left out.
+      return pageOf(
+        raw,
+        value => (isRecord(value) ? value : undefined),
+        () => 'record',
+        { skip, mode: 'skip' },
+      );
     },
   };
 }

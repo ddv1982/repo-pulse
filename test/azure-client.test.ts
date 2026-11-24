@@ -1,7 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createAzureClient, reviewOf } from '../server/azure-client.ts';
-import type { Repository } from '../src/contract.ts';
+import { createNormalizer } from '../server/normalize.ts';
+import { createStore } from '../server/store.ts';
+import type { AzureStream, Repository } from '../src/contract.ts';
 import { present, stub } from './fixtures/typed.ts';
 const repo = stub<Repository>({
   id: 'local1',
@@ -55,7 +57,7 @@ test('refs use continuation token and build cache isolates repositories while co
     cli: {
       run: async args => {
         calls.push(args);
-        return { value: [{ id: 1 }], continuation_token: 'page2' };
+        return { value: [{ id: 1, repository: { id: 'repo1' } }], continuation_token: 'page2' };
       },
     },
   });
@@ -76,12 +78,16 @@ test('refs use continuation token and build cache isolates repositories while co
   assert.equal(calls.length, 4);
   assert.equal(a.nextCursor?.from, '2026-11-10T11:10:00.000Z');
   const active = await client.read(repo, 'activeBuilds', window);
-  assert.equal(active.items[0].id, 1);
+  const [build] = active.items;
+  assert.equal(build && 'id' in build && build.id, 1);
   assert(!present(calls.at(-1)).some(value => value.startsWith('minTime=')));
   assert(present(calls.at(-1)).includes('repositoryId=repo1'));
   // Numeric ids still reach the query as before; the type says string, so the number needs a cast.
   const numericIds = [123] as unknown as string[];
-  assert.deepEqual(await client.buildsById(repo, numericIds), { items: [{ id: 1 }], nextCursor: { token: 'page2' } });
+  assert.deepEqual(await client.buildsById(repo, numericIds), {
+    items: [{ id: 1, repository: { id: 'repo1' } }],
+    nextCursor: { token: 'page2' },
+  });
   assert(present(calls.at(-1)).includes('buildIds=123'));
 });
 
@@ -141,23 +147,33 @@ test('active PR reads are explicitly repo-scoped and exact PR reconciliation use
   assert.deepEqual(present(calls[1]).slice(0, 3), ['repos', 'pr', 'show']);
   const foreign = createAzureClient({ cli: { run: async () => ({ pullRequestId: 123, repository: { id: 'different' } }) } });
   await assert.rejects(foreign.pullRequest(repo, 123), { code: 'WRONG_REPOSITORY' });
-  const malformed = createAzureClient({ cli: { run: async () => ({ repository: { id: 'repo1' } }) } });
-  await assert.rejects(malformed.pullRequest(repo, 123), { code: 'INVALID_RESPONSE' });
-  const noRepository = createAzureClient({ cli: { run: async () => ({ pullRequestId: 123 }) } });
-  await assert.rejects(noRepository.pullRequest(repo, 123), { code: 'INVALID_RESPONSE' });
+  // A readable identity that names another pull request is a wrong answer, not an unreadable record.
   const otherId = createAzureClient({ cli: { run: async () => ({ pullRequestId: 124, repository: { id: 'repo1' } }) } });
   await assert.rejects(otherId.pullRequest(repo, 123), { code: 'INVALID_RESPONSE' });
   // Azure GUIDs differ in case between APIs, as elsewhere in the app.
   const upper = createAzureClient({ cli: { run: async () => ({ pullRequestId: 123, repository: { id: 'REPO1' } }) } });
   assert.equal((await upper.pullRequest(repo, 123)).pullRequestId, 123);
-  for (const payload of [
-    { pullRequestId: [123], repository: { id: 'repo1' } },
-    { pullRequestId: 123, repository: { id: 7 } },
-    { pullRequestId: 123, repository: { id: { id: 'repo1' } } },
-    { pullRequestId: 123, repository: { id: '  ' } },
-  ]) {
+  // A malformed display field does not make the pull request unreadable; it is passed on as Azure sent it.
+  const oddLink = createAzureClient({ cli: { run: async () => ({ pullRequestId: 123, repository: { id: 'repo1' }, _links: 'link' }) } });
+  assert.deepEqual(await oddLink.pullRequest(repo, 123), { pullRequestId: 123, repository: { id: 'repo1' }, _links: 'link' });
+  // An identity that cannot be read is skipped and counted like any unreadable record.
+  for (const [payload, field] of [
+    [{ repository: { id: 'repo1' } }, 'pullRequestId'],
+    [{ pullRequestId: [123], repository: { id: 'repo1' } }, 'pullRequestId'],
+    [{ pullRequestId: '123', repository: { id: 'repo1' } }, 'pullRequestId'],
+    [{ pullRequestId: '124', repository: { id: 'repo1' } }, 'pullRequestId'],
+    [{ pullRequestId: 123 }, 'repository.id'],
+    [{ pullRequestId: 123, repository: { id: 7 } }, 'repository.id'],
+    [{ pullRequestId: 123, repository: { id: { id: 'repo1' } } }, 'repository.id'],
+    [{ pullRequestId: 123, repository: { id: '  ' } }, 'repository.id'],
+  ] satisfies [object, string][]) {
     const odd = createAzureClient({ cli: { run: async () => payload } });
-    await assert.rejects(odd.pullRequest(repo, 123), { code: 'INVALID_RESPONSE' }, JSON.stringify(payload));
+    await assert.rejects(odd.pullRequest(repo, 123), { code: 'UNREADABLE_RECORD', field }, JSON.stringify(payload));
+  }
+  // An answer that is not an object at all is not a pull request, so it is a wrong answer as well.
+  for (const payload of [null, 'pull request 123', [{ pullRequestId: 123, repository: { id: 'repo1' } }], 123]) {
+    const notObject = createAzureClient({ cli: { run: async () => payload } });
+    await assert.rejects(notObject.pullRequest(repo, 123), { code: 'INVALID_RESPONSE' }, JSON.stringify(payload));
   }
 });
 
@@ -284,6 +300,7 @@ test('checkout PR lookup is bounded and accepts completed PRs in the same source
     },
   });
   const pull = present((await client.completedCheckoutPulls(repo, sourceRefName))[0]);
+  assert.ok(!('unreadable' in pull));
   assert.equal(pull.id, 1);
   assert.equal(pull.strategy, 'rebase');
   assert.equal((await client.completedCheckoutPulls(repo, sourceRefName)).length, 1);
@@ -426,4 +443,135 @@ test('a single commit read returns its parents and the push that brought it, and
   body = { commitId: id };
   await assert.rejects(client.commit(repo, id), { code: 'INVALID_RESPONSE' });
   assert.equal(calls.length, 4);
+});
+
+const readable: Record<AzureStream, Record<string, unknown>> = {
+  pushes: { pushId: 1, date: '2026-11-17T10:00:00Z', refUpdates: [{ name: 'refs/heads/main', oldObjectId: 'a', newObjectId: 'b' }] },
+  refs: { name: 'refs/heads/main', objectId: 'a' },
+  prs: { pullRequestId: 1, status: 'active', reviewers: [{ id: 'r', vote: 10 }] },
+  closedPrs: { pullRequestId: 2, status: 'completed', lastMergeCommit: { commitId: 'c' } },
+  builds: { id: 1, repository: { id: 'repo1' }, status: 'completed' },
+  activeBuilds: { id: 2, repository: { id: 'repo1' }, status: 'inProgress', requestedFor: { displayName: 'A' } },
+};
+const malformed: [AzureStream, Record<string, unknown>, string][] = [
+  ['pushes', { ...readable.pushes, refUpdates: { name: 'refs/heads/main' } }, 'refUpdates'],
+  ['refs', { ...readable.refs, objectId: 7 }, 'objectId'],
+  ['prs', { ...readable.prs, reviewers: [{ id: 'r', vote: '10' }] }, 'reviewers.vote'],
+  ['closedPrs', { ...readable.closedPrs, pullRequestId: undefined }, 'pullRequestId'],
+  ['builds', { ...readable.builds, repository: { id: 7 } }, 'repository.id'],
+  ['activeBuilds', { ...readable.activeBuilds, id: '2' }, 'id'],
+];
+for (const [stream, record, field] of malformed)
+  test(`a ${stream} page keeps its readable records and counts one with a malformed ${field}`, async () => {
+    const client = createAzureClient({ cli: { run: async () => ({ value: [readable[stream], record] }) } });
+    const page = await client.read(repo, stream, window);
+    assert.deepEqual(page.items, [readable[stream]]);
+    assert.deepEqual(page.unreadable, { count: 1, fields: [field] });
+  });
+
+/**
+ * For each stream, fields read for identity or meaning and display fields the code shows with a fallback. A malformed
+ * display field keeps the record as Azure sent it, and the event shows what origin/main 844c7b6 shows, with the same
+ * IDs; where main put a value that is not text into an event's actor or title, the event holds its text. A malformed
+ * required field still makes the record unreadable. The refs stream has no display field.
+ */
+const watched = { ...repo, webUrl: 'https://dev.azure.com/example/Project/_git/repo' };
+const pushUrl = `${watched.webUrl}/pushes?pushId=1`;
+/** A value String() cannot convert. Main stored it, and its page could not show it. */
+const unconvertible = { toString: null };
+const newTag = { name: 'refs/tags/v1', oldObjectId: '0'.repeat(40), newObjectId: 'c' };
+const fieldRules: { stream: AzureStream; patch: Record<string, unknown>; shown?: Record<string, unknown>; unreadable?: string }[] = [
+  { stream: 'pushes', patch: { _links: { web: 'https://dev.azure.com/x' } }, shown: { url: pushUrl } },
+  { stream: 'pushes', patch: { _links: 'link' }, shown: { url: pushUrl } },
+  { stream: 'pushes', patch: { pushedBy: 'A' }, shown: { title: 'Unknown pushed to main', actor: 'Unknown' } },
+  { stream: 'pushes', patch: { pushedBy: { displayName: 7, name: 'a' } }, shown: { title: '7 pushed to main', actor: '7' } },
+  {
+    stream: 'pushes',
+    patch: { pushedBy: { displayName: unconvertible }, refUpdates: [newTag] },
+    shown: { title: 'New tag · v1', actor: 'Unknown' },
+  },
+  { stream: 'pushes', patch: { pushedBy: { displayName: unconvertible } }, shown: { title: 'Unknown pushed to main', actor: 'Unknown' } },
+  { stream: 'pushes', patch: { pushId: '1' }, unreadable: 'pushId' },
+  { stream: 'pushes', patch: { date: 7 }, unreadable: 'date' },
+  { stream: 'pushes', patch: { commits: {} }, unreadable: 'commits' },
+  { stream: 'pushes', patch: { refUpdates: [{ name: 'refs/tags/v1', oldObjectId: 7 }] }, unreadable: 'refUpdates.oldObjectId' },
+  { stream: 'refs', patch: { name: 7 }, unreadable: 'name' },
+  { stream: 'refs', patch: { peeledObjectId: 7 }, unreadable: 'peeledObjectId' },
+  { stream: 'prs', patch: { title: 7 }, shown: { id: 'local1:pr:1:1:072e2b627223a969a109c058', title: 'PR 1 · 7' } },
+  { stream: 'prs', patch: { createdBy: ['A'] }, shown: { actor: 'Unknown' } },
+  {
+    stream: 'prs',
+    patch: { reviewers: [{ id: 'r', vote: 10, displayName: 7 }] },
+    shown: { 'data.reviewers': [{ id: 'r', name: 7, vote: 10, required: false }] },
+  },
+  { stream: 'prs', patch: { _links: { web: 7 } }, shown: { url: `${watched.webUrl}/pullrequest/1` } },
+  { stream: 'prs', patch: { status: 7 }, unreadable: 'status' },
+  { stream: 'prs', patch: { isDraft: 'yes' }, unreadable: 'isDraft' },
+  { stream: 'prs', patch: { creationDate: 7 }, unreadable: 'creationDate' },
+  { stream: 'prs', patch: { reviewers: [{ id: 7, vote: 10 }] }, unreadable: 'reviewers.id' },
+  { stream: 'prs', patch: { reviewers: [{ id: 'r', vote: Number.NaN }] }, unreadable: 'reviewers.vote' },
+  { stream: 'prs', patch: { forkSource: { repository: { id: 'f', name: 7 } } }, unreadable: 'forkSource.repository.name' },
+  { stream: 'closedPrs', patch: { closedBy: { displayName: 7 } }, shown: { 'data.closedBy': 7 } },
+  { stream: 'closedPrs', patch: { lastMergeCommit: { commitId: 7 } }, unreadable: 'lastMergeCommit.commitId' },
+  { stream: 'closedPrs', patch: { completionOptions: { mergeStrategy: 7 } }, unreadable: 'completionOptions.mergeStrategy' },
+  { stream: 'builds', patch: { definition: { name: 7, id: 3 } }, shown: { title: '7', 'data.definition': { name: 7, id: 3 } } },
+  { stream: 'builds', patch: { definition: 'CI' }, shown: { title: 'Pipeline', 'data.definition': 'CI' } },
+  { stream: 'builds', patch: { definition: { name: unconvertible } }, shown: { title: 'Pipeline' } },
+  { stream: 'builds', patch: { reason: 7 }, shown: { 'data.reason': 7 } },
+  { stream: 'builds', patch: { requestedBy: 7 }, shown: { actor: 'Unknown' } },
+  { stream: 'builds', patch: { result: 7 }, unreadable: 'result' },
+  { stream: 'builds', patch: { finishTime: 7 }, unreadable: 'finishTime' },
+  { stream: 'activeBuilds', patch: { requestedFor: { displayName: ['A'] } }, shown: { actor: 'A' } },
+  {
+    stream: 'activeBuilds',
+    patch: { _links: { web: [] } },
+    shown: { url: `${watched.organization}/Project/_build/results?buildId=2` },
+  },
+  { stream: 'activeBuilds', patch: { sourceBranch: 7 }, unreadable: 'sourceBranch' },
+];
+for (const { stream, patch, shown, unreadable } of fieldRules)
+  test(`a ${stream} record with ${JSON.stringify(patch, (_key, value: unknown) => (Number.isNaN(value) ? 'NaN' : value))} is ${shown ? 'kept and shown as on main' : `unreadable for ${unreadable}`}`, async () => {
+    const record = { ...readable[stream], ...patch };
+    const page = await createAzureClient({ cli: { run: async () => ({ value: [record] }) } }).read(repo, stream, window);
+    if (!shown) {
+      assert.deepEqual(page.items, []);
+      assert.deepEqual(page.unreadable, { count: 1, fields: [unreadable] });
+      return;
+    }
+    assert.deepEqual(page.items, [record], 'as Azure sent it');
+    assert.equal(page.unreadable, undefined);
+    const store = createStore();
+    try {
+      const event = present(createNormalizer({ store }).normalize(watched, stream, page.items, { initialized: true }).events[0]);
+      const data = Object.entries(event.data ?? {}).map(([key, value]) => [`data.${key}`, value]);
+      const seen: Record<string, unknown> = {
+        id: event.id,
+        title: event.title,
+        actor: event.actor,
+        url: event.url,
+        ...Object.fromEntries(data),
+      };
+      for (const [key, value] of Object.entries(shown)) assert.deepEqual(seen[key], value, key);
+    } finally {
+      store.close();
+    }
+  });
+
+test('a ref with an empty name or objectId is unreadable', async () => {
+  const value = [
+    { name: 'refs/heads/main', objectId: 'a' },
+    { name: '', objectId: 'b' },
+    { name: 'refs/heads/b', objectId: ' ' },
+  ];
+  const page = await createAzureClient({ cli: { run: async () => ({ value }) } }).read(repo, 'refs', window);
+  assert.deepEqual(page.items, [value[0]]);
+  assert.deepEqual(page.unreadable, { count: 2, fields: ['name', 'objectId'] });
+});
+
+test('a skip-paged read with an unreadable record on a full page still pages on', async () => {
+  const value = Array.from({ length: 100 }, (_, index) => ({ pushId: index }));
+  const page = await createAzureClient({ cli: { run: async () => ({ value }) } }).read(repo, 'pushes', window);
+  assert.equal(page.items.length, 99);
+  assert.deepEqual(page.unreadable, { count: 1, fields: ['pushId'] });
+  assert.deepEqual(page.nextCursor, { skip: 100 });
 });

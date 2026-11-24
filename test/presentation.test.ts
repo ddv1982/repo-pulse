@@ -83,7 +83,7 @@ test('repository details keep failure text and one timestamp without routine sou
   };
   const markup = renderRepositories(state, {});
   assert.match(markup, /Last successful Azure check/);
-  assert.match(markup, /Last check failures/);
+  assert.match(markup, /Last check problems/);
   assert.match(markup, /Read refused/);
   assert.doesNotMatch(markup, /Needs attention|Check overdue|Check failed|Next check|>Branches ·/);
 });

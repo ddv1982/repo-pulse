@@ -13,8 +13,11 @@ export type CheckoutPull = {
   strategy?: string;
   url?: string;
 };
+/** A completed PR from the source branch whose fields checkout uses cannot be read, named by the first such field. */
+export type UnreadableCheckoutPull = { unreadable: string };
 export type PullAdvice = import('../src/contract.ts').PullAdvice;
-export type FindCheckoutPulls = (repo: LinkedRepo, source: string, head: string) => Promise<CheckoutPull[]>;
+export type FindCheckoutPulls = (repo: LinkedRepo, source: string, head: string) => Promise<(CheckoutPull | UnreadableCheckoutPull)[]>;
+const readable = (pr: CheckoutPull | UnreadableCheckoutPull): pr is CheckoutPull => !('unreadable' in pr);
 export const isCommit = (value: unknown) =>
   typeof value === 'string' && /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i.test(value) && !/^0+$/.test(value);
 
@@ -66,15 +69,20 @@ export async function adviseMissingUpstream({
   head: string;
   branch: string | null;
 }): Promise<PullAdvice | undefined> {
-  const candidates = (await find(repo, source, head)).filter(
-    pr =>
-      Number.isSafeInteger(pr?.id) &&
-      pr.id > 0 &&
-      pr.source === source &&
-      typeof pr.target === 'string' &&
-      pr.target.startsWith('refs/heads/') &&
-      pr.target !== source,
-  );
+  const found = await find(repo, source, head);
+  // A PR that cannot be read may target another branch, so its presence alone keeps the advice unverified.
+  const unreadable = found.some(pr => !readable(pr));
+  const candidates = found
+    .filter(readable)
+    .filter(
+      pr =>
+        Number.isSafeInteger(pr?.id) &&
+        pr.id > 0 &&
+        pr.source === source &&
+        typeof pr.target === 'string' &&
+        pr.target.startsWith('refs/heads/') &&
+        pr.target !== source,
+    );
   const sameRepo = candidates.filter(pr => hasSameRepoResult(repo, pr));
   const exact = sameRepo.filter(pr => pr.head === head);
   const eligible = exact.length ? exact : sameRepo;
@@ -87,7 +95,7 @@ export async function adviseMissingUpstream({
     strategy: choice.strategy,
     verified: false,
   };
-  if (!eligible.length || new Set(eligible.map(pr => pr.target)).size !== 1 || !choice.result) return advice;
+  if (unreadable || !eligible.length || new Set(eligible.map(pr => pr.target)).size !== 1 || !choice.result) return advice;
   try {
     await run(path, ['check-ref-format', choice.target]);
     const effective = (await run(path, ['ls-remote', '--get-url', '--', url])).trimEnd();
@@ -163,14 +171,16 @@ export function createCheckoutLookup({
   lookup,
 }: {
   cached: (id: string, source: string) => CheckoutPull[];
-  lookup?: ((repo: LinkedRepo, source: string) => Promise<CheckoutPull[]>) | undefined;
+  lookup?: ((repo: LinkedRepo, source: string) => Promise<(CheckoutPull | UnreadableCheckoutPull)[]>) | undefined;
 }): FindCheckoutPulls {
   return async (repo, source, head) => {
     const local = cached(repo.id, source);
     if (!lookup || local.some(pr => isExactCheckoutPull(repo, pr, head))) return local;
     try {
-      const remote = await lookup(repo, source);
+      const found = await lookup(repo, source);
+      const remote = found.filter(readable);
       return [
+        ...found.filter(pr => !readable(pr)),
         ...new Map([...remote, ...local.filter(pr => !remote.some(candidate => candidate.id === pr.id))].map(pr => [pr.id, pr])).values(),
       ];
     } catch {

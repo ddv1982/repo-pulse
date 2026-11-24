@@ -10,6 +10,7 @@ import { createBackfill } from '../server/backfill.ts';
 import { createRewriteCheck } from '../server/rewrite-check.ts';
 import { mergeEvidenceBadge as mergeEvidenceBadgeHtml } from '../src/ui/merge-evidence.ts';
 import type { AzurePage, AzureProvider } from '../server/azure-client.ts';
+import type { AzureStreamRecord } from '../src/contract.ts';
 import type { ActivityEvent, RewriteResult } from '../src/activity.ts';
 import { present, stub } from './fixtures/typed.ts';
 
@@ -35,7 +36,7 @@ const push = (id: number, refUpdates: ReturnType<typeof move>[], date = LIVE) =>
   pushedBy: { displayName: 'A' },
   refUpdates,
 });
-const commits = (count: number): AzurePage => ({
+const commits = (count: number): AzurePage<unknown> => ({
   items: Array.from({ length: count }, (_, i) => ({ commitId: String(i).repeat(40) })),
   nextCursor: null,
 });
@@ -47,12 +48,12 @@ const byRef = (list: RewriteResult[] | undefined) => [...(list || [])].sort((a, 
 function setup({
   pushes = [],
   dropped = async () => commits(0),
-}: { pushes?: object[]; dropped?: (from: string, to: string) => Promise<AzurePage> } = {}) {
+}: { pushes?: AzureStreamRecord[]; dropped?: (from: string, to: string) => Promise<AzurePage<unknown>> } = {}) {
   const store = createStore();
   store.saveRepo(repo);
   let time = BASE;
   const calls: [string, string][] = [];
-  const offered: Record<string, object[]> = { pushes };
+  const offered: Record<string, AzureStreamRecord[]> = { pushes };
   const provider = stub<AzureProvider>({
     read: async (_repo, stream) => ({ items: offered[stream] || [], nextCursor: null }),
     async droppedCommits(_repo, from, to) {

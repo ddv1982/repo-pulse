@@ -276,3 +276,50 @@ test('a push that only moves pull request refs is Azure bookkeeping and makes no
     store.close();
   }
 });
+
+test('a PR with a malformed title keeps the fingerprint and IDs main gave it, so it is not reported again live or on re-import', () => {
+  const record = {
+    pullRequestId: 7,
+    status: 'completed',
+    title: false,
+    repository: { id: repo.azureId },
+    sourceRefName: 'refs/heads/topic',
+    targetRefName: 'refs/heads/main',
+    creationDate: '2026-11-18T10:00:00Z',
+    closedDate: '2026-11-18T11:00:00Z',
+    lastMergeSourceCommit: { commitId: OLD },
+    lastMergeCommit: { commitId: NEW },
+  };
+  // What origin/main 844c7b6 makes of this record: the fingerprint keeps the raw title, and both IDs hash it.
+  const stored = { status: 'completed', isDraft: false, title: false, source: OLD, target: 'refs/heads/main', votes: [] };
+  const fresh = makeFixture();
+  try {
+    const live = fresh.normalize(repo, 'prs', [record], { initialized: true });
+    assert.deepEqual(
+      live.events.map(event => [event.id, event.title]),
+      [['repo-one:pr:7:1:6dd098039132df677cced0d5', 'PR 7 · Untitled']],
+    );
+    assert.deepEqual(live.entities, [{ type: 'pr', id: '7', data: { fingerprint: stored, status: 'completed', revision: 1 } }]);
+    const history = fresh.normalize(repo, 'closedPrs', [record], { initialized: true, historical: true });
+    assert.deepEqual(
+      history.events.map(event => event.id),
+      ['repo-one:pr:history:7:9e73c8a50a61a8fdc686289c'],
+      'a re-import finds the row main imported',
+    );
+  } finally {
+    fresh.store.close();
+  }
+  // Sol's probe: the PR as main stored it, then the identical record read again after the upgrade.
+  const upgraded = makeFixture();
+  try {
+    upgraded.store.commitPage({
+      repoId: repo.id,
+      stream: 'prs',
+      events: [],
+      entities: [{ type: 'pr', id: '7', data: { fingerprint: stored, status: 'completed', revision: 1 } }],
+    });
+    assert.deepEqual(upgraded.normalize(repo, 'prs', [record], { initialized: true }).events, [], 'no second row');
+  } finally {
+    upgraded.store.close();
+  }
+});

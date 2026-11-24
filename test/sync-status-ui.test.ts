@@ -113,6 +113,31 @@ test('each repository shows its own sync status pill with the same wording', () 
   }
 });
 
+test('the Details of a repository list a stream warning the way they list a failed check', () => {
+  const message = 'Skipped 1 record in pushes that Azure returned without a readable value for pushId.';
+  const problem: SyncStatus = { state: 'problem', reason: message, stream: 'pushes' };
+  const state: PageState = {
+    ...page({ ...problem, repoId: 'r' }, { r: problem }),
+    streams: [
+      stub<StreamState>({
+        repoId: 'r',
+        stream: 'pushes',
+        initialized: true,
+        lastSuccess: since,
+        error: null,
+        warning: { code: 'UNREADABLE_RECORDS', count: 1, fields: ['pushId'], message },
+      }),
+      stub<StreamState>({ repoId: 'r', stream: 'refs', initialized: true, error: { code: 'FAILED', message: 'Read failed' } }),
+    ],
+  };
+  const doc = parse(renderRepositories(state, {}));
+  assert.equal(pill(one(doc, '.repo-overview'))?.text, 'Problem');
+  assert.deepEqual(
+    all(doc, '.repo-check-errors li').map(item => text(item)),
+    [`Pushes: ${message}`, 'Branches: Read failed'],
+  );
+});
+
 test('Activity shows at most one status banner, and only for Problem, Delayed or Paused', () => {
   const view = { route: 'catchup', repoIds: null, search: '', kind: '', filtersOpen: false };
   const expected: Record<string, [string, string]> = {

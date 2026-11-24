@@ -8,6 +8,7 @@ import { createBackfill } from '../server/backfill.ts';
 import type { TestContext } from 'node:test';
 import { createApp, type AppProvider, type AppSync, type StateResponse } from '../server.ts';
 import type { AzureProvider } from '../server/azure-client.ts';
+import type { AzureStreamRecord } from '../src/contract.ts';
 import { TEST_KEY, keyedFetch, portOf } from './fixtures/access.ts';
 import { stub } from './fixtures/typed.ts';
 
@@ -33,7 +34,7 @@ async function live(t: TestContext, { pollMs }: { pollMs?: number } = {}) {
   store.saveRepo(repo);
   store.setSetting('checkout:one', { head: 'abc' });
   const reads: string[] = [];
-  const offered: Record<string, object[]> = { pushes: [push(1)] };
+  const offered: Record<string, AzureStreamRecord[]> = { pushes: [push(1)] };
   const control = { hold: false, release: () => {} };
   const provider = stub<AzureProvider>({
     async read(_repo, stream) {

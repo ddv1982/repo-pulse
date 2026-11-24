@@ -5,6 +5,7 @@ import { createSync } from '../server/sync.ts';
 import { createBackfill } from '../server/backfill.ts';
 import { createForkOriginCheck, MAX_READS } from '../server/fork-origin.ts';
 import type { AzureProvider } from '../server/azure-client.ts';
+import type { AzureStreamRecord } from '../src/contract.ts';
 import { present, stub } from './fixtures/typed.ts';
 
 type Store = ReturnType<typeof createStore>;
@@ -59,19 +60,19 @@ function setup({
   commit,
   pages,
 }: {
-  pushes?: object[];
-  prs?: object[];
+  pushes?: AzureStreamRecord[];
+  prs?: AzureStreamRecord[];
   graph?: Record<string, Commit>;
   contains?: (base: string, tip: string) => boolean | Error;
   commit?: (id: string) => Commit;
-  pages?: object[][];
+  pages?: AzureStreamRecord[][];
 } = {}) {
   const store = createStore();
   store.saveRepo(repo);
   let time = BASE;
   const reads: string[] = [];
   const checks: [string, string][] = [];
-  const offered: Record<string, object[]> = { pushes, prs };
+  const offered: Record<string, AzureStreamRecord[]> = { pushes, prs };
   const provider = stub<AzureProvider>({
     read: async (_repo, stream, { cursor } = {}) =>
       stream === 'pushes' && pages

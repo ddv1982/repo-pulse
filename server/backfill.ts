@@ -1,9 +1,14 @@
+import { addUnreadable, warningOf } from './sync.ts';
+
 export type ActivityEvent = import('../src/activity.ts').ActivityEvent;
+export type AzureStreamRecord = import('../src/contract.ts').AzureStreamRecord;
 export type HistoryStream = import('../src/contract.ts').HistoryStream;
 export type HistoryWindow = import('../src/contract.ts').HistoryWindow;
 export type WatchedRepo = import('./azure-client.ts').AzureRepo & { id: string; disabled?: boolean };
 export type SourcePage = import('./azure-client.ts').AzurePage;
 export type HistoryJob = import('../src/contract.ts').HistoryJob;
+export type HistoryWarning = import('../src/contract.ts').HistoryWarning;
+export type UnreadableRecords = import('../src/contract.ts').UnreadableRecords;
 export type Entity = { type: string; id: string; data: unknown };
 export type HistoryBatch = { events?: ActivityEvent[]; entities?: Entity[] };
 export type HistoryStore = {
@@ -20,6 +25,14 @@ const EARLIEST = Date.parse('2010-01-01T00:00:00Z');
 const STREAMS: [HistoryStream, ...HistoryStream[]] = ['pushes', 'closedPrs', 'builds'];
 const iso = (value: number) => new Date(value).toISOString();
 const failure = (message: string, status: number) => Object.assign(new Error(message), { status });
+/** The job's warnings with the records a page of `stream` skipped added to that stream's. */
+function withSkipped(warnings: HistoryWarning[], stream: HistoryStream, skipped: UnreadableRecords): HistoryWarning[] {
+  const previous = warnings.find(warning => warning.stream === stream);
+  const warning = warningOf(stream, addUnreadable(previous && { count: previous.count, fields: previous.fields }, skipped));
+  if (!warning) return warnings;
+  const next = { ...warning, stream };
+  return previous ? warnings.map(entry => (entry === previous ? next : entry)) : [...warnings, next];
+}
 
 export function createBackfill({
   store,
@@ -32,7 +45,7 @@ export function createBackfill({
   normalize: (
     repo: WatchedRepo,
     stream: HistoryStream,
-    records: unknown[],
+    records: AzureStreamRecord[],
     state: { initialized: false; historical: true; window: HistoryWindow },
   ) => HistoryBatch;
   now?: () => number;
@@ -94,6 +107,8 @@ export function createBackfill({
       records: job.records + page.items.length,
       failures: 0,
       error: null,
+      // A record Azure returned unreadable is skipped, and the job says so instead of dropping it silently.
+      ...(page.unreadable?.count ? { warnings: withSkipped(job.warnings ?? [], job.stream, page.unreadable) } : {}),
     };
     if (page.nextCursor) return { ...next, cursor: page.nextCursor };
     next.cursor = null;

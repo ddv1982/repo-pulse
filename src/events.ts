@@ -1,8 +1,10 @@
 export function branchName(ref: unknown) {
   return String(ref || '').replace(/^refs\/heads\//, '');
 }
-export function actorName(identity: { displayName?: string; name?: string } | null | undefined) {
-  return identity?.displayName || identity?.name || 'Unknown';
+/** A person's display name, else their name, else Unknown. Azure may send any value, which is returned as it is. */
+export function actorName(identity: unknown): unknown {
+  if (typeof identity !== 'object' || identity === null) return 'Unknown';
+  return ('displayName' in identity && identity.displayName) || ('name' in identity && identity.name) || 'Unknown';
 }
 export function safeAzureUrl(url: unknown, fallback = '') {
   try {
