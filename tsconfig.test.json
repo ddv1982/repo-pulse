@@ -2,9 +2,7 @@
   "extends": "./tsconfig.base.json",
   "compilerOptions": {
     "lib": ["ES2024", "DOM", "DOM.Iterable"],
-    "types": ["node"],
-    // linkedom 0.18.15's declarations conflict with the DOM lib; this skips checking .d.ts files, not the tests.
-    "skipLibCheck": true
+    "types": ["node"]
   },
   "include": ["test/**/*.ts", "e2e/**/*.ts"]
 }

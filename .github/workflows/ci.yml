@@ -42,3 +42,5 @@ jobs:
       - run: npm run lint
       - run: npm run build:web
       - run: npm test
+      - run: npx playwright install chromium
+      - run: npm run test:dom

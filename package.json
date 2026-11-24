@@ -16,6 +16,8 @@
     "doctor": "node scripts/doctor.ts",
     "pretest": "npm run build:web",
     "test": "node --test \"test/*.test.ts\"",
+    "pretest:dom": "npm run build:web",
+    "test:dom": "node --test e2e/dom.test.ts",
     "check": "node scripts/check.ts",
     "pretest:ui": "npm run build:web",
     "test:ui": "node --test \"e2e/*.test.ts\"",
@@ -26,7 +28,6 @@
   "devDependencies": {
     "@playwright/test": "^1.65.1",
     "@types/node": "26.6.6",
-    "linkedom": "0.18.15",
     "oxlint": "1.95.0",
     "oxlint-plugin-eslint": "1.95.0",
     "oxlint-tsgolint": "7.0.2008",

@@ -1,9 +1,9 @@
 import test from 'node:test';
 import type { TestContext } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, rm, readdir, readFile, writeFile } from 'node:fs/promises';
-import { existsSync } from 'node:fs';
-import { tmpdir, homedir } from 'node:os';
+import { browserPath } from './fixtures/browser.ts';
+import { mkdtemp, mkdir, rm, readFile, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { chromium, expect } from '@playwright/test';
 import type { Browser, Page } from '@playwright/test';
@@ -31,22 +31,6 @@ declare global {
     /** The sync live region's text node, kept between page.evaluate calls to check that a render reused it. */
     syncText?: ChildNode | null;
   }
-}
-
-async function browserPath() {
-  if (process.env.CHROME) return process.env.CHROME;
-  if (existsSync(chromium.executablePath())) return chromium.executablePath();
-  const cache = join(homedir(), '.cache', 'ms-playwright');
-  for (const name of (await readdir(cache).catch(() => []))
-    .filter(name => /^chromium-\d+$/.test(name))
-    .sort()
-    .reverse()) {
-    for (const relative of ['chrome-linux64/chrome', 'chrome-linux/chrome']) {
-      const candidate = join(cache, name, relative);
-      if (existsSync(candidate)) return candidate;
-    }
-  }
-  throw new Error('Install Chromium with npx playwright install chromium, or set CHROME.');
 }
 
 async function selectActivityType(page: Page, label: string) {

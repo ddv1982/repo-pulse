@@ -1,15 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { renderHeader as renderHeaderHtml } from '../src/ui/header.ts';
-import { renderRepositories as renderRepositoriesHtml } from '../src/ui/repositories.ts';
-import { renderFeed as renderFeedHtml } from '../src/ui/feed.ts';
-import { renderSettings as renderSettingsHtml } from '../src/ui/settings.ts';
-import { syncLabel } from '../src/ui/health.ts';
-import type { Repository, StreamState, SyncEngineStatus, SyncStatus } from '../src/contract.d.ts';
-import type { ShownSyncStatus } from '../src/ui/health.ts';
-import type { PageState } from '../src/ui/refresh.ts';
-import { parse, one, all, text, srText } from './fixtures/dom.ts';
-import { fakeRequest, present, stub } from './fixtures/typed.ts';
+import { renderHeader as renderHeaderHtml } from '../../src/ui/header.ts';
+import { renderRepositories as renderRepositoriesHtml } from '../../src/ui/repositories.ts';
+import { renderFeed as renderFeedHtml } from '../../src/ui/feed.ts';
+import { renderSettings as renderSettingsHtml } from '../../src/ui/settings.ts';
+import type { Repository, StreamState, SyncEngineStatus, SyncStatus } from '../../src/contract.d.ts';
+import type { ShownSyncStatus } from '../../src/ui/health.ts';
+import type { PageState } from '../../src/ui/refresh.ts';
+import { parse, one, all, text, srText, type DomNode } from '../fixtures/dom.ts';
+import { fakeRequest, present, stub } from '../../test/fixtures/typed.ts';
 
 const renderHeader = (...args: Parameters<typeof renderHeaderHtml>) => String(renderHeaderHtml(...args));
 const renderRepositories = (...args: Parameters<typeof renderRepositoriesHtml>) => String(renderRepositoriesHtml(...args));
@@ -36,23 +35,26 @@ const states: [SyncStatus, RegExp, string][] = [
 ];
 const tones = ['ok', 'info', 'warn', 'crit', 'neutral'];
 /** The one tone an element carries; several read as their joined names, so a test comparing tones fails. */
-const toneOf = (element: Element) => tones.filter(tone => element.classList.contains(tone)).join('+');
-/** A sync pill's tone, text and element: the first pill in the markup or element. It keeps the chip styling. */
-const pill = (from: string | ParentNode) => {
-  const element = (typeof from === 'string' ? parse(from) : from).querySelector('.sync-pill');
-  if (!element) return undefined;
-  assert.ok(element.classList.contains('chip') && element.classList.contains('status-chip'), 'the pill is styled as a status chip');
-  return { element, tone: toneOf(element), text: text(element) };
+const toneOf = async (element: DomNode) => {
+  const classes = await element.classes();
+  return tones.filter(tone => classes.includes(tone)).join('+');
 };
-/** The status banners of a page: tone, bold title and the text after it. */
-const banners = (markup: string) =>
-  all(parse(markup), '.banner').map(element => {
-    const title = text(one(element, 'strong'));
-    return { element, tone: toneOf(element), title, text: text(element).slice(title.length).trim() };
-  });
-/** The summary headline when nothing is new. */
+/** The first sync pill in the markup or element, including its styling. */
+async function pill(from: string | DomNode) {
+  const [element] = await all(typeof from === 'string' ? parse(from) : from, '.sync-pill');
+  if (!element) return undefined;
+  assert.ok((await element.hasClass('chip')) && (await element.hasClass('status-chip')), 'the pill is styled as a status chip');
+  return { element, tone: await toneOf(element), text: await text(element) };
+}
+async function banners(markup: string) {
+  return Promise.all(
+    (await all(parse(markup), '.banner')).map(async element => {
+      const title = await text(one(element, 'strong'));
+      return { element, tone: await toneOf(element), title, text: (await text(element)).slice(title.length).trim() };
+    }),
+  );
+}
 const zero = (markup: string) => text(one(parse(markup), 'b.zero'));
-/** The feed's empty-state message. */
 const bigMessage = (markup: string) => text(one(parse(markup), 'p.big'));
 const page = (overall: ShownSyncStatus, repos: Record<string, SyncStatus> = {}): PageState => ({
   repos: [repo],
@@ -80,40 +82,40 @@ const page = (overall: ShownSyncStatus, repos: Record<string, SyncStatus> = {}):
 });
 const headerView = { repoIds: null, route: 'activity', activityRoute: 'catchup' };
 
-test('the header shows one sync status pill per state in place of the last Azure check', () => {
+test('the header shows one sync status pill per state in place of the last Azure check', async () => {
   for (const [status, label, tone] of states) {
     const doc = parse(renderHeader(page({ ...status, repoId: 'r' }), headerView));
-    const shown = pill(doc);
+    const shown = await pill(doc);
     assert.match(shown?.text ?? '', label, status.state);
     assert.equal(shown?.tone, tone, status.state);
     // Not in what is shown or read aloud, nor in any one label or tooltip, however the markup spells it.
-    const said = [srText(doc)];
-    for (const element of all(doc, '[aria-label], [title], [data-idle-title]')) {
-      for (const name of ['aria-label', 'title', 'data-idle-title']) said.push(element.getAttribute(name) ?? '');
+    const said = [await srText(doc)];
+    for (const element of await all(doc, '[aria-label], [title], [data-idle-title]')) {
+      for (const name of ['aria-label', 'title', 'data-idle-title']) said.push((await element.getAttribute(name)) ?? '');
     }
     for (const value of said) assert.doesNotMatch(value.replace(/\s+/g, ' '), /Last Azure check|No Azure check/, value);
-    assert.ok(all(doc, '[role="switch"][aria-label="Automatic checks"]').length, 'the automatic checks switch');
-    assert.ok(all(doc, '[data-action="refresh"]').length, 'the refresh button');
+    assert.ok((await all(doc, '[role="switch"][aria-label="Automatic checks"]')).length, 'the automatic checks switch');
+    assert.ok((await all(doc, '[data-action="refresh"]')).length, 'the refresh button');
     if (status.state === 'problem') {
-      assert.equal(shown.element.getAttribute('title'), 'Problem in orders-api: Sign in to Azure again.');
-      assert.equal(shown.element.getAttribute('aria-label'), 'Sync status: Problem in orders-api: Sign in to Azure again.');
+      assert.equal(await shown.element.getAttribute('title'), 'Problem in orders-api: Sign in to Azure again.');
+      assert.equal(await shown.element.getAttribute('aria-label'), 'Sync status: Problem in orders-api: Sign in to Azure again.');
     }
   }
-  assert.equal(pill(renderHeader(page({ state: 'empty' }), headerView))?.text, 'No repositories');
+  assert.equal((await pill(renderHeader(page({ state: 'empty' }), headerView)))?.text, 'No repositories');
 });
 
-test('each repository shows its own sync status pill with the same wording', () => {
+test('each repository shows its own sync status pill with the same wording', async () => {
   for (const [status, label, tone] of states) {
     const doc = parse(renderRepositories(page({ state: 'synced', since, lastCheck: since, repoId: 'r' }, { r: status }), {}));
-    const shown = pill(one(doc, '.repo-overview'));
+    const shown = await pill(one(doc, '.repo-overview'));
     assert.match(shown?.text ?? '', label, status.state);
     assert.equal(shown?.tone, tone, status.state);
-    if (status.state === 'problem') assert.equal(shown.element.getAttribute('title'), 'Problem: Sign in to Azure again.');
-    assert.doesNotMatch(text(doc), /Check failed|Check overdue|Catching up|Up to date|Checks off/);
+    if (status.state === 'problem') assert.equal(await shown.element.getAttribute('title'), 'Problem: Sign in to Azure again.');
+    assert.doesNotMatch(await text(doc), /Check failed|Check overdue|Catching up|Up to date|Checks off/);
   }
 });
 
-test('the Details of a repository list a stream warning the way they list a failed check', () => {
+test('the Details of a repository list a stream warning the way they list a failed check', async () => {
   const message = 'Skipped 1 record in pushes that Azure returned without a readable value for pushId.';
   const problem: SyncStatus = { state: 'problem', reason: message, stream: 'pushes' };
   const state: PageState = {
@@ -131,14 +133,11 @@ test('the Details of a repository list a stream warning the way they list a fail
     ],
   };
   const doc = parse(renderRepositories(state, {}));
-  assert.equal(pill(one(doc, '.repo-overview'))?.text, 'Problem');
-  assert.deepEqual(
-    all(doc, '.repo-check-errors li').map(item => text(item)),
-    [`Pushes: ${message}`, 'Branches: Read failed'],
-  );
+  assert.equal((await pill(one(doc, '.repo-overview')))?.text, 'Problem');
+  assert.deepEqual(await Promise.all((await all(doc, '.repo-check-errors li')).map(text)), [`Pushes: ${message}`, 'Branches: Read failed']);
 });
 
-test('Activity shows at most one status banner, and only for Problem, Delayed or Paused', () => {
+test('Activity shows at most one status banner, and only for Problem, Delayed or Paused', async () => {
   const view = { route: 'catchup', repoIds: null, search: '', kind: '', filtersOpen: false };
   const expected: Record<string, [string, string]> = {
     problem: ['crit', 'Problem'],
@@ -146,7 +145,7 @@ test('Activity shows at most one status banner, and only for Problem, Delayed or
     paused: ['info', 'Paused'],
   };
   for (const [status] of states) {
-    const found = banners(renderFeed(page({ ...status, repoId: 'r' }, { r: status }), view));
+    const found = await banners(renderFeed(page({ ...status, repoId: 'r' }, { r: status }), view));
     assert.ok(found.length <= 1, `${status.state}: ${found.length} banners`);
     assert.deepEqual(
       found.map(({ tone, title }) => [tone, title]),
@@ -154,31 +153,37 @@ test('Activity shows at most one status banner, and only for Problem, Delayed or
       status.state,
     );
   }
-  const problem = present(banners(renderFeed(page({ ...present(states[3])[0], repoId: 'r' }, { r: present(states[3])[0] }), view))[0]);
+  const problem = present(
+    (await banners(renderFeed(page({ ...present(states[3])[0], repoId: 'r' }, { r: present(states[3])[0] }), view)))[0],
+  );
   assert.equal(problem.text, 'orders-api: Sign in to Azure again. See Repositories');
-  assert.equal(one(problem.element, 'a').getAttribute('href'), '#repositories');
-  const delayed = present(banners(renderFeed(page({ ...present(states[2])[0], repoId: 'r' }, { r: present(states[2])[0] }), view))[0]);
+  assert.equal(await one(problem.element, 'a').getAttribute('href'), '#repositories');
+  const delayed = present(
+    (await banners(renderFeed(page({ ...present(states[2])[0], repoId: 'r' }, { r: present(states[2])[0] }), view)))[0],
+  );
   assert.equal(delayed.text, 'orders-api: about 7 minutes behind. Showing the activity stored so far.');
-  const paused = present(banners(renderFeed(page({ ...present(states[4])[0], repoId: 'r' }, { r: present(states[4])[0] }), view))[0]);
+  const paused = present(
+    (await banners(renderFeed(page({ ...present(states[4])[0], repoId: 'r' }, { r: present(states[4])[0] }), view)))[0],
+  );
   assert.equal(paused.text, 'Automatic checks are off. Turn them on or refresh manually.');
   const problemDoc = parse(renderFeed(page({ ...present(states[3])[0], repoId: 'r' }, { r: present(states[3])[0] }), view));
-  assert.doesNotMatch(text(problemDoc), /checks need attention/);
-  assert.equal(all(problemDoc, '.cell.sync').length, 0);
+  assert.doesNotMatch(await text(problemDoc), /checks need attention/);
+  assert.equal((await all(problemDoc, '.cell.sync')).length, 0);
 });
 
-test('Settings states the sync status in one sentence without the Azure calls counters', () => {
+test('Settings states the sync status in one sentence without the Azure calls counters', async () => {
   const connection = { results: new Map(), local: null, pending: null, repoId: 'r' };
   const doc = parse(renderSettings(page({ ...present(states[3])[0], repoId: 'r' }), connection));
-  assert.doesNotMatch(text(doc), /Azure calls|Checks behind|in the last minute|checks waiting/);
-  assert.equal(text(one(doc, '.sync-sentence')), 'Problem in orders-api: Sign in to Azure again.');
-  assert.equal(text(one(doc, '#copy-diagnostics')), 'Copy diagnostics');
+  assert.doesNotMatch(await text(doc), /Azure calls|Checks behind|in the last minute|checks waiting/);
+  assert.equal(await text(one(doc, '.sync-sentence')), 'Problem in orders-api: Sign in to Azure again.');
+  assert.equal(await text(one(doc, '#copy-diagnostics')), 'Copy diagnostics');
   const synced = parse(renderSettings(page({ state: 'synced', since, lastCheck: since, repoId: 'r' }), connection));
-  assert.match(text(one(synced, '.sync-sentence')), /^Synced, last check 12:08\b/);
+  assert.match(await text(one(synced, '.sync-sentence')), /^Synced, last check 12:08\b/);
 });
 
 const feedView: Partial<FeedUi> = { route: 'catchup', repoIds: null, search: '', kind: '', filtersOpen: false };
 
-test('the Activity banner and partial wording follow the repositories in the Activity scope, the header the overall status', () => {
+test('the Activity banner and partial wording follow the repositories in the Activity scope, the header the overall status', async () => {
   const other = stub<Repository>({ id: 's', name: 'billing-web', project: 'Shop' });
   const problem: SyncStatus = { state: 'problem', reason: 'Sign in to Azure again.', stream: 'refs' };
   const delayed: SyncStatus = { state: 'delayed', reason: 'about 7 minutes behind', stream: 'pushes' };
@@ -190,11 +195,11 @@ test('the Activity banner and partial wording follow the repositories in the Act
   });
 
   const syncedScope = renderFeed(twoRepos({ r: problem, s: synced }), { ...feedView, repoIds: ['s'] });
-  assert.deepEqual(banners(syncedScope), []);
-  assert.equal(bigMessage(syncedScope), 'No unread updates match these filters');
-  assert.equal(pill(renderHeader(twoRepos({ r: problem, s: synced }), { ...headerView, repoIds: ['s'] }))?.text, 'Problem');
+  assert.deepEqual(await banners(syncedScope), []);
+  assert.equal(await bigMessage(syncedScope), 'No unread updates match these filters');
+  assert.equal((await pill(renderHeader(twoRepos({ r: problem, s: synced }), { ...headerView, repoIds: ['s'] })))?.text, 'Problem');
 
-  const delayedScope = banners(renderFeed(twoRepos({ r: problem, s: delayed }), { ...feedView, repoIds: ['s'] }));
+  const delayedScope = await banners(renderFeed(twoRepos({ r: problem, s: delayed }), { ...feedView, repoIds: ['s'] }));
   assert.deepEqual(
     delayedScope.map(({ tone, title, text }) => [tone, title, text.startsWith('billing-web: about 7 minutes behind')]),
     [['warn', 'Delayed', true]],
@@ -202,14 +207,14 @@ test('the Activity banner and partial wording follow the repositories in the Act
 
   const everything = renderFeed(twoRepos({ r: problem, s: delayed }), feedView);
   assert.deepEqual(
-    banners(everything).map(({ title, text }) => [title, text.startsWith('orders-api: Sign in to Azure again.')]),
+    (await banners(everything)).map(({ title, text }) => [title, text.startsWith('orders-api: Sign in to Azure again.')]),
     [['Problem', true]],
   );
-  assert.equal(bigMessage(everything), 'No activity loaded yet');
+  assert.equal(await bigMessage(everything), 'No activity loaded yet');
 });
 
 test('a state without a sync status reads as unavailable, not as no repositories', async () => {
-  const { createRefreshController } = await import('../src/ui/refresh.ts');
+  const { createRefreshController } = await import('../../src/ui/refresh.ts');
   const refresh = createRefreshController({
     request: fakeRequest(async () => ({ repos: [repo], settings: { refreshEnabled: true } })),
     getView: () => ({ route: 'settings', repoIds: null, eventId: null, search: '', kind: '', generation: 0 }),
@@ -218,86 +223,81 @@ test('a state without a sync status reads as unavailable, not as no repositories
     onError: assert.fail,
   });
   await refresh.load();
-  const shown = pill(renderHeader(refresh.state, headerView));
+  const shown = await pill(renderHeader(refresh.state, headerView));
   assert.equal(shown?.text, 'Sync status unavailable');
   assert.equal(shown?.tone, 'neutral');
   const connection = { results: new Map(), local: null, pending: null, repoId: 'r' };
-  assert.equal(text(one(parse(renderSettings(refresh.state, connection)), '.sync-sentence')), 'Sync status unavailable');
-  assert.equal(pill(renderHeader(page({ state: 'empty' }), headerView))?.text, 'No repositories');
+  assert.equal(await text(one(parse(renderSettings(refresh.state, connection)), '.sync-sentence')), 'Sync status unavailable');
+  assert.equal((await pill(renderHeader(page({ state: 'empty' }), headerView)))?.text, 'No repositories');
 });
 
-test('with nothing loaded and a status other than Synced the summary does not claim there are no new updates', () => {
+test('with nothing loaded and a status other than Synced the summary does not claim there are no new updates', async () => {
   for (const [status] of states.slice(1)) {
-    assert.equal(zero(renderFeed(page({ ...status, repoId: 'r' }, { r: status }), feedView)), 'No activity loaded yet', status.state);
+    assert.equal(await zero(renderFeed(page({ ...status, repoId: 'r' }, { r: status }), feedView)), 'No activity loaded yet', status.state);
   }
   const synced: SyncStatus = { state: 'synced', since, lastCheck: since };
-  assert.equal(zero(renderFeed(page({ ...synced, repoId: 'r' }, { r: synced }), feedView)), 'No new updates');
+  assert.equal(await zero(renderFeed(page({ ...synced, repoId: 'r' }, { r: synced }), feedView)), 'No new updates');
 });
 
-test('the Activity banner is plain text, not a second live region for sync changes', () => {
+test('the Activity banner is plain text, not a second live region for sync changes', async () => {
   for (const status of [present(states[2])[0], present(states[3])[0]]) {
     const state = page({ ...status, repoId: 'r' }, { r: status });
-    const [banner] = banners(renderFeed(state, feedView));
+    const [banner] = await banners(renderFeed(state, feedView));
     assert.ok(banner, status.state);
-    for (const element of [banner.element, ...all(banner.element, '*')]) {
-      assert.ok(!element.hasAttribute('role') && !element.hasAttribute('aria-live'), status.state);
+    for (const element of [banner.element, ...(await all(banner.element, '*'))]) {
+      assert.ok(!(await element.hasAttribute('role')) && !(await element.hasAttribute('aria-live')), status.state);
     }
   }
 });
 
-test('with filters active and nothing found, the summary uses the same filter wording as the feed', () => {
+test('with filters active and nothing found, the summary uses the same filter wording as the feed', async () => {
   const status = present(states[2])[0];
   for (const filters of [{ search: 'hotfix' }, { kind: 'build' }, { repoIds: [] }, { repoIds: ['r'] }]) {
     const markup = renderFeed(page({ ...status, repoId: 'r' }, { r: status }), { ...feedView, ...filters });
-    assert.equal(zero(markup), 'No unread updates match these filters', JSON.stringify(filters));
-    assert.equal(bigMessage(markup), 'No unread updates match these filters');
+    assert.equal(await zero(markup), 'No unread updates match these filters', JSON.stringify(filters));
+    assert.equal(await bigMessage(markup), 'No unread updates match these filters');
   }
 });
 
-test('sync pills are plain text with their name and title; none is a live region', () => {
+test('sync pills are plain text with their name and title; none is a live region', async () => {
   for (const [status] of states) {
     const state = page({ ...status, repoId: 'r' }, { r: status });
-    const pills = [renderHeader(state, headerView), renderRepositories(state, {})].flatMap(markup => all(parse(markup), '.sync-pill'));
+    const groups = await Promise.all(
+      [renderHeader(state, headerView), renderRepositories(state, {})].map(markup => all(parse(markup), '.sync-pill')),
+    );
+    const pills = groups.flat();
     assert.ok(pills.length >= 3, status.state);
     for (const element of pills) {
-      assert.ok(!element.hasAttribute('role') && !element.hasAttribute('aria-live'), status.state);
-      assert.match(element.getAttribute('aria-label') ?? '', /^Sync status: .+/, status.state);
-      assert.ok(element.getAttribute('title'), status.state);
+      assert.ok(!(await element.hasAttribute('role')) && !(await element.hasAttribute('aria-live')), status.state);
+      assert.match((await element.getAttribute('aria-label')) ?? '', /^Sync status: .+/, status.state);
+      assert.ok(await element.getAttribute('title'), status.state);
     }
   }
 });
 
-test('a failed filtered load reads as a load failure in the summary, as in the feed', () => {
+test('a failed filtered load reads as a load failure in the summary, as in the feed', async () => {
   const status = present(states[2])[0];
   for (const filters of [{ search: 'hotfix' }, { kind: 'build' }, {}]) {
     const state = page({ ...status, repoId: 'r' }, { r: status });
     state.activity = { items: [], loading: false, error: 'Network down' };
     const markup = renderFeed(state, { ...feedView, ...filters });
-    assert.equal(zero(markup), 'Activity could not load', JSON.stringify(filters));
-    assert.equal(bigMessage(markup), 'Activity could not load');
+    assert.equal(await zero(markup), 'Activity could not load', JSON.stringify(filters));
+    assert.equal(await bigMessage(markup), 'Activity could not load');
   }
 });
 
-test('a throttling delay keeps the Azure DevOps name capitalised in the pill', () => {
-  assert.equal(
-    syncLabel({ state: 'delayed', reason: 'Azure DevOps asked us to slow down' }),
-    'Delayed · Azure DevOps asked us to slow down',
-  );
-  assert.equal(syncLabel({ state: 'delayed', reason: 'Checks are behind schedule' }), 'Delayed · checks are behind schedule');
-});
-
-test('a problem that belongs to no repository still shows the Activity banner', () => {
+test('a problem that belongs to no repository still shows the Activity banner', async () => {
   const failed: ShownSyncStatus = { state: 'problem', reason: 'Starting from scratch failed. Try again.' };
   const markup = renderFeed({ ...page(failed, {}), repos: [], watched: [] }, { repoIds: null, route: 'catchup', search: '', kind: '' });
   assert.deepEqual(
-    banners(markup).map(({ tone, title, text }) => [tone, title, text.startsWith('Starting from scratch failed. Try again.')]),
+    (await banners(markup)).map(({ tone, title, text }) => [tone, title, text.startsWith('Starting from scratch failed. Try again.')]),
     [['crit', 'Problem', true]],
   );
 });
 
-test('a sync-wide problem shows on Activity while repository checks continue', () => {
+test('a sync-wide problem shows on Activity while repository checks continue', async () => {
   const reason = 'The stored jobs row "backfill:r" cannot be read: days is missing or malformed.';
   const state = page({ state: 'problem', reason }, { r: { state: 'synced' } });
   const markup = renderFeed(state, { repoIds: null, route: 'catchup', search: '', kind: '' });
-  assert.match(present(banners(markup)[0]).text, /The stored jobs row "backfill:r" cannot be read/);
+  assert.match(present((await banners(markup))[0]).text, /The stored jobs row "backfill:r" cannot be read/);
 });

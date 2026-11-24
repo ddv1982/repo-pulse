@@ -47,7 +47,7 @@ Pull checks the checkout, upstream and fetched tip before running `git merge --f
 
 ## Test what the page shows
 
-UI unit tests render markup and read it through [test/fixtures/dom.ts](../test/fixtures/dom.ts), so a test breaks when what a person sees changes, not when the HTML is rearranged.
+UI rendering tests read markup in Chromium through [e2e/fixtures/dom.ts](../e2e/fixtures/dom.ts), so a test breaks when what a person sees changes, not when the HTML is rearranged.
 
 - Check text on the element that should hold it: `text(one(row(doc, 'listed'), '.event-main'))`. `text` leaves out screen-reader-only `.sr` text; `srText` includes it.
 - Check that something is there, or not, with a selector: `one(doc, '[data-action="remove-repo"]')`, `all(row, '.event-origin').length`. `data-action` attributes are what the click handlers use, so they are fair to select on.
@@ -65,7 +65,7 @@ npm test
 npm run test:ui
 ```
 
-CI runs the first four on Linux and Windows, and the browser tests on Linux only. Browser tests use Chromium. Run `npx playwright install chromium` if needed, or set `CHROME` to a local executable. Tests use isolated databases and temporary Git repositories. They verify workflows and failure cases without proving live Azure permissions. See [coverage and limits](COVERAGE.md) for the distinction.
+CI runs the first four on Linux and Windows. Linux runs the full browser suite, and Windows runs the rendered DOM suite (`npm run test:dom`). Browser tests use Chromium. Run `npx playwright install chromium` if needed, or set `CHROME` to a local executable. Tests use isolated databases and temporary Git repositories. They verify workflows and failure cases without proving live Azure permissions. See [coverage and limits](COVERAGE.md) for the distinction.
 
 ## Match review to risk
 

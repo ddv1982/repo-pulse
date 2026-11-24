@@ -1,9 +1,9 @@
 import test from 'node:test';
 import type { TestContext } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, rm, readdir, mkdir } from 'node:fs/promises';
-import { existsSync } from 'node:fs';
-import { tmpdir, homedir } from 'node:os';
+import { browserPath } from './fixtures/browser.ts';
+import { mkdtemp, rm, mkdir } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { chromium, expect } from '@playwright/test';
 import type { Response } from '@playwright/test';
@@ -18,24 +18,10 @@ import type { ActivityEvent, ConnectionStatus, DemoSyncStatus, HistoryJob, Repos
 
 type Store = ReturnType<typeof createStore>;
 
-async function executable() {
-  if (process.env.CHROME) return process.env.CHROME;
-  if (existsSync(chromium.executablePath())) return chromium.executablePath();
-  const cache = join(homedir(), '.cache', 'ms-playwright');
-  for (const name of (await readdir(cache).catch(() => []))
-    .filter(name => /^chromium-\d+$/.test(name))
-    .sort()
-    .reverse()) {
-    for (const relative of ['chrome-linux64/chrome', 'chrome-linux/chrome'])
-      if (existsSync(join(cache, name, relative))) return join(cache, name, relative);
-  }
-  throw new Error('Install Chromium or set CHROME.');
-}
-
 async function demo(t: TestContext) {
   const directory = await mkdtemp(join(tmpdir(), 'repo-pulse-history-ui-'));
   const runtime = await startApp({ demo: true, port: 0, dataDir: directory });
-  const browser = await chromium.launch({ executablePath: await executable(), headless: true });
+  const browser = await chromium.launch({ executablePath: await browserPath(), headless: true });
   const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
   const page = await context.newPage();
   let stopping: Promise<void> | undefined;
@@ -360,7 +346,7 @@ test('repository history import keeps the accepted request visible even if its f
     },
   });
   await new Promise<void>(resolve => app.listen(0, '127.0.0.1', resolve));
-  const browser = await chromium.launch({ executablePath: await executable(), headless: true });
+  const browser = await chromium.launch({ executablePath: await browserPath(), headless: true });
   const page = await browser.newPage({ viewport: { width: 375, height: 812 }, colorScheme: 'dark' });
   await rememberKey(page);
   t.after(async () => {
@@ -619,7 +605,7 @@ test('Repositories shows the checkout, checks on demand, and pulls only after co
     sync: stub<AppSync>({ status: () => stub<DemoSyncStatus>({}) }),
   });
   await new Promise<void>(resolve => app.listen(0, '127.0.0.1', resolve));
-  const browser = await chromium.launch({ executablePath: await executable(), headless: true });
+  const browser = await chromium.launch({ executablePath: await browserPath(), headless: true });
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
   await rememberKey(page);
   const pageErrors: string[] = [];
@@ -838,7 +824,7 @@ test('verified PR follow-up switches, reviews and removes the old branch from Re
     sync: stub<AppSync>({ status: () => stub<DemoSyncStatus>({}) }),
   });
   await new Promise<void>(resolve => app.listen(0, '127.0.0.1', resolve));
-  const browser = await chromium.launch({ executablePath: await executable(), headless: true });
+  const browser = await chromium.launch({ executablePath: await browserPath(), headless: true });
   const page = await browser.newPage({ viewport: { width: 375, height: 812 }, colorScheme: 'dark' });
   await rememberKey(page);
   const errors: string[] = [];
@@ -942,7 +928,7 @@ test('Settings shows scoped CLI access and header switches share the automatic c
     }),
   });
   await new Promise<void>(resolve => app.listen(0, '127.0.0.1', resolve));
-  const browser = await chromium.launch({ executablePath: await executable(), headless: true });
+  const browser = await chromium.launch({ executablePath: await browserPath(), headless: true });
   const page = await browser.newPage({ viewport: { width: 1280, height: 850 } });
   await rememberKey(page);
   t.after(async () => {
