@@ -1,5 +1,5 @@
 import { html, dateTime } from './format.ts';
-import type { SyncStatus, OverallSyncStatus } from '../contract.ts';
+import type { SyncStatus, OverallSyncStatus } from '../contract.d.ts';
 
 export type { SyncStatus, OverallSyncStatus };
 

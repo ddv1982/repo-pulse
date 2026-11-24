@@ -8,7 +8,7 @@ import { SEARCH_INDEX_VERSION } from '../src/activity-text.ts';
 import { DatabaseSync } from 'node:sqlite';
 import { spawn } from 'node:child_process';
 import type { ActivityEvent, EventData } from '../src/activity.ts';
-import type { StreamState } from '../src/contract.ts';
+import type { StreamState } from '../src/contract.d.ts';
 import { dataOf, fieldsOf, present } from './fixtures/typed.ts';
 import { historyJob, rewriteJob } from './fixtures/jobs.ts';
 

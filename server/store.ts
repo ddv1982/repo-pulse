@@ -28,7 +28,7 @@ import {
 import type { SQLOutputValue as SqlValue } from 'node:sqlite';
 import type { ActivityEvent } from '../src/activity.ts';
 import type { StreamState, StreamName } from './sync.ts';
-import type { StoredEvent, HydratedEvent, Repository } from '../src/contract.ts';
+import type { StoredEvent, HydratedEvent, Repository } from '../src/contract.d.ts';
 import type { Job, JobType, JobOf, Settings, SettingKey } from './store-records.ts';
 import type { Entity, EntityData, EntityType } from './normalize.ts';
 

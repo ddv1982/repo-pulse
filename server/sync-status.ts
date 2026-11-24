@@ -1,9 +1,9 @@
 import { worstStatus } from '../src/sync-worst.ts';
 import type { StreamState } from './sync.ts';
-import type { SyncStatus, OverallSyncStatus } from '../src/contract.ts';
+import type { SyncStatus, OverallSyncStatus } from '../src/contract.d.ts';
 
 export type { StreamState, SyncStatus, OverallSyncStatus };
-export type { SyncState } from '../src/contract.ts';
+export type { SyncState } from '../src/contract.d.ts';
 
 export type SyncStatusInput = {
   repos: { id: string; disabled?: boolean }[];
@@ -82,7 +82,7 @@ export function syncStatus({
   resetting = false,
   resetFailed = false,
   backgroundProblem,
-}: SyncStatusInput): import('../src/contract.ts').SyncStatusReport {
+}: SyncStatusInput): import('../src/contract.d.ts').SyncStatusReport {
   const automatic = settings.refreshEnabled !== false;
   const ranSince = Math.max(startedAt, settings.refreshResumedAt ?? 0);
   const stale = (stream: StreamState) => automatic && now - time(stream.lastSuccess) > overdueAfter(stream);

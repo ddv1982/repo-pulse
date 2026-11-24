@@ -14,7 +14,7 @@ import type {
   AzurePullRequest,
   AzureBuild,
   UnreadableIds,
-} from '../src/contract.ts';
+} from '../src/contract.d.ts';
 import type { RewriteJob } from './rewrite-check.ts';
 import type { ForkJob } from './fork-origin.ts';
 

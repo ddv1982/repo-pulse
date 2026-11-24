@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { createStore } from '../server/store.ts';
 import { createSync } from '../server/sync.ts';
 import { syncStatus, type SyncStatusInput } from '../server/sync-status.ts';
-import type { AzureStream, OverallSyncStatus, StreamError, StreamState, StreamWarning } from '../src/contract.ts';
+import type { AzureStream, OverallSyncStatus, StreamError, StreamState, StreamWarning } from '../src/contract.d.ts';
 import { present } from './fixtures/typed.ts';
 
 const NOW = Date.parse('2026-11-19T12:00:00Z');

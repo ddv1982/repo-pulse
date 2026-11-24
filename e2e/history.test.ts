@@ -14,7 +14,7 @@ import type { AppSync } from '../server.ts';
 import type { AzureProvider } from '../server/azure-client.ts';
 import { present, stub } from '../test/fixtures/typed.ts';
 import { historyJob } from '../test/fixtures/jobs.ts';
-import type { ActivityEvent, ConnectionStatus, DemoSyncStatus, HistoryJob, Repository, SavedActivityFilter } from '../src/contract.ts';
+import type { ActivityEvent, ConnectionStatus, DemoSyncStatus, HistoryJob, Repository, SavedActivityFilter } from '../src/contract.d.ts';
 
 type Store = ReturnType<typeof createStore>;
 
@@ -1228,7 +1228,7 @@ test('saving selects the new filter after an older state response arrives', asyn
 
 test('an Activity response renders while a saved-filter menu stays open, and deletes keep newer selections', async t => {
   const { runtime, page } = await demo(t);
-  const filters = (search: string): import('../src/contract.ts').ActivityFilters => ({
+  const filters = (search: string): import('../src/contract.d.ts').ActivityFilters => ({
     search,
     people: '',
     kind: '',

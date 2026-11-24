@@ -1,7 +1,7 @@
 import { ancestry } from './checkout-advice.ts';
 import type { PullAdvice } from './checkout-advice.ts';
 import type { GitRunner } from './checkout-git.ts';
-import type { Rewrite, CheckoutDiagnostic } from '../src/contract.ts';
+import type { Rewrite, CheckoutDiagnostic } from '../src/contract.d.ts';
 
 export type { PullAdvice, GitRunner, Rewrite, CheckoutDiagnostic };
 

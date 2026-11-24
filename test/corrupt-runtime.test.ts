@@ -14,7 +14,7 @@ import { demoProvider } from '../server/demo.ts';
 import { createRewriteCheck } from '../server/rewrite-check.ts';
 import { createStore } from '../server/store.ts';
 import { createSync } from '../server/sync.ts';
-import type { StateResponse } from '../src/contract.ts';
+import type { StateResponse } from '../src/contract.d.ts';
 import { keyedFetch, portOf, TEST_KEY } from './fixtures/access.ts';
 import { historyJob, rewriteJob } from './fixtures/jobs.ts';
 import { present, watchedIdOf } from './fixtures/typed.ts';

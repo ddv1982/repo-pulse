@@ -1,10 +1,10 @@
-// Hand-written checks for the Azure DevOps records Repo Pulse reads (types in src/contract.ts). A check returns null
+// Hand-written checks for the Azure DevOps records Repo Pulse reads (types in src/contract.d.ts). A check returns null
 // when a value can be read, or the path of the first field that is missing or has the wrong type. A field the code
 // needs for a record's identity or meaning makes the record unreadable when it is malformed. A display field the code
 // shows with a fallback (a web link, a person, a title, a build's definition or trigger) reads whatever its value, and
 // is passed on as Azure sent it, so the fallback, the fingerprint and the IDs see what main saw. Each type guard accepts
 // exactly the records its check passes, so the checks and the types must name the same fields.
-import type { AzureStream, AzureStreamRecords } from '../src/contract.ts';
+import type { AzureStream, AzureStreamRecords } from '../src/contract.d.ts';
 
 /** Null when the value can be read; otherwise the path below it that cannot, '' for the value itself. */
 export type Check = (value: unknown) => string | null;

@@ -16,7 +16,7 @@ import type {
   Repository,
   Review,
   SwitchIntent,
-} from '../../src/contract.ts';
+} from '../../src/contract.d.ts';
 import { present, stub } from './typed.ts';
 
 // Fixture repositories and the checkout code under test commit; a clean machine or CI runner has no Git identity.

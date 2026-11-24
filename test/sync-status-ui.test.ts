@@ -5,7 +5,7 @@ import { renderRepositories as renderRepositoriesHtml } from '../src/ui/reposito
 import { renderFeed as renderFeedHtml } from '../src/ui/feed.ts';
 import { renderSettings as renderSettingsHtml } from '../src/ui/settings.ts';
 import { syncLabel } from '../src/ui/health.ts';
-import type { Repository, StreamState, SyncEngineStatus, SyncStatus } from '../src/contract.ts';
+import type { Repository, StreamState, SyncEngineStatus, SyncStatus } from '../src/contract.d.ts';
 import type { ShownSyncStatus } from '../src/ui/health.ts';
 import type { PageState } from '../src/ui/refresh.ts';
 import { parse, one, all, text, srText } from './fixtures/dom.ts';

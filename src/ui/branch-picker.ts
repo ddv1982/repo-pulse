@@ -1,6 +1,6 @@
 import { emptyHtml, html } from './format.ts';
 import { required, setHtml } from './dom.ts';
-import type { CheckoutBranchesResponse } from '../contract.ts';
+import type { CheckoutBranchesResponse } from '../contract.d.ts';
 
 export type CheckoutBranch = CheckoutBranchesResponse['branches'][number];
 export type PickerRepo = { id: string; name: string; localPath?: string | undefined };

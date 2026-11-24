@@ -4,7 +4,7 @@ import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { browseFolders } from '../server/folders.ts';
-import type { Discovery } from '../src/contract.ts';
+import type { Discovery } from '../src/contract.d.ts';
 import type { Thrown } from './fixtures/typed.ts';
 
 test('file-picker defaults to projects and returns immediate folders, breadcrumbs and local checkouts', async t => {

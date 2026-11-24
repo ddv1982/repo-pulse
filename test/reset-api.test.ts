@@ -8,7 +8,7 @@ import { createBackfill } from '../server/backfill.ts';
 import type { TestContext } from 'node:test';
 import { createApp, type AppProvider, type AppSync, type StateResponse } from '../server.ts';
 import type { AzureProvider } from '../server/azure-client.ts';
-import type { AzureStreamRecord } from '../src/contract.ts';
+import type { AzureStreamRecord } from '../src/contract.d.ts';
 import { TEST_KEY, keyedFetch, portOf } from './fixtures/access.ts';
 import { stub } from './fixtures/typed.ts';
 

@@ -8,7 +8,7 @@ import { createStore } from '../server/store.ts';
 import { renderMergeEvidence, mergeEvidenceBadge } from '../src/ui/merge-evidence.ts';
 import type { Job } from '../server/store.ts';
 import type { ActivityEvent, ActivityRequest, EventData } from '../src/activity.ts';
-import type { Repository, StreamState } from '../src/contract.ts';
+import type { Repository, StreamState } from '../src/contract.d.ts';
 import { dataOf, fieldsOf, present, stub } from './fixtures/typed.ts';
 import { historyJob } from './fixtures/jobs.ts';
 

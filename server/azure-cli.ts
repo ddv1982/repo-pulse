@@ -2,7 +2,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { stat } from 'node:fs/promises';
 import { win32 } from 'node:path';
-import type { CliLastError as LastError } from '../src/contract.ts';
+import type { CliLastError as LastError } from '../src/contract.d.ts';
 
 export type CliError = Error & { code: string };
 
@@ -237,7 +237,7 @@ export function createAzureCli({
       if (!allowed(args)) return Promise.reject(cliError('READ_ONLY', 'This Azure CLI operation is not allowed.'));
       return enqueue(args);
     },
-    diagnostics(): import('../src/contract.ts').CliDiagnostics {
+    diagnostics(): import('../src/contract.d.ts').CliDiagnostics {
       const recent = starts.filter(time => time > now() - 60_000);
       return {
         startsLastMinute: recent.length,

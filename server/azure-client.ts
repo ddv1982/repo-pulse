@@ -12,7 +12,7 @@ import type {
   PageCursor,
   ConnectionStatus,
   PullRequestReview,
-} from '../src/contract.ts';
+} from '../src/contract.d.ts';
 import type { UnreadableCheckoutPull } from './checkout-advice.ts';
 
 export type {
@@ -56,7 +56,7 @@ export type CheckoutPull = {
   url: string;
 };
 
-export type { AccessCheck } from '../src/contract.ts';
+export type { AccessCheck } from '../src/contract.d.ts';
 
 export type ResolvedRepository = {
   id: string;

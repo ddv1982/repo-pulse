@@ -1,6 +1,6 @@
 import { emptyHtml, html } from './format.ts';
 import { required, setHtml } from './dom.ts';
-import type { FoldersResponse, Repository, DiscoveredRemote } from '../contract.ts';
+import type { FoldersResponse, Repository, DiscoveredRemote } from '../contract.d.ts';
 
 export type { FoldersResponse, Repository, DiscoveredRemote };
 

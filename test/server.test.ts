@@ -23,7 +23,7 @@ import type {
   PushCommitsResponse,
   StateResponse,
   SyncEngineStatus,
-} from '../src/contract.ts';
+} from '../src/contract.d.ts';
 import type { ActivityEvent } from '../src/activity.ts';
 import { TEST_KEY, keyedFetch, portOf } from './fixtures/access.ts';
 import { fieldsOf, present, stub, watchedIdOf, type Thrown } from './fixtures/typed.ts';

@@ -1,4 +1,4 @@
-import type { SyncStatus } from './contract.ts';
+import type { SyncStatus } from './contract.d.ts';
 
 export type { SyncStatus };
 

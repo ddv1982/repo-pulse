@@ -12,7 +12,7 @@ import type {
   StreamState,
   SyncEngineStatus as SyncStatus,
   RefreshStatus,
-} from '../src/contract.ts';
+} from '../src/contract.d.ts';
 import type { WatchedRepo, Entity, EntityData, EntityType, SyncBatch } from './normalize.ts';
 import type { Settings, SettingKey } from './store-records.ts';
 

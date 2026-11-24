@@ -26,7 +26,7 @@ import { browseFolders } from './server/folders.ts';
 import { canOpenBrowser, openBrowser } from './server/open-browser.ts';
 import type { IncomingMessage as Request, ServerResponse as Response } from 'node:http';
 import type { AzureProvider } from './server/azure-client.ts';
-// The JSON each route answers with is defined in src/contract.ts, which src/api.ts maps request paths to, so the
+// The JSON each route answers with is defined in src/contract.d.ts, which src/api.ts maps request paths to, so the
 // browser modules that read a response are checked against what the handler below produces.
 import type {
   DemoSyncStatus,
@@ -50,7 +50,7 @@ import type {
   DiscoverResponse,
   FoldersResponse,
   DemoEventResponse,
-} from './src/contract.ts';
+} from './src/contract.d.ts';
 
 export type {
   Request,

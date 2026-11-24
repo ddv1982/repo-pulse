@@ -19,7 +19,7 @@ import type { FoldersResponse, DiscoverResponse } from '../server.ts';
 import type { DiscoveredRemote } from '../server/repositories.ts';
 import type { Page } from '@playwright/test';
 import type { AzureProvider } from '../server/azure-client.ts';
-import type { ConnectionStatus } from '../src/contract.ts';
+import type { ConnectionStatus } from '../src/contract.d.ts';
 
 export type { FoldersResponse, DiscoverResponse, DiscoveredRemote, Page, AzureProvider, ConnectionStatus };
 

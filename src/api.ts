@@ -11,7 +11,7 @@ import type {
   OkResponse,
   DiscoverResponse,
   FoldersResponse,
-} from './contract.ts';
+} from './contract.d.ts';
 
 export type {
   StateResponse,
@@ -38,21 +38,21 @@ export type ResponseFor<P extends string> = P extends '/api/state'
     : P extends `/api/activity/unseen?${string}`
       ? { ids: string[] }
       : P extends '/api/activity-filters'
-        ? import('./contract.ts').SavedActivityFilter
+        ? import('./contract.d.ts').SavedActivityFilter
         : P extends `/api/activity-filters/${string}`
-          ? import('./contract.ts').SavedActivityFilter | OkResponse
+          ? import('./contract.d.ts').SavedActivityFilter | OkResponse
           : P extends `/api/events/${string}`
             ? EventResponse
             : P extends '/api/checkouts'
               ? CheckoutsResponse
               : P extends `/api/repos/${string}/checkout/branches`
-                ? import('./contract.ts').CheckoutBranchesResponse
+                ? import('./contract.d.ts').CheckoutBranchesResponse
                 : P extends `/api/repos/${string}/checkout/status`
-                  ? import('./contract.ts').CheckoutStatusResponse
+                  ? import('./contract.d.ts').CheckoutStatusResponse
                   : P extends `/api/repos/${string}/checkout`
                     ? CheckoutUpdateResponse
                     : P extends '/api/repos'
-                      ? import('./contract.ts').Repository
+                      ? import('./contract.d.ts').Repository
                       : P extends `/api/repos/${string}`
                         ? OkResponse
                         : P extends '/api/connection' | `/api/connection?${string}`
@@ -62,17 +62,17 @@ export type ResponseFor<P extends string> = P extends '/api/state'
                             : P extends `/api/pr/${string}/${string}/review`
                               ? PrReviewResponse
                               : P extends '/api/backfill'
-                                ? import('./contract.ts').BackfillResponse
+                                ? import('./contract.d.ts').BackfillResponse
                                 : P extends '/api/refresh'
-                                  ? import('./contract.ts').RefreshResponse
+                                  ? import('./contract.d.ts').RefreshResponse
                                   : P extends '/api/reset'
-                                    ? import('./contract.ts').ResetResponse
+                                    ? import('./contract.d.ts').ResetResponse
                                     : P extends '/api/discover'
                                       ? DiscoverResponse
                                       : P extends '/api/folders'
                                         ? FoldersResponse
                                         : P extends '/api/demo/event'
-                                          ? import('./contract.ts').DemoEventResponse
+                                          ? import('./contract.d.ts').DemoEventResponse
                                           : P extends '/api/ack'
                                             ? OkResponse & { changedIds: string[] }
                                             : P extends '/api/settings'

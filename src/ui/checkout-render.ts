@@ -1,6 +1,6 @@
 import { azureLink, emptyHtml, html, joinHtml } from './format.ts';
 import type { CheckoutSnapshot } from './checkout.ts';
-import type { CheckoutDiagnostic } from '../contract.ts';
+import type { CheckoutDiagnostic } from '../contract.d.ts';
 
 export type { CheckoutSnapshot, CheckoutDiagnostic };
 

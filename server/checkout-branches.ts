@@ -6,7 +6,7 @@ import { ancestry, isCommit } from './checkout-advice.ts';
 import { isSymbolicRef, worktreeUsesBranch } from './checkout-delete-guard.cjs';
 import type { GitRunner, LinkedRepo, ActiveCheckout, Upstream } from './checkout-git.ts';
 import type { PullAdvice } from './checkout-advice.ts';
-import type { FollowupSummary, Review } from '../src/contract.ts';
+import type { FollowupSummary, Review } from '../src/contract.d.ts';
 
 export type { GitRunner, LinkedRepo, ActiveCheckout, Upstream, PullAdvice, FollowupSummary, Review };
 

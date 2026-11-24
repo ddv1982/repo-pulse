@@ -2,7 +2,7 @@ import { required } from './dom.ts';
 import { canonicalActivityFilter } from '../activity-text.ts';
 import { splitActivitySearch } from './activity-search.ts';
 import { emptyHtml, html } from './format.ts';
-import type { SavedActivityFilter } from '../contract.ts';
+import type { SavedActivityFilter } from '../contract.d.ts';
 
 export type { SavedActivityFilter };
 
