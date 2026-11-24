@@ -31,11 +31,15 @@ export type AzureProvider = import('./server/azure-client.ts').AzureProvider;
 /** Live mode passes the Azure client; demo mode passes demoProvider, which answers only the routes demo serves. */
 export type AppProvider = AzureProvider | typeof demoProvider;
 export type DemoSyncStatus = import('./src/contract.ts').DemoSyncStatus;
-/** Demo mode passes a stub, so the app relies only on the two calls both share with createSync, and reset in live mode. */
+/**
+ * Demo mode passes a stub, so the app relies only on the two calls both share with createSync, and reset and forget
+ * in live mode.
+ */
 export type AppSync = {
   status: () => import('./server/sync.ts').SyncStatus | DemoSyncStatus;
   refresh: (repoIds?: string[]) => import('./server/sync.ts').RefreshStatus | { demo: true };
   reset?: (clear: () => void) => Promise<void>;
+  forget?: (repoId: string) => void;
 };
 export type RouteContext = { req: Request; res: Response; url: URL; params: string[] };
 export type Route = { method: 'GET' | 'POST' | 'PATCH' | 'DELETE'; path: string | RegExp; handler: (context: RouteContext) => unknown };
@@ -532,6 +536,7 @@ export function createApp({
         const id = decodeParam(rawId);
         repoById(id);
         store.removeRepo(id);
+        sync.forget?.(id);
         return json(res, 200, { ok: true } satisfies OkResponse);
       },
     },

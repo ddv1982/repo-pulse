@@ -394,6 +394,50 @@ test('a cached active PR that Azure can no longer read does not stall the prs st
   store.close();
 });
 
+test('a removed and re-added repository starts its PR lookups and stream rotation afresh', async () => {
+  let listed = [1, 2, 3, 4, 5].map(id => cachedPr(id));
+  const reads: string[] = [];
+  const lookups: string[] = [];
+  const provider: SyncProvider = {
+    async read(_repo, stream) {
+      reads.push(stream);
+      return { items: stream === 'prs' ? listed : [], nextCursor: null };
+    },
+    async pullRequest(_repo, id) {
+      lookups.push(String(id));
+      throw Object.assign(new Error('gone'), { code: 'NOT_FOUND' });
+    },
+  };
+  const { store, sync, advance } = setup(provider, ['prs']);
+  await sync.tick();
+  listed = [];
+  advance();
+  await sync.tick();
+  assert.deepEqual(lookups, ['1', '2', '3']);
+  const onlyPrsDue = () => {
+    for (const state of store.getStreams())
+      if (!['prs', 'closedPrs'].includes(state.stream)) store.saveStream({ ...state, nextAt: '2099-01-01T00:00:00Z' });
+  };
+
+  store.removeRepo(repo.id);
+  sync.forget(repo.id);
+  store.saveRepo(repo);
+  assert.equal(sync.refresh([repo.id]).scheduled, true);
+  onlyPrsDue();
+  listed = [1, 2, 3, 4, 5].map(id => cachedPr(id));
+  reads.length = 0;
+  await sync.tick();
+  assert.deepEqual(reads, ['prs'], 'the old watch having read prs last does not pass the new prs stream over');
+  listed = [];
+  lookups.length = 0;
+  advance();
+  onlyPrsDue();
+  store.saveStream({ ...present(store.getStreams().find(state => state.stream === 'closedPrs')), nextAt: '2099-01-01T00:00:00Z' });
+  await sync.tick();
+  assert.deepEqual(lookups, ['1', '2', '3'], 'lookups start at the first PR, not after the last one the old watch checked');
+  store.close();
+});
+
 for (const code of ['AUTH_REQUIRED', 'INVALID_RESPONSE']) {
   test(`a ${code} error during a per-PR lookup still fails the prs page`, async () => {
     let listed = [cachedPr(1), cachedPr(2)];
