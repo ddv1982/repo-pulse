@@ -550,6 +550,8 @@ test('opening Activity before the first state load arrives stays on Activity', a
   await held.promise;
   // The page has not seen its repositories yet, so it must not judge that none are watched.
   await page.goto(runtime.url + '/#activity/new');
+  // Activity has rendered from the hash change while the first state read is still held.
+  await expect(page.getByRole('region', { name: 'Repository activity' }).getByText('Loading activity…')).toBeVisible();
   release.resolve();
   await expect(page.getByRole('button', { name: /^Mark all seen/ })).toBeVisible();
   assert.match(page.url(), /#activity\/new$/);
