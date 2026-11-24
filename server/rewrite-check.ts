@@ -33,8 +33,9 @@ export function createRewriteCheck({
   provider: Pick<AzureProvider, 'droppedCommits'>;
   now?: () => number;
 }) {
-  // A check whose result could not be stored waits here, since a database that refuses writes cannot reschedule it.
-  const deferred: Map<string, { at: number; result?: RewriteResult }> = new Map();
+  type DeferredResult = { at: number; result?: RewriteResult };
+  // Each watch keeps its own failed writes. Removing its map also invalidates any check awaiting Azure.
+  const deferred = new Map<string, Map<string, DeferredResult>>();
   /** @returns whether a check ran */
   async function tick(): Promise<boolean> {
     const repos = new Map(
@@ -45,11 +46,13 @@ export function createRewriteCheck({
     );
     // Rows of type 'rewrite' are only written by server/normalize.ts, as a RewriteJob.
     const jobs = store.listJobs({ type: 'rewrite', dueBefore: iso(now()) }) as unknown as RewriteJob[];
-    const job = jobs.find(item => repos.has(item.repoId) && !((deferred.get(item.id)?.at ?? 0) > now()));
+    const job = jobs.find(item => repos.has(item.repoId) && !((deferred.get(item.repoId)?.get(item.id)?.at ?? 0) > now()));
     const repo = job && repos.get(job.repoId);
     if (!job || !repo) return false;
+    const results = deferred.get(job.repoId) ?? new Map<string, DeferredResult>();
+    deferred.set(job.repoId, results);
     // A result Azure already gave is only written again, never asked for again.
-    let result = deferred.get(job.id)?.result;
+    let result = results.get(job.id)?.result;
     if (!result)
       try {
         const page = await provider.droppedCommits(repo, job.oldObjectId, job.newObjectId);
@@ -57,6 +60,7 @@ export function createRewriteCheck({
           ? { ref: job.ref, status: 'rewrite', dropped: page.items.length, ...(page.nextCursor ? { more: true } : {}) }
           : { ref: job.ref, status: 'fast-forward' };
       } catch (error) {
+        if (deferred.get(job.repoId) !== results) return true;
         const code = (error as { code?: unknown })?.code;
         // Shutdown aborted the call, not Azure; the unchanged job resumes on the next start.
         if (code === 'CLOSED') return true;
@@ -67,18 +71,19 @@ export function createRewriteCheck({
             // A repository removed during the call took its job and event with it.
             if (store.getEvent(job.eventId)) store.saveJob({ ...job, attempts, nextAt: iso(now() + RETRY_MS * 2 ** (attempts - 1)) });
           } catch {
-            deferred.set(job.id, { at: now() + RETRY_MS });
+            results.set(job.id, { at: now() + RETRY_MS });
           }
           return true;
         }
         result = { ref: job.ref, status: 'unknown' };
       }
+    if (deferred.get(job.repoId) !== results) return true;
     try {
       store.saveRewriteResult({ eventId: job.eventId, jobId: job.id, rewrite: result });
-      deferred.delete(job.id);
+      results.delete(job.id);
     } catch {
       // Only Azure errors count as attempts, so a failed write never turns a proven result into unknown.
-      deferred.set(job.id, { at: now() + RETRY_MS, result });
+      results.set(job.id, { at: now() + RETRY_MS, result });
     }
     return true;
   }
@@ -86,5 +91,8 @@ export function createRewriteCheck({
     tick,
     // A reset deletes the jobs these waiting results belong to.
     reset: () => deferred.clear(),
+    forget(repoId: string) {
+      deferred.delete(repoId);
+    },
   };
 }

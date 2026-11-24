@@ -303,6 +303,50 @@ test('a failed save waits instead of taking every turn, and a proven rewrite is 
   rmSync(folder, { recursive: true });
 });
 
+test('a re-added repository reruns a rewrite check whose old result could not be saved', async t => {
+  const store = createStore();
+  t.after(() => store.close());
+  const eventId = 'one:push:22';
+  const ref = 'refs/heads/main';
+  const id = `rewrite:${eventId}:${ref}`;
+  const add = () => {
+    store.saveRepo(repo);
+    store.insertEvents([{ id: eventId, repoId: repo.id, kind: 'push', title: 'push', time: LIVE }]);
+    store.saveJob({
+      id,
+      type: 'rewrite',
+      repoId: repo.id,
+      eventId,
+      ref,
+      oldObjectId: A,
+      newObjectId: B,
+      attempts: 0,
+      nextAt: new Date(BASE).toISOString(),
+    });
+  };
+  add();
+  let time = BASE;
+  let calls = 0;
+  const check = createRewriteCheck({
+    store,
+    provider: { droppedCommits: async () => commits(calls++ ? 0 : 1) },
+    now: () => time,
+  });
+  const failedSave = t.mock.method(store, 'saveRewriteResult', () => {
+    throw new Error('database write failed');
+  });
+  assert.equal(await check.tick(), true);
+  assert.equal(failedSave.mock.calls.length, 1);
+  failedSave.mock.restore();
+  store.removeRepo(repo.id);
+  check.forget(repo.id);
+  add();
+  time += 120000;
+  assert.equal(await check.tick(), true);
+  assert.deepEqual(store.getEvent(eventId)?.data?.mergeEvidence?.rewrite, [{ ref, status: 'fast-forward' }]);
+  assert.equal(calls, 2);
+});
+
 test('a reset forgets a result that could not be saved, so a later check asks Azure again', async () => {
   const folder = mkdtempSync(join(tmpdir(), 'pulse-rewrite-'));
   const path = join(folder, 'state.sqlite');

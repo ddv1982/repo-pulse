@@ -394,6 +394,49 @@ test('a cached active PR that Azure can no longer read does not stall the prs st
   store.close();
 });
 
+test('a removed and re-added repository starts its PR lookups and stream rotation afresh', async () => {
+  let listed = [1, 2, 3, 4, 5].map(id => cachedPr(id));
+  const reads: string[] = [];
+  const lookups: string[] = [];
+  const provider: SyncProvider = {
+    async read(_repo, stream) {
+      reads.push(stream);
+      return { items: stream === 'prs' ? listed : [], nextCursor: null };
+    },
+    async pullRequest(_repo, id) {
+      lookups.push(String(id));
+      throw Object.assign(new Error('gone'), { code: 'NOT_FOUND' });
+    },
+  };
+  const { store, sync, advance } = setup(provider, ['prs']);
+  await sync.tick();
+  listed = [];
+  advance();
+  await sync.tick();
+  assert.deepEqual(lookups, ['1', '2', '3']);
+  const onlyPrsDue = () => {
+    for (const state of store.getStreams())
+      if (!['prs', 'closedPrs'].includes(state.stream)) store.saveStream({ ...state, nextAt: '2099-01-01T00:00:00Z' });
+  };
+
+  store.removeRepo(repo.id);
+  sync.forget(repo.id);
+  store.saveRepo(repo);
+  assert.equal(sync.refresh([repo.id]).scheduled, true);
+  onlyPrsDue();
+  store.commitPage({
+    repoId: repo.id,
+    stream: 'prs',
+    entities: [1, 2, 3, 4, 5].map(id => ({ type: 'pr', id: String(id), data: { status: 'active' } })),
+  });
+  reads.length = 0;
+  lookups.length = 0;
+  await sync.tick();
+  assert.deepEqual(reads, ['prs'], 'the old watch having read prs last does not pass the new prs stream over');
+  assert.deepEqual(lookups, ['1', '2', '3'], 'lookups start at the first PR, not after the last one the old watch checked');
+  store.close();
+});
+
 for (const code of ['AUTH_REQUIRED', 'INVALID_RESPONSE']) {
   test(`a ${code} error during a per-PR lookup still fails the prs page`, async () => {
     let listed = [cachedPr(1), cachedPr(2)];
@@ -679,6 +722,45 @@ test('real-time due pages precede the background history import', async () => {
   await sync.tick();
   assert.equal(background, 1);
   store.close();
+});
+
+test('a background turn that declines work reads the replacement watch from its first page', async t => {
+  const store = createStore();
+  t.after(() => store.close());
+  store.saveRepo(repo);
+  const started = Promise.withResolvers<void>();
+  const background = Promise.withResolvers<boolean>();
+  const cursors: ReadOptions['cursor'][] = [];
+  const sync = createSync({
+    store,
+    now: () => BASE,
+    provider: {
+      async read(_repo, stream, options) {
+        if (stream === 'pushes') cursors.push(options?.cursor);
+        return { items: [], nextCursor: cursors.length < 2 && stream === 'pushes' ? { skip: 100 } : null };
+      },
+    },
+    background: {
+      history: () => {
+        started.resolve();
+        return background.promise;
+      },
+    },
+  });
+  const pushes = () => present(store.getStreams().find(state => state.stream === 'pushes'));
+  for (let i = 0; i < 6; i++) await sync.tick();
+  assert.deepEqual(pushes().cursor, { skip: 100 });
+  const turn = sync.tick();
+  await started.promise;
+  store.removeRepo(repo.id);
+  sync.forget(repo.id);
+  store.saveRepo(repo);
+  sync.refresh([repo.id]);
+  assert.equal(pushes().initialized, false);
+  background.resolve(false);
+  await turn;
+  assert.deepEqual(cursors, [null, null], 'the replacement watch must start without the removed watch cursor');
+  assert.equal(pushes().initialized, true);
 });
 
 test('busy live queues leave turns for background work', async () => {
@@ -2013,6 +2095,49 @@ test('an older build is still looked up while 20 newer builds leave the active l
     await sync.tick();
   }
   assert.equal(fieldsOf(store.getEntity(repo.id, 'build', '1')).status, 'completed', `build 1 was looked up in ${JSON.stringify(asked)}`);
+  store.close();
+});
+
+test('a repository removed and added again with no read in between starts its build lookup order afresh', async () => {
+  const ids = Array.from({ length: 21 }, (_, index) => String(index + 1));
+  let listed = ids;
+  const asked: string[][] = [];
+  const provider: SyncProvider = {
+    async read(_repo, stream) {
+      return { items: stream === 'activeBuilds' ? listed.map(id => inProgressBuild(Number(id))) : [], nextCursor: null };
+    },
+    // Every build stays unreadable, so none is given up and the turn order alone decides which builds a lookup asks for.
+    async buildsById(_repo, wanted) {
+      asked.push(wanted);
+      const unreadableIds = wanted.map(id => ({ id, field: 'status' }));
+      return { items: [], nextCursor: null, unreadable: { count: wanted.length, fields: ['status'] }, unreadableIds };
+    },
+  };
+  const { store, sync, advance } = setup(provider, ['activeBuilds']);
+  await sync.tick();
+  listed = [];
+  advance(600000);
+  await sync.tick();
+  assert.deepEqual(asked, [ids.slice(0, 20)]);
+
+  // The remove route forgets the watch, and the repository is added again before any turn sees it gone.
+  store.removeRepo(repo.id);
+  sync.forget(repo.id);
+  store.saveRepo(repo);
+  sync.refresh();
+  for (const state of store.getStreams())
+    if (state.stream !== 'activeBuilds') store.saveStream({ ...state, nextAt: '2099-01-01T00:00:00Z' });
+  // Removal deleted the builds, and a read that misses none empties the order, so the old order could only resume for
+  // in-progress builds saved before the re-added watch's first lookup.
+  store.commitPage({
+    repoId: repo.id,
+    stream: 'activeBuilds',
+    entities: ids.map(id => ({ type: 'build', id, data: { status: 'inProgress' } })),
+  });
+  asked.length = 0;
+  advance(600000);
+  await sync.tick();
+  assert.deepEqual(asked, [ids.slice(0, 20)], 'the order the removed watch left is not resumed');
   store.close();
 });
 

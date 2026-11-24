@@ -313,6 +313,13 @@ export function createSync({
     turns.set(repoId, order);
     return order;
   };
+  /**
+   * How many times each repository stopped being watched. A read keeps the count it started under and commits only
+   * while it is unchanged, so a read of a removed repository cannot write into the watch that re-adds it.
+   * Kept in memory: no read and no cooldown outlives the process.
+   */
+  const watches: Map<string, number> = new Map();
+  const watchOf = (repoId: string) => watches.get(repoId) ?? 0;
 
   function ensureStreams() {
     const current = store.getStreams();
@@ -345,8 +352,8 @@ export function createSync({
     }
     return false;
   }
-  function watching(repo: WatchedRepo) {
-    return !halted() && store.listRepos().some(entry => entry.id === repo.id && !entry.disabled);
+  function watching(repo: WatchedRepo, watch: number) {
+    return !halted() && watchOf(repo.id) === watch && store.listRepos().some(entry => entry.id === repo.id && !entry.disabled);
   }
   // Least recently attempted first, limited to enabled repositories and, with automatic refresh off, manual requests.
   function dueStreams(automatic: boolean) {
@@ -428,7 +435,7 @@ export function createSync({
    * no longer missing, so a read whose turn skips it does not clear the warning. `listed` counts the records without a
    * readable ID the active list returned in this read.
    */
-  async function lookUpPrs(repo: WatchedRepo, activeIds: string[], remembered: UnreadableLookups, listed: number) {
+  async function lookUpPrs(repo: WatchedRepo, activeIds: string[], remembered: UnreadableLookups, listed: number, watch: number) {
     const pullRequest = provider.pullRequest;
     if (!pullRequest) return { items: [], unreadable: undefined, unreadableLookups: undefined };
     const missing = store
@@ -442,7 +449,7 @@ export function createSync({
     // one of the `listed` records, either of which they may be. Their fields are named either way.
     const anonymous: UnreadableRecords = { count: 0, fields: [] };
     for (const id of lookupTurn(order, missing, 3)) {
-      if (!watching(repo)) return null;
+      if (!watching(repo, watch)) return null;
       lookedUp(order, id);
       try {
         items.push(await pullRequest(repo, id));
@@ -472,11 +479,11 @@ export function createSync({
    * Reads one page plus, on the last page of a snapshot stream, the entities it no longer lists.
    * Returns null when the repository stopped being watched during a read.
    */
-  async function readPage(repo: WatchedRepo, state: StreamState, window: StreamWindow) {
+  async function readPage(repo: WatchedRepo, state: StreamState, window: StreamWindow, watch: number) {
     const page = await provider.read(repo, state.stream, { since: window.since, until: window.until, cursor: state.cursor || null });
     if (!page || !Array.isArray(page.items)) throw new Error('Azure returned an invalid page.');
-    // Removal while the provider was in flight must not resurrect a local watch.
-    if (!watching(repo)) return null;
+    // Removal while the provider was in flight must not resurrect a local watch or write into the one that re-adds it.
+    if (!watching(repo, watch)) return null;
     const complete = !page.nextCursor;
     // A record Azure lists but this code cannot read is still active, so it is neither missing nor looked up again.
     const activeIds: string[] | undefined =
@@ -499,7 +506,7 @@ export function createSync({
       unreadableLookups = builds.unreadableLookups;
     }
     if (complete && state.stream === 'prs' && provider.pullRequest) {
-      const prs = await lookUpPrs(repo, activeIds || [], state.unreadableLookups, unreadableIds?.anonymous ?? 0);
+      const prs = await lookUpPrs(repo, activeIds || [], state.unreadableLookups, unreadableIds?.anonymous ?? 0, watch);
       if (!prs) return null;
       items = [...items, ...prs.items];
       unreadable = addUnreadable(unreadable, prs.unreadable);
@@ -552,22 +559,29 @@ export function createSync({
     if (halted()) return;
     ensureStreams();
     const automatic = store.getSetting('refreshEnabled', true) !== false;
-    const { due, repos } = dueStreams(automatic);
-    const [first, second] = due;
-    if (!first) {
+    let { due, repos } = dueStreams(automatic);
+    if (!due.length) {
       await runBackground(automatic);
       return;
     }
-    if (liveTurns >= LIVE_TURNS && (await runBackground(automatic))) return;
+    if (liveTurns >= LIVE_TURNS) {
+      if ((await runBackground(automatic)) || halted()) return;
+      // A background turn can yield while the watch or its streams change.
+      ({ due, repos } = dueStreams(store.getSetting('refreshEnabled', true) !== false));
+    }
+    const [first, second] = due;
+    if (!first) return;
     const { state, repo } = takeLiveTurn(first, second, repos);
     const working = startPage(state, now(), overlapMs);
     reading = { repoId: state.repoId, stream: state.stream };
+    const watch = watchOf(repo.id);
     try {
-      const read = await readPage(repo, state, working.window);
-      if (!read || !watching(repo)) return;
+      const read = await readPage(repo, state, working.window, watch);
+      // No await separates this check from the synchronous commit, so the watch cannot change in between.
+      if (!read || !watching(repo, watch)) return;
       commitRead(repo, state, working, read);
     } catch (error) {
-      if (!store.listRepos().some(entry => entry.id === repo.id)) return;
+      if (watchOf(repo.id) !== watch || !store.listRepos().some(entry => entry.id === repo.id)) return;
       // A refresh requested while this read was in flight is not answered by its failure.
       const latest = store.getStreams().find(entry => entry.repoId === repo.id && entry.stream === state.stream) || state;
       store.saveStream(failPage(working, latest, now(), error, intervalMs));
@@ -652,6 +666,20 @@ export function createSync({
         resetting = false;
         if (scheduled) schedule();
       }
+    },
+    /**
+     * Ends the watch of a removed repository: a read still in flight for it is dropped when it completes, and none of
+     * its in-memory state (cooldown, PR and build lookup order, stream rotation, unanswered refreshes) carries over to a
+     * later re-add, even one made before the next turn would see the repository gone.
+     */
+    forget(repoId: string) {
+      watches.set(repoId, watchOf(repoId) + 1);
+      if (reading?.repoId === repoId) reading = null;
+      refreshedAt.delete(repoId);
+      prTurns.delete(repoId);
+      buildTurns.delete(repoId);
+      for (const [key, entry] of requested) if (entry.repoId === repoId) requested.delete(key);
+      if (STREAMS.some(stream => lastKey === `${repoId}:${stream}`)) lastKey = undefined;
     },
     refresh(repoIds?: string[]): RefreshStatus {
       const repos = store.listRepos();

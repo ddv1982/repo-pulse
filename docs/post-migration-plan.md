@@ -59,12 +59,12 @@ Every behaviour fix starts with a failing test. These touch `server/sync.ts`, `s
       looked up least recently looked up first: an ID joins the end of the order when it goes missing and moves to
       the end when it is looked up, so neither IDs that stay unreadable nor newer IDs that keep going missing can
       hold every turn. The order is kept per repository and forgotten once the repository is no longer watched, so a
-      repository removed and added again starts it afresh. The order is dropped on the next scheduler turn that finds
-      the repository unwatched, so a repository removed and added again before that turn inherits the old order until
-      item 1.4's `forget` lands, which clears it on removal. An unreadable build without a readable ID is not counted
-      again for a remembered build asked for in the same lookup: the count is the remembered builds plus the
-      anonymous ones beyond the remembered builds that lookup asked for, and the anonymous ones' fields join the
-      warning's fields either way. In the same read, anonymous unreadable records a PR or build lookup returns count
+      repository removed and added again starts it afresh. The next scheduler turn that finds the repository
+      unwatched drops the order, and since item 1.4 the remove route's `sync.forget` drops it on removal, so a
+      repository removed and added again before that turn no longer inherits it. An unreadable build without a
+      readable ID is not counted again for a remembered build asked for in the same lookup: the count is the
+      remembered builds plus the anonymous ones beyond the remembered builds that lookup asked for, and the
+      anonymous ones' fields join the warning's fields either way. In the same read, anonymous unreadable records a PR or build lookup returns count
       only beyond the anonymous unreadable records the active list of that stream returned, which they may be. A build without a `repository.id` is unreadable; a build
       of another repository is still left out. A ref with an empty `name` or `objectId` is unreadable. A refs
       snapshot with unreadable records is incomplete: it adds and updates its readable refs and reports none as no
@@ -192,11 +192,43 @@ Every behaviour fix starts with a failing test. These touch `server/sync.ts`, `s
       the baseline as on `main`. On a stream without the tag baseline it is that baseline for its readable tags, as
       on `main`, except the tags its unreadable refs may be (see 1.2). With an established baseline an incomplete
       snapshot still announces the readable refs it is the first to list. `npm test` 572/572.
-- [ ] 1.4 A read still in flight must not write into a watch that was removed and added again. Today the old
+- [x] 1.4 A read still in flight must not write into a watch that was removed and added again. Today the old
       read inserts an event and initializes the replacement stream, and the re-add hits the old refresh
       cooldown (`server/sync.ts:218`, `server/sync.ts:434`, `server/store.ts:646`). Fix: tie each commit and the
       cooldown to a watch generation. Check: a deterministic test that defers a push read, removes and re-adds
-      the repository, then completes the read; it fails first. (S reproduced, not yet reproduced by us)
+      the repository, then completes the read; it fails first. (S reproduced, not yet reproduced by us) Done: the
+      generation is an in-memory count per repository in `createSync`, since no read or cooldown outlives the
+      process. The remove route calls `sync.forget` right after `store.removeRepo`; it advances the generation and
+      drops all of the repository's in-memory state: the cooldown, the PR and build lookup orders, the stream rotation
+      and its unanswered refreshes. A read commits, or records its failure, only under the generation it started
+      with, checked with no await before the synchronous commit. That one check covers every write a live read makes:
+      events, entities, the stream state with its unreadable lookups and warning, and the refs snapshot's tag baseline
+      and tag uncertainty all go through the one `commitPage` in `commitRead`, and the PR lookup loop checks the
+      generation before each lookup. A probe that deferred an `activeBuilds` read with an unreadable lookup, and one
+      that deferred an incomplete refs read on a stream without the tag baseline, wrote `unreadableLookups` and
+      `ref-baseline:tags-uncertain` without a re-add and nothing into the re-added watch. History import runs in
+      `server/backfill.ts`, outside the generation; it commits only while the job it read for still exists with the
+      same `startedAt`, and removal deletes the job, so an old page reaches a re-added watch only if a new import for
+      it starts in the same millisecond as the removed one's did (shown with a fixed clock). "a read started before a
+      repository was removed and added again commits nothing into the new watch" (`test/server.test.ts`, through the
+      routes) failed first on all three counts: the re-add hit the cooldown, the old read inserted `one:push:7`, and a
+      failed old read wrote its error into the new stream. "a removed and re-added repository starts its PR lookups
+      and stream rotation afresh" seeds cached active PRs absent from the replacement watch's first PR listing.
+      Without the PR lookup reset it asks for 4, 5, 1 instead of 1, 2, 3; without the stream rotation reset it reads
+      `closedPrs` before `prs`. "a repository removed and added again with no
+      read in between starts its build lookup order afresh" failed first with a `forget` that dropped the PR order
+      but not the build order: the first lookup after the re-add asked for 21, 1 to 19 instead of 1 to 20.
+      If a background turn declines work after yielding, the scheduler selects due streams again before taking a
+      live turn. The regression test previously read the removed watch's `{ skip: 100 }` cursor and now starts at the
+      first page. Forgetting a watch also removes its in-flight read from the sync status.
+      Fork origin checks save an intermediate step only when its event still exists. The remove route also forgets
+      the fork and rewrite checks' deferred writes for that repository and invalidates their in-flight results, even
+      if an event and job with the same IDs return. Tests cover orphaned and replaced fork jobs and fresh fork and
+      rewrite results after a failed write. `npm test` 580/580 and `npm run test:ui` 86/86.
+
+      Follow-up outside this PR: the Azure client's 45-second shared build response cache
+      (`server/azure-client.ts:188`) can serve a response from the removed watch to a re-added watch.
+      The same behavior exists on `main`.
 - [x] 1.5 Two app instances must not open the same data directory. Today nothing prevents it, and checkout
       write locks live in each instance (`server.ts:697`). Fix: an exclusive lock on the data directory with
       recovery from a lock left by a crashed run. Check: a failing-first test that starts a second app on the

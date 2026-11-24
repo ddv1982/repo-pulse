@@ -10,9 +10,10 @@ import { request as httpRequest, createServer as createHttpServer } from 'node:h
 import { once } from 'node:events';
 import { createStore } from '../server/store.ts';
 import { createApp, startApp } from '../server.ts';
+import { createSync } from '../server/sync.ts';
 import { seedDemo } from '../server/demo.ts';
 import type { TestContext } from 'node:test';
-import { createAzureClient, type AzureProvider } from '../server/azure-client.ts';
+import { createAzureClient, type AzureProvider, type ResolvedRepository } from '../server/azure-client.ts';
 import type { createCheckoutGit } from '../server/checkout-git.ts';
 import type { AppOptions } from '../server.ts';
 import type {
@@ -660,4 +661,80 @@ test('a start that fails after taking the lock releases it, so a retry in the sa
   await assert.rejects(startApp({ demo: true, port: portOf(blocker), dataDir: directory }), { code: 'EADDRINUSE' });
   const runtime = await startApp({ demo: true, port: 0, dataDir: directory });
   await runtime.close();
+});
+
+test('a read started before a repository was removed and added again commits nothing into the new watch', async t => {
+  const repo: ResolvedRepository = {
+    id: 'one',
+    name: 'One',
+    azureId: 'a',
+    organization: 'https://dev.azure.com/org',
+    project: 'P',
+    projectId: 'p',
+    webUrl: 'https://dev.azure.com/org/P/_git/One',
+    disabled: false,
+  };
+  const push = { pushId: 7, date: '2026-11-17T10:00:01Z', pushedBy: { displayName: 'A' }, refUpdates: [] };
+  for (const fail of [false, true]) {
+    const store = createStore();
+    const started = Promise.withResolvers<void>();
+    const deferred = Promise.withResolvers<{ items: (typeof push)[]; nextCursor: null }>();
+    let pushReads = 0;
+    const sync = createSync({
+      store,
+      now: () => Date.parse('2026-11-17T10:01:00Z'),
+      provider: {
+        async read(_repo, stream) {
+          if (stream !== 'pushes' || ++pushReads > 1) return { items: [], nextCursor: null };
+          started.resolve();
+          return deferred.promise;
+        },
+      },
+    });
+    const refreshes: unknown[] = [];
+    const app = createApp({
+      store,
+      provider: stub<AzureProvider>({ resolveRepository: async () => ({ ...repo }) }),
+      sync: {
+        ...sync,
+        refresh(ids) {
+          const status = sync.refresh(ids);
+          refreshes.push(status);
+          return status;
+        },
+      },
+      demo: false,
+      accessKey: TEST_KEY,
+    });
+    await new Promise<void>(resolve => app.listen(0, '127.0.0.1', resolve));
+    t.after(async () => {
+      await new Promise(resolve => app.close(resolve));
+      store.close();
+    });
+    const url = `http://127.0.0.1:${portOf(app)}`;
+    const add = () =>
+      fetch(url + '/api/repos', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ url: repo.webUrl }),
+      });
+
+    assert.equal((await add()).status, 201);
+    for (const state of store.getStreams()) if (state.stream !== 'pushes') store.saveStream({ ...state, nextAt: '2099-01-01T00:00:00Z' });
+    const old = sync.tick();
+    await started.promise;
+    assert.equal((await fetch(`${url}/api/repos/${repo.id}`, { method: 'DELETE' })).status, 200);
+    assert.deepEqual(sync.status().inProgress, [], 'the removed watch is no longer reported while its read settles');
+    assert.equal((await add()).status, 201);
+    if (fail) deferred.reject(Object.assign(new Error('Azure refused the old read.'), { code: 'AZURE_FAILED' }));
+    else deferred.resolve({ items: [push], nextCursor: null });
+    await old;
+
+    assert.deepEqual(refreshes, [{ scheduled: true }, { scheduled: true }], 'the re-add must not hit the cooldown of the removed watch');
+    assert.deepEqual(store.listEvents({ repoIds: [repo.id] }), []);
+    const pushes = present(store.getStreams().find(state => state.repoId === repo.id && state.stream === 'pushes'));
+    assert.equal(pushes.initialized, false);
+    assert.equal(pushes.error, null);
+    assert.equal(pushes.window, undefined);
+  }
 });

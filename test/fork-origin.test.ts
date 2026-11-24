@@ -64,7 +64,7 @@ function setup({
   prs?: AzureStreamRecord[];
   graph?: Record<string, Commit>;
   contains?: (base: string, tip: string) => boolean | Error;
-  commit?: (id: string) => Commit;
+  commit?: (id: string) => Commit | Promise<Commit>;
   pages?: AzureStreamRecord[][];
 } = {}) {
   const store = createStore();
@@ -139,6 +139,86 @@ test('a branch created at the latest recorded tip of another branch is settled w
   assert.deepEqual(origin(store, 10, 'feature'), { status: 'found', base: B, on: ['refs/heads/main'], via: 'tip' });
   assert.deepEqual(store.listJobs({ type: 'fork' }), []);
   store.close();
+});
+
+test('a fork check cannot save an intermediate step after its repository was removed and added again', async t => {
+  const started = Promise.withResolvers<void>();
+  const commit = Promise.withResolvers<Commit>();
+  const { store, sync, check } = setup({
+    pushes: [push(10, [move('feature', ZERO, B)])],
+    commit: () => {
+      started.resolve();
+      return commit.promise;
+    },
+  });
+  t.after(() => store.close());
+  await sync.tick();
+  assert.equal(store.listJobs({ type: 'fork' }).length, 1);
+  const checking = check.tick();
+  await started.promise;
+  store.removeRepo(repo.id);
+  sync.forget(repo.id);
+  store.saveRepo(repo);
+  commit.resolve({ parents: [A], pushId: 10 });
+  assert.equal(await checking, true);
+  assert.deepEqual(store.listEvents(), []);
+  assert.deepEqual(store.listJobs({ type: 'fork' }), [], 'the old fork job must not be recreated without its event');
+});
+
+test('an in-flight fork check leaves a replacement job with the same ID untouched', async t => {
+  const started = Promise.withResolvers<void>();
+  const commit = Promise.withResolvers<Commit>();
+  const { store, sync, check } = setup({
+    pushes: [push(10, [move('feature', ZERO, B)])],
+    commit: () => {
+      started.resolve();
+      return commit.promise;
+    },
+  });
+  t.after(() => store.close());
+  await sync.tick();
+  const checking = check.tick();
+  await started.promise;
+  store.removeRepo(repo.id);
+  sync.forget(repo.id);
+  check.forget(repo.id);
+  store.saveRepo(repo);
+  sync.refresh([repo.id]);
+  await sync.tick();
+  const replacement = present(store.listJobs({ type: 'fork' })[0]);
+  commit.resolve({ parents: [A], pushId: 10 });
+  assert.equal(await checking, true);
+  assert.deepEqual(store.listJobs({ type: 'fork' }), [replacement]);
+});
+
+test('a re-added repository reruns a fork check whose old result could not be saved', async t => {
+  const creation = push(10, [move('feature', ZERO, B)]);
+  const { store, sync, check, offered, advance, reads } = setup({
+    pushes: [creation],
+    graph: { [B]: { parents: [A], pushId: 5 } },
+  });
+  t.after(() => store.close());
+  await sync.tick();
+  const failedSave = t.mock.method(store, 'saveForkResult', () => {
+    throw new Error('database write failed');
+  });
+  assert.equal(await check.tick(), true);
+  assert.deepEqual(
+    failedSave.mock.calls.map(call => call.arguments[0]?.forkOrigin),
+    [{ status: 'none', base: B, notOn: [] }],
+  );
+  failedSave.mock.restore();
+  store.removeRepo(repo.id);
+  sync.forget(repo.id);
+  check.forget(repo.id);
+  store.saveRepo(repo);
+  advance(120000);
+  offered.pushes = [creation, push(5, [move('main', A, B)])];
+  sync.refresh([repo.id]);
+  await sync.tick();
+  assert.equal(await check.tick(), true);
+  assert.deepEqual(origin(store, 10, 'feature'), { status: 'found', base: B, on: ['refs/heads/main'], via: 'tip' });
+  assert.deepEqual(reads, [B, B]);
 });
 
 test('the walk passes the commits the creating push brought and stops at the first older one', async () => {
