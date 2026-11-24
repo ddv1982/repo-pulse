@@ -52,7 +52,8 @@ Every behaviour fix starts with a failing test. These touch `server/sync.ts`, `s
       whose lookup came back unreadable with a readable ID is kept in `unreadableLookups` and counted in every read
       until it reads, its lookup finds it deleted, moved or gone, or the active list holds it again (a build lookup
       answer with more pages or with unreadable builds without an ID settles neither, so the build stays remembered),
-      while an unreadable answer without a readable ID counts only in its own read; a looked-up build is given up
+      while an unreadable answer without a readable ID counts only in its own read and is never remembered (a PR
+      lookup answer included); a looked-up build is given up
       only when Azure's answer leaves its ID out, and no build is given up in a lookup that returned a build whose ID
       cannot be read, since that answer may be any build asked for. Missing PRs (3 a read) and builds (20 a read) are
       looked up least recently looked up first: an ID joins the end of the order when it goes missing and moves to
@@ -63,25 +64,29 @@ Every behaviour fix starts with a failing test. These touch `server/sync.ts`, `s
       item 1.4's `forget` lands, which clears it on removal. An unreadable build without a readable ID is not counted
       again for a remembered build asked for in the same lookup: the count is the remembered builds plus the
       anonymous ones beyond the remembered builds that lookup asked for, and the anonymous ones' fields join the
-      warning's fields either way. A build without a `repository.id` is unreadable; a build
+      warning's fields either way. In the same read, anonymous unreadable records a PR or build lookup returns count
+      only beyond the anonymous unreadable records the active list of that stream returned, which they may be. A build without a `repository.id` is unreadable; a build
       of another repository is still left out. A ref with an empty `name` or `objectId` is unreadable. A refs
       snapshot with unreadable records is incomplete: it adds and updates its readable refs and reports none as no
       longer listed. While the baseline is being established, an incomplete snapshot is no baseline, so the stream
       stays uninitialized and no tag baseline is written. It also creates no ref: it updates the refs that exist,
-      which only a push can have recorded by then, and keeps their `evidence`. The first complete snapshot therefore
+      which only a push can have recorded by then. The first complete snapshot therefore
       behaves as on `main`: it records every ref without a "first seen" event, which the standing warning makes
       visible, reports none as no longer listed, and leaves a ref a push recorded for the next complete snapshot,
       which reports it as no longer listed. Tags follow the same rule until the tag baseline, which a stream
-      initialized before tags were tracked lacks: an incomplete snapshot creates no tag, updates the existing ones
-      and keeps their `evidence`, and records that it was read (`ref-baseline:tags-incomplete`). The first complete
-      snapshot writes the tag baseline as on `main`; it announces no tag as first seen, and it reports a tag it omits
-      as no longer listed when an incomplete snapshot was read before it, which `main` would have taken for the
-      baseline, and otherwise puts that tag away without an event, as `main` does. Once the baseline is established,
+      initialized before tags were tracked lacks: an incomplete snapshot creates no tag and updates the existing
+      ones, and records which tags its unreadable refs may be (`ref-baseline:tags-incomplete`): the tags they name,
+      or every tag once one had no readable name, joined across incomplete snapshots. The first complete snapshot
+      writes the tag baseline as on `main` and announces no tag as first seen. A tag it omits that one of those
+      unreadable refs may be is reported as no longer listed, as `main` reported it after taking the incomplete
+      snapshot, malformed tag included, for the baseline; any other tag it omits is put away without an event, as
+      `main` put it away at that incomplete snapshot. Once the baseline is established,
       an incomplete snapshot still creates the readable refs it is the first to list and announces them. Refs saved mid-snapshot are
       checked again when the snapshot resumes. A history import that skips unreadable records keeps them on its job
       in `warnings`, one per stream with the count and fields, and the repository's import status shows each message
       in Details; the always visible chip names the count while running, retrying or finished ("History sync finished
-      · 2 records skipped"), and the finished chip turns to a warning. A repository's Details list a stream warning
+      · 2 records skipped"), and the finished chip turns to a warning. A warning names its stream the way errors do
+      ("pull requests", "builds", "branches"), for stream and history import warnings alike. A repository's Details list a stream warning
       beside its failed checks, under "Last check problems". Tests that failed first: the 1.1 test, "a stream warning
       stands until a later read of that stream completes with no unreadable records", the sync-status "a stream that
       skipped unreadable Azure records is a problem naming the stream, not synced", "a warning found on any page of a
@@ -128,8 +133,7 @@ Every behaviour fix starts with a failing test. These touch `server/sync.ts`, `s
       baseline, a tag a push recorded that the first complete snapshot omits is put away without an event, as on
       main" passed before the change and stays as the guard that a complete-only sequence matches `main`. The sixth
       review round limited what makes a record unreadable to the fields the code needs for its identity or meaning
-      (see 2.1): a malformed display field the code has a fallback for is left out and the record kept, as `main` read
-      it as absent. It added, failing first: "a push with a malformed web link still reports its tag deletion, without
+      (see 2.1), leaving a malformed display field out of the record; the seventh round passes it through instead. It added, failing first: "a push with a malformed web link still reports its tag deletion, without
       a warning, as on main" (the push was skipped with a warning naming `_links.web`, so its tag deletion was lost;
       `main` reports it). A tag deletion can show twice: a complete snapshot reports "Tag no longer listed · v1", and a
       deletion push read later adds "Tag deleted · v1". This matches `main` once the tag baseline is established:
@@ -137,15 +141,32 @@ Every behaviour fix starts with a failing test. These touch `server/sync.ts`, `s
       complete snapshot that omits it and then its deletion push give both rows there as well, so no change was made.
       Known limit: a ref deleted and created again within one incomplete poll, with no push recording it, is not
       reported, since an incomplete snapshot reports nothing as no longer listed and Azure records ref deletions as
-      pushes. `npm test` 559/559 and `npm run test:ui` 86/86.
+      pushes. The seventh review round added, each failing first on 71ef4d6: "before the tag baseline, a tag that no
+      unreadable ref of an incomplete snapshot could be is put away without an event, as on main" (Sol's probe: a
+      named branch with a malformed `objectId` made every tag uncertain, so v1 was reported; `main` puts it away),
+      "a PR lookup answer without a readable ID counts only in its own read and is not remembered" (the second read
+      still warned for PR 1), "an active PR without a readable ID in both the list and its lookup counts once" and
+      "an in-progress build without a readable ID in both the active list and its lookup counts once" (both counted
+      2), and the friendly stream names in the PR, build and history import warning messages (they said `prs`,
+      `activeBuilds` and `closedPrs`). "before the tag baseline, a tag that an unreadable ref of any incomplete
+      snapshot may be is reported once a complete snapshot omits it" passed before and stays as the guard that a
+      named unreadable tag, and the names of an earlier incomplete snapshot, keep the report. The round-5 tag tests
+      needed no change: their pages name no unreadable ref, which is the case where every tag stays uncertain. The
+      round removed the `evidence` an incomplete snapshot kept on the refs it updated: nothing reads a ref's
+      `evidence`, and with it removed only the three assertions on it failed, while every event those tests check
+      still passed, so those assertions were dropped. A tag deletion can still show twice as described above.
+      Display fields now pass through as Azure sent them (see 2.1), which "a push with a malformed web link still
+      reports its tag deletion, without a warning, as on main" still confirms. `npm test` 567/567 and
+      `npm run test:ui` 86/86.
 - [x] 1.3 A malformed `refUpdates` must fail with a named error, not the generic `SYNC_FAILED`, and follow the
       1.2 handling. Check: a failing-first test with `refUpdates` set to an object. (S reproduced) Done: "a push
       whose refUpdates is not a list is skipped with a warning instead of failing the page" failed first with
       `SYNC_FAILED`, and now passes with a warning naming `refUpdates`. The warning follows the 1.2 rules: only a
       completed read replaces or clears it, and an unreadable ref makes its refs snapshot incomplete, so it reports
       no deletions and sets no baseline. Before the baseline it creates no ref, so the first complete snapshot sets
-      the baseline as on `main`. With an established baseline an incomplete snapshot still announces the readable
-      refs it is the first to list. `npm test` 516/516.
+      the baseline as on `main`, and before the tag baseline it reports a tag it omits only when one of the earlier
+      incomplete snapshots' unreadable refs may be that tag (see 1.2). With an established baseline an incomplete
+      snapshot still announces the readable refs it is the first to list. `npm test` 567/567.
 - [ ] 1.4 A read still in flight must not write into a watch that was removed and added again. Today the old
       read inserts an event and initializes the replacement stream, and the re-add hits the old refresh
       cooldown (`server/sync.ts:218`, `server/sync.ts:434`, `server/store.ts:646`). Fix: tie each commit and the
@@ -176,19 +197,32 @@ and Azure code, so they get the full cross-model review.
       guard. (O, N, S; verified) Done: `git grep -n AzureRecord -- '*.ts'` finds nothing (`grep -rn` still finds
       this plan's own text and `docs/typescript-migration.md:134`); the guards are in `server/azure-records.ts`; the
       six per-stream tests in `test/azure-client.test.ts` fail on the code before this change and pass after; the
-      Phase 1 tests, 559 unit tests and 86 browser tests pass. A page also names the PRs and builds it left out whose
+      Phase 1 tests, 567 unit tests and 86 browser tests pass. A page also names the PRs and builds it left out whose
       ID can be read, with the field each could not be read for (`unreadableIds`), and a build's `repository.id` and
       a ref's `name` and `objectId` are required. A PR lookup checks that the answer is an object before its fields.
       Only a field the code needs for a record's identity or meaning makes it unreadable: IDs, ref names and object
       IDs (`peeledObjectId` too), `refUpdates` and `commits`, statuses, results, `isDraft`, `mergeStatus`, merge
       strategy, reviewer IDs, votes and `isRequired`, dates, source and target refs, source versions and branches,
       merge commits, the repository and fork source (whose names place a fork PR's source in the activity tree). A
-      malformed display field the code has a fallback for is left out by the reader, so the normalizers get typed
-      records without it: `_links` and `_links.web` (the link falls back to one the code builds), people (`pushedBy`,
-      `createdBy`, `closedBy`, `requestedFor`, `requestedBy` and their names, shown as Unknown), a PR's `title`
-      (Untitled) and a reviewer's `displayName` (Unknown reviewer), and a build's `definition` and its `name`
-      (Pipeline) and `reason` (Not supplied). The table in `test/azure-client.test.ts` checks both
-      sides per stream; its 15 display rows fail on the code before this change.
+      number must be finite. A display field the code shows with a fallback is typed `unknown`, reads whatever its
+      value, and reaches the normalizers as Azure sent it, so the fallback code, the fingerprints and the IDs see what
+      `main` saw: `_links` (the link falls back to one the code builds), people (`pushedBy`, `createdBy`,
+      `closedBy`, `requestedFor`, `requestedBy`, shown as Unknown), a PR's `title` (Untitled, and part of the PR
+      fingerprint) and a reviewer's `displayName` (Unknown reviewer), and a build's `definition` (Pipeline) and
+      `reason`. Where `main` put a value that is not text into an event's actor or a build's title, the event holds
+      its text, since those fields are typed as text; the fingerprints and IDs do not use them. "a PR with a malformed
+      title keeps the fingerprint and IDs main gave it, so it is not reported again live or on re-import" failed on
+      71ef4d6 (Sol's probe: the live ID hashed to `6f9e774806a44a3f8c0c1860` instead of `main`'s
+      `6dd098039132df677cced0d5`, so a replay after the upgrade added a second row, and a re-import missed `main`'s
+      history row). The table in `test/azure-client.test.ts` checks both sides per stream: its 15 display rows keep
+      the record whole and show what `origin/main` 844c7b6 shows, checked by running the same rows there (12 match
+      exactly; the 3 whose actor or build title `main` filled with `7`, `7` and `["A"]` hold `"7"`, `"7"` and `"A"`),
+      and all 15 failed on 71ef4d6. Checkout advice reads completed PRs with its own reader of only the fields it uses
+      (ID, status, source and target refs, repositories, head, merge result, strategy, link), so a field only the
+      activity stream reads cannot hide a candidate, and a candidate whose checkout fields cannot be read keeps the
+      advice unverified. "completed PRs from one head into different targets keep the advice unverified, whatever
+      fields checkout does not use" failed on 71ef4d6 (Sol's probe gave `verified: true`; `main` gives `false`); its
+      two cases with an unreadable target or merge result are stricter than `main`, which drops such a candidate.
 - [ ] 2.2 Replace the store's `parse = (...): any` (`server/store.ts:48`) and `undefined as any`
       (`server/store.ts:132`) with one reader per persisted type that reports a corrupt row by table and id.
       Check: no `any` left in `server/store.ts`, plus a test that a corrupt stored row gives that error. (O, N, S;
