@@ -302,6 +302,51 @@ test('a refs continuation survives busy turns beyond the snapshot expiry', async
   store.close();
 });
 
+for (const interruption of ['disabled repository', 'paused checks']) {
+  test(`an old refs snapshot starts over after ${interruption} while another repo stays active`, async () => {
+    const cursors: ReadOptions['cursor'][] = [];
+    const { store, sync, advance } = setup(
+      {
+        async read(current, stream, options) {
+          if (watchedIdOf(current) !== repo.id || stream !== 'refs') return { items: [], nextCursor: null };
+          cursors.push(present(options).cursor);
+          const first = cursors.length === 1;
+          return {
+            items: [{ name: first ? 'refs/heads/obsolete' : 'refs/heads/current', objectId: 'a' }],
+            nextCursor: first ? { token: 'old', allRefs: true } : null,
+          };
+        },
+      },
+      ['refs'],
+    );
+    const other = { ...repo, id: 'two', name: 'Two' };
+    await sync.tick();
+    if (interruption === 'disabled repository') store.saveRepo({ ...repo, disabled: true });
+    else store.setSetting('refreshEnabled', false);
+    store.saveRepo(other);
+    for (let minute = 1; minute <= 3; minute++) {
+      advance(60000);
+      assert.equal(sync.refresh([other.id]).scheduled, true);
+      await sync.tick();
+    }
+    if (interruption === 'disabled repository') {
+      store.saveRepo({ ...repo, disabled: false });
+      sync.refresh([repo.id]);
+      for (const state of store.getStreams())
+        if (state.repoId === repo.id && state.stream !== 'refs') store.saveStream({ ...state, nextAt: '2099-01-01T00:00:00Z' });
+    } else {
+      store.setSetting('refreshEnabled', true);
+    }
+    for (const state of store.getStreams()) if (state.repoId === other.id) store.saveStream({ ...state, nextAt: '2099-01-01T00:00:00Z' });
+    await sync.tick();
+
+    assert.deepEqual(cursors, [null, null]);
+    assert.equal(store.getEntity(repo.id, 'ref', 'refs/heads/obsolete'), undefined);
+    assert.equal(store.getEntity(repo.id, 'ref', 'refs/heads/current')?.active, true);
+    store.close();
+  });
+}
+
 for (const automatic of [true, false]) {
   test(`a slow paged read catches up immediately only with automatic refresh on (automatic: ${automatic})`, async () => {
     const calls: ReadOptions[] = [];

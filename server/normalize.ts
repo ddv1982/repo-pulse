@@ -515,8 +515,8 @@ export function createNormalizer({ store, now = Date.now }: { store: NormalizeSt
         false,
       );
     // A push saved since the scan opened can be newer than any of its pages.
-    const observedDuringScan = (ref: RefEntity | undefined) =>
-      ref?.lastPushObservedAt !== undefined && ref.lastPushObservedAt >= state.window.until;
+    const scanStartedAt = Date.parse(state.window.until);
+    const observedDuringScan = (ref: RefEntity | undefined) => Date.parse(ref?.lastPushObservedAt ?? '') >= scanStartedAt;
     const events: SyncEvent[] = [];
     const entities: Entity[] = [];
     for (const [name, item] of current) {

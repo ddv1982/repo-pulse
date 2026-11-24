@@ -156,17 +156,14 @@ function isSnapshot(stream: StreamName) {
 }
 
 /** Reuse the fields that belong to a read only while continuing that read. */
-function startPage(state: StreamState, at: number, overlapMs: number, liveSince: number): StartedStream {
+function startPage(state: StreamState, at: number, overlapMs: number, continuing: boolean): StartedStream {
   const start = { lastAttempt: iso(at), pending: true } as const;
   if (state.window && state.cursor) {
     const snapshot = isSnapshot(state.stream);
-    // A healthy snapshot can take longer than the expiry while it shares turns with other streams.
-    // The expiry applies to snapshots from before live reads resumed, and to ones that failed.
-    const sameRun = snapshot && !state.error && Date.parse(state.lastAttempt ?? '') >= liveSince;
     // Time-windowed reads can keep paging as long as they make progress within the limit.
     const cursorAgeFrom = snapshot || state.error ? state.window.until : (state.lastAttempt ?? state.window.until);
     const maxAge = snapshot ? SNAPSHOT_TTL_MS : HISTORY_WINDOW_TTL_MS;
-    if (sameRun || at - Date.parse(cursorAgeFrom) < maxAge) {
+    if (continuing || at - Date.parse(cursorAgeFrom) < maxAge) {
       return { ...state, ...start, window: state.window, windowGeneration: state.windowGeneration ?? 0 };
     }
   }
@@ -348,7 +345,8 @@ export function createSync({
   const requested: Map<string, { repoId: string; stream: StreamName; generation: number }> = new Map();
   let lastKey: string | undefined;
   let liveTurns = 0;
-  let liveSince = now();
+  // A healthy snapshot can outlast the expiry while it stays due and shares turns with other streams.
+  const continuingSnapshots = new Map<string, string>();
   let nextBackground: BackgroundKind = 'rewrite';
   const lastTurn: Partial<Record<BackgroundKind | 'live', string>> = {};
   const counters = { pages: 0, errors: 0 };
@@ -427,6 +425,11 @@ export function createSync({
     const due = store
       .getStreams()
       .filter(state => repos.has(state.repoId) && (automatic || state.manual) && Date.parse(String(state.nextAt || 0)) <= now());
+    if (!(now() - Date.parse(lastTurn.live ?? '') < SNAPSHOT_TTL_MS)) continuingSnapshots.clear();
+    if (continuingSnapshots.size) {
+      const dueKeys = new Set(due.map(state => `${state.repoId}:${state.stream}`));
+      for (const key of continuingSnapshots.keys()) if (!dueKeys.has(key)) continuingSnapshots.delete(key);
+    }
     due.sort((a, b) => (Date.parse(String(a.lastAttempt || 0)) || 0) - (Date.parse(String(b.lastAttempt || 0)) || 0));
     return { due, repos };
   }
@@ -621,6 +624,7 @@ export function createSync({
     store.commitPage({ repoId: repo.id, stream: state.stream, state: next, ...output });
     counters.pages++;
     const key = `${repo.id}:${state.stream}`;
+    if (!complete && isSnapshot(state.stream)) continuingSnapshots.set(key, working.window.until);
     if (complete && (requested.get(key)?.generation ?? 0) <= working.windowGeneration) requested.delete(key);
     return next;
   }
@@ -641,10 +645,12 @@ export function createSync({
     }
     const [first, second] = due;
     if (!first) return;
-    const at = now();
-    if (!(at - Date.parse(lastTurn.live ?? '') < SNAPSHOT_TTL_MS)) liveSince = at;
     const { state, repo } = takeLiveTurn(first, second, repos);
-    const working = startPage(state, at, overlapMs, liveSince);
+    const key = `${repo.id}:${state.stream}`;
+    const continuing = Boolean(state.window && continuingSnapshots.get(key) === state.window.until);
+    // Only a successful partial read puts the snapshot back in the queue.
+    continuingSnapshots.delete(key);
+    const working = startPage(state, now(), overlapMs, continuing);
     reading = { repoId: state.repoId, stream: state.stream };
     const watch = watchOf(repo.id);
     try {
@@ -659,7 +665,6 @@ export function createSync({
       // A refresh requested while this read was in flight is not answered by its failure.
       const latest = store.getStreams().find(entry => entry.repoId === repo.id && entry.stream === state.stream) || state;
       store.saveStream(failPage(working, latest, now(), error, intervalMs));
-      const key = `${repo.id}:${state.stream}`;
       if ((requested.get(key)?.generation ?? 0) <= working.windowGeneration) requested.delete(key);
       counters.errors++;
     } finally {
@@ -716,6 +721,7 @@ export function createSync({
     },
     stop() {
       stopped = true;
+      continuingSnapshots.clear();
       clearTimeout(timer);
       timer = undefined;
       return active;
@@ -738,6 +744,7 @@ export function createSync({
         delete backgroundProblems.history;
       } finally {
         requested.clear();
+        continuingSnapshots.clear();
         refreshedAt.clear();
         prTurns.clear();
         buildTurns.clear();
@@ -758,6 +765,7 @@ export function createSync({
       refreshedAt.delete(repoId);
       prTurns.delete(repoId);
       buildTurns.delete(repoId);
+      for (const stream of STREAMS) continuingSnapshots.delete(`${repoId}:${stream}`);
       for (const [key, entry] of requested) if (entry.repoId === repoId) requested.delete(key);
       if (STREAMS.some(stream => lastKey === `${repoId}:${stream}`)) lastKey = undefined;
     },

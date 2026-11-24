@@ -91,9 +91,9 @@ Evidence saved before deeper analysis stopped also enumerated ref ranges, becaus
   is immediately due for another check while automatic checks are on. Catch-up still depends on
   Azure history availability, permissions and successful completion of every page.
 - Current refs, active PRs and active builds restart at page one if a saved partial listing is
-  at least two minutes old and the read failed, the app restarted, or live reads paused for at
-  least two minutes. Healthy listings keep paging while the scheduler is working through its
-  queue. A refs scan requests up to 1,000 refs per page and defers to a push
+  at least two minutes old and its read failed, the app restarted, or the listing stopped being
+  due because the repository was disabled or automatic checks were paused. A two-minute gap
+  between live turns also expires old listings. Healthy listings keep paging while they stay due. A refs scan requests up to 1,000 refs per page and defers to a push
   observed since the scan started. “Branch no longer listed” means the branch was missing from
   the refs listing. It does not identify a rewrite or establish the time or actor of a removal.
 - Polling can miss intermediate states, edits, votes or temporary entities. It cannot reconstruct
