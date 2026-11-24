@@ -5,11 +5,11 @@ export type GitRunner = import('./checkout-git.ts').GitRunner;
 export type Rewrite = import('../src/contract.ts').Rewrite;
 export type Observation = {
   identity: string;
-  tracking?: string;
-  lastCheck?: { branch: string; at: string; tip: string; gitDirectory: string };
+  tracking?: string | undefined;
+  lastCheck?: { branch: string; at: string; tip: string; gitDirectory: string } | undefined;
   pending?: string[];
-  missing?: { head: string; advice?: PullAdvice };
-  rewrite?: Rewrite;
+  missing?: { head: string; advice?: PullAdvice | undefined };
+  rewrite?: Rewrite | undefined;
   failure?: { title: string; suggestion: string };
 };
 export type Observations = {

@@ -33,7 +33,8 @@ export type Job = {
   [field: string]: unknown;
 };
 /** Settings hold any JSON value, written with JSON.stringify. */
-export type SettingValue = null | boolean | number | string | SettingValue[] | { [key: string]: SettingValue };
+/** JSON.stringify drops an object member holding undefined, so a saved object may carry one. */
+export type SettingValue = null | boolean | number | string | SettingValue[] | { [key: string]: SettingValue | undefined };
 export type EntityInput = { type: string; id: string | number; data: unknown };
 /**
  * Reads one JSON `data` column. A present row yields T; a possibly missing row yields T or undefined.

@@ -44,7 +44,7 @@ export type AppOptions = {
   provider: AppProvider;
   sync: AppSync;
   cli?: Pick<ReturnType<typeof createAzureCli>, 'diagnostics'> | null;
-  backfill?: Pick<ReturnType<typeof createBackfill>, 'start'>;
+  backfill?: Pick<ReturnType<typeof createBackfill>, 'start'> | undefined;
   demo?: boolean;
   discover?: typeof discoverRepositories;
   browse?: (input: unknown) => Promise<FoldersResponse>;
@@ -695,7 +695,7 @@ export async function startApp({
   demo = false,
   port = 0,
   dataDir = resolve(ROOT, '.repo-pulse'),
-}: { demo?: boolean; port?: number; dataDir?: string } = {}) {
+}: { demo?: boolean; port?: number; dataDir?: string | undefined } = {}) {
   await secureDataDir(dataDir);
   // Earlier versions kept one key for good; every start now makes its own, so a key from a past run is useless.
   await rm(resolve(dataDir, 'access-key'), { force: true });

@@ -9,7 +9,7 @@ export type CheckoutPull = {
   sourceId?: string;
   targetId?: string;
   head?: string;
-  result?: string;
+  result?: string | undefined;
   strategy?: string;
   url?: string;
 };
@@ -163,7 +163,7 @@ export function createCheckoutLookup({
   lookup,
 }: {
   cached: (id: string, source: string) => CheckoutPull[];
-  lookup?: (repo: LinkedRepo, source: string) => Promise<CheckoutPull[]>;
+  lookup?: ((repo: LinkedRepo, source: string) => Promise<CheckoutPull[]>) | undefined;
 }): FindCheckoutPulls {
   return async (repo, source, head) => {
     const local = cached(repo.id, source);

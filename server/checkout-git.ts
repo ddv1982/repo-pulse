@@ -272,7 +272,7 @@ export function createCheckoutGit({
   observations = memoryObservations(),
   followups = memoryFollowups(),
 }: {
-  run?: GitRunner;
+  run?: GitRunner | undefined;
   matchesRemote?: typeof matchesWatchedRemote;
   now?: () => number;
   followups?: import('./checkout-branches.ts').Followups;
@@ -670,7 +670,7 @@ export function createCheckoutGit({
     repo: LinkedRepo,
     name: string,
     expected: SwitchIntent,
-    { eventId, confirmation }: { eventId?: string; confirmation?: string } = {},
+    { eventId, confirmation }: { eventId?: string | undefined; confirmation?: string | undefined } = {},
   ): Promise<import('../src/contract.ts').ActivitySwitchResult> {
     return exclusively(repo, path => switchAt(path, repo, name, expected, { eventId, confirmation }));
   }

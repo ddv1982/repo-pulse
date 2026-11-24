@@ -61,7 +61,7 @@ export function createActivityData(request: Request) {
       force = false,
       activityRevision,
       restart,
-    }: { more?: boolean; force?: boolean; activityRevision?: string; restart?: boolean } = {},
+    }: { more?: boolean; force?: boolean; activityRevision?: string | undefined; restart?: boolean } = {},
   ) {
     ui = { ...ui };
     useKey(keyFor(ui));

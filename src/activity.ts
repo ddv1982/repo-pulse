@@ -1,17 +1,17 @@
 export type ActivityKind = 'branch-created' | 'branch-deleted' | 'tag' | 'push' | 'pr' | 'build';
-export type RefUpdate = { name?: string; oldObjectId?: string; newObjectId?: string };
+export type RefUpdate = { name?: string; oldObjectId?: string; newObjectId?: string | undefined };
 /**
  * A completed PR in push merge evidence (server/merge-evidence.ts localPrLink). `id` and an object `closedBy` come from older rows.
  */
 export type EvidencePr = {
-  pullRequestId?: number | string;
+  pullRequestId?: number | string | undefined;
   id?: number | string;
-  url?: string;
-  sourceRefName?: string;
-  targetRefName?: string;
-  closedBy?: string | { displayName?: string };
-  mergeStrategy?: string;
-  mergeCommit?: string;
+  url?: string | undefined;
+  sourceRefName?: string | undefined;
+  targetRefName?: string | undefined;
+  closedBy?: string | { displayName?: string } | undefined;
+  mergeStrategy?: string | undefined;
+  mergeCommit?: string | undefined;
   relationship?: string;
 };
 export type EvidenceCommit = { commitId?: string; parents?: string[]; branches?: (string | undefined)[] };
@@ -69,15 +69,15 @@ export type ForkOrigin = {
 export type EventData = RefUpdate & {
   id?: number | string;
   buildId?: number | string;
-  pushId?: number | string;
+  pushId?: number | string | undefined;
   status?: string;
-  result?: string;
+  result?: string | undefined;
   reason?: string;
   isDraft?: boolean;
   evidence?: string;
   targetRefName?: string;
   refUpdates?: RefUpdate[];
-  commits?: unknown[];
+  commits?: unknown[] | undefined;
   definition?: { name?: string };
   mergeEvidence?: MergeEvidenceData;
   forkOrigin?: ForkOrigin;
@@ -85,7 +85,7 @@ export type EventData = RefUpdate & {
   sourceRefName?: string;
   sourceCommit?: string;
   targetCommit?: string;
-  mergeCommit?: string;
+  mergeCommit?: string | undefined;
   mergeStrategy?: string;
   closedBy?: string;
   sourceVersion?: string;
@@ -126,13 +126,13 @@ export type ActivityItem = ActivityEvent & {
 };
 
 export type ActivityRequest = {
-  repoIds?: string[];
+  repoIds?: string[] | undefined;
   view?: 'new' | 'all';
-  kind?: string;
-  search?: string;
+  kind?: string | undefined;
+  search?: string | undefined;
   people?: string;
   limit?: number;
-  cursor?: string;
+  cursor?: string | undefined;
 };
 export type ActivityPage = {
   items: ActivityItem[];
@@ -140,7 +140,7 @@ export type ActivityPage = {
   total: number;
   newItems: number;
   newUpdates: number;
-  filterOptions?: string[];
+  filterOptions?: string[] | undefined;
   counts?: Record<string, number>;
   newCounts?: Record<string, number>;
   asOf?: number;

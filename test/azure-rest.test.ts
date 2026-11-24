@@ -78,7 +78,12 @@ function harness({
     const next = (typeof responses === 'function' ? responses(init) : responses.shift()) || { status: 200, body: { count: 0, value: [] } };
     if (next.error) throw next.error;
     if (next.raw) return next.raw;
-    return new Response(JSON.stringify(next.body ?? {}), { status: next.status, headers: next.headers });
+    // Leaving a field out is how ResponseInit reads undefined.
+    const responseInit = {
+      ...(next.status === undefined ? {} : { status: next.status }),
+      ...(next.headers ? { headers: next.headers } : {}),
+    };
+    return new Response(JSON.stringify(next.body ?? {}), responseInit);
   };
   const executor = createRestExecutor({ cliExecutor, fetch, now: () => time });
   const cli = createAzureCli({ executor, limitPerMinute: 1000, now: () => time, ...(setTimer && { setTimer, clearTimer: () => {} }) });

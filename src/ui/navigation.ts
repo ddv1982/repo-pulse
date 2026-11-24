@@ -21,7 +21,7 @@ export type ResultsContext = {
   savedFilterId: string;
   scrollY: number;
   eventId: string | null;
-  matchingIds?: string[];
+  matchingIds?: string[] | undefined;
   activityCapacity: number;
 };
 

@@ -215,7 +215,7 @@ export function createActivitySwitch({
     repo: LinkedRepo,
     name: string,
     expected: SwitchIntent,
-    { eventId, confirmation }: { eventId?: string; confirmation?: string },
+    { eventId, confirmation }: { eventId?: string | undefined; confirmation?: string | undefined },
   ) {
     const current = await statusAt(path, repo);
     checkSwitchIntent(current.snapshot, expected);

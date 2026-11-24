@@ -14,7 +14,7 @@ export type SyncStatusInput = {
   startedAt: number;
   now: number;
   demo?: boolean;
-  throttledUntil?: string | null;
+  throttledUntil?: string | null | undefined;
   resetting?: boolean;
   resetFailed?: boolean;
 };

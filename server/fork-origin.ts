@@ -46,8 +46,8 @@ export function forkJob(event: {
   data?: {
     evidence?: string;
     name?: string;
-    newObjectId?: string;
-    pushId?: number | string;
+    newObjectId?: string | undefined;
+    pushId?: number | string | undefined;
   };
 }): ForkJob | null {
   const { evidence, name, newObjectId, pushId } = event.data ?? {};

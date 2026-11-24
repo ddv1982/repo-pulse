@@ -180,7 +180,7 @@ export function renderDetail(
   }: {
     returnRoute?: string;
     label?: string;
-    matchingIds?: string[];
+    matchingIds?: string[] | undefined;
     checkouts?: Record<string, import('./checkout.ts').CheckoutSnapshot>;
   } = {},
 ) {
