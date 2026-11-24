@@ -1,6 +1,7 @@
 // Simulates live polling against the shared Azure call budget.
 // Usage: node scripts/measure-budget.ts [--limit 12] [--repos 1,5,10,20] [--pushes-per-hour 4] [--call-ms 1500] [--minutes 60]
-//   [--active-prs 0 --pr-every 3]: also spend one threads read and one policy evaluations read per active PR every N minutes.
+//   [--refs-per-repo 1] [--active-prs 0 --pr-every 3]: also spend one threads read and one policy evaluations read per active PR every N minutes.
+import { mock } from 'node:test';
 import { createHash } from 'node:crypto';
 import { createStore } from '../server/store.ts';
 import { createSync } from '../server/sync.ts';
@@ -19,9 +20,12 @@ const minutes = Number(option('minutes', 60));
 const LIMIT_PER_MINUTE = Number(option('limit', 12));
 // A limit below 1 can never admit a call; the simulation failed with a RangeError for it before as well.
 if (!(LIMIT_PER_MINUTE >= 1)) throw new RangeError('--limit must be at least 1.');
+const refsPerRepo = Number(option('refs-per-repo', 1));
+if (!Number.isSafeInteger(refsPerRepo) || refsPerRepo < 1) throw new RangeError('--refs-per-repo must be a positive integer.');
 const activePrs = Number(option('active-prs', 0));
 const prEveryMs = Number(option('pr-every', 3)) * 60000;
 const sha = (value: string) => createHash('sha1').update(value).digest('hex');
+const extraRefs = Array.from({ length: refsPerRepo - 1 }, (_, i) => ({ name: `refs/heads/branch-${i}`, objectId: sha(`branch-${i}`) }));
 
 function simulate(repoTotal: number) {
   const start = Date.parse('2026-11-17T09:00:00Z');
@@ -100,7 +104,10 @@ function simulate(repoTotal: number) {
       }
       if (resource === 'refs') {
         const latest = repoPushes.filter(push => Date.parse(push.date) <= time).at(-1);
-        return { value: [{ name: 'refs/heads/main', objectId: latest?.refUpdates[0]?.newObjectId || sha(`${route.repositoryId}:root`) }] };
+        const main = { name: 'refs/heads/main', objectId: latest?.refUpdates[0]?.newObjectId || sha(`${route.repositoryId}:root`) };
+        const from = Number(query.continuationToken ?? 0);
+        const to = from + Number(query.$top);
+        return { value: [main, ...extraRefs].slice(from, to), continuation_token: to < refsPerRepo ? String(to) : undefined };
       }
       return { value: [] };
     },
@@ -160,16 +167,26 @@ function percentile(values: number[], p: number) {
 const minutesOf = (ms: number | null) => (ms === null ? 'n/a' : (ms / 60000).toFixed(1));
 
 console.log(
-  `Budget ${LIMIT_PER_MINUTE} calls/min, ${callMs} ms per call, ${pushesPerHour} pushes/hour/repo, ${minutes} simulated minutes, tab in foreground${activePrs ? `, ${activePrs} active PRs/repo read twice every ${prEveryMs / 60000} min` : ''}.`,
+  `Budget ${LIMIT_PER_MINUTE} calls/min, ${callMs} ms per call, ${pushesPerHour} pushes/hour/repo, ${minutes} simulated minutes, ${refsPerRepo} refs/repo, tab in foreground${activePrs ? `, ${activePrs} active PRs/repo read twice every ${prEveryMs / 60000} min` : ''}.`,
 );
-console.log('repos | calls/min | pushes | in Activity | delay p50 min | delay p95 min | delay max min');
+console.log('repos | initial sync s | calls/min | pushes | in Activity | delay p50 min | delay p95 min | delay max min');
 for (const repoTotal of repoCounts) {
   const run = simulate(repoTotal);
   const startedAt = run.now();
-  while (run.now() < run.end) {
-    await run.sync.tick();
-    run.prReads();
-    run.advance(1000);
+  let startupMs: number | undefined;
+  mock.timers.enable({ apis: ['setTimeout'] });
+  run.sync.start();
+  try {
+    while (run.now() < run.end) {
+      run.advance(100);
+      mock.timers.tick(100);
+      await new Promise(resolve => setImmediate(resolve));
+      run.prReads();
+      if (startupMs === undefined && run.store.getStreams().every(stream => stream.initialized)) startupMs = run.now() - startedAt;
+    }
+  } finally {
+    await run.sync.stop();
+    mock.timers.reset();
   }
   const elapsedMinutes = (run.now() - startedAt) / 60000;
   const events = run.store.listEvents({ limit: 5000 }).filter(event => event.kind === 'push');
@@ -177,6 +194,7 @@ for (const repoTotal of repoCounts) {
   console.log(
     [
       repoTotal,
+      startupMs === undefined ? 'n/a' : (startupMs / 1000).toFixed(1),
       (run.calls() / elapsedMinutes).toFixed(1),
       run.generated,
       events.length,

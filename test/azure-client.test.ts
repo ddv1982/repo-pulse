@@ -28,6 +28,7 @@ test('push pagination keeps fixed window and includes all refs without branch fi
   assert.deepEqual(first.nextCursor, { skip: 100 });
   const second = await client.read(repo, 'pushes', { ...window, cursor: first.nextCursor });
   assert.equal(second.nextCursor, null);
+  assert(present(calls[1]).includes('$top=100'));
   assert(present(calls[1]).includes('$skip=100'));
   assert(present(calls[1]).includes('searchCriteria.fromDate=2026-11-10T11:12:13.000Z'));
   assert(present(calls[1]).includes('searchCriteria.includeRefUpdates=true'));
@@ -64,6 +65,8 @@ test('refs use continuation token and build cache isolates repositories while co
   const refs = await client.read(repo, 'refs', window);
   assert.deepEqual(refs.nextCursor, { token: 'page2', allRefs: true });
   await client.read(repo, 'refs', { ...window, cursor: refs.nextCursor });
+  assert(present(calls[0]).includes('$top=1000'));
+  assert(present(calls[1]).includes('$top=1000'));
   assert(present(calls[1]).includes('continuationToken=page2'));
   const [a, b] = await Promise.all([
     client.read(repo, 'builds', window),

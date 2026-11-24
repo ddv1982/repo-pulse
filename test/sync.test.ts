@@ -173,6 +173,247 @@ test('failed page preserves cursor across sync restart, completed window dedupli
   store.close();
 });
 
+for (const stream of ['pushes', 'builds'] as const) {
+  test(`a stale ${stream} cursor restarts from the same lower bound and catches up to now`, async () => {
+    const calls: ReadOptions[] = [];
+    const cursor = stream === 'pushes' ? { skip: 100 } : { token: 'old' };
+    const provider: SyncProvider = {
+      async read(_repo, _stream, options) {
+        calls.push(present(options));
+        return { items: stream === 'pushes' ? [push(1)] : [], nextCursor: calls.length === 2 ? cursor : null };
+      },
+    };
+    const { store, sync, advance } = setup(provider, [stream]);
+    const state = () => present(store.getStreams().find(entry => entry.stream === stream));
+    await sync.tick();
+    advance();
+    await sync.tick();
+    const saved = state();
+    assert.deepEqual(saved.cursor, cursor);
+    advance(11 * 60000);
+
+    const at = BASE + 2000 + 11 * 60000;
+    const resumed = createSync({ store, provider, now: () => at });
+    await resumed.tick();
+
+    assert.deepEqual(calls[2], { since: present(saved.window).since, until: new Date(at).toISOString(), cursor: null });
+    assert.equal(state().lastSuccess, new Date(at).toISOString());
+    assert.equal(state().cursor, undefined);
+    if (stream === 'pushes') assert.equal(store.listEvents().filter(event => event.kind === 'push').length, 1);
+    store.close();
+  });
+}
+
+test('a large healthy history window can keep paging beyond ten minutes', async () => {
+  const calls: ReadOptions[] = [];
+  const { store, sync, advance } = setup({
+    async read(_repo, _stream, options) {
+      calls.push(present(options));
+      return { items: [], nextCursor: calls.length < 3 ? { skip: calls.length * 100 } : null };
+    },
+  });
+  for (let page = 0; page < 3; page++) {
+    await sync.tick();
+    advance(6 * 60000);
+  }
+  assert.deepEqual(calls[2], { ...calls[0], cursor: { skip: 200 } });
+  assert.equal(pushesState(store).lastSuccess, new Date(BASE).toISOString());
+  store.close();
+});
+
+test('retrying the first page of an initial import keeps its original lower bound', async () => {
+  const calls: ReadOptions[] = [];
+  const { store, sync, advance } = setup({
+    async read(_repo, _stream, options) {
+      calls.push(present(options));
+      if (calls.length === 1) throw Object.assign(new Error('Network unavailable'), { code: 'NETWORK' });
+      return { items: [], nextCursor: null };
+    },
+  });
+  await sync.tick();
+  advance(DAY);
+  await sync.tick();
+  assert.deepEqual(calls[1], {
+    since: new Date(BASE - 7 * DAY).toISOString(),
+    until: new Date(BASE + DAY).toISOString(),
+    cursor: null,
+  });
+  store.close();
+});
+
+test('an old incomplete refs snapshot is discarded before its cursor or warning is used', async () => {
+  const calls: ReadOptions[] = [];
+  const provider: SyncProvider = {
+    async read(_repo, _stream, options) {
+      calls.push(present(options));
+      if (calls.length === 1) return { items: [{ name: 'refs/heads/main', objectId: 'a' }], nextCursor: null };
+      if (calls.length === 2)
+        return {
+          items: [{ name: 'refs/heads/obsolete', objectId: 'b' }],
+          nextCursor: { token: 'stale', allRefs: true },
+          unreadable: { count: 1, fields: ['objectId'] },
+          unreadableIds: [{ id: 'refs/heads/main', field: 'objectId' }],
+        };
+      return { items: [{ name: 'refs/heads/main', objectId: 'a' }], nextCursor: null };
+    },
+  };
+  const { store, sync, advance } = setup(provider, ['refs']);
+  await sync.tick();
+  advance(600000);
+  await sync.tick();
+
+  const at = BASE + 10 * 60000 + 5.5 * 3600000;
+  const resumed = createSync({ store, provider, now: () => at });
+  await resumed.tick();
+
+  assert.equal(present(calls[2]).cursor, null);
+  assert.equal(present(calls[2]).until, new Date(at).toISOString());
+  assert.equal(store.getEntity(repo.id, 'ref', 'refs/heads/obsolete'), undefined);
+  assert.equal(present(store.getStreams().find(entry => entry.stream === 'refs')).warning, undefined);
+  assert.deepEqual(store.listEvents(), []);
+  store.close();
+});
+
+test('a refs continuation survives busy turns beyond the snapshot expiry', async () => {
+  const cursors: ReadOptions['cursor'][] = [];
+  const { store, sync, advance } = setup(
+    {
+      async read(_repo, stream, options) {
+        if (stream === 'pushes') return { items: [], nextCursor: null };
+        const { cursor } = present(options);
+        cursors.push(cursor);
+        return {
+          items: [{ name: cursor ? 'refs/heads/second' : 'refs/heads/first', objectId: 'a' }],
+          nextCursor: cursor ? null : { token: 'next', allRefs: true },
+        };
+      },
+    },
+    ['refs'],
+  );
+  await sync.tick();
+  advance(90000);
+  store.saveStream({ ...pushesState(store), nextAt: new Date(BASE + 90000).toISOString() });
+  await sync.tick();
+  advance(90000);
+  await sync.tick();
+  assert.deepEqual(cursors, [null, { token: 'next', allRefs: true }]);
+  assert.equal(store.getEntity(repo.id, 'ref', 'refs/heads/first')?.active, true);
+  assert.equal(store.getEntity(repo.id, 'ref', 'refs/heads/second')?.active, true);
+  store.close();
+});
+
+for (const automatic of [true, false]) {
+  test(`a slow paged read catches up immediately only with automatic refresh on (automatic: ${automatic})`, async () => {
+    const calls: ReadOptions[] = [];
+    const { store, sync, advance } = setup({
+      async read(_repo, _stream, options) {
+        calls.push(present(options));
+        if (calls.length === 2) advance(4 * 60000);
+        return { items: [], nextCursor: calls.length === 1 ? { skip: 1 } : null };
+      },
+    });
+    store.setSetting('refreshEnabled', automatic);
+    const initial = pushesState(store);
+    store.saveStream({ ...initial, manual: !automatic });
+    await sync.tick();
+    await sync.tick();
+    const settled = pushesState(store);
+    const completedAt = BASE + 4 * 60000;
+    assert.equal(settled.lastSuccess, new Date(BASE).toISOString(), 'the first window retains its own watermark');
+    await sync.tick();
+    if (automatic) {
+      assert.equal(settled.nextAt, new Date(completedAt).toISOString());
+      assert.equal(present(calls[2]).until, new Date(completedAt).toISOString());
+    } else {
+      assert.ok(Date.parse(settled.nextAt) > completedAt);
+      assert.equal(calls.length, 2);
+    }
+    store.close();
+  });
+}
+
+test('closing the queue during shutdown leaves the read checkpoint and errors untouched', async () => {
+  const { promise, reject } = Promise.withResolvers<AzurePage>();
+  const { store, sync } = setup({ read: () => promise });
+  const before = store.getStreams();
+  const turn = sync.tick();
+  const stopped = sync.stop();
+  reject(Object.assign(new Error('Queue closed'), { code: 'CLOSED' }));
+  await Promise.all([turn, stopped]);
+  assert.deepEqual(store.getStreams(), before);
+  assert.equal(sync.status().errors, 0);
+  store.close();
+});
+
+test('a refs scan leaves branch updates from pushes observed between its pages intact', async () => {
+  const name = 'refs/heads/hotfix/example';
+  const old = 'refs/heads/gone';
+  const main = 'refs/heads/main';
+  let scan = 0;
+  const { store, sync, advance } = setup(
+    {
+      async read(_repo, stream, options) {
+        if (stream === 'pushes')
+          return {
+            items:
+              scan > 0
+                ? [
+                    {
+                      ...push(1),
+                      refUpdates: [
+                        { name, oldObjectId: '0'.repeat(40), newObjectId: 'b'.repeat(40) },
+                        { name: main, oldObjectId: 'b'.repeat(40), newObjectId: '0'.repeat(40) },
+                      ],
+                    },
+                  ]
+                : [],
+            nextCursor: null,
+          };
+        if (scan === 0)
+          return {
+            items: [
+              { name: old, objectId: 'a' },
+              { name: main, objectId: 'b' },
+            ],
+            nextCursor: null,
+          };
+        return {
+          items: present(options).cursor || scan > 1 ? [] : [{ name: main, objectId: 'b' }],
+          nextCursor: present(options).cursor ? null : { token: 'next', allRefs: true },
+        };
+      },
+    },
+    ['refs'],
+  );
+  const state = (stream: 'refs' | 'pushes') => present(store.getStreams().find(entry => entry.stream === stream));
+  await sync.tick();
+  scan = 1;
+  advance(600000);
+  await sync.tick();
+  advance(1);
+  store.saveStream({ ...state('pushes'), nextAt: new Date(BASE + 600001).toISOString() });
+  await sync.tick();
+  await sync.tick();
+
+  assert.equal(store.getEntity(repo.id, 'ref', name)?.active, true);
+  assert.equal(store.getEntity(repo.id, 'ref', old)?.active, false);
+  assert.equal(store.getEntity(repo.id, 'ref', main)?.active, false, 'an older page cannot re-list a deleted branch');
+  assert.deepEqual(
+    store
+      .listEvents()
+      .filter(event => event.kind === 'branch-deleted' && event.data?.evidence === 'snapshot')
+      .map(event => event.branch),
+    ['gone'],
+  );
+  store.saveStream({ ...state('pushes'), nextAt: '2099-01-01T00:00:00Z' });
+  scan = 2;
+  advance(600000);
+  await sync.tick();
+  await sync.tick();
+  assert.equal(store.getEntity(repo.id, 'ref', name)?.active, false, 'a later scan can retire the branch');
+  store.close();
+});
+
 test('ref baseline emits nothing and only full snapshots expose newly discovered branches', async () => {
   let stage = 0;
   const provider: SyncProvider = {
@@ -861,6 +1102,42 @@ test('repositories added during the refresh cooldown still get their initial imp
   store.close();
 });
 
+test('the scheduler drains due live work quickly, then returns to the idle interval', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const reads: string[] = [];
+  const { store, sync } = setup(
+    {
+      async read(_repo, stream) {
+        reads.push(stream);
+        return { items: [], nextCursor: null };
+      },
+    },
+    ['pushes', 'refs'],
+  );
+  t.after(async () => {
+    await sync.stop();
+    store.close();
+  });
+  async function advanceTimer(ms: number) {
+    t.mock.timers.tick(ms);
+    await new Promise(resolve => setImmediate(resolve));
+  }
+
+  sync.start();
+  await advanceTimer(1000);
+  assert.deepEqual(reads, ['pushes']);
+  await advanceTimer(100);
+  assert.deepEqual(reads, ['pushes', 'refs']);
+
+  sync.refresh([repo.id]);
+  const state = pushesState(store);
+  store.saveStream({ ...state, nextAt: new Date(BASE).toISOString() });
+  await advanceTimer(100);
+  assert.deepEqual(reads, ['pushes', 'refs'], 'the scheduler stayed idle between checks');
+  await advanceTimer(900);
+  assert.deepEqual(reads, ['pushes', 'refs', 'pushes']);
+});
+
 test('a failing scheduled tick is contained and polling continues', async () => {
   const store = createStore();
   store.saveRepo(repo);
@@ -1449,6 +1726,7 @@ test('a refs snapshot saved before tags restarts and still notices a branch dele
       ...refs,
       initialized: true,
       cursor: { token: 'heads-only' },
+      window: { since: new Date(BASE - DAY).toISOString(), until: new Date(BASE).toISOString() },
       pendingItems: [{ name: 'refs/heads/old', objectId: 'b' }],
       nextAt: new Date(BASE).toISOString(),
     },

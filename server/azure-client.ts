@@ -394,7 +394,7 @@ export function createAzureClient({ cli, now = Date.now }: { cli?: AzureClientCl
           // A token saved by the branch-only query used before tags pages a different list, so that snapshot restarts.
           response = await invoke(repo, 'git', 'refs', {
             peelTags: 'true',
-            $top: PAGE,
+            $top: 1000,
             continuationToken: cursor?.allRefs ? cursor.token : undefined,
           });
           const page = pageOfStream(response, { skip, mode });

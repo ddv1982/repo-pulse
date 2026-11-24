@@ -84,9 +84,18 @@ Evidence saved before deeper analysis stopped also enumerated ref ranges, becaus
 - First import requests approximately seven days of pushes, PR closures and recent builds. Current
   active PRs/runs are also read, so old active entities can legitimately have much older source times.
   Ref import establishes a current baseline rather than the history of every pre-existing branch.
-- Subsequent runs resume independent persisted checkpoints with overlap and paginated fixed windows;
-  they do not reset the catch-up window to seven days on each restart. Catch-up still depends on
+- Pushes, PR closures and recent builds use independent checkpoints with overlapping time ranges.
+  A page-one retry extends the upper bound to the retry time. Later pages keep the original range
+  while the read makes progress. A ten-minute gap between pages, or retrying a failed window that
+  opened at least ten minutes ago, restarts at page one with the original lower bound and a new upper bound. A completed read that took longer than the normal check interval
+  is immediately due for another check while automatic checks are on. Catch-up still depends on
   Azure history availability, permissions and successful completion of every page.
+- Current refs, active PRs and active builds restart at page one if a saved partial listing is
+  at least two minutes old and the read failed, the app restarted, or live reads paused for at
+  least two minutes. Healthy listings keep paging while the scheduler is working through its
+  queue. A refs scan requests up to 1,000 refs per page and defers to a push
+  observed since the scan started. “Branch no longer listed” means the branch was missing from
+  the refs listing. It does not identify a rewrite or establish the time or actor of a removal.
 - Polling can miss intermediate states, edits, votes or temporary entities. It cannot reconstruct
   every action that happened while the process was stopped or between successful checks.
 - Activity uses server-side grouped SQLite pages, including older unseen records. Stable cursors exclude concurrent inserts. **Mark all seen** (**Mark all matching seen** with filters) collects the matching unread IDs across pages up to the snapshot the page was read at. It confirms when some are below the rendered rows, and otherwise marks them at once. Deep links resolve outside the first page.
@@ -96,7 +105,8 @@ Evidence saved before deeper analysis stopped also enumerated ref ranges, becaus
 - The shared budget is 60 calls/minute with four in flight. Activity reads normally use one REST request
   made with an Azure CLI token (one retry after a token renewal); other commands still start `az`, which can make several requests
   internally. Normal checks are around three minutes, quiet/background checks five minutes and refs
-  ten minutes, subject to queueing and backoff.
+  ten minutes, subject to queueing and backoff. After a successful turn, live checks that are already
+  due can start the next turn after 100 ms. They still use the same shared budget.
 - When any REST response carries a valid positive `Retry-After` header, the shared queue starts no new
   read for any repository until that wait has passed, up to ten minutes. A read that was already waiting
   for a token fails as throttled. A failed live sync read is retried after its normal backoff only while
