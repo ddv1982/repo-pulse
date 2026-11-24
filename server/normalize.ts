@@ -67,6 +67,7 @@ export type RefEntity = {
   active?: boolean;
   evidence?: string;
   lastPushId?: number | null | undefined;
+  lastPushObservedAt?: string | undefined;
 };
 type ReviewerVote = [string, number | null];
 type PrFingerprint = Record<string, unknown> & { votes?: ReviewerVote[] };
@@ -272,6 +273,7 @@ export function createNormalizer({ store, now = Date.now }: { store: NormalizeSt
           active: !ZERO.test(ref.newObjectId || ''),
           evidence: 'push',
           lastPushId: Number(item.pushId),
+          lastPushObservedAt: iso(now()),
         };
         refs?.set(ref.name, current);
         entities.push({ type: 'ref', id: ref.name, data: current });
@@ -512,10 +514,14 @@ export function createNormalizer({ store, now = Date.now }: { store: NormalizeSt
         },
         false,
       );
+    // A push saved since the scan opened can be newer than any of its pages.
+    const scanStartedAt = Date.parse(state.window.until);
+    const observedDuringScan = (ref: RefEntity | undefined) => Date.parse(ref?.lastPushObservedAt ?? '') >= scanStartedAt;
     const events: SyncEvent[] = [];
     const entities: Entity[] = [];
     for (const [name, item] of current) {
       const previous = before.get(name);
+      if (observedDuringScan(previous)) continue;
       if (incomplete && !state.initialized && !previous) continue;
       const peeled = item.peeledObjectId ? { peeledObjectId: item.peeledObjectId } : {};
       if (name.startsWith('refs/tags/')) {
@@ -525,7 +531,14 @@ export function createNormalizer({ store, now = Date.now }: { store: NormalizeSt
         entities.push({
           type: 'ref',
           id: name,
-          data: { name, objectId: item.objectId, ...peeled, active: true, lastPushId: previous?.lastPushId },
+          data: {
+            name,
+            objectId: item.objectId,
+            ...peeled,
+            active: true,
+            lastPushId: previous?.lastPushId,
+            lastPushObservedAt: previous?.lastPushObservedAt,
+          },
         });
         continue;
       }
@@ -550,14 +563,20 @@ export function createNormalizer({ store, now = Date.now }: { store: NormalizeSt
       entities.push({
         type: 'ref',
         id: name,
-        data: { name, objectId: item.objectId, active: true, lastPushId: previous?.lastPushId },
+        data: {
+          name,
+          objectId: item.objectId,
+          active: true,
+          lastPushId: previous?.lastPushId,
+          lastPushObservedAt: previous?.lastPushObservedAt,
+        },
       });
     }
     // An incomplete snapshot puts away only the tags it is the baseline for and can rule out.
     const putsAway = (name: string) => !incomplete || (name.startsWith('refs/tags/') && !tags.holds(name));
     if (tags.retires)
       for (const [name, old] of before) {
-        if (old.active === false || current.has(name) || !putsAway(name)) continue;
+        if (old.active === false || current.has(name) || !putsAway(name) || observedDuringScan(old)) continue;
         const tag = name.startsWith('refs/tags/');
         entities.push({ type: 'ref', id: name, data: { ...old, active: false } });
         if (tag) {

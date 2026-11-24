@@ -337,17 +337,9 @@ test('through createSync: first import syncs, a refused stream is a problem, and
     'the stream keeps the technical message',
   );
 
-  // The first good read finishes the window that failed, so the data is still as old as the first failure.
+  // A retry of page one widens the old window and reaches the current watermark on the first successful read.
   refuse = false;
   time += 31 * MINUTE;
-  await drain();
-  assert.deepEqual(current(), {
-    state: 'delayed',
-    reason: 'about 31 minutes behind',
-    stream: 'builds',
-    since: iso(BASE + 11 * MINUTE + 1500),
-  });
-  time += 5 * MINUTE;
   await drain();
   assert.equal(current().state, 'synced');
 

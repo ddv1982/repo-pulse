@@ -216,6 +216,7 @@ const refEntity = fields({
   evidence: maybe(string),
   // Older writers used Number(pushId), which serializes a non-finite value as null.
   lastPushId: maybe(nullable(finite)),
+  lastPushObservedAt: maybe(string),
 });
 const refBaseline = fields({ at: string, all: maybe(boolean), names: maybe(strings) });
 const entityGuards: { [T in EntityType]: [Check, Guard<EntityData[T]>] } = {

@@ -1,6 +1,7 @@
 # Repo Pulse
 
 ![Node.js 26+](https://img.shields.io/badge/Node.js-26%2B-339933?style=flat-square&logo=nodedotjs&logoColor=white)
+![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?style=flat-square&logo=typescript&logoColor=white)
 ![Azure DevOps CLI](https://img.shields.io/badge/Azure%20DevOps-CLI-0078d4?style=flat-square)
 ![Local storage with SQLite](https://img.shields.io/badge/Storage-local%20SQLite-6860a8?style=flat-square&logo=sqlite&logoColor=white)
 

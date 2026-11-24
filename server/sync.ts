@@ -63,6 +63,9 @@ export type BackgroundKind = 'rewrite' | 'history';
 
 const STREAMS: StreamName[] = ['pushes', 'refs', 'prs', 'closedPrs', 'builds', 'activeBuilds'];
 const DAY = 86400000;
+const SNAPSHOT_TTL_MS = 2 * 60000;
+const HISTORY_WINDOW_TTL_MS = 10 * 60000;
+const BUSY_POLL_MS = 100;
 const LIVE_TURNS = 6;
 const iso = (ms: number) => new Date(ms).toISOString();
 
@@ -147,18 +150,37 @@ export function warningOf(stream: StreamName, unreadable: UnreadableRecords | un
   };
 }
 
-/**
- * Opens a read. A stream resuming a paged read keeps its window and the generation it
- * opened with; a window persisted before generations existed counts as generation zero.
- */
-function startPage(state: StreamState, at: number, overlapMs: number): StartedStream {
-  const window = state.window || {
-    since: iso(state.lastSuccess ? Date.parse(state.lastSuccess) - overlapMs : at - 7 * DAY),
-    until: iso(at),
+/** The streams that traverse a current listing instead of reading a fixed time range. */
+function isSnapshot(stream: StreamName) {
+  return stream === 'refs' || stream === 'prs' || stream === 'activeBuilds';
+}
+
+/** Reuse the fields that belong to a read only while continuing that read. */
+function startPage(state: StreamState, at: number, overlapMs: number, continuing: boolean): StartedStream {
+  const start = { lastAttempt: iso(at), pending: true } as const;
+  if (state.window && state.cursor) {
+    const snapshot = isSnapshot(state.stream);
+    // Time-windowed reads can keep paging as long as they make progress within the limit.
+    const cursorAgeFrom = snapshot || state.error ? state.window.until : (state.lastAttempt ?? state.window.until);
+    const maxAge = snapshot ? SNAPSHOT_TTL_MS : HISTORY_WINDOW_TTL_MS;
+    if (continuing || at - Date.parse(cursorAgeFrom) < maxAge) {
+      return { ...state, ...start, window: state.window, windowGeneration: state.windowGeneration ?? 0 };
+    }
+  }
+
+  // Start over at the same lower bound, including for an interrupted first import.
+  const since = state.window?.since ?? iso(state.lastSuccess ? Date.parse(state.lastSuccess) - overlapMs : at - 7 * DAY);
+  return {
+    ...state,
+    ...start,
+    window: { since, until: start.lastAttempt },
+    windowGeneration: state.refreshGeneration ?? 0,
+    cursor: undefined,
+    pendingItems: undefined,
+    activeIds: undefined,
+    unreadable: undefined,
+    unreadableIds: undefined,
   };
-  // The refresh generation at the time this window opened; later refreshes need another read.
-  const windowGeneration = state.window ? (state.windowGeneration ?? 0) : state.refreshGeneration || 0;
-  return { ...state, window, windowGeneration, lastAttempt: iso(at), pending: true };
 }
 
 /**
@@ -210,6 +232,7 @@ function completePage(
   {
     at,
     delayMs,
+    catchUp,
     quietCycles,
     warning,
     unreadableLookups,
@@ -217,6 +240,7 @@ function completePage(
   }: {
     at: number;
     delayMs: number;
+    catchUp: boolean;
     quietCycles: number;
     warning: StreamWarning | undefined;
     unreadableLookups: UnreadableLookups;
@@ -230,13 +254,13 @@ function completePage(
     initialized,
     lastSuccess: state.window.until,
     lastAttempt: iso(at),
-    nextAt: iso(at + delayMs),
+    nextAt: iso(at + (refreshDue || catchUp ? 0 : delayMs)),
     quietCycles,
     error: null,
     pending: false,
     failures: 0,
     refreshGeneration: latest.refreshGeneration,
-    ...(refreshDue ? { manual: latest.manual, nextAt: iso(at) } : {}),
+    ...(refreshDue ? { manual: latest.manual } : {}),
     ...(warning ? { warning } : {}),
     ...(unreadableLookups?.length ? { unreadableLookups } : {}),
   };
@@ -307,7 +331,7 @@ export function createSync({
 }) {
   const { normalize, reconcileRefs } = createNormalizer({ store, now });
   let timer: ReturnType<typeof setTimeout> | undefined;
-  let active: Promise<void> | null | undefined;
+  let active: Promise<boolean | undefined> | null | undefined;
   // `stopped` is whether stop() asked the scheduler to end; `resetting` only pauses it, so a stop during a reset still wins.
   let stopped = false;
   let resetting = false;
@@ -321,6 +345,8 @@ export function createSync({
   const requested: Map<string, { repoId: string; stream: StreamName; generation: number }> = new Map();
   let lastKey: string | undefined;
   let liveTurns = 0;
+  // A healthy snapshot can outlast the expiry while it stays due and shares turns with other streams.
+  const continuingSnapshots = new Map<string, string>();
   let nextBackground: BackgroundKind = 'rewrite';
   const lastTurn: Partial<Record<BackgroundKind | 'live', string>> = {};
   const counters = { pages: 0, errors: 0 };
@@ -399,6 +425,11 @@ export function createSync({
     const due = store
       .getStreams()
       .filter(state => repos.has(state.repoId) && (automatic || state.manual) && Date.parse(String(state.nextAt || 0)) <= now());
+    if (!(now() - Date.parse(lastTurn.live ?? '') < SNAPSHOT_TTL_MS)) continuingSnapshots.clear();
+    if (continuingSnapshots.size) {
+      const dueKeys = new Set(due.map(state => `${state.repoId}:${state.stream}`));
+      for (const key of continuingSnapshots.keys()) if (!dueKeys.has(key)) continuingSnapshots.delete(key);
+    }
     due.sort((a, b) => (Date.parse(String(a.lastAttempt || 0)) || 0) - (Date.parse(String(b.lastAttempt || 0)) || 0));
     return { due, repos };
   }
@@ -516,8 +547,8 @@ export function createSync({
    * Reads one page plus, on the last page of a snapshot stream, the entities it no longer lists.
    * Returns null when the repository stopped being watched during a read.
    */
-  async function readPage(repo: WatchedRepo, state: StreamState, window: StreamWindow, watch: number) {
-    const page = await provider.read(repo, state.stream, { since: window.since, until: window.until, cursor: state.cursor || null });
+  async function readPage(repo: WatchedRepo, state: StartedStream, watch: number) {
+    const page = await provider.read(repo, state.stream, { ...state.window, cursor: state.cursor || null });
     if (!page || !Array.isArray(page.items)) throw new Error('Azure returned an invalid page.');
     // Removal while the provider was in flight must not resurrect a local watch or write into the one that re-adds it.
     if (!watching(repo, watch)) return null;
@@ -566,10 +597,13 @@ export function createSync({
     const latest = store.getStreams().find(entry => entry.repoId === repo.id && entry.stream === state.stream) || state;
     const quietCycles = output.events.some(event => !event.imported) ? 0 : (state.quietCycles || 0) + 1;
     const cadence = !isForeground() || quietCycles >= 2 ? Math.max(intervalMs, 300000) : intervalMs;
+    const at = now();
+    const interval = state.stream === 'refs' ? refsIntervalMs : intervalMs;
     const next = complete
       ? completePage(working, latest, {
-          at: now(),
+          at,
           delayMs: state.stream === 'refs' ? refsIntervalMs : cadence,
+          catchUp: at - Date.parse(working.window.until) > interval && store.getSetting('refreshEnabled', true) !== false,
           quietCycles,
           warning: warningOf(state.stream, read.unreadable),
           unreadableLookups: read.unreadableLookups,
@@ -580,7 +614,7 @@ export function createSync({
           initialized: working.initialized || !incomplete,
         })
       : nextPage(working, latest, {
-          at: now(),
+          at,
           cursor: page.nextCursor,
           pendingItems,
           activeIds,
@@ -590,7 +624,9 @@ export function createSync({
     store.commitPage({ repoId: repo.id, stream: state.stream, state: next, ...output });
     counters.pages++;
     const key = `${repo.id}:${state.stream}`;
+    if (!complete && isSnapshot(state.stream)) continuingSnapshots.set(key, working.window.until);
     if (complete && (requested.get(key)?.generation ?? 0) <= working.windowGeneration) requested.delete(key);
+    return next;
   }
   async function runPage() {
     if (halted()) return;
@@ -602,27 +638,33 @@ export function createSync({
       return;
     }
     if (liveTurns >= LIVE_TURNS) {
-      if ((await runBackground(automatic)) || halted()) return;
+      if (await runBackground(automatic)) return true;
+      if (halted()) return;
       // A background turn can yield while the watch or its streams change.
       ({ due, repos } = dueStreams(store.getSetting('refreshEnabled', true) !== false));
     }
     const [first, second] = due;
     if (!first) return;
     const { state, repo } = takeLiveTurn(first, second, repos);
-    const working = startPage(state, now(), overlapMs);
+    const key = `${repo.id}:${state.stream}`;
+    const continuing = Boolean(state.window && continuingSnapshots.get(key) === state.window.until);
+    // Only a successful partial read puts the snapshot back in the queue.
+    continuingSnapshots.delete(key);
+    const working = startPage(state, now(), overlapMs, continuing);
     reading = { repoId: state.repoId, stream: state.stream };
     const watch = watchOf(repo.id);
     try {
-      const read = await readPage(repo, state, working.window, watch);
+      const read = await readPage(repo, working, watch);
       // No await separates this check from the synchronous commit, so the watch cannot change in between.
       if (!read || !watching(repo, watch)) return;
-      commitRead(repo, state, working, read);
+      const next = commitRead(repo, state, working, read);
+      return due.length > 1 || Date.parse(next.nextAt) <= now();
     } catch (error) {
+      if (halted() || (isRecord(error) && error.code === 'CLOSED')) return;
       if (watchOf(repo.id) !== watch || !store.listRepos().some(entry => entry.id === repo.id)) return;
       // A refresh requested while this read was in flight is not answered by its failure.
       const latest = store.getStreams().find(entry => entry.repoId === repo.id && entry.stream === state.stream) || state;
       store.saveStream(failPage(working, latest, now(), error, intervalMs));
-      const key = `${repo.id}:${state.stream}`;
       if ((requested.get(key)?.generation ?? 0) <= working.windowGeneration) requested.delete(key);
       counters.errors++;
     } finally {
@@ -652,18 +694,22 @@ export function createSync({
     });
     return active;
   }
-  function schedule() {
+  function schedule(fast = false) {
     if (halted()) return;
     // The turn that a reset waited for can finish after the reset has already scheduled the next one.
     clearTimeout(timer);
     // A failed turn must not reject unobserved (that would end the process) or stop polling.
-    timer = setTimeout(() => {
-      tick()
-        .catch(() => {
-          counters.errors++;
-        })
-        .finally(schedule);
-    }, pollMs);
+    timer = setTimeout(
+      () => {
+        tick()
+          .then(schedule)
+          .catch(() => {
+            counters.errors++;
+            schedule();
+          });
+      },
+      fast ? Math.min(BUSY_POLL_MS, pollMs) : pollMs,
+    );
     timer.unref?.();
   }
   return {
@@ -675,6 +721,7 @@ export function createSync({
     },
     stop() {
       stopped = true;
+      continuingSnapshots.clear();
       clearTimeout(timer);
       timer = undefined;
       return active;
@@ -697,6 +744,7 @@ export function createSync({
         delete backgroundProblems.history;
       } finally {
         requested.clear();
+        continuingSnapshots.clear();
         refreshedAt.clear();
         prTurns.clear();
         buildTurns.clear();
@@ -717,6 +765,7 @@ export function createSync({
       refreshedAt.delete(repoId);
       prTurns.delete(repoId);
       buildTurns.delete(repoId);
+      for (const stream of STREAMS) continuingSnapshots.delete(`${repoId}:${stream}`);
       for (const [key, entry] of requested) if (entry.repoId === repoId) requested.delete(key);
       if (STREAMS.some(stream => lastKey === `${repoId}:${stream}`)) lastKey = undefined;
     },
