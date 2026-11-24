@@ -143,6 +143,7 @@ export type ActivityPage = {
   filterOptions?: string[] | undefined;
   counts?: Record<string, number>;
   newCounts?: Record<string, number>;
+  newBuildCounts?: { running: number; queued: number; failed: number };
   asOf?: number;
 };
 

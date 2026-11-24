@@ -1,4 +1,5 @@
-import { emptyHtml, html, buildState } from './format.ts';
+import { emptyHtml, html, joinHtml } from './format.ts';
+import type { ActivityItem, ActivityPage } from '../activity.ts';
 import type { PageState } from './refresh.ts';
 
 export type { PageState };
@@ -12,15 +13,9 @@ export function emptyActivityMessage(ui: { repoIds: string[] | null; route?: str
 /**
  * Unread totals come from the server so they cover every page, not only the loaded rows.
  * @param unseen the loaded unread rows */
-function unreadCounts(unseen: import('../activity.ts').ActivityItem[], state: Pick<PageState, 'activity'>) {
+function unreadCounts(unseen: ActivityItem[], state: Pick<PageState, 'activity'>) {
   const newCounts = state.activity.newCounts;
   const unreadOf = (kind: string) => newCounts?.[kind] ?? unseen.filter(record => record.kind === kind).length;
-  // Run states exist only for loaded rows, so the CI line appears once every unread run is loaded.
-  const builds = unseen.filter(record => record.kind === 'build');
-  const allBuildsLoaded = builds.length >= unreadOf('build');
-  const running = builds.filter(record => buildState(record).label === 'Running').length;
-  const queued = builds.filter(record => buildState(record).label === 'Queued').length;
-  const failed = builds.filter(record => buildState(record).tone === 'crit').length;
   const created = unreadOf('branch-created');
   const missing = unreadOf('branch-deleted');
   return {
@@ -37,20 +32,35 @@ function unreadCounts(unseen: import('../activity.ts').ActivityItem[], state: Pi
       {
         label: 'CI runs',
         count: unreadOf('build'),
-        sub: allBuildsLoaded
-          ? [running && `${running} running`, queued && `${queued} queued`, failed && `${failed} failed`].filter(Boolean).join(' · ')
-          : '',
-        tone: failed ? 't-crit' : running || queued ? 't-info' : '',
+        build: true,
       },
     ],
   };
+}
+
+function ciFilterButton(layout: 'cell' | 'chip', kind: 'build' | 'status:failed', count: number) {
+  const failed = kind === 'status:failed';
+  const label = failed ? `${count} failed CI ${count === 1 ? 'run' : 'runs'}` : `${count} unread CI ${count === 1 ? 'run' : 'runs'}`;
+  return html`<button type="button" id="summary-ci-${layout}-${failed ? 'failed' : 'total'}"
+    class="summary-filter ${failed ? 't-crit' : 't-info'}" data-action="filter-activity-type" data-kind="${kind}"
+    aria-label="${label}">${failed ? `${count} failed` : count}</button>`;
+}
+
+function ciBreakdown(layout: 'cell' | 'chip', counts: ActivityPage['newBuildCounts']) {
+  if (!counts) return [];
+  const { running, queued, failed } = counts;
+  return [
+    ...(running ? [`${running} running`] : []),
+    ...(queued ? [`${queued} queued`] : []),
+    ...(failed ? [ciFilterButton(layout, 'status:failed', failed)] : []),
+  ];
 }
 
 /**
  * @param partial the counts may be incomplete
  */
 export function renderSummary(
-  records: import('../activity.ts').ActivityItem[],
+  records: ActivityItem[],
   state: Pick<PageState, 'activity'>,
   ui: { repoIds: string[] | null; route?: string; search?: string; kind?: string },
   partial: boolean,
@@ -77,7 +87,13 @@ export function renderSummary(
     : [];
   return html`<section class="card summary mb" aria-label="Activity summary"><div class="top"><div class="headline"><p><b class="${newItems ? '' : 'zero'}">${headline}</b>${newItems && updates > newItems ? ` · ${updates} updates` : ''}</p>${legend.length ? html`<ul class="legend">${legend.map(line => html`<li>${line}</li>`)}</ul>` : emptyHtml}</div><div class="summary-chips" aria-label="Activity counts">${counts
     .filter(cell => cell.count)
-    .map(
-      cell => html`<span class="chip ${cell.tone || ''}">${cell.label} ${cell.count}${cell.sub ? ` · ${cell.sub}` : ''}</span>`,
-    )}</div></div><div class="cells c4">${counts.map(cell => html`<div class="cell" data-summary-kind="${cell.label}"><div class="label">${cell.label}</div><div class="val ${cell.count ? cell.tone || 't-info' : 'zero'}">${cell.count}</div>${cell.count && cell.sub ? html`<div class="sub">${cell.sub}</div>` : emptyHtml}</div>`)}</div></section>`;
+    .map(cell => {
+      const breakdown = cell.build ? ciBreakdown('chip', state.activity.newBuildCounts) : cell.sub ? [cell.sub] : [];
+      const value = cell.build ? ciFilterButton('chip', 'build', cell.count) : cell.count;
+      return html`<span class="chip">${cell.label} ${value}${breakdown.length ? html` · ${joinHtml(breakdown, ' · ')}` : emptyHtml}</span>`;
+    })}</div></div><div class="cells c4">${counts.map(cell => {
+    const breakdown = cell.build ? ciBreakdown('cell', state.activity.newBuildCounts) : cell.sub ? [cell.sub] : [];
+    const value = cell.build && cell.count ? ciFilterButton('cell', 'build', cell.count) : cell.count;
+    return html`<div class="cell" data-summary-kind="${cell.label}"><div class="label">${cell.label}</div><div class="val ${cell.count ? 't-info' : 'zero'}">${value}</div>${cell.count && breakdown.length ? html`<div class="sub">${joinHtml(breakdown, ' · ')}</div>` : emptyHtml}</div>`;
+  })}</div></section>`;
 }

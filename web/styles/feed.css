@@ -42,6 +42,27 @@
 .summary-chips {
   display: none;
 }
+.summary-chips .chip {
+  display: inline-block;
+}
+.summary-filter {
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-color: transparent;
+  text-underline-offset: 0.16em;
+}
+.summary-filter:hover,
+.summary-filter:focus-visible {
+  text-decoration-color: currentColor;
+}
+.summary-chips .summary-filter {
+  min-width: 24px;
+  min-height: 24px;
+  padding-inline: 3px;
+}
 .cells {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

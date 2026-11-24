@@ -1277,6 +1277,66 @@ test('healthy phone catch-up shows first activity and theme icons before the fol
   }
 });
 
+test('CI summary shortcuts filter the full activity scope on desktop and compact layouts', async t => {
+  const { page, runtime } = await setup(t);
+  const ci = (id: string, buildId: number, result: string, second: number, extra: Partial<ActivityEvent> = {}): ActivityEvent => ({
+    id,
+    repoId: 'demo-orders',
+    kind: 'build',
+    title: 'Summary CI fixture',
+    time: new Date(Date.UTC(2026, 10, 24, 10, 0, second)).toISOString(),
+    data: { buildId, status: 'completed', result },
+    ...extra,
+  });
+  runtime.store.insertEvents([
+    ...Array.from({ length: 51 }, (_, index) => ci(`summary-success-${index}`, 1000 + index, 'succeeded', index + 10)),
+    ci('summary-failure', 1100, 'failed', 0),
+    ci('summary-failure-seen', 1101, 'failed', 1, { seen: true }),
+    ci('summary-retry-failed', 1102, 'failed', 2),
+    ci('summary-retry-succeeded', 1102, 'succeeded', 3),
+    ci('summary-other-repo', 1103, 'failed', 61, { repoId: 'demo-billing' }),
+    ci('summary-other-search', 1104, 'failed', 62, { title: 'Unrelated CI' }),
+    { id: 'summary-push', repoId: 'demo-orders', kind: 'push', title: 'Summary CI fixture push', time: '2026-11-24T10:02:00Z' },
+  ]);
+  await page.getByRole('link', { name: 'All activity', exact: true }).click();
+  const repoPicker = page.locator('#repo-toggle');
+  await repoPicker.click();
+  await page.locator('#repo-panel [data-scope-repo="demo-billing"]').uncheck();
+  await page.locator('#repo-panel [data-scope-repo="demo-shared"]').uncheck();
+  await repoPicker.click();
+  const search = page.getByRole('searchbox', { name: 'Search activity' });
+  await search.fill('Summary CI fixture');
+  const summary = page.getByRole('region', { name: 'Activity summary' });
+  const allRuns = summary.getByRole('button', { name: '53 unread CI runs' });
+  const failed = summary.getByRole('button', { name: '1 failed CI run' });
+  const failureRow = page.locator('li[data-event-id="summary-failure"]');
+  await expect(summary).toContainText('Showing 50 of 55 items');
+  await expect(failureRow).toHaveCount(0);
+  await expect(failed).toBeVisible();
+  await summary.screenshot({ path: 'test-results/ci-summary-desktop.png' });
+
+  await allRuns.press('Enter');
+  await expect(page.getByRole('button', { name: 'Activity type: CI run', exact: true })).toBeFocused();
+  await expect(summary).toContainText('Showing 50 of 54 items');
+  await expect(page.locator('li[data-event-id="summary-push"]')).toHaveCount(0);
+
+  await page.setViewportSize({ width: 375, height: 900 });
+  await expect(failed).toBeVisible();
+  for (const shortcut of [allRuns, failed]) {
+    const box = await shortcut.boundingBox();
+    assert.ok(box && box.width >= 24 && box.height >= 24, 'The compact shortcut has a usable touch target');
+  }
+  await summary.screenshot({ path: 'test-results/ci-summary-compact.png' });
+  await failed.click();
+  await expect(page.getByRole('button', { name: 'Activity type: Failed', exact: true })).toBeVisible();
+  await expect(failureRow).toBeVisible();
+  await expect(page.locator('li[data-event-id]')).toHaveCount(2);
+  await expect(page.locator('li[data-event-id="summary-failure-seen"]')).toBeVisible();
+  await expect(search).toHaveValue('Summary CI fixture');
+  await expect(repoPicker).toHaveAccessibleName('1 repository shown');
+  await expect(page.getByRole('link', { name: 'All activity', exact: true })).toHaveAttribute('aria-current', 'page');
+});
+
 test('detail reload and back restore Activity filters, open trail and source row focus', async t => {
   const { page } = await groupedFixture(t);
   await page.getByRole('link', { name: 'Activity', exact: true }).click();
