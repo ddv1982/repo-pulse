@@ -359,7 +359,9 @@ export function createNormalizer({ store, now = Date.now }: { store: NormalizeSt
    * Compares a complete refs snapshot with the stored refs. A snapshot with records Azure returned unreadable is
    * `incomplete`: its readable refs are added and updated, but a ref it does not list may be one of the unreadable
    * ones, so nothing is reported as no longer listed, and it is not the tag baseline, so an unreadable tag that
-   * reads later is not announced as first seen. Sync holds the stream's `initialized` back the same way.
+   * reads later is not announced as first seen. Sync holds the stream's `initialized` back the same way. The first
+   * complete snapshot, with `initialized` still false, is the baseline: it marks the refs it does not list inactive
+   * without reporting them.
    */
   function reconcileRefs(repo: WatchedRepo, records: AzureRef[], state: RefReconcileState, { incomplete = false } = {}): SyncBatch {
     const before = new Map(store.listEntities(repo.id, 'ref').map(entry => [entry.id, entry.data]));
@@ -420,31 +422,33 @@ export function createNormalizer({ store, now = Date.now }: { store: NormalizeSt
       }
       entities.push({ type: 'ref', id: name, data: { name, objectId: item.objectId, active: true, lastPushId: previous?.lastPushId } });
     }
-    if (state.initialized && !incomplete)
+    if (!incomplete)
       for (const [name, old] of before) {
-        if (old.active !== false && !current.has(name)) {
-          if (name.startsWith('refs/tags/')) {
-            if (tagsKnown) events.push(tagEvent(name, 'deleted', { objectId: old.objectId }));
-            entities.push({ type: 'ref', id: name, data: { ...old, active: false } });
-            continue;
-          }
-          events.push(
-            makeEvent(
-              repo,
-              'branch-deleted',
-              `ref:${name}:${fingerprint([old.objectId, state.window.until])}`,
-              {
-                title: `Branch no longer listed · ${branchName(name)}`,
-                branch: branchName(name),
-                time: iso(now()),
-                summary: 'Missing from complete refs snapshot; deletion time and actor unknown',
-                data: { name, objectId: old.objectId, evidence: 'snapshot' },
-              },
-              false,
-            ),
-          );
-          entities.push({ type: 'ref', id: name, data: { ...old, active: false } });
+        if (old.active === false || current.has(name)) continue;
+        entities.push({ type: 'ref', id: name, data: { ...old, active: false } });
+        // The complete snapshot that establishes the baseline puts away the refs it does not list without an event:
+        // they were saved before any complete snapshot, by a push or an incomplete snapshot, so nothing is known about
+        // when they went.
+        if (!state.initialized) continue;
+        if (name.startsWith('refs/tags/')) {
+          if (tagsKnown) events.push(tagEvent(name, 'deleted', { objectId: old.objectId }));
+          continue;
         }
+        events.push(
+          makeEvent(
+            repo,
+            'branch-deleted',
+            `ref:${name}:${fingerprint([old.objectId, state.window.until])}`,
+            {
+              title: `Branch no longer listed · ${branchName(name)}`,
+              branch: branchName(name),
+              time: iso(now()),
+              summary: 'Missing from complete refs snapshot; deletion time and actor unknown',
+              data: { name, objectId: old.objectId, evidence: 'snapshot' },
+            },
+            false,
+          ),
+        );
       }
     if (!incomplete) entities.push({ type: 'ref-baseline', id: 'tags', data: { at: iso(now()) } });
     return { events, entities };

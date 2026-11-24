@@ -2150,6 +2150,30 @@ test('a branch unreadable in the first refs snapshot is not announced as first s
   store.close();
 });
 
+test('a branch saved by an incomplete first snapshot and missing from the first complete one is put away without an event', async () => {
+  let refs: unknown[] = [
+    { name: 'refs/heads/main', objectId: 'a' },
+    { name: 'refs/heads/gone', objectId: 'b' },
+    { name: 'refs/heads/bad', objectId: 7 },
+  ];
+  const { store, sync, advance } = setup(createAzureClient({ cli: { run: async () => ({ value: refs }) } }), ['refs']);
+  await sync.tick();
+  assert.equal(fieldsOf(store.getEntity(repo.id, 'ref', 'refs/heads/gone')).active, true, 'the incomplete snapshot saves it');
+  refs = [{ name: 'refs/heads/main', objectId: 'a' }];
+  advance(600001);
+  await sync.tick();
+  assert.equal(present(store.getStreams().find(entry => entry.stream === 'refs')).initialized, true);
+  assert.equal(fieldsOf(store.getEntity(repo.id, 'ref', 'refs/heads/gone')).active, false, 'the first complete snapshot is the baseline');
+  advance(600001);
+  await sync.tick();
+  assert.deepEqual(
+    store.listEvents().map(event => event.title),
+    [],
+    'it is not reported as no longer listed one snapshot later',
+  );
+  store.close();
+});
+
 test('a tag unreadable in the first refs snapshot with tags is not announced as first seen once it reads', async () => {
   let refs: unknown[] = [
     { name: 'refs/heads/main', objectId: 'a' },
