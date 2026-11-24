@@ -103,7 +103,7 @@ function renderRepo(
         ${!checked.length && automatic && !failed.length ? html`<p class="help">Waiting for the first check.</p>` : emptyHtml}
         ${
           failed.length
-            ? html`<ul class="repo-check-errors help" aria-label="Last check failures">${failed.map(
+            ? html`<ul class="repo-check-errors help" aria-label="Last check problems">${failed.map(
                 item => html`<li><strong>${item.label}</strong>: ${item.message}</li>`,
               )}</ul>`
             : emptyHtml
