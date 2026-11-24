@@ -57,10 +57,13 @@ test('forced refresh callers complete after their coalesced follow-up read', asy
   const coalesced = refresh.load({ force: true });
   assert.equal(forced, coalesced);
   let complete = false;
-  // A rejected forced load fails the test at `await forced` below.
-  void forced.then(() => {
-    complete = true;
-  });
+  // A rejected forced load fails the test at `await forced` below, so this observer only ignores the rejection.
+  forced.then(
+    () => {
+      complete = true;
+    },
+    () => {},
+  );
   firstRead.resolve(metadata);
   await inFlight;
   assert.equal(complete, false);
