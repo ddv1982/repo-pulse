@@ -40,7 +40,7 @@ const list =
 
 const text = optional(is(value => typeof value === 'string'));
 /** A string with more than white space in it. */
-const name = is(value => typeof value === 'string' && value.trim() !== '');
+const filled = is(value => typeof value === 'string' && value.trim() !== '');
 const flag = optional(is(value => typeof value === 'boolean'));
 const number = optional(is(value => typeof value === 'number'));
 /** Azure numbers pushes, pull requests and builds from 1. */
@@ -64,8 +64,8 @@ const push = fields({
   _links: links,
 });
 const ref = fields({
-  name: is(value => typeof value === 'string'),
-  objectId: is(value => typeof value === 'string'),
+  name: filled,
+  objectId: filled,
   peeledObjectId: text,
 });
 const pullRequest = fields({
@@ -92,7 +92,7 @@ const pullRequest = fields({
 const build = fields({
   id,
   // A build is matched to the watched repository by this ID, so a build without one cannot be placed.
-  repository: within({ id: name }),
+  repository: within({ id: filled }),
   status: text,
   result: text,
   reason: text,

@@ -358,7 +358,8 @@ export function createNormalizer({ store, now = Date.now }: { store: NormalizeSt
   /**
    * Compares a complete refs snapshot with the stored refs. A snapshot with records Azure returned unreadable is
    * `incomplete`: its readable refs are added and updated, but a ref it does not list may be one of the unreadable
-   * ones, so nothing is reported as no longer listed.
+   * ones, so nothing is reported as no longer listed, and it is not the tag baseline, so an unreadable tag that
+   * reads later is not announced as first seen. Sync holds the stream's `initialized` back the same way.
    */
   function reconcileRefs(repo: WatchedRepo, records: AzureRef[], state: RefReconcileState, { incomplete = false } = {}): SyncBatch {
     const before = new Map(store.listEntities(repo.id, 'ref').map(entry => [entry.id, entry.data]));
@@ -445,7 +446,7 @@ export function createNormalizer({ store, now = Date.now }: { store: NormalizeSt
           entities.push({ type: 'ref', id: name, data: { ...old, active: false } });
         }
       }
-    entities.push({ type: 'ref-baseline', id: 'tags', data: { at: iso(now()) } });
+    if (!incomplete) entities.push({ type: 'ref-baseline', id: 'tags', data: { at: iso(now()) } });
     return { events, entities };
   }
 

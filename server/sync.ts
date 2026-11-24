@@ -1,11 +1,12 @@
 import { createNormalizer } from './normalize.ts';
-import { isRecord, recordsOf } from './azure-records.ts';
+import { isAzureRef, isRecord, recordsOf, unreadableField } from './azure-records.ts';
 
 export type ActivityKind = import('./normalize.ts').ActivityKind;
 export type StreamName = import('./azure-client.ts').AzureStream;
 export type AzureProvider = import('./azure-client.ts').AzureProvider;
 export type PageCursor = import('./azure-client.ts').PageCursor;
 export type AzureStreamRecord = import('./azure-client.ts').AzureStreamRecord;
+export type AzurePage = import('./azure-client.ts').AzurePage;
 export type AzureRef = import('../src/contract.ts').AzureRef;
 export type UnreadableRecords = import('../src/contract.ts').UnreadableRecords;
 export type StreamWarning = import('../src/contract.ts').StreamWarning;
@@ -48,6 +49,27 @@ const iso = (ms: number) => new Date(ms).toISOString();
 function addUnreadable(sum: UnreadableRecords | undefined, more: UnreadableRecords | undefined): UnreadableRecords | undefined {
   if (!sum || !more) return sum || more;
   return { count: sum.count + more.count, fields: [...new Set([...sum.fields, ...more.fields])] };
+}
+/** The count and fields of records that fail their stream's check, or undefined when there are none. */
+function unreadableOf(stream: StreamName, records: readonly unknown[]): UnreadableRecords | undefined {
+  if (!records.length) return undefined;
+  return { count: records.length, fields: [...new Set(records.map(record => unreadableField(stream, record) ?? 'record'))] };
+}
+/**
+ * The refs a refs snapshot has read up to and including `page`; nothing for another stream. A provider that restarted the snapshot at page one (see
+ * azure-client.ts refs) invalidates the pages saved so far. Refs saved by a version that did not check them, or
+ * checked them less strictly, are checked again, and those that fail are counted.
+ */
+function snapshotRefs(state: StreamState, page: AzurePage): { refs?: AzureRef[]; unreadable?: UnreadableRecords | undefined } {
+  if (state.stream !== 'refs') return {};
+  const saved: readonly unknown[] = page.restarted ? [] : state.pendingItems || [];
+  return {
+    refs: [...recordsOf('refs', saved), ...recordsOf('refs', page.items)],
+    unreadable: unreadableOf(
+      'refs',
+      saved.filter(item => !isAzureRef(item)),
+    ),
+  };
 }
 /** The IDs of the active PRs or builds a page lists. */
 const listedIds = (stream: 'prs' | 'activeBuilds', items: readonly AzureStreamRecord[]) =>
@@ -141,13 +163,21 @@ function completePage(
     quietCycles,
     warning,
     unreadableLookups,
-  }: { at: number; delayMs: number; quietCycles: number; warning: StreamWarning | undefined; unreadableLookups: UnreadableLookups },
+    initialized,
+  }: {
+    at: number;
+    delayMs: number;
+    quietCycles: number;
+    warning: StreamWarning | undefined;
+    unreadableLookups: UnreadableLookups;
+    initialized: boolean;
+  },
 ): StreamState {
   const refreshDue = (latest.refreshGeneration || 0) > state.windowGeneration;
   return {
     repoId: state.repoId,
     stream: state.stream,
-    initialized: true,
+    initialized,
     lastSuccess: state.window.until,
     lastAttempt: iso(at),
     nextAt: iso(at + delayMs),
@@ -321,6 +351,8 @@ export function createSync({
     let unreadable = addUnreadable(page.restarted ? undefined : state.unreadable, page.unreadable);
     let gone: Entity[] = [];
     let unreadableLookups: UnreadableLookups;
+    const snapshot = snapshotRefs(state, page);
+    unreadable = addUnreadable(unreadable, snapshot.unreadable);
     if (complete && state.stream === 'activeBuilds' && provider.buildsById) {
       const missing = new Map(
         store
@@ -371,35 +403,18 @@ export function createSync({
       unreadableLookups = [...lookups].map(([id, field]) => ({ id, field }));
       if (lookups.size) unreadable = addUnreadable(unreadable, { count: lookups.size, fields: [...new Set(lookups.values())] });
     }
-    return { page, complete, activeIds, items, gone, unreadable, unreadableLookups };
-  }
-  function pageBatch(
-    repo: WatchedRepo,
-    state: StreamState,
-    working: StartedStream,
-    {
-      page,
-      complete,
-      items,
-      unreadable,
-    }: {
-      page: { items: AzureStreamRecord[]; restarted?: boolean };
-      complete: boolean;
-      items: AzureStreamRecord[];
-      unreadable: UnreadableRecords | undefined;
-    },
-  ) {
-    if (state.stream !== 'refs') return { output: normalize(repo, state.stream, items, working), pendingItems: undefined };
-    // A provider that restarted the snapshot at page one (see azure-client.ts refs) invalidates the pages saved so far.
-    const pendingItems = [...(page.restarted ? [] : state.pendingItems || []), ...recordsOf('refs', page.items)];
-    const output: SyncBatch = complete
-      ? reconcileRefs(repo, pendingItems, working, { incomplete: Boolean(unreadable) })
-      : { events: [], entities: [] };
-    return { output, pendingItems };
+    return { page, complete, activeIds, items, gone, unreadable, unreadableLookups, pendingItems: snapshot.refs };
   }
   function commitRead(repo: WatchedRepo, state: StreamState, working: StartedStream, read: Awaited<ReturnType<typeof readPage>> & {}) {
-    const { page, complete, activeIds } = read;
-    const { output, pendingItems } = pageBatch(repo, state, working, read);
+    const { page, complete, activeIds, pendingItems } = read;
+    // A refs snapshot that left out unreadable records is incomplete (see reconcileRefs).
+    const incomplete = state.stream === 'refs' && Boolean(read.unreadable?.count);
+    const output: SyncBatch =
+      state.stream !== 'refs'
+        ? normalize(repo, state.stream, read.items, working)
+        : complete
+          ? reconcileRefs(repo, pendingItems || [], working, { incomplete })
+          : { events: [], entities: [] };
     output.entities = [...output.entities, ...read.gone];
     // A refresh requested after this window opened must survive the commit of a page read before it.
     const latest = store.getStreams().find(entry => entry.repoId === repo.id && entry.stream === state.stream) || state;
@@ -412,6 +427,10 @@ export function createSync({
           quietCycles,
           warning: warningOf(state.stream, read.unreadable),
           unreadableLookups: read.unreadableLookups,
+          // An incomplete refs snapshot is no baseline: until a snapshot reads every ref, the stream stays uninitialized
+          // (and reconcileRefs writes no tag baseline), so refs that appear meanwhile, including one that stayed
+          // unreadable, are recorded without a "first seen" event. The warning the incomplete snapshot leaves shows this.
+          initialized: working.initialized || !incomplete,
         })
       : nextPage(working, latest, { at: now(), cursor: page.nextCursor, pendingItems, activeIds, unreadable: read.unreadable });
     store.commitPage({ repoId: repo.id, stream: state.stream, state: next, ...output });

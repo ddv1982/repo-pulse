@@ -1613,29 +1613,51 @@ test('a warning found on any page of a read stands when the read completes, and 
   store.close();
 });
 
-test('a ref Azure returns unreadable is not reported as no longer listed', async () => {
+test('a ref Azure returns unreadable is not reported as no longer listed, and neither is any ref until a complete snapshot', async () => {
   let refs: unknown[] = [
     { name: 'refs/heads/a', objectId: 'a' },
     { name: 'refs/heads/b', objectId: 'b' },
+    { name: 'refs/heads/c', objectId: 'c' },
   ];
   const { store, sync, advance } = setup(createAzureClient({ cli: { run: async () => ({ value: refs }) } }), ['refs']);
   await sync.tick();
   refs = [
-    { name: 'refs/heads/a', objectId: 'c' },
+    { name: 'refs/heads/a', objectId: 'a2' },
     { name: 'refs/heads/b', objectId: 7 },
   ];
   advance(600001);
   await sync.tick();
-  const state = present(store.getStreams().find(entry => entry.stream === 'refs'));
-  assert.equal(state.error, null);
-  assert.deepEqual(state.warning && { fields: state.warning.fields, count: state.warning.count }, { fields: ['objectId'], count: 1 });
+  const state = () => present(store.getStreams().find(entry => entry.stream === 'refs'));
+  const deleted = () => store.listEvents().filter(event => event.kind === 'branch-deleted');
+  assert.equal(state().error, null);
+  assert.deepEqual(state().warning && { fields: state().warning?.fields, count: state().warning?.count }, {
+    fields: ['objectId'],
+    count: 1,
+  });
+  assert.deepEqual(deleted(), [], 'an incomplete snapshot does not delete');
   assert.deepEqual(
-    store.listEvents().filter(event => event.kind === 'branch-deleted'),
-    [],
-    'an incomplete snapshot does not delete',
+    fieldsOf(store.getEntity(repo.id, 'ref', 'refs/heads/b')),
+    { name: 'refs/heads/b', objectId: 'b', active: true },
+    'the unreadable ref keeps its old tip',
   );
-  assert.equal(fieldsOf(store.getEntity(repo.id, 'ref', 'refs/heads/b')).active, true);
-  assert.equal(fieldsOf(store.getEntity(repo.id, 'ref', 'refs/heads/a')).objectId, 'c', 'a readable ref still updates');
+  assert.equal(
+    fieldsOf(store.getEntity(repo.id, 'ref', 'refs/heads/c')).active,
+    true,
+    'a ref the incomplete snapshot did not list is kept too',
+  );
+  assert.equal(fieldsOf(store.getEntity(repo.id, 'ref', 'refs/heads/a')).objectId, 'a2', 'a readable ref still updates');
+  refs = [
+    { name: 'refs/heads/a', objectId: 'a2' },
+    { name: 'refs/heads/b', objectId: 'b' },
+  ];
+  advance(600001);
+  await sync.tick();
+  assert.equal(state().warning ?? null, null);
+  assert.deepEqual(
+    deleted().map(event => event.title),
+    ['Branch no longer listed · c'],
+    'the next complete snapshot reports the ref it does not list',
+  );
   store.close();
 });
 
@@ -2001,6 +2023,115 @@ test("a build Azure returns without a repository.id is skipped with a warning, a
     store.listEntities(repo.id, 'build').map(entry => entry.id),
     ['5'],
     'only the readable build of this repository is stored',
+  );
+  store.close();
+});
+
+test('a branch unreadable in the first refs snapshot is not announced as first seen once it reads', async () => {
+  let refs: unknown[] = [
+    { name: 'refs/heads/main', objectId: 'a' },
+    { name: 'refs/heads/b', objectId: 7 },
+  ];
+  const { store, sync, advance } = setup(createAzureClient({ cli: { run: async () => ({ value: refs }) } }), ['refs']);
+  const state = () => present(store.getStreams().find(entry => entry.stream === 'refs'));
+  await sync.tick();
+  assert.equal(state().initialized, false, 'an incomplete snapshot is no baseline');
+  assert.equal(store.getEntity(repo.id, 'ref-baseline', 'tags'), undefined);
+  refs = [
+    { name: 'refs/heads/main', objectId: 'a' },
+    { name: 'refs/heads/b', objectId: 'b' },
+  ];
+  advance(600001);
+  await sync.tick();
+  assert.equal(state().initialized, true);
+  assert.deepEqual(
+    store.listEvents().map(event => event.title),
+    [],
+    'no branch is announced as first seen',
+  );
+  store.close();
+});
+
+test('a tag unreadable in the first refs snapshot with tags is not announced as first seen once it reads', async () => {
+  let refs: unknown[] = [
+    { name: 'refs/heads/main', objectId: 'a' },
+    { name: 'refs/tags/v0', objectId: 'b' },
+    { name: 'refs/tags/v1', objectId: 7 },
+  ];
+  const { store, sync, advance } = setup(createAzureClient({ cli: { run: async () => ({ value: refs }) } }), ['refs']);
+  const state = () => present(store.getStreams().find(entry => entry.stream === 'refs'));
+  // A stream initialized by a branch-only snapshot, before tags joined it, has no tag baseline yet.
+  store.commitPage({
+    repoId: repo.id,
+    stream: 'refs',
+    entities: [{ type: 'ref', id: 'refs/heads/main', data: { name: 'refs/heads/main', objectId: 'a', active: true } }],
+  });
+  store.saveStream({ ...state(), initialized: true, lastSuccess: new Date(BASE - 600000).toISOString() });
+  await sync.tick();
+  assert.equal(store.getEntity(repo.id, 'ref-baseline', 'tags'), undefined, 'an incomplete snapshot writes no tag baseline');
+  refs = [
+    { name: 'refs/heads/main', objectId: 'a' },
+    { name: 'refs/tags/v0', objectId: 'b' },
+    { name: 'refs/tags/v1', objectId: 'c' },
+  ];
+  advance(600001);
+  await sync.tick();
+  assert.ok(store.getEntity(repo.id, 'ref-baseline', 'tags'), 'the complete snapshot writes it');
+  assert.deepEqual(
+    store.listEvents().map(event => event.title),
+    [],
+    'no tag is announced as first seen',
+  );
+  store.close();
+});
+
+test('refs saved from a snapshot in progress are checked again when the snapshot resumes', async () => {
+  let resumed = false;
+  const provider: SyncProvider = {
+    async read() {
+      return resumed
+        ? { items: [], nextCursor: null }
+        : {
+            items: [
+              { name: 'refs/heads/a', objectId: 'a' },
+              { name: 'refs/heads/b', objectId: 'b' },
+            ],
+            nextCursor: null,
+          };
+    },
+  };
+  const { store, sync, advance } = setup(provider, ['refs']);
+  const state = () => present(store.getStreams().find(entry => entry.stream === 'refs'));
+  await sync.tick();
+  advance(600001);
+  // Saved by a version that did not check refs as it read them.
+  store.saveStream({
+    ...state(),
+    window: { since: new Date(BASE).toISOString(), until: new Date(BASE + 600001).toISOString() },
+    windowGeneration: state().refreshGeneration ?? 0,
+    pending: true,
+    cursor: { token: 'next', allRefs: true },
+    pendingItems: [
+      { name: 'refs/heads/a', objectId: 'a' },
+      { name: 'refs/heads/b', objectId: '' },
+    ],
+    nextAt: new Date(BASE).toISOString(),
+  });
+  resumed = true;
+  await sync.tick();
+  assert.equal(state().pending, false);
+  assert.deepEqual(state().warning && { fields: state().warning?.fields, count: state().warning?.count }, {
+    fields: ['objectId'],
+    count: 1,
+  });
+  assert.equal(
+    fieldsOf(store.getEntity(repo.id, 'ref', 'refs/heads/b')).objectId,
+    'b',
+    'the saved ref that fails the check is not applied',
+  );
+  assert.deepEqual(
+    store.listEvents().filter(event => event.kind === 'branch-deleted'),
+    [],
   );
   store.close();
 });

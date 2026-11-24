@@ -458,6 +458,17 @@ for (const [stream, record, field] of malformed)
     assert.deepEqual(page.unreadable, { count: 1, fields: [field] });
   });
 
+test('a ref with an empty name or objectId is unreadable', async () => {
+  const value = [
+    { name: 'refs/heads/main', objectId: 'a' },
+    { name: '', objectId: 'b' },
+    { name: 'refs/heads/b', objectId: ' ' },
+  ];
+  const page = await createAzureClient({ cli: { run: async () => ({ value }) } }).read(repo, 'refs', window);
+  assert.deepEqual(page.items, [value[0]]);
+  assert.deepEqual(page.unreadable, { count: 2, fields: ['name', 'objectId'] });
+});
+
 test('a skip-paged read with an unreadable record on a full page still pages on', async () => {
   const value = Array.from({ length: 100 }, (_, index) => ({ pushId: index }));
   const page = await createAzureClient({ cli: { run: async () => ({ value }) } }).read(repo, 'pushes', window);
