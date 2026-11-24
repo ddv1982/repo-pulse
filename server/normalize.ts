@@ -57,8 +57,18 @@ const iso = (ms: number) => new Date(ms).toISOString();
 const fieldOf = (value: unknown, key: string): unknown => (isRecord(value) ? value[key] : undefined);
 /** The web link Azure gives a record; safeAzureUrl checks it. */
 const webLink = (links: unknown) => fieldOf(fieldOf(links, 'web'), 'href');
-/** An event's text field, which main filled with whatever value Azure sent. */
-const text = (value: unknown) => (typeof value === 'string' ? value : String(value));
+/**
+ * An event's text field. Main stored whatever value Azure sent, and its page showed it through String(). A value
+ * String() cannot convert stopped that page, so it reads as `fallback`, the text main shows for a missing value.
+ */
+const text = (value: unknown, fallback: string) => {
+  if (typeof value === 'string') return value;
+  try {
+    return String(value);
+  } catch {
+    return fallback;
+  }
+};
 const reviewers = (pr: AzurePullRequest): { id: string; name: unknown; vote: number; required: boolean }[] =>
   (pr.reviewers || []).map(reviewer => ({
     id: String(reviewer.id),
@@ -182,7 +192,7 @@ export function createNormalizer({ store, now = Date.now }: { store: NormalizeSt
       const branches = updates.filter(named).filter(ref => ref.name.startsWith('refs/heads/'));
       const tags = updates.filter(named).filter(ref => ref.name.startsWith('refs/tags/'));
       const time = item.date || iso(now());
-      const actor = text(actorName(item.pushedBy));
+      const actor = text(actorName(item.pushedBy), 'Unknown');
       const data = { pushId: item.pushId, refUpdates: branches, commits: item.commits || [] };
       const url = safeAzureUrl(webLink(item._links), `${repo.webUrl}/pushes?pushId=${encodeURIComponent(source)}`);
       entities.push({ type: 'push', id: source, data: { date: time } });
@@ -260,7 +270,7 @@ export function createNormalizer({ store, now = Date.now }: { store: NormalizeSt
         add('pr', sourceId, {
           title: `PR ${key} · ${item.title || 'Untitled'}`,
           branch: branchName(item.sourceRefName),
-          actor: text(actorName(item.createdBy)),
+          actor: text(actorName(item.createdBy), 'Unknown'),
           time: prEventTime(item, previous, historical),
           summary: `${item.isDraft ? 'Draft · ' : ''}${item.status || 'unknown'} → ${branchName(item.targetRefName)}`,
           url: safeAzureUrl(webLink(item._links), `${repo.webUrl}/pullrequest/${encodeURIComponent(key)}`),
@@ -292,9 +302,9 @@ export function createNormalizer({ store, now = Date.now }: { store: NormalizeSt
       const { changed, sourceId, entity } = snapshot(repo, 'build', key, buildState(item), historical);
       if (changed) {
         add('build', sourceId, {
-          title: text(fieldOf(item.definition, 'name') || 'Pipeline'),
+          title: text(fieldOf(item.definition, 'name') || 'Pipeline', 'Pipeline'),
           branch: branchName(item.sourceBranch),
-          actor: text(actorName(item.requestedFor || item.requestedBy)),
+          actor: text(actorName(item.requestedFor || item.requestedBy), 'Unknown'),
           time: item.finishTime || item.startTime || item.queueTime || iso(now()),
           summary: `${item.status || 'unknown'}${item.result ? ` · ${item.result}` : ''} · ${(item.sourceVersion || '').slice(0, 7)}`,
           url: safeAzureUrl(

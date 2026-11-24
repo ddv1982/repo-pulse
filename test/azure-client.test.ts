@@ -477,11 +477,20 @@ for (const [stream, record, field] of malformed)
  */
 const watched = { ...repo, webUrl: 'https://dev.azure.com/example/Project/_git/repo' };
 const pushUrl = `${watched.webUrl}/pushes?pushId=1`;
+/** A value String() cannot convert. Main stored it, and its page could not show it. */
+const unconvertible = { toString: null };
+const newTag = { name: 'refs/tags/v1', oldObjectId: '0'.repeat(40), newObjectId: 'c' };
 const fieldRules: { stream: AzureStream; patch: Record<string, unknown>; shown?: Record<string, unknown>; unreadable?: string }[] = [
   { stream: 'pushes', patch: { _links: { web: 'https://dev.azure.com/x' } }, shown: { url: pushUrl } },
   { stream: 'pushes', patch: { _links: 'link' }, shown: { url: pushUrl } },
   { stream: 'pushes', patch: { pushedBy: 'A' }, shown: { title: 'Unknown pushed to main', actor: 'Unknown' } },
   { stream: 'pushes', patch: { pushedBy: { displayName: 7, name: 'a' } }, shown: { title: '7 pushed to main', actor: '7' } },
+  {
+    stream: 'pushes',
+    patch: { pushedBy: { displayName: unconvertible }, refUpdates: [newTag] },
+    shown: { title: 'New tag · v1', actor: 'Unknown' },
+  },
+  { stream: 'pushes', patch: { pushedBy: { displayName: unconvertible } }, shown: { title: 'Unknown pushed to main', actor: 'Unknown' } },
   { stream: 'pushes', patch: { pushId: '1' }, unreadable: 'pushId' },
   { stream: 'pushes', patch: { date: 7 }, unreadable: 'date' },
   { stream: 'pushes', patch: { commits: {} }, unreadable: 'commits' },
@@ -507,6 +516,7 @@ const fieldRules: { stream: AzureStream; patch: Record<string, unknown>; shown?:
   { stream: 'closedPrs', patch: { completionOptions: { mergeStrategy: 7 } }, unreadable: 'completionOptions.mergeStrategy' },
   { stream: 'builds', patch: { definition: { name: 7, id: 3 } }, shown: { title: '7', 'data.definition': { name: 7, id: 3 } } },
   { stream: 'builds', patch: { definition: 'CI' }, shown: { title: 'Pipeline', 'data.definition': 'CI' } },
+  { stream: 'builds', patch: { definition: { name: unconvertible } }, shown: { title: 'Pipeline' } },
   { stream: 'builds', patch: { reason: 7 }, shown: { 'data.reason': 7 } },
   { stream: 'builds', patch: { requestedBy: 7 }, shown: { actor: 'Unknown' } },
   { stream: 'builds', patch: { result: 7 }, unreadable: 'result' },
