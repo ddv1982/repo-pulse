@@ -6,6 +6,8 @@ import { renderSettings } from './settings.ts';
 import { eventIds } from './seen-actions.ts';
 import { required, setHtml } from './dom.ts';
 import { emptyHtml, html } from './format.ts';
+import type { PageState } from './refresh.ts';
+import type { ResultsContext, NavigationState } from './navigation.ts';
 
 export function replacementFocus(id: string) {
   const current = document.getElementById(id);
@@ -49,10 +51,10 @@ function focusedControlId(element: Element) {
   return element.id || element.closest('.saved-filter-menu, .saved-filter-actions')?.querySelector('[aria-expanded]')?.id || '';
 }
 
-export type PageState = import('./refresh.ts').PageState;
-export type ResultsContext = import('./navigation.ts').ResultsContext;
+export type { PageState, ResultsContext };
+
 /** web.ts owns this object: navigation state plus the connection panel state and the refresh flag the header reads. */
-export type BrowserUi = import('./navigation.ts').NavigationState & {
+export type BrowserUi = NavigationState & {
   connection: import('./connection.ts').ConnectionState;
   refreshing?: boolean;
   openMenu?: string;

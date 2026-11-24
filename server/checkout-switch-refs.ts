@@ -3,10 +3,9 @@ import { ancestry, isCommit } from './checkout-advice.ts';
 import { branchProblem, readRef } from './checkout-branches.ts';
 import { isSymbolicRef } from './checkout-delete-guard.cjs';
 import { compareUpstream } from './checkout-observations.ts';
+import type { GitRunner, LinkedRepo, Upstream } from './checkout-git.ts';
 
-export type GitRunner = import('./checkout-git.ts').GitRunner;
-export type LinkedRepo = import('./checkout-git.ts').LinkedRepo;
-export type Upstream = import('./checkout-git.ts').Upstream;
+export type { GitRunner, LinkedRepo, Upstream };
 
 function archivePrefix(repo: LinkedRepo, target: Upstream) {
   const upstream = createHash('sha256')

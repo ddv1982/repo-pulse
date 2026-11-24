@@ -1,8 +1,7 @@
 import { emptyHtml, html } from './format.ts';
+import type { TreeRow, TreeLine, TreeFork } from '../activity-tree.ts';
 
-export type TreeRow = import('../activity-tree.ts').TreeRow;
-export type TreeLine = import('../activity-tree.ts').TreeLine;
-export type TreeFork = import('../activity-tree.ts').TreeFork;
+export type { TreeRow, TreeLine, TreeFork };
 
 // Geometry in CSS pixels. web/styles/feed.css places y = 0 on the row's type label and sizes a lane as PITCH wide.
 const PITCH = 10;

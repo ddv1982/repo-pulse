@@ -15,13 +15,13 @@ import { createStore } from '../server/store.ts';
 import { createSync } from '../server/sync.ts';
 import { TEST_KEY, rememberKey, portOf } from '../test/fixtures/access.ts';
 import { present, stub } from '../test/fixtures/typed.ts';
+import type { FoldersResponse, DiscoverResponse } from '../server.ts';
+import type { DiscoveredRemote } from '../server/repositories.ts';
+import type { Page } from '@playwright/test';
+import type { AzureProvider } from '../server/azure-client.ts';
+import type { ConnectionStatus } from '../src/contract.ts';
 
-export type FoldersResponse = import('../server.ts').FoldersResponse;
-export type DiscoverResponse = import('../server.ts').DiscoverResponse;
-export type DiscoveredRemote = import('../server/repositories.ts').DiscoveredRemote;
-export type Page = import('@playwright/test').Page;
-export type AzureProvider = import('../server/azure-client.ts').AzureProvider;
-export type ConnectionStatus = import('../src/contract.ts').ConnectionStatus;
+export type { FoldersResponse, DiscoverResponse, DiscoveredRemote, Page, AzureProvider, ConnectionStatus };
 
 async function browserPath() {
   if (process.env.CHROME) return process.env.CHROME;

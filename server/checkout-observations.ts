@@ -1,8 +1,10 @@
 import { ancestry } from './checkout-advice.ts';
+import type { PullAdvice } from './checkout-advice.ts';
+import type { GitRunner } from './checkout-git.ts';
+import type { Rewrite, CheckoutDiagnostic } from '../src/contract.ts';
 
-export type PullAdvice = import('./checkout-advice.ts').PullAdvice;
-export type GitRunner = import('./checkout-git.ts').GitRunner;
-export type Rewrite = import('../src/contract.ts').Rewrite;
+export type { PullAdvice, GitRunner, Rewrite, CheckoutDiagnostic };
+
 export type Observation = {
   identity: string;
   tracking?: string | undefined;
@@ -16,7 +18,6 @@ export type Observations = {
   get: (id: string, identity: string) => Observation | undefined;
   save: (id: string, value: Observation) => void;
 };
-export type CheckoutDiagnostic = import('../src/contract.ts').CheckoutDiagnostic;
 
 export function memoryObservations(): Observations {
   const values: Map<string, Observation> = new Map();

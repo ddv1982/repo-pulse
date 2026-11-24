@@ -1,12 +1,12 @@
 import { foldSearchText, matchesPeople, parsePeople } from './activity-people.ts';
 import { projectActivity } from '../src/activity.ts';
 import { activityFilterLabel, labels, parseActivityFilter } from '../src/activity-text.ts';
+import type { SQLInputValue as SqlValue } from 'node:sqlite';
+import type { ActivityEvent, ActivityRequest, ActivityPage } from '../src/activity.ts';
 
-export type SqlValue = import('node:sqlite').SQLInputValue;
+export type { SqlValue, ActivityEvent, ActivityRequest, ActivityPage };
 export type SqlRow = Record<string, import('node:sqlite').SQLOutputValue>;
-export type ActivityEvent = import('../src/activity.ts').ActivityEvent;
-export type ActivityRequest = import('../src/activity.ts').ActivityRequest;
-export type ActivityPage = import('../src/activity.ts').ActivityPage;
+
 export type Group = { key: string; time: number; observed: number; representative: string };
 export type FilterRow = { kind: string; status: string; evidence: string };
 export type CountRow = { kind: string; count: number; newItems: number; newUpdates: number };

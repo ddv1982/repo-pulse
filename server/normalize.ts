@@ -3,18 +3,37 @@ import { actorName, branchName, safeAzureUrl } from '../src/events.ts';
 import { mergeUpdates } from './merge-evidence.ts';
 import { forkJob } from './fork-origin.ts';
 import { isRecord, recordsOf } from './azure-records.ts';
+import type { ActivityKind } from '../src/activity.ts';
+import type { AzureStream as StreamName, AzureRepo } from './azure-client.ts';
+import type {
+  AzureStreamRecords,
+  AzureStreamRecord,
+  AzurePush,
+  AzureRefUpdate,
+  AzureRef,
+  AzurePullRequest,
+  AzureBuild,
+  UnreadableIds,
+} from '../src/contract.ts';
+import type { RewriteJob } from './rewrite-check.ts';
+import type { ForkJob } from './fork-origin.ts';
 
-export type ActivityKind = import('../src/activity.ts').ActivityKind;
-export type StreamName = import('./azure-client.ts').AzureStream;
-export type AzureStreamRecords = import('../src/contract.ts').AzureStreamRecords;
-export type AzureStreamRecord = import('../src/contract.ts').AzureStreamRecord;
-export type AzurePush = import('../src/contract.ts').AzurePush;
-export type AzureRefUpdate = import('../src/contract.ts').AzureRefUpdate;
-export type AzureRef = import('../src/contract.ts').AzureRef;
-export type AzurePullRequest = import('../src/contract.ts').AzurePullRequest;
-export type AzureBuild = import('../src/contract.ts').AzureBuild;
-export type UnreadableIds = import('../src/contract.ts').UnreadableIds;
-export type WatchedRepo = import('./azure-client.ts').AzureRepo & { id: string; disabled?: boolean };
+export type {
+  ActivityKind,
+  StreamName,
+  AzureStreamRecords,
+  AzureStreamRecord,
+  AzurePush,
+  AzureRefUpdate,
+  AzureRef,
+  AzurePullRequest,
+  AzureBuild,
+  UnreadableIds,
+  RewriteJob,
+  ForkJob,
+};
+
+export type WatchedRepo = AzureRepo & { id: string; disabled?: boolean };
 /** What `normalize` reads from a stream state; backfill passes `historical: true`. */
 export type NormalizeState = { initialized: boolean; historical?: boolean };
 /** What `reconcileRefs` reads from a stream state. */
@@ -72,8 +91,7 @@ export type EntityData = {
 };
 export type EntityType = keyof EntityData;
 export type Entity = { [T in EntityType]: { type: T; id: string; data: EntityData[T] } }[EntityType];
-export type RewriteJob = import('./rewrite-check.ts').RewriteJob;
-export type ForkJob = import('./fork-origin.ts').ForkJob;
+
 export type SyncBatch = { events: SyncEvent[]; entities: Entity[]; jobs?: (RewriteJob | ForkJob)[] };
 export type NormalizeStore = {
   getSetting: (key: `baseline:${string}`, fallback: string) => string;

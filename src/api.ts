@@ -1,15 +1,32 @@
-export type StateResponse = import('./contract.ts').StateResponse;
-export type ActivityResponse = import('./contract.ts').ActivityResponse;
-export type EventResponse = import('./contract.ts').EventResponse;
-export type CheckoutsResponse = import('./contract.ts').CheckoutsResponse;
-export type CheckoutUpdateResponse = import('./contract.ts').CheckoutUpdateResponse;
-export type ConnectionResponse = import('./contract.ts').ConnectionResponse;
-export type PushCommitsResponse = import('./contract.ts').PushCommitsResponse;
-export type PrReviewResponse = import('./contract.ts').PrReviewResponse;
-export type ErrorResponse = import('./contract.ts').ErrorResponse;
-export type OkResponse = import('./contract.ts').OkResponse;
-export type DiscoverResponse = import('./contract.ts').DiscoverResponse;
-export type FoldersResponse = import('./contract.ts').FoldersResponse;
+import type {
+  StateResponse,
+  ActivityResponse,
+  EventResponse,
+  CheckoutsResponse,
+  CheckoutUpdateResponse,
+  ConnectionResponse,
+  PushCommitsResponse,
+  PrReviewResponse,
+  ErrorResponse,
+  OkResponse,
+  DiscoverResponse,
+  FoldersResponse,
+} from './contract.ts';
+
+export type {
+  StateResponse,
+  ActivityResponse,
+  EventResponse,
+  CheckoutsResponse,
+  CheckoutUpdateResponse,
+  ConnectionResponse,
+  PushCommitsResponse,
+  PrReviewResponse,
+  ErrorResponse,
+  OkResponse,
+  DiscoverResponse,
+  FoldersResponse,
+};
 
 /**
  * The response body for a request path, matched on the path's shape. More specific shapes come first.

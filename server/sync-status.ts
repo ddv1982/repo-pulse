@@ -1,9 +1,10 @@
 import { worstStatus } from '../src/sync-worst.ts';
+import type { StreamState } from './sync.ts';
+import type { SyncStatus, OverallSyncStatus } from '../src/contract.ts';
 
-export type StreamState = import('./sync.ts').StreamState;
-export type SyncState = import('../src/contract.ts').SyncState;
-export type SyncStatus = import('../src/contract.ts').SyncStatus;
-export type OverallSyncStatus = import('../src/contract.ts').OverallSyncStatus;
+export type { StreamState, SyncStatus, OverallSyncStatus };
+export type { SyncState } from '../src/contract.ts';
+
 export type SyncStatusInput = {
   repos: { id: string; disabled?: boolean }[];
   streams: StreamState[];

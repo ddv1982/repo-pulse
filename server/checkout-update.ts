@@ -1,14 +1,10 @@
 import { ancestry } from './checkout-advice.ts';
 import { observedRewrite } from './checkout-observations.ts';
 import { readDirectCommit } from './checkout-switch-refs.ts';
+import type { ActiveCheckout, CheckoutReading, GitRunner, LinkedRepo, ReadCheckoutStatus, Upstream } from './checkout-git.ts';
+import type { Observation } from './checkout-observations.ts';
 
-export type ActiveCheckout = import('./checkout-git.ts').ActiveCheckout;
-export type CheckoutReading = import('./checkout-git.ts').CheckoutReading;
-export type GitRunner = import('./checkout-git.ts').GitRunner;
-export type LinkedRepo = import('./checkout-git.ts').LinkedRepo;
-export type ReadCheckoutStatus = import('./checkout-git.ts').ReadCheckoutStatus;
-export type Upstream = import('./checkout-git.ts').Upstream;
-export type Observation = import('./checkout-observations.ts').Observation;
+export type { ActiveCheckout, CheckoutReading, GitRunner, LinkedRepo, ReadCheckoutStatus, Upstream, Observation };
 
 /**
  * Check, Pull and PR target updates share this workflow. The caller holds the checkout lock.

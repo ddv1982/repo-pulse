@@ -4,18 +4,33 @@ import { readRef, switchLocalBranch } from './checkout-branches.ts';
 import { isSymbolicRef, worktreeUsesBranch } from './checkout-delete-guard.cjs';
 import { readDirectCommit, refreshSwitchTracking } from './checkout-switch-refs.ts';
 import { verifyTrackingMapping } from './checkout-tracking.ts';
+import type {
+  ActivitySwitchReview,
+  ActiveCheckout,
+  CheckoutReading,
+  CheckoutStatus,
+  DecoratedCheckout,
+  GitRunner,
+  LinkedRepo,
+  ReadCheckoutStatus,
+  SwitchIntent,
+  Upstream,
+} from './checkout-git.ts';
+import type { Observation } from './checkout-observations.ts';
 
-export type ActivitySwitchReview = import('./checkout-git.ts').ActivitySwitchReview;
-export type ActiveCheckout = import('./checkout-git.ts').ActiveCheckout;
-export type CheckoutReading = import('./checkout-git.ts').CheckoutReading;
-export type CheckoutStatus = import('./checkout-git.ts').CheckoutStatus;
-export type DecoratedCheckout = import('./checkout-git.ts').DecoratedCheckout;
-export type GitRunner = import('./checkout-git.ts').GitRunner;
-export type LinkedRepo = import('./checkout-git.ts').LinkedRepo;
-export type ReadCheckoutStatus = import('./checkout-git.ts').ReadCheckoutStatus;
-export type SwitchIntent = import('./checkout-git.ts').SwitchIntent;
-export type Upstream = import('./checkout-git.ts').Upstream;
-export type Observation = import('./checkout-observations.ts').Observation;
+export type {
+  ActivitySwitchReview,
+  ActiveCheckout,
+  CheckoutReading,
+  CheckoutStatus,
+  DecoratedCheckout,
+  GitRunner,
+  LinkedRepo,
+  ReadCheckoutStatus,
+  SwitchIntent,
+  Upstream,
+  Observation,
+};
 
 /**
  * The caller owns the checkout lock and supplies its existing Git runner and scope checks.

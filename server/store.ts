@@ -25,24 +25,33 @@ import {
   readSetting,
   readStream,
 } from './store-records.ts';
+import type { SQLOutputValue as SqlValue } from 'node:sqlite';
+import type { ActivityEvent } from '../src/activity.ts';
+import type { StreamState, StreamName } from './sync.ts';
+import type { StoredEvent, HydratedEvent, Repository } from '../src/contract.ts';
+import type { Job, JobType, JobOf, Settings, SettingKey } from './store-records.ts';
+import type { Entity, EntityData, EntityType } from './normalize.ts';
 
-export type SqlValue = import('node:sqlite').SQLOutputValue;
+export type {
+  SqlValue,
+  ActivityEvent,
+  StreamState,
+  StreamName,
+  StoredEvent,
+  HydratedEvent,
+  Repository,
+  Job,
+  JobType,
+  JobOf,
+  Settings,
+  SettingKey,
+  Entity,
+  EntityData,
+  EntityType,
+};
 export type SqlRow = Record<string, SqlValue>;
-export type ActivityEvent = import('../src/activity.ts').ActivityEvent;
-export type EventData = import('../src/activity.ts').EventData;
-export type StreamState = import('./sync.ts').StreamState;
-export type StreamName = import('./sync.ts').StreamName;
-export type StoredEvent = import('../src/contract.ts').StoredEvent;
-export type HydratedEvent = import('../src/contract.ts').HydratedEvent;
-export type Repository = import('../src/contract.ts').Repository;
-export type Job = import('./store-records.ts').Job;
-export type JobType = import('./store-records.ts').JobType;
-export type JobOf<T extends JobType> = import('./store-records.ts').JobOf<T>;
-export type Settings = import('./store-records.ts').Settings;
-export type SettingKey = import('./store-records.ts').SettingKey;
-export type Entity = import('./normalize.ts').Entity;
-export type EntityData = import('./normalize.ts').EntityData;
-export type EntityType = import('./normalize.ts').EntityType;
+
+export type { EventData } from '../src/activity.ts';
 
 type JobQuery = { repoId?: string; status?: string; dueBefore?: string };
 type JobFilter = JobQuery & { type?: JobType };

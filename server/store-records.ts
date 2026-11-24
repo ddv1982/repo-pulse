@@ -12,19 +12,13 @@
 import { fields, is, isRecord, list, type Check } from './azure-records.ts';
 
 import type { SqlRow } from './store.ts';
-type Repository = import('../src/contract.ts').Repository;
-type StoredEvent = import('../src/contract.ts').StoredEvent;
-type StreamState = import('../src/contract.ts').StreamState;
-type AzureStream = import('../src/contract.ts').AzureStream;
-type HistoryJob = import('../src/contract.ts').HistoryJob;
-type SavedActivityFilter = import('../src/contract.ts').SavedActivityFilter;
-type ActivityKind = import('../src/activity.ts').ActivityKind;
-type RewriteJob = import('./rewrite-check.ts').RewriteJob;
-type ForkJob = import('./fork-origin.ts').ForkJob;
-type Followup = import('./checkout-branches.ts').Followup;
-type Observation = import('./checkout-observations.ts').Observation;
-type EntityData = import('./normalize.ts').EntityData;
-type EntityType = import('./normalize.ts').EntityType;
+import type { Repository, StoredEvent, StreamState, AzureStream, HistoryJob, SavedActivityFilter } from '../src/contract.ts';
+import type { ActivityKind } from '../src/activity.ts';
+import type { RewriteJob } from './rewrite-check.ts';
+import type { ForkJob } from './fork-origin.ts';
+import type { Followup } from './checkout-branches.ts';
+import type { Observation } from './checkout-observations.ts';
+import type { EntityData, EntityType } from './normalize.ts';
 
 /** Jobs by type. Merge jobs were dropped by store migration 11. */
 export type Job = HistoryJob | RewriteJob | ForkJob;

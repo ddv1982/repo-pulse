@@ -4,11 +4,11 @@ import { promisify } from 'node:util';
 import { stat, readdir, realpath } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { homedir } from 'node:os';
+import type { DiscoveredRemote as ParsedRemote, DiscoveredRemote, Discovery } from '../src/contract.ts';
 
-export type ParsedRemote = import('../src/contract.ts').DiscoveredRemote;
-export type DiscoveredRemote = import('../src/contract.ts').DiscoveredRemote;
-export type DiscoveredCheckout = import('../src/contract.ts').DiscoveredCheckout;
-export type Discovery = import('../src/contract.ts').Discovery;
+export type { ParsedRemote, DiscoveredRemote, Discovery };
+
+export type { DiscoveredCheckout } from '../src/contract.ts';
 
 const exec = promisify(execFile);
 const invalid = () => Object.assign(new Error('Use an Azure DevOps Services HTTPS or SSH repository URL.'), { code: 'INVALID_REPOSITORY' });

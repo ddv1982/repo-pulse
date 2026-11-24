@@ -18,9 +18,11 @@ import { scopeName } from './ui/header.ts';
 import { createHistoryImport } from './ui/history-import.ts';
 import { createBranchPicker } from './ui/branch-picker.ts';
 import { required, setHtml } from './ui/dom.ts';
+import type { PageState } from './ui/refresh.ts';
+import type { Action } from './ui/checkout-actions.ts';
 
-export type PageState = import('./ui/refresh.ts').PageState;
-export type Action = import('./ui/checkout-actions.ts').Action;
+export type { PageState, Action };
+
 /** web/theme.ts publishes this before the modules load. */
 export type ThemedWindow = Window & { repoPulseTheme?: { set: (value: string) => void } };
 

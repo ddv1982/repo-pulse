@@ -1,6 +1,7 @@
 import { emptyHtml, html, buildState } from './format.ts';
+import type { PageState } from './refresh.ts';
 
-export type PageState = import('./refresh.ts').PageState;
+export type { PageState };
 
 export function emptyActivityMessage(ui: { repoIds: string[] | null; route?: string; search?: string; kind?: string }, partial: boolean) {
   const scoped = Boolean(ui.search || ui.kind || ui.repoIds !== null);

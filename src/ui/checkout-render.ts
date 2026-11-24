@@ -1,7 +1,8 @@
 import { azureLink, emptyHtml, html, joinHtml } from './format.ts';
+import type { CheckoutSnapshot } from './checkout.ts';
+import type { CheckoutDiagnostic } from '../contract.ts';
 
-export type CheckoutSnapshot = import('./checkout.ts').CheckoutSnapshot;
-export type CheckoutDiagnostic = import('../contract.ts').CheckoutDiagnostic;
+export type { CheckoutSnapshot, CheckoutDiagnostic };
 
 const statusLabels: Record<string, string | undefined> = {
   'not-linked': 'No local checkout linked',

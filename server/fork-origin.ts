@@ -1,5 +1,8 @@
-export type AzureProvider = import('./azure-client.ts').AzureProvider;
-export type ForkOrigin = import('../src/activity.ts').ForkOrigin;
+import type { AzureProvider } from './azure-client.ts';
+import type { ForkOrigin } from '../src/activity.ts';
+
+export type { AzureProvider, ForkOrigin };
+
 /**
  * One live branch creation, checked for the commit it started from and the branch that held it. Until `base` is known,
  * `at` is the commit to read next and `reads` counts the commit reads so far. `checks` are the candidate branches

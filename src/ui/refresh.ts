@@ -1,15 +1,12 @@
 import { createActivityData, activityEvents } from './activity-data.ts';
 import { isActivity } from './navigation.ts';
+import type { ActivityEvent, ActivityPage } from '../activity.ts';
+import type { EventDetail, ActivityView } from './activity-data.ts';
+import type { StateResponse } from '../api.ts';
 
-export type ActivityEvent = import('../activity.ts').ActivityEvent;
+export type { ActivityEvent, ActivityPage, EventDetail, StateResponse };
 
-export type ActivityPage = import('../activity.ts').ActivityPage;
-
-export type EventDetail = import('./activity-data.ts').EventDetail;
-
-export type View = import('./activity-data.ts').ActivityView & { eventId: string | null; generation: number };
-
-export type StateResponse = import('../api.ts').StateResponse;
+export type View = ActivityView & { eventId: string | null; generation: number };
 
 export type Request = typeof import('../api.ts').request;
 

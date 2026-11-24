@@ -2,14 +2,32 @@ import { normalizeOrganization, parseRemote, repositoryKey } from './repositorie
 import { safeAzureUrl } from '../src/events.ts';
 import { cliError } from './azure-cli.ts';
 import { isRecord, readRecord, recordId, unreadableField } from './azure-records.ts';
+import type {
+  AzureRepo,
+  AzureStream,
+  AzureStreamRecord,
+  AzureBuild,
+  AzurePullRequest,
+  UnreadableRecords,
+  PageCursor,
+  ConnectionStatus,
+  PullRequestReview,
+} from '../src/contract.ts';
+import type { UnreadableCheckoutPull } from './checkout-advice.ts';
 
-export type AzureRepo = import('../src/contract.ts').AzureRepo;
-export type AzureStream = import('../src/contract.ts').AzureStream;
-export type AzureStreamRecord = import('../src/contract.ts').AzureStreamRecord;
-export type AzureBuild = import('../src/contract.ts').AzureBuild;
-export type AzurePullRequest = import('../src/contract.ts').AzurePullRequest;
-export type UnreadableRecords = import('../src/contract.ts').UnreadableRecords;
-export type PageCursor = import('../src/contract.ts').PageCursor;
+export type {
+  AzureRepo,
+  AzureStream,
+  AzureStreamRecord,
+  AzureBuild,
+  AzurePullRequest,
+  UnreadableRecords,
+  PageCursor,
+  UnreadableCheckoutPull,
+  ConnectionStatus,
+  PullRequestReview,
+};
+
 /**
  * `restarted` marks a first page read in place of the saved cursor's page. `unreadable` counts the records left out
  * of `items` because a field they need is missing or malformed; it is absent when there were none. `unreadableIds`
@@ -37,9 +55,9 @@ export type CheckoutPull = {
   strategy?: string;
   url: string;
 };
-export type UnreadableCheckoutPull = import('./checkout-advice.ts').UnreadableCheckoutPull;
-export type AccessCheck = import('../src/contract.ts').AccessCheck;
-export type ConnectionStatus = import('../src/contract.ts').ConnectionStatus;
+
+export type { AccessCheck } from '../src/contract.ts';
+
 export type ResolvedRepository = {
   id: string;
   organization: string;
@@ -55,7 +73,7 @@ export type RepositoryInput = { organization: string; project: string; repoName?
 export type AzureClientCli = { run: (args: string[]) => Promise<unknown> };
 /** The provider contract. Sync and backfill type their provider as the subset of it they call. */
 export type AzureProvider = ReturnType<typeof createAzureClient>;
-export type PullRequestReview = import('../src/contract.ts').PullRequestReview;
+
 const RESOLVED = new Set(['fixed', 'wontFix', 'closed', 'byDesign']);
 export function reviewOf(threads: unknown, evaluations: unknown): PullRequestReview {
   if (!Array.isArray(threads) || !Array.isArray(evaluations))

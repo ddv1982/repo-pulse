@@ -2,8 +2,9 @@
 // their responses without pulling Node modules into their program. Server modules alias these types, and the
 // handlers in server.ts check each response against its type with `satisfies`.
 
-export type ActivityEvent = import('./activity.ts').ActivityEvent;
-export type EventData = import('./activity.ts').EventData;
+import type { ActivityEvent, EventData } from './activity.ts';
+
+export type { ActivityEvent, EventData };
 
 // Azure
 
@@ -379,7 +380,7 @@ export type StateResponse = {
   demo: boolean;
 };
 /** GET /api/activity, built by server/activity-query.ts. */
-export type ActivityResponse = import('./activity.ts').ActivityPage;
+export type { ActivityPage as ActivityResponse } from './activity.ts';
 /** GET /api/events/:id: the event and every event grouped with it. */
 export type EventResponse = { event: HydratedEvent; events: HydratedEvent[] };
 /** GET /api/checkouts: status per enabled repository id, empty in demo mode. */

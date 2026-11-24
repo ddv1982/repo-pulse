@@ -1,7 +1,9 @@
 import { branchName, safeAzureUrl } from '../src/events.ts';
+import type { LinkedRepo, GitRunner } from './checkout-git.ts';
+import type { PullAdvice } from '../src/contract.ts';
 
-export type LinkedRepo = import('./checkout-git.ts').LinkedRepo;
-export type GitRunner = import('./checkout-git.ts').GitRunner;
+export type { LinkedRepo, GitRunner, PullAdvice };
+
 export type CheckoutPull = {
   id: number;
   source: string;
@@ -15,7 +17,7 @@ export type CheckoutPull = {
 };
 /** A completed PR from the source branch whose fields checkout uses cannot be read, named by the first such field. */
 export type UnreadableCheckoutPull = { unreadable: string };
-export type PullAdvice = import('../src/contract.ts').PullAdvice;
+
 export type FindCheckoutPulls = (repo: LinkedRepo, source: string, head: string) => Promise<(CheckoutPull | UnreadableCheckoutPull)[]>;
 const readable = (pr: CheckoutPull | UnreadableCheckoutPull): pr is CheckoutPull => !('unreadable' in pr);
 export const isCommit = (value: unknown) =>

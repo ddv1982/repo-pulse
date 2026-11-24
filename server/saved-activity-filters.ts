@@ -1,9 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import { canonicalActivityFilter } from '../src/activity-text.ts';
 import { parsePeople } from './activity-people.ts';
+import type { ActivityFilters, SavedActivityFilter } from '../src/contract.ts';
 
-export type ActivityFilters = import('../src/contract.ts').ActivityFilters;
-export type SavedActivityFilter = import('../src/contract.ts').SavedActivityFilter;
+export type { ActivityFilters, SavedActivityFilter };
 
 const setting = 'savedActivityFilters';
 const problem = (message: string, status: number = 400) => Object.assign(new Error(message), { status });

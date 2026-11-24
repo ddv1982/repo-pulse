@@ -4,11 +4,12 @@ import { syncPill } from './health.ts';
 import { renderCheckout } from './checkout-render.ts';
 import { renderHistoryButton, renderHistoryProgress } from './history-import.ts';
 import { displayLocalPath } from './repository-picker.ts';
+import type { PageState, Repo } from './refresh.ts';
+import type { CheckoutSnapshot } from './checkout.ts';
+import type { HistoryJob } from './history-import.ts';
 
-export type PageState = import('./refresh.ts').PageState;
-export type Repo = import('./refresh.ts').Repo;
-export type CheckoutSnapshot = import('./checkout.ts').CheckoutSnapshot;
-export type HistoryJob = import('./history-import.ts').HistoryJob;
+export type { PageState, Repo, CheckoutSnapshot, HistoryJob };
+
 export type RepositoriesView = Pick<import('./connection.ts').ConnectionState, 'results'>;
 
 export function renderRepositories(

@@ -2,6 +2,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { stat } from 'node:fs/promises';
 import { win32 } from 'node:path';
+import type { CliLastError as LastError } from '../src/contract.ts';
 
 export type CliError = Error & { code: string };
 
@@ -15,7 +16,7 @@ export type AzCommand = { file: string; prefix: string[]; env: Record<string, st
 
 export type QueueJob = { args: string[]; key: string; resolve: (value: unknown) => void; reject: (reason: unknown) => void };
 
-export type LastError = import('../src/contract.ts').CliLastError;
+export type { LastError };
 
 const exec = promisify(execFile);
 const MAX_RETRY_AFTER_MS = 10 * 60000;

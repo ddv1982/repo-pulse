@@ -1,8 +1,10 @@
+import type { ActivityEvent } from '../src/activity.ts';
+import type { AzureStream } from './azure-client.ts';
+
 export type Store = ReturnType<typeof import('./store.ts').createStore>;
-export type ActivityEvent = import('../src/activity.ts').ActivityEvent;
+export type { ActivityEvent, AzureStream };
 /** Fixtures carry provider fields beyond EventData, as stored events do. */
 export type DemoEvent = ActivityEvent & { data?: import('../src/activity.ts').EventData & Record<string, unknown> };
-export type AzureStream = import('./azure-client.ts').AzureStream;
 
 const STREAMS: AzureStream[] = ['pushes', 'refs', 'prs', 'closedPrs', 'builds', 'activeBuilds'];
 const ago = (minutes: number) => new Date(Date.now() - minutes * 60_000).toISOString();
