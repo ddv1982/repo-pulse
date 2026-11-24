@@ -13,14 +13,15 @@ export type PageCursor = import('../src/contract.ts').PageCursor;
 /**
  * `restarted` marks a first page read in place of the saved cursor's page. `unreadable` counts the records left out
  * of `items` because a field they need is missing or malformed; it is absent when there were none. `unreadableIds`
- * names the pull requests and builds among them whose ID could still be read, so sync knows Azure listed them.
+ * names the pull requests and builds among them whose ID could still be read, with the field each could not be read
+ * for, so sync knows Azure listed them.
  */
 export type AzurePage<T = AzureStreamRecord> = {
   items: T[];
   nextCursor: PageCursor | null;
   restarted?: boolean;
   unreadable?: UnreadableRecords;
-  unreadableIds?: string[];
+  unreadableIds?: { id: string; field: string }[];
 };
 /** One page of a stream, as sync and backfill read it. */
 export type StreamRead = (repo: AzureRepo, stream: AzureStream, options?: ReadOptions) => Promise<AzurePage>;
@@ -100,7 +101,7 @@ function pageOf<T>(
   const token = isRecord(response) ? response.continuation_token || response.continuationToken : undefined;
   const items: T[] = [];
   const fields: Set<string> = new Set();
-  const unreadableIds: string[] = [];
+  const unreadableIds: { id: string; field: string }[] = [];
   let skipped = 0;
   for (const item of list) {
     if (readable(item)) {
@@ -108,9 +109,10 @@ function pageOf<T>(
       continue;
     }
     skipped++;
-    fields.add(field(item) ?? 'record');
+    const fault = field(item) ?? 'record';
+    fields.add(fault);
     const id = idOf?.(item);
-    if (id !== undefined) unreadableIds.push(id);
+    if (id !== undefined) unreadableIds.push({ id, field: fault });
   }
   return {
     items,

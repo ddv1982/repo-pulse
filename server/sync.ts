@@ -88,6 +88,12 @@ function lookupTurn(missing: string[], last: string | undefined, size: number) {
   );
   return [...sorted.slice(after), ...sorted.slice(0, after)].slice(0, size);
 }
+/** The remembered unreadable lookups of IDs that are still missing, by ID. */
+const rememberedLookups = (remembered: UnreadableLookups, missing: (id: string) => boolean) =>
+  new Map((remembered || []).filter(entry => missing(entry.id)).map(entry => [entry.id, entry.field]));
+/** The count and fields of the remembered unreadable lookups, or undefined when there are none. */
+const lookupsUnreadable = (lookups: Map<string, string>): UnreadableRecords | undefined =>
+  lookups.size ? { count: lookups.size, fields: [...new Set(lookups.values())] } : undefined;
 /** The warning for records a read left out, or undefined when it left none out. */
 function warningOf(stream: StreamName, unreadable: UnreadableRecords | undefined): StreamWarning | undefined {
   if (!unreadable?.count) return undefined;
@@ -333,9 +339,11 @@ export function createSync({
   }
   /**
    * Looks up by ID up to 20 cached in-progress builds that the active list no longer holds. Returns the builds Azure
-   * answered with, what it returned unreadable, and the builds it no longer has.
+   * answered with, what it returned unreadable, and the builds it no longer has. A build whose lookup came back
+   * unreadable is remembered and counted in every read until it reads, its lookup finds it gone, or it is listed
+   * active again, so a read whose turn skips it does not clear the warning.
    */
-  async function lookUpBuilds(repo: WatchedRepo, activeIds: string[]) {
+  async function lookUpBuilds(repo: WatchedRepo, activeIds: string[], remembered: UnreadableLookups) {
     if (!provider.buildsById) return { items: [], gone: [] };
     const missing = new Map(
       store
@@ -343,6 +351,7 @@ export function createSync({
         .filter(entry => entry.data.status !== 'completed' && !activeIds.includes(entry.id))
         .map(entry => [entry.id, entry.data]),
     );
+    const lookups = rememberedLookups(remembered, id => missing.has(id));
     const turn = lookupTurn([...missing.keys()], buildLookedUp.get(repo.id), 20);
     if (!turn.length) return { items: [], gone: [] };
     buildLookedUp.set(repo.id, String(turn.at(-1)));
@@ -352,13 +361,21 @@ export function createSync({
     // With more pages to read, an omitted build may only be on a later one, so none is given up this turn. A build
     // Azure returned unreadable is not omitted, and when one of those has no readable ID it may be any build asked
     // for, so none is given up either.
-    const answered = new Set([...byId.items.map(item => String(item.id)), ...(byId.unreadableIds || [])]);
-    const unnamed = (byId.unreadable?.count ?? 0) > (byId.unreadableIds?.length ?? 0);
+    const named = byId.unreadableIds || [];
+    const answered = new Set([...byId.items.map(item => String(item.id)), ...named.map(entry => entry.id)]);
+    const unnamed = (byId.unreadable?.count ?? 0) - named.length;
     const gone: Entity[] =
-      byId.nextCursor || unnamed
+      byId.nextCursor || unnamed > 0
         ? []
         : turn.filter(id => !answered.has(id)).map(id => ({ type: 'build', id, data: { ...missing.get(id), status: 'completed' } }));
-    return { items: byId.items, unreadable: byId.unreadable, gone };
+    for (const id of turn) lookups.delete(id);
+    for (const { id, field } of named) lookups.set(id, field);
+    // An unreadable build without a readable ID cannot be remembered, so it counts only in this read.
+    const unreadable = addUnreadable(
+      lookupsUnreadable(lookups),
+      unnamed > 0 && byId.unreadable ? { count: unnamed, fields: byId.unreadable.fields } : undefined,
+    );
+    return { items: byId.items, unreadable, gone, unreadableLookups: [...lookups].map(([id, field]) => ({ id, field })) };
   }
   /**
    * Reads one page plus, on the last page of a snapshot stream, the entities it no longer lists.
@@ -373,7 +390,7 @@ export function createSync({
     // A record Azure lists but this code cannot read is still active, so it is neither missing nor looked up again.
     const activeIds: string[] | undefined =
       state.stream === 'prs' || state.stream === 'activeBuilds'
-        ? [...(state.activeIds || []), ...listedIds(state.stream, page.items), ...(page.unreadableIds || [])]
+        ? [...(state.activeIds || []), ...listedIds(state.stream, page.items), ...(page.unreadableIds || []).map(entry => entry.id)]
         : undefined;
     let items: AzureStreamRecord[] = page.items;
     // A provider that restarted the snapshot at page one invalidates what the pages read so far left out.
@@ -383,10 +400,11 @@ export function createSync({
     const snapshot = snapshotRefs(state, page);
     unreadable = addUnreadable(unreadable, snapshot.unreadable);
     if (complete && state.stream === 'activeBuilds') {
-      const builds = await lookUpBuilds(repo, activeIds || []);
+      const builds = await lookUpBuilds(repo, activeIds || [], state.unreadableLookups);
       items = [...items, ...builds.items];
       unreadable = addUnreadable(unreadable, builds.unreadable);
       gone = builds.gone;
+      unreadableLookups = builds.unreadableLookups;
     }
     if (complete && state.stream === 'prs' && provider.pullRequest) {
       const missing = store
@@ -395,9 +413,7 @@ export function createSync({
         .map(entry => entry.id);
       // A lookup that came back unreadable counts in every read until that PR reads, its lookup finds it deleted or
       // moved, or it is no longer missing, so a read whose turn skips it does not clear the warning.
-      const lookups = new Map(
-        (state.unreadableLookups || []).filter(entry => missing.includes(entry.id)).map(entry => [entry.id, entry.field]),
-      );
+      const lookups = rememberedLookups(state.unreadableLookups, id => missing.includes(id));
       for (const id of lookupTurn(missing, prLookedUp.get(repo.id), 3)) {
         if (!watching(repo)) return null;
         prLookedUp.set(repo.id, id);
@@ -413,7 +429,7 @@ export function createSync({
         }
       }
       unreadableLookups = [...lookups].map(([id, field]) => ({ id, field }));
-      if (lookups.size) unreadable = addUnreadable(unreadable, { count: lookups.size, fields: [...new Set(lookups.values())] });
+      unreadable = addUnreadable(unreadable, lookupsUnreadable(lookups));
     }
     return { page, complete, activeIds, items, gone, unreadable, unreadableLookups, pendingItems: snapshot.refs };
   }

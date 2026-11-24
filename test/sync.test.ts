@@ -1923,6 +1923,58 @@ test('builds beyond the first lookup batch get a turn when every build in it sta
   builds.store.close();
 });
 
+test('a build whose lookup came back unreadable stays in the warning on reads whose lookups skip it', async () => {
+  const ids = Array.from({ length: 21 }, (_, index) => 101 + index);
+  const builds = await leftActiveBuilds(ids, id =>
+    id === 101 ? { ...inProgressBuild(101), status: 7 } : { ...inProgressBuild(id), status: 'none' },
+  );
+  const counts: (number | null)[] = [];
+  for (let turn = 0; turn < 23; turn++) {
+    await builds.turn();
+    counts.push(present(builds.store.getStreams().find(state => state.stream === 'activeBuilds')).warning?.count ?? null);
+  }
+  assert.ok(
+    builds.asked.some(batch => !batch.includes(101)),
+    'some lookup skips build 101',
+  );
+  assert.deepEqual(counts, Array(23).fill(1));
+  builds.store.close();
+});
+
+test('a build whose lookup came back unreadable leaves the warning once it reads, is gone, or is listed again', async () => {
+  for (const outcome of ['reads', 'gone', 'listed']) {
+    let answer: unknown = { ...inProgressBuild(42), status: 7 };
+    let listed = true;
+    let clientTime = 0;
+    const client = createAzureClient({
+      now: () => clientTime,
+      cli: {
+        run: async args =>
+          args.some(arg => arg.startsWith('buildIds='))
+            ? { value: answer === undefined ? [] : [answer] }
+            : { value: listed ? [inProgressBuild(42)] : [] },
+      },
+    });
+    const { store, sync, advance } = setup(client, ['activeBuilds']);
+    const turn = async () => {
+      advance(600000);
+      clientTime += 60000;
+      await sync.tick();
+    };
+    await sync.tick();
+    listed = false;
+    await turn();
+    const warning = () => present(store.getStreams().find(state => state.stream === 'activeBuilds')).warning ?? null;
+    assert.equal(warning()?.count, 1, outcome);
+    if (outcome === 'reads') answer = finishedBuild(42);
+    if (outcome === 'gone') answer = undefined;
+    if (outcome === 'listed') listed = true;
+    await turn();
+    assert.equal(warning(), null, outcome);
+    store.close();
+  }
+});
+
 test('a PR lookup that comes back without a pullRequestId is counted and does not stop a readable sibling', async () => {
   let listed: unknown[] = [cachedPr(1), cachedPr(2)];
   const client = createAzureClient({
