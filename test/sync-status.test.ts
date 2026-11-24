@@ -155,7 +155,7 @@ test('a stream that skipped unreadable Azure records is a problem naming the str
     code: 'UNREADABLE_RECORDS',
     fields: ['pushId'],
     count: 1,
-    message: 'Skipped 1 record in pushes that Azure returned without a readable pushId.',
+    message: 'Skipped 1 record in pushes that Azure returned without a readable value for pushId.',
   };
   const result = status({ a: { pushes: { warning } } });
   assert.deepEqual(result.repos.a, { state: 'problem', reason: warning.message, stream: 'pushes', since: ago(1) });

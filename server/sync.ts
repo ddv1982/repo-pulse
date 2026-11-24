@@ -96,7 +96,7 @@ function warningOf(stream: StreamName, unreadable: UnreadableRecords | undefined
     code: 'UNREADABLE_RECORDS',
     count,
     fields,
-    message: `Skipped ${count} ${count === 1 ? 'record' : 'records'} in ${stream} that Azure returned without a readable ${fields.join(' or ')}.`,
+    message: `Skipped ${count} ${count === 1 ? 'record' : 'records'} in ${stream} that Azure returned without a readable value for ${fields.join(' or ')}.`,
   };
 }
 

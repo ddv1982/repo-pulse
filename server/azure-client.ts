@@ -475,9 +475,12 @@ export function createAzureClient({ cli, now = Date.now }: { cli?: AzureClientCl
       const unreadable = unreadableField('prs', raw) ?? (repositoryId ? null : 'repository.id');
       if (unreadable !== null || !isAzurePullRequest(raw)) {
         const field = unreadable ?? 'record';
-        throw Object.assign(cliError('UNREADABLE_RECORD', `Azure returned pull request ${String(id)} without a readable ${field}.`), {
-          field,
-        });
+        throw Object.assign(
+          cliError('UNREADABLE_RECORD', `Azure returned pull request ${String(id)} without a readable value for ${field}.`),
+          {
+            field,
+          },
+        );
       }
       return raw;
     },

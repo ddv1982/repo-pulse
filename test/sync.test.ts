@@ -1475,7 +1475,7 @@ test('a push Azure returns without a pushId is skipped with a warning instead of
     code: 'UNREADABLE_RECORDS',
     fields: ['pushId'],
     count: 1,
-    message: 'Skipped 1 record in pushes that Azure returned without a readable pushId.',
+    message: 'Skipped 1 record in pushes that Azure returned without a readable value for pushId.',
   });
   store.close();
 });
@@ -1498,7 +1498,7 @@ test('a stream warning stands until a later read of that stream completes with n
   const { store, sync, advance } = setup(client, ['pushes']);
   await sync.tick();
   assert.equal(pushesState(store).warning?.count, 2);
-  assert.equal(pushesState(store).warning?.message, 'Skipped 2 records in pushes that Azure returned without a readable pushId.');
+  assert.equal(pushesState(store).warning?.message, 'Skipped 2 records in pushes that Azure returned without a readable value for pushId.');
   pushes = [push(4)];
   advance();
   await sync.tick();
@@ -1528,6 +1528,11 @@ test('a cached active PR that Azure returns unreadable when asked by ID is skipp
   assert.equal(prs.error, null, 'the unreadable PR does not fail the page');
   assert.equal(prs.lastSuccess, new Date(BASE + 2000).toISOString());
   assert.deepEqual(prs.warning && { fields: prs.warning.fields, count: prs.warning.count }, { fields: ['reviewers'], count: 1 });
+  assert.equal(
+    prs.warning?.message,
+    'Skipped 1 record in prs that Azure returned without a readable value for reviewers.',
+    'the message reads naturally for a plural field name',
+  );
   assert.equal(fieldsOf(store.getEntity(repo.id, 'pr', '1')).status, 'active', 'the unreadable PR is left as it was');
   assert.equal(fieldsOf(store.getEntity(repo.id, 'pr', '2')).status, 'completed', 'its readable sibling commits');
   store.close();
@@ -1584,7 +1589,7 @@ test('a warning found on any page of a read stands when the read completes, and 
   assert.equal(pushesState(store).pending, false, 'the two-page read completed');
   assert.equal(
     pushesState(store).warning?.message,
-    'Skipped 1 record in pushes that Azure returned without a readable pushId.',
+    'Skipped 1 record in pushes that Azure returned without a readable value for pushId.',
     'a clean last page does not clear what an earlier page of the same read found',
   );
   pages = [
@@ -1597,7 +1602,7 @@ test('a warning found on any page of a read stands when the read completes, and 
   assert.equal(pushesState(store).pending, false);
   assert.equal(
     pushesState(store).warning?.message,
-    'Skipped 3 records in pushes that Azure returned without a readable pushId or refUpdates.',
+    'Skipped 3 records in pushes that Azure returned without a readable value for pushId or refUpdates.',
     'counts and fields of every page of the read add up',
   );
   pages = [
