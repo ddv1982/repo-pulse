@@ -73,7 +73,7 @@ function diagnosticMarkup(id: string, diagnostic: CheckoutDiagnostic | undefined
     ${
       advice
         ? html`<p>${adviceLink.toString() ? adviceLink : `PR #${advice.id}`} was completed into
-      <code>${advice.branch}</code>${strategyNames[advice.strategy ?? ''] || ''}.
+      <code>${advice.branch}</code>${strategyNames[String(advice.strategy ?? '')] || ''}.
       ${
         canSwitch && !advice.verified
           ? 'You can review your local commits after switching.'

@@ -35,15 +35,50 @@ export type SyncEvent = {
   seen: boolean;
 };
 export type EventDetail = Partial<Omit<SyncEvent, 'id' | 'repoId' | 'kind' | 'observedAt' | 'imported' | 'seen'>>;
-/** Entity data is stored JSON, so its shape depends on the entity type. */
-export type Entity = { type: string; id: string; data: any };
+/** A push recorded so a later page or snapshot skips it. Its date is what Azure sent. */
+export type PushEntity = { date?: unknown };
+/**
+ * A branch or tag as the last push or refs snapshot left it. The object IDs are what Azure sent; a ref put away keeps
+ * its last ones with `active: false`.
+ */
+export type RefEntity = {
+  name?: string;
+  objectId?: unknown;
+  peeledObjectId?: unknown;
+  active?: boolean;
+  evidence?: string;
+  lastPushId?: number | null | undefined;
+};
+type ReviewerVote = [string, number | null];
+type PrFingerprint = Record<string, unknown> & { votes?: ReviewerVote[] };
+/**
+ * A PR or build snapshot: an event is made only when its fingerprint changes. A PR fingerprint saved before votes were
+ * recorded has none. A snapshot without a fingerprint or revision reads as changed, at revision 0.
+ */
+export type SnapshotEntity<Fingerprint = Record<string, unknown>> = {
+  fingerprint?: Fingerprint;
+  status?: unknown;
+  revision?: number;
+};
+/** A refs stream's tag baseline (`tags`), or the tags an incomplete snapshot could not rule out (`tags-uncertain`). */
+export type RefBaseline = { at: string; all?: boolean; names?: string[] };
+/** Entity data by entity type. */
+export type EntityData = {
+  push: PushEntity;
+  ref: RefEntity;
+  pr: SnapshotEntity<PrFingerprint>;
+  build: SnapshotEntity;
+  'ref-baseline': RefBaseline;
+};
+export type EntityType = keyof EntityData;
+export type Entity = { [T in EntityType]: { type: T; id: string; data: EntityData[T] } }[EntityType];
 export type RewriteJob = import('./rewrite-check.ts').RewriteJob;
 export type ForkJob = import('./fork-origin.ts').ForkJob;
 export type SyncBatch = { events: SyncEvent[]; entities: Entity[]; jobs?: (RewriteJob | ForkJob)[] };
 export type NormalizeStore = {
-  getSetting: (key: string, fallback: unknown) => unknown;
-  getEntity: (repoId: string, type: string, id: string) => any;
-  listEntities: (repoId: string, type: string) => { id: string; data: any }[];
+  getSetting: (key: `baseline:${string}`, fallback: string) => string;
+  getEntity: <T extends EntityType>(repoId: string, type: T, id: string) => EntityData[T] | undefined;
+  listEntities: <T extends EntityType>(repoId: string, type: T) => { id: string; data: EntityData[T] }[];
 };
 
 const ZERO = /^0+$/;
@@ -85,7 +120,7 @@ const reviewerVotes = (pr: AzurePullRequest): [string, number][] =>
 /**
  * Reviewers whose vote differs from the previous snapshot. A snapshot without votes, or a first sighting, has no changes.
  */
-const voteChanges = (before: [string, number][] | undefined, pr: AzurePullRequest) => {
+const voteChanges = (before: ReviewerVote[] | undefined, pr: AzurePullRequest) => {
   if (!before) return [];
   const previous = new Map(before);
   return reviewers(pr)
@@ -153,7 +188,13 @@ export function createNormalizer({ store, now = Date.now }: { store: NormalizeSt
     };
   }
   // PRs and builds are snapshots: an event is emitted only when their fingerprint changes.
-  function snapshot(repo: WatchedRepo, type: string, key: string, value: { status?: string | null | undefined }, historical: boolean) {
+  function snapshot<T extends 'pr' | 'build'>(
+    repo: WatchedRepo,
+    type: T,
+    key: string,
+    value: PrFingerprint & { status?: string | null | undefined },
+    historical: boolean,
+  ) {
     const previous = store.getEntity(repo.id, type, key);
     // Snapshots saved before votes were recorded adopt the current votes instead of reporting them as a change.
     const comparable = previous?.fingerprint && !('votes' in previous.fingerprint) ? { ...value, votes: undefined } : value;
@@ -166,14 +207,14 @@ export function createNormalizer({ store, now = Date.now }: { store: NormalizeSt
       sourceId: historical
         ? `history:${key}:${fingerprint({ ...value, votes: undefined })}`
         : `${key}:${(previous?.revision || 0) + 1}:${fingerprint(value)}`,
-      entity: historical ? null : { type, id: key, data: { fingerprint: value, status: value.status, revision } },
+      entity: historical ? null : ({ type, id: key, data: { fingerprint: value, status: value.status, revision } } satisfies Entity),
     };
   }
   /**
    * A non-status change to a live PR is dated when observed; otherwise the event takes the
    * closure time Azure reports, or the creation time for a PR seen for the first time.
    */
-  function prEventTime(item: AzurePullRequest, previous: any, historical: boolean) {
+  function prEventTime(item: AzurePullRequest, previous: SnapshotEntity | undefined, historical: boolean) {
     const unchangedStatus = previous?.fingerprint?.status === item.status;
     if (previous && !historical && unchangedStatus) return iso(now());
     return (item.status !== 'active' ? item.closedDate : null) || (!previous ? item.creationDate : null) || iso(now());
@@ -182,7 +223,7 @@ export function createNormalizer({ store, now = Date.now }: { store: NormalizeSt
     repo: WatchedRepo;
     add: (kind: ActivityKind, sourceId: string, detail: EventDetail) => void;
     entities: Entity[];
-    refs: Map<string, any> | null;
+    refs: Map<string, RefEntity> | null;
     historical: boolean;
   };
 
@@ -342,7 +383,7 @@ export function createNormalizer({ store, now = Date.now }: { store: NormalizeSt
     const entities: Entity[] = [];
     const historical = Boolean(state.historical);
     const refs = stream === 'pushes' ? new Map(store.listEntities(repo.id, 'ref').map(entry => [entry.id, entry.data])) : null;
-    const baseline = store.getSetting(`baseline:${repo.id}`, iso(now())) as string;
+    const baseline = store.getSetting(`baseline:${repo.id}`, iso(now()));
     const add: NormalizeContext['add'] = (kind, sourceId, detail) => {
       const time = detail.time || iso(now());
       const imported = !state.initialized && Date.parse(time) <= Date.parse(baseline);
@@ -390,8 +431,8 @@ export function createNormalizer({ store, now = Date.now }: { store: NormalizeSt
   function tagBaseline(repo: WatchedRepo, initialized: boolean, incomplete: boolean, unreadable: UnreadableIds | undefined) {
     const known = initialized && Boolean(store.getEntity(repo.id, 'ref-baseline', 'tags'));
     const establishes = initialized && incomplete && !known;
-    const kept: UncertainTags | undefined = initialized ? store.getEntity(repo.id, 'ref-baseline', 'tags-uncertain') : undefined;
-    const pending = Boolean(kept?.all || kept?.names.length);
+    const kept = initialized ? store.getEntity(repo.id, 'ref-baseline', 'tags-uncertain') : undefined;
+    const pending = Boolean(kept?.all || kept?.names?.length);
     const found = incomplete && (establishes || pending);
     const all = Boolean(kept?.all) || (found && (!unreadable || unreadable.anonymous > 0));
     const named = found ? (unreadable?.ids ?? []).filter(name => name.startsWith('refs/tags/')) : [];
@@ -399,9 +440,9 @@ export function createNormalizer({ store, now = Date.now }: { store: NormalizeSt
     const at = iso(now());
     const uncertain: UncertainTags = incomplete ? { all, names } : { all: false, names: [] };
     const write: Entity[] = [
-      ...(!incomplete || establishes ? [{ type: 'ref-baseline', id: 'tags', data: { at } }] : []),
+      ...(!incomplete || establishes ? [{ type: 'ref-baseline', id: 'tags', data: { at } } satisfies Entity] : []),
       ...(pending || uncertain.all || uncertain.names.length
-        ? [{ type: 'ref-baseline', id: 'tags-uncertain', data: { at, ...uncertain } }]
+        ? [{ type: 'ref-baseline', id: 'tags-uncertain', data: { at, ...uncertain } } satisfies Entity]
         : []),
     ];
     const isUncertain = (name: string) => all || names.includes(name);

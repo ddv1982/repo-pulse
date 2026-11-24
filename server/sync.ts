@@ -1,6 +1,7 @@
 import { createNormalizer } from './normalize.ts';
 import { isRecord, recordId, recordsOf, unreadableField } from './azure-records.ts';
 import { READS } from './sync-status.ts';
+import { isCorruptRow } from './store-records.ts';
 
 export type ActivityKind = import('./normalize.ts').ActivityKind;
 export type StreamName = import('./azure-client.ts').AzureStream;
@@ -17,6 +18,10 @@ export type NormalizeState = import('./normalize.ts').NormalizeState;
 export type SyncEvent = import('./normalize.ts').SyncEvent;
 export type EventDetail = import('./normalize.ts').EventDetail;
 export type Entity = import('./normalize.ts').Entity;
+export type EntityData = import('./normalize.ts').EntityData;
+export type EntityType = import('./normalize.ts').EntityType;
+export type Settings = import('./store-records.ts').Settings;
+export type SettingKey = import('./store-records.ts').SettingKey;
 export type RewriteJob = import('./normalize.ts').RewriteJob;
 export type SyncBatch = import('./normalize.ts').SyncBatch;
 /** The time range one read covers. It stays fixed across the pages of that read. */
@@ -27,12 +32,12 @@ type UnreadableLookups = StreamState['unreadableLookups'];
 export type StartedStream = StreamState & { window: StreamWindow; windowGeneration: number; lastAttempt: string; pending: true };
 export type SyncStore = {
   listRepos: () => WatchedRepo[];
-  getSetting: (key: string, fallback: unknown) => unknown;
-  setSetting: (key: string, value: string) => void;
+  getSetting: <K extends SettingKey, F>(key: K, fallback: F) => Settings[K] | F;
+  setSetting: <K extends SettingKey>(key: K, value: Settings[K]) => void;
   getStreams: () => StreamState[];
   saveStream: (state: StreamState) => void;
-  getEntity: (repoId: string, type: string, id: string) => any;
-  listEntities: (repoId: string, type: string) => { id: string; data: any }[];
+  getEntity: <T extends EntityType>(repoId: string, type: T, id: string) => EntityData[T] | undefined;
+  listEntities: <T extends EntityType>(repoId: string, type: T) => { id: string; data: EntityData[T] }[];
   commitPage: (page: SyncBatch & { repoId: string; stream: StreamName; state: StreamState }) => void;
 };
 /** GET /api/state reports this as `diagnostics.sync`. */
@@ -305,6 +310,7 @@ export function createSync({
   let nextBackground: BackgroundKind = 'rewrite';
   const lastTurn: Partial<Record<BackgroundKind | 'live', string>> = {};
   const counters = { pages: 0, errors: 0 };
+  const backgroundProblems: SyncStatus['backgroundProblems'] = {};
   /** The turn order of the cached active PRs and in-progress builds to look up by ID, per repository (see lookupTurn). */
   const prTurns: Map<string, Set<string>> = new Map();
   const buildTurns: Map<string, Set<string>> = new Map();
@@ -344,11 +350,24 @@ export function createSync({
     const other: BackgroundKind = nextBackground === 'rewrite' ? 'history' : 'rewrite';
     for (const kind of [nextBackground, other]) {
       if (kind === 'rewrite' && !automatic) continue;
-      if (!(await background[kind]?.())) continue;
-      lastTurn[kind] = iso(now());
+      let ran = false;
+      try {
+        ran = Boolean(await background[kind]?.());
+        delete backgroundProblems[kind];
+        if (!ran) continue;
+      } catch (error) {
+        counters.errors++;
+        backgroundProblems[kind] = isCorruptRow(error)
+          ? error.message
+          : kind === 'history'
+            ? 'Could not run history import.'
+            : 'Could not check branch rewrites and fork origins.';
+      }
       nextBackground = kind === 'rewrite' ? 'history' : 'rewrite';
       liveTurns = 0;
-      return true;
+      if (ran) lastTurn[kind] = iso(now());
+      // A failed worker gives live reads a turn and the other worker first choice next time.
+      return ran;
     }
     return false;
   }
@@ -410,7 +429,11 @@ export function createSync({
     const gone: Entity[] =
       byId.nextCursor || unnamed > 0
         ? []
-        : turn.filter(id => !answered.has(id)).map(id => ({ type: 'build', id, data: { ...missing.get(id), status: 'completed' } }));
+        : turn.flatMap(id => {
+            // `turn` holds IDs of `missing` only.
+            const data = missing.get(id);
+            return answered.has(id) || !data ? [] : [{ type: 'build', id, data: { ...data, status: 'completed' } } satisfies Entity];
+          });
     // A remembered build leaves the warning only when this lookup read it or found it gone, not when the answer had
     // more pages or unreadable builds without an ID, either of which may be it.
     for (const id of [...byId.items.map(item => String(item.id)), ...gone.map(entry => entry.id)]) lookups.delete(id);
@@ -656,6 +679,8 @@ export function createSync({
       await active?.catch(() => {});
       try {
         clear();
+        delete backgroundProblems.rewrite;
+        delete backgroundProblems.history;
       } finally {
         requested.clear();
         refreshedAt.clear();
@@ -728,6 +753,7 @@ export function createSync({
         ...counters,
         streams: store.getStreams().length,
         lastTurn: { ...lastTurn },
+        backgroundProblems: { ...backgroundProblems },
         lag: lag(),
         inProgress: halted() ? [] : inProgress,
       };

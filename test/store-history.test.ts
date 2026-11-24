@@ -10,6 +10,7 @@ import type { Job } from '../server/store.ts';
 import type { ActivityEvent, ActivityRequest, EventData } from '../src/activity.ts';
 import type { Repository, StreamState } from '../src/contract.ts';
 import { dataOf, fieldsOf, present, stub } from './fixtures/typed.ts';
+import { historyJob } from './fixtures/jobs.ts';
 
 type Reviewer = NonNullable<EventData['reviewers']>[number];
 const repo = stub<Repository>({ id: 'repo', name: 'Repo', azureId: 'a' });
@@ -26,6 +27,16 @@ const event = (id: string, extra: Partial<ActivityEvent> = {}): ActivityEvent =>
 });
 const build = (id: string, status: string, extra: Partial<ActivityEvent> = {}) =>
   event(id, { kind: 'build', title: status, data: { buildId: 42, status }, ...extra });
+/** Writes a job of the retired merge type as store.saveJob wrote it, with no `nextAt` due at the epoch. */
+function insertMergeJob(db: DatabaseSync, job: { id: string; type: 'merge'; repoId: string; nextAt?: string; [field: string]: unknown }) {
+  db.prepare('INSERT INTO jobs(id,repo_id,type,next_at,data) VALUES(?,?,?,?,?)').run(
+    job.id,
+    job.repoId,
+    job.type,
+    job.nextAt || '1970-01-01T00:00:00.000Z',
+    JSON.stringify(job),
+  );
+}
 const setup = () => {
   const store = createStore();
   store.saveRepo(repo);
@@ -160,12 +171,13 @@ test('enrichment is durable search metadata without changing raw identity, timin
 
 test('job, event and stream writes roll back together', () => {
   const store = setup();
-  const job = { id: 'backfill:repo', repoId: repo.id, type: 'backfill', status: 'pending', nextAt: '2026-01-01T00:00:00Z' };
+  const job = historyJob(repo.id, { nextAt: '2026-01-01T00:00:00Z' });
+  const state: StreamState = { repoId: repo.id, stream: 'pushes', initialized: false, nextAt: '2026-01-01T00:00:00Z', cursor: { skip: 1 } };
   assert.throws(() =>
     store.commitPage({
       repoId: repo.id,
       stream: 'pushes',
-      state: stub<StreamState>({ cursor: { skip: 1 } }),
+      state,
       events: [event('a')],
       jobs: [{ ...job, repoId: 'missing' }],
     }),
@@ -284,7 +296,11 @@ test('v3 migration queues no merge work and drops what was queued while preservi
     mergeEvidence: { status: 'complete', introducedCommitsComplete: true, commits: [], prs: [] },
     kept: 'metadata',
   });
-  store.saveJob({
+  const before = store.listEvents({ limit: 100 });
+  store.close();
+  const db = new DatabaseSync(path);
+  // A merge job as the earlier merge analysis saved it; no current job type has this shape.
+  insertMergeJob(db, {
     id: 'merge:in-progress',
     type: 'merge',
     repoId: repo.id,
@@ -293,9 +309,6 @@ test('v3 migration queues no merge work and drops what was queued while preservi
     cursor: { skip: 5 },
     commitIds: ['old-cursor-data'],
   });
-  const before = store.listEvents({ limit: 100 });
-  store.close();
-  const db = new DatabaseSync(path);
   db.exec('PRAGMA user_version=3');
   db.close();
   store = createStore(path);
@@ -340,11 +353,18 @@ test('opening a database with merge work left drops the jobs and keeps evidence 
       limitations: ['Merge enrichment is still in progress.', 'Merge evidence could not be read. Retrying later.'],
     },
   });
-  for (const id of ['done', 'partial', 'retrying'])
-    store.saveJob({ id: `merge:${id}`, type: 'merge', repoId: repo.id, eventId: id, status: 'enriching', nextAt: '2026-11-17T10:00:00Z' });
-  store.saveJob({ id: 'backfill:repo', type: 'backfill', repoId: repo.id, status: 'pending', nextAt: '2026-11-17T10:00:00Z' });
+  store.saveJob(historyJob(repo.id, { status: 'pending', nextAt: '2026-11-17T10:00:00Z' }));
   store.close();
   const db = new DatabaseSync(path);
+  for (const id of ['done', 'partial', 'retrying'])
+    insertMergeJob(db, {
+      id: `merge:${id}`,
+      type: 'merge',
+      repoId: repo.id,
+      eventId: id,
+      status: 'enriching',
+      nextAt: '2026-11-17T10:00:00Z',
+    });
   db.exec('PRAGMA user_version=10');
   db.close();
   store = createStore(path);
@@ -376,15 +396,17 @@ test('opening a v11 database deletes the cached commit and commit-pr entities, r
   let store = createStore(path);
   store.saveRepo(repo);
   const padding = 'x'.repeat(2000);
-  const cached = Array.from({ length: 500 }, (_, index) => [
-    { type: 'commit', id: `c${index}`, data: { commitId: `c${index}`, parents: [], comment: padding } },
-    { type: 'commit-pr', id: `c${index}`, data: { associations: [], comment: padding } },
-  ]).flat();
-  store.commitPage({ repoId: repo.id, entities: [...cached, { type: 'ref', id: 'refs/heads/main', data: { objectId: 'a' } }] });
+  store.commitPage({ repoId: repo.id, entities: [{ type: 'ref', id: 'refs/heads/main', data: { objectId: 'a' } }] });
   store.insertEvents([event('graph')]);
   store.enrichEvent('graph', { mergeEvidence: { status: 'complete', commits: [{ commitId: 'm', parents: ['a', 'b'] }], prs: [] } });
   store.close();
   const db = new DatabaseSync(path);
+  // Commits and their PR lookups as the earlier merge analysis cached them; no current entity type has these shapes.
+  const insert = db.prepare('INSERT INTO entities(repo_id,type,id,data) VALUES(?,?,?,?)');
+  for (let index = 0; index < 500; index++) {
+    insert.run(repo.id, 'commit', `c${index}`, JSON.stringify({ commitId: `c${index}`, parents: [], comment: padding }));
+    insert.run(repo.id, 'commit-pr', `c${index}`, JSON.stringify({ associations: [], comment: padding }));
+  }
   db.exec(`PRAGMA user_version=11; CREATE TABLE IF NOT EXISTS rules (id TEXT PRIMARY KEY,data TEXT NOT NULL);
     UPDATE activity_members SET evidence_id='merge-commit' WHERE event_id='graph';`);
   db.close();

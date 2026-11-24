@@ -173,7 +173,7 @@ for (const repoTotal of repoCounts) {
   }
   const elapsedMinutes = (run.now() - startedAt) / 60000;
   const events = run.store.listEvents({ limit: 5000 }).filter(event => event.kind === 'push');
-  const delays = events.map(event => Date.parse(event.observedAt) - Date.parse(event.time));
+  const delays = events.map(event => Date.parse(event.observedAt) - Date.parse(String(event.time)));
   console.log(
     [
       repoTotal,

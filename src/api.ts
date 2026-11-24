@@ -121,19 +121,22 @@ export async function request<P extends string>(path: P, { method = 'GET', body 
     signal: AbortSignal.timeout(45000),
   });
   // The body is the route's JSON; ResponseFor names its type, and an error status carries an ErrorResponse.
-  let value: any;
+  let value: unknown;
   try {
     value = await response.json();
   } catch {
     throw new Error(`The local app returned an unreadable response (${response.status}).`);
   }
   if (!response.ok) {
+    const body: Partial<Record<string, unknown>> = typeof value === 'object' && value !== null ? value : {};
+    const error = body.error;
+    const nested = typeof error === 'object' && error !== null && 'message' in error ? error.message : undefined;
     throw Object.assign(
-      new Error(
-        value.message || value.error?.message || (typeof value.error === 'string' ? value.error : `Request failed (${response.status}).`),
-      ),
-      { code: value.code },
+      new Error(String(body.message || nested || (typeof error === 'string' ? error : `Request failed (${response.status}).`))),
+      { code: body.code },
     );
   }
-  return value;
+  // The local server answers this path with ResponseFor<P> (server.ts checks each handler with `satisfies`); checking
+  // the body here waits for the shared route table the post-migration plan leaves for the next new route.
+  return value as ResponseFor<P>;
 }

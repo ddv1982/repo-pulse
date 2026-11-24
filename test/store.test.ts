@@ -8,9 +8,9 @@ import { SEARCH_INDEX_VERSION } from '../src/activity-text.ts';
 import { DatabaseSync } from 'node:sqlite';
 import { spawn } from 'node:child_process';
 import type { ActivityEvent, EventData } from '../src/activity.ts';
-import type { SettingValue } from '../server/store.ts';
 import type { StreamState } from '../src/contract.ts';
-import { dataOf, fieldsOf, present, stub } from './fixtures/typed.ts';
+import { dataOf, fieldsOf, present } from './fixtures/typed.ts';
+import { historyJob, rewriteJob } from './fixtures/jobs.ts';
 
 type Store = ReturnType<typeof createStore>;
 const repo = {
@@ -59,17 +59,18 @@ test('durable exact acknowledgement does not consume hidden or incoming events',
 test('page transaction rolls back events and checkpoint together', () => {
   const store = createStore();
   store.saveRepo(repo);
+  const state: StreamState = { repoId: 'one', stream: 'pushes', initialized: false, nextAt: '2026-11-19T00:00:00Z', cursor: { skip: 2 } };
   assert.throws(() =>
     store.commitPage({
       repoId: 'one',
       stream: 'pushes',
-      state: stub<StreamState>({ cursor: { skip: 2 } }),
+      state,
       events: [event('good'), event('bad', { repoId: 'missing' })],
     }),
   );
   assert.equal(store.listEvents().length, 0);
   assert.equal(store.getStreams().length, 0);
-  store.commitPage({ repoId: 'one', stream: 'pushes', state: stub<StreamState>({ cursor: { skip: 2 } }), events: [event('good')] });
+  store.commitPage({ repoId: 'one', stream: 'pushes', state, events: [event('good')] });
   assert.deepEqual(present(store.getStreams()[0]).cursor, { skip: 2 });
   store.close();
 });
@@ -181,19 +182,23 @@ test('starting from scratch clears activity, checkpoints, jobs and baselines but
     state: { repoId: 'one', stream: 'pushes', initialized: true, nextAt: '2026-11-19T00:00:00Z' },
     events: pushes,
     entities: [{ type: 'push', id: '1', data: { date: '2026-11-17T10:00:00Z' } }],
-    jobs: [{ id: 'rewrite:one', type: 'rewrite', repoId: 'one', eventId: 'push-0' }],
+    jobs: [rewriteJob('one', 'push-0')],
   });
-  store.saveJob({ id: 'backfill:one', type: 'backfill', repoId: 'one', status: 'pending' });
+  store.saveJob(historyJob('one'));
   store.enrichEvent('push-0', { mergeEvidence: { status: 'complete' } });
-  const settings: [string, SettingValue][] = [
-    ['baseline:one', '2026-11-01T00:00:00.000Z'],
-    ['baseline:two', '2026-11-01T00:00:00.000Z'],
-    ['checkout:one', { head: 'abc' }],
-    ['checkout-followup:one', { source: 'refs/heads/feature' }],
-    ['refreshEnabled', false],
-    ['refreshResumedAt', 123],
-  ];
-  for (const [key, value] of settings) store.setSetting(key, value);
+  store.setSetting('baseline:one', '2026-11-01T00:00:00.000Z');
+  store.setSetting('baseline:two', '2026-11-01T00:00:00.000Z');
+  store.setSetting('checkout:one', { identity: 'abc' });
+  store.setSetting('checkout-followup:one', {
+    id: 'plan',
+    source: 'refs/heads/feature',
+    path: '/checkout',
+    sourceHead: 'a'.repeat(40),
+    targetRef: 'refs/heads/main',
+    result: 'b'.repeat(40),
+  });
+  store.setSetting('refreshEnabled', false);
+  store.setSetting('refreshResumedAt', 123);
   const revision = Number(store.activityRevision());
   const diskSize = () => statSync(path).size + (existsSync(`${path}-wal`) ? statSync(`${path}-wal`).size : 0);
   const before = diskSize();
@@ -339,7 +344,7 @@ test('a write waits for another process that briefly holds the write lock instea
       `const { DatabaseSync } = require('node:sqlite');
        const db = new DatabaseSync(process.argv[1]);
        db.exec('BEGIN IMMEDIATE');
-       db.exec("INSERT INTO settings(key,data) VALUES('holder','true')");
+       db.exec("INSERT INTO settings(key,data) VALUES('demoSeeded','true')");
        process.stdout.write('locked');
        setTimeout(() => { db.exec('COMMIT'); db.close(); }, 300);`,
       path,
@@ -357,9 +362,9 @@ test('a write waits for another process that briefly holds the write lock instea
     }),
   ]);
   // The lock is held now; without a busy timeout this throws "database is locked".
-  store.setSetting('waited', true);
-  assert.equal(store.getSetting('holder', false), true, 'the write returned only after the holder committed');
-  assert.equal(store.getSetting('waited', false), true);
+  store.setSetting('refreshEnabled', false);
+  assert.equal(store.getSetting('demoSeeded', false), true, 'the write returned only after the holder committed');
+  assert.equal(store.getSetting('refreshEnabled', true), false);
   await exited;
   store.close();
   rmSync(folder, { recursive: true });
@@ -500,7 +505,7 @@ test('upgrading leaves imported branch creations unchecked in a repository that 
       data: { ...created('x').data, name: 'refs/heads/stored-result', forkOrigin: { status: 'orphan' } },
     },
   ]);
-  store.saveJob({ id: 'backfill:one', type: 'backfill', repoId: 'one', status: 'completed', nextAt: '2026-11-17T10:00:00.000Z' });
+  store.saveJob(historyJob('one', { status: 'completed', nextAt: '2026-11-17T10:00:00.000Z' }));
   store.close();
   const raw = new DatabaseSync(path);
   raw.exec('PRAGMA user_version = 14;');

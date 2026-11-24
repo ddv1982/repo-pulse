@@ -6,6 +6,7 @@ import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { homedir } from 'node:os';
 import { createSavedActivityFilters } from './server/saved-activity-filters.ts';
 import { createStore } from './server/store.ts';
+import { isCorruptRow } from './server/store-records.ts';
 import { lockDatabase } from './server/database-lock.ts';
 import { createSync } from './server/sync.ts';
 import { createAzureCli, defaultExecutor } from './server/azure-cli.ts';
@@ -183,15 +184,13 @@ export function createApp({
       cached: store.completedCheckoutPulls,
       lookup: 'completedCheckoutPulls' in provider ? provider.completedCheckoutPulls : undefined,
     }),
-    // Settings are stored JSON; these keys only ever hold what the matching save wrote.
     followups: {
-      get: id => store.getSetting(`checkout-followup:${id}`) as import('./server/checkout-branches.ts').Followup | undefined,
+      get: id => store.getSetting(`checkout-followup:${id}`),
       save: (id, value) => store.setSetting(`checkout-followup:${id}`, value),
     },
     observations: {
       get: (id, identity) => {
-        const saved = (store.getSetting(`checkout:${id}:${identity}`) ?? store.getSetting(`checkout:${id}`)) as
-          import('./server/checkout-observations.ts').Observation | undefined;
+        const saved = store.getSetting(`checkout:${id}:${identity}`) ?? store.getSetting(`checkout:${id}`);
         return saved?.identity === identity ? saved : undefined;
       },
       save: (id, value) => store.setSetting(`checkout:${id}:${value.identity}`, value),
@@ -257,11 +256,19 @@ export function createApp({
         const inProgress = 'inProgress' in status ? status.inProgress : [];
         const repos = store.listRepos();
         const streams = store.getStreams();
-        const jobs = store.listJobs({ type: 'backfill' });
-        // Both settings are only written by POST /api/settings: a boolean and a Date.now() stamp.
+        const problems = 'backgroundProblems' in status ? status.backgroundProblems : undefined;
+        let backgroundProblem = problems?.history ?? problems?.rewrite;
+        let jobs: StateResponse['jobs'] = [];
+        try {
+          jobs = store.listJobs({ type: 'backfill' });
+        } catch (error) {
+          if (!isCorruptRow(error)) throw error;
+          // Keep state readable so the Activity banner can explain why history progress is unavailable.
+          backgroundProblem = error.message;
+        }
         const settings = {
-          refreshEnabled: store.getSetting('refreshEnabled', true) as boolean,
-          refreshResumedAt: store.getSetting('refreshResumedAt', null) as number | null,
+          refreshEnabled: store.getSetting('refreshEnabled', true),
+          refreshResumedAt: store.getSetting('refreshResumedAt', null),
         };
         const diagnostics = { ...(cli?.diagnostics() || {}), sync: status };
         return json(res, 200, {
@@ -284,6 +291,7 @@ export function createApp({
             throttledUntil: diagnostics.throttledUntil,
             resetting: Boolean(resetting),
             resetFailed,
+            backgroundProblem,
           }),
           demo,
         } satisfies StateResponse);
@@ -447,12 +455,10 @@ export function createApp({
         const repo = enabledRepoById(decodeParam(rawId));
         const local = new Set(await checkoutGit.localBranches(repo));
         const pinned = ['main', 'master'];
-        type RefData = { active?: boolean; lastPushId?: number };
         const branches = store
           .listEntities(repo.id, 'ref')
-          .map(({ id, data }) => ({ id, ref: data as RefData | null }))
-          .filter(({ id, ref }) => id.startsWith('refs/heads/') && id.length > 11 && ref?.active !== false)
-          .map(({ id, ref }) => ({ name: id.slice(11), pushId: Number(ref?.lastPushId) || 0 }))
+          .filter(({ id, data }) => id.startsWith('refs/heads/') && id.length > 11 && data.active !== false)
+          .map(({ id, data }) => ({ name: id.slice(11), pushId: Number(data.lastPushId) || 0 }))
           .sort(
             (a, b) =>
               Number(pinned.includes(b.name)) - Number(pinned.includes(a.name)) ||
@@ -497,7 +503,7 @@ export function createApp({
         }
         if (operation === 'switch-branch' && isSwitchIntent(expected) && typeof input.branch === 'string') {
           // Only a branch the watched repository still lists, like an event, may name the switch target.
-          const ref = store.getEntity(repo.id, 'ref', `refs/heads/${input.branch}`) as { active?: boolean } | null;
+          const ref = store.getEntity(repo.id, 'ref', `refs/heads/${input.branch}`);
           if (!ref || ref.active === false) throw problem('The repository no longer lists this branch.');
           return json(
             res,
@@ -690,7 +696,7 @@ export function createApp({
               : 500);
       if (status === 500) console.error('Request failed:', error.name);
       return json(res, status, {
-        message: status === 500 ? 'Something went wrong. Try again; cached data is kept.' : error.message,
+        message: status === 500 && !isCorruptRow(error) ? 'Something went wrong. Try again; cached data is kept.' : error.message,
         code: error.code,
       } satisfies ErrorResponse);
     }
@@ -799,13 +805,19 @@ async function startLocked(
     app.once('error', reject);
     app.listen(port, '127.0.0.1', () => resolveListen(undefined));
   });
-  sync.start();
+  const closeListener = () => new Promise(resolveClose => app.close(resolveClose));
+  try {
+    sync.start();
+  } catch (error) {
+    await closeListener();
+    throw error;
+  }
   const close = async () => {
     const syncStopped = sync.stop();
     // Abort budget-queued CLI work before waiting for a sync that might be waiting on it.
     await cli?.close();
     await syncStopped;
-    await new Promise(resolveClose => app.close(resolveClose));
+    await closeListener();
     store.close();
     lock.close();
   };

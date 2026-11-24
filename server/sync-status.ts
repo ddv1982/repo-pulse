@@ -17,6 +17,7 @@ export type SyncStatusInput = {
   throttledUntil?: string | null | undefined;
   resetting?: boolean;
   resetFailed?: boolean;
+  backgroundProblem?: string | undefined;
 };
 
 const MINUTE = 60000;
@@ -79,6 +80,7 @@ export function syncStatus({
   throttledUntil,
   resetting = false,
   resetFailed = false,
+  backgroundProblem,
 }: SyncStatusInput): import('../src/contract.ts').SyncStatusReport {
   const automatic = settings.refreshEnabled !== false;
   const ranSince = Math.max(startedAt, settings.refreshResumedAt ?? 0);
@@ -142,6 +144,7 @@ export function syncStatus({
     worstStatus(Object.entries(statuses).map(([repoId, status]) => ({ ...status, repoId }))) ??
     // With no enabled repository a failed reset has no repository to report it, so the overall status does.
     (resetFailed ? { state: 'problem', reason: 'Starting from scratch failed. Try again.' } : { state: 'empty' });
+  if (backgroundProblem && !resetting && !resetFailed) overall = { state: 'problem', reason: backgroundProblem };
   if (overall.state === 'synced') {
     const checks = Object.values(statuses)
       .map(status => time(status.lastCheck))

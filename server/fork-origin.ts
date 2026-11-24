@@ -151,7 +151,7 @@ export function createForkOriginCheck({
     );
     const waits = (job: ForkJob) => {
       if (job.base || !reading.has(job.repoId)) return false;
-      const time = Date.parse(store.getEvent(job.eventId)?.time ?? '');
+      const time = Date.parse(String(store.getEvent(job.eventId)?.time ?? ''));
       return !(time < (reading.get(job.repoId) as number));
     };
     const repos = new Map(
@@ -160,8 +160,7 @@ export function createForkOriginCheck({
         .filter(repo => !repo.disabled)
         .map(repo => [repo.id, repo]),
     );
-    // Rows of type 'fork' are only written by server/normalize.ts and this check, as a ForkJob.
-    const jobs = store.listJobs({ type: 'fork', dueBefore: iso(now()) }) as unknown as ForkJob[];
+    const jobs = store.listJobs({ type: 'fork', dueBefore: iso(now()) });
     const job = jobs.find(item => repos.has(item.repoId) && !((deferred.get(item.repoId)?.get(item.id)?.at ?? 0) > now()) && !waits(item));
     const repo = job && repos.get(job.repoId);
     if (!job || !repo) return false;

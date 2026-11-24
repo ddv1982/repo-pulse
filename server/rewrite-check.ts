@@ -44,8 +44,7 @@ export function createRewriteCheck({
         .filter(repo => !repo.disabled)
         .map(repo => [repo.id, repo]),
     );
-    // Rows of type 'rewrite' are only written by server/normalize.ts, as a RewriteJob.
-    const jobs = store.listJobs({ type: 'rewrite', dueBefore: iso(now()) }) as unknown as RewriteJob[];
+    const jobs = store.listJobs({ type: 'rewrite', dueBefore: iso(now()) });
     const job = jobs.find(item => repos.has(item.repoId) && !((deferred.get(item.repoId)?.get(item.id)?.at ?? 0) > now()));
     const repo = job && repos.get(job.repoId);
     if (!job || !repo) return false;

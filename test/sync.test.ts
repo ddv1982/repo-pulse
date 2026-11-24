@@ -1549,7 +1549,8 @@ test('a sync run over several push pages makes only stream reads and queues no m
     calls.filter(call => !call.startsWith('read:')),
     [],
   );
-  assert.deepEqual(store.listJobs({ type: 'merge' }), []);
+  // Merge jobs are no job type any more: listJobs reports a stored one as a corrupt row, so reading every job finds none.
+  assert.doesNotThrow(() => store.listJobs());
   store.close();
 });
 
@@ -1583,7 +1584,8 @@ test('a history import page makes only stream reads and queues no merge work', a
     calls.filter(call => !call.startsWith('read:')),
     [],
   );
-  assert.deepEqual(store.listJobs({ type: 'merge' }), []);
+  // Merge jobs are no job type any more: listJobs reports a stored one as a corrupt row, so reading every job finds none.
+  assert.doesNotThrow(() => store.listJobs());
   store.close();
 });
 

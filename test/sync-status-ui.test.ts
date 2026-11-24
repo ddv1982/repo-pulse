@@ -294,3 +294,10 @@ test('a problem that belongs to no repository still shows the Activity banner', 
     [['crit', 'Problem', true]],
   );
 });
+
+test('a sync-wide problem shows on Activity while repository checks continue', () => {
+  const reason = 'The stored jobs row "backfill:r" cannot be read: days is missing or malformed.';
+  const state = page({ state: 'problem', reason }, { r: { state: 'synced' } });
+  const markup = renderFeed(state, { repoIds: null, route: 'catchup', search: '', kind: '' });
+  assert.match(present(banners(markup)[0]).text, /The stored jobs row "backfill:r" cannot be read/);
+});

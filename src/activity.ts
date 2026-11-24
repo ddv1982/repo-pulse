@@ -106,7 +106,7 @@ export type ActivityEvent = {
   id: string;
   repoId: string;
   kind: ActivityKind;
-  time: string;
+  time: string | number;
   observedAt?: string;
   title?: string;
   actor?: string;
@@ -147,7 +147,7 @@ export type ActivityPage = {
 };
 
 export const isUnseen = (event: Pick<ActivityEvent, 'seen' | 'imported'>) => !event.seen && !event.imported;
-const timestamp = (value: string | undefined) => Date.parse(value ?? '') || 0;
+const timestamp = (value: string | number | undefined) => Date.parse(String(value ?? '')) || 0;
 const sourceId = (value: string | number | undefined) => {
   const id = Number(value);
   return /^\d+$/.test(String(value)) && Number.isSafeInteger(id) && id > 0 ? String(id) : null;

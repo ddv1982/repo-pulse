@@ -665,7 +665,7 @@ test('html auto-escapes plain values, composes SafeHtml, and setHtml refuses pla
   });
   const element = document.querySelector('main');
   assert.ok(element);
-  // The first child is the <div>, an HTMLElement; firstElementChild is typed as any Element.
+  // The first child is the <div>, an HTMLElement; firstElementChild has the broader Element type.
   const kept = element.firstElementChild as HTMLElement | null;
   assert.ok(kept);
   setHtml(element, rendered);

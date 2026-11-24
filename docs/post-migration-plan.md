@@ -288,20 +288,55 @@ and Azure code, so they get the full cross-model review.
       advice unverified. "completed PRs from one head into different targets keep the advice unverified, whatever
       fields checkout does not use" failed on 71ef4d6 (Sol's probe gave `verified: true`; `main` gives `false`); its
       two cases with an unreadable target or merge result are stricter than `main`, which drops such a candidate.
-- [ ] 2.2 Replace the store's `parse = (...): any` (`server/store.ts:48`) and `undefined as any`
+- [x] 2.2 Replace the store's `parse = (...): any` (`server/store.ts:48`) and `undefined as any`
       (`server/store.ts:132`) with one reader per persisted type that reports a corrupt row by table and id.
       Check: no `any` left in `server/store.ts`, plus a test that a corrupt stored row gives that error. (O, N, S;
       verified)
-- [ ] 2.3 Type entity data per entity type instead of `data: any` (`server/normalize.ts:31`, `:38`, `:145`,
+      `test/store-records.test.ts` ran unchanged on `origin/main` at `db0540f` and produced 17 failures and 3 passes.
+      Invalid stream JSON gave a bare `SyntaxError`. Filtering jobs by status with invalid JSON gave SQLite's
+      `malformed JSON`. The other 15 cases failed with `Missing expected exception`. All 20 tests pass with the
+      readers, with corrupt rows named by table, ID and field. Older event data and enrichment keep their provider
+      fields, numeric source times, and legacy merge evidence. A saved refs page may still contain unchecked Azure
+      entries, which sync checks again on resume. The existing migration tests pass, including the earlier activity
+      index, paused repositories, merge queue and caches, Pull journal, service pushes and fork checks.
+      When a request fails on `CORRUPT_ROW`, the server logs the failure and returns HTTP 500 with the row message.
+      A startup that fails while reading streams closes its HTTP listener before releasing the store and lock.
+      The regression test repairs the row and restarts in the same process on the same port.
+      Activity membership reads each supporting push row once.
+- [x] 2.3 Type entity data per entity type instead of `data: any` (`server/normalize.ts:31`, `:38`, `:145`,
       `server/sync.ts:27`). Check: those `any`s are gone and `check:types` passes. (N, verified)
-- [ ] 2.4 Make `Job` a union per job type and type `listJobs` per type (`server/store.ts:26-34`, `:664`), which
+      `npm run check:types` passes. SQLite fixtures preserve omitted votes, null votes produced by older coercion,
+      omitted or null ref watermarks, and the old tag baseline containing only `at`.
+- [x] 2.4 Make `Job` a union per job type and type `listJobs` per type (`server/store.ts:26-34`, `:664`), which
       removes `as unknown as` at `server/fork-origin.ts:163` and `server/rewrite-check.ts:47`. Check: `grep -rn
       "as unknown as" server/` finds nothing. (O, N, S; verified)
-- [ ] 2.5 Type settings by key, including the template keys such as `checkout:${id}`, so `getSetting`
+      The fork and rewrite workers infer their specific job types. The backfill reader still accepts jobs without
+      the later warnings field, and migration 11 clears queued merge jobs before current readers run. The production
+      search for `as unknown as` was empty. The two existing test assertions remain.
+      The rebase retains the per-repository deferred results and removal hooks from item 1.4. A background
+      worker that throws counts as a sync error, resets the live turn count and gives the other worker the next
+      background turn. The overall sync problem shows the corrupt row message in Activity and clears after the
+      queue reads successfully again. The state endpoint can still report live status when history jobs cannot
+      be listed. The corrupt rewrite and backfill fixtures each stalled after 6 of 14 live reads before the fix.
+      Both now complete all 14 reads and report the affected row.
+- [x] 2.5 Type settings by key, including the template keys such as `checkout:${id}`, so `getSetting`
       returns the stored type. This removes the casts at `server.ts:183-190`, `server.ts:258-259` and
       `server/saved-activity-filters.ts:40`. Check: those casts are gone and `check:types` passes. (N, verified)
-- [ ] 2.6 Measure the result. Check: `git ls-files '*.ts' | xargs grep -nE ': any\b|= any\b|as any\b'` lists
+      `npm run check:types` passes. Corrupt values for a fixed key, a nested saved filter, an observation and a
+      followup each fail at the named setting. Legacy checkout observations under `checkout:${id}` and followups
+      without optional fields still read as written.
+- [x] 2.6 Measure the result. Check: `git ls-files '*.ts' | xargs grep -nE ': any\b|= any\b|as any\b'` lists
       only the two diagnostic parameters in `scripts/probe-coverage.ts`, or nothing.
+      The final search printed these two diagnostic parameters.
+
+      ```text
+      scripts/probe-coverage.ts:71:export function creationPushes(body: any): { pushId: number; tip: string }[] {
+      scripts/probe-coverage.ts:126:export function summarize(name: string, body: any, repo: { azureId: string; projectId: string }, context: { tip?: string } = {}) {
+      ```
+
+      `npm run check`, `npm run check:types` and `npm run lint` passed with the Oxlint complexity limit of 30.
+      `npm test` passed 605 tests and `npm run test:ui` passed 86 tests. All five new regression tests failed on
+      the rebased code before the fixes and passed after them.
 
 ## Phase 3: Cleanup the migration left behind
 
@@ -331,8 +366,8 @@ Not scheduled. Do each one as part of a change that already touches the code, an
 - `EventData` as a union on `kind` instead of 34 optional fields (`src/activity.ts:69-104`, 61 `data?.`
   reads). Stored rows from older versions still need lenient reads. About 2 to 3 days. (O, N, S)
 - One route table shared by `server.ts` and `src/api.ts`, keyed by method and path and covering request
-  bodies. It replaces the hand-matched `ResponseFor` (`src/api.ts:17-61`), gives `request()` a checked
-  result instead of `let value: any` (`src/api.ts:124`), and covers the four routes without `satisfies`
+  bodies. It replaces the hand-matched `ResponseFor` (`src/api.ts:17-61`), validates the response body before `request()`
+  returns `ResponseFor<P>` (`src/api.ts`), and covers the four routes without `satisfies`
   (`server.ts:314`, `:320`, `:325`, `:580`). Do it with the next route added. (O, N, S)
 - A smaller `/api/state` response that leaves out stored stream internals. (S)
 - Split `createApp` (`server.ts`, about 610 lines) into route groups and `createStore` (about 700 lines) into
