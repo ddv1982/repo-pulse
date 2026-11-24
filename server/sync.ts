@@ -48,7 +48,7 @@ function addUnreadable(sum: UnreadableRecords | undefined, more: UnreadableRecor
   if (!sum || !more) return sum || more;
   return { count: sum.count + more.count, fields: [...new Set([...sum.fields, ...more.fields])] };
 }
-/** The warning a page that left records out commits with, or undefined for a page that left none out. */
+/** The warning for records a read left out, or undefined when it left none out. */
 function warningOf(stream: StreamName, unreadable: UnreadableRecords | undefined): StreamWarning | undefined {
   if (!unreadable?.count) return undefined;
   const { count, fields } = unreadable;
@@ -76,7 +76,8 @@ function startPage(state: StreamState, at: number, overlapMs: number): StartedSt
 
 /**
  * Stores the cursor for the next page of the same window. `latest` is the stored state,
- * whose refresh request may be newer than the one this page started with. A page sets or clears the warning.
+ * whose refresh request may be newer than the one this page started with. The warning of the
+ * last completed read stays until this read has left records out too.
  */
 function nextPage(
   state: StartedStream,
@@ -86,12 +87,14 @@ function nextPage(
     cursor,
     pendingItems,
     activeIds,
+    unreadable,
     warning,
   }: {
     at: number;
     cursor: PageCursor | null;
     pendingItems?: AzureRef[] | undefined;
     activeIds?: string[] | undefined;
+    unreadable: UnreadableRecords | undefined;
     warning: StreamWarning | undefined;
   },
 ): StreamState {
@@ -102,16 +105,17 @@ function nextPage(
     cursor,
     pendingItems,
     activeIds,
+    unreadable,
     nextAt: iso(at),
     error: null,
-    warning,
+    ...(warning ? { warning } : {}),
   };
 }
 
 /**
  * Ends a read. The window, cursor and per-read fields are dropped. A refresh requested
  * after the window opened schedules another read now and keeps its manual flag. The warning
- * stays only when this page left records out.
+ * stays only when some page of this read left records out.
  */
 function completePage(
   state: StartedStream,
@@ -161,6 +165,7 @@ function failPage(state: StartedStream, latest: StreamState, at: number, error: 
     cursor: undefined,
     pendingItems: undefined,
     activeIds: undefined,
+    unreadable: undefined,
   };
   // Marked manual so the request still runs if automatic checks were turned off after it was made.
   return { ...failed, ...restarted, refreshGeneration: latest.refreshGeneration, manual: true };
@@ -290,7 +295,8 @@ export function createSync({
         ]
       : undefined;
     let items: AzureStreamRecord[] = page.items;
-    let unreadable = page.unreadable;
+    // A provider that restarted the snapshot at page one invalidates what the pages read so far left out.
+    let unreadable = addUnreadable(page.restarted ? undefined : state.unreadable, page.unreadable);
     let gone: Entity[] = [];
     if (complete && state.stream === 'activeBuilds' && provider.buildsById) {
       const missing = store
@@ -365,7 +371,7 @@ export function createSync({
     const warning = warningOf(state.stream, read.unreadable);
     const next = complete
       ? completePage(working, latest, { at: now(), delayMs: state.stream === 'refs' ? refsIntervalMs : cadence, quietCycles, warning })
-      : nextPage(working, latest, { at: now(), cursor: page.nextCursor, pendingItems, activeIds, warning });
+      : nextPage(working, latest, { at: now(), cursor: page.nextCursor, pendingItems, activeIds, unreadable: read.unreadable, warning });
     store.commitPage({ repoId: repo.id, stream: state.stream, state: next, ...output });
     counters.pages++;
     const key = `${repo.id}:${state.stream}`;

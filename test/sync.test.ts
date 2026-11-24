@@ -1567,3 +1567,48 @@ test('an active build Azure returns unreadable when asked by ID is reported and 
   assert.deepEqual(asked, ['42', '42'], 'it is asked for again');
   store.close();
 });
+
+test('a warning found on any page of a read stands when the read completes, and only a later clean read clears it', async () => {
+  let pages: AzurePage[] = [
+    { items: [push(2)], nextCursor: { skip: 1 }, unreadable: { count: 1, fields: ['pushId'] } },
+    { items: [push(3)], nextCursor: null },
+  ];
+  const provider: SyncProvider = {
+    async read(_repo, _stream, given) {
+      return present(pages[present(given).cursor ? 1 : 0]);
+    },
+  };
+  const { store, sync, advance } = setup(provider, ['pushes']);
+  await sync.tick();
+  await sync.tick();
+  assert.equal(pushesState(store).pending, false, 'the two-page read completed');
+  assert.equal(
+    pushesState(store).warning?.message,
+    'Skipped 1 record in pushes that Azure returned without a readable pushId.',
+    'a clean last page does not clear what an earlier page of the same read found',
+  );
+  pages = [
+    { items: [push(4)], nextCursor: { skip: 1 }, unreadable: { count: 1, fields: ['pushId'] } },
+    { items: [push(5)], nextCursor: null, unreadable: { count: 2, fields: ['refUpdates'] } },
+  ];
+  advance();
+  await sync.tick();
+  await sync.tick();
+  assert.equal(pushesState(store).pending, false);
+  assert.equal(
+    pushesState(store).warning?.message,
+    'Skipped 3 records in pushes that Azure returned without a readable pushId or refUpdates.',
+    'counts and fields of every page of the read add up',
+  );
+  pages = [
+    { items: [push(6)], nextCursor: { skip: 1 } },
+    { items: [push(7)], nextCursor: null },
+  ];
+  advance();
+  await sync.tick();
+  assert.equal(pushesState(store).warning?.count, 3, 'the last completed read stays visible while the next is in progress');
+  await sync.tick();
+  assert.equal(pushesState(store).pending, false);
+  assert.equal(pushesState(store).warning ?? null, null, 'a fully clean read clears it');
+  store.close();
+});

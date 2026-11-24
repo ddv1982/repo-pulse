@@ -170,6 +170,8 @@ export type StreamState = {
   cursor?: PageCursor | null | undefined;
   pendingItems?: AzureRef[] | undefined;
   activeIds?: string[] | undefined;
+  /** The records the read in progress has left out so far, summed across its pages. */
+  unreadable?: UnreadableRecords | undefined;
 };
 /**
  * The sync loop's counters, read for Copy diagnostics. `lastTurn` holds when each kind of turn last ran.
