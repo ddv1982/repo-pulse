@@ -8,8 +8,10 @@ prove behaviour. Each phase is one PR and ends with the full CI matrix green (`c
 This is a conversion, not a rewrite. Production code already passes strict `checkJs` with 0 errors,
 carries about 356 `@typedef`s and has no `@ts-ignore`. Two council rounds (Claude Opus 5.5, GPT-6.2 Sol,
 Gemini 4 Neon, 2026-11-23) asked what a from-scratch TypeScript 7 design would look like. All three
-said it would be close to this one: Node 26, zero runtime dependencies, `node:test`, hand-written
-boundary guards and `SafeHtml`, written in `.ts`. Decisions D1 to D3 are recorded under "Decisions".
+would keep a similar toolchain with Node 26, zero runtime dependencies, `node:test`, hand-written
+boundary guards and `SafeHtml`. A greenfield data model would validate external records from the start
+and give activity variants distinct types. The follow-up work is recorded in the
+[post-migration plan](post-migration-plan.md). Decisions D1 to D3 are recorded under "Decisions".
 
 ## Toolchain
 
