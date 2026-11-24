@@ -2520,8 +2520,6 @@ test('a branch and tag a push recorded and an incomplete snapshot listed are rep
   advance(600001);
   await sync.tick();
   assert.equal(refs().initialized, false, 'the incomplete snapshot is no baseline');
-  assert.equal(fieldsOf(store.getEntity(repo.id, 'ref', 'refs/heads/feature')).evidence, 'push', 'it keeps the evidence of the push');
-  assert.equal(fieldsOf(store.getEntity(repo.id, 'ref', 'refs/tags/v1')).evidence, 'push');
   const titles = () =>
     store
       .listEvents()
@@ -2603,7 +2601,6 @@ test('before the tag baseline, a tag a push recorded and an incomplete snapshot 
   advance(600001);
   await sync.tick();
   assert.equal(store.getEntity(repo.id, 'ref-baseline', 'tags'), undefined, 'the incomplete snapshot is no tag baseline');
-  assert.equal(fieldsOf(store.getEntity(repo.id, 'ref', 'refs/tags/v1')).evidence, 'push', 'it keeps the evidence of the push');
   assert.equal(store.getEntity(repo.id, 'ref', 'refs/tags/v2'), undefined, 'and saves no new tag');
   snapshot = { items: [{ name: 'refs/heads/main', objectId: 'a' }], nextCursor: null };
   advance(600001);

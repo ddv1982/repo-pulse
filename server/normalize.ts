@@ -402,9 +402,9 @@ export function createNormalizer({ store, now = Date.now }: { store: NormalizeSt
    * `incomplete`: its readable refs are added and updated, but a ref it does not list may be one of the unreadable
    * ones, so nothing is reported as no longer listed, and it is not the tag baseline, so an unreadable tag that
    * reads later is not announced as first seen. Sync holds the stream's `initialized` back the same way. Before that
-   * baseline (the stream's for a branch, the tag baseline for a tag), an incomplete snapshot creates no ref and keeps
-   * the evidence of the refs it updates, so the first complete snapshot finds only refs a push recorded and treats them
-   * as on main. Which tags it then reports as no longer listed follows tagBaseline.
+   * baseline (the stream's for a branch, the tag baseline for a tag), an incomplete snapshot creates no ref and only
+   * updates the refs that exist, so the first complete snapshot finds only refs a push recorded and treats them as on
+   * main. Which tags it then reports as no longer listed follows tagBaseline.
    */
   function reconcileRefs(
     repo: WatchedRepo,
@@ -440,7 +440,6 @@ export function createNormalizer({ store, now = Date.now }: { store: NormalizeSt
       const tag = name.startsWith('refs/tags/');
       const beforeBaseline = incomplete && !(tag ? tagsKnown : state.initialized);
       if (beforeBaseline && !previous) continue;
-      const kept = beforeBaseline && previous?.evidence ? { evidence: previous.evidence } : {};
       const peeled = item.peeledObjectId ? { peeledObjectId: item.peeledObjectId } : {};
       if (tag) {
         if (tagsKnown && (!previous || previous.active === false))
@@ -448,7 +447,7 @@ export function createNormalizer({ store, now = Date.now }: { store: NormalizeSt
         entities.push({
           type: 'ref',
           id: name,
-          data: { name, objectId: item.objectId, ...peeled, active: true, ...kept, lastPushId: previous?.lastPushId },
+          data: { name, objectId: item.objectId, ...peeled, active: true, lastPushId: previous?.lastPushId },
         });
         continue;
       }
@@ -473,7 +472,7 @@ export function createNormalizer({ store, now = Date.now }: { store: NormalizeSt
       entities.push({
         type: 'ref',
         id: name,
-        data: { name, objectId: item.objectId, active: true, ...kept, lastPushId: previous?.lastPushId },
+        data: { name, objectId: item.objectId, active: true, lastPushId: previous?.lastPushId },
       });
     }
     if (state.initialized && !incomplete)
