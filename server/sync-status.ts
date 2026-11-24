@@ -117,6 +117,9 @@ export function syncStatus({
     );
     if (failingImport?.error)
       return { state: 'problem', reason: plainReason(failingImport.error, failingImport.stream ?? 'history'), stream: 'history', ...since };
+    // The read succeeded but left out records Azure returned in a shape this version cannot read, so it is not synced.
+    const warned = own.find(stream => stream.warning);
+    if (warned?.warning) return { state: 'problem', reason: warned.warning.message, stream: warned.stream, ...since };
     // The shared queue starts no read for any repository until Azure DevOps's requested wait has passed.
     if (time(throttledUntil ?? undefined) > now) return { state: 'delayed', reason: 'Azure DevOps asked us to slow down', ...since };
     const behind = own.find(stream => behindBy(stream) !== null);

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { createStore } from '../server/store.ts';
 import { createSync } from '../server/sync.ts';
 import { syncStatus, type SyncStatusInput } from '../server/sync-status.ts';
-import type { AzureStream, OverallSyncStatus, StreamError, StreamState } from '../src/contract.ts';
+import type { AzureStream, OverallSyncStatus, StreamError, StreamState, StreamWarning } from '../src/contract.ts';
 import { present } from './fixtures/typed.ts';
 
 const NOW = Date.parse('2026-11-19T12:00:00Z');
@@ -148,6 +148,22 @@ test('a single failed read is not a problem; a second one is', () => {
   assert.equal(present(once.repos.a).state, 'syncing');
   const twice = status({ a: { prs: { error, failures: 2, pending: true } } });
   assert.deepEqual(twice.repos.a, { state: 'problem', reason: error.message, stream: 'prs', since: ago(1) });
+});
+
+test('a stream that skipped unreadable Azure records is a problem naming the stream, not synced', () => {
+  const warning: StreamWarning = {
+    code: 'UNREADABLE_RECORDS',
+    fields: ['pushId'],
+    count: 1,
+    message: 'Skipped 1 record in pushes that Azure returned without a readable pushId.',
+  };
+  const result = status({ a: { pushes: { warning } } });
+  assert.deepEqual(result.repos.a, { state: 'problem', reason: warning.message, stream: 'pushes', since: ago(1) });
+  assert.equal(present(result.repos.b).state, 'synced');
+  assert.deepEqual(result.overall, { state: 'problem', reason: warning.message, stream: 'pushes', since: ago(1), repoId: 'a' });
+  const failing = { code: 'UNAVAILABLE', message: 'Azure DevOps could not be reached. Check your connection or VPN.' };
+  const both = status({ a: { pushes: { warning }, prs: { error: failing, failures: 2 } } });
+  assert.deepEqual(both.repos.a, { state: 'problem', reason: failing.message, stream: 'prs', since: ago(1) }, 'a failing read comes first');
 });
 
 test('throttling is a delay, never a problem', () => {

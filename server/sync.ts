@@ -1,5 +1,5 @@
 import { createNormalizer } from './normalize.ts';
-import { recordsOf } from './azure-records.ts';
+import { isRecord, recordsOf } from './azure-records.ts';
 
 export type ActivityKind = import('./normalize.ts').ActivityKind;
 export type StreamName = import('./azure-client.ts').AzureStream;
@@ -7,6 +7,8 @@ export type AzureProvider = import('./azure-client.ts').AzureProvider;
 export type PageCursor = import('./azure-client.ts').PageCursor;
 export type AzureStreamRecord = import('./azure-client.ts').AzureStreamRecord;
 export type AzureRef = import('../src/contract.ts').AzureRef;
+export type UnreadableRecords = import('../src/contract.ts').UnreadableRecords;
+export type StreamWarning = import('../src/contract.ts').StreamWarning;
 export type WatchedRepo = import('./normalize.ts').WatchedRepo;
 export type NormalizeState = import('./normalize.ts').NormalizeState;
 export type SyncEvent = import('./normalize.ts').SyncEvent;
@@ -41,6 +43,23 @@ const DAY = 86400000;
 const LIVE_TURNS = 6;
 const iso = (ms: number) => new Date(ms).toISOString();
 
+/** Both counts of records left out, with the fields of each. */
+function addUnreadable(sum: UnreadableRecords | undefined, more: UnreadableRecords | undefined): UnreadableRecords | undefined {
+  if (!sum || !more) return sum || more;
+  return { count: sum.count + more.count, fields: [...new Set([...sum.fields, ...more.fields])] };
+}
+/** The warning a page that left records out commits with, or undefined for a page that left none out. */
+function warningOf(stream: StreamName, unreadable: UnreadableRecords | undefined): StreamWarning | undefined {
+  if (!unreadable?.count) return undefined;
+  const { count, fields } = unreadable;
+  return {
+    code: 'UNREADABLE_RECORDS',
+    count,
+    fields,
+    message: `Skipped ${count} ${count === 1 ? 'record' : 'records'} in ${stream} that Azure returned without a readable ${fields.join(' or ')}.`,
+  };
+}
+
 /**
  * Opens a read. A stream resuming a paged read keeps its window and the generation it
  * opened with; a window persisted before generations existed counts as generation zero.
@@ -57,7 +76,7 @@ function startPage(state: StreamState, at: number, overlapMs: number): StartedSt
 
 /**
  * Stores the cursor for the next page of the same window. `latest` is the stored state,
- * whose refresh request may be newer than the one this page started with.
+ * whose refresh request may be newer than the one this page started with. A page sets or clears the warning.
  */
 function nextPage(
   state: StartedStream,
@@ -67,7 +86,14 @@ function nextPage(
     cursor,
     pendingItems,
     activeIds,
-  }: { at: number; cursor: PageCursor | null; pendingItems?: AzureRef[] | undefined; activeIds?: string[] | undefined },
+    warning,
+  }: {
+    at: number;
+    cursor: PageCursor | null;
+    pendingItems?: AzureRef[] | undefined;
+    activeIds?: string[] | undefined;
+    warning: StreamWarning | undefined;
+  },
 ): StreamState {
   return {
     ...state,
@@ -78,17 +104,19 @@ function nextPage(
     activeIds,
     nextAt: iso(at),
     error: null,
+    warning,
   };
 }
 
 /**
  * Ends a read. The window, cursor and per-read fields are dropped. A refresh requested
- * after the window opened schedules another read now and keeps its manual flag.
+ * after the window opened schedules another read now and keeps its manual flag. The warning
+ * stays only when this page left records out.
  */
 function completePage(
   state: StartedStream,
   latest: StreamState,
-  { at, delayMs, quietCycles }: { at: number; delayMs: number; quietCycles: number },
+  { at, delayMs, quietCycles, warning }: { at: number; delayMs: number; quietCycles: number; warning: StreamWarning | undefined },
 ): StreamState {
   const refreshDue = (latest.refreshGeneration || 0) > state.windowGeneration;
   return {
@@ -104,6 +132,7 @@ function completePage(
     failures: 0,
     refreshGeneration: latest.refreshGeneration,
     ...(refreshDue ? { manual: latest.manual, nextAt: iso(at) } : {}),
+    ...(warning ? { warning } : {}),
   };
 }
 
@@ -261,6 +290,7 @@ export function createSync({
         ]
       : undefined;
     let items: AzureStreamRecord[] = page.items;
+    let unreadable = page.unreadable;
     let gone: Entity[] = [];
     if (complete && state.stream === 'activeBuilds' && provider.buildsById) {
       const missing = store
@@ -268,15 +298,18 @@ export function createSync({
         .filter(entry => entry.data.status !== 'completed' && !activeIds?.includes(entry.id))
         .slice(0, 20);
       if (missing.length) {
-        const { items: found, nextCursor } = await provider.buildsById(
+        const byId = await provider.buildsById(
           repo,
           missing.map(entry => entry.id),
         );
+        const found = byId.items;
         items = [...items, ...found];
+        unreadable = addUnreadable(unreadable, byId.unreadable);
         // Azure omits a build it no longer has (removed by retention, see docs/probe-results.md), so stop asking for it.
         // The fingerprint stays, so no event is made for it and a later sighting still compares against its last state.
-        // With more pages to read, an omitted build may only be on a later one, so none is given up this turn.
-        if (!nextCursor)
+        // With more pages to read, an omitted build may only be on a later one, and a build Azure returned unreadable is
+        // not omitted, so none is given up this turn.
+        if (!byId.nextCursor && !byId.unreadable)
           gone = missing
             .filter(entry => !found.some(item => String(item?.id) === entry.id))
             .map(entry => ({ type: 'build', id: entry.id, data: { ...entry.data, status: 'completed' } }));
@@ -297,12 +330,17 @@ export function createSync({
         try {
           items = [...items, await provider.pullRequest(repo, id)];
         } catch (error) {
+          // A PR Azure returned in a shape this code cannot read is skipped and counted like an unreadable page record.
+          if (isRecord(error) && error.code === 'UNREADABLE_RECORD') {
+            unreadable = addUnreadable(unreadable, { count: 1, fields: [typeof error.field === 'string' ? error.field : 'record'] });
+            continue;
+          }
           // Only "this PR cannot be read" (deleted, or now in another repository) is left for a later turn.
           if (!['NOT_FOUND', 'WRONG_REPOSITORY'].includes((error as { code?: string })?.code || '')) throw error;
         }
       }
     }
-    return { page, complete, activeIds, items, gone };
+    return { page, complete, activeIds, items, gone, unreadable };
   }
   function pageBatch(
     repo: WatchedRepo,
@@ -324,9 +362,10 @@ export function createSync({
     const latest = store.getStreams().find(entry => entry.repoId === repo.id && entry.stream === state.stream) || state;
     const quietCycles = output.events.some(event => !event.imported) ? 0 : (state.quietCycles || 0) + 1;
     const cadence = !isForeground() || quietCycles >= 2 ? Math.max(intervalMs, 300000) : intervalMs;
+    const warning = warningOf(state.stream, read.unreadable);
     const next = complete
-      ? completePage(working, latest, { at: now(), delayMs: state.stream === 'refs' ? refsIntervalMs : cadence, quietCycles })
-      : nextPage(working, latest, { at: now(), cursor: page.nextCursor, pendingItems, activeIds });
+      ? completePage(working, latest, { at: now(), delayMs: state.stream === 'refs' ? refsIntervalMs : cadence, quietCycles, warning })
+      : nextPage(working, latest, { at: now(), cursor: page.nextCursor, pendingItems, activeIds, warning });
     store.commitPage({ repoId: repo.id, stream: state.stream, state: next, ...output });
     counters.pages++;
     const key = `${repo.id}:${state.stream}`;

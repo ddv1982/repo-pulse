@@ -6,6 +6,7 @@ import { createSync } from '../server/sync.ts';
 import { createBackfill } from '../server/backfill.ts';
 import { activityMergeBadge } from '../src/activity-text.ts';
 import type { SyncProvider } from '../server/sync.ts';
+import { createAzureClient } from '../server/azure-client.ts';
 import type { AzureProvider, AzurePage, ReadOptions } from '../server/azure-client.ts';
 import type { AzureStreamRecord, Repository } from '../src/contract.ts';
 import { dataOf, fieldsOf, present, stub, watchedIdOf } from './fixtures/typed.ts';
@@ -1454,5 +1455,115 @@ test('a history import page makes only stream reads and queues no merge work', a
     [],
   );
   assert.deepEqual(store.listJobs({ type: 'merge' }), []);
+  store.close();
+});
+
+/** The live client over a CLI that answers every read with these pushes, so the record guards run as in the app. */
+const clientReturning = (pushes: unknown[]) => createAzureClient({ cli: { run: async () => ({ value: pushes }) } });
+const pushesState = (store: ReturnType<typeof createStore>) => present(store.getStreams().find(state => state.stream === 'pushes'));
+
+test('a push Azure returns without a pushId is skipped with a warning instead of a clean success', async () => {
+  const { date, pushedBy, refUpdates } = push(1);
+  const withoutId = { date, pushedBy, refUpdates };
+  const { store, sync } = setup(clientReturning([push(2), withoutId]), ['pushes']);
+  await sync.tick();
+  const state = pushesState(store);
+  assert.equal(state.error, null);
+  assert.equal(state.lastSuccess, new Date(BASE).toISOString(), 'the readable push still advances the checkpoint');
+  assert.ok(store.listEvents().some(event => event.id === 'one:push:2'));
+  assert.deepEqual(state.warning, {
+    code: 'UNREADABLE_RECORDS',
+    fields: ['pushId'],
+    count: 1,
+    message: 'Skipped 1 record in pushes that Azure returned without a readable pushId.',
+  });
+  store.close();
+});
+
+test('a push whose refUpdates is not a list is skipped with a warning instead of failing the page', async () => {
+  const { store, sync } = setup(clientReturning([push(2), { ...push(1), refUpdates: { name: 'refs/heads/main' } }]), ['pushes']);
+  await sync.tick();
+  const state = pushesState(store);
+  assert.equal(state.error, null);
+  assert.equal(state.lastSuccess, new Date(BASE).toISOString());
+  assert.ok(store.listEvents().some(event => event.id === 'one:push:2'));
+  assert.equal(store.getEntity(repo.id, 'push', '1'), undefined, 'the unreadable push is not stored');
+  assert.deepEqual(state.warning && { fields: state.warning.fields, count: state.warning.count }, { fields: ['refUpdates'], count: 1 });
+  store.close();
+});
+
+test('a stream warning stands until a later page of that stream commits with no unreadable records', async () => {
+  let pushes: unknown[] = [push(2), { ...push(1), pushId: 'one' }, { ...push(3), pushId: null }];
+  const client = createAzureClient({ cli: { run: async () => ({ value: pushes }) } });
+  const { store, sync, advance } = setup(client, ['pushes']);
+  await sync.tick();
+  assert.equal(pushesState(store).warning?.count, 2);
+  assert.equal(pushesState(store).warning?.message, 'Skipped 2 records in pushes that Azure returned without a readable pushId.');
+  pushes = [push(4)];
+  advance();
+  await sync.tick();
+  assert.equal(pushesState(store).warning ?? null, null);
+  assert.ok(store.listEvents().some(event => event.id === 'one:push:4'));
+  store.close();
+});
+
+test('a cached active PR that Azure returns unreadable when asked by ID is skipped with a warning, not a failed page', async () => {
+  let listed = [cachedPr(1), cachedPr(2)];
+  const client = createAzureClient({
+    cli: {
+      run: async args =>
+        args[0] === 'repos'
+          ? args.includes('1')
+            ? { ...cachedPr(1, 'completed'), repository: { id: 'a' }, reviewers: { id: 'r' } }
+            : { ...cachedPr(2, 'completed'), repository: { id: 'a' } }
+          : { value: listed },
+    },
+  });
+  const { store, sync, advance } = setup(client, ['prs']);
+  await sync.tick();
+  listed = [];
+  advance();
+  await sync.tick();
+  const prs = present(store.getStreams().find(state => state.stream === 'prs'));
+  assert.equal(prs.error, null, 'the unreadable PR does not fail the page');
+  assert.equal(prs.lastSuccess, new Date(BASE + 2000).toISOString());
+  assert.deepEqual(prs.warning && { fields: prs.warning.fields, count: prs.warning.count }, { fields: ['reviewers'], count: 1 });
+  assert.equal(fieldsOf(store.getEntity(repo.id, 'pr', '1')).status, 'active', 'the unreadable PR is left as it was');
+  assert.equal(fieldsOf(store.getEntity(repo.id, 'pr', '2')).status, 'completed', 'its readable sibling commits');
+  store.close();
+});
+
+test('an active build Azure returns unreadable when asked by ID is reported and asked again, not given up as gone', async () => {
+  const build = { id: 42, repository: { id: 'a' }, status: 'inProgress', queueTime: '2026-11-01T00:00:00Z', sourceVersion: 'a' };
+  let active = true;
+  const asked: string[] = [];
+  // Build reads are cached for 45 seconds of the client's clock, so each turn below starts a minute later.
+  let clientTime = 0;
+  const client = createAzureClient({
+    now: () => clientTime,
+    cli: {
+      run: async args => {
+        if (args.some(arg => arg.startsWith('buildIds='))) {
+          asked.push('42');
+          return { value: [{ ...build, status: 7 }] };
+        }
+        return { value: active ? [build] : [] };
+      },
+    },
+  });
+  const { store, sync, advance } = setup(client, ['activeBuilds']);
+  await sync.tick();
+  active = false;
+  advance();
+  clientTime += 60000;
+  await sync.tick();
+  const stream = () => present(store.getStreams().find(state => state.stream === 'activeBuilds'));
+  assert.equal(stream().error, null);
+  assert.deepEqual(stream().warning?.fields, ['status']);
+  assert.equal(fieldsOf(store.getEntity(repo.id, 'build', '42')).status, 'inProgress', 'an unreadable answer is not a removal');
+  advance(600000);
+  clientTime += 60000;
+  await sync.tick();
+  assert.deepEqual(asked, ['42', '42'], 'it is asked for again');
   store.close();
 });
