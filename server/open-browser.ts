@@ -57,7 +57,8 @@ export async function openBrowser(
       return remove;
     }
     remove = () => rm(page, { force: true }).catch(() => {});
-    setTimeout(remove, keepMs).unref();
+    // remove catches rm failures, so this promise does not reject.
+    setTimeout(() => void remove(), keepMs).unref();
     target = pathToFileURL(page).href;
   }
   try {

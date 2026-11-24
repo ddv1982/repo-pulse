@@ -638,7 +638,7 @@ export function createApp({
       },
     },
   ];
-  return createServer(async (req, res) => {
+  const handle = async (req: Request, res: Response) => {
     Object.entries(HEADERS).forEach(([key, value]) => res.setHeader(key, value));
     try {
       checkLocalRequest(req);
@@ -688,7 +688,10 @@ export function createApp({
         code: error.code,
       } satisfies ErrorResponse);
     }
-  });
+  };
+  // handle answers every failure itself; only a throw while writing that answer rejects, and Node's unhandled-rejection
+  // handling then prints it and stops the server, as an async listener's rejection did before.
+  return createServer((req, res) => void handle(req, res));
 }
 
 export async function startApp({
@@ -807,6 +810,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
       await runtime.close();
     }
   };
-  process.on('SIGINT', stop);
-  process.on('SIGTERM', stop);
+  // A failed close reaches Node's unhandled-rejection handling, which prints it and exits with code 1.
+  process.on('SIGINT', () => void stop());
+  process.on('SIGTERM', () => void stop());
 }
