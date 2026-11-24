@@ -30,17 +30,24 @@ This plan sits next to the [improvement plan](IMPROVEMENT-PLAN.md), whose phase 
 Every behaviour fix starts with a failing test. These touch `server/sync.ts`, `server/store.ts` and
 `server/azure-*.ts`, so each gets the full cross-model review from `docs/MAINTAINING.md`.
 
-- [ ] 1.1 A push record without `pushId` must not disappear while the stream reports success. Today
+- [x] 1.1 A push record without `pushId` must not disappear while the stream reports success. Today
       `server/normalize.ts:161` returns silently, and the page commits with `error: null` and an advanced
       `lastSuccess`. Check: a test in `test/sync.test.ts` that reproduces Sol's probe and fails first. (S
-      reproduced, line verified)
-- [ ] 1.2 Decide and implement how an unreadable Azure record is handled. Proposal: follow the precedent of
+      reproduced, line verified) Done: "a push Azure returns without a pushId is skipped with a warning instead of a
+      clean success" failed first with `error: null`, the advanced `lastSuccess` and no warning, and now passes.
+- [x] 1.2 Decide and implement how an unreadable Azure record is handled. Proposal: follow the precedent of
       improvement plan 1.1. Commit the readable siblings, keep the stream from claiming a clean success, and
       show a problem that names the stream and the missing field. A retry cannot repair an API shape change,
       so failing the whole page would only stall the stream. Check: the interpretation is stated in the PR
-      before coding, plus the test from 1.1 passes. (S)
-- [ ] 1.3 A malformed `refUpdates` must fail with a named error, not the generic `SYNC_FAILED`, and follow the
-      1.2 handling. Check: a failing-first test with `refUpdates` set to an object. (S reproduced)
+      before coding, plus the test from 1.1 passes. (S) Done as proposed: the page commits its readable records and
+      advances the checkpoint; the stream keeps a `warning` (`UNREADABLE_RECORDS`, with the fields and a count) until a
+      later page of that stream reads clean; sync status shows it as `problem` with the warning's message and the
+      stream. Tests that failed first: the 1.1 test, "a stream warning stands until a later page of that stream commits
+      with no unreadable records", and the sync-status "is a problem naming the stream, not synced".
+- [x] 1.3 A malformed `refUpdates` must fail with a named error, not the generic `SYNC_FAILED`, and follow the
+      1.2 handling. Check: a failing-first test with `refUpdates` set to an object. (S reproduced) Done: "a push
+      whose refUpdates is not a list is skipped with a warning instead of failing the page" failed first with
+      `SYNC_FAILED`, and now passes with a warning naming `refUpdates`.
 - [ ] 1.4 A read still in flight must not write into a watch that was removed and added again. Today the old
       read inserts an event and initializes the replacement stream, and the re-add hits the old refresh
       cooldown (`server/sync.ts:218`, `server/sync.ts:434`, `server/store.ts:646`). Fix: tie each commit and the
@@ -64,11 +71,14 @@ See D2 for the PRs. Data from outside the program enters as `unknown` and is che
 (no zod or valibot: zero runtime dependencies stays a constraint). Items 2.1 and 2.2 touch the sync, store
 and Azure code, so they get the full cross-model review.
 
-- [ ] 2.1 Replace `AzureRecord = any` (`src/contract.ts:11`, 36 references) with minimal response types per
+- [x] 2.1 Replace `AzureRecord = any` (`src/contract.ts:11`, 36 references) with minimal response types per
       stream (`pushes`, `refs`, `prs`, `closedPrs`, `builds`, `activeBuilds`) and guards where a page is read
       (`server/azure-client.ts:70`). The normalizers take the typed records. Check: `grep -rn AzureRecord`
       finds nothing, the Phase 1 tests stay green, and a test per stream feeds one malformed record to its
-      guard. (O, N, S; verified)
+      guard. (O, N, S; verified) Done: `git grep -n AzureRecord -- '*.ts'` finds nothing (`grep -rn` still finds
+      this plan's own text and `docs/typescript-migration.md:134`); the guards are in `server/azure-records.ts`; the
+      six per-stream tests in `test/azure-client.test.ts` fail on the code before this change and pass after; the
+      Phase 1 tests, 483 unit tests and 86 browser tests pass.
 - [ ] 2.2 Replace the store's `parse = (...): any` (`server/store.ts:48`) and `undefined as any`
       (`server/store.ts:132`) with one reader per persisted type that reports a corrupt row by table and id.
       Check: no `any` left in `server/store.ts`, plus a test that a corrupt stored row gives that error. (O, N, S;
