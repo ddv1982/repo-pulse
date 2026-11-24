@@ -2417,6 +2417,119 @@ test('a branch and tag a push recorded and an incomplete snapshot listed are rep
   store.close();
 });
 
+/** A refs stream initialized before tags joined the snapshot: no tag baseline, and tag v1 recorded by a push. */
+async function legacyRefsWithPushedTag(snapshot: () => AzurePage) {
+  const created = push(3);
+  created.refUpdates = [{ name: 'refs/tags/v1', oldObjectId: '0'.repeat(40), newObjectId: 'c'.repeat(40) }];
+  let pushes = [created];
+  let time = BASE;
+  const fixture = setup(
+    {
+      async read(_r, stream) {
+        return stream === 'pushes' ? { items: pushes, nextCursor: null } : snapshot();
+      },
+    },
+    ['pushes'],
+  );
+  const { store, sync } = fixture;
+  await sync.tick();
+  const stream = (name: string) => present(store.getStreams().find(entry => entry.stream === name));
+  const due = (name: string, at: number | null) =>
+    store.saveStream({ ...stream(name), nextAt: at === null ? '2099-01-01T00:00:00Z' : new Date(at).toISOString() });
+  due('pushes', null);
+  store.saveStream({ ...stream('refs'), initialized: true, nextAt: new Date(BASE).toISOString() });
+  assert.equal(fieldsOf(store.getEntity(repo.id, 'ref', 'refs/tags/v1')).evidence, 'push');
+  assert.equal(store.getEntity(repo.id, 'ref-baseline', 'tags'), undefined);
+  const titles = () =>
+    store
+      .listEvents()
+      .map(event => event.title)
+      .filter(title => /^Tag (no longer listed|first seen)/.test(title ?? ''));
+  /** Reads one more push, which creates `name`, while the refs stream waits. */
+  const pushTag = async (id: number, name: string) => {
+    const next = push(id);
+    next.refUpdates = [{ name, oldObjectId: '0'.repeat(40), newObjectId: 'e'.repeat(40) }];
+    pushes = [next];
+    const refsAt = Date.parse(String(stream('refs').nextAt));
+    due('refs', null);
+    due('pushes', time);
+    await sync.tick();
+    due('pushes', null);
+    due('refs', refsAt);
+  };
+  const advance = (ms: number) => {
+    time += ms;
+    fixture.advance(ms);
+  };
+  return { ...fixture, advance, titles, pushTag };
+}
+
+test('before the tag baseline, a tag a push recorded and an incomplete snapshot listed is reported once a complete snapshot omits it', async () => {
+  let snapshot: AzurePage = {
+    items: [
+      { name: 'refs/heads/main', objectId: 'a' },
+      { name: 'refs/tags/v1', objectId: 'c'.repeat(40) },
+      { name: 'refs/tags/v2', objectId: 'd'.repeat(40) },
+    ],
+    nextCursor: null,
+    unreadable: { count: 1, fields: ['objectId'] },
+  };
+  const { store, sync, advance, titles } = await legacyRefsWithPushedTag(() => snapshot);
+  advance(600001);
+  await sync.tick();
+  assert.equal(store.getEntity(repo.id, 'ref-baseline', 'tags'), undefined, 'the incomplete snapshot is no tag baseline');
+  assert.equal(fieldsOf(store.getEntity(repo.id, 'ref', 'refs/tags/v1')).evidence, 'push', 'it keeps the evidence of the push');
+  assert.equal(store.getEntity(repo.id, 'ref', 'refs/tags/v2'), undefined, 'and saves no new tag');
+  snapshot = { items: [{ name: 'refs/heads/main', objectId: 'a' }], nextCursor: null };
+  advance(600001);
+  await sync.tick();
+  assert.ok(store.getEntity(repo.id, 'ref-baseline', 'tags'), 'the complete snapshot is the tag baseline');
+  assert.equal(fieldsOf(store.getEntity(repo.id, 'ref', 'refs/tags/v1')).active, false);
+  assert.deepEqual(titles(), ['Tag no longer listed · v1'], 'as on main');
+  advance(600001);
+  await sync.tick();
+  assert.deepEqual(titles(), ['Tag no longer listed · v1'], 'and only once');
+  store.close();
+});
+
+test('before the tag baseline, a tag a push records after an incomplete snapshot is reported once a complete snapshot omits it', async () => {
+  let snapshot: AzurePage = {
+    items: [{ name: 'refs/heads/main', objectId: 'a' }],
+    nextCursor: null,
+    unreadable: { count: 1, fields: ['objectId'] },
+  };
+  const { store, sync, advance, titles, pushTag } = await legacyRefsWithPushedTag(() => snapshot);
+  advance(600001);
+  await sync.tick();
+  await pushTag(4, 'refs/tags/v3');
+  assert.equal(fieldsOf(store.getEntity(repo.id, 'ref', 'refs/tags/v3')).evidence, 'push');
+  snapshot = { items: [{ name: 'refs/heads/main', objectId: 'a' }], nextCursor: null };
+  advance(600001);
+  await sync.tick();
+  assert.ok(store.getEntity(repo.id, 'ref-baseline', 'tags'));
+  assert.deepEqual(
+    titles().sort(),
+    ['Tag no longer listed · v1', 'Tag no longer listed · v3'],
+    'main took the incomplete snapshot for the tag baseline and reports v3; v1 is reported too, since the unreadable record may have been it',
+  );
+  store.close();
+});
+
+test('before the tag baseline, a tag a push recorded that the first complete snapshot omits is put away without an event, as on main', async () => {
+  const { store, sync, advance, titles } = await legacyRefsWithPushedTag(() => ({
+    items: [{ name: 'refs/heads/main', objectId: 'a' }],
+    nextCursor: null,
+  }));
+  advance(600001);
+  await sync.tick();
+  assert.ok(store.getEntity(repo.id, 'ref-baseline', 'tags'));
+  assert.equal(fieldsOf(store.getEntity(repo.id, 'ref', 'refs/tags/v1')).active, false);
+  advance(600001);
+  await sync.tick();
+  assert.deepEqual(titles(), []);
+  store.close();
+});
+
 test('a tag unreadable in the first refs snapshot with tags is not announced as first seen once it reads', async () => {
   let refs: unknown[] = [
     { name: 'refs/heads/main', objectId: 'a' },

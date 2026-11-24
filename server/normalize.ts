@@ -356,19 +356,34 @@ export function createNormalizer({ store, now = Date.now }: { store: NormalizeSt
   }
 
   /**
+   * The tag baseline of a refs stream. Tags joined the snapshot after branches. Until one complete snapshot has recorded
+   * them, every existing tag would look new, so a tag is announced as first seen only after that baseline (`known`).
+   * A tag no longer listed is also reported (`reported`) once an incomplete snapshot of the initialized stream has been
+   * read, which main took for the baseline. `write` names the baseline entity this snapshot records, if any.
+   */
+  function tagBaseline(repo: WatchedRepo, initialized: boolean, incomplete: boolean) {
+    const known = initialized && Boolean(store.getEntity(repo.id, 'ref-baseline', 'tags'));
+    const read = initialized && Boolean(store.getEntity(repo.id, 'ref-baseline', 'tags-incomplete'));
+    const write = !incomplete ? 'tags' : initialized && !known ? 'tags-incomplete' : undefined;
+    return { known, reported: known || read, write };
+  }
+
+  /**
    * Compares a complete refs snapshot with the stored refs. A snapshot with records Azure returned unreadable is
    * `incomplete`: its readable refs are added and updated, but a ref it does not list may be one of the unreadable
    * ones, so nothing is reported as no longer listed, and it is not the tag baseline, so an unreadable tag that
    * reads later is not announced as first seen. Sync holds the stream's `initialized` back the same way. Before that
-   * baseline, an incomplete snapshot creates no ref and keeps the evidence of the refs it updates, so the first
-   * complete snapshot finds only refs a push recorded and treats them as on main.
+   * baseline (the stream's for a branch, the tag baseline for a tag), an incomplete snapshot creates no ref and keeps
+   * the evidence of the refs it updates, so the first complete snapshot finds only refs a push recorded and treats them
+   * as on main. Main would have taken an incomplete snapshot of an initialized stream for the tag baseline and then
+   * reported a tag a later snapshot omits, so once one has been read, the first complete snapshot reports such a tag
+   * instead of putting it away without an event.
    */
   function reconcileRefs(repo: WatchedRepo, records: AzureRef[], state: RefReconcileState, { incomplete = false } = {}): SyncBatch {
     const before = new Map(store.listEntities(repo.id, 'ref').map(entry => [entry.id, entry.data]));
     const current = new Map(records.filter(item => /^refs\/(heads|tags)\//.test(item.name)).map(item => [item.name, item]));
-    // Tags joined the snapshot after branches. Until one complete snapshot has recorded them,
-    // every existing tag would look new, so tag changes are reported only after that baseline.
-    const tagsKnown = state.initialized && Boolean(store.getEntity(repo.id, 'ref-baseline', 'tags'));
+    const tags = tagBaseline(repo, state.initialized, incomplete);
+    const tagsKnown = tags.known;
     const tagEvent = (name: string, change: 'created' | 'deleted', data: Record<string, unknown>) =>
       makeEvent(
         repo,
@@ -388,12 +403,12 @@ export function createNormalizer({ store, now = Date.now }: { store: NormalizeSt
       );
     const events: SyncEvent[] = [];
     const entities: Entity[] = [];
-    const beforeBaseline = incomplete && !state.initialized;
     for (const [name, item] of current) {
       const previous = before.get(name);
+      const tag = name.startsWith('refs/tags/');
+      const beforeBaseline = incomplete && !(tag ? tagsKnown : state.initialized);
       if (beforeBaseline && !previous) continue;
       const kept = beforeBaseline && previous?.evidence ? { evidence: previous.evidence } : {};
-      const tag = name.startsWith('refs/tags/');
       const peeled = item.peeledObjectId ? { peeledObjectId: item.peeledObjectId } : {};
       if (tag) {
         if (tagsKnown && (!previous || previous.active === false))
@@ -434,7 +449,7 @@ export function createNormalizer({ store, now = Date.now }: { store: NormalizeSt
         if (old.active === false || current.has(name)) continue;
         entities.push({ type: 'ref', id: name, data: { ...old, active: false } });
         if (name.startsWith('refs/tags/')) {
-          if (tagsKnown) events.push(tagEvent(name, 'deleted', { objectId: old.objectId }));
+          if (tags.reported) events.push(tagEvent(name, 'deleted', { objectId: old.objectId }));
           continue;
         }
         events.push(
@@ -453,7 +468,7 @@ export function createNormalizer({ store, now = Date.now }: { store: NormalizeSt
           ),
         );
       }
-    if (!incomplete) entities.push({ type: 'ref-baseline', id: 'tags', data: { at: iso(now()) } });
+    if (tags.write) entities.push({ type: 'ref-baseline', id: tags.write, data: { at: iso(now()) } });
     return { events, entities };
   }
 
