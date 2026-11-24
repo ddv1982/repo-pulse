@@ -4,6 +4,7 @@ import { resolve, dirname, extname, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { homedir } from 'node:os';
+import { DatabaseSync } from 'node:sqlite';
 import { createSavedActivityFilters } from './server/saved-activity-filters.ts';
 import { createStore } from './server/store.ts';
 import { createSync } from './server/sync.ts';
@@ -700,9 +701,11 @@ export async function startApp({
   dataDir = resolve(ROOT, '.repo-pulse'),
 }: { demo?: boolean; port?: number; dataDir?: string | undefined } = {}) {
   await secureDataDir(dataDir);
+  const database = resolve(dataDir, demo ? 'demo.sqlite' : 'live.sqlite');
+  const lock = lockDatabase(database);
   // Earlier versions kept one key for good; every start now makes its own, so a key from a past run is useless.
   await rm(resolve(dataDir, 'access-key'), { force: true });
-  const store = createStore(resolve(dataDir, demo ? 'demo.sqlite' : 'live.sqlite'));
+  const store = createStore(database);
   // Reads go over HTTPS with one CLI token, so the shared budget can be far above the 12 az starts per minute.
   if (!demo) useSystemNetworkSettings();
   const cli = demo
@@ -774,9 +777,32 @@ export async function startApp({
     await syncStopped;
     await new Promise(resolveClose => app.close(resolveClose));
     store.close();
+    lock.close();
   };
   const url = `http://127.0.0.1:${(app.address() as import('node:net').AddressInfo).port}`;
   return { app, store, sync, provider, close, url, dataDir, accessKey, launchUrl: `${url}/#launch=${launchToken}` };
+}
+
+/**
+ * Keeps a second app off this database while this one runs: checkout write locks and sync state live in one process.
+ * The lock is SQLite's own exclusive file lock on a separate file, held for as long as the connection is open. The
+ * operating system drops it when the process ends, even in a crash, so a lock never goes stale, and two starts racing
+ * for it cannot both win. Live and demo data each have their own lock and can run side by side.
+ */
+function lockDatabase(database: string) {
+  const file = `${database}.lock`;
+  const lock = new DatabaseSync(file);
+  try {
+    // In exclusive locking mode the lock taken by the first write is kept after its commit, until close().
+    lock.exec('PRAGMA locking_mode = EXCLUSIVE; BEGIN EXCLUSIVE; COMMIT');
+    return lock;
+  } catch (error) {
+    lock.close();
+    if ((error as { errcode?: unknown }).errcode !== 5) throw error; // 5 is SQLITE_BUSY: another connection holds it.
+    throw Object.assign(new Error(`Another Repo Pulse is already running on this data (lock file ${file}). Stop it first.`), {
+      code: 'DATA_DIR_LOCKED',
+    });
+  }
 }
 
 /**
@@ -795,7 +821,15 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
   // service worker, applies to this run.
   const port = Number(process.env.PORT || 0);
   if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error('PORT must be an integer from 0 to 65535.');
-  const runtime = await startApp({ demo: process.argv.includes('--demo'), port, dataDir: process.env.REPO_PULSE_DATA_DIR || undefined });
+  const runtime = await startApp({
+    demo: process.argv.includes('--demo'),
+    port,
+    dataDir: process.env.REPO_PULSE_DATA_DIR || undefined,
+  }).catch((error: unknown) => {
+    if ((error as { code?: unknown }).code !== 'DATA_DIR_LOCKED') throw error;
+    console.error((error as Error).message);
+    return process.exit(1);
+  });
   console.log(`Repo Pulse${process.argv.includes('--demo') ? ' · demo data, no Azure calls' : ''}: ${runtime.launchUrl}`);
   const open = process.env.REPO_PULSE_NO_BROWSER !== '1' && canOpenBrowser(process.platform, process.env);
   console.log(

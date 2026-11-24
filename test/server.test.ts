@@ -3,6 +3,9 @@ import assert from 'node:assert/strict';
 import { mkdtemp, rm, writeFile, stat, chmod, readFile, readdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { execFile, spawn } from 'node:child_process';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { promisify } from 'node:util';
 import { request as httpRequest } from 'node:http';
 import { createStore } from '../server/store.ts';
 import { createApp, startApp } from '../server.ts';
@@ -21,7 +24,7 @@ import type {
 } from '../src/contract.ts';
 import type { ActivityEvent } from '../src/activity.ts';
 import { TEST_KEY, keyedFetch, portOf } from './fixtures/access.ts';
-import { fieldsOf, present, stub, watchedIdOf } from './fixtures/typed.ts';
+import { fieldsOf, present, stub, watchedIdOf, type Thrown } from './fixtures/typed.ts';
 
 const fetch = keyedFetch();
 type CheckoutGit = ReturnType<typeof createCheckoutGit>;
@@ -418,6 +421,93 @@ test('the data directory is closed to other accounts', { skip: typeof process.ge
   const runtime = await startApp({ demo: true, port: 0, dataDir: directory });
   await runtime.close();
   assert.equal((await stat(directory)).mode & 0o777, 0o700);
+});
+
+const SERVER = fileURLToPath(new URL('../server.ts', import.meta.url));
+/** A start expected to be refused; one that starts anyway is closed, so the test fails instead of hanging. */
+const refusedStart = async (dataDir: string) => {
+  const runtime = await startApp({ demo: true, port: 0, dataDir });
+  await runtime.close();
+  assert.fail('the start was not refused');
+};
+
+test('a second start on the same database refuses, names the lock file, and leaves the first one working', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'repo-pulse-lock-'));
+  const first = await startApp({ demo: true, port: 0, dataDir: directory });
+  t.after(async () => {
+    await first.close();
+    await rm(directory, { recursive: true, force: true });
+  });
+  const lockFile = join(directory, 'demo.sqlite.lock');
+  await assert.rejects(refusedStart(directory), (error: Thrown) => {
+    assert.equal(error.code, 'DATA_DIR_LOCKED');
+    assert.ok(error.message.includes(lockFile), error.message);
+    return true;
+  });
+  const state = await globalThis.fetch(first.url + '/api/state', { headers: { 'x-repo-pulse-key': first.accessKey } });
+  assert.equal(state.status, 200, 'the refused start did not touch the running one');
+
+  // From the command line the refusal is one readable line and a failing exit code, not a stack trace.
+  let failed: (Error & { code?: number | string; stderr?: string }) | undefined;
+  try {
+    await promisify(execFile)(process.execPath, [SERVER, '--demo'], {
+      env: { ...process.env, REPO_PULSE_DATA_DIR: directory, REPO_PULSE_NO_BROWSER: '1', PORT: '0' },
+      encoding: 'utf8',
+      timeout: 15_000,
+    });
+  } catch (error) {
+    failed = error as typeof failed;
+  }
+  const stderr = failed?.stderr ?? '';
+  assert.equal(failed?.code, 1, 'the command exits with code 1');
+  assert.ok(stderr.includes(lockFile), stderr);
+  assert.doesNotMatch(stderr, /^\s+at /m);
+});
+
+test('a lock held by a run that was killed is taken over', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'repo-pulse-lock-'));
+  const holder = spawn(
+    process.execPath,
+    [
+      '--input-type=module',
+      '-e',
+      `const { startApp } = await import(process.argv[1]);
+       await startApp({ demo: true, port: 0, dataDir: process.argv[2] });
+       process.stdout.write('started');`,
+      pathToFileURL(SERVER).href,
+      directory,
+    ],
+    { stdio: ['ignore', 'pipe', 'inherit'] },
+  );
+  const exited = new Promise(resolve => holder.once('exit', resolve));
+  t.after(async () => {
+    holder.kill('SIGKILL');
+    await exited;
+    await rm(directory, { recursive: true, force: true });
+  });
+  await Promise.race([
+    new Promise(resolve => holder.stdout.once('data', resolve)),
+    exited.then(() => assert.fail('the holder exited before it started')),
+  ]);
+  await assert.rejects(refusedStart(directory), { code: 'DATA_DIR_LOCKED' });
+  // SIGKILL ends the holder without any cleanup, as a crash would.
+  holder.kill('SIGKILL');
+  await exited;
+  const runtime = await startApp({ demo: true, port: 0, dataDir: directory });
+  await runtime.close();
+});
+
+test('closing releases the lock, so the same directory starts again', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'repo-pulse-lock-'));
+  let running: Awaited<ReturnType<typeof startApp>> | undefined;
+  t.after(async () => {
+    await running?.close();
+    await rm(directory, { recursive: true, force: true });
+  });
+  const first = await startApp({ demo: true, port: 0, dataDir: directory });
+  await first.close();
+  running = await startApp({ demo: true, port: 0, dataDir: directory });
+  await assert.rejects(refusedStart(directory), { code: 'DATA_DIR_LOCKED' }, 'the restarted run holds the lock again');
 });
 
 test('an invalid repository URL is a bad request', async t => {
