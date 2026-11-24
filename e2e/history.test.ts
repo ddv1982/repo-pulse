@@ -537,6 +537,24 @@ test('an open Activity view picks up a seen action in another tab and later merg
   await expect(page.getByRole('link', { name: 'PR #12' })).toBeVisible();
 });
 
+test('opening Activity before the first state load arrives stays on Activity', async t => {
+  const { runtime, page } = await demo(t);
+  const release = Promise.withResolvers<void>();
+  const held = Promise.withResolvers<void>();
+  await page.route('**/api/state', async route => {
+    held.resolve();
+    await release.promise;
+    await route.continue();
+  });
+  await page.reload();
+  await held.promise;
+  // The page has not seen its repositories yet, so it must not judge that none are watched.
+  await page.goto(runtime.url + '/#activity/new');
+  release.resolve();
+  await expect(page.getByRole('button', { name: /^Mark all seen/ })).toBeVisible();
+  assert.match(page.url(), /#activity\/new$/);
+});
+
 test('seen feedback waits for its refresh when a background poll is in flight', async t => {
   const { runtime, page } = await demo(t);
   await page.goto(runtime.url + '/#activity/new');

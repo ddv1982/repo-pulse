@@ -171,7 +171,8 @@ export function createNavigation({
       pending = null;
       return restored;
     },
-    enter(repos: WatchedRepo[]) {
+    /** Null repositories mean the watch list has not loaded yet; the first state read reconciles instead. */
+    enter(repos: WatchedRepo[] | null) {
       const previous = ui.route;
       const { checkoutRepoId: id, ...parsed } = canonicalRoute();
       checkoutRepoId = id;
@@ -192,7 +193,7 @@ export function createNavigation({
           capacity = activityCapacity();
         }
       }
-      reconcileRepositories(repos);
+      if (repos) reconcileRepositories(repos);
       return { destination: ui.route, capacity, scrollToTop: previous !== 'event' };
     },
   };

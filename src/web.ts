@@ -718,7 +718,7 @@ function route() {
   clearTimeout(searchTimer);
   // The branch picker belongs to the Repositories visit that opened it.
   branchPicker.close();
-  const { destination, capacity, scrollToTop } = navigation.enter(refresh.state.watched);
+  const { destination, capacity, scrollToTop } = navigation.enter(refresh.loaded ? refresh.state.watched : null);
   if (isActivity(destination)) refresh.resetActivity(capacity);
   else if (destination === 'event') refresh.prepareDetail(ui.eventId);
   render();
