@@ -213,10 +213,22 @@ Every behaviour fix starts with a failing test. These touch `server/sync.ts`, `s
       repository was removed and added again commits nothing into the new watch" (`test/server.test.ts`, through the
       routes) failed first on all three counts: the re-add hit the cooldown, the old read inserted `one:push:7`, and a
       failed old read wrote its error into the new stream. "a removed and re-added repository starts its PR lookups
-      and stream rotation afresh" fails without either rotation reset. "a repository removed and added again with no
+      and stream rotation afresh" seeds cached active PRs absent from the replacement watch's first PR listing.
+      Without the PR lookup reset it asks for 4, 5, 1 instead of 1, 2, 3; without the stream rotation reset it reads
+      `closedPrs` before `prs`. "a repository removed and added again with no
       read in between starts its build lookup order afresh" failed first with a `forget` that dropped the PR order
-      but not the build order: the first lookup after the re-add asked for 21, 1 to 19 instead of 1 to 20. All three
-      pass, with `npm test` 575/575 and `npm run test:ui` 86/86.
+      but not the build order: the first lookup after the re-add asked for 21, 1 to 19 instead of 1 to 20.
+      If a background turn declines work after yielding, the scheduler selects due streams again before taking a
+      live turn. The regression test previously read the removed watch's `{ skip: 100 }` cursor and now starts at the
+      first page. Forgetting a watch also removes its in-flight read from the sync status.
+      Fork origin checks save an intermediate step only when its event still exists. The remove route also forgets
+      the fork and rewrite checks' deferred writes for that repository and invalidates their in-flight results, even
+      if an event and job with the same IDs return. Tests cover orphaned and replaced fork jobs and fresh fork and
+      rewrite results after a failed write. `npm test` 580/580 and `npm run test:ui` 86/86.
+
+      Follow-up outside this PR: the Azure client's 45-second shared build response cache
+      (`server/azure-client.ts:188`) can serve a response from the removed watch to a re-added watch.
+      The same behavior exists on `main`.
 - [x] 1.5 Two app instances must not open the same data directory. Today nothing prevents it, and checkout
       write locks live in each instance (`server.ts:697`). Fix: an exclusive lock on the data directory with
       recovery from a lock left by a crashed run. Check: a failing-first test that starts a second app on the

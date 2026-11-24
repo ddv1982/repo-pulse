@@ -724,6 +724,7 @@ test('a read started before a repository was removed and added again commits not
     const old = sync.tick();
     await started.promise;
     assert.equal((await fetch(`${url}/api/repos/${repo.id}`, { method: 'DELETE' })).status, 200);
+    assert.deepEqual(sync.status().inProgress, [], 'the removed watch is no longer reported while its read settles');
     assert.equal((await add()).status, 201);
     if (fail) deferred.reject(Object.assign(new Error('Azure refused the old read.'), { code: 'AZURE_FAILED' }));
     else deferred.resolve({ items: [push], nextCursor: null });

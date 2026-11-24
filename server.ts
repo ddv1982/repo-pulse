@@ -761,6 +761,11 @@ async function startLocked(
         rewriteCheck?.reset();
         forkCheck?.reset();
       }),
+    forget(repoId: string) {
+      liveSync.forget(repoId);
+      rewriteCheck?.forget(repoId);
+      forkCheck?.forget(repoId);
+    },
   }) || {
     start() {},
     stop() {},

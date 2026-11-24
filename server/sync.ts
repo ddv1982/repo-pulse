@@ -559,13 +559,18 @@ export function createSync({
     if (halted()) return;
     ensureStreams();
     const automatic = store.getSetting('refreshEnabled', true) !== false;
-    const { due, repos } = dueStreams(automatic);
-    const [first, second] = due;
-    if (!first) {
+    let { due, repos } = dueStreams(automatic);
+    if (!due.length) {
       await runBackground(automatic);
       return;
     }
-    if (liveTurns >= LIVE_TURNS && (await runBackground(automatic))) return;
+    if (liveTurns >= LIVE_TURNS) {
+      if ((await runBackground(automatic)) || halted()) return;
+      // A background turn can yield while the watch or its streams change.
+      ({ due, repos } = dueStreams(store.getSetting('refreshEnabled', true) !== false));
+    }
+    const [first, second] = due;
+    if (!first) return;
     const { state, repo } = takeLiveTurn(first, second, repos);
     const working = startPage(state, now(), overlapMs);
     reading = { repoId: state.repoId, stream: state.stream };
@@ -669,6 +674,7 @@ export function createSync({
      */
     forget(repoId: string) {
       watches.set(repoId, watchOf(repoId) + 1);
+      if (reading?.repoId === repoId) reading = null;
       refreshedAt.delete(repoId);
       prTurns.delete(repoId);
       buildTurns.delete(repoId);

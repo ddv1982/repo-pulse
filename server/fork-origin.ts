@@ -80,8 +80,9 @@ export function createForkOriginCheck({
   provider: Pick<AzureProvider, 'commit' | 'droppedCommits'>;
   now?: () => number;
 }) {
-  /** A finished check whose result could not be stored waits here, like the rewrite check. */
-  const deferred: Map<string, { at: number; result?: ForkOrigin }> = new Map();
+  type DeferredResult = { at: number; result?: ForkOrigin };
+  // Each watch keeps its own failed writes. Removing its map also invalidates any check awaiting Azure.
+  const deferred = new Map<string, Map<string, DeferredResult>>();
 
   /**
    * The base is known: a branch whose latest recorded tip was the base settles it with no call; otherwise the
@@ -161,14 +162,17 @@ export function createForkOriginCheck({
     );
     // Rows of type 'fork' are only written by server/normalize.ts and this check, as a ForkJob.
     const jobs = store.listJobs({ type: 'fork', dueBefore: iso(now()) }) as unknown as ForkJob[];
-    const job = jobs.find(item => repos.has(item.repoId) && !((deferred.get(item.id)?.at ?? 0) > now()) && !waits(item));
+    const job = jobs.find(item => repos.has(item.repoId) && !((deferred.get(item.repoId)?.get(item.id)?.at ?? 0) > now()) && !waits(item));
     const repo = job && repos.get(job.repoId);
     if (!job || !repo) return false;
-    let next: ForkJob | ForkOrigin | undefined = deferred.get(job.id)?.result;
+    const results = deferred.get(job.repoId) ?? new Map<string, DeferredResult>();
+    deferred.set(job.repoId, results);
+    let next: ForkJob | ForkOrigin | undefined = results.get(job.id)?.result;
     if (!next)
       try {
         next = await step(job, repo);
       } catch (error) {
+        if (deferred.get(job.repoId) !== results) return true;
         const code = (error as { code?: unknown })?.code;
         if (code === 'CLOSED') return true;
         const attempts = job.attempts + 1;
@@ -176,28 +180,35 @@ export function createForkOriginCheck({
           try {
             if (store.getEvent(job.eventId)) store.saveJob({ ...job, attempts, nextAt: iso(now() + RETRY_MS * 2 ** (attempts - 1)) });
           } catch {
-            deferred.set(job.id, { at: now() + RETRY_MS });
+            results.set(job.id, { at: now() + RETRY_MS });
           }
           return true;
         }
         next = job.base ? answer(job, 'unanswered') : { status: 'unknown' };
       }
+    if (deferred.get(job.repoId) !== results) return true;
     if ('type' in next) {
       // A later step is due at once; a failed write repeats this step on a later tick.
       try {
-        store.saveJob({ ...next, attempts: 0, nextAt: iso(now()) });
+        if (store.getEvent(job.eventId)) store.saveJob({ ...next, attempts: 0, nextAt: iso(now()) });
       } catch {
-        deferred.set(job.id, { at: now() + RETRY_MS });
+        results.set(job.id, { at: now() + RETRY_MS });
       }
       return true;
     }
     try {
       store.saveForkResult({ eventId: job.eventId, jobId: job.id, forkOrigin: next });
-      deferred.delete(job.id);
+      results.delete(job.id);
     } catch {
-      deferred.set(job.id, { at: now() + RETRY_MS, result: next });
+      results.set(job.id, { at: now() + RETRY_MS, result: next });
     }
     return true;
   }
-  return { tick, reset: () => deferred.clear() };
+  return {
+    tick,
+    reset: () => deferred.clear(),
+    forget(repoId: string) {
+      deferred.delete(repoId);
+    },
+  };
 }
