@@ -48,6 +48,11 @@ function addUnreadable(sum: UnreadableRecords | undefined, more: UnreadableRecor
   if (!sum || !more) return sum || more;
   return { count: sum.count + more.count, fields: [...new Set([...sum.fields, ...more.fields])] };
 }
+/** The IDs of the active PRs or builds a page lists. */
+const listedIds = (stream: 'prs' | 'activeBuilds', items: readonly AzureStreamRecord[]) =>
+  stream === 'prs'
+    ? recordsOf('prs', items).map(item => String(item.pullRequestId))
+    : recordsOf('activeBuilds', items).map(item => String(item.id));
 /** The warning for records a read left out, or undefined when it left none out. */
 function warningOf(stream: StreamName, unreadable: UnreadableRecords | undefined): StreamWarning | undefined {
   if (!unreadable?.count) return undefined;
@@ -285,12 +290,11 @@ export function createSync({
     // Removal while the provider was in flight must not resurrect a local watch.
     if (!watching(repo)) return null;
     const complete = !page.nextCursor;
-    const activeIds: string[] | undefined = ['activeBuilds', 'prs'].includes(state.stream)
-      ? [
-          ...(state.activeIds || []),
-          ...page.items.map(item => String(('id' in item && item.id) || ('pullRequestId' in item && item.pullRequestId) || undefined)),
-        ]
-      : undefined;
+    // A record Azure lists but this code cannot read is still active, so it is neither missing nor looked up again.
+    const activeIds: string[] | undefined =
+      state.stream === 'prs' || state.stream === 'activeBuilds'
+        ? [...(state.activeIds || []), ...listedIds(state.stream, page.items), ...(page.unreadableIds || [])]
+        : undefined;
     let items: AzureStreamRecord[] = page.items;
     // A provider that restarted the snapshot at page one invalidates what the pages read so far left out.
     let unreadable = addUnreadable(page.restarted ? undefined : state.unreadable, page.unreadable);

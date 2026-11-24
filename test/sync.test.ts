@@ -1737,3 +1737,60 @@ test('a read that fails keeps the warning of the last completed read', async () 
   assert.deepEqual(pushesState(store).warning, completed);
   store.close();
 });
+
+test('an active PR that the active list returns unreadable is counted once and not looked up by ID', async () => {
+  let listed: unknown[] = [{ ...cachedPr(1), repository: { id: 'a' } }];
+  const lookups: string[] = [];
+  const client = createAzureClient({
+    cli: {
+      run: async args => {
+        if (args[0] === 'repos') {
+          lookups.push(String(args[args.indexOf('--id') + 1]));
+          return { ...cachedPr(1), repository: { id: 'a' }, reviewers: { id: 'r' } };
+        }
+        return { value: listed };
+      },
+    },
+  });
+  const { store, sync, advance } = setup(client, ['prs']);
+  await sync.tick();
+  listed = [{ ...cachedPr(1), repository: { id: 'a' }, reviewers: { id: 'r' } }];
+  advance();
+  await sync.tick();
+  const prs = present(store.getStreams().find(state => state.stream === 'prs'));
+  assert.deepEqual(prs.warning && { fields: prs.warning.fields, count: prs.warning.count }, { fields: ['reviewers'], count: 1 });
+  assert.deepEqual(lookups, [], 'a PR the list still holds is not missing');
+  assert.equal(fieldsOf(store.getEntity(repo.id, 'pr', '1')).status, 'active');
+  store.close();
+});
+
+test('an active build that the active list returns unreadable is counted once and not looked up by ID', async () => {
+  const build = { id: 42, repository: { id: 'a' }, status: 'inProgress', queueTime: '2026-11-01T00:00:00Z', sourceVersion: 'a' };
+  let listed: unknown[] = [build];
+  const lookups: string[] = [];
+  let clientTime = 0;
+  const client = createAzureClient({
+    now: () => clientTime,
+    cli: {
+      run: async args => {
+        const ids = args.find(arg => arg.startsWith('buildIds='));
+        if (ids) {
+          lookups.push(ids);
+          return { value: [{ ...build, status: 7 }] };
+        }
+        return { value: listed };
+      },
+    },
+  });
+  const { store, sync, advance } = setup(client, ['activeBuilds']);
+  await sync.tick();
+  listed = [{ ...build, status: 7 }];
+  advance();
+  clientTime += 60000;
+  await sync.tick();
+  const stream = present(store.getStreams().find(state => state.stream === 'activeBuilds'));
+  assert.deepEqual(stream.warning && { fields: stream.warning.fields, count: stream.warning.count }, { fields: ['status'], count: 1 });
+  assert.deepEqual(lookups, [], 'a build the list still holds is not missing');
+  assert.equal(fieldsOf(store.getEntity(repo.id, 'build', '42')).status, 'inProgress');
+  store.close();
+});

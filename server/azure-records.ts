@@ -107,6 +107,20 @@ const checks: { [S in AzureStream]: Check } = {
   activeBuilds: build,
 };
 
+/** The field that names a record of the streams sync follows up by ID. */
+const identityFields: Partial<Record<AzureStream, string>> = {
+  prs: 'pullRequestId',
+  closedPrs: 'pullRequestId',
+  builds: 'id',
+  activeBuilds: 'id',
+};
+/** The ID of a pull request or build whose ID can be read, even when another of its fields cannot. */
+export function recordId(stream: AzureStream, value: unknown): string | undefined {
+  const key = identityFields[stream];
+  if (!key || !isRecord(value) || id(value[key]) !== null) return undefined;
+  return String(value[key]);
+}
+
 /** The first field a stream record cannot be read without, or null when it can be read. */
 export function unreadableField(stream: AzureStream, value: unknown): string | null {
   const fault = checks[stream](value);

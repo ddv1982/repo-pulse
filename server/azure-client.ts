@@ -1,7 +1,7 @@
 import { normalizeOrganization, parseRemote, repositoryKey } from './repositories.ts';
 import { safeAzureUrl } from '../src/events.ts';
 import { cliError } from './azure-cli.ts';
-import { isAzurePullRequest, isRecord, streamGuards, unreadableField } from './azure-records.ts';
+import { isAzurePullRequest, isRecord, recordId, streamGuards, unreadableField } from './azure-records.ts';
 
 export type AzureRepo = import('../src/contract.ts').AzureRepo;
 export type AzureStream = import('../src/contract.ts').AzureStream;
@@ -12,13 +12,15 @@ export type UnreadableRecords = import('../src/contract.ts').UnreadableRecords;
 export type PageCursor = import('../src/contract.ts').PageCursor;
 /**
  * `restarted` marks a first page read in place of the saved cursor's page. `unreadable` counts the records left out
- * of `items` because a field they need is missing or malformed; it is absent when there were none.
+ * of `items` because a field they need is missing or malformed; it is absent when there were none. `unreadableIds`
+ * names the pull requests and builds among them whose ID could still be read, so sync knows Azure listed them.
  */
 export type AzurePage<T = AzureStreamRecord> = {
   items: T[];
   nextCursor: PageCursor | null;
   restarted?: boolean;
   unreadable?: UnreadableRecords;
+  unreadableIds?: string[];
 };
 /** One page of a stream, as sync and backfill read it. */
 export type StreamRead = (repo: AzureRepo, stream: AzureStream, options?: ReadOptions) => Promise<AzurePage>;
@@ -83,26 +85,38 @@ const bucket = (value: string | undefined, round: 'floor' | 'ceil') =>
 
 /**
  * The records of one list response that `readable` accepts. The rest are counted with the fields `field` names, so
- * a record Azure returns in a changed shape is reported instead of failing the page or disappearing. A skip-paged
- * read counts every record Azure returned, so a page with unreadable records still pages on.
+ * a record Azure returns in a changed shape is reported instead of failing the page or disappearing; `idOf` names
+ * those whose ID can still be read. A skip-paged read counts every record Azure returned, so a page with unreadable
+ * records still pages on.
  */
 function pageOf<T>(
   response: unknown,
   readable: (value: unknown) => value is T,
   field: (value: unknown) => string | null,
-  { skip = 0, mode }: { skip?: number; mode?: 'skip' | 'token' },
+  { skip = 0, mode, idOf }: { skip?: number; mode?: 'skip' | 'token'; idOf?: (value: unknown) => string | undefined },
 ): AzurePage<T> {
   const list: unknown = Array.isArray(response) ? response : isRecord(response) ? response.value : undefined;
   if (!Array.isArray(list)) throw cliError('INVALID_RESPONSE', 'Azure CLI did not return an activity list.');
   const token = isRecord(response) ? response.continuation_token || response.continuationToken : undefined;
-  const items = list.filter(readable);
-  const skipped = list.filter(item => !readable(item));
+  const items: T[] = [];
+  const fields: Set<string> = new Set();
+  const unreadableIds: string[] = [];
+  let skipped = 0;
+  for (const item of list) {
+    if (readable(item)) {
+      items.push(item);
+      continue;
+    }
+    skipped++;
+    fields.add(field(item) ?? 'record');
+    const id = idOf?.(item);
+    if (id !== undefined) unreadableIds.push(id);
+  }
   return {
     items,
     nextCursor: mode === 'skip' ? (list.length === PAGE ? { skip: skip + PAGE } : null) : token ? { token: String(token) } : null,
-    ...(skipped.length
-      ? { unreadable: { count: skipped.length, fields: [...new Set(skipped.map(item => field(item) ?? 'record'))] } }
-      : {}),
+    ...(skipped ? { unreadable: { count: skipped, fields: [...fields] } } : {}),
+    ...(unreadableIds.length ? { unreadableIds } : {}),
   };
 }
 /** Pages whose items the caller checks itself. */
@@ -279,7 +293,7 @@ export function createAzureClient({ cli, now = Date.now }: { cli?: AzureClientCl
       if (!Number.isSafeInteger(skip) || skip < 0) throw new Error('Invalid page cursor');
       const readable = (value: unknown): value is AzureStreamRecord => streamGuards[stream](value);
       const pageOfStream = (response: unknown, options: { skip?: number; mode?: 'skip' | 'token' }) =>
-        pageOf(response, readable, value => unreadableField(stream, value), options);
+        pageOf(response, readable, value => unreadableField(stream, value), { ...options, idOf: value => recordId(stream, value) });
       let response: unknown,
         mode: 'skip' | 'token' = 'token';
       switch (stream) {
@@ -377,7 +391,11 @@ export function createAzureClient({ cli, now = Date.now }: { cli?: AzureClientCl
       if (!Array.isArray(ids) || ids.length > 100 || ids.some(id => !/^\d+$/.test(String(id)))) throw new Error('Invalid build IDs');
       if (!ids.length) return { items: [], nextCursor: null };
       const raw = await invoke(repo, 'build', 'builds', { buildIds: ids.join(',') }, {}, true);
-      return pageOf(raw, streamGuards.builds, value => unreadableField('builds', value), { skip: 0, mode: 'token' });
+      return pageOf(raw, streamGuards.builds, value => unreadableField('builds', value), {
+        skip: 0,
+        mode: 'token',
+        idOf: value => recordId('builds', value),
+      });
     },
     async completedCheckoutPulls(repo: AzureRepo, source: string): Promise<CheckoutPull[]> {
       if (typeof source !== 'string' || !/^refs\/heads\/[^\s\x00-\x1f]+$/.test(source) || source.length > 1024) return [];
