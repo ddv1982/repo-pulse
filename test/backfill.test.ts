@@ -322,3 +322,40 @@ test('a build queued before an internal window boundary and completed after it r
   assert.equal(present(events[0]).seen, true);
   store.close();
 });
+
+test('records Azure returns unreadable during a history import are counted on the job with their stream and fields', async () => {
+  const pages: Partial<Record<AzureStream, AzurePage[]>> = {
+    pushes: [
+      { items: [], nextCursor: { skip: 100 }, unreadable: { count: 1, fields: ['pushId'] } },
+      { items: [], nextCursor: null, unreadable: { count: 2, fields: ['date'] } },
+    ],
+    builds: [{ items: [], nextCursor: null, unreadable: { count: 1, fields: ['repository.id'] } }],
+  };
+  const provider: Provider = {
+    async read(_repo, stream) {
+      return pages[stream]?.shift() ?? { items: [], nextCursor: null };
+    },
+  };
+  const { store, backfill } = setup(provider);
+  backfill.start(repo.id);
+  while (await backfill.tick());
+  const job = present(backfill.status()[0]);
+  assert.equal(job.status, 'completed');
+  assert.deepEqual(job.warnings, [
+    {
+      stream: 'pushes',
+      code: 'UNREADABLE_RECORDS',
+      count: 3,
+      fields: ['pushId', 'date'],
+      message: 'Skipped 3 records in pushes that Azure returned without a readable value for pushId or date.',
+    },
+    {
+      stream: 'builds',
+      code: 'UNREADABLE_RECORDS',
+      count: 1,
+      fields: ['repository.id'],
+      message: 'Skipped 1 record in builds that Azure returned without a readable value for repository.id.',
+    },
+  ]);
+  store.close();
+});

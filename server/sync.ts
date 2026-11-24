@@ -46,7 +46,7 @@ const LIVE_TURNS = 6;
 const iso = (ms: number) => new Date(ms).toISOString();
 
 /** Both counts of records left out, with the fields of each. */
-function addUnreadable(sum: UnreadableRecords | undefined, more: UnreadableRecords | undefined): UnreadableRecords | undefined {
+export function addUnreadable(sum: UnreadableRecords | undefined, more: UnreadableRecords | undefined): UnreadableRecords | undefined {
   if (!sum || !more) return sum || more;
   return { count: sum.count + more.count, fields: [...new Set([...sum.fields, ...more.fields])] };
 }
@@ -99,7 +99,7 @@ const rememberedLookups = (remembered: UnreadableLookups, missing: (id: string) 
 const lookupsUnreadable = (lookups: Map<string, string>): UnreadableRecords | undefined =>
   lookups.size ? { count: lookups.size, fields: [...new Set(lookups.values())] } : undefined;
 /** The warning for records a read left out, or undefined when it left none out. */
-function warningOf(stream: StreamName, unreadable: UnreadableRecords | undefined): StreamWarning | undefined {
+export function warningOf(stream: StreamName, unreadable: UnreadableRecords | undefined): StreamWarning | undefined {
   if (!unreadable?.count) return undefined;
   const { count, fields } = unreadable;
   return {

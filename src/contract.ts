@@ -209,6 +209,8 @@ export type SyncStatusReport = { overall: OverallSyncStatus; repos: Record<strin
 export type HistoryStream = 'pushes' | 'closedPrs' | 'builds';
 export type HistoryWindow = { since: string; until: string };
 export type JobError = { code: string; message: string };
+/** The records of one stream that a history import skipped because Azure returned them unreadable, summed across its pages. */
+export type HistoryWarning = StreamWarning & { stream: HistoryStream };
 export type HistoryJob = {
   id: string;
   type: 'backfill';
@@ -227,6 +229,8 @@ export type HistoryJob = {
   windowsCompleted: number;
   failures: number;
   error: JobError | null;
+  /** One per stream that had unreadable records, in the order the import first met them. */
+  warnings?: HistoryWarning[];
   note: string;
   lastAttempt?: string;
   lastProgressAt?: string;

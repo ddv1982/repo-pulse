@@ -82,3 +82,19 @@ test('the repository import row shows retry and pause without exposing a second 
   assert.ok(busy.hasAttribute('disabled'), 'a running import offers no second start');
   assert.ok(!one(parse(renderHistoryButton(repo, { status: 'completed' })), 'button').hasAttribute('disabled'));
 });
+
+test('the repository import row shows the records the import skipped as a warning', () => {
+  const message = 'Skipped 3 records in pushes that Azure returned without a readable value for pushId or date.';
+  const job: Partial<HistoryJob> = {
+    status: 'completed',
+    pages: 4,
+    error: null,
+    warnings: [{ stream: 'pushes', code: 'UNREADABLE_RECORDS', count: 3, fields: ['pushId', 'date'], message }],
+  };
+  const progress = parse(renderHistoryProgress({ id: 'r' }, job));
+  assert.equal(text(one(progress, '.status-chip.warn')), 'History sync finished');
+  assert.deepEqual(
+    all(progress, '.history-warning').map(item => text(item)),
+    [message],
+  );
+});

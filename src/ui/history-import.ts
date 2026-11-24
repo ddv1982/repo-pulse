@@ -2,11 +2,11 @@ import { emptyHtml, html, dateTime } from './format.ts';
 import { required } from './dom.ts';
 
 /** /api/state lists backfill jobs; these are the fields the Repositories page shows. */
-export type HistoryJob = Pick<import('../contract.ts').HistoryJob, 'status' | 'error' | 'pages' | 'lastProgressAt'>;
+export type HistoryJob = Pick<import('../contract.ts').HistoryJob, 'status' | 'error' | 'pages' | 'lastProgressAt' | 'warnings'>;
 export type HistoryRepo = Pick<import('./refresh.ts').Repo, 'id' | 'name'>;
 
 function statusFor(job: HistoryJob): [string, string] {
-  if (job.status === 'completed') return ['History sync finished', 'ok'];
+  if (job.status === 'completed') return ['History sync finished', job.warnings?.length ? 'warn' : 'ok'];
   if (job.error || job.status === 'retrying') return ['History sync retrying', 'warn'];
   if (job.status === 'running') return ['History sync running', 'info'];
   return ['History sync queued', 'info'];
@@ -24,6 +24,7 @@ export function renderHistoryProgress(repo: Pick<HistoryRepo, 'id'>, job: Histor
     <span class="chip status-chip ${tone}">${label}</span>
     ${job.pages ? html`<span class="help history-extra">${job.pages} ${job.pages === 1 ? 'page' : 'pages'} read${job.lastProgressAt ? ` · Last page ${dateTime(job.lastProgressAt)}` : ''}</span>` : emptyHtml}
     ${job.error?.message ? html`<span class="help history-extra">${job.error.message}</span>` : emptyHtml}
+    ${(job.warnings ?? []).map(warning => html`<span class="help history-extra history-warning">${warning.message}</span>`)}
   </div>`;
 }
 
