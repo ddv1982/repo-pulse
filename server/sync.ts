@@ -1,5 +1,5 @@
 import { createNormalizer } from './normalize.ts';
-import { isRecord, recordsOf, unreadableField } from './azure-records.ts';
+import { isRecord, recordId, recordsOf, unreadableField } from './azure-records.ts';
 
 export type ActivityKind = import('./normalize.ts').ActivityKind;
 export type StreamName = import('./azure-client.ts').AzureStream;
@@ -9,6 +9,7 @@ export type AzureStreamRecord = import('./azure-client.ts').AzureStreamRecord;
 export type AzurePage = import('./azure-client.ts').AzurePage;
 export type AzureRef = import('../src/contract.ts').AzureRef;
 export type UnreadableRecords = import('../src/contract.ts').UnreadableRecords;
+export type UnreadableIds = import('../src/contract.ts').UnreadableIds;
 export type StreamWarning = import('../src/contract.ts').StreamWarning;
 export type WatchedRepo = import('./normalize.ts').WatchedRepo;
 export type NormalizeState = import('./normalize.ts').NormalizeState;
@@ -50,6 +51,19 @@ export function addUnreadable(sum: UnreadableRecords | undefined, more: Unreadab
   if (!sum || !more) return sum || more;
   return { count: sum.count + more.count, fields: [...new Set([...sum.fields, ...more.fields])] };
 }
+/** Both lists of the readable IDs of records left out, and both counts of those without one. */
+function addIds(sum: UnreadableIds | undefined, more: UnreadableIds | undefined): UnreadableIds | undefined {
+  if (!sum || !more) return sum || more;
+  return { ids: [...sum.ids, ...more.ids], anonymous: sum.anonymous + more.anonymous };
+}
+/** The readable IDs of the records a page left out, and how many had none, or undefined when it left none out. */
+const idsOf = (page: AzurePage): UnreadableIds | undefined =>
+  page.unreadable?.count
+    ? {
+        ids: (page.unreadableIds || []).map(entry => entry.id),
+        anonymous: page.unreadable.count - (page.unreadableIds?.length ?? 0),
+      }
+    : undefined;
 /** The count and fields of records that fail their stream's check, or undefined when there are none. */
 function unreadableOf(stream: StreamName, records: readonly unknown[]): UnreadableRecords | undefined {
   if (!records.length) return undefined;
@@ -60,15 +74,18 @@ function unreadableOf(stream: StreamName, records: readonly unknown[]): Unreadab
  * azure-client.ts refs) invalidates the pages saved so far. Refs saved by a version that did not check them, or
  * checked them less strictly, are checked again, and those that fail are counted.
  */
-function snapshotRefs(state: StreamState, page: AzurePage): { refs?: AzureRef[]; unreadable?: UnreadableRecords | undefined } {
+function snapshotRefs(
+  state: StreamState,
+  page: AzurePage,
+): { refs?: AzureRef[]; unreadable?: UnreadableRecords | undefined; unreadableIds?: UnreadableIds | undefined } {
   if (state.stream !== 'refs') return {};
   const saved: readonly unknown[] = page.restarted ? [] : state.pendingItems || [];
+  const failed = saved.filter(item => unreadableField('refs', item) !== null);
+  const names = failed.flatMap(item => recordId('refs', item) ?? []);
   return {
     refs: [...recordsOf('refs', saved), ...recordsOf('refs', page.items)],
-    unreadable: unreadableOf(
-      'refs',
-      saved.filter(item => unreadableField('refs', item) !== null),
-    ),
+    unreadable: unreadableOf('refs', failed),
+    unreadableIds: failed.length ? { ids: names, anonymous: failed.length - names.length } : undefined,
   };
 }
 /** The IDs of the active PRs or builds a page lists. */
@@ -138,12 +155,14 @@ function nextPage(
     pendingItems,
     activeIds,
     unreadable,
+    unreadableIds,
   }: {
     at: number;
     cursor: PageCursor | null;
     pendingItems?: AzureRef[] | undefined;
     activeIds?: string[] | undefined;
     unreadable: UnreadableRecords | undefined;
+    unreadableIds: UnreadableIds | undefined;
   },
 ): StreamState {
   return {
@@ -154,6 +173,7 @@ function nextPage(
     pendingItems,
     activeIds,
     unreadable,
+    unreadableIds,
     nextAt: iso(at),
     error: null,
   };
@@ -228,6 +248,7 @@ function failPage(state: StartedStream, latest: StreamState, at: number, error: 
     pendingItems: undefined,
     activeIds: undefined,
     unreadable: undefined,
+    unreadableIds: undefined,
   };
   // Marked manual so the request still runs if automatic checks were turned off after it was made.
   return { ...failed, ...restarted, refreshGeneration: latest.refreshGeneration, manual: true };
@@ -420,6 +441,7 @@ export function createSync({
     let unreadableLookups: UnreadableLookups;
     const snapshot = snapshotRefs(state, page);
     unreadable = addUnreadable(unreadable, snapshot.unreadable);
+    const unreadableIds = addIds(addIds(page.restarted ? undefined : state.unreadableIds, idsOf(page)), snapshot.unreadableIds);
     if (complete && state.stream === 'activeBuilds') {
       const builds = await lookUpBuilds(repo, activeIds || [], state.unreadableLookups);
       items = [...items, ...builds.items];
@@ -453,7 +475,7 @@ export function createSync({
       unreadableLookups = [...lookups].map(([id, field]) => ({ id, field }));
       unreadable = addUnreadable(unreadable, lookupsUnreadable(lookups));
     }
-    return { page, complete, activeIds, items, gone, unreadable, unreadableLookups, pendingItems: snapshot.refs };
+    return { page, complete, activeIds, items, gone, unreadable, unreadableIds, unreadableLookups, pendingItems: snapshot.refs };
   }
   function commitRead(repo: WatchedRepo, state: StreamState, working: StartedStream, read: Awaited<ReturnType<typeof readPage>> & {}) {
     const { page, complete, activeIds, pendingItems } = read;
@@ -463,7 +485,7 @@ export function createSync({
       state.stream !== 'refs'
         ? normalize(repo, state.stream, read.items, working)
         : complete
-          ? reconcileRefs(repo, pendingItems || [], working, { incomplete })
+          ? reconcileRefs(repo, pendingItems || [], working, { incomplete, unreadableIds: read.unreadableIds })
           : { events: [], entities: [] };
     output.entities = [...output.entities, ...read.gone];
     // A refresh requested after this window opened must survive the commit of a page read before it.
@@ -483,7 +505,14 @@ export function createSync({
           // leaves shows this.
           initialized: working.initialized || !incomplete,
         })
-      : nextPage(working, latest, { at: now(), cursor: page.nextCursor, pendingItems, activeIds, unreadable: read.unreadable });
+      : nextPage(working, latest, {
+          at: now(),
+          cursor: page.nextCursor,
+          pendingItems,
+          activeIds,
+          unreadable: read.unreadable,
+          unreadableIds: read.unreadableIds,
+        });
     store.commitPage({ repoId: repo.id, stream: state.stream, state: next, ...output });
     counters.pages++;
     const key = `${repo.id}:${state.stream}`;

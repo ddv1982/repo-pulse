@@ -13,6 +13,7 @@ export type AzureRefUpdate = import('../src/contract.ts').AzureRefUpdate;
 export type AzureRef = import('../src/contract.ts').AzureRef;
 export type AzurePullRequest = import('../src/contract.ts').AzurePullRequest;
 export type AzureBuild = import('../src/contract.ts').AzureBuild;
+export type UnreadableIds = import('../src/contract.ts').UnreadableIds;
 export type WatchedRepo = import('./azure-client.ts').AzureRepo & { id: string; disabled?: boolean };
 /** What `normalize` reads from a stream state; backfill passes `historical: true`. */
 export type NormalizeState = { initialized: boolean; historical?: boolean };
@@ -358,14 +359,35 @@ export function createNormalizer({ store, now = Date.now }: { store: NormalizeSt
   /**
    * The tag baseline of a refs stream. Tags joined the snapshot after branches. Until one complete snapshot has recorded
    * them, every existing tag would look new, so a tag is announced as first seen only after that baseline (`known`).
-   * A tag no longer listed is also reported (`reported`) once an incomplete snapshot of the initialized stream has been
-   * read, which main took for the baseline. `write` names the baseline entity this snapshot records, if any.
+   * Main took an incomplete snapshot of the initialized stream for the baseline, which put away a tag it did not list,
+   * unless one of its malformed refs was that tag and the next snapshot reported it. So until the baseline, each such
+   * snapshot records (`ref-baseline:tags-incomplete`) the tags its unreadable refs may be: those named, or every tag
+   * once one had no readable name. A tag no longer listed is reported (`reported`) after the baseline, or when it is
+   * one of those tags. `write` is the baseline entity this snapshot records, if any.
    */
-  function tagBaseline(repo: WatchedRepo, initialized: boolean, incomplete: boolean) {
+  function tagBaseline(repo: WatchedRepo, initialized: boolean, incomplete: boolean, unreadable: UnreadableIds | undefined) {
     const known = initialized && Boolean(store.getEntity(repo.id, 'ref-baseline', 'tags'));
-    const read = initialized && Boolean(store.getEntity(repo.id, 'ref-baseline', 'tags-incomplete'));
-    const write = !incomplete ? 'tags' : initialized && !known ? 'tags-incomplete' : undefined;
-    return { known, reported: known || read, write };
+    const read: { all?: boolean; names?: string[] } | undefined = initialized
+      ? store.getEntity(repo.id, 'ref-baseline', 'tags-incomplete')
+      : undefined;
+    // An entry without names, or a snapshot whose unreadable refs are not all named, leaves every tag uncertain.
+    const uncertain = (data: typeof read) => (data ? data.all !== false || !Array.isArray(data.names) : false);
+    const reported = (name: string) => known || uncertain(read) || Boolean(read?.names?.includes(name));
+    const names = (unreadable?.ids ?? []).filter(name => name.startsWith('refs/tags/'));
+    const write: Entity | undefined = !incomplete
+      ? { type: 'ref-baseline', id: 'tags', data: { at: iso(now()) } }
+      : initialized && !known
+        ? {
+            type: 'ref-baseline',
+            id: 'tags-incomplete',
+            data: {
+              at: iso(now()),
+              all: uncertain(read) || !unreadable || unreadable.anonymous > 0,
+              names: [...new Set([...(read?.names ?? []), ...names])],
+            },
+          }
+        : undefined;
+    return { known, reported, write };
   }
 
   /**
@@ -375,14 +397,17 @@ export function createNormalizer({ store, now = Date.now }: { store: NormalizeSt
    * reads later is not announced as first seen. Sync holds the stream's `initialized` back the same way. Before that
    * baseline (the stream's for a branch, the tag baseline for a tag), an incomplete snapshot creates no ref and keeps
    * the evidence of the refs it updates, so the first complete snapshot finds only refs a push recorded and treats them
-   * as on main. Main would have taken an incomplete snapshot of an initialized stream for the tag baseline and then
-   * reported a tag a later snapshot omits, so once one has been read, the first complete snapshot reports such a tag
-   * instead of putting it away without an event.
+   * as on main. Which tags it then reports as no longer listed follows tagBaseline.
    */
-  function reconcileRefs(repo: WatchedRepo, records: AzureRef[], state: RefReconcileState, { incomplete = false } = {}): SyncBatch {
+  function reconcileRefs(
+    repo: WatchedRepo,
+    records: AzureRef[],
+    state: RefReconcileState,
+    { incomplete = false, unreadableIds }: { incomplete?: boolean; unreadableIds?: UnreadableIds | undefined } = {},
+  ): SyncBatch {
     const before = new Map(store.listEntities(repo.id, 'ref').map(entry => [entry.id, entry.data]));
     const current = new Map(records.filter(item => /^refs\/(heads|tags)\//.test(item.name)).map(item => [item.name, item]));
-    const tags = tagBaseline(repo, state.initialized, incomplete);
+    const tags = tagBaseline(repo, state.initialized, incomplete, unreadableIds);
     const tagsKnown = tags.known;
     const tagEvent = (name: string, change: 'created' | 'deleted', data: Record<string, unknown>) =>
       makeEvent(
@@ -449,7 +474,7 @@ export function createNormalizer({ store, now = Date.now }: { store: NormalizeSt
         if (old.active === false || current.has(name)) continue;
         entities.push({ type: 'ref', id: name, data: { ...old, active: false } });
         if (name.startsWith('refs/tags/')) {
-          if (tags.reported) events.push(tagEvent(name, 'deleted', { objectId: old.objectId }));
+          if (tags.reported(name)) events.push(tagEvent(name, 'deleted', { objectId: old.objectId }));
           continue;
         }
         events.push(
@@ -468,7 +493,7 @@ export function createNormalizer({ store, now = Date.now }: { store: NormalizeSt
           ),
         );
       }
-    if (tags.write) entities.push({ type: 'ref-baseline', id: tags.write, data: { at: iso(now()) } });
+    if (tags.write) entities.push(tags.write);
     return { events, entities };
   }
 

@@ -85,6 +85,8 @@ export type AzureStreamRecords = {
 export type AzureStreamRecord = AzureStreamRecords[AzureStream];
 /** Records a page left out because a field they need is missing or malformed, and the fields that were. */
 export type UnreadableRecords = { count: number; fields: string[] };
+/** Of some records left out, the IDs (a ref's name) that could still be read, and how many had none. */
+export type UnreadableIds = { ids: string[]; anonymous: number };
 /**
  * Where the next page starts: `skip` for offset-paged reads, `token` for continuation reads.
  * Build reads also keep their coarse window in `from` and `to`.
@@ -174,6 +176,11 @@ export type StreamState = {
   activeIds?: string[] | undefined;
   /** The records the read in progress has left out so far, summed across its pages. */
   unreadable?: UnreadableRecords | undefined;
+  /**
+   * Of the records the read in progress has left out so far, the IDs that could still be read (a ref's name) and how
+   * many had none.
+   */
+  unreadableIds?: UnreadableIds | undefined;
   /**
    * Cached active PRs or in-progress builds whose lookup by ID came back unreadable, with the field, so every read
    * counts them until one reads, its lookup finds it gone, or the active list holds it again, not only the reads whose

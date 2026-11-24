@@ -2463,7 +2463,7 @@ test('a branch and tag a push recorded and an incomplete snapshot listed are rep
 });
 
 /** A refs stream initialized before tags joined the snapshot: no tag baseline, and tag v1 recorded by a push. */
-async function legacyRefsWithPushedTag(snapshot: () => AzurePage) {
+async function legacyRefsWithPushedTag(snapshot: () => AzurePage | Promise<AzurePage>) {
   const created = push(3);
   created.refUpdates = [{ name: 'refs/tags/v1', oldObjectId: '0'.repeat(40), newObjectId: 'c'.repeat(40) }];
   let pushes = [created];
@@ -2572,6 +2572,49 @@ test('before the tag baseline, a tag a push recorded that the first complete sna
   advance(600001);
   await sync.tick();
   assert.deepEqual(titles(), []);
+  store.close();
+});
+
+test('before the tag baseline, a tag that no unreadable ref of an incomplete snapshot could be is put away without an event, as on main', async () => {
+  // Sol's probe: the incomplete snapshot's only unreadable ref is a named branch, so it cannot be tag v1.
+  let refs: unknown[] = [
+    { name: 'refs/heads/main', objectId: 'a' },
+    { name: 'refs/heads/feature', objectId: 7 },
+  ];
+  const client = createAzureClient({ cli: { run: async () => ({ value: refs }) } });
+  const { store, sync, advance, titles } = await legacyRefsWithPushedTag(() => client.read(repo, 'refs'));
+  advance(600001);
+  await sync.tick();
+  assert.equal(store.getEntity(repo.id, 'ref-baseline', 'tags'), undefined, 'the incomplete snapshot is no tag baseline');
+  refs = [{ name: 'refs/heads/main', objectId: 'a' }];
+  advance(600001);
+  await sync.tick();
+  assert.equal(fieldsOf(store.getEntity(repo.id, 'ref', 'refs/tags/v1')).active, false);
+  assert.deepEqual(titles(), [], 'main took the incomplete snapshot for the tag baseline and put v1 away there');
+  store.close();
+});
+
+test('before the tag baseline, a tag that an unreadable ref of any incomplete snapshot may be is reported once a complete snapshot omits it', async () => {
+  let refs: unknown[] = [
+    { name: 'refs/heads/main', objectId: 'a' },
+    { name: 'refs/tags/v1', objectId: 7 },
+  ];
+  const client = createAzureClient({ cli: { run: async () => ({ value: refs }) } });
+  const { store, sync, advance, titles } = await legacyRefsWithPushedTag(() => client.read(repo, 'refs'));
+  advance(600001);
+  await sync.tick();
+  // A later incomplete snapshot whose unreadable ref is another one does not make v1 certain.
+  refs = [
+    { name: 'refs/heads/main', objectId: 'a' },
+    { name: 'refs/heads/feature', objectId: 7 },
+  ];
+  advance(600001);
+  await sync.tick();
+  assert.equal(store.getEntity(repo.id, 'ref-baseline', 'tags'), undefined);
+  refs = [{ name: 'refs/heads/main', objectId: 'a' }];
+  advance(600001);
+  await sync.tick();
+  assert.deepEqual(titles(), ['Tag no longer listed · v1'], 'as on main, which read v1 with its malformed objectId and then missed it');
   store.close();
 });
 

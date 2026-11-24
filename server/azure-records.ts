@@ -142,18 +142,20 @@ const readers: { [S in AzureStream]: Reader } = {
   activeBuilds: build,
 };
 
-/** The field that names a record of the streams sync follows up by ID. */
-const identityFields: Partial<Record<AzureStream, string>> = {
-  prs: 'pullRequestId',
-  closedPrs: 'pullRequestId',
-  builds: 'id',
-  activeBuilds: 'id',
+/** The field that names a record of the streams sync follows up by ID, or a ref by its name, and how it reads. */
+const identityFields: Partial<Record<AzureStream, [string, Reader]>> = {
+  refs: ['name', filled],
+  prs: ['pullRequestId', id],
+  closedPrs: ['pullRequestId', id],
+  builds: ['id', id],
+  activeBuilds: ['id', id],
 };
-/** The ID of a pull request or build whose ID can be read, even when another of its fields cannot. */
+/** The ID of a pull request or build, or the name of a ref, that can be read even when another of its fields cannot. */
 export function recordId(stream: AzureStream, value: unknown): string | undefined {
-  const key = identityFields[stream];
-  if (!key || !isRecord(value) || 'fault' in id(value[key])) return undefined;
-  return String(value[key]);
+  const identity = identityFields[stream];
+  if (!identity || !isRecord(value)) return undefined;
+  const [key, reader] = identity;
+  return 'fault' in reader(value[key]) ? undefined : String(value[key]);
 }
 
 /** The first field a stream record cannot be read without, or null when it can be read. */
