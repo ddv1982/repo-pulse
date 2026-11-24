@@ -77,16 +77,20 @@ const listedIds = (stream: 'prs' | 'activeBuilds', items: readonly AzureStreamRe
     ? recordsOf('prs', items).map(item => String(item.pullRequestId))
     : recordsOf('activeBuilds', items).map(item => String(item.id));
 /**
- * Up to `size` of the missing IDs in numeric order, starting after `last`, the one looked up last time, so IDs that
- * stay missing cannot hold every turn.
+ * Up to `size` of the missing IDs, those that have waited longest for a lookup first. `order` holds the missing IDs in
+ * turn order: an ID joins the end when it goes missing, in numeric order with the others that do, and `lookedUp` moves
+ * it to the end, so neither IDs that stay missing nor IDs that keep going missing can hold every turn.
  */
-function lookupTurn(missing: string[], last: string | undefined, size: number) {
-  const sorted = [...missing].sort((a, b) => Number(a) - Number(b));
-  const after = Math.max(
-    sorted.findIndex(id => Number(id) > Number(last ?? -1)),
-    0,
-  );
-  return [...sorted.slice(after), ...sorted.slice(0, after)].slice(0, size);
+function lookupTurn(order: Set<string>, missing: string[], size: number) {
+  const wanted = new Set(missing);
+  for (const id of order) if (!wanted.has(id)) order.delete(id);
+  for (const id of [...missing].sort((a, b) => Number(a) - Number(b))) order.add(id);
+  return [...order].slice(0, size);
+}
+/** Moves an ID that is being looked up to the end of the turn order. */
+function lookedUp(order: Set<string>, id: string) {
+  order.delete(id);
+  order.add(id);
 }
 /** The remembered unreadable lookups of IDs that are still missing, by ID. */
 const rememberedLookups = (remembered: UnreadableLookups, missing: (id: string) => boolean) =>
@@ -279,9 +283,14 @@ export function createSync({
   let nextBackground: BackgroundKind = 'rewrite';
   const lastTurn: Partial<Record<BackgroundKind | 'live', string>> = {};
   const counters = { pages: 0, errors: 0 };
-  /** The last cached active PR and in-progress build looked up by ID, per repository, so missing ones take turns. */
-  const prLookedUp: Map<string, string> = new Map();
-  const buildLookedUp: Map<string, string> = new Map();
+  /** The turn order of the cached active PRs and in-progress builds to look up by ID, per repository (see lookupTurn). */
+  const prTurns: Map<string, Set<string>> = new Map();
+  const buildTurns: Map<string, Set<string>> = new Map();
+  const turnOrder = (turns: Map<string, Set<string>>, repoId: string) => {
+    const order = turns.get(repoId) ?? new Set();
+    turns.set(repoId, order);
+    return order;
+  };
 
   function ensureStreams() {
     const current = store.getStreams();
@@ -352,9 +361,10 @@ export function createSync({
         .map(entry => [entry.id, entry.data]),
     );
     const lookups = rememberedLookups(remembered, id => missing.has(id));
-    const turn = lookupTurn([...missing.keys()], buildLookedUp.get(repo.id), 20);
+    const order = turnOrder(buildTurns, repo.id);
+    const turn = lookupTurn(order, [...missing.keys()], 20);
     if (!turn.length) return { items: [], gone: [] };
-    buildLookedUp.set(repo.id, String(turn.at(-1)));
+    for (const id of turn) lookedUp(order, id);
     const byId = await provider.buildsById(repo, turn);
     // Azure omits a build it no longer has (removed by retention, see docs/probe-results.md), so stop asking for it.
     // The fingerprint stays, so no event is made for it and a later sighting still compares against its last state.
@@ -414,9 +424,10 @@ export function createSync({
       // A lookup that came back unreadable counts in every read until that PR reads, its lookup finds it deleted or
       // moved, or it is no longer missing, so a read whose turn skips it does not clear the warning.
       const lookups = rememberedLookups(state.unreadableLookups, id => missing.includes(id));
-      for (const id of lookupTurn(missing, prLookedUp.get(repo.id), 3)) {
+      const order = turnOrder(prTurns, repo.id);
+      for (const id of lookupTurn(order, missing, 3)) {
         if (!watching(repo)) return null;
-        prLookedUp.set(repo.id, id);
+        lookedUp(order, id);
         try {
           items = [...items, await provider.pullRequest(repo, id)];
           lookups.delete(id);
@@ -563,8 +574,8 @@ export function createSync({
       } finally {
         requested.clear();
         refreshedAt.clear();
-        prLookedUp.clear();
-        buildLookedUp.clear();
+        prTurns.clear();
+        buildTurns.clear();
         lastKey = undefined;
         liveTurns = 0;
         resetting = false;
