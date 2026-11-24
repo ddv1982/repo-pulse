@@ -827,7 +827,10 @@ test('the summary counts every unread item in scope, not only the loaded rows', 
     const label = (name: string) => [['label'], name];
     assert.deepEqual(cell('Pushes'), [label('Pushes'), [['t-info', 'val'], '5']]);
     assert.deepEqual(cell('Branches'), [label('Branches'), [['t-info', 'val'], '1'], [['sub'], '1 new']]);
-    assert.deepEqual(cell('CI runs'), [label('CI runs'), [['t-info', 'val'], '1'], [['sub'], '1 running']]);
+    const ci = one(summary, '[data-summary-kind="CI runs"]');
+    assert.equal(text(one(ci, 'button .label')), 'CI runs');
+    assert.equal(text(one(ci, 'button .val.t-info')), '1');
+    assert.equal(text(one(ci, '.sub')), '1 running');
   } finally {
     store.close();
   }
@@ -848,12 +851,34 @@ test('only the failed CI count uses the failure color in both summary layouts', 
   assert.equal(text(one(cell, '.val.t-info')), '4');
   assert.equal(text(one(cell, '.sub')), '1 running · 1 queued · 1 failed');
   assert.equal(text(one(cell, 'button.t-crit[data-kind="status:failed"]')), '1 failed');
-  assert.equal(text(one(cell, 'button.t-info[data-kind="build"]')), '4');
+  assert.equal(text(one(cell, 'button.t-info[data-kind="build"]')), 'CI runs 4');
   const chip = one(summary, '.summary-chips .chip');
   assert.deepEqual(classes(chip), ['chip']);
   assert.equal(text(chip), 'CI runs 4 · 1 running · 1 queued · 1 failed');
   assert.equal(text(one(chip, 'button.t-crit[data-kind="status:failed"]')), '1 failed');
-  assert.equal(text(one(chip, 'button.t-info[data-kind="build"]')), '4');
+  assert.equal(text(one(chip, 'button.t-info[data-kind="build"]')), 'CI runs 4');
+});
+
+test('the failed CI summary offers all CI runs even when no failures are unread', () => {
+  const state = fixture();
+  const failure = {
+    ...present(state.events[0]),
+    data: { buildId: 42, status: 'completed', result: 'failed' },
+  };
+  for (const seen of [false, true]) {
+    state.events = [{ ...failure, seen }];
+    const page = parse(renderFeed(state, { ...view, route: 'activity', kind: 'status:failed' }));
+    const count = seen ? '0' : '1';
+    const cell = one(page, '[data-summary-kind="CI runs"]');
+    const chip = one(page, '.summary-chips .chip');
+    assert.equal(text(one(cell, '.label')), 'Failed CI runs');
+    assert.equal(text(one(cell, '.val')), count);
+    assert.equal(text(chip), `Failed CI runs ${count} · Show all CI runs`);
+    for (const layout of [cell, chip]) {
+      assert.equal(text(one(layout, 'button[data-kind="build"]')), 'Show all CI runs');
+    }
+    assert.equal(one(page, '#kind-toggle').getAttribute('data-active'), 'true');
+  }
 });
 
 test('the scope reads 1 repository when only one exists, and All N repositories when there are more', () => {

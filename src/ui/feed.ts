@@ -49,8 +49,10 @@ export function filterControls(ui: FeedView & { savedFilterId: string }, state: 
     ${renderSavedFilters(presets, ui.savedFilterId, modified, ui.openMenu)}
     <div class="filters-box" id="activity-filters" ${open ? emptyHtml : html`hidden`}>
       <div class="toolbar"><input id="feed-search" class="search" type="search" aria-label="Search activity" aria-describedby="feed-search-help" placeholder="Search branch, commit, person or repository…" value="${ui.search}">
-        ${renderTypeFilter(ui.kind, state.activity.filterOptions, state.activity.loading, ui.openMenu === 'kind-panel')}
-        ${active ? html`<button class="btn" id="clear-filters" type="button" data-action="clear-filters">Clear search and type</button>` : emptyHtml}
+        <div class="filter-actions">
+          ${renderTypeFilter(ui.kind, state.activity.filterOptions, state.activity.loading, ui.openMenu === 'kind-panel')}
+          ${active ? html`<button class="btn" id="clear-filters" type="button" data-action="clear-filters">Clear filter</button>` : emptyHtml}
+        </div>
       </div><p class="help" id="feed-search-help">Commas match any term · <code>people:Ali, Jo</code> searches names only</p>
     </div>
   </div>`;

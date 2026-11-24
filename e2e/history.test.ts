@@ -1051,7 +1051,8 @@ test('People and named filters restore a scoped Activity search after app restar
   await page.getByRole('textbox', { name: 'Filter name' }).fill('My team');
   await page.getByRole('dialog').getByRole('button', { name: 'Save', exact: true }).click();
   await expect(presets).toHaveAccessibleName('Saved filter: My team');
-  await page.getByRole('button', { name: 'Clear search and type' }).click();
+  await page.getByRole('button', { name: 'Clear filter', exact: true }).click();
+  await expect(presets).toHaveAccessibleName('Saved filters');
   await expect(page.locator('li[data-event-id="text-only"]')).toBeVisible();
   await choosePreset('My team');
   await expect(people).toHaveValue('people:Ali Ex, Bo');

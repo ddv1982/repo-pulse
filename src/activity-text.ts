@@ -359,6 +359,8 @@ export function canonicalActivityFilter(value: string) {
 export function activityFilterLabel(value: string) {
   const filter = parseActivityFilter(value);
   if (filter.type === 'all') return 'All types';
+  if (filter.type === 'kind' && filter.id === 'build') return 'CI runs';
+  if (filter.type === 'status' && filter.id === 'failed') return 'Failed CI runs';
   if (filter.type === 'status') return statusLabelsById[filter.id] || filter.id;
   if (filter.type === 'evidence') return evidenceLabels[filter.id] || filter.id;
   // Widening only: labels is a string table, and an unknown id falls back to the id itself.
