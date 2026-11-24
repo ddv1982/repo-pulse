@@ -37,6 +37,7 @@ export type CheckoutPull = {
   strategy?: string;
   url: string;
 };
+export type UnreadableCheckoutPull = import('./checkout-advice.ts').UnreadableCheckoutPull;
 export type AccessCheck = import('../src/contract.ts').AccessCheck;
 export type ConnectionStatus = import('../src/contract.ts').ConnectionStatus;
 export type ResolvedRepository = {
@@ -128,6 +129,59 @@ const noField = () => null;
 /** A field of a response that is not an object reads as absent. */
 const fieldOf = (value: unknown, key: string): unknown => (isRecord(value) ? value[key] : undefined);
 const textOf = (value: unknown) => (typeof value === 'string' ? value : undefined);
+/** The text at `path` below `value`: undefined when a step is absent, null when a step or the text has another type. */
+function textAt(value: unknown, path: readonly string[]): string | undefined | null {
+  let current = value;
+  for (const key of path) {
+    if (current === undefined || current === null) return undefined;
+    if (!isRecord(current)) return null;
+    current = current[key];
+  }
+  if (current === undefined || current === null) return undefined;
+  return typeof current === 'string' ? current : null;
+}
+/**
+ * A completed PR from `source` within this repository as checkout advice reads it, or undefined for a PR of another
+ * status, source or repository. It reads only the fields checkout uses, so a field only the activity stream reads
+ * cannot hide a candidate. A candidate whose ID, target, head, merge result or strategy cannot be read may be another
+ * target, so it is returned as unreadable rather than left out.
+ */
+function checkoutPullOf(repo: AzureRepo, source: string, pr: unknown): CheckoutPull | UnreadableCheckoutPull | undefined {
+  const targetId = fieldOf(fieldOf(pr, 'repository'), 'id');
+  const fork = fieldOf(pr, 'forkSource');
+  const sourceId = fork ? fieldOf(fieldOf(fork, 'repository'), 'id') : targetId;
+  if (
+    fieldOf(pr, 'status') !== 'completed' ||
+    fieldOf(pr, 'sourceRefName') !== source ||
+    typeof targetId !== 'string' ||
+    typeof sourceId !== 'string' ||
+    targetId.toLowerCase() !== repo.azureId.toLowerCase() ||
+    sourceId.toLowerCase() !== repo.azureId.toLowerCase()
+  )
+    return undefined;
+  const id = fieldOf(pr, 'pullRequestId');
+  if (typeof id !== 'number' || !Number.isSafeInteger(id) || id <= 0) return { unreadable: 'pullRequestId' };
+  const target = textAt(pr, ['targetRefName']);
+  if (typeof target !== 'string') return { unreadable: 'targetRefName' };
+  const head = textAt(pr, ['lastMergeSourceCommit', 'commitId']);
+  const result = textAt(pr, ['lastMergeCommit', 'commitId']);
+  const strategy = textAt(pr, ['completionOptions', 'mergeStrategy']);
+  if (head === null) return { unreadable: 'lastMergeSourceCommit.commitId' };
+  if (result === null) return { unreadable: 'lastMergeCommit.commitId' };
+  if (strategy === null) return { unreadable: 'completionOptions.mergeStrategy' };
+  return {
+    id,
+    source,
+    target,
+    sourceId,
+    targetId,
+    // A field Azure did not send stays absent.
+    ...(head === undefined ? {} : { head }),
+    ...(result === undefined ? {} : { result }),
+    ...(strategy === undefined ? {} : { strategy }),
+    url: safeAzureUrl(fieldOf(fieldOf(fieldOf(pr, '_links'), 'web'), 'href'), `${repo.webUrl}/pullrequest/${encodeURIComponent(id)}`),
+  };
+}
 
 export function createAzureClient({ cli, now = Date.now }: { cli?: AzureClientCli; now?: () => number } = {}) {
   if (!cli?.run) throw new Error('Azure CLI is required');
@@ -409,7 +463,7 @@ export function createAzureClient({ cli, now = Date.now }: { cli?: AzureClientCl
         },
       );
     },
-    async completedCheckoutPulls(repo: AzureRepo, source: string): Promise<CheckoutPull[]> {
+    async completedCheckoutPulls(repo: AzureRepo, source: string): Promise<(CheckoutPull | UnreadableCheckoutPull)[]> {
       if (typeof source !== 'string' || !/^refs\/heads\/[^\s\x00-\x1f]+$/.test(source) || source.length > 1024) return [];
       const response = await invoke(
         repo,
@@ -425,39 +479,7 @@ export function createAzureClient({ cli, now = Date.now }: { cli?: AzureClientCl
         {},
         true,
       );
-      // A pull request this lookup cannot read is not offered as advice.
-      return pageOf(response, value => readRecord('prs', value), noField, {}).items.flatMap(pr => {
-        const targetId = pr.repository?.id;
-        const sourceId = pr.forkSource ? pr.forkSource.repository?.id : targetId;
-        const target = pr.targetRefName;
-        const head = pr.lastMergeSourceCommit?.commitId,
-          result = pr.lastMergeCommit?.commitId,
-          strategy = pr.completionOptions?.mergeStrategy;
-        if (
-          pr.status !== 'completed' ||
-          pr.sourceRefName !== source ||
-          typeof target !== 'string' ||
-          typeof targetId !== 'string' ||
-          typeof sourceId !== 'string' ||
-          targetId.toLowerCase() !== repo.azureId.toLowerCase() ||
-          sourceId.toLowerCase() !== repo.azureId.toLowerCase()
-        )
-          return [];
-        return [
-          {
-            id: pr.pullRequestId,
-            source,
-            target,
-            sourceId,
-            targetId,
-            // A field Azure did not send stays absent.
-            ...(typeof head === 'string' ? { head } : {}),
-            ...(typeof result === 'string' ? { result } : {}),
-            ...(typeof strategy === 'string' ? { strategy } : {}),
-            url: safeAzureUrl(pr._links?.web?.href, `${repo.webUrl}/pullrequest/${encodeURIComponent(pr.pullRequestId)}`),
-          },
-        ];
-      });
+      return pageOf(response, everyItem, noField, {}).items.flatMap(pr => checkoutPullOf(repo, source, pr) ?? []);
     },
     /**
      * Throws UNREADABLE_RECORD, with the field that is missing or malformed, for a pull request that cannot be read,

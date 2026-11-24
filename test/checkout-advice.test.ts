@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { createCheckoutGit } from '../server/checkout-git.ts';
 import { createCheckoutLookup } from '../server/checkout-advice.ts';
 import { createStore } from '../server/store.ts';
+import { createAzureClient } from '../server/azure-client.ts';
 import type { CheckoutPull } from '../server/azure-client.ts';
 import type { Observation } from '../server/checkout-observations.ts';
 import type { Thrown } from './fixtures/typed.ts';
@@ -64,6 +65,36 @@ test('same branch name, foreign source identity, dirty checkout and missing targ
   assert.equal(adviceOf(missingTarget).verified, false);
   assert.doesNotMatch(diagnosticOf(missingTarget).suggestion, /Switch to release/);
   assert.equal(git(local, 'rev-parse', 'HEAD'), pr.head);
+});
+
+test('completed PRs from one head into different targets keep the advice unverified, whatever fields checkout does not use', async t => {
+  const { repo, pr, remote } = squashFixture(t);
+  const azurePr = (id: number, fields: Record<string, unknown> = {}) => ({
+    pullRequestId: id,
+    status: 'completed',
+    repository: { id: repo.azureId },
+    sourceRefName: pr.source,
+    targetRefName: pr.target,
+    lastMergeSourceCommit: { commitId: pr.head },
+    lastMergeCommit: { commitId: pr.result },
+    completionOptions: { mergeStrategy: 'squash' },
+    ...fields,
+  });
+  const verifiedWith = async (second: Record<string, unknown>) => {
+    const client = createAzureClient({ cli: { run: async () => ({ value: [azurePr(101), second] }) } });
+    const adapter = createCheckoutGit({
+      matchesRemote: url => url === remote,
+      findPulls: async (linked, source) => client.completedCheckoutPulls(linked, source),
+    });
+    const { checkout } = await adapter.update(repo, 'check', expectedOf(await adapter.status(repo)));
+    return adviceOf(checkout).verified;
+  };
+  assert.equal(await verifiedWith(azurePr(101)), true, 'one target verifies');
+  // Sol's probe: main keeps PR 102, whose reviewers only the activity stream reads, and so sees two targets.
+  assert.equal(await verifiedWith(azurePr(102, { targetRefName: 'refs/heads/hotfix', reviewers: 'not a list' })), false);
+  // A PR whose target checkout cannot read may be another target, so it is an ambiguity rather than left out.
+  assert.equal(await verifiedWith(azurePr(102, { targetRefName: 42 })), false);
+  assert.equal(await verifiedWith(azurePr(102, { lastMergeCommit: { commitId: 7 } })), false);
 });
 
 test('checkout PR lookup consults the provider only when cache has no exact evidence', async t => {

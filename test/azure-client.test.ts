@@ -298,6 +298,7 @@ test('checkout PR lookup is bounded and accepts completed PRs in the same source
     },
   });
   const pull = present((await client.completedCheckoutPulls(repo, sourceRefName))[0]);
+  assert.ok(!('unreadable' in pull));
   assert.equal(pull.id, 1);
   assert.equal(pull.strategy, 'rebase');
   assert.equal((await client.completedCheckoutPulls(repo, sourceRefName)).length, 1);
