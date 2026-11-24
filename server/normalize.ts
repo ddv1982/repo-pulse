@@ -360,8 +360,8 @@ export function createNormalizer({ store, now = Date.now }: { store: NormalizeSt
    * `incomplete`: its readable refs are added and updated, but a ref it does not list may be one of the unreadable
    * ones, so nothing is reported as no longer listed, and it is not the tag baseline, so an unreadable tag that
    * reads later is not announced as first seen. Sync holds the stream's `initialized` back the same way. The first
-   * complete snapshot, with `initialized` still false, is the baseline: it marks the refs it does not list inactive
-   * without reporting them.
+   * complete snapshot, with `initialized` still false, is the baseline: it marks the refs an incomplete snapshot saved
+   * and it does not list inactive without reporting them.
    */
   function reconcileRefs(repo: WatchedRepo, records: AzureRef[], state: RefReconcileState, { incomplete = false } = {}): SyncBatch {
     const before = new Map(store.listEntities(repo.id, 'ref').map(entry => [entry.id, entry.data]));
@@ -425,11 +425,14 @@ export function createNormalizer({ store, now = Date.now }: { store: NormalizeSt
     if (!incomplete)
       for (const [name, old] of before) {
         if (old.active === false || current.has(name)) continue;
+        // The complete snapshot that establishes the baseline puts away without an event the refs an incomplete
+        // snapshot saved and it does not list, since nothing is known about when they went. A ref a push recorded
+        // stays until a later complete snapshot, which reports it as no longer listed.
+        if (!state.initialized) {
+          if (old.evidence !== 'push') entities.push({ type: 'ref', id: name, data: { ...old, active: false } });
+          continue;
+        }
         entities.push({ type: 'ref', id: name, data: { ...old, active: false } });
-        // The complete snapshot that establishes the baseline puts away the refs it does not list without an event:
-        // they were saved before any complete snapshot, by a push or an incomplete snapshot, so nothing is known about
-        // when they went.
-        if (!state.initialized) continue;
         if (name.startsWith('refs/tags/')) {
           if (tagsKnown) events.push(tagEvent(name, 'deleted', { objectId: old.objectId }));
           continue;

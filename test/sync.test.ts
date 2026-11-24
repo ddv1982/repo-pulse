@@ -2174,6 +2174,39 @@ test('a branch saved by an incomplete first snapshot and missing from the first 
   store.close();
 });
 
+test('a branch a push recorded before the first complete refs snapshot is reported once a later snapshot still does not list it', async () => {
+  const created = push(3);
+  present(created.refUpdates[0]).oldObjectId = '0'.repeat(40);
+  present(created.refUpdates[0]).name = 'refs/heads/feature';
+  const { store, sync, advance } = setup(
+    {
+      async read(_r, stream) {
+        return { items: stream === 'pushes' ? [created] : [{ name: 'refs/heads/main', objectId: 'a' }], nextCursor: null };
+      },
+    },
+    ['pushes'],
+  );
+  await sync.tick();
+  assert.equal(fieldsOf(store.getEntity(repo.id, 'ref', 'refs/heads/feature')).evidence, 'push');
+  const stream = (name: string) => present(store.getStreams().find(entry => entry.stream === name));
+  const refs = () => stream('refs');
+  store.saveStream({ ...stream('pushes'), nextAt: '2099-01-01T00:00:00Z' });
+  store.saveStream({ ...refs(), nextAt: new Date(BASE).toISOString() });
+  const titles = () =>
+    store
+      .listEvents()
+      .map(event => event.title)
+      .filter(title => title?.startsWith('Branch no longer'));
+  advance(600001);
+  await sync.tick();
+  assert.equal(refs().initialized, true);
+  assert.deepEqual(titles(), [], 'the baseline reports nothing');
+  advance(600001);
+  await sync.tick();
+  assert.deepEqual(titles(), ['Branch no longer listed · feature'], 'as on main, a branch a push recorded is reported');
+  store.close();
+});
+
 test('a tag unreadable in the first refs snapshot with tags is not announced as first seen once it reads', async () => {
   let refs: unknown[] = [
     { name: 'refs/heads/main', objectId: 'a' },
