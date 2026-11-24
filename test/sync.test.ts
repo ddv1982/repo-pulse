@@ -1638,3 +1638,102 @@ test('a ref Azure returns unreadable is not reported as no longer listed', async
   assert.equal(fieldsOf(store.getEntity(repo.id, 'ref', 'refs/heads/a')).objectId, 'c', 'a readable ref still updates');
   store.close();
 });
+
+/** A provider that answers page one, or the page after it once a cursor is saved; an Error entry fails that read. */
+const pagedProvider = (pages: () => (AzurePage | Error)[]): SyncProvider => ({
+  async read(_repo, _stream, given) {
+    const page = present(pages()[present(given).cursor ? 1 : 0]);
+    if (page instanceof Error) throw page;
+    return page;
+  },
+});
+
+test('a read that finds other unreadable records and then fails keeps the warning of the last completed read', async () => {
+  let pages: (AzurePage | Error)[] = [{ items: [push(2)], nextCursor: null, unreadable: { count: 1, fields: ['pushId'] } }];
+  const { store, sync, advance } = setup(
+    pagedProvider(() => pages),
+    ['pushes'],
+  );
+  await sync.tick();
+  const completed = pushesState(store).warning;
+  assert.deepEqual(completed && { fields: completed.fields, count: completed.count }, { fields: ['pushId'], count: 1 });
+  pages = [
+    { items: [push(3)], nextCursor: { skip: 1 }, unreadable: { count: 1, fields: ['refUpdates'] } },
+    Object.assign(new Error('Azure is down'), { code: 'CLI_ERROR' }),
+  ];
+  advance();
+  await sync.tick();
+  assert.equal(pushesState(store).pending, true, 'the second read is between pages');
+  assert.deepEqual(pushesState(store).warning, completed, 'a page in progress does not replace the warning');
+  await sync.tick();
+  assert.equal(pushesState(store).error?.code, 'CLI_ERROR');
+  assert.deepEqual(pushesState(store).warning, completed, 'the failed read does not replace it either');
+  store.close();
+});
+
+test('a refresh that restarts a read after a page with unreadable records does not leave that page as the warning', async () => {
+  const pages: (AzurePage | Error)[] = [
+    { items: [push(2)], nextCursor: { skip: 1 }, unreadable: { count: 1, fields: ['pushId'] } },
+    Object.assign(new Error('Azure is down'), { code: 'CLI_ERROR' }),
+  ];
+  const { store, sync, advance } = setup(
+    pagedProvider(() => pages),
+    ['pushes'],
+  );
+  await sync.tick();
+  advance(30001);
+  assert.equal(sync.refresh().scheduled, true);
+  for (const state of store.getStreams()) if (state.stream !== 'pushes') store.saveStream({ ...state, nextAt: '2099-01-01T00:00:00Z' });
+  await sync.tick();
+  const state = pushesState(store);
+  assert.equal(state.error?.code, 'CLI_ERROR');
+  assert.equal(state.cursor, undefined, 'the read restarts at page one');
+  assert.equal(state.warning ?? null, null, 'no read has completed with unreadable records');
+  store.close();
+});
+
+test('a refs snapshot that restarts after a page with unreadable records does not leave that page as the warning', async () => {
+  let calls = 0;
+  const provider: SyncProvider = {
+    async read() {
+      calls++;
+      if (calls === 1)
+        return {
+          items: [{ name: 'refs/heads/a', objectId: 'a' }],
+          nextCursor: { token: 'old' },
+          unreadable: { count: 1, fields: ['objectId'] },
+        };
+      return calls === 2
+        ? { items: [{ name: 'refs/heads/a', objectId: 'a' }], nextCursor: { token: 'next', allRefs: true }, restarted: true }
+        : { items: [{ name: 'refs/heads/b', objectId: 'b' }], nextCursor: null };
+    },
+  };
+  const { store, sync } = setup(provider, ['refs']);
+  const refs = () => present(store.getStreams().find(state => state.stream === 'refs'));
+  await sync.tick();
+  await sync.tick();
+  assert.equal(refs().pending, true, 'the restarted snapshot is between pages');
+  assert.equal(refs().unreadable, undefined, 'the restart drops what the discarded page left out');
+  assert.equal(refs().warning ?? null, null, 'and does not show it as the warning');
+  await sync.tick();
+  assert.equal(refs().pending, false);
+  assert.equal(refs().warning ?? null, null);
+  store.close();
+});
+
+test('a read that fails keeps the warning of the last completed read', async () => {
+  let pages: (AzurePage | Error)[] = [{ items: [push(2)], nextCursor: null, unreadable: { count: 1, fields: ['pushId'] } }];
+  const { store, sync, advance } = setup(
+    pagedProvider(() => pages),
+    ['pushes'],
+  );
+  await sync.tick();
+  const completed = pushesState(store).warning;
+  assert.ok(completed);
+  pages = [Object.assign(new Error('Azure is down'), { code: 'CLI_ERROR' })];
+  advance();
+  await sync.tick();
+  assert.equal(pushesState(store).error?.code, 'CLI_ERROR');
+  assert.deepEqual(pushesState(store).warning, completed);
+  store.close();
+});

@@ -76,8 +76,8 @@ function startPage(state: StreamState, at: number, overlapMs: number): StartedSt
 
 /**
  * Stores the cursor for the next page of the same window. `latest` is the stored state,
- * whose refresh request may be newer than the one this page started with. The warning of the
- * last completed read stays until this read has left records out too.
+ * whose refresh request may be newer than the one this page started with. What this read has
+ * left out so far goes into `unreadable`; the warning of the last completed read stays as it is.
  */
 function nextPage(
   state: StartedStream,
@@ -88,14 +88,12 @@ function nextPage(
     pendingItems,
     activeIds,
     unreadable,
-    warning,
   }: {
     at: number;
     cursor: PageCursor | null;
     pendingItems?: AzureRef[] | undefined;
     activeIds?: string[] | undefined;
     unreadable: UnreadableRecords | undefined;
-    warning: StreamWarning | undefined;
   },
 ): StreamState {
   return {
@@ -108,14 +106,13 @@ function nextPage(
     unreadable,
     nextAt: iso(at),
     error: null,
-    ...(warning ? { warning } : {}),
   };
 }
 
 /**
  * Ends a read. The window, cursor and per-read fields are dropped. A refresh requested
- * after the window opened schedules another read now and keeps its manual flag. The warning
- * stays only when some page of this read left records out.
+ * after the window opened schedules another read now and keeps its manual flag. This is the only
+ * place the warning changes: it becomes what this read left out, or is cleared when it left none out.
  */
 function completePage(
   state: StartedStream,
@@ -144,7 +141,7 @@ function completePage(
  * Records a failed read and backs off. A manual request ends with its failure; retrying
  * is left to the user while automatic checks are off. A refresh requested after the window
  * opened stays due as a manual request, and the retry restarts at page one of a window that keeps the
- * old lower bound and ends at this failure, after the request.
+ * old lower bound and ends at this failure, after the request. The warning of the last completed read stays.
  */
 function failPage(state: StartedStream, latest: StreamState, at: number, error: unknown, intervalMs: number): StreamState {
   const failures = (state.failures || 0) + 1;
@@ -380,10 +377,14 @@ export function createSync({
     const latest = store.getStreams().find(entry => entry.repoId === repo.id && entry.stream === state.stream) || state;
     const quietCycles = output.events.some(event => !event.imported) ? 0 : (state.quietCycles || 0) + 1;
     const cadence = !isForeground() || quietCycles >= 2 ? Math.max(intervalMs, 300000) : intervalMs;
-    const warning = warningOf(state.stream, read.unreadable);
     const next = complete
-      ? completePage(working, latest, { at: now(), delayMs: state.stream === 'refs' ? refsIntervalMs : cadence, quietCycles, warning })
-      : nextPage(working, latest, { at: now(), cursor: page.nextCursor, pendingItems, activeIds, unreadable: read.unreadable, warning });
+      ? completePage(working, latest, {
+          at: now(),
+          delayMs: state.stream === 'refs' ? refsIntervalMs : cadence,
+          quietCycles,
+          warning: warningOf(state.stream, read.unreadable),
+        })
+      : nextPage(working, latest, { at: now(), cursor: page.nextCursor, pendingItems, activeIds, unreadable: read.unreadable });
     store.commitPage({ repoId: repo.id, stream: state.stream, state: next, ...output });
     counters.pages++;
     const key = `${repo.id}:${state.stream}`;

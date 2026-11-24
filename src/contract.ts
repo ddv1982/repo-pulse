@@ -142,8 +142,10 @@ export type Repository = AzureRepo & { id: string; name: string; disabled?: bool
 export type StreamWindow = { since: string; until: string };
 export type StreamError = { code: string; message: string };
 /**
- * Set when a committed page skipped records it could not read, and cleared by the next page committed without any.
- * A retry cannot repair a changed response shape, so the read still succeeds; sync status shows this as a problem.
+ * What the last completed read skipped because it could not read the records, summed across its pages. Only a
+ * completed read replaces it, or clears it when it skipped none; pages in progress, failed reads and restarted reads
+ * leave it as it was. A retry cannot repair a changed response shape, so the read still succeeds; sync status shows
+ * this as a problem.
  */
 export type StreamWarning = StreamError & UnreadableRecords & { code: 'UNREADABLE_RECORDS' };
 /**
