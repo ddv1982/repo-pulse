@@ -355,7 +355,12 @@ export function createNormalizer({ store, now = Date.now }: { store: NormalizeSt
     return { events, entities, jobs: [...jobs, ...forks] };
   }
 
-  function reconcileRefs(repo: WatchedRepo, records: AzureRef[], state: RefReconcileState): SyncBatch {
+  /**
+   * Compares a complete refs snapshot with the stored refs. A snapshot with records Azure returned unreadable is
+   * `incomplete`: its readable refs are added and updated, but a ref it does not list may be one of the unreadable
+   * ones, so nothing is reported as no longer listed.
+   */
+  function reconcileRefs(repo: WatchedRepo, records: AzureRef[], state: RefReconcileState, { incomplete = false } = {}): SyncBatch {
     const before = new Map(store.listEntities(repo.id, 'ref').map(entry => [entry.id, entry.data]));
     const current = new Map(records.filter(item => /^refs\/(heads|tags)\//.test(item.name)).map(item => [item.name, item]));
     // Tags joined the snapshot after branches. Until one complete snapshot has recorded them,
@@ -414,7 +419,7 @@ export function createNormalizer({ store, now = Date.now }: { store: NormalizeSt
       }
       entities.push({ type: 'ref', id: name, data: { name, objectId: item.objectId, active: true, lastPushId: previous?.lastPushId } });
     }
-    if (state.initialized)
+    if (state.initialized && !incomplete)
       for (const [name, old] of before) {
         if (old.active !== false && !current.has(name)) {
           if (name.startsWith('refs/tags/')) {

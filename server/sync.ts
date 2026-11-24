@@ -352,12 +352,24 @@ export function createSync({
     repo: WatchedRepo,
     state: StreamState,
     working: StartedStream,
-    { page, complete, items }: { page: { items: AzureStreamRecord[]; restarted?: boolean }; complete: boolean; items: AzureStreamRecord[] },
+    {
+      page,
+      complete,
+      items,
+      unreadable,
+    }: {
+      page: { items: AzureStreamRecord[]; restarted?: boolean };
+      complete: boolean;
+      items: AzureStreamRecord[];
+      unreadable: UnreadableRecords | undefined;
+    },
   ) {
     if (state.stream !== 'refs') return { output: normalize(repo, state.stream, items, working), pendingItems: undefined };
     // A provider that restarted the snapshot at page one (see azure-client.ts refs) invalidates the pages saved so far.
     const pendingItems = [...(page.restarted ? [] : state.pendingItems || []), ...recordsOf('refs', page.items)];
-    const output: SyncBatch = complete ? reconcileRefs(repo, pendingItems, working) : { events: [], entities: [] };
+    const output: SyncBatch = complete
+      ? reconcileRefs(repo, pendingItems, working, { incomplete: Boolean(unreadable) })
+      : { events: [], entities: [] };
     return { output, pendingItems };
   }
   function commitRead(repo: WatchedRepo, state: StreamState, working: StartedStream, read: Awaited<ReturnType<typeof readPage>> & {}) {

@@ -1612,3 +1612,29 @@ test('a warning found on any page of a read stands when the read completes, and 
   assert.equal(pushesState(store).warning ?? null, null, 'a fully clean read clears it');
   store.close();
 });
+
+test('a ref Azure returns unreadable is not reported as no longer listed', async () => {
+  let refs: unknown[] = [
+    { name: 'refs/heads/a', objectId: 'a' },
+    { name: 'refs/heads/b', objectId: 'b' },
+  ];
+  const { store, sync, advance } = setup(createAzureClient({ cli: { run: async () => ({ value: refs }) } }), ['refs']);
+  await sync.tick();
+  refs = [
+    { name: 'refs/heads/a', objectId: 'c' },
+    { name: 'refs/heads/b', objectId: 7 },
+  ];
+  advance(600001);
+  await sync.tick();
+  const state = present(store.getStreams().find(entry => entry.stream === 'refs'));
+  assert.equal(state.error, null);
+  assert.deepEqual(state.warning && { fields: state.warning.fields, count: state.warning.count }, { fields: ['objectId'], count: 1 });
+  assert.deepEqual(
+    store.listEvents().filter(event => event.kind === 'branch-deleted'),
+    [],
+    'an incomplete snapshot does not delete',
+  );
+  assert.equal(fieldsOf(store.getEntity(repo.id, 'ref', 'refs/heads/b')).active, true);
+  assert.equal(fieldsOf(store.getEntity(repo.id, 'ref', 'refs/heads/a')).objectId, 'c', 'a readable ref still updates');
+  store.close();
+});
