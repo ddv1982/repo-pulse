@@ -40,14 +40,20 @@ Every behaviour fix starts with a failing test. These touch `server/sync.ts`, `s
       show a problem that names the stream and the missing field. A retry cannot repair an API shape change,
       so failing the whole page would only stall the stream. Check: the interpretation is stated in the PR
       before coding, plus the test from 1.1 passes. (S) Done as proposed: the page commits its readable records and
-      advances the checkpoint; the stream keeps a `warning` (`UNREADABLE_RECORDS`, with the fields and a count) until a
-      later page of that stream reads clean; sync status shows it as `problem` with the warning's message and the
-      stream. Tests that failed first: the 1.1 test, "a stream warning stands until a later page of that stream commits
-      with no unreadable records", and the sync-status "is a problem naming the stream, not synced".
+      advances the checkpoint; the stream keeps a `warning` (`UNREADABLE_RECORDS`, with the fields and a count); sync
+      status shows it as `problem` with the warning's message and the stream. The warning describes the last
+      completed read: a read sums the counts and joins the fields of every page, and only its completion replaces the
+      warning, or clears it when every page read clean, so a clean later page of the same read does not clear it. A
+      refs snapshot with unreadable records is incomplete, so it adds and updates its readable refs but reports none
+      as no longer listed. Tests that failed first: the 1.1 test, "a stream warning stands until a later page of that
+      stream commits with no unreadable records", the sync-status "is a problem naming the stream, not synced", "a
+      warning found on any page of a read stands when the read completes, and only a later clean read clears it" and
+      "a ref Azure returns unreadable is not reported as no longer listed".
 - [x] 1.3 A malformed `refUpdates` must fail with a named error, not the generic `SYNC_FAILED`, and follow the
       1.2 handling. Check: a failing-first test with `refUpdates` set to an object. (S reproduced) Done: "a push
       whose refUpdates is not a list is skipped with a warning instead of failing the page" failed first with
-      `SYNC_FAILED`, and now passes with a warning naming `refUpdates`.
+      `SYNC_FAILED`, and now passes with a warning naming `refUpdates`. The warning follows the 1.2 rules: it lasts
+      for the whole read that found it, and an unreadable ref does not make its refs snapshot report deletions.
 - [ ] 1.4 A read still in flight must not write into a watch that was removed and added again. Today the old
       read inserts an event and initializes the replacement stream, and the re-add hits the old refresh
       cooldown (`server/sync.ts:218`, `server/sync.ts:434`, `server/store.ts:646`). Fix: tie each commit and the
