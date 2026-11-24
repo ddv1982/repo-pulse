@@ -126,8 +126,18 @@ Every behaviour fix starts with a failing test. These touch `server/sync.ts`, `s
       incomplete snapshot, which it reads as complete) and "an unreadable build without an ID that may be a remembered
       build adds its fields to the warning without counting again" (the warning named only `status`). "before the tag
       baseline, a tag a push recorded that the first complete snapshot omits is put away without an event, as on
-      main" passed before the change and stays as the guard that a complete-only sequence matches `main`. `npm test`
-      527/527 and `npm run test:ui` 86/86.
+      main" passed before the change and stays as the guard that a complete-only sequence matches `main`. The sixth
+      review round limited what makes a record unreadable to the fields the code needs for its identity or meaning
+      (see 2.1): a malformed display field the code has a fallback for is left out and the record kept, as `main` read
+      it as absent. It added, failing first: "a push with a malformed web link still reports its tag deletion, without
+      a warning, as on main" (the push was skipped with a warning naming `_links.web`, so its tag deletion was lost;
+      `main` reports it). A tag deletion can show twice: a complete snapshot reports "Tag no longer listed · v1", and a
+      deletion push read later adds "Tag deleted · v1". This matches `main` once the tag baseline is established:
+      checked on `origin/main` 844c7b6, an initialized refs stream with the tag baseline, a tag a push created, a
+      complete snapshot that omits it and then its deletion push give both rows there as well, so no change was made.
+      Known limit: a ref deleted and created again within one incomplete poll, with no push recording it, is not
+      reported, since an incomplete snapshot reports nothing as no longer listed and Azure records ref deletions as
+      pushes. `npm test` 559/559 and `npm run test:ui` 86/86.
 - [x] 1.3 A malformed `refUpdates` must fail with a named error, not the generic `SYNC_FAILED`, and follow the
       1.2 handling. Check: a failing-first test with `refUpdates` set to an object. (S reproduced) Done: "a push
       whose refUpdates is not a list is skipped with a warning instead of failing the page" failed first with
@@ -166,9 +176,19 @@ and Azure code, so they get the full cross-model review.
       guard. (O, N, S; verified) Done: `git grep -n AzureRecord -- '*.ts'` finds nothing (`grep -rn` still finds
       this plan's own text and `docs/typescript-migration.md:134`); the guards are in `server/azure-records.ts`; the
       six per-stream tests in `test/azure-client.test.ts` fail on the code before this change and pass after; the
-      Phase 1 tests, 523 unit tests and 86 browser tests pass. A page also names the PRs and builds it left out whose
+      Phase 1 tests, 559 unit tests and 86 browser tests pass. A page also names the PRs and builds it left out whose
       ID can be read, with the field each could not be read for (`unreadableIds`), and a build's `repository.id` and
       a ref's `name` and `objectId` are required. A PR lookup checks that the answer is an object before its fields.
+      Only a field the code needs for a record's identity or meaning makes it unreadable: IDs, ref names and object
+      IDs (`peeledObjectId` too), `refUpdates` and `commits`, statuses, results, `isDraft`, `mergeStatus`, merge
+      strategy, reviewer IDs, votes and `isRequired`, dates, source and target refs, source versions and branches,
+      merge commits, the repository and fork source (whose names place a fork PR's source in the activity tree). A
+      malformed display field the code has a fallback for is left out by the reader, so the normalizers get typed
+      records without it: `_links` and `_links.web` (the link falls back to one the code builds), people (`pushedBy`,
+      `createdBy`, `closedBy`, `requestedFor`, `requestedBy` and their names, shown as Unknown), a PR's `title`
+      (Untitled) and a reviewer's `displayName` (Unknown reviewer), and a build's `definition` and its `name`
+      (Pipeline) and `reason` (Not supplied). The table in `test/azure-client.test.ts` checks both
+      sides per stream; its 15 display rows fail on the code before this change.
 - [ ] 2.2 Replace the store's `parse = (...): any` (`server/store.ts:48`) and `undefined as any`
       (`server/store.ts:132`) with one reader per persisted type that reports a corrupt row by table and id.
       Check: no `any` left in `server/store.ts`, plus a test that a corrupt stored row gives that error. (O, N, S;
