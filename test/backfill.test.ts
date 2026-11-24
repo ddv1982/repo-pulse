@@ -20,8 +20,8 @@ const BASE = Date.parse('2026-11-17T10:00:00Z');
 const DAY = 86400000;
 const repo = stub<Repository>({ id: 'one', name: 'One', azureId: 'a' });
 const iso = (value: number) => new Date(value).toISOString();
-/** A record the fake providers below return. */
-type Item = { id: number; date: string };
+/** A record the fake providers below return. It has the fields a build needs, so it types as an Azure record. */
+type Item = { id: number; date: string; repository: { id: string } };
 const normalizer: Normalize = (repo, stream, records, state) => {
   assert.equal(state.historical, true);
   // The records are the items the test's fake provider returned.
@@ -60,7 +60,10 @@ test('historical imports mark only new history read without changing live state'
     async read(_repo, stream, given) {
       const options = present(given);
       calls.push({ stream, ...options });
-      return { items: [{ id: stream === 'pushes' ? 1 : stream === 'closedPrs' ? 2 : 3, date: iso(BASE - DAY) }], nextCursor: null };
+      return {
+        items: [{ id: stream === 'pushes' ? 1 : stream === 'closedPrs' ? 2 : 3, date: iso(BASE - DAY), repository: { id: 'a' } }],
+        nextCursor: null,
+      };
     },
   };
   const { store, backfill } = setup(provider);
@@ -111,7 +114,10 @@ test('failed pages retain durable fixed windows and cursors across restart and r
       const options = present(given);
       calls.push({ stream, ...options });
       if (options.cursor && fail) throw Object.assign(new Error('Connection unavailable'), { code: 'UNAVAILABLE' });
-      return { items: [{ id: options.cursor ? 2 : 1, date: iso(BASE - DAY) }], nextCursor: options.cursor ? null : { skip: 100 } };
+      return {
+        items: [{ id: options.cursor ? 2 : 1, date: iso(BASE - DAY), repository: { id: 'a' } }],
+        nextCursor: options.cursor ? null : { skip: 100 },
+      };
     },
   };
   let { store, backfill } = setup(provider, { path, now: () => time });
@@ -194,7 +200,7 @@ test('pause, removal and concurrent tick calls cannot duplicate work or resurrec
     read() {
       reads++;
       return new Promise<AzurePage>(resolve => {
-        release = () => resolve({ items: [{ id: 1, date: iso(BASE - DAY) }], nextCursor: null });
+        release = () => resolve({ items: [{ id: 1, date: iso(BASE - DAY), repository: { id: 'a' } }], nextCursor: null });
       });
     },
   });
@@ -228,9 +234,9 @@ test('provider windows widened for builds cannot mark post-monitoring live chang
     async read() {
       return {
         items: [
-          { id: 1, date: iso(BASE - 1) },
-          { id: 2, date: iso(BASE + 1) },
-          { id: 3, date: iso(BASE - 31 * DAY) },
+          { id: 1, date: iso(BASE - 1), repository: { id: 'a' } },
+          { id: 2, date: iso(BASE + 1), repository: { id: 'a' } },
+          { id: 3, date: iso(BASE - 31 * DAY), repository: { id: 'a' } },
         ],
         nextCursor: null,
       };
@@ -254,7 +260,7 @@ test('transaction failure keeps the page resumable and validation rejects ambigu
   const { store, backfill } = setup(
     {
       async read() {
-        return { items: [{ id: 1, date: iso(BASE - DAY) }], nextCursor: { skip: 100 } };
+        return { items: [{ id: 1, date: iso(BASE - DAY), repository: { id: 'a' } }], nextCursor: { skip: 100 } };
       },
     },
     {

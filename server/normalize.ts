@@ -279,7 +279,7 @@ export function createNormalizer({ store, now = Date.now }: { store: NormalizeSt
       if (entity) entities.push(entity);
     },
     builds(item, { repo, add, entities, historical }) {
-      if (!item.id || item.repository?.id?.toLowerCase() !== repo.azureId?.toLowerCase()) return;
+      if (!item.id || item.repository.id.toLowerCase() !== repo.azureId?.toLowerCase()) return;
       const key = String(item.id);
       const { changed, sourceId, entity } = snapshot(repo, 'build', key, buildState(item), historical);
       if (changed) {

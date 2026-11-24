@@ -1974,3 +1974,33 @@ test('a PR whose lookup came back unreadable leaves the warning once the active 
   assert.equal(present(store.getStreams().find(state => state.stream === 'prs')).warning ?? null, null);
   store.close();
 });
+
+test("a build Azure returns without a repository.id is skipped with a warning, and another repository's build is still left out", async () => {
+  const build = (id: number) => ({ ...inProgressBuild(id), status: 'completed', result: 'succeeded', finishTime: '2026-11-17T10:00:01Z' });
+  const withoutRepository: Record<string, unknown> = build(2);
+  delete withoutRepository.repository;
+  const client = createAzureClient({
+    cli: {
+      run: async () => ({
+        value: [
+          { ...build(1), repository: null },
+          withoutRepository,
+          { ...build(3), repository: {} },
+          { ...build(4), repository: { id: 'other' } },
+          build(5),
+        ],
+      }),
+    },
+  });
+  const { store, sync } = setup(client, ['builds']);
+  await sync.tick();
+  const state = present(store.getStreams().find(entry => entry.stream === 'builds'));
+  assert.equal(state.error, null);
+  assert.deepEqual(state.warning && { fields: state.warning.fields, count: state.warning.count }, { fields: ['repository.id'], count: 3 });
+  assert.deepEqual(
+    store.listEntities(repo.id, 'build').map(entry => entry.id),
+    ['5'],
+    'only the readable build of this repository is stored',
+  );
+  store.close();
+});

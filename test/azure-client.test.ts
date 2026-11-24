@@ -55,7 +55,7 @@ test('refs use continuation token and build cache isolates repositories while co
     cli: {
       run: async args => {
         calls.push(args);
-        return { value: [{ id: 1 }], continuation_token: 'page2' };
+        return { value: [{ id: 1, repository: { id: 'repo1' } }], continuation_token: 'page2' };
       },
     },
   });
@@ -82,7 +82,10 @@ test('refs use continuation token and build cache isolates repositories while co
   assert(present(calls.at(-1)).includes('repositoryId=repo1'));
   // Numeric ids still reach the query as before; the type says string, so the number needs a cast.
   const numericIds = [123] as unknown as string[];
-  assert.deepEqual(await client.buildsById(repo, numericIds), { items: [{ id: 1 }], nextCursor: { token: 'page2' } });
+  assert.deepEqual(await client.buildsById(repo, numericIds), {
+    items: [{ id: 1, repository: { id: 'repo1' } }],
+    nextCursor: { token: 'page2' },
+  });
   assert(present(calls.at(-1)).includes('buildIds=123'));
 });
 
@@ -437,7 +440,7 @@ const readable: Record<AzureStream, Record<string, unknown>> = {
   prs: { pullRequestId: 1, status: 'active', reviewers: [{ id: 'r', vote: 10 }] },
   closedPrs: { pullRequestId: 2, status: 'completed', lastMergeCommit: { commitId: 'c' } },
   builds: { id: 1, repository: { id: 'repo1' }, status: 'completed' },
-  activeBuilds: { id: 2, status: 'inProgress', requestedFor: { displayName: 'A' } },
+  activeBuilds: { id: 2, repository: { id: 'repo1' }, status: 'inProgress', requestedFor: { displayName: 'A' } },
 };
 const malformed: [AzureStream, Record<string, unknown>, string][] = [
   ['pushes', { ...readable.pushes, refUpdates: { name: 'refs/heads/main' } }, 'refUpdates'],

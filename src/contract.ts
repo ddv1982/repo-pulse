@@ -59,7 +59,7 @@ export type AzurePullRequest = {
 };
 export type AzureBuild = {
   id: number;
-  repository?: Maybe<{ id?: Maybe<string> }>;
+  repository: { id: string };
   status?: Maybe<string>;
   result?: Maybe<string>;
   reason?: Maybe<string>;
