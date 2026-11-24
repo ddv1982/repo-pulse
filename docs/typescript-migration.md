@@ -121,8 +121,8 @@ Scope depends on **D2**.
 
 ## Phase 9: type-aware lint
 
-- [ ] Add `oxlint-tsgolint@7.0.2008`; enable `no-floating-promises` and `no-misused-promises`
-- [ ] Fix or justify the 7 known findings (`src/ui/dom.js:34`, `server.js:685`, `server.js:860-861`, `server/open-browser.js:60`, `src/ui/saved-filters.js:101`, `src/ui/history-import.js:54`); a real bug gets a failing test first
+- [x] Add `oxlint-tsgolint@7.0.2008`; enable `no-floating-promises` and `no-misused-promises` (`lint` runs `oxlint --type-aware`; the node program moved to `tsconfig.node.json` so `tsconfig.json` can list all four programs for tsgolint, and `check:types` names it; planted floating and misused promises both fail lint)
+- [x] Fix or justify the 7 known findings (`src/ui/dom.js:34`, `server.js:685`, `server.js:860-861`, `server/open-browser.js:60`, `src/ui/saved-filters.js:101`, `src/ui/history-import.js:54`); a real bug gets a failing test first; none was a real bug, each is a justified `void` with a comment, plus an eighth in `test/refresh.test.ts`
 
 ## Rules for every phase
 

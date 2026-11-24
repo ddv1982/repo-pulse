@@ -19,8 +19,8 @@
     "check": "node scripts/check.ts",
     "pretest:ui": "npm run build:web",
     "test:ui": "node --test \"e2e/*.test.ts\"",
-    "check:types": "tsc -p tsconfig.web.json --noEmit && tsc -p tsconfig.json && tsc -p tsconfig.test.json && tsc -p tsconfig.hook.json",
-    "lint": "oxlint --deny-warnings . && prettier --check .",
+    "check:types": "tsc -p tsconfig.web.json --noEmit && tsc -p tsconfig.node.json && tsc -p tsconfig.test.json && tsc -p tsconfig.hook.json",
+    "lint": "oxlint --type-aware --deny-warnings . && prettier --check .",
     "format": "prettier --write ."
   },
   "devDependencies": {
@@ -29,6 +29,7 @@
     "linkedom": "0.18.15",
     "oxlint": "1.95.0",
     "oxlint-plugin-eslint": "1.95.0",
+    "oxlint-tsgolint": "7.0.2008",
     "prettier": "3.10.1",
     "typescript": "7.0.2"
   }

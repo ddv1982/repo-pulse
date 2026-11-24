@@ -1,6 +1,6 @@
 {
   "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": [],
+  "plugins": ["typescript"],
   "categories": { "correctness": "off" },
   "jsPlugins": [{ "name": "eslint-js", "specifier": "oxlint-plugin-eslint" }],
   "env": { "builtin": true, "es2024": true },
@@ -18,7 +18,13 @@
     "no-dupe-keys": "error",
     "no-unused-vars": ["error", { "args": "none", "caughtErrors": "none" }],
     // Every function was brought to 30 or below in November 2026; split a function rather than raising this.
-    "complexity": ["error", 30]
+    "complexity": ["error", 30],
+    // node:test's test() promise resolves when the test ends, also on failure; the runner reports results, so registrations need no await.
+    "typescript/no-floating-promises": [
+      "error",
+      { "allowForKnownSafeCalls": [{ "from": "package", "package": "node:test", "name": "test" }] }
+    ],
+    "typescript/no-misused-promises": "error"
   },
   "overrides": [
     // ESLint's no-undef (Oxlint's ignores "off" globals) for JavaScript only; tsc reports undefined names in TypeScript.
