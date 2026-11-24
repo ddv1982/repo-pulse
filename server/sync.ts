@@ -377,7 +377,7 @@ export function createSync({
    * unreadable is remembered and counted in every read until it reads, its lookup finds it gone, or it is listed
    * active again, so a read whose turn skips it does not clear the warning.
    */
-  async function lookUpBuilds(repo: WatchedRepo, activeIds: string[], remembered: UnreadableLookups) {
+  async function lookUpBuilds(repo: WatchedRepo, activeIds: string[], remembered: UnreadableLookups, listed: number) {
     if (!provider.buildsById) return { items: [], gone: [] };
     const missing = new Map(
       store
@@ -407,17 +407,65 @@ export function createSync({
     // more pages or unreadable builds without an ID, either of which may be it.
     for (const id of [...byId.items.map(item => String(item.id)), ...gone.map(entry => entry.id)]) lookups.delete(id);
     // An unreadable build without a readable ID cannot be remembered, so it counts only in this read, and not for a
-    // remembered build asked for in this lookup, which it may be and which the remembered entry already counts. Its
-    // fields are named either way, since they are what this read found.
+    // remembered build asked for in this lookup, or for one of the `listed` builds the active list returned without a
+    // readable ID, either of which it may be and which are counted already. Its fields are named either way, since they
+    // are what this read found.
     const namedIds = new Set(named.map(entry => entry.id));
     const counted = turn.filter(id => lookups.has(id) && !namedIds.has(id)).length;
-    const anonymous = Math.max(0, unnamed - counted);
+    const anonymous = Math.max(0, unnamed - counted - listed);
     for (const { id, field } of named) lookups.set(id, field);
     const unreadable = addUnreadable(
       lookupsUnreadable(lookups),
       unnamed > 0 && byId.unreadable ? { count: anonymous, fields: byId.unreadable.fields } : undefined,
     );
     return { items: byId.items, unreadable, gone, unreadableLookups: [...lookups].map(([id, field]) => ({ id, field })) };
+  }
+  /**
+   * Looks up by ID up to 3 cached active PRs that the active list no longer holds. Returns the PRs Azure answered with,
+   * what it returned unreadable, and the PRs to remember, or null when the repository stopped being watched. A lookup
+   * that came back unreadable counts in every read until that PR reads, its lookup finds it deleted or moved, or it is
+   * no longer missing, so a read whose turn skips it does not clear the warning. `listed` counts the records without a
+   * readable ID the active list returned in this read.
+   */
+  async function lookUpPrs(repo: WatchedRepo, activeIds: string[], remembered: UnreadableLookups, listed: number) {
+    const pullRequest = provider.pullRequest;
+    if (!pullRequest) return { items: [], unreadable: undefined, unreadableLookups: undefined };
+    const missing = store
+      .listEntities(repo.id, 'pr')
+      .filter(entry => entry.data.status === 'active' && !activeIds.includes(entry.id))
+      .map(entry => entry.id);
+    const lookups = rememberedLookups(remembered, id => missing.includes(id));
+    const order = turnOrder(prTurns, repo.id);
+    const items: AzureStreamRecord[] = [];
+    // Answers whose own ID cannot be read count only in this read, and not again for a PR remembered already or for
+    // one of the `listed` records, either of which they may be. Their fields are named either way.
+    const anonymous: UnreadableRecords = { count: 0, fields: [] };
+    for (const id of lookupTurn(order, missing, 3)) {
+      if (!watching(repo)) return null;
+      lookedUp(order, id);
+      try {
+        items.push(await pullRequest(repo, id));
+        lookups.delete(id);
+      } catch (error) {
+        // Only "this PR cannot be read" (unreadable, deleted, or now in another repository) is left for a later turn.
+        if (!isRecord(error) || !['UNREADABLE_RECORD', 'NOT_FOUND', 'WRONG_REPOSITORY'].includes(String(error.code))) throw error;
+        if (error.code !== 'UNREADABLE_RECORD') {
+          lookups.delete(id);
+          continue;
+        }
+        // A PR Azure returned in a shape this code cannot read is skipped and counted like an unreadable page record.
+        const field = typeof error.field === 'string' ? error.field : 'record';
+        if (error.anonymous !== true) {
+          lookups.set(id, field);
+          continue;
+        }
+        anonymous.fields = [...new Set([...anonymous.fields, field])];
+        if (!lookups.has(id)) anonymous.count++;
+      }
+    }
+    anonymous.count = Math.max(0, anonymous.count - listed);
+    const unreadable = addUnreadable(lookupsUnreadable(lookups), anonymous.fields.length ? anonymous : undefined);
+    return { items, unreadable, unreadableLookups: [...lookups].map(([id, field]) => ({ id, field })) };
   }
   /**
    * Reads one page plus, on the last page of a snapshot stream, the entities it no longer lists.
@@ -443,48 +491,18 @@ export function createSync({
     unreadable = addUnreadable(unreadable, snapshot.unreadable);
     const unreadableIds = addIds(addIds(page.restarted ? undefined : state.unreadableIds, idsOf(page)), snapshot.unreadableIds);
     if (complete && state.stream === 'activeBuilds') {
-      const builds = await lookUpBuilds(repo, activeIds || [], state.unreadableLookups);
+      const builds = await lookUpBuilds(repo, activeIds || [], state.unreadableLookups, unreadableIds?.anonymous ?? 0);
       items = [...items, ...builds.items];
       unreadable = addUnreadable(unreadable, builds.unreadable);
       gone = builds.gone;
       unreadableLookups = builds.unreadableLookups;
     }
     if (complete && state.stream === 'prs' && provider.pullRequest) {
-      const missing = store
-        .listEntities(repo.id, 'pr')
-        .filter(entry => entry.data.status === 'active' && !activeIds?.includes(entry.id))
-        .map(entry => entry.id);
-      // A lookup that came back unreadable counts in every read until that PR reads, its lookup finds it deleted or
-      // moved, or it is no longer missing, so a read whose turn skips it does not clear the warning.
-      const lookups = rememberedLookups(state.unreadableLookups, id => missing.includes(id));
-      const order = turnOrder(prTurns, repo.id);
-      // Answers whose own ID cannot be read count only in this read, and not again for a PR remembered already.
-      const anonymous: UnreadableRecords = { count: 0, fields: [] };
-      for (const id of lookupTurn(order, missing, 3)) {
-        if (!watching(repo)) return null;
-        lookedUp(order, id);
-        try {
-          items = [...items, await provider.pullRequest(repo, id)];
-          lookups.delete(id);
-        } catch (error) {
-          // Only "this PR cannot be read" (unreadable, deleted, or now in another repository) is left for a later turn.
-          if (!isRecord(error) || !['UNREADABLE_RECORD', 'NOT_FOUND', 'WRONG_REPOSITORY'].includes(String(error.code))) throw error;
-          if (error.code !== 'UNREADABLE_RECORD') {
-            lookups.delete(id);
-            continue;
-          }
-          // A PR Azure returned in a shape this code cannot read is skipped and counted like an unreadable page record.
-          const field = typeof error.field === 'string' ? error.field : 'record';
-          if (error.anonymous !== true) {
-            lookups.set(id, field);
-            continue;
-          }
-          anonymous.fields = [...new Set([...anonymous.fields, field])];
-          if (!lookups.has(id)) anonymous.count++;
-        }
-      }
-      unreadableLookups = [...lookups].map(([id, field]) => ({ id, field }));
-      unreadable = addUnreadable(unreadable, addUnreadable(lookupsUnreadable(lookups), anonymous.fields.length ? anonymous : undefined));
+      const prs = await lookUpPrs(repo, activeIds || [], state.unreadableLookups, unreadableIds?.anonymous ?? 0);
+      if (!prs) return null;
+      items = [...items, ...prs.items];
+      unreadable = addUnreadable(unreadable, prs.unreadable);
+      unreadableLookups = prs.unreadableLookups;
     }
     return { page, complete, activeIds, items, gone, unreadable, unreadableIds, unreadableLookups, pendingItems: snapshot.refs };
   }

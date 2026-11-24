@@ -2148,6 +2148,28 @@ for (const inconclusive of ['more pages', 'unreadable builds without an ID']) {
   });
 }
 
+test('an in-progress build without a readable ID in both the active list and its lookup counts once', async () => {
+  // Opus's probe: the list's record of build 42 has no ID, so build 42 is missing and looked up, and that answer has none either.
+  let listed: unknown[] = [inProgressBuild(42)];
+  const withoutId: Record<string, unknown> = { ...inProgressBuild(42) };
+  delete withoutId.id;
+  // Build reads are cached for 45 seconds of the client's clock, so the second read starts a minute later.
+  let clientTime = 0;
+  const client = createAzureClient({
+    now: () => clientTime,
+    cli: { run: async args => (args.some(arg => arg.startsWith('buildIds=')) ? { value: [withoutId] } : { value: listed }) },
+  });
+  const { store, sync, advance } = setup(client, ['activeBuilds']);
+  await sync.tick();
+  listed = [withoutId];
+  clientTime += 60000;
+  advance(600000);
+  await sync.tick();
+  const warning = present(store.getStreams().find(entry => entry.stream === 'activeBuilds')).warning;
+  assert.deepEqual(warning && { fields: warning.fields, count: warning.count }, { fields: ['id'], count: 1 });
+  store.close();
+});
+
 test('an unreadable build without an ID is not counted again for a remembered build asked in the same lookup', async () => {
   let listed = true;
   let lookups = 0;
@@ -2264,6 +2286,25 @@ test('a PR lookup answer without a readable ID counts only in its own read and i
   assert.deepEqual(asked, ['1', '2', '3', '4', '5', '6']);
   assert.equal(prs().warning ?? null, null, 'the second read looked up only readable PRs');
   assert.equal(prs().unreadableLookups, undefined, 'nothing is remembered');
+  store.close();
+});
+
+test('an active PR without a readable ID in both the list and its lookup counts once', async () => {
+  // Opus's probe: the list's record of PR 1 has no ID, so PR 1 is missing and looked up, and that answer has none either.
+  let listed: unknown[] = [cachedPr(1)];
+  const withoutId = (status: string) => {
+    const record: Record<string, unknown> = { ...cachedPr(1, status), repository: { id: 'a' } };
+    delete record.pullRequestId;
+    return record;
+  };
+  const client = createAzureClient({ cli: { run: async args => (args[0] !== 'repos' ? { value: listed } : withoutId('active')) } });
+  const { store, sync, advance } = setup(client, ['prs']);
+  await sync.tick();
+  listed = [withoutId('active')];
+  advance();
+  await sync.tick();
+  const warning = present(store.getStreams().find(state => state.stream === 'prs')).warning;
+  assert.deepEqual(warning && { fields: warning.fields, count: warning.count }, { fields: ['pullRequestId'], count: 1 });
   store.close();
 });
 
