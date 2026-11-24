@@ -329,6 +329,7 @@ test('records Azure returns unreadable during a history import are counted on th
       { items: [], nextCursor: { skip: 100 }, unreadable: { count: 1, fields: ['pushId'] } },
       { items: [], nextCursor: null, unreadable: { count: 2, fields: ['date'] } },
     ],
+    closedPrs: [{ items: [], nextCursor: null, unreadable: { count: 1, fields: ['status'] } }],
     builds: [{ items: [], nextCursor: null, unreadable: { count: 1, fields: ['repository.id'] } }],
   };
   const provider: Provider = {
@@ -348,6 +349,13 @@ test('records Azure returns unreadable during a history import are counted on th
       count: 3,
       fields: ['pushId', 'date'],
       message: 'Skipped 3 records in pushes that Azure returned without a readable value for pushId or date.',
+    },
+    {
+      stream: 'closedPrs',
+      code: 'UNREADABLE_RECORDS',
+      count: 1,
+      fields: ['status'],
+      message: 'Skipped 1 record in pull requests that Azure returned without a readable value for status.',
     },
     {
       stream: 'builds',

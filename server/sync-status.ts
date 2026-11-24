@@ -25,7 +25,8 @@ const LATE = 3 * MINUTE;
 // A retry cannot fix these, so they count from the first failure.
 const LASTING = new Set(['AUTH_REQUIRED', 'FORBIDDEN', 'CLI_MISSING', 'CLI_SETUP']);
 
-const READS: Record<StreamState['stream'] | 'history', string> = {
+/** The name a person reads for each stream, in errors and warnings. */
+export const READS: Record<StreamState['stream'] | 'history', string> = {
   pushes: 'pushes',
   refs: 'branches',
   prs: 'pull requests',

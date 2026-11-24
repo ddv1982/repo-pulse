@@ -1,5 +1,6 @@
 import { createNormalizer } from './normalize.ts';
 import { isRecord, recordId, recordsOf, unreadableField } from './azure-records.ts';
+import { READS } from './sync-status.ts';
 
 export type ActivityKind = import('./normalize.ts').ActivityKind;
 export type StreamName = import('./azure-client.ts').AzureStream;
@@ -123,7 +124,7 @@ export function warningOf(stream: StreamName, unreadable: UnreadableRecords | un
     code: 'UNREADABLE_RECORDS',
     count,
     fields,
-    message: `Skipped ${count} ${count === 1 ? 'record' : 'records'} in ${stream} that Azure returned without a readable value for ${fields.join(' or ')}.`,
+    message: `Skipped ${count} ${count === 1 ? 'record' : 'records'} in ${READS[stream]} that Azure returned without a readable value for ${fields.join(' or ')}.`,
   };
 }
 

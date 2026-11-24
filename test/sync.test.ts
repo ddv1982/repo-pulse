@@ -1594,7 +1594,7 @@ test('a cached active PR that Azure returns unreadable when asked by ID is skipp
   assert.deepEqual(prs.warning && { fields: prs.warning.fields, count: prs.warning.count }, { fields: ['reviewers'], count: 1 });
   assert.equal(
     prs.warning?.message,
-    'Skipped 1 record in prs that Azure returned without a readable value for reviewers.',
+    'Skipped 1 record in pull requests that Azure returned without a readable value for reviewers.',
     'the message reads naturally for a plural field name',
   );
   assert.equal(fieldsOf(store.getEntity(repo.id, 'pr', '1')).status, 'active', 'the unreadable PR is left as it was');
@@ -2167,6 +2167,11 @@ test('an in-progress build without a readable ID in both the active list and its
   await sync.tick();
   const warning = present(store.getStreams().find(entry => entry.stream === 'activeBuilds')).warning;
   assert.deepEqual(warning && { fields: warning.fields, count: warning.count }, { fields: ['id'], count: 1 });
+  assert.equal(
+    warning?.message,
+    'Skipped 1 record in builds that Azure returned without a readable value for id.',
+    'named as errors name it',
+  );
   store.close();
 });
 
