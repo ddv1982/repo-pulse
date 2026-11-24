@@ -90,7 +90,7 @@ function memberScope(maxSequence: number, selected: string[] | undefined, needle
     params.push(...direct.flatMap(needle => [needle, needle]), ...folded, ...folded);
   }
   if (people.length) {
-    conditions.push(`matches_people(e.data,n.data,${people.map(() => '?').join(',')})`);
+    conditions.push(`matches_people(e.id,e.data,n.data,${people.map(() => '?').join(',')})`);
     params.push(...people);
   }
   return { scope: conditions.join(' AND '), params, people: people.length > 0 };
@@ -164,7 +164,7 @@ function loadMembers(
     ? db
         .prepare(
           `
-      SELECT e.data,e.seen,e.imported,n.data AS enrichment,m.group_key AS activity_key
+      SELECT e.id,e.data,e.seen,e.imported,n.data AS enrichment,m.group_key AS activity_key
       FROM events e LEFT JOIN enrichment n ON n.event_id=e.id
       JOIN activity_members m ON m.event_id=e.id JOIN repositories r ON r.id=e.repo_id
       WHERE ${groupScope} AND m.group_key IN (${groups.map(() => '?').join(',')})
@@ -265,8 +265,8 @@ export function createActivityQuery(
     const folded = foldSearchText(text);
     return Number(terms.some(term => folded.includes(term as string)));
   });
-  db.function('matches_people', { deterministic: true, varargs: true }, (data, enrichment, ...terms) =>
-    Number(matchesPeople(hydrate({ data, enrichment }), terms as string[])),
+  db.function('matches_people', { deterministic: true, varargs: true }, (id, data, enrichment, ...terms) =>
+    Number(matchesPeople(hydrate({ id, data, enrichment }), terms.map(String))),
   );
   function readScope({ repoIds, kind = '', search = '', people = '' }: ActivityRequest) {
     if (typeof search !== 'string' || typeof people !== 'string' || typeof kind !== 'string') {

@@ -37,7 +37,7 @@ function readFilters(value: unknown): ActivityFilters {
 
 export function createSavedActivityFilters(store: Pick<ReturnType<typeof import('./store.ts').createStore>, 'getSetting' | 'setSetting'>) {
   // The settings entry is written only here. Read and write synchronously on the server's SQLite connection.
-  const list = () => store.getSetting(setting, []) as SavedActivityFilter[];
+  const list = (): SavedActivityFilter[] => store.getSetting(setting, []);
   return {
     list,
     create(input: Record<string, unknown>) {

@@ -9,12 +9,14 @@ export type SourcePage = import('./azure-client.ts').AzurePage;
 export type HistoryJob = import('../src/contract.ts').HistoryJob;
 export type HistoryWarning = import('../src/contract.ts').HistoryWarning;
 export type UnreadableRecords = import('../src/contract.ts').UnreadableRecords;
-export type Entity = { type: string; id: string; data: unknown };
+export type Entity = import('./normalize.ts').Entity;
+export type JobType = import('./store-records.ts').JobType;
+export type JobOf<T extends JobType> = import('./store-records.ts').JobOf<T>;
 export type HistoryBatch = { events?: ActivityEvent[]; entities?: Entity[] };
 export type HistoryStore = {
   listRepos: () => WatchedRepo[];
-  listJobs: (filter: { type: 'backfill' }) => HistoryJob[];
-  getSetting: (key: string, fallback: string) => unknown;
+  listJobs: <T extends JobType>(filter: { type: T }) => JobOf<T>[];
+  getSetting: (key: `baseline:${string}`, fallback: string) => string;
   saveJob: (job: HistoryJob) => void;
   commitPage: (page: { repoId: string; events: ActivityEvent[]; entities: Entity[]; jobs: HistoryJob[] }) => void;
 };
@@ -64,7 +66,7 @@ export function createBackfill({
       return previous;
     }
     const requestedAt = now();
-    const baseline = Date.parse(String(store.getSetting(`baseline:${repoId}`, '')));
+    const baseline = Date.parse(store.getSetting(`baseline:${repoId}`, ''));
     // Never acknowledge a live change merely because historical import reached the present.
     const until = Number.isFinite(baseline) ? Math.min(requestedAt, baseline) : requestedAt;
     const since = period === 'all' ? EARLIEST : requestedAt - period * DAY;
@@ -153,7 +155,7 @@ export function createBackfill({
         until = Date.parse(job.rangeEnd);
       const events = (output.events || [])
         .filter(event => {
-          const time = Date.parse(event.time);
+          const time = Date.parse(String(event.time));
           return Number.isFinite(time) && time >= since && time <= until;
         })
         .map(event => ({ ...event, imported: true, seen: true }));

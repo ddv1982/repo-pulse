@@ -17,6 +17,10 @@ export type NormalizeState = import('./normalize.ts').NormalizeState;
 export type SyncEvent = import('./normalize.ts').SyncEvent;
 export type EventDetail = import('./normalize.ts').EventDetail;
 export type Entity = import('./normalize.ts').Entity;
+export type EntityData = import('./normalize.ts').EntityData;
+export type EntityType = import('./normalize.ts').EntityType;
+export type Settings = import('./store-records.ts').Settings;
+export type SettingKey = import('./store-records.ts').SettingKey;
 export type RewriteJob = import('./normalize.ts').RewriteJob;
 export type SyncBatch = import('./normalize.ts').SyncBatch;
 /** The time range one read covers. It stays fixed across the pages of that read. */
@@ -27,12 +31,12 @@ type UnreadableLookups = StreamState['unreadableLookups'];
 export type StartedStream = StreamState & { window: StreamWindow; windowGeneration: number; lastAttempt: string; pending: true };
 export type SyncStore = {
   listRepos: () => WatchedRepo[];
-  getSetting: (key: string, fallback: unknown) => unknown;
-  setSetting: (key: string, value: string) => void;
+  getSetting: <K extends SettingKey, F>(key: K, fallback: F) => Settings[K] | F;
+  setSetting: <K extends SettingKey>(key: K, value: Settings[K]) => void;
   getStreams: () => StreamState[];
   saveStream: (state: StreamState) => void;
-  getEntity: (repoId: string, type: string, id: string) => any;
-  listEntities: (repoId: string, type: string) => { id: string; data: any }[];
+  getEntity: <T extends EntityType>(repoId: string, type: T, id: string) => EntityData[T] | undefined;
+  listEntities: <T extends EntityType>(repoId: string, type: T) => { id: string; data: EntityData[T] }[];
   commitPage: (page: SyncBatch & { repoId: string; stream: StreamName; state: StreamState }) => void;
 };
 /** GET /api/state reports this as `diagnostics.sync`. */
@@ -410,7 +414,11 @@ export function createSync({
     const gone: Entity[] =
       byId.nextCursor || unnamed > 0
         ? []
-        : turn.filter(id => !answered.has(id)).map(id => ({ type: 'build', id, data: { ...missing.get(id), status: 'completed' } }));
+        : turn.flatMap(id => {
+            // `turn` holds IDs of `missing` only.
+            const data = missing.get(id);
+            return answered.has(id) || !data ? [] : [{ type: 'build', id, data: { ...data, status: 'completed' } } satisfies Entity];
+          });
     // A remembered build leaves the warning only when this lookup read it or found it gone, not when the answer had
     // more pages or unreadable builds without an ID, either of which may be it.
     for (const id of [...byId.items.map(item => String(item.id)), ...gone.map(entry => entry.id)]) lookups.delete(id);

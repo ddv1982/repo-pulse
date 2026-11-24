@@ -8,7 +8,7 @@ import { createSync } from '../server/sync.ts';
 import { createBackfill } from '../server/backfill.ts';
 import type { AzurePage, AzureProvider, ReadOptions } from '../server/azure-client.ts';
 import type { ActivityEvent } from '../src/activity.ts';
-import type { AzureStream, Repository, StreamState } from '../src/contract.ts';
+import type { AzureStream, Repository } from '../src/contract.ts';
 import { fieldsOf, present, stub } from './fixtures/typed.ts';
 
 type Provider = Pick<AzureProvider, 'read'>;
@@ -68,13 +68,18 @@ test('historical imports mark only new history read without changing live state'
   };
   const { store, backfill } = setup(provider);
   store.insertEvents([{ id: 'live', repoId: repo.id, kind: 'push', time: iso(BASE + 1000), seen: false }]);
-  store.saveStream(
-    stub<StreamState>({ repoId: repo.id, stream: 'pushes', initialized: true, lastSuccess: iso(BASE), cursor: { skip: 100 } }),
-  );
+  store.saveStream({
+    repoId: repo.id,
+    stream: 'pushes',
+    initialized: true,
+    nextAt: iso(BASE),
+    lastSuccess: iso(BASE),
+    cursor: { skip: 100 },
+  });
   store.commitPage({
     repoId: repo.id,
     entities: [
-      { type: 'build', id: 3, data: { status: 'inProgress' } },
+      { type: 'build', id: '3', data: { status: 'inProgress' } },
       { type: 'ref', id: 'refs/heads/main', data: { objectId: 'current' } },
     ],
   });
@@ -274,7 +279,18 @@ test('transaction failure keeps the page resumable and validation rejects ambigu
   // Fail inside the actual transaction after its event inserts, before the job checkpoint.
   const original = store.commitPage;
   store.commitPage = page => {
-    original({ ...page, jobs: [...present(page.jobs), { id: 'invalid', repoId: 'not-watched', type: 'merge' }] });
+    const invalid = {
+      id: 'invalid',
+      type: 'rewrite',
+      repoId: 'not-watched',
+      eventId: 'none',
+      ref: 'refs/heads/main',
+      oldObjectId: 'a'.repeat(40),
+      newObjectId: 'b'.repeat(40),
+      attempts: 0,
+      nextAt: iso(BASE),
+    } satisfies import('../server/rewrite-check.ts').RewriteJob;
+    original({ ...page, jobs: [...present(page.jobs), invalid] });
   };
   await backfill.tick();
   assert.equal(store.listEvents().length, 0);

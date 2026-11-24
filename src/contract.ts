@@ -8,7 +8,7 @@ export type EventData = import('./activity.ts').EventData;
 // Azure
 
 /** The repository fields the client reads. Watched repositories carry more. */
-export type AzureRepo = { organization: string; project: string; projectId?: string; azureId: string; webUrl: string };
+export type AzureRepo = { organization: string; project: string; projectId?: string | null; azureId: string; webUrl: string };
 export type AzureStream = 'pushes' | 'refs' | 'prs' | 'closedPrs' | 'builds' | 'activeBuilds';
 
 // Azure DevOps records as Repo Pulse reads them. Each type names only the fields the code reads; the checks in
@@ -170,7 +170,8 @@ export type StreamState = {
   refreshGeneration?: number | undefined;
   manual?: boolean | undefined;
   cursor?: PageCursor | null | undefined;
-  pendingItems?: AzureRef[] | undefined;
+  /** Legacy refs checkpoints can contain provider records that still need checking. */
+  pendingItems?: unknown[] | undefined;
   activeIds?: string[] | undefined;
   /** The records the read in progress has left out so far, summed across its pages. */
   unreadable?: UnreadableRecords | undefined;
@@ -262,7 +263,7 @@ export type PullAdvice = {
   branch: string;
   id: number;
   url?: string;
-  strategy?: string | undefined;
+  strategy?: unknown;
   verified: boolean;
   targetVerified?: boolean;
   receipt?: { target: string; result: string; sourceHead?: string | undefined };

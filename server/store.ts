@@ -12,6 +12,19 @@ import {
 import { createActivityQuery } from './activity-query.ts';
 import { localPrLink, mergeUpdates } from './merge-evidence.ts';
 import { forkJob } from './fork-origin.ts';
+import { isRecord } from './azure-records.ts';
+import {
+  corruptRow,
+  readActivityRevision,
+  readAnyJob,
+  readEntity,
+  readEvent,
+  readJob,
+  readOverlay,
+  readRepository,
+  readSetting,
+  readStream,
+} from './store-records.ts';
 
 export type SqlValue = import('node:sqlite').SQLOutputValue;
 export type SqlRow = Record<string, SqlValue>;
@@ -22,44 +35,24 @@ export type StreamName = import('./sync.ts').StreamName;
 export type StoredEvent = import('../src/contract.ts').StoredEvent;
 export type HydratedEvent = import('../src/contract.ts').HydratedEvent;
 export type Repository = import('../src/contract.ts').Repository;
-/** Jobs share the indexed columns; every other field belongs to the job type. */
-export type Job = {
-  id: string;
-  type: string;
-  repoId: string;
-  nextAt?: string;
-  status?: string;
-  eventId?: string;
-  [field: string]: unknown;
-};
-/** Settings hold any JSON value, written with JSON.stringify. */
-/** JSON.stringify drops an object member holding undefined, so a saved object may carry one. */
-export type SettingValue = null | boolean | number | string | SettingValue[] | { [key: string]: SettingValue | undefined };
-export type EntityInput = { type: string; id: string | number; data: unknown };
-/**
- * Reads one JSON `data` column. A present row yields T; a possibly missing row yields T or undefined.
- */
-export type Reader<T> = <R extends SqlRow | undefined>(row: R) => R extends SqlRow ? T : T | undefined;
+export type Job = import('./store-records.ts').Job;
+export type JobType = import('./store-records.ts').JobType;
+export type JobOf<T extends JobType> = import('./store-records.ts').JobOf<T>;
+export type Settings = import('./store-records.ts').Settings;
+export type SettingKey = import('./store-records.ts').SettingKey;
+export type Entity = import('./normalize.ts').Entity;
+export type EntityData = import('./normalize.ts').EntityData;
+export type EntityType = import('./normalize.ts').EntityType;
 
-/**
- * node:sqlite rows are untyped. Every JSON `data` column is read here, and the readers below assert
- * which stored shape each table holds, so the rest of the module works with typed values.
- */
-const parse = (row: SqlRow | undefined): any => (row ? JSON.parse(row.data as string) : undefined);
-const readRepo: Reader<Repository> = parse;
-const readEvent: Reader<StoredEvent> = parse;
-/** Rows selected with `json_extract(data,'$.data.status')`, so `data` is present. */
-const readEventWithData: Reader<StoredEvent & { data: EventData & Record<string, unknown> }> = parse;
-const readJob: Reader<Job> = parse;
-const readStream: Reader<StreamState> = parse;
-const readSetting: Reader<SettingValue> = parse;
-const readEnrichment: Reader<Record<string, unknown>> = parse;
-/** Entity data depends on the entity type, so callers check its shape. */
-const readEntity: Reader<unknown> = parse;
+type JobQuery = { repoId?: string; status?: string; dueBefore?: string };
+type JobFilter = JobQuery & { type?: JobType };
 /** The first sync imports this far back from its baseline (server/sync.ts, the first window's `since`). */
 const FIRST_SYNC_MS = 7 * 86400000;
 const badRequest = (message: string) => Object.assign(new Error(message), { code: 'BAD_REQUEST' });
-const stamp = (value: string) => (Number.isFinite(Date.parse(value)) ? Date.parse(value) : 0);
+const stamp = (value: string | number) => {
+  const time = Date.parse(String(value));
+  return Number.isFinite(time) ? time : 0;
+};
 /**
  * Writes a copy of a database about to be upgraded from `version` next to it, as `<name>.pre-v<version>`, and removes
  * older copies. The copy goes to a temporary name first: if another opener upgraded the file since `version` was read,
@@ -105,7 +98,10 @@ export function createStore(path = ':memory:') {
     return statement;
   };
   // `settings.data` is a TEXT column, so the incremented counter reads back as a string.
-  const activityRevision = () => (q("SELECT data FROM settings WHERE key='activityRevision'").get()?.data || '0') as string;
+  const activityRevision = () => {
+    const row = q("SELECT data FROM settings WHERE key='activityRevision'").get();
+    return row ? readActivityRevision(row.data) : '0';
+  };
   const bumpActivity = () =>
     q(`INSERT INTO settings(key,data) VALUES('activityRevision','1')
     ON CONFLICT(key) DO UPDATE SET data=CAST(data AS INTEGER)+1`).run();
@@ -121,19 +117,21 @@ export function createStore(path = ':memory:') {
     }
   };
   const requireRepo = (id: string) => {
-    const repo = readRepo(q('SELECT data FROM repositories WHERE id=?').get(id));
+    const row = q('SELECT id,data FROM repositories WHERE id=?').get(id);
+    const repo = row && readRepository(row);
     if (!repo) throw Object.assign(new Error('Repository is not watched.'), { code: 'NOT_FOUND' });
     return repo;
   };
   /**
    * The boundary for event rows: `enrichment` is the JSON overlay column joined from the enrichment table.
    */
-  const hydrate: Reader<HydratedEvent> = row => {
-    if (!row) return undefined as any;
+  const hydrate = (row: SqlRow): HydratedEvent => {
     const event = readEvent(row);
-    const overlay: Record<string, unknown> = row.enrichment ? JSON.parse(row.enrichment as string) : {};
+    const overlay = row.enrichment == null ? {} : readOverlay(event.id, row.enrichment);
     return { ...event, data: { ...event.data, ...overlay }, seen: Boolean(row.seen), imported: Boolean(row.imported) };
   };
+  /** The event a lookup by ID found, or undefined. */
+  const hydrateFound = (row: SqlRow | undefined) => (row ? hydrate(row) : undefined);
   function indexLabels(event: ActivityEvent) {
     q(`UPDATE activity_members SET status_id=?, evidence_id=?, search_text=? WHERE event_id=?`).run(
       activityStatusId(event),
@@ -159,7 +157,7 @@ export function createStore(path = ':memory:') {
       stamp(event.time),
     );
     if (event.kind === 'branch-deleted' && lifecycleKey(event)) {
-      const siblings = q(`SELECT e.data,e.seen,e.imported FROM events e WHERE e.repo_id=?
+      const siblings = q(`SELECT e.id,e.data,e.seen,e.imported FROM events e WHERE e.repo_id=?
         AND json_extract(e.data,'$.kind')='push' AND CAST(json_extract(e.data,'$.data.pushId') AS TEXT)=?`).all(
         event.repoId,
         // lifecycleKey returned a key, so `data` is present; `?.` only satisfies the compiler.
@@ -183,13 +181,13 @@ export function createStore(path = ':memory:') {
       JSON.stringify(job),
     );
   }
-  const selectEvents = 'SELECT e.data,e.seen,e.imported,n.data AS enrichment FROM events e LEFT JOIN enrichment n ON n.event_id=e.id';
+  const selectEvents = 'SELECT e.id,e.data,e.seen,e.imported,n.data AS enrichment FROM events e LEFT JOIN enrichment n ON n.event_id=e.id';
   /**
    * Adds each stored completed PR whose merge commit is the new tip of the PR's target ref in this push. An absent match
    * writes nothing.
    */
   function linkPush(id: string) {
-    const push = hydrate(q(`${selectEvents} WHERE e.id=?`).get(id));
+    const push = hydrateFound(q(`${selectEvents} WHERE e.id=?`).get(id));
     if (!push) return;
     const evidence = (push.data?.mergeEvidence || {}) as import('../src/activity.ts').MergeEvidenceData;
     const prs = [...(evidence.prs || [])];
@@ -200,11 +198,12 @@ export function createStore(path = ':memory:') {
     let changed = false;
     for (const ref of mergeUpdates(push)) {
       if (proven && !introduced.has(ref.newObjectId.toLowerCase())) continue;
-      const rows = q(`SELECT data FROM events WHERE repo_id=? AND json_extract(data,'$.kind')='pr'
+      const rows = q(`SELECT id,data FROM events WHERE repo_id=? AND json_extract(data,'$.kind')='pr'
         AND json_extract(data,'$.data.status')='completed' AND json_extract(data,'$.data.targetRefName')=?
         AND lower(json_extract(data,'$.data.mergeCommit'))=? ORDER BY time`).all(push.repoId, ref.name, ref.newObjectId.toLowerCase());
-      for (const pr of rows.map(readEventWithData)) {
-        const key = `${pr.data.pullRequestId}:${ref.name}`;
+      for (const pr of rows.map(readEvent)) {
+        // The query matched `data.status`, so `data` is present; `?.` only satisfies the compiler.
+        const key = `${pr.data?.pullRequestId}:${ref.name}`;
         const index = prs.findIndex(item => `${item.pullRequestId ?? item.id}:${item.targetRefName}` === key);
         const local = localPrLink(pr);
         if (index < 0) {
@@ -245,7 +244,7 @@ export function createStore(path = ':memory:') {
       2,
       () => {
         // Membership is added without rewriting any existing event or read flag.
-        for (const row of q('SELECT data FROM events ORDER BY rowid').all()) saveMembership(readEvent(row));
+        for (const row of q('SELECT id,data FROM events ORDER BY rowid').all()) saveMembership(readEvent(row));
       },
     ],
     [
@@ -274,7 +273,7 @@ export function createStore(path = ':memory:') {
       10,
       () => {
         // Pushes link to completed PRs from stored events; index the stored pushes and link the pairs already stored.
-        for (const row of q("SELECT data FROM events WHERE json_extract(data,'$.kind')='push'").all()) indexPush(readEvent(row));
+        for (const row of q("SELECT id,data FROM events WHERE json_extract(data,'$.kind')='push'").all()) indexPush(readEvent(row));
       },
     ],
     [
@@ -287,16 +286,19 @@ export function createStore(path = ':memory:') {
         q("DELETE FROM jobs WHERE type='merge'").run();
         const settled = (text: string) => text.replace(/\s*Retrying later\.$/, '');
         for (const row of rows) {
-          const evidence = JSON.parse(String(row.data)).mergeEvidence;
-          if (!evidence || ['complete', 'not-applicable'].includes(evidence.status)) continue;
-          const limitations = (evidence.limitations || [])
-            .filter((item: string) => item !== 'Merge enrichment is still in progress.')
-            .map(settled);
+          const id = String(row.event_id);
+          const evidence = readOverlay(id, row.data).mergeEvidence;
+          if (!isRecord(evidence) || evidence.status === 'complete' || evidence.status === 'not-applicable') continue;
+          const listed = evidence.limitations || [];
+          if (!Array.isArray(listed) || !listed.every(item => typeof item === 'string'))
+            throw corruptRow('enrichment', id, 'mergeEvidence.limitations');
+          const limitations = listed.filter(item => item !== 'Merge enrichment is still in progress.').map(settled);
+          const stored = evidence.error;
           const error =
-            evidence.error && typeof evidence.error === 'object'
-              ? { ...evidence.error, message: settled(String(evidence.error.message || '')) }
-              : evidence.error && settled(String(evidence.error));
-          enrichEvent(String(row.event_id), {
+            stored && typeof stored === 'object'
+              ? { ...stored, message: settled(String(('message' in stored && stored.message) || '')) }
+              : stored && settled(String(stored));
+          enrichEvent(id, {
             mergeEvidence: { ...evidence, status: 'incomplete', limitations: [...new Set(limitations)], ...(error ? { error } : {}) },
           });
         }
@@ -353,8 +355,8 @@ export function createStore(path = ':memory:') {
           if (!job) continue;
           if (event.imported) {
             if (histories.has(event.repoId)) continue;
-            const baseline = Date.parse(String(getSetting(`baseline:${event.repoId}`, '')));
-            if (!(Date.parse(event.time) >= baseline - FIRST_SYNC_MS)) continue;
+            const baseline = Date.parse(getSetting(`baseline:${event.repoId}`, ''));
+            if (!(Date.parse(String(event.time)) >= baseline - FIRST_SYNC_MS)) continue;
           }
           insert.run(job.id, job.repoId, job.type, job.nextAt || '1970-01-01T00:00:00.000Z', JSON.stringify(job));
         }
@@ -467,7 +469,7 @@ export function createStore(path = ':memory:') {
       if (!event.id || !event.kind) throw badRequest('Event ID and kind are required.');
       const imported = Boolean(event.imported);
       const time = event.time || event.observedAt || new Date().toISOString();
-      const observedAt = event.observedAt || time;
+      const observedAt = event.observedAt || String(time);
       const value = { ...event, time, observedAt };
       const result = statement.run(
         event.id,
@@ -495,17 +497,18 @@ export function createStore(path = ':memory:') {
       JSON.stringify(state),
     );
   }
-  function saveEntities(repoId: string, entities: EntityInput[]) {
+  function saveEntities(repoId: string, entities: Entity[]) {
     const upsert = q(
       'INSERT INTO entities(repo_id,type,id,data) VALUES(?,?,?,?) ON CONFLICT(repo_id,type,id) DO UPDATE SET data=excluded.data',
     );
     for (const entity of entities) upsert.run(repoId, entity.type, String(entity.id), JSON.stringify(entity.data));
   }
   function enrichEvent(id: string, data: unknown) {
-    const event = hydrate(q(`${selectEvents} WHERE e.id=?`).get(id));
+    const event = hydrateFound(q(`${selectEvents} WHERE e.id=?`).get(id));
     if (!event) throw Object.assign(new Error('Event is no longer available.'), { code: 'NOT_FOUND' });
     if (!data || typeof data !== 'object' || Array.isArray(data)) throw badRequest('Enrichment must be an object.');
-    const old = readEnrichment(q('SELECT data FROM enrichment WHERE event_id=?').get(id)) || {};
+    const stored = q('SELECT data FROM enrichment WHERE event_id=?').get(id);
+    const old = stored ? readOverlay(id, stored.data) : {};
     const overlay = { ...old, ...data };
     const serialized = JSON.stringify(overlay);
     if (serialized === JSON.stringify(old)) return event;
@@ -516,22 +519,59 @@ export function createStore(path = ':memory:') {
     return { ...event, data: { ...event.data, ...overlay } };
   }
   const queryActivity = createActivityQuery(db, hydrate, requireRepo, activityRevision);
-  function getSetting<F = undefined>(key: string, fallback?: F): SettingValue | F {
+  function getSetting<K extends SettingKey>(key: K): Settings[K] | undefined;
+  function getSetting<K extends SettingKey, F>(key: K, fallback: F): Settings[K] | F;
+  function getSetting<K extends SettingKey, F>(key: K, fallback?: F): Settings[K] | F | undefined {
     const row = q('SELECT data FROM settings WHERE key=?').get(key);
-    return row ? readSetting(row) : (fallback as F);
+    return row ? readSetting(key, row.data) : fallback;
   }
 
-  function setSetting(key: string, value: SettingValue) {
+  /** The jobs that match, oldest due first. */
+  function jobRows({ type, repoId, status, dueBefore }: JobFilter) {
+    const where: string[] = [],
+      params: string[] = [];
+    if (type) {
+      where.push('type=?');
+      params.push(type);
+    }
+    if (repoId) {
+      requireRepo(repoId);
+      where.push('repo_id=?');
+      params.push(repoId);
+    }
+    if (status) {
+      // Let the reader report invalid JSON with a job ID, even when the caller filters by status.
+      where.push("CASE WHEN json_valid(data) THEN json_extract(data,'$.status')=? ELSE 1 END");
+      params.push(status);
+    }
+    if (dueBefore) {
+      where.push('next_at<=?');
+      params.push(dueBefore);
+    }
+    return q(`SELECT id,repo_id,type,data FROM jobs ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY next_at,id`).all(
+      ...params,
+    );
+  }
+  /** Jobs of one type are read as that type; without a type, each row is read as the type its column names. */
+  function listJobs<T extends JobType>(filter: JobQuery & { type: T }): JobOf<T>[];
+  function listJobs(filter?: JobFilter): Job[];
+  function listJobs(filter: JobFilter = {}): Job[] {
+    const { type } = filter;
+    return type ? jobRows(filter).map(row => readJob(type, row)) : jobRows(filter).map(readAnyJob);
+  }
+
+  function setSetting<K extends SettingKey>(key: K, value: Settings[K]) {
     q('INSERT INTO settings(key,data) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET data=excluded.data').run(key, JSON.stringify(value));
   }
 
   const store = {
     activityRevision,
-    listRepos: () => q('SELECT data FROM repositories ORDER BY rowid').all().map(readRepo),
+    listRepos: () => q('SELECT id,data FROM repositories ORDER BY rowid').all().map(readRepository),
     getRepo: requireRepo,
     saveRepo(repo: Repository) {
       if (!repo.id || !repo.name) throw badRequest('Repository ID and name are required.');
-      const old = readRepo(q('SELECT data FROM repositories WHERE id=?').get(repo.id));
+      const row = q('SELECT id,data FROM repositories WHERE id=?').get(repo.id);
+      const old = row && readRepository(row);
       const value = { disabled: false, ...old, ...repo };
       transaction(() => {
         q('INSERT INTO repositories(id,data) VALUES(?,?) ON CONFLICT(id) DO UPDATE SET data=excluded.data').run(
@@ -583,7 +623,7 @@ export function createStore(path = ':memory:') {
         .map(hydrate);
     },
     queryActivity,
-    getEvent: (id: string) => hydrate(q(`${selectEvents} WHERE e.id=?`).get(id)),
+    getEvent: (id: string) => hydrateFound(q(`${selectEvents} WHERE e.id=?`).get(id)),
     getEventGroup(id: string) {
       // The row has the one selected column.
       const member = q('SELECT group_key FROM activity_members WHERE event_id=?').get(id) as { group_key: string } | undefined;
@@ -594,13 +634,14 @@ export function createStore(path = ':memory:') {
         : [];
     },
     completedCheckoutPulls(repoId: string, source: string) {
-      const rows = q(`SELECT data FROM events WHERE repo_id=? AND json_extract(data,'$.kind')='pr'
+      const rows = q(`SELECT id,data FROM events WHERE repo_id=? AND json_extract(data,'$.kind')='pr'
         AND json_extract(data,'$.data.status')='completed' AND json_extract(data,'$.data.sourceRefName')=?
         ORDER BY time DESC LIMIT 40`).all(repoId, source);
       const candidates = new Map();
       for (const row of rows) {
-        const event = readEventWithData(row),
-          data = event.data;
+        const event = readEvent(row),
+          // The query matched `data.status`, so `data` is present.
+          data = event.data ?? {};
         if (candidates.has(data.pullRequestId)) continue;
         candidates.set(data.pullRequestId, {
           id: data.pullRequestId,
@@ -632,14 +673,16 @@ export function createStore(path = ':memory:') {
     insertEvents(events: ActivityEvent[]) {
       return transaction(() => insertEvents(events));
     },
-    getStreams: () => q('SELECT data FROM streams').all().map(readStream),
+    getStreams: () => q('SELECT repo_id,stream,data FROM streams').all().map(readStream),
     saveStream,
-    getEntity: (repoId: string, type: string, id: string | number) =>
-      readEntity(q('SELECT data FROM entities WHERE repo_id=? AND type=? AND id=?').get(repoId, type, String(id))),
-    listEntities: (repoId: string, type: string) =>
-      q('SELECT id,data FROM entities WHERE repo_id=? AND type=?')
+    getEntity<T extends EntityType>(repoId: string, type: T, id: string | number): EntityData[T] | undefined {
+      const row = q('SELECT repo_id,id,data FROM entities WHERE repo_id=? AND type=? AND id=?').get(repoId, type, String(id));
+      return row && readEntity(type, row);
+    },
+    listEntities: <T extends EntityType>(repoId: string, type: T) =>
+      q('SELECT repo_id,id,data FROM entities WHERE repo_id=? AND type=?')
         .all(repoId, type)
-        .map(r => ({ id: r.id as string, data: readEntity(r) })),
+        .map(row => ({ id: String(row.id), data: readEntity(type, row) })),
     /**
      * Sync pages carry their stream state; backfill pages carry none.
      */
@@ -650,7 +693,7 @@ export function createStore(path = ':memory:') {
       events = [],
       entities = [],
       jobs = [],
-    }: { repoId: string; events?: ActivityEvent[]; entities?: EntityInput[]; jobs?: Job[] } & (
+    }: { repoId: string; events?: ActivityEvent[]; entities?: Entity[]; jobs?: Job[] } & (
       { stream: StreamName; state: StreamState } | { stream?: StreamName; state?: undefined }
     )) {
       return transaction(() => {
@@ -661,39 +704,7 @@ export function createStore(path = ':memory:') {
         if (state) saveStream({ ...state, repoId, stream });
       });
     },
-    listJobs<T extends string = string>({
-      type,
-      repoId,
-      status,
-      dueBefore,
-    }: { type?: T; repoId?: string; status?: string; dueBefore?: string } = {}): T extends 'backfill'
-      ? import('./backfill.ts').HistoryJob[]
-      : Job[] {
-      const where: string[] = [],
-        params: string[] = [];
-      if (type) {
-        where.push('type=?');
-        params.push(type);
-      }
-      if (repoId) {
-        requireRepo(repoId);
-        where.push('repo_id=?');
-        params.push(repoId);
-      }
-      if (status) {
-        where.push("json_extract(data,'$.status')=?");
-        params.push(status);
-      }
-      if (dueBefore) {
-        where.push('next_at<=?');
-        params.push(dueBefore);
-      }
-      const jobs = q(`SELECT data FROM jobs ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY next_at,id`)
-        .all(...params)
-        .map(readJob);
-      // Persisted JSON: rows of type 'backfill' are only ever written by server/backfill.ts, as a HistoryJob.
-      return jobs as T extends 'backfill' ? import('./backfill.ts').HistoryJob[] : Job[];
-    },
+    listJobs,
     saveJob,
     /**
      * Replaces the result for this ref and removes the job in one write, so a finished check is never run again.
@@ -709,7 +720,7 @@ export function createStore(path = ':memory:') {
       rewrite: import('../src/activity.ts').RewriteResult;
     }) {
       transaction(() => {
-        const event = hydrate(q(`${selectEvents} WHERE e.id=?`).get(eventId));
+        const event = hydrateFound(q(`${selectEvents} WHERE e.id=?`).get(eventId));
         if (event) {
           const evidence = (event.data?.mergeEvidence || {}) as import('../src/activity.ts').MergeEvidenceData;
           const results = [...(evidence.rewrite || []).filter(item => item.ref !== rewrite.ref), rewrite];

@@ -13,15 +13,8 @@ import { TEST_KEY, rememberKey, portOf } from '../test/fixtures/access.ts';
 import type { AppSync } from '../server.ts';
 import type { AzureProvider } from '../server/azure-client.ts';
 import { present, stub } from '../test/fixtures/typed.ts';
-import type {
-  ActivityEvent,
-  ConnectionStatus,
-  DemoSyncStatus,
-  HistoryJob,
-  Repository,
-  SavedActivityFilter,
-  StreamState,
-} from '../src/contract.ts';
+import { historyJob } from '../test/fixtures/jobs.ts';
+import type { ActivityEvent, ConnectionStatus, DemoSyncStatus, HistoryJob, Repository, SavedActivityFilter } from '../src/contract.ts';
 
 type Store = ReturnType<typeof createStore>;
 
@@ -360,7 +353,7 @@ test('repository history import scopes the confirmed range and keeps progress vi
           failOnce = false;
           throw Object.assign(new Error('Try this date range again.'), { status: 409 });
         }
-        const job = stub<HistoryJob>({ id: `backfill:${repoId}`, type: 'backfill', repoId, status: 'pending', days, pages: 0 });
+        const job = historyJob(repoId, { days: days ?? 30 });
         store.saveJob(job);
         return job;
       },
@@ -411,7 +404,7 @@ test('repository history import scopes the confirmed range and keeps progress vi
     { repoId: 'orders', days: 90 },
   ]);
   const job = present(store.listJobs({ type: 'backfill' })[0]);
-  store.saveJob({ ...job, status: 'retrying', pages: 2, error: { message: 'Read denied' } });
+  store.saveJob({ ...job, status: 'retrying', pages: 2, error: { code: 'FORBIDDEN', message: 'Read denied' } });
   await expect(orders.getByText('History sync retrying', { exact: true })).toBeVisible({ timeout: 8000 });
   await expect(orders.getByText('Read denied', { exact: true })).toBeVisible();
   store.saveJob({ ...job, status: 'completed', pages: 3 });
@@ -596,14 +589,13 @@ test('Repositories shows the checkout, checks on demand, and pulls only after co
   const store = createStore();
   store.saveRepo(stub<Repository>(fixture.repo));
   store.setSetting('refreshEnabled', false);
-  store.saveStream(
-    stub<StreamState>({
-      repoId: 'repo',
-      stream: 'pushes',
-      initialized: true,
-      lastSuccess: new Date(Date.now() - 60 * 60_000).toISOString(),
-    }),
-  );
+  store.saveStream({
+    repoId: 'repo',
+    stream: 'pushes',
+    initialized: true,
+    nextAt: new Date().toISOString(),
+    lastSuccess: new Date(Date.now() - 60 * 60_000).toISOString(),
+  });
   const app = createApp({
     accessKey: TEST_KEY,
     store,
@@ -897,14 +889,13 @@ test('verified PR follow-up switches, reviews and removes the old branch from Re
 test('Settings shows scoped CLI access and header switches share the automatic check preference', async t => {
   const store = createStore();
   for (const id of ['orders', 'billing']) store.saveRepo(stub<Repository>({ id, name: id, project: 'QA' }));
-  store.saveStream(
-    stub<StreamState>({
-      repoId: 'orders',
-      stream: 'pushes',
-      initialized: true,
-      lastSuccess: new Date(Date.now() - 3600000).toISOString(),
-    }),
-  );
+  store.saveStream({
+    repoId: 'orders',
+    stream: 'pushes',
+    initialized: true,
+    nextAt: new Date().toISOString(),
+    lastSuccess: new Date(Date.now() - 3600000).toISOString(),
+  });
   const probes: string[] = [];
   let manual = 0;
   const app = createApp({
@@ -1118,7 +1109,7 @@ test('People and named filters restore a scoped Activity search after app restar
 
 test('saved filters stay available on mobile, apply on keyboard selection, and save variations explicitly', async t => {
   const { runtime, page } = await demo(t);
-  const filter = (view: string) => ({ search: '', people: '', kind: '', repoIds: null, view });
+  const filter = (view: 'new' | 'all') => ({ search: '', people: '', kind: '', repoIds: null, view });
   const longName = 'A'.repeat(80);
   runtime.store.setSetting('savedActivityFilters', [
     { id: 'new', name: 'New changes', filters: filter('new') },
@@ -1237,7 +1228,13 @@ test('saving selects the new filter after an older state response arrives', asyn
 
 test('an Activity response renders while a saved-filter menu stays open, and deletes keep newer selections', async t => {
   const { runtime, page } = await demo(t);
-  const filters = (search: string) => ({ search, people: '', kind: '', repoIds: null, view: 'new' });
+  const filters = (search: string): import('../src/contract.ts').ActivityFilters => ({
+    search,
+    people: '',
+    kind: '',
+    repoIds: null,
+    view: 'new',
+  });
   runtime.store.setSetting('savedActivityFilters', [
     { id: 'first', name: 'First preset', filters: filters('first') },
     { id: 'second', name: 'Second preset', filters: filters('second') },

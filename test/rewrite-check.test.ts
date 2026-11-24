@@ -7,7 +7,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { createStore } from '../server/store.ts';
 import { createSync } from '../server/sync.ts';
 import { createBackfill } from '../server/backfill.ts';
-import { createRewriteCheck } from '../server/rewrite-check.ts';
+import { createRewriteCheck, type RewriteJob } from '../server/rewrite-check.ts';
 import { mergeEvidenceBadge as mergeEvidenceBadgeHtml } from '../src/ui/merge-evidence.ts';
 import type { AzurePage, AzureProvider } from '../server/azure-client.ts';
 import type { AzureStreamRecord } from '../src/contract.ts';
@@ -237,7 +237,12 @@ test('a check whose result cannot be stored keeps its job and saves no evidence'
   const store = createStore(path);
   store.saveRepo(repo);
   store.insertEvents([{ id: 'one:push:20', repoId: repo.id, kind: 'push', title: 'push', time: LIVE }]);
-  const job = { id: 'rewrite:one:push:20:refs/heads/main', type: 'rewrite', repoId: repo.id, eventId: 'one:push:20' };
+  const job: Pick<RewriteJob, 'id' | 'type' | 'repoId' | 'eventId'> = {
+    id: 'rewrite:one:push:20:refs/heads/main',
+    type: 'rewrite',
+    repoId: repo.id,
+    eventId: 'one:push:20',
+  };
   store.saveJob({ ...job, ref: 'refs/heads/main', oldObjectId: A, newObjectId: B, attempts: 0, nextAt: new Date(BASE).toISOString() });
   const raw = new DatabaseSync(path);
   raw.exec("CREATE TRIGGER fail BEFORE DELETE ON jobs BEGIN SELECT RAISE(ABORT, 'disk full'); END");
@@ -275,7 +280,12 @@ test('a failed save waits instead of taking every turn, and a proven rewrite is 
   const store = createStore(path);
   store.saveRepo(repo);
   store.insertEvents([{ id: 'one:push:21', repoId: repo.id, kind: 'push', title: 'push', time: LIVE }]);
-  const job = { id: 'rewrite:one:push:21:refs/heads/main', type: 'rewrite', repoId: repo.id, eventId: 'one:push:21' };
+  const job: Pick<RewriteJob, 'id' | 'type' | 'repoId' | 'eventId'> = {
+    id: 'rewrite:one:push:21:refs/heads/main',
+    type: 'rewrite',
+    repoId: repo.id,
+    eventId: 'one:push:21',
+  };
   store.saveJob({ ...job, ref: 'refs/heads/main', oldObjectId: A, newObjectId: B, attempts: 3, nextAt: new Date(BASE).toISOString() });
   let raw = new DatabaseSync(path);
   raw.exec("CREATE TRIGGER fail BEFORE DELETE ON jobs BEGIN SELECT RAISE(ABORT, 'disk full'); END");
@@ -353,7 +363,12 @@ test('a reset forgets a result that could not be saved, so a later check asks Az
   const store = createStore(path);
   store.saveRepo(repo);
   store.insertEvents([{ id: 'one:push:22', repoId: repo.id, kind: 'push', title: 'push', time: LIVE }]);
-  const job = { id: 'rewrite:one:push:22:refs/heads/main', type: 'rewrite', repoId: repo.id, eventId: 'one:push:22' };
+  const job: Pick<RewriteJob, 'id' | 'type' | 'repoId' | 'eventId'> = {
+    id: 'rewrite:one:push:22:refs/heads/main',
+    type: 'rewrite',
+    repoId: repo.id,
+    eventId: 'one:push:22',
+  };
   store.saveJob({ ...job, ref: 'refs/heads/main', oldObjectId: A, newObjectId: B, attempts: 0, nextAt: new Date(BASE).toISOString() });
   let raw = new DatabaseSync(path);
   raw.exec("CREATE TRIGGER fail BEFORE DELETE ON jobs BEGIN SELECT RAISE(ABORT, 'disk full'); END");

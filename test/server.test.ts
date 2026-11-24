@@ -296,7 +296,11 @@ test('Repositories switches only to a branch the repository still lists', async 
     },
   });
   const { store, mutate, url } = await fixture(t, { demo: false, checkoutGit });
-  const ref = (name: string, data = {}) => ({ type: 'ref', id: name, data: { name, objectId: 'a'.repeat(40), active: true, ...data } });
+  const ref = (name: string, data = {}): import('../server/store.ts').Entity => ({
+    type: 'ref',
+    id: name,
+    data: { name, objectId: 'a'.repeat(40), active: true, ...data },
+  });
   store.commitPage({
     repoId: 'demo-billing',
     entities: [

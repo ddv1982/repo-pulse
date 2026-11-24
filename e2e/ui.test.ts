@@ -19,7 +19,7 @@ import { createAzureClient } from '../server/azure-client.ts';
 import type { AppSync } from '../server.ts';
 import type { AzureProvider, RepositoryInput, ResolvedRepository } from '../server/azure-client.ts';
 import type { ActivityKind } from '../src/activity.ts';
-import type { ActivityEvent, ConnectionStatus, EventData, Repository, StreamState, SyncEngineStatus, SyncStatus } from '../src/contract.ts';
+import type { ActivityEvent, ConnectionStatus, EventData, Repository, SyncEngineStatus, SyncStatus } from '../src/contract.ts';
 import { present, stub } from '../test/fixtures/typed.ts';
 
 type Runtime = Awaited<ReturnType<typeof startApp>>;
@@ -452,7 +452,13 @@ async function renderInBackground(page: Page) {
 
 test('a focused saved-filter option keeps focus while incoming activity renders', async t => {
   const { page, runtime } = await setup(t);
-  const filters = (search: string) => ({ search, people: '', kind: '', repoIds: null, view: 'new' });
+  const filters = (search: string): import('../src/contract.ts').ActivityFilters => ({
+    search,
+    people: '',
+    kind: '',
+    repoIds: null,
+    view: 'new',
+  });
   runtime.store.setSetting('savedActivityFilters', [
     { id: 'first', name: 'First preset', filters: filters('first') },
     { id: 'second', name: 'Second preset', filters: filters('second') },
@@ -469,7 +475,13 @@ test('a focused saved-filter option keeps focus while incoming activity renders'
 
 test('a focused saved-filter option stays on its preset when another preset is deleted, and falls back to the toggle', async t => {
   const { page, runtime } = await setup(t);
-  const filters = (search: string) => ({ search, people: '', kind: '', repoIds: null, view: 'new' });
+  const filters = (search: string): import('../src/contract.ts').ActivityFilters => ({
+    search,
+    people: '',
+    kind: '',
+    repoIds: null,
+    view: 'new',
+  });
   const preset = (id: string, name: string) => ({ id, name, filters: filters(id) });
   runtime.store.setSetting('savedActivityFilters', [
     preset('first', 'First preset'),
@@ -878,7 +890,7 @@ test('Repositories switches between watched branches, and a merged pull request 
   git(source, 'push', 'origin', 'topic');
   const store = createStore();
   store.saveRepo(stub<Repository>(repo));
-  const ref = (name: string, lastPushId: number) => ({
+  const ref = (name: string, lastPushId: number): import('../server/store.ts').Entity => ({
     type: 'ref',
     id: `refs/heads/${name}`,
     data: { name: `refs/heads/${name}`, active: true, lastPushId },
@@ -1150,9 +1162,13 @@ async function groupedFixture(t: TestContext) {
   });
   app.runtime.store.insertEvents([event('build-queued', 'notStarted', -120000), event('build-running', 'inProgress', -60000)]);
   for (const stream of ['pushes', 'refs', 'prs', 'closedPrs', 'builds', 'activeBuilds'] as const)
-    app.runtime.store.saveStream(
-      stub<StreamState>({ repoId: 'demo-orders', stream, initialized: true, lastSuccess: new Date(now).toISOString() }),
-    );
+    app.runtime.store.saveStream({
+      repoId: 'demo-orders',
+      stream,
+      initialized: true,
+      nextAt: new Date(now).toISOString(),
+      lastSuccess: new Date(now).toISOString(),
+    });
   // Exercise the normal healthy layout, using only the isolated fixture backend.
   await app.page.route('**/api/state', async route => {
     const response = await route.fetch();

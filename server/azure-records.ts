@@ -7,12 +7,12 @@
 import type { AzureStream, AzureStreamRecords } from '../src/contract.ts';
 
 /** Null when the value can be read; otherwise the path below it that cannot, '' for the value itself. */
-type Check = (value: unknown) => string | null;
+export type Check = (value: unknown) => string | null;
 
 export const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
 
-const is =
+export const is =
   (test: (value: unknown) => boolean): Check =>
   value =>
     test(value) ? null : '';
@@ -20,7 +20,7 @@ const optional =
   (check: Check): Check =>
   value =>
     value === undefined || value === null ? null : check(value);
-const fields =
+export const fields =
   (shape: Record<string, Check>): Check =>
   value => {
     if (!isRecord(value)) return '';
@@ -30,7 +30,7 @@ const fields =
     }
     return null;
   };
-const list =
+export const list =
   (check: Check): Check =>
   value => {
     if (!Array.isArray(value)) return '';
