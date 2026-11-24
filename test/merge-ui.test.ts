@@ -119,3 +119,9 @@ test('legacy merge evidence without an error message shows a generic explanation
   const doc = parse(renderMergeEvidence({ mergeEvidence: { status: 'incomplete', error: {} } }));
   assert.equal(text(one(doc, '.status-text')), 'Merge evidence could not be checked.');
 });
+
+test('legacy merge evidence omits a non-text branch name', () => {
+  // @ts-expect-error Old enrichment rows can contain unchecked provider fields.
+  const doc = parse(renderMergeEvidence({ mergeEvidence: { prs: [{ pullRequestId: 1, sourceRefName: {} }] } }));
+  assert.equal(text(one(doc, 'li')), 'PR #1 · Related PR evidence');
+});

@@ -132,7 +132,7 @@ const reviewers = (pr: AzurePullRequest): { id: string; name: unknown; vote: num
   }));
 /** Reviewers without a vote are left out, so adding or removing one is not a vote change. */
 const reviewerVotes = (pr: AzurePullRequest): [string, number][] =>
-  // Keep the default tuple string order; it contributes to persisted PR fingerprints and event IDs.
+  // The default tuple string order contributes to persisted PR fingerprints and event IDs.
   // oxlint-disable-next-line typescript/require-array-sort-compare
   reviewers(pr)
     .filter(({ vote }) => vote)
