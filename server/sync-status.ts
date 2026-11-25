@@ -114,13 +114,26 @@ export function syncStatus({
     const failing = own.find(
       ({ error, failures = 0 }) => error && error.code !== 'THROTTLED' && (failures >= 2 || LASTING.has(error.code)),
     );
-    if (failing?.error) return { state: 'problem', reason: plainReason(failing.error, failing.stream), stream: failing.stream, ...since };
+    if (failing?.error)
+      return {
+        state: 'problem',
+        reason: plainReason(failing.error, failing.stream),
+        stream: failing.stream,
+        ...(failing.error.code === 'AUTH_REQUIRED' ? { signInRequired: true } : {}),
+        ...since,
+      };
     const failingImport = jobs.find(
       ({ repoId: id, status, error, failures = 0 }) =>
         id === repoId && status !== 'completed' && error && error.code !== 'THROTTLED' && (failures >= 2 || LASTING.has(error.code)),
     );
     if (failingImport?.error)
-      return { state: 'problem', reason: plainReason(failingImport.error, failingImport.stream ?? 'history'), stream: 'history', ...since };
+      return {
+        state: 'problem',
+        reason: plainReason(failingImport.error, failingImport.stream ?? 'history'),
+        stream: 'history',
+        ...(failingImport.error.code === 'AUTH_REQUIRED' ? { signInRequired: true } : {}),
+        ...since,
+      };
     // The read succeeded but left out records Azure returned in a shape this version cannot read, so it is not synced.
     const warned = own.find(stream => stream.warning);
     if (warned?.warning) return { state: 'problem', reason: warned.warning.message, stream: warned.stream, ...since };

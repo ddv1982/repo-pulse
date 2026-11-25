@@ -66,6 +66,8 @@ const DAY = 86400000;
 const SNAPSHOT_TTL_MS = 2 * 60000;
 const HISTORY_WINDOW_TTL_MS = 10 * 60000;
 const BUSY_POLL_MS = 100;
+const FOREGROUND_CHECK_COOLDOWN_MS = 60000;
+const RECENT_READ_MS = 30000;
 const LIVE_TURNS = 6;
 const iso = (ms: number) => new Date(ms).toISOString();
 
@@ -337,6 +339,8 @@ export function createSync({
   let resetting = false;
   const halted = () => stopped || resetting;
   const refreshedAt: Map<string, number> = new Map();
+  const signInRetriedAt = new Map<string, number>();
+  let foregroundCheckedAt = -Infinity;
   let reading: { repoId: string; stream: StreamName } | null = null;
   /**
    * User refreshes not yet answered, by `repoId:stream`, with the refresh generation each asked for.
@@ -728,6 +732,27 @@ export function createSync({
     },
     tick,
     normalize,
+    checkOnForeground() {
+      const at = now();
+      if (
+        halted() ||
+        reading ||
+        store.getSetting('refreshEnabled', true) === false ||
+        at - foregroundCheckedAt < FOREGROUND_CHECK_COOLDOWN_MS
+      )
+        return;
+      const { due, repos } = dueStreams(true);
+      if (due.length) return;
+      const streams = store.getStreams().filter(state => repos.has(state.repoId));
+      if (streams.some(state => at - Date.parse(state.lastAttempt ?? '') < RECENT_READ_MS)) return;
+      // Advance one healthy push stream. A due read or existing backoff keeps its normal place in the queue.
+      const candidate = streams
+        .filter(state => state.stream === 'pushes' && !state.error && !state.pending)
+        .sort((a, b) => Date.parse(a.nextAt) - Date.parse(b.nextAt))[0];
+      if (!candidate) return;
+      store.saveStream({ ...candidate, nextAt: iso(at) });
+      foregroundCheckedAt = at;
+    },
     /**
      * Runs `clear` with no turn in flight, then forgets the refreshes and rotation the cleared data asked for.
      */
@@ -746,6 +771,7 @@ export function createSync({
         requested.clear();
         continuingSnapshots.clear();
         refreshedAt.clear();
+        signInRetriedAt.clear();
         prTurns.clear();
         buildTurns.clear();
         lastKey = undefined;
@@ -763,13 +789,14 @@ export function createSync({
       watches.set(repoId, watchOf(repoId) + 1);
       if (reading?.repoId === repoId) reading = null;
       refreshedAt.delete(repoId);
+      signInRetriedAt.delete(repoId);
       prTurns.delete(repoId);
       buildTurns.delete(repoId);
       for (const stream of STREAMS) continuingSnapshots.delete(`${repoId}:${stream}`);
       for (const [key, entry] of requested) if (entry.repoId === repoId) requested.delete(key);
       if (STREAMS.some(stream => lastKey === `${repoId}:${stream}`)) lastKey = undefined;
     },
-    refresh(repoIds?: string[]): RefreshStatus {
+    refresh(repoIds?: string[], authOnly = false): RefreshStatus {
       const repos = store.listRepos();
       if (repoIds && repoIds.some(id => !repos.some(repo => repo.id === id)))
         throw Object.assign(new Error('Repository is not watched.'), { code: 'NOT_FOUND' });
@@ -777,10 +804,15 @@ export function createSync({
       ensureStreams();
       // Cooldown is per repository so a second added repository still gets its initial import.
       const enabled = repos.filter(repo => !repo.disabled).map(repo => repo.id);
-      const targets = (repoIds || enabled).filter(id => enabled.includes(id) && !(now() - (refreshedAt.get(id) ?? NaN) < 30000));
-      if (!targets.length && repos.length) return { scheduled: false, cooldown: true };
-      for (const id of targets) refreshedAt.set(id, now());
-      for (const state of store.getStreams()) {
+      const streams = store.getStreams().filter(state => !authOnly || state.error?.code === 'AUTH_REQUIRED');
+      const requestedRepos = (repoIds || enabled).filter(id => enabled.includes(id));
+      const retryable = authOnly ? requestedRepos.filter(id => streams.some(state => state.repoId === id)) : requestedRepos;
+      if (!retryable.length) return { scheduled: false };
+      const cooldowns = authOnly ? signInRetriedAt : refreshedAt;
+      const targets = retryable.filter(id => !(now() - (cooldowns.get(id) ?? NaN) < 30000));
+      if (!targets.length) return { scheduled: false, cooldown: true };
+      for (const id of targets) cooldowns.set(id, now());
+      for (const state of streams) {
         const repo = repos.find(entry => entry.id === state.repoId);
         if (!repo || !targets.includes(repo.id)) continue;
         const next = requestRefresh(state, now(), store.getSetting('refreshEnabled', true) === false);

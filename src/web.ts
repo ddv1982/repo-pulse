@@ -398,11 +398,23 @@ const actions: Record<string, Action> = {
   'check-connection': element => {
     void connection.check(element.dataset.repoId || '', { force: true });
   },
-  refresh: async () => {
+  refresh: async element => {
     setRefreshPending(true);
     try {
-      await request('/api/refresh', { method: 'POST', body: { ...(ui.repoIds === null ? {} : { repoIds: ui.repoIds }) } });
-      toast('Activity refresh queued.');
+      const retrySignIn = element.hasAttribute('data-retry-sign-in');
+      const { status } = await request('/api/refresh', {
+        method: 'POST',
+        body: { ...(ui.repoIds === null ? {} : { repoIds: ui.repoIds }), ...(retrySignIn ? { retrySignIn: true } : {}) },
+      });
+      toast(
+        'demo' in status || status.scheduled
+          ? 'Activity refresh queued.'
+          : status.cooldown
+            ? 'A refresh was requested recently. Try again shortly.'
+            : retrySignIn
+              ? 'No sign-in checks need retrying.'
+              : 'No enabled repositories are selected.',
+      );
       await load({ force: true });
     } finally {
       setRefreshPending(false);

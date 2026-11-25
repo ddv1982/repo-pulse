@@ -207,6 +207,7 @@ test('refresh coalesces through sync interface, disabling persists and bad input
   assert.equal((await mutate('/api/refresh', { repoIds: [present(state.repos[0]).id] })).status, 202);
   assert.deepEqual(calls, [[present(state.repos[0]).id]]);
   assert.equal((await mutate('/api/refresh', { repoIds: ['unknown'] })).status, 404);
+  assert.equal((await mutate('/api/refresh', { retrySignIn: 'yes' })).status, 400);
   assert.equal((await mutate(`/api/repos/${present(state.repos[0]).id}`, { paused: true }, { method: 'PATCH' })).status, 400);
   assert.equal((await mutate(`/api/repos/${present(state.repos[0]).id}`, { disabled: true }, { method: 'PATCH' })).status, 200);
   const after: StateResponse = await (await fetch(url + '/api/state')).json();

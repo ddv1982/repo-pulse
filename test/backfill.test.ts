@@ -54,6 +54,30 @@ function setup(
   return { store, backfill };
 }
 
+test('history sign-in retry covers due and recovering jobs and coalesces repeat clicks', () => {
+  const { store, backfill } = setup({
+    async read() {
+      return { items: [], nextCursor: null };
+    },
+  });
+  const second = { ...repo, id: 'two' };
+  store.saveRepo(second);
+  const one = backfill.start(repo.id);
+  const two = backfill.start(second.id);
+  const later = iso(BASE + 1800000);
+  const auth = { code: 'AUTH_REQUIRED', message: 'Sign in again' };
+  store.saveJob({ ...one, status: 'retrying', nextAt: later, error: auth });
+  store.saveJob({ ...two, status: 'running', nextAt: iso(BASE), error: auth });
+  assert.deepEqual(backfill.retrySignIn([repo.id]), { scheduled: true });
+  assert.equal(backfill.status().find(job => job.id === one.id)?.nextAt, iso(BASE));
+  assert.deepEqual(backfill.retrySignIn([repo.id]), { scheduled: false, cooldown: true });
+  assert.deepEqual(backfill.retrySignIn([second.id]), { scheduled: true });
+  store.saveJob({ ...one, status: 'retrying', nextAt: later, error: { code: 'UNAVAILABLE', message: 'Offline' } });
+  assert.deepEqual(backfill.retrySignIn([repo.id]), { scheduled: false });
+  assert.equal(backfill.status().find(job => job.id === one.id)?.nextAt, later);
+  store.close();
+});
+
 test('historical imports mark only new history read without changing live state', async () => {
   const calls: ReadCall[] = [];
   const provider: Provider = {

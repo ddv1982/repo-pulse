@@ -90,7 +90,7 @@ export type AppProvider = AzureProvider | typeof demoProvider;
  */
 export type AppSync = {
   status: () => import('./server/sync.ts').SyncStatus | DemoSyncStatus;
-  refresh: (repoIds?: string[]) => import('./server/sync.ts').RefreshStatus | { demo: true };
+  refresh: (repoIds?: string[], authOnly?: boolean) => import('./server/sync.ts').RefreshStatus | { demo: true };
   reset?: (clear: () => void) => Promise<void>;
   forget?: (repoId: string) => void;
 };
@@ -102,7 +102,8 @@ export type AppOptions = {
   provider: AppProvider;
   sync: AppSync;
   cli?: Pick<ReturnType<typeof createAzureCli>, 'diagnostics'> | null;
-  backfill?: Pick<ReturnType<typeof createBackfill>, 'start'> | undefined;
+  backfill?:
+    (Pick<ReturnType<typeof createBackfill>, 'start'> & Partial<Pick<ReturnType<typeof createBackfill>, 'retrySignIn'>>) | undefined;
   demo?: boolean;
   discover?: typeof discoverRepositories;
   browse?: (input: unknown) => Promise<FoldersResponse>;
@@ -580,10 +581,25 @@ export function createApp({
       path: '/api/refresh',
       handler: async ({ req, res }) => {
         const input = await body(req);
-        const { repoIds } = input;
+        const { repoIds, retrySignIn } = input;
         if (repoIds !== undefined && !isStringList(repoIds)) throw problem('repoIds must be a list.');
+        if (retrySignIn !== undefined && typeof retrySignIn !== 'boolean') throw problem('retrySignIn must be a boolean.');
         repoIds?.forEach(repoById);
-        return json(res, 202, { ok: true, status: sync.refresh(repoIds) } satisfies RefreshResponse);
+        const status = retrySignIn ? sync.refresh(repoIds, true) : sync.refresh(repoIds);
+        const history = retrySignIn
+          ? backfill?.retrySignIn?.(
+              store
+                .listRepos()
+                .filter(repo => !repo.disabled && (!repoIds || repoIds.includes(repo.id)))
+                .map(repo => repo.id),
+            )
+          : undefined;
+        const combined = history?.scheduled
+          ? { scheduled: true }
+          : history?.cooldown && !('demo' in status) && !status.scheduled
+            ? { scheduled: false, cooldown: true }
+            : status;
+        return json(res, 202, { ok: true, status: combined } satisfies RefreshResponse);
       },
     },
     {
@@ -815,11 +831,13 @@ async function startLocked(
         clear();
         rewriteCheck?.reset();
         forkCheck?.reset();
+        backfill?.reset();
       }),
     forget(repoId: string) {
       liveSync.forget(repoId);
       rewriteCheck?.forget(repoId);
       forkCheck?.forget(repoId);
+      backfill?.forget(repoId);
     },
   }) || {
     start() {},
@@ -847,7 +865,10 @@ async function startLocked(
     accessKey,
     launchToken,
     onStateRead: () => {
-      lastClientAt = Date.now();
+      const at = Date.now();
+      const returned = at - lastClientAt >= 45_000;
+      lastClientAt = at;
+      if (returned && liveSync && !(Date.parse(cli?.diagnostics().throttledUntil ?? '') > at)) liveSync.checkOnForeground();
     },
   });
   await new Promise((resolveListen, reject) => {
