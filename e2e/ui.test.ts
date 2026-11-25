@@ -1422,8 +1422,7 @@ test('confirmed branch deletion wording replaces legacy missing titles in rows, 
   await page.reload();
   await selectActivityType(page, 'Branch deleted');
   await expect(page.locator('li.row .kind')).toHaveText('Branch deleted');
-  await expect(page.locator('li.row .feed-title .title')).toHaveText('Branch deleted');
-  await expect(page.locator('li.row .feed-title .ref-name')).toHaveText('hotfix/finished');
+  await expect(page.locator('li.row .feed-title .title')).toHaveText('hotfix/finished');
   await expect(page.getByRole('button', { name: 'Activity type: Branch deleted', exact: true })).toBeVisible();
   await page.locator('li.row .feed-title').click();
   await expect(page.getByRole('heading', { name: 'Branch deleted · hotfix/finished' })).toBeVisible();

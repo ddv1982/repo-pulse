@@ -363,7 +363,7 @@ test('a row names its repository only when more than one repository is shown', a
   assert.doesNotMatch(await srText(subref(renderFeed(state, { ...view, repoIds: ['r'] }))), /Orders/);
 });
 
-test('a branch row shows its branch as the token under a title that no longer names it or the actor', async () => {
+test('a generic branch row leads with its ref and a descriptive title keeps the ref below', async () => {
   const state = fixture();
   const base = { repoId: 'r', seen: false, imported: false, time: '2026-11-17T10:00:00Z', actor: 'Ana' };
   state.events = [
@@ -379,18 +379,19 @@ test('a branch row shows its branch as the token under a title that no longer na
   ];
   const doc = parse(renderFeed(state, view));
   for (const [id, title, name] of [
-    ['push', 'Pushed', 'feature/a'],
+    ['push', 'feature/a', ''],
     ['counted', '2 commits pushed', 'fix/b'],
-    ['created', 'New branch', 'feature/b'],
-    ['bare', 'New branch', 'feature/e'],
-    ['deleted', 'Branch deleted', 'feature/c'],
-    ['old-push', 'Pushed', 'feature/d'],
+    ['created', 'feature/b', ''],
+    ['bare', 'feature/e', ''],
+    ['deleted', 'feature/c', ''],
+    ['old-push', 'feature/d', ''],
     ['other-ref', 'Pushed to main-old', 'main'],
     ['pr', 'PR 3 · Fix main menu', 'main'],
     ['build', 'main CI · 1', 'main'],
   ] satisfies [string, string, string][]) {
     assert.equal(await text(one(row(doc, id), '.title')), title, id);
-    assert.equal(await text(one(row(doc, id), '.feed-title .ref-name')), name, id);
+    if (name) assert.equal(await text(one(row(doc, id), '.feed-title .ref-name')), name, id);
+    else assert.equal((await all(row(doc, id), '.feed-title .ref-name')).length, 0, id);
   }
   // The Seen button keeps the full title, so its accessible name still says which branch.
   assert.equal(await one(row(doc, 'push'), '.seen-toggle').getAttribute('aria-label'), 'Seen: Ana pushed to feature/a');
@@ -573,7 +574,8 @@ test('Activity distinguishes tag events and tag builds from branch activity', as
   assert.equal((await all(row(doc, 'tag'), '.tree .tag-mark')).length, 1);
   assert.equal((await all(row(doc, 'tag'), '.kind svg')).length, 1);
   assert.match(await text(row(doc, 'tag')), /Points at aaaaaaa/);
-  assert.equal(await srText(one(row(doc, 'tag-build'), '.ref-branch')), '· tag refs/tags/v1');
+  assert.equal(await text(one(row(doc, 'tag'), '.title')), 'v1');
+  assert.equal(await srText(one(row(doc, 'tag-build'), '.ref-branch')), '· tag v1');
   assert.equal(
     await one(row(doc, 'tag-build'), '.ref-branch svg path').getAttribute('d'),
     await one(row(doc, 'tag'), '.kind svg path').getAttribute('d'),

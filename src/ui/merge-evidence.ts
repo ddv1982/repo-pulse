@@ -1,4 +1,4 @@
-import { activityMergeBadge, matchesPushResult, matchingPushResults } from '../activity-text.ts';
+import { activityMergeBadge, matchesPushResult, matchingPushResults, singleNamedPushResult } from '../activity-text.ts';
 import { emptyHtml, html, dateTime, branchName, azureLink } from './format.ts';
 import type { EventData, EvidencePr } from '../activity.ts';
 
@@ -50,7 +50,7 @@ export function mergeEvidenceBadge(event: import('../activity.ts').ActivityEvent
   const history = rewritten.length
     ? html`<span class="chip status-chip warn">History rewritten · ${rewritten.map(range => droppedText(range.update)).join(', ')}</span>`
     : emptyHtml;
-  if (!label) return history;
+  if (!label || singleNamedPushResult(event.data)) return history;
   const count = matchingPushResults(event.data).length;
   return html`<span class="chip status-chip ok">${count > 1 ? `${count} completed PRs linked` : count === 1 ? 'Completed PR linked' : 'Related PR evidence'}</span>${history}`;
 }

@@ -83,8 +83,11 @@ function renderEvent(record: ActivityItem, origin: string) {
   const pr =
     record.kind === 'pr' && record.data && (record.data.targetRefName || record.data.voteChanges?.length) ? record.data : undefined;
   const votes = pr ? prVoteChanges(pr) : [];
+  const approvals = votes.filter(change => change.vote === 10).length;
+  const shownVotes =
+    approvals > 1 ? [{ vote: 10, text: `${approvals} new approvals` }, ...votes.filter(change => change.vote !== 10)] : votes;
   const summary = votes.length
-    ? html`${votes.map(change => html`<span class="status-text ${voteTone(change.vote)}"><span class="status-dot" aria-hidden="true"></span>${change.text}</span>`)}`
+    ? html`${shownVotes.map(change => html`<span class="status-text ${voteTone(change.vote)}"><span class="status-dot" aria-hidden="true"></span>${change.text}</span>`)}`
     : pr
       ? prTarget(pr)
       : rowSummary(record);
@@ -92,7 +95,7 @@ function renderEvent(record: ActivityItem, origin: string) {
   const origins = [pr ? prForkSource(pr.fork) : '', origin].filter(Boolean);
   // A row with nothing else to say first, such as a new branch, leads with where it started.
   const lead = summary || origins.length === 0 ? summary : origins.shift();
-  const trail = renderTrail(record);
+  const trail = record.unseen ? renderTrail(record) : emptyHtml;
   return html`<div class="event">${lead || badge !== emptyHtml ? html`<div class="event-main">${typeof lead === 'string' ? (lead ? html`<span>${lead}</span>` : emptyHtml) : lead}${badge}</div>` : emptyHtml}${renderMeta(record)}${
     origins.length || trail !== emptyHtml
       ? html`<div class="event-notes">${origins.map(text => html`<div class="help event-origin">${icons.branch}<span>${text}</span></div>`)}${trail}</div>`
@@ -109,7 +112,14 @@ const voteTone = (vote: number) => (vote > 0 ? 'ok' : vote === -5 ? 'warn' : vot
  */
 function rowSummary(record: ActivityItem) {
   const summary = activitySummary(record);
-  if (record.kind === 'build' && summary === 'Not supplied') return '';
+  if (
+    record.kind === 'build' &&
+    (summary === 'Not supplied' ||
+      (record.data?.result === 'succeeded' &&
+        (record.data.reason === 'individualCI' || (record.data.reason === 'pullRequest' && activityRef(record).pullRequestId))))
+  )
+    return '';
+  if (record.kind === 'push' && /^[a-f\d]{7} → [a-f\d]{7}$/i.test(summary)) return '';
   return ['branch-created', 'branch-deleted'].includes(record.kind) && ['New remote branch', 'Remote branch deleted'].includes(summary)
     ? ''
     : summary;
@@ -125,14 +135,18 @@ const namesRef = (title: string, ref: string) =>
  * branches keeps them.
  */
 function rowTitle(record: ActivityItem, title: string) {
+  if (record.kind === 'tag') {
+    const prefix = `${activityLabel(record)} · `;
+    return title.startsWith(prefix) ? title.slice(prefix.length) || title : title;
+  }
   if (!['push', 'branch-created', 'branch-deleted'].includes(record.kind)) return title;
   const branch = record.branch ? activityRef(record).branch : '';
-  if (branch && title === branch) return activityLabel(record);
   const suffix = branch ? [` to ${branch}`, ` · ${branch}`].find(end => title.endsWith(end)) : undefined;
   const rest = suffix ? title.slice(0, -suffix.length) : title;
   const actor = activityActor(record);
   const text = actor && rest.startsWith(`${actor} `) ? rest.slice(actor.length + 1) : rest;
-  return text === title ? title : text.charAt(0).toUpperCase() + text.slice(1);
+  const compact = text === title ? title : text.charAt(0).toUpperCase() + text.slice(1);
+  return branch && [activityLabel(record), 'Pushed'].includes(compact) ? branch : compact;
 }
 
 /**
@@ -153,7 +167,7 @@ function renderRefLine(record: ActivityItem, title: string, repoName: string) {
     branch || pullRequestId
       ? html`<span class="ref-target">${
           branch
-            ? html`<span class="ref-branch" title="${branch}">${tag ? icons.tag : icons.branch}<span class="sr"> · ${tag ? 'tag' : 'branch'} </span><span class="ref-name">${branch}</span></span>`
+            ? html`<span class="ref-branch" title="${branch}">${tag ? icons.tag : icons.branch}<span class="sr"> · ${tag ? 'tag' : 'branch'} </span><span class="ref-name">${tag ? branch.replace(/^refs\/tags\//, '') : branch}</span></span>`
             : emptyHtml
         }${pullRequestId ? html`<span class="chip ref-pr"><span class="sr"> · </span>PR ${pullRequestId}</span>` : emptyHtml}</span>`
       : emptyHtml

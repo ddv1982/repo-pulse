@@ -492,7 +492,7 @@ test('an open Activity view picks up a seen action in another tab and later merg
   await page.goto(runtime.url + '/#activity');
   const row = page.locator('li[data-event-id="revision-test"]');
   await expect(row).toHaveClass(/\bnew\b/);
-  await expect(row.getByRole('button', { name: /^Pushed · .*branch main$/ })).toBeVisible();
+  await expect(row.getByRole('button', { name: /^main(?: · repository .+)?$/ })).toBeVisible();
   await expect(row.getByText('Pushed by Azure DevOps service')).toBeVisible();
 
   const other = await page.context().newPage();
@@ -521,7 +521,8 @@ test('an open Activity view picks up a seen action in another tab and later merg
     },
   });
   const title = 'Merge of PR 12 pushed to main';
-  await expect(row.getByText('Completed PR linked')).toBeVisible({ timeout: 8000 });
+  await expect(row.getByText('Merge of PR 12 pushed', { exact: true })).toBeVisible({ timeout: 8000 });
+  await expect(row.getByText('Completed PR linked')).toHaveCount(0);
   await expect(row.getByText('Pushed by Azure DevOps service')).toBeVisible();
   // The row title leaves the branch to the ref line; the detail heading keeps the whole title.
   await row.getByRole('button', { name: /^Merge of PR 12 pushed · .*branch main$/ }).click();

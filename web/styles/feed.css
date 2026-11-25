@@ -543,8 +543,8 @@ ol.rows {
 .seen-toggle[aria-pressed='true'] {
   color: var(--muted-foreground);
 }
-.seen-toggle[aria-pressed='true'] .seen-box {
-  color: var(--ok);
+.seen-toggle[aria-pressed='false'] .seen-box {
+  color: var(--info);
 }
 .foot {
   padding: 10px 16px;
@@ -836,7 +836,7 @@ ol.rows {
 /* Activity branch tree, drawn in the left padding of each row's type label. src/ui/activity-tree.ts draws one
    cell per row, with y = 0 on the type label. Below 640px there is no tree, so rows keep their dot. */
 .tree,
-.tree-legend {
+.tree-guide {
   display: none;
 }
 @media (min-width: 640px) {
@@ -886,6 +886,15 @@ ol.rows {
   .tree > g {
     transform: translateY(var(--tree-label-y));
   }
+  .tree-guide {
+    display: block;
+    border-bottom: 1px solid var(--border);
+  }
+  .tree-guide summary {
+    width: fit-content;
+    cursor: pointer;
+    padding: 5px 12px;
+  }
   .tree-legend {
     display: flex;
     flex-wrap: wrap;
@@ -893,7 +902,6 @@ ol.rows {
     gap: 4px 16px;
     margin: 0;
     padding: 8px 12px;
-    border-bottom: 1px solid var(--border);
   }
   .tree-key-item {
     display: inline-flex;
