@@ -621,6 +621,66 @@ test('a verified merge push folds in the mixed feed and keeps its own detail, fi
   await expect(merge).toHaveCount(0);
 });
 
+test('a successful tag build folds only for the exact tag revision in the mixed feed', async t => {
+  const { runtime, page } = await demo(t);
+  const repoId = 'demo-orders';
+  const ref = 'refs/tags/test-release';
+  const tagObject = 'a'.repeat(40);
+  const commit = 'b'.repeat(40);
+  const buildUrl = 'https://dev.azure.com/example/project/_build/results?buildId=24000';
+  runtime.store.insertEvents([
+    {
+      id: 'release-tag',
+      repoId,
+      kind: 'tag',
+      title: 'New tag · test-release',
+      branch: 'test-release',
+      time: new Date(Date.now() - 60_000).toISOString(),
+      data: { evidence: 'push', change: 'created', name: ref, newObjectId: tagObject },
+    },
+    {
+      id: 'release-build',
+      repoId,
+      kind: 'build',
+      title: 'Release test CI',
+      branch: ref,
+      time: new Date().toISOString(),
+      url: buildUrl,
+      data: { buildId: 24000, sourceBranch: ref, sourceVersion: commit, status: 'completed', result: 'succeeded', reason: 'individualCI' },
+    },
+  ]);
+  runtime.store.acknowledge(['release-tag', 'release-build']);
+  const cacheTag = (objectId: string) =>
+    runtime.store.commitPage({ repoId, entities: [{ type: 'ref', id: ref, data: { objectId, peeledObjectId: commit, active: true } }] });
+  const tag = page.locator('li[data-event-id="release-tag"]');
+  const build = page.locator('li[data-event-id="release-build"]');
+  cacheTag('c'.repeat(40));
+  await page.goto(runtime.url + '/#activity');
+  await expect(build).toBeVisible();
+
+  cacheTag(tagObject);
+  await page.reload();
+  await expect(tag.getByText('CI succeeded', { exact: true })).toBeVisible();
+  await expect(build).toHaveCount(0);
+  await tag.getByText('CI succeeded', { exact: true }).click();
+  await expect(tag.getByRole('link', { name: 'Build in Azure ↗' })).toHaveAttribute('href', buildUrl);
+  const detail = tag.getByRole('button', { name: 'Release test CI' });
+  await detail.click();
+  await expect(page.getByRole('heading', { name: 'Release test CI', exact: true })).toBeVisible();
+  await page.getByRole('link', { name: 'Back to Activity' }).click();
+  await expect(detail).toBeFocused();
+
+  const search = page.getByRole('searchbox', { name: 'Search activity' });
+  await search.fill('Release test CI');
+  await expect(build).toBeVisible();
+  await search.clear();
+  await expect(build).toHaveCount(0);
+  runtime.store.acknowledge(['release-build'], false);
+  await page.reload();
+  await expect(build).toBeVisible();
+  await expect(tag.getByText('CI succeeded', { exact: true })).toHaveCount(0);
+});
+
 test('opening Activity before the first state load arrives stays on Activity', async t => {
   const { runtime, page } = await demo(t);
   const release = Promise.withResolvers<void>();
