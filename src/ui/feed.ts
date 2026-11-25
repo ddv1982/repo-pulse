@@ -282,7 +282,9 @@ function statusBanner(state: PageState, status: (import('./health.ts').SyncStatu
   if (status.state === 'problem')
     return html`<div class="banner crit"><div><strong>Problem</strong>${where}${status.reason} ${
       status.signInRequired
-        ? html`<button class="ghost sm" type="button" id="retry-sign-in" data-action="refresh" data-retry-sign-in>Retry after signing in</button>`
+        ? html`Run <code>az login</code> in your terminal.
+          <button class="ghost sm" type="button" id="copy-azure-login" data-action="copy-azure-login" aria-label="Copy az login">Copy</button>
+          <button class="ghost sm" type="button" id="retry-sign-in" data-action="refresh" data-retry-sign-in>Retry after signing in</button>`
         : html`<a href="#repositories">See Repositories</a>`
     }</div></div>`;
   if (status.state === 'delayed')

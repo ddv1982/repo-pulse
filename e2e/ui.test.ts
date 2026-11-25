@@ -1891,7 +1891,17 @@ test('Activity shows a sign-in failure on return and retries the blocked live st
   await expect(retry).toBeVisible();
   const banner = page.locator('#page .banner.crit');
   await expect(banner).toContainText('Orders: Sign in to Azure again.');
+  await expect(banner.locator('code')).toHaveText('az login');
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+  await banner.getByRole('button', { name: 'Copy az login' }).click();
+  await expect(page.locator('#toast')).toHaveText('Command copied.');
+  assert.equal(await page.evaluate(() => navigator.clipboard.readText()), 'az login');
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+  await page.evaluate(() => {
+    Object.defineProperty(navigator.clipboard, 'writeText', { value: () => Promise.reject(new Error('Copy blocked')) });
+  });
+  await banner.getByRole('button', { name: 'Copy az login' }).click();
+  await expect(page.locator('#toast')).toContainText('Select the command to copy it manually.');
 
   const builds = present(store.getStreams().find(state => state.stream === 'builds'));
   store.saveStream({ ...builds, error });
