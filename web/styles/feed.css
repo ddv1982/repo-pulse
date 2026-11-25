@@ -483,6 +483,19 @@ ol.rows {
   font-family: var(--font-mono);
   line-height: 1;
 }
+.ref-route {
+  gap: 4px;
+}
+.ref-route .ref-branch {
+  flex-shrink: 999;
+  min-width: min(6ch, 30%);
+}
+.ref-destination {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .chip.ref-pr {
   flex: none;
   padding: 0 6px;
@@ -877,7 +890,8 @@ ol.rows {
 /* Activity branch tree, drawn in the left padding of each row's type label. src/ui/activity-tree.ts draws one
    cell per row, with y = 0 on the type label. Below 640px there is no tree, so rows keep their dot. */
 .tree,
-.tree-guide {
+.tree-guide,
+.standalone-pr-ring {
   display: none;
 }
 @media (min-width: 640px) {
@@ -914,6 +928,14 @@ ol.rows {
   .with-tree .kind > .d,
   .with-tree .kind > svg {
     display: none;
+  }
+  .standalone-pr-ring {
+    display: inline-block;
+    flex: none;
+    width: 8px;
+    height: 8px;
+    border: 1px solid var(--muted-foreground);
+    border-radius: 50%;
   }
   .tree {
     display: block;

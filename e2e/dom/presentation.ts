@@ -278,6 +278,16 @@ test('both activity views draw a branch tree with the fork evidence in the row t
     },
     {
       ...base,
+      id: 'standalone-pr',
+      kind: 'pr',
+      title: 'PR 8 · Add b',
+      branch: 'feature/b',
+      time: '2026-11-17T10:01:30Z',
+      observedAt: '2026-11-17T10:01:30Z',
+      data: { pullRequestId: 8, status: 'active', targetRefName: 'refs/heads/main' },
+    },
+    {
+      ...base,
       id: 'branch',
       kind: 'branch-created',
       time: '2026-11-17T10:01:00Z',
@@ -288,7 +298,7 @@ test('both activity views draw a branch tree with the fork evidence in the row t
   const doc = parse(renderFeed(state, { ...view, unreadOnly: false }));
   assert.equal(await one(doc, 'ul.rows.with-tree').getAttribute('data-tree-lanes'), '2');
   const cells = await all(doc, 'svg.tree');
-  assert.equal(cells.length, 2);
+  assert.equal(cells.length, 3);
   assert.ok((await Promise.all(cells.map(cell => cell.getAttribute('aria-hidden')))).every(value => value === 'true'));
   const assumed = one(doc, 'svg.tree path.assumed');
   assert.ok((await classes(assumed)).some(name => /^lane-\d$/.test(name)));
@@ -296,13 +306,17 @@ test('both activity views draw a branch tree with the fork evidence in the row t
   const ring = one(doc, 'svg.tree circle.hole');
   assert.ok((await classes(ring)).some(name => /^lane-\d$/.test(name)));
   assert.deepEqual(await Promise.all(['cx', 'cy', 'r'].map(name => ring.getAttribute(name))), ['5', '0', '3.75']);
+  const standalone = row(doc, 'standalone-pr');
+  assert.equal((await all(standalone, 'svg.tree line')).length, 1, 'the unrelated lane still passes the row');
+  assert.equal((await all(standalone, 'svg.tree circle.hole')).length, 0);
+  assert.equal(await one(standalone, '.kind > .standalone-pr-ring').getAttribute('aria-hidden'), 'true');
   const origin = one(row(doc, 'branch'), '.event-origin');
   assert.equal(await text(origin), 'PR 7 targets main, origin not checked');
   assert.equal(await one(origin, 'svg').getAttribute('aria-hidden'), 'true');
   assert.match(await text(one(doc, '.tree-legend')), /Lines can pass rows of other branches\./);
   const updates = parse(renderFeed(state, view));
-  assert.equal((await all(updates, '.row')).length, 2);
-  assert.equal((await all(updates, 'svg.tree')).length, 2);
+  assert.equal((await all(updates, '.row')).length, 3);
+  assert.equal((await all(updates, 'svg.tree')).length, 3);
   assert.equal(await text(one(row(updates, 'branch'), '.event-origin')), 'PR 7 targets main, origin not checked');
 });
 
@@ -452,9 +466,10 @@ test('the event column puts what happened first, then who and when, each actor w
     assert.match((await time.getAttribute('title')) ?? '', /2026/, id);
   };
   const event = one(row(doc, 'pr'), '.event');
-  assert.equal(await text(one(event, ':scope > :first-child')), 'Target: main');
-  assert.ok(await one(event, ':scope > :first-child').hasClass('event-main'));
-  assert.ok(await one(event, ':scope > :first-child + .help.event-meta').handle());
+  assert.equal((await all(event, '.event-main')).length, 0);
+  assert.ok(await one(event, ':scope > :first-child').hasClass('event-meta'));
+  assert.match(await srText(one(row(doc, 'pr'), '.subref')), /source branch feature\/a→ targeting branch main$/);
+  assert.equal(await one(row(doc, 'pr'), '.ref-route > [aria-hidden]').getAttribute('aria-hidden'), 'true');
   await meta('pr', 'Created by ', 'Ana');
   await meta('build', 'Requested by ', 'Bo');
   await meta('created', 'Pushed by ', 'Cy');
@@ -494,7 +509,7 @@ test('a PR row lists each vote change on its own and names a fork source on the 
         ],
       },
     },
-    { ...base, id: 'target', data: { id: 4, status: 'active', targetRefName: 'refs/heads/main', fork } },
+    { ...base, id: 'target', data: { id: 4, status: 'active', isDraft: true, targetRefName: 'refs/heads/main', fork } },
   ];
   const doc = parse(renderFeed(state, view));
   const first = (id: string) => one(row(doc, id), '.event > :first-child');
@@ -509,9 +524,9 @@ test('a PR row lists each vote change on its own and names a fork source on the 
     ],
   );
   assert.ok((await Promise.all(votes.map(vote => one(vote, '.status-dot').getAttribute('aria-hidden')))).every(value => value === 'true'));
-  assert.ok(await first('target').hasClass('event-main'));
-  assert.equal(await text(first('target')), 'Target: main');
+  assert.equal((await all(row(doc, 'target'), '.event-main')).length, 0);
   for (const id of ['votes', 'target']) {
+    assert.match(await srText(one(row(doc, id), '.subref')), /source branch feature\/a→ targeting branch main$/, id);
     const origin = one(row(doc, id), '.event-origin');
     assert.equal(await text(origin), 'From fork One-fork in Q', id);
     assert.equal((await all(origin, 'svg')).length, 1, id);

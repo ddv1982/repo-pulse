@@ -2372,6 +2372,19 @@ test('on desktop every row lines up its ref line with its meta line, and its sum
   );
   // At the narrowest desktop width a long branch is cut short and its PR chip stays inside the title column.
   await page.setViewportSize({ width: 1024, height: 900 });
+  const prRow = page.locator('[data-event-id="long-title-pr"]');
+  await expect(prRow.locator('.feed-title')).toHaveAccessibleName(
+    /source branch feature\/DAT-9861_animal_seeds_standards targeting branch main/,
+  );
+  await expect(prRow.locator('.standalone-pr-ring')).toBeVisible();
+  const connectedPr = page.locator('[data-event-id="demo-pr-1"]');
+  await expect(connectedPr.locator('svg.tree circle.hole')).toBeVisible();
+  const destinationFits = async () =>
+    prRow.locator('.ref-destination').evaluate(element => {
+      const column = element.closest('.subject')?.getBoundingClientRect();
+      return !!column && element.getBoundingClientRect().right <= column.right && element.scrollWidth <= element.clientWidth;
+    });
+  await expect.poll(destinationFits).toBe(true);
   const ciRow = page.locator('[data-event-id="long-branch-ci"]');
   await expect
     .poll(
@@ -2383,8 +2396,13 @@ test('on desktop every row lines up its ref line with its meta line, and its sum
     )
     .toBeLessThanOrEqual(0);
   expect(await ciRow.locator('.ref-branch').evaluate(branch => branch.scrollWidth > branch.clientWidth)).toBe(true);
+  await page.screenshot({ path: 'test-results/open-pr-activity-desktop.png' });
   // On a phone the type label shares its line with the taller Seen control, so it centres on it.
   await page.setViewportSize({ width: 390, height: 900 });
+  await expect(prRow.locator('.standalone-pr-ring')).toBeHidden();
+  await expect(prRow.locator('.kind > .d')).toBeVisible();
+  await expect.poll(destinationFits).toBe(true);
+  await page.screenshot({ path: 'test-results/open-pr-activity-phone.png' });
   const centre = (box: { y: number; height: number }) => box.y + box.height / 2;
   const first = page.locator('.rows .row').first();
   await expect

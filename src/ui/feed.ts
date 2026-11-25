@@ -19,11 +19,12 @@ import { renderTrail } from './activity-trail.ts';
 import { renderTypeFilter } from './type-filter.ts';
 import { activityScopeQuery } from './activity-data.ts';
 import { activityFilterLabel, activityRef, prForkSource, prTarget, prVoteChanges } from '../activity-text.ts';
+import { branchName } from '../events.ts';
 import { scopeName } from './header.ts';
 import { currentActivityFilters, isSavedFilterModified, renderSavedFilters } from './saved-filters.ts';
 import { mergeEvidenceBadge } from './merge-evidence.ts';
 import { buildActivityTree, type ActivityTree } from '../activity-tree.ts';
-import { forkText, renderTreeCell, treeLegend } from './activity-tree.ts';
+import { forkText, renderTreeCell, standalonePrRing, treeLegend } from './activity-tree.ts';
 import { linkedMergePushes } from './linked-pushes.ts';
 import { linkedTagBuilds } from './linked-tag-builds.ts';
 import type { PageState } from './refresh.ts';
@@ -81,7 +82,7 @@ function renderMeta(record: ActivityItem) {
 /**
  * The event column in tiers: what happened with its evidence chips, then who and when, then where the branch started.
  */
-function renderEvent(record: ActivityItem, origin: string, related?: ActivityItem) {
+function renderEvent(record: ActivityItem, origin: string, targetShown: boolean, related?: ActivityItem) {
   const pr =
     record.kind === 'pr' && record.data && (record.data.targetRefName || record.data.voteChanges?.length) ? record.data : undefined;
   const votes = pr ? prVoteChanges(pr) : [];
@@ -91,12 +92,14 @@ function renderEvent(record: ActivityItem, origin: string, related?: ActivityIte
   const summary = votes.length
     ? html`${shownVotes.map(change => html`<span class="status-text ${voteTone(change.vote)}"><span class="status-dot" aria-hidden="true"></span>${change.text}</span>`)}`
     : pr
-      ? prTarget(pr)
+      ? targetShown
+        ? ''
+        : prTarget(pr)
       : rowSummary(record);
   const badge = mergeEvidenceBadge(record);
   const origins = [pr ? prForkSource(pr.fork) : '', origin].filter(Boolean);
-  // A row with nothing else to say first, such as a new branch, leads with where it started.
-  const lead = summary || origins.length === 0 ? summary : origins.shift();
+  // A new branch can lead with its origin. A PR with its target in the subject keeps the origin in its notes.
+  const lead = summary || targetShown || origins.length === 0 ? summary : origins.shift();
   const trail = record.unseen ? renderTrail(record) : emptyHtml;
   const linked = related
     ? html`<details class="linked-event" data-group="linked-${related.kind}-${record.groupKey}">
@@ -170,22 +173,37 @@ function rowTitle(record: ActivityItem, title: string) {
  * @param title the row's shown title
  * @param repoName empty when the row needs no repository name
  */
-function renderRefLine(record: ActivityItem, title: string, repoName: string) {
-  const ref = record.branch ? activityRef(record) : { branch: '' };
+function renderRefLine(record: ActivityItem, title: string, repoName: string, prDestination: string) {
+  const openPr = record.kind === 'pr' && record.data?.status === 'active';
+  const ref = openPr
+    ? { branch: branchName(record.data?.sourceRefName || record.branch) }
+    : record.branch
+      ? activityRef(record)
+      : { branch: '' };
   const named = !['pr', 'build'].includes(record.kind) && Boolean(ref.branch) && namesRef(title, ref.branch);
   const { branch, pullRequestId } = named ? { ...ref, branch: '' } : ref;
-  if (!repoName && !branch && !pullRequestId) return emptyHtml;
+  if (!repoName && !branch && !pullRequestId && !prDestination) return emptyHtml;
   const tag = record.kind === 'build' && (record.data?.sourceBranch ?? branch).startsWith('refs/tags/');
   // The branch and its PR share a group that never wraps, so a long branch name is cut short before the chip moves.
   return html`<span class="subref">${repoName ? html`<span class="ref-repo"><span class="sr"> · repository </span>${repoName}</span>` : emptyHtml}${
-    branch || pullRequestId
-      ? html`<span class="ref-target">${
+    branch || pullRequestId || prDestination
+      ? html`<span class="ref-target${prDestination ? ' ref-route' : ''}">${
           branch
-            ? html`<span class="ref-branch" title="${branch}">${tag ? icons.tag : icons.branch}<span class="sr"> · ${tag ? 'tag' : 'branch'} </span><span class="ref-name">${tag ? branch.replace(/^refs\/tags\//, '') : branch}</span></span>`
+            ? html`<span class="ref-branch" title="${branch}">${tag ? icons.tag : icons.branch}<span class="sr"> · ${tag ? 'tag' : openPr ? 'source branch' : 'branch'} </span><span class="ref-name">${tag ? branch.replace(/^refs\/tags\//, '') : branch}</span></span>`
+            : emptyHtml
+        }${
+          prDestination
+            ? html`${branch ? html`<span aria-hidden="true">→</span><span class="sr"> targeting branch </span>` : html` <span class="sr"> · </span><span>Target:</span> `}<span class="ref-destination" title="${prDestination}"><span class="ref-name">${prDestination}</span></span>`
             : emptyHtml
         }${pullRequestId ? html`<span class="chip ref-pr"><span class="sr"> · </span>PR ${pullRequestId}</span>` : emptyHtml}</span>`
       : emptyHtml
   }</span>`;
+}
+
+function renderKind(record: ActivityItem, tone: string, tree?: import('./activity-tree.ts').TreeRow) {
+  const glyph = record.kind === 'branch-created' ? icons.branch : record.kind === 'tag' ? icons.tag : html`<span class="d"></span>`;
+  const ring = tree && standalonePrRing(tree) ? html`<span class="standalone-pr-ring" aria-hidden="true"></span>` : emptyHtml;
+  return html`<span class="kind ${tone}">${glyph}${activityLabel(record)}${ring}</span>`;
 }
 
 /**
@@ -212,10 +230,11 @@ function row(
   const fullTitle = activityTitle(record);
   const title = rowTitle(record, fullTitle);
   const origin = forkText(tree?.fork ?? null);
+  const prDestination = record.kind === 'pr' && record.data?.status === 'active' ? branchName(record.data.targetRefName) : '';
   return html`<li class="${['row', failed ? 'crit' : '', record.unseen ? 'new' : '', `tone-${tone}`].filter(Boolean).join(' ')}" id="row-${record.groupKey}" data-event-id="${record.id}" data-event-ids="${ids}" data-group-key="${record.groupKey}" data-unseen-ids="${unreadIds}">${tree ? renderTreeCell(tree, tone) : emptyHtml}
-    <span class="kind ${tone}">${record.kind === 'branch-created' ? icons.branch : record.kind === 'tag' ? icons.tag : html`<span class="d"></span>`}${activityLabel(record)}</span>
-    <div class="subject"><button class="feed-title" type="button" data-action="detail" data-id="${record.id}"><span class="title">${title}${unread.length > 1 ? html` <span class="pill u new-count">${unread.length} new</span>` : emptyHtml}</span>${renderRefLine(record, title, showRepo ? repo?.name || 'Unknown repository' : '')}</button></div>
-    ${renderEvent(record, origin, related)}
+    ${renderKind(record, tone, tree)}
+    <div class="subject"><button class="feed-title" type="button" data-action="detail" data-id="${record.id}"><span class="title">${title}${unread.length > 1 ? html` <span class="pill u new-count">${unread.length} new</span>` : emptyHtml}</span>${renderRefLine(record, title, showRepo ? repo?.name || 'Unknown repository' : '', prDestination)}</button></div>
+    ${renderEvent(record, origin, Boolean(prDestination), related)}
     <div class="rowact">${azureLink(record.url)}${record.imported ? emptyHtml : html`<button class="ghost sm seen-toggle" type="button" id="seen-${record.groupKey}" data-action="ack-item" data-id="${record.id}" data-mark-seen="${record.unseen}" data-event-ids="${ackIds}" aria-pressed="${!record.unseen}" aria-label="Seen: ${fullTitle}${ackLinkedPush ? ' and linked push' : ''}">${icons.seenBox}Seen</button>`}</div></li>`;
 }
 
