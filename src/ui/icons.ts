@@ -13,6 +13,7 @@ export const icons = {
   ),
   dark: svg(html`<path d="M20.9 13.1A9 9 0 0 1 10.9 3.1 9 9 0 1 0 20.9 13.1Z"/>`),
   refresh: svg(html`<path d="M21 12a9 9 0 1 1-2.64-6.36L21 8"/><path d="M21 3v5h-5"/>`),
+  copy: svg(html`<rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 4H6a2 2 0 0 0-2 2v10"/>`),
   pulse: svg(html`<path d="M22 12h-4l-3 9L9 3l-3 9H2"/>`),
   seenBox: html`<svg class="seen-box" aria-hidden="true" width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="1.25" y="1.25" width="11.5" height="11.5" rx="3"/><path class="seen-check" d="M4 7.2 6.1 9.3 10 5"/></svg>`,
   tag: svg(tagGlyph),

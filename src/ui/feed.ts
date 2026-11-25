@@ -279,14 +279,14 @@ function statusBanner(state: PageState, status: (import('./health.ts').SyncStatu
   if (!status) return emptyHtml;
   const name = syncRepoName(state.repos, status);
   const where = name ? `${name}: ` : '';
+  if (status.state === 'problem' && status.signInRequired)
+    return html`<div class="banner crit azure-sign-in"><div>
+      <strong>Azure sign-in required</strong>
+      Run <span class="azure-sign-in-command"><code>az login</code><button class="ghost sm" type="button" id="copy-azure-login" data-action="copy-azure-login" aria-label="Copy az login" title="Copy az login">${icons.copy}</button></span> in your terminal to reconnect${name ? ` ${name}` : ''}.
+      <button class="ghost sm" type="button" id="retry-sign-in" data-action="refresh" data-retry-sign-in>Retry after signing in</button>
+    </div></div>`;
   if (status.state === 'problem')
-    return html`<div class="banner crit"><div><strong>Problem</strong>${where}${status.reason} ${
-      status.signInRequired
-        ? html`Run <code>az login</code> in your terminal.
-          <button class="ghost sm" type="button" id="copy-azure-login" data-action="copy-azure-login" aria-label="Copy az login">Copy</button>
-          <button class="ghost sm" type="button" id="retry-sign-in" data-action="refresh" data-retry-sign-in>Retry after signing in</button>`
-        : html`<a href="#repositories">See Repositories</a>`
-    }</div></div>`;
+    return html`<div class="banner crit"><div><strong>Problem</strong>${where}${status.reason} <a href="#repositories">See Repositories</a></div></div>`;
   if (status.state === 'delayed')
     return html`<div class="banner warn"><div><strong>Delayed</strong>${where}${status.reason}. Showing the activity stored so far.</div></div>`;
   if (status.state === 'paused')
