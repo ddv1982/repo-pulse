@@ -243,6 +243,19 @@ function attachPullRequests(db: import('node:sqlite').DatabaseSync, groups: Iter
   }
 }
 
+/** A cached peeled commit applies only to the exact tag object recorded by the push. */
+function attachTaggedCommits(db: import('node:sqlite').DatabaseSync, items: ActivityItem[]) {
+  let readRef: import('node:sqlite').StatementSync | undefined;
+  for (const item of items) {
+    const { name, newObjectId, evidence, change } = item.data ?? {};
+    if (item.kind !== 'tag' || evidence !== 'push' || change !== 'created' || !name?.startsWith('refs/tags/') || !newObjectId) continue;
+    readRef ??= db.prepare(`SELECT json_extract(data,'$.peeledObjectId') AS commit_id FROM entities
+      WHERE repo_id=? AND type='ref' AND id=? AND lower(json_extract(data,'$.objectId'))=?`);
+    const commit = readRef.get(item.repoId, name, newObjectId.toLowerCase())?.commit_id;
+    if (typeof commit === 'string') item.data = { ...item.data, peeledObjectId: commit };
+  }
+}
+
 /** Resolve boundaries from the cached events even when the corresponding rows are seen, filtered out, or off-page. */
 function attachBranchLifetimes(db: import('node:sqlite').DatabaseSync, items: ActivityItem[], maxSequence: number) {
   const wanted = items.flatMap((item, index) => {
@@ -396,6 +409,7 @@ export function createActivityQuery(
     const members = loadMembers(db, hydrate, member, filter, selectedGroups);
     attachPullRequests(db, members.values());
     const items = selectedGroups.flatMap(group => projectActivity(group.key, members.get(group.key) || [], group.representative) || []);
+    if (!kind && !needles.length && !names.length && view !== 'new') attachTaggedCommits(db, items);
     attachBranchLifetimes(db, items, maxSequence);
     const counts = summarizeCounts(countRows);
     const nextCursor = groups.length > pageSize ? encodeCursor(selectedGroups.at(-1), maxSequence, filterKey, revision) : null;
