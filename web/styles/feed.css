@@ -518,6 +518,25 @@ ol.rows {
   height: 12px;
   margin-top: 2px;
 }
+.linked-push {
+  width: fit-content;
+  max-width: 100%;
+  margin-top: 2px;
+  color: var(--muted-foreground);
+  font-size: 12px;
+}
+.linked-push summary {
+  cursor: pointer;
+}
+.linked-push button.sm {
+  max-width: 100%;
+  height: auto;
+  min-height: var(--control-height-sm);
+  padding-block: 4px;
+  white-space: normal;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
 .rowact {
   display: flex;
   align-items: center;

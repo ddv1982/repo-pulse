@@ -786,7 +786,7 @@ async function startLocked(
     if (!azure || !repo) return false;
     defaultBranchLookups.add(repo.id);
     try {
-      const resolved = await azure.resolveRepository({ ...repo, repoName: repo.azureId });
+      const resolved = await azure.resolveRepository({ ...repo, project: repo.projectId || repo.project, repoName: repo.azureId });
       const current = store.listRepos().find(entry => entry.id === repo.id);
       if (resolved.id === repo.id && current && current.defaultBranch === undefined)
         store.saveRepo({ ...current, defaultBranch: resolved.defaultBranch });

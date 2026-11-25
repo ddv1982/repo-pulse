@@ -532,6 +532,95 @@ test('an open Activity view picks up a seen action in another tab and later merg
   await expect(page.getByRole('link', { name: 'PR #12' })).toBeVisible();
 });
 
+test('a verified merge push folds in the mixed feed and keeps its own detail, filters, and unread state', async t => {
+  const { runtime, page } = await demo(t);
+  const result = 'c'.repeat(40);
+  const time = new Date().toISOString();
+  const target = `release/${'long-target-branch-'.repeat(12)}candidate`;
+  const targetRefName = `refs/heads/${target}`;
+  const pullRequestId = 23456;
+  const evidence = { pullRequestId, targetRefName, mergeCommit: result, relationship: 'result-introduced' };
+  runtime.store.insertEvents([
+    {
+      id: 'linked-pr',
+      repoId: 'demo-orders',
+      kind: 'pr',
+      title: 'PR 23456 · Fix invoices',
+      branch: 'fix/invoices',
+      time,
+      data: { ...evidence, status: 'completed', sourceRefName: 'refs/heads/fix/invoices' },
+    },
+    {
+      id: 'linked-push',
+      repoId: 'demo-orders',
+      kind: 'push',
+      branch: target,
+      time,
+      data: { pushId: 23100, refUpdates: [{ name: targetRefName, oldObjectId: 'b'.repeat(40), newObjectId: result }] },
+    },
+  ]);
+  runtime.store.enrichEvent('linked-push', { mergeEvidence: { prs: [evidence] } });
+  await page.goto(runtime.url + '/#activity');
+  const merge = page.locator('li[data-event-id="linked-pr"]');
+  const push = page.locator('li[data-event-id="linked-push"]');
+  await expect(push).toHaveCount(0);
+  await expect(merge.getByText('2 new')).toBeVisible();
+  await merge.getByText('Linked push · unread', { exact: true }).click();
+  const openPush = merge.getByRole('button', { name: `View push to ${target}` });
+  for (const width of [1280, 390, 1280]) {
+    await page.setViewportSize({ width, height: 900 });
+    assert.ok(
+      await openPush.evaluate(element => {
+        const column = element.closest('.event')?.getBoundingClientRect();
+        const button = element.getBoundingClientRect();
+        return (
+          column &&
+          button.right <= column.right &&
+          button.bottom <= column.bottom &&
+          element.scrollHeight <= element.clientHeight &&
+          document.documentElement.scrollWidth <= innerWidth
+        );
+      }),
+      `The linked push fits the ${width}px viewport`,
+    );
+  }
+  await openPush.click();
+  await expect(page.getByRole('heading', { name: `Merge of PR 23456 pushed to ${target}` })).toBeVisible();
+  await page.getByRole('link', { name: 'Back to Activity' }).click();
+  await expect(openPush).toBeFocused();
+
+  const search = page.getByRole('searchbox', { name: 'Search activity' });
+  await search.fill(result);
+  await expect(push).toBeVisible();
+  await search.clear();
+  await expect(push).toHaveCount(0);
+  await page.getByRole('button', { name: /^Activity type:/ }).click();
+  await page.getByRole('option', { name: 'Push', exact: true }).click();
+  await expect(push).toBeVisible();
+  await expect(merge).toHaveCount(0);
+  await page.getByRole('button', { name: /^Activity type:/ }).click();
+  await page.getByRole('option', { name: 'All types', exact: true }).click();
+  await expect(push).toHaveCount(0);
+
+  await merge.getByRole('button', { name: /Seen: .* and linked push/ }).click();
+  await expect.poll(() => [isSeen(runtime.store, 'linked-pr'), isSeen(runtime.store, 'linked-push')]).toEqual([true, true]);
+  runtime.store.acknowledge(['linked-pr'], false);
+  await page.reload();
+  await expect(merge.getByRole('button', { name: 'Seen: PR 23456 · Fix invoices', exact: true })).toHaveAttribute(
+    'data-event-ids',
+    '["linked-pr"]',
+  );
+  // A seen PR and an independently unread push must show both rows in the mixed feed.
+  runtime.store.acknowledge(['linked-pr']);
+  runtime.store.acknowledge(['linked-push'], false);
+  await page.reload();
+  await expect(push).toBeVisible();
+  await expect(merge).toBeVisible();
+  await page.getByRole('button', { name: 'Unread only', exact: true }).click();
+  await expect(push).toBeVisible();
+  await expect(merge).toHaveCount(0);
+});
+
 test('opening Activity before the first state load arrives stays on Activity', async t => {
   const { runtime, page } = await demo(t);
   const release = Promise.withResolvers<void>();

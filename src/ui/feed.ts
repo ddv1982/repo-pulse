@@ -24,6 +24,7 @@ import { currentActivityFilters, isSavedFilterModified, renderSavedFilters } fro
 import { mergeEvidenceBadge } from './merge-evidence.ts';
 import { buildActivityTree, type ActivityTree } from '../activity-tree.ts';
 import { forkText, renderTreeCell, treeLegend } from './activity-tree.ts';
+import { linkedMergePushes } from './linked-pushes.ts';
 import type { PageState } from './refresh.ts';
 import type { ActivityItem } from '../activity.ts';
 export { renderDetail } from './activity-detail.ts';
@@ -79,7 +80,7 @@ function renderMeta(record: ActivityItem) {
 /**
  * The event column in tiers: what happened with its evidence chips, then who and when, then where the branch started.
  */
-function renderEvent(record: ActivityItem, origin: string) {
+function renderEvent(record: ActivityItem, origin: string, push?: ActivityItem) {
   const pr =
     record.kind === 'pr' && record.data && (record.data.targetRefName || record.data.voteChanges?.length) ? record.data : undefined;
   const votes = pr ? prVoteChanges(pr) : [];
@@ -96,9 +97,14 @@ function renderEvent(record: ActivityItem, origin: string) {
   // A row with nothing else to say first, such as a new branch, leads with where it started.
   const lead = summary || origins.length === 0 ? summary : origins.shift();
   const trail = record.unseen ? renderTrail(record) : emptyHtml;
+  const linked = push
+    ? html`<details class="linked-push" data-group="linked-push-${record.groupKey}"><summary>Linked push${push.unseen ? ' · unread' : ''}</summary>
+        <button class="ghost sm" type="button" data-action="detail" data-id="${push.id}">View push to ${activityRef(push).branch}</button>
+      </details>`
+    : emptyHtml;
   return html`<div class="event">${lead || badge !== emptyHtml ? html`<div class="event-main">${typeof lead === 'string' ? (lead ? html`<span>${lead}</span>` : emptyHtml) : lead}${badge}</div>` : emptyHtml}${renderMeta(record)}${
-    origins.length || trail !== emptyHtml
-      ? html`<div class="event-notes">${origins.map(text => html`<div class="help event-origin">${icons.branch}<span>${text}</span></div>`)}${trail}</div>`
+    origins.length || trail !== emptyHtml || push
+      ? html`<div class="event-notes">${origins.map(text => html`<div class="help event-origin">${icons.branch}<span>${text}</span></div>`)}${trail}${linked}</div>`
       : emptyHtml
   }</div>`;
 }
@@ -177,21 +183,31 @@ function renderRefLine(record: ActivityItem, title: string, repoName: string) {
 /**
  * @param showRepo whether more than one repository is in view, so the row has to say which one it belongs to
  */
-function row(record: ActivityItem, state: PageState, tree: import('../activity-tree.ts').TreeRow | undefined, showRepo: boolean) {
+function row(
+  record: ActivityItem,
+  state: PageState,
+  tree: import('../activity-tree.ts').TreeRow | undefined,
+  showRepo: boolean,
+  push?: ActivityItem,
+) {
   const repo = state.repos.find(item => item.id === record.repoId);
   const tone = activityTone(record);
   const failed = record.kind === 'build' && buildState(record).tone === 'crit';
-  const ids = JSON.stringify(record.eventIds);
-  const unreadIds = JSON.stringify(record.unseenIds);
-  const ackIds = record.unseen ? unreadIds : JSON.stringify(record.events.filter(event => !event.imported).map(event => event.id));
+  const ids = JSON.stringify([...record.eventIds, ...(push?.eventIds ?? [])]);
+  const unread = [...record.unseenIds, ...(push?.unseenIds ?? [])];
+  const unreadIds = JSON.stringify(unread);
+  const ackIds = record.unseen
+    ? unreadIds
+    : JSON.stringify([...record.events, ...(push?.events ?? [])].filter(event => !event.imported).map(event => event.id));
+  const ackLinkedPush = push && (!record.unseen || push.unseen);
   const fullTitle = activityTitle(record);
   const title = rowTitle(record, fullTitle);
   const origin = forkText(tree?.fork ?? null);
   return html`<li class="${['row', failed ? 'crit' : '', record.unseen ? 'new' : '', `tone-${tone}`].filter(Boolean).join(' ')}" id="row-${record.groupKey}" data-event-id="${record.id}" data-event-ids="${ids}" data-group-key="${record.groupKey}" data-unseen-ids="${unreadIds}">${tree ? renderTreeCell(tree, tone) : emptyHtml}
     <span class="kind ${tone}">${record.kind === 'branch-created' ? icons.branch : record.kind === 'tag' ? icons.tag : html`<span class="d"></span>`}${activityLabel(record)}</span>
-    <div class="subject"><button class="feed-title" type="button" data-action="detail" data-id="${record.id}"><span class="title">${title}${record.unseenIds.length > 1 ? html` <span class="pill u new-count">${record.unseenIds.length} new</span>` : emptyHtml}</span>${renderRefLine(record, title, showRepo ? repo?.name || 'Unknown repository' : '')}</button></div>
-    ${renderEvent(record, origin)}
-    <div class="rowact">${azureLink(record.url)}${record.imported ? emptyHtml : html`<button class="ghost sm seen-toggle" type="button" id="seen-${record.groupKey}" data-action="ack-item" data-id="${record.id}" data-mark-seen="${record.unseen}" data-event-ids="${ackIds}" aria-pressed="${!record.unseen}" aria-label="Seen: ${fullTitle}">${icons.seenBox}Seen</button>`}</div></li>`;
+    <div class="subject"><button class="feed-title" type="button" data-action="detail" data-id="${record.id}"><span class="title">${title}${unread.length > 1 ? html` <span class="pill u new-count">${unread.length} new</span>` : emptyHtml}</span>${renderRefLine(record, title, showRepo ? repo?.name || 'Unknown repository' : '')}</button></div>
+    ${renderEvent(record, origin, push)}
+    <div class="rowact">${azureLink(record.url)}${record.imported ? emptyHtml : html`<button class="ghost sm seen-toggle" type="button" id="seen-${record.groupKey}" data-action="ack-item" data-id="${record.id}" data-mark-seen="${record.unseen}" data-event-ids="${ackIds}" aria-pressed="${!record.unseen}" aria-label="Seen: ${fullTitle}${ackLinkedPush ? ' and linked push' : ''}">${icons.seenBox}Seen</button>`}</div></li>`;
 }
 
 function group(
@@ -203,10 +219,17 @@ function group(
     description = '',
     tree,
     showRepo,
-  }: { open?: boolean; description?: string; tree?: import('../activity-tree.ts').ActivityTree; showRepo: boolean },
+    linked,
+  }: {
+    open?: boolean;
+    description?: string;
+    tree?: import('../activity-tree.ts').ActivityTree;
+    showRepo: boolean;
+    linked: Map<string, ActivityItem>;
+  },
 ) {
   if (!records.length) return emptyHtml;
-  return html`<section class="group"><details data-group="${title}" ${open ? html`open` : emptyHtml}><summary class="ghead">${title} <span class="pill u">${records.length}</span><span class="note">${description}</span></summary><ul class="rows${tree ? ' with-tree' : ''}" ${tree ? html`data-tree-lanes="${tree.width}"` : emptyHtml}>${records.map((record, index) => row(record, state, tree?.rows[index], showRepo))}</ul></details></section>`;
+  return html`<section class="group"><details data-group="${title}" ${open ? html`open` : emptyHtml}><summary class="ghead">${title} <span class="pill u">${records.length + linked.size}</span><span class="note">${description}</span></summary><ul class="rows${tree ? ' with-tree' : ''}" ${tree ? html`data-tree-lanes="${tree.width}"` : emptyHtml}>${records.map((record, index) => row(record, state, tree?.rows[index], showRepo, linked.get(record.id)))}</ul></details></section>`;
 }
 
 const hasTreeLegend = (tree: ActivityTree) =>
@@ -216,18 +239,28 @@ const hasTreeLegend = (tree: ActivityTree) =>
  * Both groups carry a branch tree. They share one width so their columns line up.
  */
 function historyGroups(records: ActivityItem[], state: PageState, hasQuery: boolean, showRepo: boolean) {
-  const recordedItems = records.filter(record => !record.imported);
-  const importedItems = records.filter(record => record.imported);
+  const recorded = historyRows(
+    records.filter(record => !record.imported),
+    hasQuery,
+  );
+  const imported = historyRows(
+    records.filter(record => record.imported),
+    hasQuery,
+  );
   const defaultBranches = new Map(state.repos.flatMap(repo => (repo.defaultBranch ? [[repo.id, repo.defaultBranch]] : [])));
-  const recordedTree = buildActivityTree(recordedItems, { defaultBranches });
-  const importedTree = buildActivityTree(importedItems, { defaultBranches });
+  const recordedTree = buildActivityTree(recorded.items, { defaultBranches });
+  const importedTree = buildActivityTree(imported.items, { defaultBranches });
   const width = Math.max(recordedTree.width, importedTree.width);
-  const recorded = { ...recordedTree, width };
-  const imported = { ...importedTree, width };
   return {
-    content: html`${group('Activity', recordedItems, state, { tree: recorded, showRepo })}${group('Imported history', importedItems, state, { open: hasQuery, description: 'Captured before monitoring started', tree: imported, showRepo })}`,
+    content: html`${group('Activity', recorded.items, state, { tree: { ...recordedTree, width }, showRepo, linked: recorded.linked })}${group('Imported history', imported.items, state, { open: hasQuery, description: 'Captured before monitoring started', tree: { ...importedTree, width }, showRepo, linked: imported.linked })}`,
     legend: hasTreeLegend(recordedTree) || hasTreeLegend(importedTree),
   };
+}
+
+function historyRows(records: ActivityItem[], hasQuery: boolean) {
+  const linked = hasQuery ? new Map<string, ActivityItem>() : linkedMergePushes(records);
+  const nestedIds = new Set([...linked.values()].map(push => push.id));
+  return { items: records.filter(record => !nestedIds.has(record.id)), linked };
 }
 
 /**

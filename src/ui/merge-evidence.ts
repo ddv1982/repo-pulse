@@ -36,7 +36,7 @@ export type CheckedUpdate = { name?: string | undefined; update: { status?: stri
 /**
  * Branch updates with a history check: saved as ref ranges by the earlier merge analysis, or by the rewrite check.
  */
-const checkedUpdates = (data?: EventData): CheckedUpdate[] => [
+export const checkedUpdates = (data?: EventData): CheckedUpdate[] => [
   ...(data?.mergeEvidence?.refRanges || []).flatMap(range => (range.update ? [{ name: range.name, update: range.update }] : [])),
   ...(data?.mergeEvidence?.rewrite || []).map(({ ref, ...update }) => ({ name: ref, update })),
 ];
