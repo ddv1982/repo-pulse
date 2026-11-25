@@ -148,6 +148,7 @@ export function createBackfill({
     lastId = job.id;
     const repo = repos.get(job.repoId);
     if (!repo) return false;
+    const retryAtStart = retriedAt.get(repo.id);
     const current = () =>
       store.listRepos().some(item => item.id === repo.id && !item.disabled) &&
       jobs().some(item => item.id === job.id && item.startedAt === job.startedAt);
@@ -178,6 +179,9 @@ export function createBackfill({
       // Shutdown aborted the read, not Azure; the page resumes on the next start.
       if ((error as { code?: unknown })?.code === 'CLOSED') return true;
       const failures = (job.failures || 0) + 1;
+      const retryAt = retriedAt.get(repo.id);
+      const requestedDuringRead = retryAt !== undefined && retryAt !== retryAtStart;
+      const backoff = Math.min(30 * 60000, 60000 * 2 ** Math.min(failures - 1, 5));
       const detail =
         error instanceof Error && 'code' in error && typeof error.code === 'string'
           ? { code: error.code, message: error.message }
@@ -187,7 +191,7 @@ export function createBackfill({
         status: 'retrying',
         lastAttempt: iso(now()),
         failures,
-        nextAt: iso(now() + Math.min(30 * 60000, 60000 * 2 ** Math.min(failures - 1, 5))),
+        nextAt: iso(now() + (requestedDuringRead ? 0 : backoff)),
         error: detail,
       });
     }

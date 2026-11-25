@@ -78,6 +78,29 @@ test('history sign-in retry covers due and recovering jobs and coalesces repeat 
   store.close();
 });
 
+test('a sign-in retry requested during a history read survives failure on the old credentials', async () => {
+  const oldRead = Promise.withResolvers<AzurePage>();
+  const auth = { code: 'AUTH_REQUIRED', message: 'Sign in again' };
+  let calls = 0;
+  const { store, backfill } = setup({
+    async read() {
+      if (++calls === 1) return oldRead.promise;
+      return { items: [], nextCursor: null };
+    },
+  });
+  const job = backfill.start(repo.id);
+  store.saveJob({ ...job, status: 'retrying', error: auth, failures: 6 });
+  const inFlight = backfill.tick();
+  assert.equal(calls, 1);
+  assert.deepEqual(backfill.retrySignIn([repo.id]), { scheduled: true });
+  oldRead.reject(Object.assign(new Error(auth.message), { code: auth.code }));
+  await inFlight;
+  assert.equal(await backfill.tick(), true, 'retry without waiting for the stale read’s backoff');
+  assert.equal(calls, 2);
+  assert.equal(backfill.status()[0]?.error, null);
+  store.close();
+});
+
 test('historical imports mark only new history read without changing live state', async () => {
   const calls: ReadCall[] = [];
   const provider: Provider = {
