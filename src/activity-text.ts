@@ -125,15 +125,17 @@ export function matchesPushResult(data: ActivityEvent['data'], pr: import('./act
 export const matchingPushResults = (data: ActivityEvent['data']) =>
   (data?.mergeEvidence?.prs || []).filter(pr => matchesPushResult(data, pr));
 
+export function singleNamedPushResult(data: ActivityEvent['data']) {
+  const [pr, ...others] = matchingPushResults(data);
+  const id = pr?.pullRequestId ?? pr?.id;
+  return pr && id && !others.length ? { pr, id } : undefined;
+}
+
 export function activityTitle(event: ActivityEvent) {
   if (event.kind === 'branch-deleted') return `${activityLabel(event)}${event.branch ? ` · ${branchName(event.branch)}` : ''}`;
   if (event.kind === 'push') {
-    const prs = matchingPushResults(event.data);
-    const [pr] = prs;
-    const id = pr?.pullRequestId ?? pr?.id;
-    if (pr && prs.length === 1 && id) {
-      return `Merge of PR ${id} pushed to ${branchName(pr.targetRefName)}`;
-    }
+    const result = singleNamedPushResult(event.data);
+    if (result) return `Merge of PR ${result.id} pushed to ${branchName(result.pr.targetRefName)}`;
     if (event.actor === azureDevOpsService && event.title?.startsWith(`${azureDevOpsService} pushed`)) {
       return event.title.replace(azureDevOpsService, 'Azure DevOps service');
     }

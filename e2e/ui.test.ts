@@ -820,7 +820,7 @@ test('a New branch detail reviews a rewritten tracking ref before switching, the
   await page.locator('#activity-filters-toggle').click();
   const search = page.getByRole('searchbox', { name: 'Search activity' });
   await search.fill('checkout-from-activity');
-  await page.getByRole('button', { name: new RegExp(`^New branch · .*branch ${branch}$`) }).click();
+  await page.getByRole('button', { name: `${branch} · repository ${repo.name}`, exact: true }).click();
   await page.getByRole('button', { name: `Switch to ${branch}…` }).click();
   const dialog = page.getByRole('dialog');
   await expect(dialog).toContainText(`Switch to ${branch}?`);
@@ -1422,8 +1422,7 @@ test('confirmed branch deletion wording replaces legacy missing titles in rows, 
   await page.reload();
   await selectActivityType(page, 'Branch deleted');
   await expect(page.locator('li.row .kind')).toHaveText('Branch deleted');
-  await expect(page.locator('li.row .feed-title .title')).toHaveText('Branch deleted');
-  await expect(page.locator('li.row .feed-title .ref-name')).toHaveText('hotfix/finished');
+  await expect(page.locator('li.row .feed-title .title')).toHaveText('hotfix/finished');
   await expect(page.getByRole('button', { name: 'Activity type: Branch deleted', exact: true })).toBeVisible();
   await page.locator('li.row .feed-title').click();
   await expect(page.getByRole('heading', { name: 'Branch deleted · hotfix/finished' })).toBeVisible();

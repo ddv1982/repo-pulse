@@ -164,6 +164,39 @@ test('a completed pull request sits on its target lane and takes the source lane
   assert.equal(present(tree.rows[1]).through.length, 1);
 });
 
+test('an older fork cannot displace the lane of a completed pull request destination', () => {
+  const items = [
+    push('main'),
+    pr(7, 'fix/reliability', 'completed'),
+    push('main'),
+    push('fix/reliability'),
+    push('other'),
+    push('other'),
+    pr(8, 'feature/a'),
+    created('feature/a'),
+  ];
+  const { rows } = buildActivityTree(items);
+  const merge = present(rows[1]);
+  assert.equal(merge.node.slot, 0);
+  assert.equal(present(rows[2]).node.slot, 0);
+  assert.equal(merge.mergeFrom?.slot, present(rows[3]).node.slot);
+  assert.ok(present(merge.mergeFrom).slot > merge.node.slot);
+  assert.ok(present(rows[7]).forkFrom);
+});
+
+test('the visible default anchors the graph without changing a merge destination or reserving an absent lane', () => {
+  const options = { defaultBranches: new Map([['one', 'refs/heads/develop']]) };
+  const closed = pr(7, 'fix/release', 'completed', { targetRefName: 'refs/heads/release' });
+  const items = [push('release'), push('develop'), closed, push('fix/release'), push('develop')];
+  const tree = buildActivityTree(items, options);
+  assert.equal(present(tree.rows[1]).node.slot, 0);
+  assert.equal(present(tree.rows[4]).node.slot, 0);
+  assert.equal(present(tree.rows[2]).node.slot, present(tree.rows[0]).node.slot);
+  assert.notEqual(present(tree.rows[2]).node.slot, 0);
+  assert.equal(present(buildActivityTree([closed], options).rows[0]).node.slot, 0);
+  assert.deepEqual(slots(buildActivityTree([push('topic'), push('develop'), push('topic')], options)), [1, 0, 1]);
+});
+
 test('a completed pull request without source rows in the list still shows a short merge', () => {
   const tree = buildActivityTree([pr(7, 'feature/a', 'completed'), push('main')]);
   assert.equal(present(tree.rows[0]).node.shape, 'merge');

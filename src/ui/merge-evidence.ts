@@ -1,4 +1,4 @@
-import { activityMergeBadge, matchesPushResult, matchingPushResults } from '../activity-text.ts';
+import { activityMergeBadge, matchesPushResult, matchingPushResults, singleNamedPushResult } from '../activity-text.ts';
 import { emptyHtml, html, dateTime, branchName, azureLink } from './format.ts';
 import type { EventData, EvidencePr } from '../activity.ts';
 
@@ -36,7 +36,7 @@ export type CheckedUpdate = { name?: string | undefined; update: { status?: stri
 /**
  * Branch updates with a history check: saved as ref ranges by the earlier merge analysis, or by the rewrite check.
  */
-const checkedUpdates = (data?: EventData): CheckedUpdate[] => [
+export const checkedUpdates = (data?: EventData): CheckedUpdate[] => [
   ...(data?.mergeEvidence?.refRanges || []).flatMap(range => (range.update ? [{ name: range.name, update: range.update }] : [])),
   ...(data?.mergeEvidence?.rewrite || []).map(({ ref, ...update }) => ({ name: ref, update })),
 ];
@@ -50,7 +50,7 @@ export function mergeEvidenceBadge(event: import('../activity.ts').ActivityEvent
   const history = rewritten.length
     ? html`<span class="chip status-chip warn">History rewritten · ${rewritten.map(range => droppedText(range.update)).join(', ')}</span>`
     : emptyHtml;
-  if (!label) return history;
+  if (!label || singleNamedPushResult(event.data)) return history;
   const count = matchingPushResults(event.data).length;
   return html`<span class="chip status-chip ok">${count > 1 ? `${count} completed PRs linked` : count === 1 ? 'Completed PR linked' : 'Related PR evidence'}</span>${history}`;
 }

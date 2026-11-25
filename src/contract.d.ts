@@ -9,7 +9,14 @@ export type { ActivityEvent, EventData };
 // Azure
 
 /** The repository fields the client reads. Watched repositories carry more. */
-export type AzureRepo = { organization: string; project: string; projectId?: string | null; azureId: string; webUrl: string };
+export type AzureRepo = {
+  organization: string;
+  project: string;
+  projectId?: string | null;
+  azureId: string;
+  webUrl: string;
+  defaultBranch?: string | null;
+};
 export type AzureStream = 'pushes' | 'refs' | 'prs' | 'closedPrs' | 'builds' | 'activeBuilds';
 
 // Azure DevOps records as Repo Pulse reads them. Each type names only the fields the code reads; the checks in

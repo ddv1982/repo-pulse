@@ -111,6 +111,7 @@ test('resolution strips credentials and connection check never claims CLI accoun
         return {
           id: 'abc',
           name: 'Repo',
+          defaultBranch: 'refs/heads/develop',
           project: { id: 'p', name: 'Project' },
           remoteUrl: 'https://secret@dev.azure.com/example/Project/_git/Repo',
         };
@@ -119,6 +120,7 @@ test('resolution strips credentials and connection check never claims CLI accoun
   });
   const resolved = await client.resolveRepository('https://example@dev.azure.com/example/Project/_git/Repo');
   assert.equal(resolved.webUrl, 'https://dev.azure.com/example/Project/_git/Repo');
+  assert.equal(resolved.defaultBranch, 'refs/heads/develop');
   assert(!JSON.stringify(resolved).includes('secret'));
   const before = calls.length;
   for (const input of [

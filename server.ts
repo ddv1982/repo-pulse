@@ -778,6 +778,23 @@ async function startLocked(
   let backfill: ReturnType<typeof createBackfill> | undefined;
   const rewriteCheck = azure && createRewriteCheck({ store, provider: azure });
   const forkCheck = azure && createForkOriginCheck({ store, provider: azure });
+  const defaultBranchLookups = new Set<string>();
+  async function loadMissingDefaultBranch() {
+    const repo = store
+      .listRepos()
+      .find(entry => !entry.disabled && entry.defaultBranch === undefined && !defaultBranchLookups.has(entry.id));
+    if (!azure || !repo) return false;
+    defaultBranchLookups.add(repo.id);
+    try {
+      const resolved = await azure.resolveRepository({ ...repo, project: repo.projectId || repo.project, repoName: repo.azureId });
+      const current = store.listRepos().find(entry => entry.id === repo.id);
+      if (resolved.id === repo.id && current && current.defaultBranch === undefined)
+        store.saveRepo({ ...current, defaultBranch: resolved.defaultBranch });
+    } catch {
+      // Optional metadata. Leave an unsuccessful lookup eligible the next time the app starts.
+    }
+    return true;
+  }
   const liveSync =
     azure &&
     createSync({
@@ -786,7 +803,10 @@ async function startLocked(
       isForeground: () => Date.now() - lastClientAt < 45_000,
       // Assigned below, before sync.start() can schedule any work.
       // Fork origin checks share the automatic-check turn and run when no rewrite check is due.
-      background: { rewrite: async () => (await rewriteCheck?.tick()) || forkCheck?.tick(), history: () => backfill?.tick() },
+      background: {
+        rewrite: async () => (await rewriteCheck?.tick()) || (await forkCheck?.tick()) || loadMissingDefaultBranch(),
+        history: () => backfill?.tick(),
+      },
     });
   const sync = (liveSync && {
     ...liveSync,

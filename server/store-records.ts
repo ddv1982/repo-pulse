@@ -80,6 +80,7 @@ const repository = fields({
   projectId: maybe(nullable(string)),
   azureId: maybe(string),
   webUrl: maybe(string),
+  defaultBranch: maybe(nullable(string)),
   disabled: maybe(boolean),
   localPath: maybe(string),
 });

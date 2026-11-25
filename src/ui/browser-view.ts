@@ -154,7 +154,10 @@ export function createBrowserView({
         const row = [...page.querySelectorAll('li[data-event-id]')].find(
           element => element instanceof HTMLElement && restored.eventId != null && eventIds(element).includes(restored.eventId),
         );
-        const title = row?.querySelector('.feed-title');
+        const detail = [...(row?.querySelectorAll<HTMLButtonElement>('[data-action="detail"]') ?? [])].find(
+          element => element.dataset.id === restored.eventId && element.checkVisibility(),
+        );
+        const title = detail ?? row?.querySelector('.feed-title');
         if (title instanceof HTMLElement) title.focus({ preventScroll: true });
         window.scrollTo({ top: restored.scrollY, behavior: 'instant' });
       });

@@ -9,6 +9,7 @@ import { createSync } from '../server/sync.ts';
 import { createBackfill } from '../server/backfill.ts';
 import { createRewriteCheck, type RewriteJob } from '../server/rewrite-check.ts';
 import { mergeEvidenceBadge as mergeEvidenceBadgeHtml } from '../src/ui/merge-evidence.ts';
+import { activityTitle } from '../src/activity-text.ts';
 import type { AzurePage, AzureProvider } from '../server/azure-client.ts';
 import type { AzureStreamRecord } from '../src/contract.d.ts';
 import type { ActivityEvent, RewriteResult } from '../src/activity.ts';
@@ -192,7 +193,9 @@ test('a PR link on the same push survives the rewrite result, in either order', 
     [7],
   );
   assert.deepEqual(first.data?.mergeEvidence?.rewrite, [{ ref: 'refs/heads/main', status: 'rewrite', dropped: 1 }]);
-  assert.match(mergeEvidenceBadge(first), /Completed PR linked.*History rewritten · 1 commit dropped/);
+  assert.equal(activityTitle(first), 'Merge of PR 7 pushed to main');
+  assert.match(mergeEvidenceBadge(first), /History rewritten · 1 commit dropped/);
+  assert.doesNotMatch(mergeEvidenceBadge(first), /Completed PR linked/);
   offered.pushes = [push(16, [move('release', C, D)])];
   advance(60000);
   await run();

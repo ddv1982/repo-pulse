@@ -15,6 +15,7 @@ const orders = {
   project: 'Demo',
   name: 'orders-api',
   webUrl: 'https://dev.azure.com/example/Demo/_git/orders-api',
+  defaultBranch: 'refs/heads/main',
   disabled: false,
 };
 const billing = {
@@ -24,6 +25,7 @@ const billing = {
   project: 'Demo',
   name: 'billing-web',
   webUrl: 'https://dev.azure.com/example/Demo/_git/billing-web',
+  defaultBranch: 'refs/heads/main',
   disabled: false,
 };
 const shared = {
@@ -33,6 +35,7 @@ const shared = {
   project: 'Demo',
   name: 'shared-components',
   webUrl: 'https://dev.azure.com/example/Demo/_git/shared-components',
+  defaultBranch: 'refs/heads/main',
   disabled: false,
 };
 export const demoRepos = [orders, billing, shared];

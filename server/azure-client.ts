@@ -66,6 +66,7 @@ export type ResolvedRepository = {
   azureId: string;
   name: string;
   webUrl: string;
+  defaultBranch: string | null;
   disabled: false;
 };
 export type RepositoryInput = { organization: string; project: string; repoName?: string; name?: string };
@@ -356,6 +357,7 @@ export function createAzureClient({ cli, now = Date.now }: { cli?: AzureClientCl
         projectId = textOf(fieldOf(fieldOf(raw, 'project'), 'id'));
       if (!id || !resolved || !projectName || projectId === undefined)
         throw cliError('INVALID_RESPONSE', 'Azure CLI did not resolve this repository.');
+      const defaultBranch = textOf(fieldOf(raw, 'defaultBranch'));
       return {
         id: repositoryKey(organization, id),
         organization,
@@ -364,6 +366,7 @@ export function createAzureClient({ cli, now = Date.now }: { cli?: AzureClientCl
         azureId: id,
         name: resolved,
         webUrl: `${organization}/${encodeURIComponent(projectName)}/_git/${encodeURIComponent(resolved)}`,
+        defaultBranch: defaultBranch?.startsWith('refs/heads/') && defaultBranch.length > 'refs/heads/'.length ? defaultBranch : null,
         disabled: false,
       };
     },

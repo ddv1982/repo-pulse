@@ -43,15 +43,14 @@ export type ActivityTree = { width: number; rows: TreeRow[] };
 type TreeEvent = ActivityEvent & Pick<ActivityItem, 'branchLifetimes' | 'prSourceLifetime'>;
 type PullRequest = { id: number | string; source: string; target: string; status?: string | undefined };
 /**
- * One stretch of a branch. `top` and `bottom` are row indexes, newest first. `target` marks a lane that others fork
- * from or merge into.
+ * One stretch of a branch. `top` and `bottom` are row indexes, newest first.
  */
 type Lane = {
   key: string;
   top: number;
   bottom: number;
   branch: string;
-  target: boolean;
+  priority: number;
   slot: number;
   color: number;
 };
@@ -193,12 +192,12 @@ function nodeShape(item: ActivityEvent): TreeNode['shape'] {
 }
 
 /**
- * Gives each lane a position. Lanes that others fork from or merge into go first, so a trunk stays on
- * the left. A lane that overlaps `maxLanes` others keeps slot -1.
+ * Gives visible defaults first claim on the left, then merge destinations and fork origins.
+ * A lane that overlaps `maxLanes` others keeps slot -1.
  */
 function placeLanes(lanes: Lane[], maxLanes: number) {
   const ordered = [...lanes].sort(
-    (a, b) => Number(b.target) - Number(a.target) || Number(Boolean(b.branch)) - Number(Boolean(a.branch)) || a.top - b.top,
+    (a, b) => b.priority - a.priority || Number(Boolean(b.branch)) - Number(Boolean(a.branch)) || a.top - b.top,
   );
   const placed: Lane[] = [];
   for (const lane of ordered) {
@@ -225,15 +224,17 @@ function colorLanes(lanes: Lane[], joined: Set<Lane>) {
  * back, so long-lived branches do not hold a position through pages of unrelated activity. A lane also ends at the
  * row where a push created the branch: older rows under the same name belong to an earlier branch.
  */
-function splitLanes(branches: Map<string, { branch: string; rows: Set<number>; starts: Set<number> }>, maxGap: number) {
+type BranchRows = { branch: string; rows: Set<number>; starts: Set<number>; isDefault: boolean };
+
+function splitLanes(branches: Map<string, BranchRows>, maxGap: number) {
   const byRow: Map<string, Map<number, Lane>> = new Map();
   const lanes: Lane[] = [];
-  for (const [key, { branch, rows, starts }] of branches) {
+  for (const [key, { branch, rows, starts, isDefault }] of branches) {
     const index = new Map();
     let lane: Lane | undefined;
     for (const row of [...rows].sort((a, b) => a - b)) {
       if (!lane || row - lane.bottom - 1 > maxGap || starts.has(lane.bottom)) {
-        lane = { key, top: row, bottom: row, branch, target: false, slot: -1, color: -1 };
+        lane = { key, top: row, bottom: row, branch, priority: isDefault ? 3 : 0, slot: -1, color: -1 };
         lanes.push(lane);
       }
       lane.bottom = row;
@@ -250,16 +251,25 @@ function splitLanes(branches: Map<string, { branch: string; rows: Set<number>; s
  */
 export function buildActivityTree(
   items: TreeEvent[],
-  { maxLanes = MAX_LANES, maxGap = MAX_GAP }: { maxLanes?: number; maxGap?: number } = {},
+  {
+    maxLanes = MAX_LANES,
+    maxGap = MAX_GAP,
+    defaultBranches,
+  }: { maxLanes?: number; maxGap?: number; defaultBranches?: ReadonlyMap<string, string> } = {},
 ): ActivityTree {
   const prs = pullRequests(items);
-  const branches: Map<string, { branch: string; rows: Set<number>; starts: Set<number> }> = new Map();
+  const branches: Map<string, BranchRows> = new Map();
   const keyOf = (item: TreeEvent, ref: string, lifetime = item.branchLifetimes?.[ref] ?? '') =>
     laneKey(item.repoId, JSON.stringify([ref, lifetime]));
   const mark = (item: TreeEvent, branch: string, row: number) => {
     const source = item.kind === 'pr' && item.data?.status === 'completed' ? undefined : treePullRequestSource(item);
     const key = branch ? keyOf(item, branch, source?.ref === branch ? item.prSourceLifetime : undefined) : laneKey(item.repoId, `\n${row}`);
-    const entry = branches.get(key) ?? { branch, rows: new Set(), starts: new Set() };
+    const entry = branches.get(key) ?? {
+      branch,
+      rows: new Set(),
+      starts: new Set(),
+      isDefault: branch === defaultBranches?.get(item.repoId),
+    };
     branches.set(key, entry);
     entry.rows.add(row);
     return key;
@@ -333,14 +343,14 @@ export function buildActivityTree(
   const targets = new Map<number, Lane>();
   for (const [row, join] of joins) {
     const own = ownLanes[row] as Lane;
-    own.target ||= !join.fork;
+    if (!join.fork) own.priority = Math.max(own.priority, 2);
     if (join.isolated) continue;
     const target = candidates
       .get(join.key)
       ?.reduce<Lane | undefined>((best, lane) => (!best || distance(lane, row) < distance(best, row) ? lane : best), undefined);
     if (target && distance(target, row) <= maxGap + 1) {
       targets.set(row, target);
-      target.target ||= Boolean(join.fork);
+      if (join.fork) target.priority = Math.max(target.priority, 1);
     }
   }
   const drawn = placeLanes(lanes, maxLanes);
@@ -358,7 +368,9 @@ export function buildActivityTree(
       const bottom = Math.max(row, target.bottom);
       const slot = rangeFree(target.slot, top, bottom, target)
         ? target.slot
-        : freeSlots.find(index => rangeFree(index, top, bottom, target));
+        : target.priority < 2
+          ? freeSlots.find(index => rangeFree(index, top, bottom, target))
+          : undefined;
       if (slot !== undefined) {
         target.slot = slot;
         target.top = top;
@@ -368,9 +380,11 @@ export function buildActivityTree(
       }
     }
     if (target && distance(target, row) === 0) continue;
-    const slot = freeSlots.find(index => rangeFree(index, row, row));
+    const slot =
+      (!join.fork ? freeSlots.find(index => index > own.slot && rangeFree(index, row, row)) : undefined) ??
+      freeSlots.find(index => rangeFree(index, row, row));
     if (slot === undefined) continue;
-    const stub = { key: join.key, top: row, bottom: row, branch: '', target: false, slot, color: -1 };
+    const stub = { key: join.key, top: row, bottom: row, branch: '', priority: 0, slot, color: -1 };
     drawn.push(stub);
     visibleJoins.set(row, stub);
   }
