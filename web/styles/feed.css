@@ -1,4 +1,26 @@
 /* Activity summary, filters, feed rows, event trails, and detail view. */
+.azure-sign-in {
+  overflow-wrap: anywhere;
+}
+.azure-sign-in-command {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding-inline-start: 8px;
+  border-radius: var(--radius);
+  background: color-mix(in oklab, var(--foreground) 7%, transparent);
+  vertical-align: middle;
+  white-space: nowrap;
+}
+.azure-sign-in-command code {
+  font-weight: 600;
+}
+.azure-sign-in-command button {
+  min-width: var(--control-height-sm);
+}
+.azure-sign-in .ghost {
+  color: var(--foreground-soft);
+}
 .summary .top {
   padding: 12px 16px;
 }

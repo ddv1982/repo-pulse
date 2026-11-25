@@ -1890,17 +1890,22 @@ test('Activity shows a sign-in failure on return and retries the blocked live st
   const retry = page.getByRole('button', { name: 'Retry after signing in' });
   await expect(retry).toBeVisible();
   const banner = page.locator('#page .banner.crit');
-  await expect(banner).toContainText('Orders: Sign in to Azure again.');
+  await page.setViewportSize({ width: 320, height: 844 });
+  await expect(banner.locator('strong')).toHaveText('Azure sign-in required');
+  await expect(banner).toContainText('to reconnect Orders.');
   await expect(banner.locator('code')).toHaveText('az login');
+  const copy = banner.getByRole('button', { name: 'Copy az login' });
+  await expect(copy.locator('svg')).toBeVisible();
   await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
-  await banner.getByRole('button', { name: 'Copy az login' }).click();
+  await copy.focus();
+  await copy.press('Enter');
   await expect(page.locator('#toast')).toHaveText('Command copied.');
   assert.equal(await page.evaluate(() => navigator.clipboard.readText()), 'az login');
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
   await page.evaluate(() => {
     Object.defineProperty(navigator.clipboard, 'writeText', { value: () => Promise.reject(new Error('Copy blocked')) });
   });
-  await banner.getByRole('button', { name: 'Copy az login' }).click();
+  await copy.click();
   await expect(page.locator('#toast')).toContainText('Select the command to copy it manually.');
 
   const builds = present(store.getStreams().find(state => state.stream === 'builds'));
