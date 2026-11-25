@@ -215,7 +215,14 @@ export type SyncState = 'paused' | 'problem' | 'delayed' | 'syncing' | 'synced';
 /**
  * `since` is the oldest last success across the repository's streams, absent until every stream has read once.
  */
-export type SyncStatus = { state: SyncState; reason?: string; since?: string; lastCheck?: string; stream?: AzureStream | 'history' };
+export type SyncStatus = {
+  state: SyncState;
+  reason?: string;
+  since?: string;
+  lastCheck?: string;
+  stream?: AzureStream | 'history';
+  signInRequired?: true;
+};
 export type OverallSyncStatus = (SyncStatus & { repoId: string }) | { state: 'empty' } | { state: 'problem'; reason: string };
 export type SyncStatusReport = { overall: OverallSyncStatus; repos: Record<string, SyncStatus> };
 

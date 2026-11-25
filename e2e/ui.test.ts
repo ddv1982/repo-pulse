@@ -14,6 +14,7 @@ import { checkoutFixture, git } from '../test/fixtures/checkout.ts';
 const fetch = fetchWithKey;
 import { createStore } from '../server/store.ts';
 import { createSync } from '../server/sync.ts';
+import { createBackfill } from '../server/backfill.ts';
 import { createAzureCli } from '../server/azure-cli.ts';
 import { createAzureClient } from '../server/azure-client.ts';
 import type { AppSync } from '../server.ts';
@@ -1824,6 +1825,90 @@ test('the sync status pill reads Synced in the demo and follows a Problem or Del
   await page.locator('#troubleshooting-toggle').click();
   await expect(page.locator('.sync-sentence')).toHaveText('Problem in orders-api: Sign in to Azure again.');
   await expect(page.getByText('Azure calls')).toHaveCount(0);
+});
+
+test('Activity shows a sign-in failure on return and retries the blocked live streams and history after sign-in', async t => {
+  const store = createStore();
+  const repo = stub<Repository>({ id: 'auth-repo', name: 'Orders' });
+  store.saveRepo(repo);
+  const at = Date.now();
+  const iso = (ms: number) => new Date(ms).toISOString();
+  const future = iso(at + 30 * 60000);
+  const error = { code: 'AUTH_REQUIRED', message: 'Simulated sign-in failure' };
+  let signedIn = false;
+  const reads: string[] = [];
+  const provider = stub<AzureProvider>({
+    async read(_repo, stream) {
+      reads.push(stream);
+      if (!signedIn) throw Object.assign(new Error(error.message), { code: error.code });
+      return { items: [], nextCursor: null };
+    },
+  });
+  let backfill: ReturnType<typeof createBackfill>;
+  const sync = createSync({ store, provider, now: () => at, background: { history: () => backfill.tick() } });
+  backfill = createBackfill({ store, provider, normalize: sync.normalize, now: () => at });
+  sync.refresh();
+  for (const state of store.getStreams()) {
+    store.saveStream({
+      ...state,
+      initialized: true,
+      lastAttempt: iso(at - 46000),
+      lastSuccess: iso(at - 46000),
+      nextAt: future,
+    });
+  }
+  let returning = true;
+  const app = createApp({
+    store,
+    sync,
+    provider,
+    backfill,
+    accessKey: TEST_KEY,
+    onStateRead() {
+      if (returning) sync.checkOnForeground();
+      returning = false;
+    },
+  });
+  await new Promise<void>(resolve => app.listen(0, '127.0.0.1', resolve));
+  const browser = await chromium.launch({ executablePath: await browserPath(), headless: true });
+  t.after(async () => {
+    await browser.close();
+    await new Promise(resolve => app.close(resolve));
+    store.close();
+  });
+  const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+  await rememberKey(page);
+  const url = `http://127.0.0.1:${portOf(app)}`;
+  const initial = page.waitForResponse('**/api/state');
+  await page.goto(`${url}/#activity`);
+  await initial;
+  await expect(page.getByRole('link', { name: 'Repo Pulse' })).toBeVisible();
+  await sync.tick();
+  assert.deepEqual(reads, ['pushes']);
+  assert.equal(store.getStreams().find(state => state.stream === 'pushes')?.error?.code, 'AUTH_REQUIRED');
+  await renderInBackground(page);
+  const retry = page.getByRole('button', { name: 'Retry after signing in' });
+  await expect(retry).toBeVisible();
+  const banner = page.locator('#page .banner.crit');
+  await expect(banner).toContainText('Orders: Sign in to Azure again.');
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+
+  const builds = present(store.getStreams().find(state => state.stream === 'builds'));
+  store.saveStream({ ...builds, error });
+  const job = backfill.start(repo.id);
+  store.saveJob({ ...job, status: 'retrying', error, nextAt: future });
+  signedIn = true;
+  const response = page.waitForResponse('**/api/refresh');
+  await retry.click();
+  assert.deepEqual((await response).request().postDataJSON(), { retrySignIn: true });
+  for (let turn = 0; turn < 3; turn++) await sync.tick();
+  assert.deepEqual(reads, ['pushes', 'builds', 'pushes', 'pushes']);
+  assert.equal(store.listJobs({ type: 'backfill' })[0]?.error, null);
+  assert.ok(store.getStreams().every(state => !state.error));
+  assert.equal(store.getStreams().find(state => state.stream === 'refs')?.nextAt, future);
+  await page.reload();
+  await expect(retry).toHaveCount(0);
+  await expect(banner).toHaveCount(0);
 });
 
 test('at 640px a long repository status pill wraps inside its column instead of covering the checkout status', async t => {

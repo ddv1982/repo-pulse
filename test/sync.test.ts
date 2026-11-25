@@ -43,6 +43,76 @@ const push = (id: number, date = '2026-11-17T10:00:01Z') => ({
   refUpdates: [{ name: 'refs/heads/hotfix/example', oldObjectId: 'a'.repeat(40), newObjectId: 'b'.repeat(40) }],
 });
 
+test('returning to the app advances one quiet stream and respects the cooldown, backoff, and pause', async () => {
+  let calls = 0;
+  let signedIn = true;
+  const { sync, store, advance } = setup({
+    async read() {
+      calls++;
+      if (!signedIn) throw Object.assign(new Error('Sign in again'), { code: 'AUTH_REQUIRED' });
+      return { items: [], nextCursor: null };
+    },
+  });
+  const pushes = () => present(store.getStreams().find(state => state.stream === 'pushes'));
+  await sync.tick();
+  store.saveStream({ ...pushes(), nextAt: new Date(BASE + 300000).toISOString() });
+  signedIn = false;
+  advance(46000);
+  await sync.tick();
+  assert.equal(calls, 1, 'the normal read would still be five minutes from the last check');
+  sync.checkOnForeground();
+  await sync.tick();
+  assert.equal(calls, 2);
+  assert.equal(pushes().error?.code, 'AUTH_REQUIRED');
+  const backoff = pushes().nextAt;
+  sync.checkOnForeground();
+  assert.equal(pushes().nextAt, backoff, 'a second heartbeat does not advance the backoff');
+  advance(100);
+  const nextAt = new Date(BASE + 300000).toISOString();
+  store.saveStream({ ...pushes(), error: null, pending: false, nextAt });
+  sync.checkOnForeground();
+  assert.equal(pushes().nextAt, nextAt, 'even a healthy stream waits out the foreground cooldown');
+  advance(60000);
+  store.saveStream({ ...pushes(), error: { code: 'AUTH_REQUIRED', message: 'Sign in again' }, pending: true });
+  sync.checkOnForeground();
+  assert.equal(pushes().nextAt, nextAt, 'a backed-off stream is never accelerated on focus');
+  store.saveStream({ ...pushes(), error: null, pending: false });
+  store.setSetting('refreshEnabled', false);
+  sync.checkOnForeground();
+  await sync.tick();
+  assert.equal(pushes().nextAt, nextAt);
+  assert.equal(calls, 2);
+  store.close();
+});
+
+test('sign-in retry bypasses normal refresh cooldown and only schedules auth failures while paused', async () => {
+  const calls: string[] = [];
+  const { store, sync } = setup({
+    async read(_repo, stream) {
+      calls.push(stream);
+      return { items: [], nextCursor: null };
+    },
+  });
+  assert.deepEqual(sync.refresh([], true), { scheduled: false });
+  assert.deepEqual(sync.refresh([]), { scheduled: false });
+  assert.deepEqual(sync.refresh([repo.id], true), { scheduled: false });
+  store.setSetting('refreshEnabled', false);
+  const streams = store.getStreams();
+  const pushes = present(streams.find(state => state.stream === 'pushes'));
+  const refs = present(streams.find(state => state.stream === 'refs'));
+  store.saveStream({ ...pushes, error: { code: 'AUTH_REQUIRED', message: 'Sign in again' } });
+  store.saveStream({ ...refs, error: { code: 'UNAVAILABLE', message: 'Offline' } });
+  assert.deepEqual(sync.refresh([repo.id]), { scheduled: false, cooldown: true });
+  assert.deepEqual(sync.refresh([repo.id], true), { scheduled: true });
+  assert.deepEqual(sync.refresh([repo.id], true), { scheduled: false, cooldown: true });
+  await sync.tick();
+  await sync.tick();
+  assert.deepEqual(calls, ['pushes']);
+  assert.equal(store.getStreams().find(state => state.stream === 'refs')?.nextAt, refs.nextAt);
+  assert.deepEqual(sync.refresh([repo.id], true), { scheduled: false });
+  store.close();
+});
+
 test('manual refresh drains its paginated work once while automatic checks stay off', async () => {
   const store = createStore();
   store.saveRepo(repo);

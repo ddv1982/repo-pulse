@@ -271,7 +271,11 @@ function statusBanner(state: PageState, status: (import('./health.ts').SyncStatu
   const name = syncRepoName(state.repos, status);
   const where = name ? `${name}: ` : '';
   if (status.state === 'problem')
-    return html`<div class="banner crit"><div><strong>Problem</strong>${where}${status.reason} <a href="#repositories">See Repositories</a></div></div>`;
+    return html`<div class="banner crit"><div><strong>Problem</strong>${where}${status.reason} ${
+      status.signInRequired
+        ? html`<button class="ghost sm" type="button" id="retry-sign-in" data-action="refresh" data-retry-sign-in>Retry after signing in</button>`
+        : html`<a href="#repositories">See Repositories</a>`
+    }</div></div>`;
   if (status.state === 'delayed')
     return html`<div class="banner warn"><div><strong>Delayed</strong>${where}${status.reason}. Showing the activity stored so far.</div></div>`;
   if (status.state === 'paused')

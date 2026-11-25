@@ -104,7 +104,13 @@ test('an access, sign-in or missing CLI error is a problem at once and says in p
   ];
   for (const [error, stream, reason] of cases) {
     const result = status({ a: { [stream]: { error, failures: 1, pending: true } } });
-    assert.deepEqual(result.repos.a, { state: 'problem', reason, stream, since: ago(1) });
+    assert.deepEqual(result.repos.a, {
+      state: 'problem',
+      reason,
+      stream,
+      since: ago(1),
+      ...(error.code === 'AUTH_REQUIRED' ? { signInRequired: true } : {}),
+    });
     assert.deepEqual(result.repos.b, { state: 'synced', since: ago(1), lastCheck: ago(1) }, 'another repository is not marked');
     assert.equal(result.overall.state, 'problem');
     assert.equal(repoOf(result.overall), 'a');
@@ -118,6 +124,11 @@ test('an access, sign-in or missing CLI error is a problem at once and says in p
   });
   const unknown = status({ jobs: [{ repoId: 'a', status: 'running', error: forbidden, failures: 1 }] });
   assert.equal(present(unknown.repos.a).reason, "Your Azure account has no access to this repository's history.");
+  const historySignIn = status({
+    jobs: [{ repoId: 'a', status: 'retrying', error: { code: 'AUTH_REQUIRED', message: 'Sign in again' } }],
+  });
+  assert.equal(historySignIn.repos.a?.signInRequired, true);
+  assert.equal(historySignIn.repos.a?.stream, 'history');
 });
 
 test('overall Synced shows the newest check across repositories, not that of the one with the oldest data', () => {

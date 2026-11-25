@@ -63,6 +63,7 @@ export function createBackfill({
 }) {
   let active: Promise<boolean> | null | undefined;
   let lastId: string | undefined;
+  const retriedAt = new Map<string, number>();
   const jobs = () => store.listJobs({ type: 'backfill' });
   function start(repoId: string, days: number | 'all' = 30): HistoryJob {
     const repo = store.listRepos().find(item => item.id === repoId);
@@ -147,6 +148,7 @@ export function createBackfill({
     lastId = job.id;
     const repo = repos.get(job.repoId);
     if (!repo) return false;
+    const retryAtStart = retriedAt.get(repo.id);
     const current = () =>
       store.listRepos().some(item => item.id === repo.id && !item.disabled) &&
       jobs().some(item => item.id === job.id && item.startedAt === job.startedAt);
@@ -177,6 +179,9 @@ export function createBackfill({
       // Shutdown aborted the read, not Azure; the page resumes on the next start.
       if ((error as { code?: unknown })?.code === 'CLOSED') return true;
       const failures = (job.failures || 0) + 1;
+      const retryAt = retriedAt.get(repo.id);
+      const requestedDuringRead = retryAt !== undefined && retryAt !== retryAtStart;
+      const backoff = Math.min(30 * 60000, 60000 * 2 ** Math.min(failures - 1, 5));
       const detail =
         error instanceof Error && 'code' in error && typeof error.code === 'string'
           ? { code: error.code, message: error.message }
@@ -186,7 +191,7 @@ export function createBackfill({
         status: 'retrying',
         lastAttempt: iso(now()),
         failures,
-        nextAt: iso(now() + Math.min(30 * 60000, 60000 * 2 ** Math.min(failures - 1, 5))),
+        nextAt: iso(now() + (requestedDuringRead ? 0 : backoff)),
         error: detail,
       });
     }
@@ -194,6 +199,26 @@ export function createBackfill({
   }
   return {
     start,
+    retrySignIn(repoIds: readonly string[]) {
+      const at = now();
+      let scheduled = false;
+      let cooldown = false;
+      for (const job of jobs()) {
+        if (!repoIds.includes(job.repoId) || job.status === 'completed' || job.error?.code !== 'AUTH_REQUIRED') continue;
+        if (at - (retriedAt.get(job.repoId) ?? -Infinity) < 30000) {
+          cooldown = true;
+          continue;
+        }
+        if (Date.parse(job.nextAt) > at) store.saveJob({ ...job, nextAt: iso(at) });
+        retriedAt.set(job.repoId, at);
+        scheduled = true;
+      }
+      return { scheduled, ...(!scheduled && cooldown ? { cooldown } : {}) };
+    },
+    reset: () => retriedAt.clear(),
+    forget: (repoId: string) => {
+      retriedAt.delete(repoId);
+    },
     status: jobs,
     tick() {
       if (active) return active;
