@@ -675,6 +675,14 @@ test('a successful tag build folds only for the exact tag revision in the mixed 
   await expect(build).toBeVisible();
   await search.clear();
   await expect(build).toHaveCount(0);
+  await page.getByRole('button', { name: /^Activity type:/ }).click();
+  await page.getByRole('option', { name: 'CI runs', exact: true }).click();
+  await expect(build).toBeVisible();
+  await expect(tag).toHaveCount(0);
+  await page.getByRole('button', { name: /^Activity type:/ }).click();
+  await page.getByRole('option', { name: 'All types', exact: true }).click();
+  await expect(build).toHaveCount(0);
+
   runtime.store.acknowledge(['release-build'], false);
   await page.reload();
   await expect(build).toBeVisible();
