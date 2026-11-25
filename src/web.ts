@@ -395,6 +395,14 @@ const actions: Record<string, Action> = {
       toast('Copy is unavailable in this browser.');
     }
   },
+  'copy-azure-login': async () => {
+    try {
+      await navigator.clipboard.writeText('az login');
+      toast('Command copied.');
+    } catch {
+      toast('Copy is unavailable in this browser. Select the command to copy it manually.');
+    }
+  },
   'check-connection': element => {
     void connection.check(element.dataset.repoId || '', { force: true });
   },
