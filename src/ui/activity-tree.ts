@@ -1,4 +1,5 @@
 import { emptyHtml, html } from './format.ts';
+import { tagGlyph } from './icons.ts';
 import type { TreeRow, TreeLine, TreeFork } from '../activity-tree.ts';
 
 export type { TreeRow, TreeLine, TreeFork };
@@ -32,6 +33,7 @@ function join(other: TreeLine, node: TreeRow['node'], color: string, assumed = f
 /** Every marker stays inside its lane, PITCH wide: the cell clips what leaves it. */
 function marker(node: TreeRow['node'], color: string) {
   const at = html`cx="${x(node.slot)}" cy="0"`;
+  if (node.shape === 'tag') return html`<g class="tag-mark" transform="translate(${x(node.slot) - 5} -5) scale(0.4167)">${tagGlyph}</g>`;
   if (node.shape === 'ring') return html`<circle class="${color} hole" ${at} r="3.75"/>`;
   if (node.shape === 'merge') return html`<circle class="${color} hole" ${at} r="4.1"/><circle class="${color}" ${at} r="1.9"/>`;
   return html`<circle class="${color} dot" ${at} r="3.75"/>`;
@@ -75,4 +77,4 @@ export function forkText(fork: TreeFork | null) {
   }
 }
 
-export const treeLegend = html`<p class="help tree-legend" aria-hidden="true"><span class="tree-key-item"><svg class="tree-key" aria-hidden="true" focusable="false"><path class="lane-none" d="M1 6H21"/></svg>Known fork point</span><span class="tree-key-item"><svg class="tree-key" aria-hidden="true" focusable="false"><path class="lane-none assumed" d="M1 6H21"/></svg>PR target, origin not checked</span><span class="tree-key-item"><svg class="tree-key ring" aria-hidden="true" focusable="false"><circle class="lane-none hole" cx="7" cy="6" r="4.1"/><circle class="lane-none" cx="7" cy="6" r="1.9"/></svg>Merge</span><span class="tree-key-item"><svg class="tree-key ring" aria-hidden="true" focusable="false"><circle class="lane-none hole" cx="7" cy="6" r="3.75"/></svg>Open PR</span><span class="tree-note">Based on shown rows. Lines can pass rows of other branches.</span></p>`;
+export const treeLegend = html`<p class="help tree-legend" aria-hidden="true"><span class="tree-key-item"><svg class="tree-key" aria-hidden="true" focusable="false"><path class="lane-none" d="M1 6H21"/></svg>Known fork point</span><span class="tree-key-item"><svg class="tree-key" aria-hidden="true" focusable="false"><path class="lane-none assumed" d="M1 6H21"/></svg>PR target, origin not checked</span><span class="tree-key-item"><svg class="tree-key ring" aria-hidden="true" focusable="false"><circle class="lane-none hole" cx="7" cy="6" r="4.1"/><circle class="lane-none" cx="7" cy="6" r="1.9"/></svg>Merge</span><span class="tree-key-item"><svg class="tree-key ring" aria-hidden="true" focusable="false"><circle class="lane-none hole" cx="7" cy="6" r="3.75"/></svg>Open PR</span><span class="tree-key-item"><svg class="tree-key ring" aria-hidden="true" focusable="false"><circle class="lane-none dot" cx="7" cy="6" r="3.75"/></svg>No branch line shown</span><span class="tree-note">Based on shown rows. Lines can pass rows of other branches.</span></p>`;

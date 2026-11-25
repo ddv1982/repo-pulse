@@ -550,6 +550,38 @@ test('each fork origin has its own row text, and only an unchecked PR target is 
   assert.match(await text(parse(treeLegend)), /PR target, origin not checked/);
 });
 
+test('Activity distinguishes tag events and tag builds from branch activity', async () => {
+  const state = fixture();
+  const time = '2026-11-17T10:00:00Z';
+  const ref = 'refs/tags/v1';
+  state.events = [
+    { id: 'tag-build', kind: 'build', repoId: 'r', title: 'Release CI', branch: ref, time, data: { sourceBranch: ref } },
+    {
+      id: 'tag',
+      kind: 'tag',
+      repoId: 'r',
+      title: 'New tag · v1',
+      branch: 'v1',
+      time,
+      data: { evidence: 'push', change: 'created', newObjectId: 'a'.repeat(40) },
+    },
+    { id: 'push', kind: 'push', repoId: 'r', title: 'Pushed to hotfix/v1', branch: 'hotfix/v1', time },
+    { id: 'main-1', kind: 'push', repoId: 'r', title: 'Pushed to main', branch: 'main', time },
+    { id: 'main-2', kind: 'push', repoId: 'r', title: 'Pushed to main', branch: 'main', time },
+  ];
+  const doc = parse(renderFeed(state, view));
+  assert.equal((await all(row(doc, 'tag'), '.tree .tag-mark')).length, 1);
+  assert.equal((await all(row(doc, 'tag'), '.kind svg')).length, 1);
+  assert.match(await text(row(doc, 'tag')), /Points at aaaaaaa/);
+  assert.equal(await srText(one(row(doc, 'tag-build'), '.ref-branch')), '· tag refs/tags/v1');
+  assert.equal(
+    await one(row(doc, 'tag-build'), '.ref-branch svg path').getAttribute('d'),
+    await one(row(doc, 'tag'), '.kind svg path').getAttribute('d'),
+  );
+  assert.equal((await all(row(doc, 'push'), '.tree .lane-none.dot')).length, 1);
+  assert.match(await text(one(doc, '.tree-legend')), /No branch line shown/);
+});
+
 test('a grouped row counts its unread updates beside the title only when there is more than one', async () => {
   const state = fixture();
   const ref = { name: 'refs/heads/topic', oldObjectId: 'a'.repeat(40), newObjectId: '0'.repeat(40) };

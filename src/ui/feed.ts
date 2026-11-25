@@ -147,12 +147,13 @@ function renderRefLine(record: ActivityItem, title: string, repoName: string) {
   const named = !['pr', 'build'].includes(record.kind) && Boolean(ref.branch) && namesRef(title, ref.branch);
   const { branch, pullRequestId } = named ? { ...ref, branch: '' } : ref;
   if (!repoName && !branch && !pullRequestId) return emptyHtml;
+  const tag = record.kind === 'build' && (record.data?.sourceBranch ?? branch).startsWith('refs/tags/');
   // The branch and its PR share a group that never wraps, so a long branch name is cut short before the chip moves.
   return html`<span class="subref">${repoName ? html`<span class="ref-repo"><span class="sr"> · repository </span>${repoName}</span>` : emptyHtml}${
     branch || pullRequestId
       ? html`<span class="ref-target">${
           branch
-            ? html`<span class="ref-branch" title="${branch}">${icons.branch}<span class="sr"> · branch </span><span class="ref-name">${branch}</span></span>`
+            ? html`<span class="ref-branch" title="${branch}">${tag ? icons.tag : icons.branch}<span class="sr"> · ${tag ? 'tag' : 'branch'} </span><span class="ref-name">${branch}</span></span>`
             : emptyHtml
         }${pullRequestId ? html`<span class="chip ref-pr"><span class="sr"> · </span>PR ${pullRequestId}</span>` : emptyHtml}</span>`
       : emptyHtml
@@ -173,7 +174,7 @@ function row(record: ActivityItem, state: PageState, tree: import('../activity-t
   const title = rowTitle(record, fullTitle);
   const origin = forkText(tree?.fork ?? null);
   return html`<li class="${['row', failed ? 'crit' : '', record.unseen ? 'new' : '', `tone-${tone}`].filter(Boolean).join(' ')}" id="row-${record.groupKey}" data-event-id="${record.id}" data-event-ids="${ids}" data-group-key="${record.groupKey}" data-unseen-ids="${unreadIds}">${tree ? renderTreeCell(tree, tone) : emptyHtml}
-    <span class="kind ${tone}">${record.kind === 'branch-created' ? icons.branch : html`<span class="d"></span>`}${activityLabel(record)}</span>
+    <span class="kind ${tone}">${record.kind === 'branch-created' ? icons.branch : record.kind === 'tag' ? icons.tag : html`<span class="d"></span>`}${activityLabel(record)}</span>
     <div class="subject"><button class="feed-title" type="button" data-action="detail" data-id="${record.id}"><span class="title">${title}${record.unseenIds.length > 1 ? html` <span class="pill u new-count">${record.unseenIds.length} new</span>` : emptyHtml}</span>${renderRefLine(record, title, showRepo ? repo?.name || 'Unknown repository' : '')}</button></div>
     ${renderEvent(record, origin)}
     <div class="rowact">${azureLink(record.url)}${record.imported ? emptyHtml : html`<button class="ghost sm seen-toggle" type="button" id="seen-${record.groupKey}" data-action="ack-item" data-id="${record.id}" data-mark-seen="${record.unseen}" data-event-ids="${ackIds}" aria-pressed="${!record.unseen}" aria-label="Seen: ${fullTitle}">${icons.seenBox}Seen</button>`}</div></li>`;

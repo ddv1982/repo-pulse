@@ -14,7 +14,7 @@ export type ForkEvidence = 'pr' | 'recorded' | 'contained' | 'ambiguous' | 'refu
 export type TreeLane = { slot: number; color: number };
 /** A lane in one row, and whether it runs on above and below. */
 export type TreeLine = TreeLane & { up: boolean; down: boolean };
-export type TreeNode = TreeLine & { shape: 'dot' | 'ring' | 'merge'; overflow: boolean };
+export type TreeNode = TreeLine & { shape: 'dot' | 'tag' | 'ring' | 'merge'; overflow: boolean };
 /**
  * The origin of a new branch. Only a fork with a `parent` is drawn. `branches` names the branches of an ambiguous base.
  */
@@ -187,6 +187,7 @@ export function treePullRequestSource(item: ActivityEvent) {
 }
 
 function nodeShape(item: ActivityEvent): TreeNode['shape'] {
+  if (item.kind === 'tag') return 'tag';
   if (item.kind !== 'pr') return 'dot';
   return item.data?.status === 'completed' ? 'merge' : item.data?.status === 'active' ? 'ring' : 'dot';
 }

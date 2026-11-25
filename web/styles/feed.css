@@ -883,7 +883,7 @@ ol.rows {
     height: calc(100% + 1px);
     pointer-events: none;
   }
-  .tree g {
+  .tree > g {
     transform: translateY(var(--tree-label-y));
   }
   .tree-legend {
@@ -926,9 +926,15 @@ ol.rows {
 .tree-key circle {
   fill: currentColor;
 }
-.tree .dot {
+.tree .dot,
+.tree-key .dot {
   stroke: var(--card);
   stroke-width: 1.5;
+}
+.tree .tag-mark path {
+  color: var(--muted-foreground);
+  stroke-width: 1.2;
+  vector-effect: non-scaling-stroke;
 }
 .tree .hole,
 .tree-key .hole {
@@ -964,7 +970,7 @@ ol.rows {
 .lane-none {
   color: var(--neutral-solid);
 }
-.tree-key .lane-none {
+.tree-key .lane-none:not(.dot) {
   color: var(--muted-foreground);
 }
 .lane-crit {
