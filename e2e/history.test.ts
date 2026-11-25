@@ -77,12 +77,12 @@ function seedHistory(store: Store) {
   store.insertEvents(records);
 }
 
-test('new updates, paged history, filters and deep links reach events beyond the old 1000 window', async t => {
+test('unread filtering, paged history, filters and deep links reach events beyond the old 1000 window', async t => {
   const { runtime, page } = await demo(t);
   seedHistory(runtime.store);
-  await page.goto(runtime.url + '/#activity/new');
+  await page.goto(runtime.url + '/#activity/unread');
   await expect(page.locator('li[data-event-id="old-unseen"]')).toBeVisible();
-  await page.getByRole('link', { name: 'All activity', exact: true }).click();
+  await page.getByRole('button', { name: 'Unread only', exact: true }).click();
   await expect(page.locator('li.row')).toHaveCount(50);
   await page.getByRole('button', { name: 'Load more', exact: true }).click();
   await expect(page.locator('li.row')).toHaveCount(100);
@@ -91,9 +91,9 @@ test('new updates, paged history, filters and deep links reach events beyond the
   const last = page.locator('li.row').last();
   const id = await last.getAttribute('data-event-id');
   await last.locator('.feed-title').click();
-  await expect(page.getByRole('link', { name: '← Back to All activity', exact: true })).toBeVisible();
+  await expect(page.getByRole('link', { name: '← Back to Activity', exact: true })).toBeVisible();
   await page.reload();
-  await page.getByRole('link', { name: '← Back to All activity', exact: true }).click();
+  await page.getByRole('link', { name: '← Back to Activity', exact: true }).click();
   await expect(page.locator('li.row')).toHaveCount(100);
   await expect(page.locator(`li[data-event-id="${id}"] .feed-title`)).toBeFocused();
   await page.getByRole('searchbox', { name: 'Search activity' }).fill('Archive entry 1049');
@@ -116,7 +116,7 @@ test('mark all matching clears the confirmed unread snapshot across pages and un
   });
   const matching = Array.from({ length: 60 }, (_, i) => make(`snapshot-${i}`));
   runtime.store.insertEvents([...matching, make('other-repo', 'demo-billing'), make('other-search', 'demo-orders', 'Different push')]);
-  await page.goto(runtime.url + '/#activity/new');
+  await page.goto(runtime.url + '/#activity/unread');
   await page.locator('#repo-toggle').click();
   await page.locator('[data-scope-repo="demo-billing"]').uncheck();
   await page.locator('[data-scope-repo="demo-shared"]').uncheck();
@@ -146,9 +146,9 @@ test('mark all matching uses the rendered repository scope when another reposito
   const shared = runtime.store.listRepos().find(repo => repo.id === 'demo-shared');
   assert.ok(shared);
   runtime.store.saveRepo({ ...shared, disabled: true });
-  await page.goto(runtime.url + '/#activity/new');
+  await page.goto(runtime.url + '/#activity/unread');
   await expect(page.getByRole('button', { name: 'All 2 repositories' })).toBeVisible();
-  await page.locator('details[data-group="New updates"] > summary').click();
+  await page.locator('details[data-group="Activity"] > summary').click();
   const ids = runtime.store.queryActivity.unseenIds({ repoIds: ['demo-orders', 'demo-billing'] });
   runtime.store.saveRepo({ ...shared, disabled: false });
   const sharedIds = runtime.store.queryActivity.unseenIds({ repoIds: ['demo-shared'] });
@@ -171,7 +171,7 @@ test('detail opened from a type filter only acknowledges the matching member', a
     { ...base, id: 'paired-deletion', kind: 'branch-deleted', title: 'Branch deleted', data: { pushId: 10001, ...ref } },
   ]);
   assert.equal(runtime.store.getEventGroup('paired-push').length, 2);
-  await page.goto(runtime.url + '/#activity/new');
+  await page.goto(runtime.url + '/#activity/unread');
   await page.getByRole('button', { name: /^Activity type:/ }).click();
   await page.getByRole('option', { name: 'Push', exact: true }).click();
   await page.getByRole('button', { name: /^Cleanup push/ }).click();
@@ -190,7 +190,7 @@ test('undo tracks the successful seen write even if the following refresh fails'
     { ...base, id: 'seen-earlier', title: 'Earlier push' },
     { ...base, id: 'seen-later', title: 'Later push' },
   ]);
-  await page.goto(runtime.url + '/#activity/new');
+  await page.goto(runtime.url + '/#activity/unread');
   const rowAction = (id: string) => page.locator(`li[data-event-id="${id}"] [data-action="ack-item"]`);
   await rowAction('seen-earlier').click();
   await expect(page.locator('#toast')).toContainText('1 update marked seen.');
@@ -219,7 +219,7 @@ for (const undo of [false, true]) {
       data: { buildId: 87651, status: 'inProgress' },
     }));
     runtime.store.insertEvents(events);
-    await page.goto(runtime.url + '/#activity/new');
+    await page.goto(runtime.url + '/#activity/unread');
     const mark = page.getByRole('button', { name: 'Mark all seen (251)', exact: true });
     const undoButton = page.getByRole('button', { name: 'Undo', exact: true });
     if (undo) {
@@ -253,7 +253,7 @@ for (const undo of [false, true]) {
 test('paged query reset follows type and repository scope without acknowledging hidden history', async t => {
   const { runtime, page } = await demo(t);
   seedHistory(runtime.store);
-  await page.goto(runtime.url + '/#activity/all');
+  await page.goto(runtime.url + '/#activity');
   await expect(page.locator('li.row')).toHaveCount(50);
   await page.getByRole('button', { name: 'Load more', exact: true }).click();
   await expect(page.locator('li.row')).toHaveCount(100);
@@ -291,7 +291,7 @@ test('one long build history keeps every constituent and acknowledges explicit b
   page.on('request', request => {
     if (request.method() === 'POST' && new URL(request.url()).pathname === '/api/ack') batches.push(request.postDataJSON());
   });
-  await page.goto(runtime.url + '/#activity/new');
+  await page.goto(runtime.url + '/#activity/unread');
   await expect(page.locator('li.row')).toHaveCount(1);
   await page.route(
     '**/api/ack',
@@ -460,7 +460,7 @@ test('idle Activity polling skips history queries at one page and after loading 
     await page.waitForResponse(metadata);
     return reads;
   }
-  await page.goto(runtime.url + '/#activity/all');
+  await page.goto(runtime.url + '/#activity');
   await expect(page.locator('li.row')).toHaveCount(50);
   const initial = reads;
   const one = (await readsBetweenPolls()) - initial;
@@ -489,14 +489,14 @@ test('an open Activity view picks up a seen action in another tab and later merg
       data: { pushId: 18000, refUpdates: [{ name: 'refs/heads/main', oldObjectId: 'b'.repeat(40), newObjectId: result }] },
     },
   ]);
-  await page.goto(runtime.url + '/#activity/all');
+  await page.goto(runtime.url + '/#activity');
   const row = page.locator('li[data-event-id="revision-test"]');
   await expect(row).toHaveClass(/\bnew\b/);
   await expect(row.getByRole('button', { name: /^Pushed · .*branch main$/ })).toBeVisible();
   await expect(row.getByText('Pushed by Azure DevOps service')).toBeVisible();
 
   const other = await page.context().newPage();
-  await other.goto(runtime.url + '/#activity/new');
+  await other.goto(runtime.url + '/#activity/unread');
   await other
     .locator('li[data-event-id="revision-test"]')
     .getByRole('button', { name: 'Seen: Azure DevOps service pushed to main' })
@@ -543,17 +543,17 @@ test('opening Activity before the first state load arrives stays on Activity', a
   await page.reload();
   await held.promise;
   // The page has not seen its repositories yet, so it must not judge that none are watched.
-  await page.goto(runtime.url + '/#activity/new');
+  await page.goto(runtime.url + '/#activity/unread');
   // Activity has rendered from the hash change while the first state read is still held.
   await expect(page.getByRole('region', { name: 'Repository activity' }).getByText('Loading activity…')).toBeVisible();
   release.resolve();
   await expect(page.getByRole('button', { name: /^Mark all seen/ })).toBeVisible();
-  assert.match(page.url(), /#activity\/new$/);
+  assert.match(page.url(), /#activity\/unread$/);
 });
 
 test('seen feedback waits for its refresh when a background poll is in flight', async t => {
   const { runtime, page } = await demo(t);
-  await page.goto(runtime.url + '/#activity/new');
+  await page.goto(runtime.url + '/#activity/unread');
   // Hold the poll only once the page shows what it will mark.
   await expect(page.getByRole('button', { name: /^Mark all seen/ })).toBeVisible();
   const started = Promise.withResolvers<void>();
@@ -751,7 +751,7 @@ test('Activity offers statuses and evidence from matching history beyond the fir
     },
   ]);
   runtime.store.enrichEvent('archive-1049', { mergeEvidence: { prs: [{ pullRequestId: 5 }] } });
-  await page.goto(runtime.url + '/#activity/all');
+  await page.goto(runtime.url + '/#activity');
   await expect(page.locator('li.row')).toHaveCount(50);
   await expect(page.locator('[data-event-id="archived-canceled"]')).toHaveCount(0);
   const toggle = page.getByRole('button', { name: /^Activity type:/ });
@@ -768,7 +768,7 @@ test('Activity offers statuses and evidence from matching history beyond the fir
   await expect(page.locator('[data-event-id="archive-1049"]')).toBeVisible();
 });
 
-test('New updates filters a grouped run by the status it shows and acknowledges only its unseen members', async t => {
+test('Unread only filters a grouped run by the status it shows and acknowledges only its unseen members', async t => {
   const { runtime, page } = await demo(t);
   const time = new Date(Date.now() + 1000).toISOString();
   runtime.store.insertEvents([
@@ -791,7 +791,7 @@ test('New updates filters a grouped run by the status it shows and acknowledges 
       data: { buildId: 460, status: 'completed', result: 'succeeded' },
     },
   ]);
-  await page.goto(runtime.url + '/#activity/new');
+  await page.goto(runtime.url + '/#activity/unread');
   await expect(page.locator('[data-event-id="scope-succeeded"] .kind')).toHaveText('Succeeded');
   const toggle = page.getByRole('button', { name: /^Activity type:/ });
   await toggle.click();
@@ -1008,7 +1008,7 @@ test('People and named filters restore a scoped Activity search after app restar
     },
     { id: 'text-only', repoId: 'demo-orders', kind: 'push', title: 'Alice Example branch', actor: 'Chris', time: new Date().toISOString() },
   ]);
-  await page.goto(runtime.url + '/#activity/all');
+  await page.goto(runtime.url + '/#activity');
   const people = page.getByRole('searchbox', { name: 'Search activity' });
   const presets = page.locator('#saved-filter-toggle');
   const choosePreset = async (name: string) => {
@@ -1047,7 +1047,7 @@ test('People and named filters restore a scoped Activity search after app restar
   await page.getByRole('button', { name: /^Alice result/ }).click();
   await expect(page).toHaveURL(/#event\/alice-person$/);
   await page.reload();
-  await page.getByRole('link', { name: /Back to All activity/ }).click();
+  await page.getByRole('link', { name: /Back to Activity/ }).click();
   await expect(people).toHaveValue(mixedSearch);
   await expect(presets).toHaveAccessibleName('Saved filter: My team, modified');
   await expect(page.locator('li[data-event-id="alice-person"]')).toBeVisible();
@@ -1061,9 +1061,9 @@ test('People and named filters restore a scoped Activity search after app restar
       page.waitForResponse(response => response.url() === restarted.url + '/api/state' && response.ok()),
       page.goto(restarted.launchUrl),
     ]);
-    await page.goto(restarted.url + '/#activity/new');
+    await page.goto(restarted.url + '/#activity/unread');
     await choosePreset('My team');
-    await expect(page).toHaveURL(/#activity\/all$/);
+    await expect(page).toHaveURL(/#activity$/);
     await expect(presets).toBeFocused();
     await expect(people).toHaveValue('people:Ali Ex, Bo');
     await expect(page.locator('li[data-event-id="bob-person"]')).toBeVisible();
@@ -1118,7 +1118,7 @@ test('saved filters stay available on mobile, apply on keyboard selection, and s
     { id: 'all', name: longName, filters: filter('all') },
   ]);
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto(runtime.url + '/#activity/new');
+  await page.goto(runtime.url + '/#activity/unread');
   const toggle = page.locator('#saved-filter-toggle');
   const drawer = page.locator('#activity-filters');
   const picker = page.getByRole('listbox', { name: 'Saved filters' });
@@ -1127,7 +1127,7 @@ test('saved filters stay available on mobile, apply on keyboard selection, and s
   await toggle.press('ArrowDown');
   await page.keyboard.press('End');
   await expect(option).toBeFocused();
-  await expect(page).toHaveURL(/#activity\/new$/);
+  await expect(page).toHaveURL(/#activity\/unread$/);
   await page.keyboard.press('Escape');
   await expect(toggle).toBeFocused();
   await expect(picker).toBeHidden();
@@ -1147,7 +1147,7 @@ test('saved filters stay available on mobile, apply on keyboard selection, and s
   assert.ok(popup);
   assert.ok(popup.x >= 0 && popup.x + popup.width <= 390);
   await page.keyboard.press('Enter');
-  await expect(page).toHaveURL(/#activity\/all$/);
+  await expect(page).toHaveURL(/#activity$/);
   await expect(toggle).toBeFocused();
   await expect(toggle).toHaveAccessibleName(`Saved filter: ${longName}`);
   await expect(drawer).toBeHidden();
@@ -1195,7 +1195,7 @@ test('saved filters stay available on mobile, apply on keyboard selection, and s
 
 test('saving selects the new filter after an older state response arrives', async t => {
   const { runtime, page } = await demo(t);
-  await page.goto(runtime.url + '/#activity/new');
+  await page.goto(runtime.url + '/#activity/unread');
   await page.getByRole('button', { name: 'Save filter…' }).click();
   const dialog = page.getByRole('dialog', { name: 'Save Activity filter' });
   await dialog.getByRole('textbox', { name: 'Filter name' }).fill('Fresh preset');
@@ -1241,7 +1241,7 @@ test('an Activity response renders while a saved-filter menu stays open, and del
     { id: 'first', name: 'First preset', filters: filters('first') },
     { id: 'second', name: 'Second preset', filters: filters('second') },
   ]);
-  await page.goto(runtime.url + '/#activity/new');
+  await page.goto(runtime.url + '/#activity/unread');
   await page.reload();
   const toggle = page.locator('#saved-filter-toggle');
   const search = page.getByRole('searchbox', { name: 'Search activity' });
@@ -1348,7 +1348,7 @@ test('People detail only acknowledges the updates that matched the originating r
     { ...common, id: 'alice-build', actor: 'Alice Example', title: 'Alice run', data: { buildId: 18001, status: 'queued' } },
     { ...common, id: 'other-build', actor: 'Chris Example', title: 'Chris run', data: { buildId: 18001, status: 'completed' } },
   ]);
-  await page.goto(runtime.url + '/#activity/all');
+  await page.goto(runtime.url + '/#activity');
   await page.getByRole('searchbox', { name: 'Search activity' }).fill('people:Alice Example');
   await page.locator('[data-event-id="alice-build"] button.feed-title').click();
   await expect(page).toHaveURL(/#event\/alice-build$/);
@@ -1361,7 +1361,7 @@ test('People detail only acknowledges the updates that matched the originating r
   assert.equal(isSeen(runtime.store, 'other-build'), false);
 });
 
-test('a New updates backlog beyond the shown rows is confirmed with its count below and then reads zero', async t => {
+test('an unread backlog beyond the shown rows is confirmed with its count below and then reads zero', async t => {
   const { runtime, page } = await demo(t);
   runtime.store.acknowledge(runtime.store.listEvents().map(event => event.id));
   runtime.store.insertEvents(
@@ -1374,7 +1374,7 @@ test('a New updates backlog beyond the shown rows is confirmed with its count be
       time: new Date(Date.now() - index * 60000).toISOString(),
     })),
   );
-  await page.goto(runtime.url + '/#activity/new');
+  await page.goto(runtime.url + '/#activity/unread');
   const summary = page.getByRole('region', { name: 'Activity summary' });
   await expect(summary.locator('.headline b')).toHaveText('150 new items');
   await expect(page.locator('[data-summary-kind="Pushes"] .val')).toHaveText('150');
@@ -1405,7 +1405,7 @@ test('after the newest rows are marked seen, one catch-up action clears the olde
   runtime.store.acknowledge(newer.map(event => event.id));
   // Freeze the 5 second poll so the page keeps the snapshot it was read at.
   await page.clock.install();
-  await page.goto(runtime.url + '/#activity/all');
+  await page.goto(runtime.url + '/#activity');
   const headline = page.getByRole('region', { name: 'Activity summary' }).locator('.headline b');
   const catchUp = page.getByRole('button', { name: 'Mark all seen (235)', exact: true });
   await expect(headline).toHaveText('235 new items');
@@ -1432,14 +1432,14 @@ test('after the newest rows are marked seen, one catch-up action clears the olde
   await expect(headline).toHaveText('236 new items');
 });
 
-test('New updates offers one bulk action that clears a fully shown list without a dialog', async t => {
+test('Unread only offers one bulk action that clears a fully shown list without a dialog', async t => {
   const { runtime, page } = await demo(t);
   const total = runtime.store.queryActivity({ view: 'new' }).newUpdates;
   assert.ok(total > 0 && total < 50);
   runtime.store.setSetting('savedActivityFilters', [
     { id: 'pushes', name: 'Pushes', filters: { view: 'new', search: '', kind: 'push', repoIds: null, people: '' } },
   ]);
-  await page.goto(runtime.url + '/#activity/new');
+  await page.goto(runtime.url + '/#activity/unread');
   const bar = page.locator('.feed-actions button');
   await expect(bar).toHaveCount(1);
   await expect(bar).toHaveText(`Mark all seen (${total})`);

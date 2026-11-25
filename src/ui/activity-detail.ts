@@ -175,18 +175,16 @@ export function renderDetail(
   state: DetailState,
   commits: LoadedView | undefined,
   {
-    returnRoute = 'catchup',
-    label = 'Back to New updates',
+    returnUnreadOnly = false,
     matchingIds,
     checkouts,
   }: {
-    returnRoute?: string;
-    label?: string;
+    returnUnreadOnly?: boolean;
     matchingIds?: string[] | undefined;
     checkouts?: Record<string, import('./checkout.ts').CheckoutSnapshot>;
   } = {},
 ) {
-  const back = html`<a class="ghost sm back" data-action="back-to-results" href="${activityHref(returnRoute)}">← ${label}</a>`;
+  const back = html`<a class="ghost sm back" data-action="back-to-results" href="${activityHref(returnUnreadOnly)}">← Back to Activity</a>`;
   if (!event) return html`${back}<div class="card empty"><h1>Activity not found</h1></div>`;
   const record = groupActivity(state.events).find(item => item.eventIds.includes(event.id)) || groupActivity([event])[0];
   // Grouping one event always yields its group.

@@ -65,7 +65,7 @@ export function renderSettings(state: PageState, connection: ConnectionState) {
         <summary class="settings-row" id="coverage-toggle"><strong>What Repo Pulse tracks</strong> <span class="settings-chevron" aria-hidden="true"></span></summary>
         <div class="settings-content help">
           <p>Repo Pulse reads remote branches, pushes, pull requests, and CI runs for the primary repository. It stores the results locally.</p>
-          <p>Initial history covers about seven days plus older active items. All activity includes imported history. Polling can miss changes between checks.</p>
+          <p>Initial history covers about seven days plus older active items. Activity includes imported history. Polling can miss changes between checks.</p>
           <p>A successful build or merged pull request does not confirm deployment.</p>
         </div>
       </details>

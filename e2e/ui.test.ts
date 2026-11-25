@@ -73,8 +73,9 @@ async function setup(t: TestContext, demo = true, options: { hasTouch?: boolean 
 
 test('the row Seen toggle keeps keyboard focus and shows state without a status column', async t => {
   const { page, runtime } = await setup(t);
-  await page.goto(`${page.url().split('#')[0]}#activity/new`);
+  await page.goto(`${page.url().split('#')[0]}#activity/unread`);
   const rows = page.locator('li[data-event-id]');
+  await expect(rows.nth(1)).toBeVisible();
   const [first, second] = await rows.evaluateAll(elements => elements.slice(0, 2).map(element => element.getAttribute('data-event-id')));
   await expect(page.locator('.counts')).toHaveCount(0);
   const toggle = page.locator(`li[data-event-id="${first}"] .seen-toggle`);
@@ -84,10 +85,10 @@ test('the row Seen toggle keeps keyboard focus and shows state without a status 
   await toggle.focus();
   await page.keyboard.press('Enter');
   await expect(page.locator(`li[data-event-id="${first}"]`)).toHaveCount(0);
-  // The row left New updates, so focus moves to the next row's toggle rather than the page body.
+  // The row left the unread results, so focus moves to the next row's toggle rather than the page body.
   await expect(page.locator(`li[data-event-id="${second}"] .seen-toggle`)).toBeFocused();
 
-  await page.goto(`${page.url().split('#')[0]}#activity/all`);
+  await page.goto(`${page.url().split('#')[0]}#activity`);
   const seen = page.locator(`li[data-event-id="${first}"] .seen-toggle`);
   await expect(seen).toHaveAttribute('aria-pressed', 'true');
   await expect(page.locator(`li[data-event-id="${first}"]`)).not.toHaveClass(/\bnew\b/);
@@ -141,14 +142,14 @@ test('approved light/dark/System UI and responsive routes work without remote tr
   assert.deepEqual(remoteReads, []);
   for (const width of [360, 728, 1280]) {
     await page.setViewportSize({ width, height: 900 });
-    for (const route of ['activity/new', 'activity/all', 'repositories', 'settings']) {
+    for (const route of ['activity/unread', 'activity', 'repositories', 'settings']) {
       await page.goto(`${page.url().split('#')[0]}#${route}`);
       await expect(page.locator('main h1')).toHaveCount(1);
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, `${route} overflow at ${width}`);
     }
   }
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto(`${page.url().split('#')[0]}#activity/new`);
+  await page.goto(`${page.url().split('#')[0]}#activity/unread`);
   await page.screenshot({ path: 'test-results/app-phone-dark.png', fullPage: true });
   await page.getByRole('button', { name: 'Light', exact: true }).click();
   await page.screenshot({ path: 'test-results/app-phone-light.png', fullPage: true });
@@ -161,7 +162,7 @@ test('repo subset acknowledgement preserves hidden/incoming events and survives 
   await page.locator('[data-scope-repo="demo-orders"]').uncheck();
   await page.locator('[data-scope-repo="demo-shared"]').uncheck();
   await page.keyboard.press('Escape');
-  await expect(page.locator('[data-event-id]')).toHaveCount(2);
+  await expect(page.locator('[data-event-id].new')).toHaveCount(2);
   let incoming: { id: string } | undefined;
   await page.route(
     '**/api/ack',
@@ -221,7 +222,6 @@ test('all branches remain visible without rules, with working settings', async t
 test('disabling a repository hides it everywhere except Repositories until it is enabled again', async t => {
   const { page, runtime } = await setup(t);
   const billingRows = page.locator('#page .subref', { hasText: 'billing-web' });
-  await page.getByRole('link', { name: 'All activity' }).click();
   await expect(billingRows.first()).toBeVisible();
   await page.locator('#repo-toggle').click();
   await page.locator('#repo-panel [data-scope-repo="demo-shared"]').uncheck();
@@ -250,7 +250,6 @@ test('disabling a repository hides it everywhere except Repositories until it is
   await expect(page.locator('#repo-toggle')).toHaveAccessibleName('2 repositories shown');
   await page.locator('#repo-toggle').click();
   await page.getByRole('link', { name: 'Activity', exact: true }).click();
-  await page.getByRole('link', { name: 'All activity' }).click();
   await expect(page.locator('#page .subref').first()).toBeVisible();
   await expect(billingRows).toHaveCount(0);
   await page.getByRole('link', { name: 'Repositories', exact: true }).click();
@@ -258,7 +257,6 @@ test('disabling a repository hides it everywhere except Repositories until it is
   await expect(page.getByRole('switch', { name: 'Watch billing-web' })).toBeChecked();
   await expect(page.getByText('3 watched', { exact: true })).toBeVisible();
   await page.getByRole('link', { name: 'Activity', exact: true }).click();
-  await page.getByRole('link', { name: 'All activity' }).click();
   await expect(billingRows.first()).toBeVisible();
   await expect(page.locator('#repo-toggle')).toHaveAccessibleName('3 repositories shown');
   await page.locator('#repo-toggle').click();
@@ -524,6 +522,8 @@ test('a focused CI row keeps focus when a status update changes which event repr
 
 test('a focused Activity type option keeps its type when a new type appears ahead of it', async t => {
   const { page, runtime } = await setup(t);
+  await page.goto(`${runtime.url}/#activity/unread`);
+  await expect(page.locator('[data-event-id="demo-push-1"]')).toBeVisible();
   await page.getByRole('button', { name: /^Activity type:/ }).press('ArrowDown');
   const panel = page.getByRole('listbox', { name: 'Activity type' });
   const push = panel.getByRole('option', { name: 'Push', exact: true });
@@ -552,7 +552,7 @@ test('a focused Activity type option keeps its type when a new type appears ahea
 
 test('a focused imported row keeps focus when a newer imported row renders above it', async t => {
   const { page, runtime } = await setup(t);
-  await page.goto(`${page.url().split('#')[0]}#activity/all`);
+  await page.goto(`${page.url().split('#')[0]}#activity`);
   await page.locator('summary', { hasText: 'Imported history' }).click();
   const title = page
     .locator('li[data-event-id] .feed-title')
@@ -816,7 +816,7 @@ test('a New branch detail reviews a rewritten tracking ref before switching, the
   const errors: string[] = [];
   page.on('pageerror', error => errors.push(error.message));
   await rememberKey(page);
-  await page.goto(`http://127.0.0.1:${portOf(app)}/#activity/all`);
+  await page.goto(`http://127.0.0.1:${portOf(app)}/#activity`);
   await page.locator('#activity-filters-toggle').click();
   const search = page.getByRole('searchbox', { name: 'Search activity' });
   await search.fill('checkout-from-activity');
@@ -862,7 +862,7 @@ test('a New branch detail reviews a rewritten tracking ref before switching, the
   await expect(page.getByRole('link', { name: 'View in Repositories' })).toBeVisible();
   git(local, 'switch', 'main');
   await expect(page.getByRole('button', { name: `Switch to ${branch}…` })).toBeVisible({ timeout: 12000 });
-  await page.getByRole('link', { name: /Back to All activity/ }).click();
+  await page.getByRole('link', { name: /Back to Activity/ }).click();
   await expect(page.locator('#feed-search')).toHaveValue('checkout-from-activity');
   assert.deepEqual(errors, []);
 });
@@ -988,7 +988,7 @@ test('first repository onboarding can reach Activity without a reload', async t 
   await expect(page.getByRole('heading', { name: 'beta-web', exact: true })).toBeVisible();
   await page.getByRole('link', { name: 'Activity', exact: true }).click();
   await expect(page.getByRole('searchbox', { name: 'Search activity' })).toBeVisible();
-  await expect(page).toHaveURL(/#activity\/new$/);
+  await expect(page).toHaveURL(/#activity$/);
 });
 
 test('searchable picker selects multiple checkouts, disambiguates remotes and only adds on commit', async t => {
@@ -1282,7 +1282,6 @@ test('CI summary shortcuts filter the full activity scope on desktop and compact
     ci('summary-other-search', 1104, 'failed', 62, { title: 'Unrelated CI' }),
     { id: 'summary-push', repoId: 'demo-orders', kind: 'push', title: 'Summary CI fixture push', time: '2026-11-24T10:02:00Z' },
   ]);
-  await page.getByRole('link', { name: 'All activity', exact: true }).click();
   const repoPicker = page.locator('#repo-toggle');
   await repoPicker.click();
   await page.locator('#repo-panel [data-scope-repo="demo-billing"]').uncheck();
@@ -1342,26 +1341,25 @@ test('CI summary shortcuts filter the full activity scope on desktop and compact
   await expect(clear).toHaveCount(0);
   await expect(page.locator('li[data-event-id="summary-push"]')).toBeVisible();
   await expect(repoPicker).toHaveAccessibleName('1 repository shown');
-  await expect(page.getByRole('link', { name: 'All activity', exact: true })).toHaveAttribute('aria-current', 'page');
+  await expect(page.getByRole('link', { name: 'Activity', exact: true })).toHaveAttribute('aria-current', 'page');
 });
 
 test('detail reload and back restore Activity filters, open trail and source row focus', async t => {
   const { page } = await groupedFixture(t);
   await page.getByRole('link', { name: 'Activity', exact: true }).click();
-  await page.getByRole('link', { name: 'All activity', exact: true }).click();
   await page.getByRole('searchbox', { name: 'Search activity' }).fill('Orders');
   await selectActivityType(page, 'CI runs');
   await page.locator('.trail > summary').click();
   await page.locator('li.row .feed-title').click();
-  await expect(page.getByRole('link', { name: '← Back to All activity', exact: true })).toBeVisible();
+  await expect(page.getByRole('link', { name: '← Back to Activity', exact: true })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Update history' })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Orders CI', exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Copy full commit ID' })).toBeVisible();
   await page.reload();
-  await page.getByRole('link', { name: '← Back to All activity', exact: true }).click();
+  await page.getByRole('link', { name: '← Back to Activity', exact: true }).click();
   await expect(page.getByRole('searchbox', { name: 'Search activity' })).toHaveValue('Orders');
   await expect(page.getByRole('button', { name: 'Activity type: CI runs', exact: true })).toBeVisible();
-  await expect(page.getByRole('link', { name: 'All activity', exact: true })).toHaveAttribute('aria-current', 'page');
+  await expect(page.getByRole('link', { name: 'Activity', exact: true })).toHaveAttribute('aria-current', 'page');
   await expect(page.locator('.trail')).toHaveAttribute('open', '');
   await expect(page.locator('li.row .feed-title')).toBeFocused();
 });
@@ -1432,7 +1430,7 @@ test('confirmed branch deletion wording replaces legacy missing titles in rows, 
   assert.equal(await page.getByText('Branch missing', { exact: false }).count(), 0);
 });
 
-test('one Activity group offers clearly distinct New updates and All activity without changing seen state', async t => {
+test('Activity shows history by default and filters to unread without changing seen state', async t => {
   const { page, runtime } = await groupedFixture(t);
   const now = new Date().toISOString();
   runtime.store.insertEvents([
@@ -1459,18 +1457,17 @@ test('one Activity group offers clearly distinct New updates and All activity wi
   ]);
   await page.reload();
   const main = page.getByRole('navigation', { name: 'Main', exact: true });
-  await expect(main.getByRole('link', { name: 'Activity', exact: true })).toHaveCount(1);
-  await expect(page.getByRole('link', { name: 'Catch-up', exact: true })).toHaveCount(0);
-  await expect(page.getByRole('checkbox', { name: 'Unseen only', exact: true })).toHaveCount(0);
-  await expect(page.getByRole('link', { name: 'New updates', exact: true })).toHaveAttribute('aria-current', 'page');
-  await expect(page.locator('li.row')).toHaveCount(1);
+  await expect(main.getByRole('link', { name: 'Activity', exact: true })).toHaveAttribute('aria-current', 'page');
+  await expect(page.getByRole('navigation', { name: 'Activity view' })).toHaveCount(0);
+  const unread = page.getByRole('button', { name: 'Unread only', exact: true });
+  await expect(unread).toHaveAttribute('aria-pressed', 'false');
+  await expect(page.locator('li.row')).toHaveCount(3);
   const remoteReads: string[] = [];
   page.on('request', request => {
     if (/\/api\/(refresh|connection|repos)(\?|$)/.test(request.url())) remoteReads.push(request.url());
   });
   await page.getByRole('searchbox', { name: 'Search activity' }).fill('Orders');
-  await page.getByRole('link', { name: 'All activity', exact: true }).click();
-  await expect(page).toHaveURL(/#activity\/all$/);
+  await expect(page).toHaveURL(/#activity$/);
   await expect(page.getByRole('searchbox', { name: 'Search activity' })).toHaveValue('Orders');
   await expect(page.locator('li.row')).toHaveCount(3);
   await expect(page.locator('[data-event-id="seen-push"]')).toBeVisible();
@@ -1480,30 +1477,44 @@ test('one Activity group offers clearly distinct New updates and All activity wi
   await expect(page.getByRole('region', { name: 'Activity summary' })).toContainText('1 new item');
   // Every matching item is loaded, so the summary does not repeat the count.
   await expect(page.getByRole('region', { name: 'Activity summary' })).not.toContainText('Showing');
-  await page.getByRole('link', { name: 'New updates', exact: true }).click();
-  await expect(page).toHaveURL(/#activity\/new$/);
+  await unread.press('Space');
+  await expect(page).toHaveURL(/#activity\/unread$/);
+  await expect(unread).toHaveAttribute('aria-pressed', 'true');
+  await expect(unread).toBeFocused();
+  await expect(page.getByRole('searchbox', { name: 'Search activity' })).toHaveValue('Orders');
   await expect(page.locator('li.row')).toHaveCount(1);
   assert.equal(runtime.store.listEvents({ unseen: true }).length, 2);
   assert.deepEqual(remoteReads, []);
   await page.getByRole('link', { name: 'Repositories', exact: true }).click();
   await main.getByRole('link', { name: 'Activity', exact: true }).click();
-  await expect(page.getByRole('link', { name: 'New updates', exact: true })).toHaveAttribute('aria-current', 'page');
+  await expect(unread).toHaveAttribute('aria-pressed', 'true');
+  await page.getByRole('link', { name: 'Repo Pulse', exact: true }).click();
+  await expect(unread).toHaveAttribute('aria-pressed', 'false');
+  await expect(page.locator('li.row')).toHaveCount(3);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.locator('#activity-filters-toggle').click();
+  await unread.click();
+  await expect(page.locator('#activity-filters-toggle')).toHaveText('Filters · 2');
+  await expect(page.locator('li.row')).toHaveCount(1);
+  await page.getByRole('button', { name: 'Clear filter', exact: true }).click();
+  await expect(unread).toHaveAttribute('aria-pressed', 'false');
+  await expect(page.locator('li.row')).toHaveCount(3);
 });
 
-test('legacy activity links normalize and detail returns to the correct New updates view', async t => {
+test('legacy activity links normalize and detail returns to the unread filter', async t => {
   const { page } = await groupedFixture(t);
   const base = page.url().split('#')[0];
-  await page.goto(base + '#activity');
-  await expect(page).toHaveURL(/#activity\/all$/);
-  await expect(page.getByRole('link', { name: 'All activity', exact: true })).toHaveAttribute('aria-current', 'page');
+  await page.goto(base + '#activity/all');
+  await expect(page).toHaveURL(/#activity$/);
+  await expect(page.getByRole('link', { name: 'Activity', exact: true })).toHaveAttribute('aria-current', 'page');
   await page.goto(base + '#catchup');
-  await expect(page).toHaveURL(/#activity\/new$/);
+  await expect(page).toHaveURL(/#activity\/unread$/);
   await page.locator('li.row .feed-title').click();
-  await expect(page.getByRole('link', { name: '← Back to New updates', exact: true })).toBeVisible();
+  await expect(page.getByRole('link', { name: '← Back to Activity', exact: true })).toBeVisible();
   await page.reload();
-  await page.getByRole('link', { name: '← Back to New updates', exact: true }).click();
-  await expect(page).toHaveURL(/#activity\/new$/);
-  await expect(page.getByRole('link', { name: 'New updates', exact: true })).toHaveAttribute('aria-current', 'page');
+  await page.getByRole('link', { name: '← Back to Activity', exact: true }).click();
+  await expect(page).toHaveURL(/#activity\/unread$/);
+  await expect(page.getByRole('button', { name: 'Unread only', exact: true })).toHaveAttribute('aria-pressed', 'true');
 });
 
 test('semantic status colors match rows, imported history, details and trails in both themes', async t => {
@@ -1541,7 +1552,7 @@ test('semantic status colors match rows, imported history, details and trails in
   runtime.store.insertEvents([
     { ...event('canceled-transition', 'completed', 0), data: { ...event('', '', 0).data, status: 'completed', result: 'canceled' } },
   ]);
-  await page.goto(page.url().split('#')[0] + '#activity/all');
+  await page.goto(page.url().split('#')[0] + '#activity');
   for (const theme of ['Light', 'Dark']) {
     await page.getByRole('button', { name: theme, exact: true }).click();
     const history = page.locator('details[data-group="Imported history"]');
@@ -1797,7 +1808,7 @@ test('the sync status pill reads Synced in the demo and follows a Problem or Del
   });
   for (const [current, text, tone] of cases) {
     status = current;
-    await page.goto(`${page.url().split('#')[0]}#activity/new`);
+    await page.goto(`${page.url().split('#')[0]}#activity/unread`);
     await expect(pill).toHaveText(text);
     await expect(pill).toHaveClass(new RegExp(`\\b${tone}\\b`));
     await expect(page.locator('#page .banner')).toHaveCount(1);
@@ -1936,7 +1947,6 @@ test('Escape before the first state load does not throw', async t => {
 
 test('tag activity has its own type filter and a detail that names the tag and what it points at', async t => {
   const { page } = await setup(t);
-  await page.getByRole('link', { name: 'All activity' }).click();
   await page.getByRole('button', { name: /^Activity type:/ }).click();
   await page.getByRole('option', { name: 'Tag', exact: true }).click();
   const rows = page.locator('#page li.row');
@@ -1952,7 +1962,6 @@ test('tag activity has its own type filter and a detail that names the tag and w
 
 test('a push that rewrote history says so on its row and in how it was merged, and a fast-forward push does not', async t => {
   const { page } = await setup(t);
-  await page.getByRole('link', { name: 'All activity' }).click();
   await page.locator('details[data-group="Imported history"] > summary').click();
   const rewritten = page.locator('[data-event-id="demo-history"]');
   await expect(rewritten).toContainText('History rewritten · 2 commits dropped');
@@ -2092,7 +2101,7 @@ test('Start from scratch in Settings confirms, empties the feed and shows Syncin
   page.on('pageerror', error => errors.push(error.message));
   await rememberKey(page);
   const url = `http://127.0.0.1:${portOf(server)}`;
-  await page.goto(`${url}/#activity/all`);
+  await page.goto(`${url}/#activity`);
   await expect(page.locator('[data-event-id="one:push:1"]')).toHaveCount(1);
 
   await page.getByRole('link', { name: 'Settings', exact: true }).click();
@@ -2129,9 +2138,8 @@ test('Start from scratch in Settings confirms, empties the feed and shows Syncin
   await expect(page.locator('[data-event-id="one:push:1"]')).toHaveCount(1, { timeout: 15000 });
 });
 
-test('both Activity views show the branch tree beside the type label and keep the dot on narrow screens', async t => {
+test('the branch tree works with the unread filter and keeps the dot on narrow screens', async t => {
   const { page } = await setup(t);
-  await page.getByRole('link', { name: 'All activity', exact: true }).click();
   const rows = page.locator('.with-tree .row');
   await expect(rows.first()).toBeVisible();
   await expect(page.locator('.with-tree svg.tree')).toHaveCount(await rows.count());
@@ -2161,7 +2169,7 @@ test('both Activity views show the branch tree beside the type label and keep th
   await expect(hotfix.locator('svg.tree')).toBeHidden();
   await expect(hotfix.locator('.kind > svg')).toBeVisible();
   await page.setViewportSize({ width: 1280, height: 900 });
-  await page.getByRole('link', { name: 'New updates', exact: true }).click();
+  await page.getByRole('button', { name: 'Unread only', exact: true }).click();
   await expect(hotfix.locator('svg.tree')).toBeVisible();
   await expect(hotfix.locator('.event-main')).toHaveText('Started at 3f9a2c1, the tip of main');
   await page.setViewportSize({ width: 640, height: 900 });
@@ -2212,7 +2220,6 @@ test('on desktop every row lines up its ref line with its meta line, and its sum
     },
   ]);
   await page.reload();
-  await page.getByRole('link', { name: 'All activity', exact: true }).click();
   const longTitle = page.locator('[data-event-id="long-title-pr"] .feed-title .title');
   await expect(longTitle).toBeVisible();
   // The page re-renders as it polls, so box reads retry until a rendered row answers.

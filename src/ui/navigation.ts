@@ -7,12 +7,12 @@ export type NavigationState = {
   search: string;
   kind: string;
   filtersOpen: boolean | undefined;
-  activityRoute: string;
+  unreadOnly: boolean;
   savedFilterId: string;
 };
 
 export type ResultsContext = {
-  route: string;
+  unreadOnly: boolean;
   search: string;
   kind: string;
   repoIds: string[] | null;
@@ -28,14 +28,16 @@ export type ResultsContext = {
 export type WatchedRepo = { id: string; disabled?: boolean };
 
 /**
- * Keep old bookmarks working while exposing one Activity page with two clear views.
+ * Resolve legacy Activity bookmarks to the corresponding filter.
  */
 export function parseRoute(hash: string) {
   const [name, value] = String(hash || '')
     .replace(/^#/, '')
     .split('/');
   if (name === 'rules') return { route: 'settings', eventId: null };
-  if (name === 'activity') return { route: value === undefined || value === 'all' ? 'activity' : 'catchup', eventId: null };
+  if (name === 'activity' || name === 'catchup') {
+    return { route: 'activity', eventId: null, unreadOnly: name === 'catchup' || value === 'new' || value === 'unread' };
+  }
   if (name === 'event' || name === 'repositories') {
     let id = null;
     try {
@@ -45,11 +47,12 @@ export function parseRoute(hash: string) {
     }
     return name === 'event' ? { route: 'event', eventId: id } : { route: 'repositories', eventId: null, checkoutRepoId: id };
   }
-  return { route: name === 'settings' ? 'settings' : 'catchup', eventId: null };
+  if (name === 'settings') return { route: 'settings', eventId: null };
+  return { route: 'activity', eventId: null, unreadOnly: false };
 }
 
-export const activityHref = (route: string) => `#activity/${route === 'activity' ? 'all' : 'new'}`;
-export const isActivity = (route: unknown) => route === 'catchup' || route === 'activity';
+export const activityHref = (unreadOnly: boolean) => (unreadOnly ? '#activity/unread' : '#activity');
+export const isActivity = (route: unknown) => route === 'activity';
 export const repositoryHref = (id: string) => `#repositories/${encodeURIComponent(id)}`;
 
 const RESULTS_KEY = 'repo-pulse-results-context';
@@ -59,15 +62,17 @@ const RESULTS_VERSION = 2;
 function readResultsContext(): ResultsContext | null {
   try {
     const value = JSON.parse(sessionStorage.getItem(RESULTS_KEY) ?? 'null');
-    if (!value || !isActivity(value.route)) return null;
+    if (!value || (typeof value.unreadOnly !== 'boolean' && value.route !== 'activity' && value.route !== 'catchup')) return null;
     const search = typeof value.search === 'string' ? value.search : '';
     return {
-      route: value.route,
+      unreadOnly: typeof value.unreadOnly === 'boolean' ? value.unreadOnly : value.route === 'catchup',
       search: value.version === RESULTS_VERSION ? search : joinActivitySearch(search, typeof value.people === 'string' ? value.people : ''),
       kind: typeof value.kind === 'string' ? value.kind : '',
       repoIds: Array.isArray(value.repoIds) ? value.repoIds.filter((id: unknown) => typeof id === 'string') : null,
       groups: Array.isArray(value.groups)
-        ? value.groups.filter((entry: unknown) => Array.isArray(entry) && typeof entry[0] === 'string' && typeof entry[1] === 'boolean')
+        ? value.groups
+            .filter((entry: unknown) => Array.isArray(entry) && typeof entry[0] === 'string' && typeof entry[1] === 'boolean')
+            .map(([group, open]: [string, boolean]) => [group === 'New updates' ? 'Activity' : group, open])
         : [],
       filtersOpen: typeof value.filtersOpen === 'boolean' ? value.filtersOpen : undefined,
       savedFilterId: typeof value.savedFilterId === 'string' ? value.savedFilterId : '',
@@ -83,8 +88,9 @@ function readResultsContext(): ResultsContext | null {
 
 function canonicalRoute() {
   const parsed = parseRoute(location.hash);
-  if (isActivity(parsed.route) && location.hash !== activityHref(parsed.route)) {
-    history.replaceState(history.state, '', activityHref(parsed.route));
+  if (parsed.unreadOnly !== undefined) {
+    const hash = activityHref(parsed.unreadOnly);
+    if (location.hash !== hash) history.replaceState(history.state, '', hash);
   }
   return parsed;
 }
@@ -106,7 +112,7 @@ export function createNavigation({
   function remember(eventId: string | null, matchingIds?: string[]) {
     if (!isActivity(ui.route)) return;
     results = {
-      route: ui.route,
+      unreadOnly: ui.unreadOnly,
       search: ui.search,
       kind: ui.kind,
       repoIds: ui.repoIds === null ? null : [...ui.repoIds],
@@ -144,14 +150,14 @@ export function createNavigation({
       const { checkoutRepoId: id, ...parsed } = canonicalRoute();
       Object.assign(ui, parsed);
       checkoutRepoId = id;
-      ui.activityRoute = isActivity(ui.route) ? ui.route : results?.route || 'catchup';
+      ui.unreadOnly = parsed.unreadOnly ?? results?.unreadOnly ?? false;
     },
     view(this: void) {
-      const { route, eventId, search, kind, repoIds } = ui;
-      return { route, eventId, search, kind, repoIds, generation };
+      const { route, eventId, search, kind, repoIds, unreadOnly } = ui;
+      return { route, eventId, search, kind, repoIds, unreadOnly, generation };
     },
-    get returnRoute() {
-      return results?.route || 'catchup';
+    get returnUnreadOnly() {
+      return results?.unreadOnly ?? false;
     },
     get matchingIds() {
       return results && results.eventId === ui.eventId ? results.matchingIds : undefined;
@@ -166,7 +172,7 @@ export function createNavigation({
       return id;
     },
     takeRestoration(loading: unknown) {
-      if (loading || pending?.route !== ui.route) return null;
+      if (loading || !isActivity(ui.route) || !pending) return null;
       const restored = pending;
       pending = null;
       return restored;
@@ -174,6 +180,7 @@ export function createNavigation({
     /** Null repositories mean the watch list has not loaded yet; the first state read reconciles instead. */
     enter(repos: WatchedRepo[] | null) {
       const previous = ui.route;
+      const previousUnreadOnly = ui.unreadOnly;
       const { checkoutRepoId: id, ...parsed } = canonicalRoute();
       checkoutRepoId = id;
       const destination = parsed.route;
@@ -183,13 +190,12 @@ export function createNavigation({
 
       let capacity;
       if (isActivity(destination)) {
-        ui.activityRoute = destination;
-        if (previous === 'event' && results?.route === destination) {
+        if (previous === 'event' && results?.unreadOnly === ui.unreadOnly) {
           const { search, kind, filtersOpen, savedFilterId, repoIds, activityCapacity } = results;
           Object.assign(ui, { search, kind, filtersOpen, savedFilterId, repoIds });
           pending = results;
           capacity = activityCapacity;
-        } else if (previous === destination) {
+        } else if (previous === destination && previousUnreadOnly === ui.unreadOnly) {
           capacity = activityCapacity();
         }
       }

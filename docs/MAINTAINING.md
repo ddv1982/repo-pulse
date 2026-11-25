@@ -13,7 +13,7 @@
 | [server/repositories.ts](../server/repositories.ts) and [server/checkout-git.ts](../server/checkout-git.ts) | Checkout discovery, Git runner and safety checks, status and cache, and the per-repository/shared-Git-dir write lock |
 | [server/checkout-activity-switch.ts](../server/checkout-activity-switch.ts) and [server/checkout-switch-refs.ts](../server/checkout-switch-refs.ts) | Branch switches from Activity and Repositories, tracking-ref transactions, and rewrite recovery |
 | [server/checkout-update.ts](../server/checkout-update.ts) and [server/checkout-branches.ts](../server/checkout-branches.ts) | Check, Pull, and PR branch follow-up workflows |
-| [src/activity-tree.ts](../src/activity-tree.ts) and [src/ui/activity-tree.ts](../src/ui/activity-tree.ts) | The branch tree of All activity and New updates: lanes, fork and merge links from the rendered rows, and the SVG cell of each row. [server/activity-query.ts](../server/activity-query.ts) attaches the stored pull request to CI runs on a pull request ref |
+| [src/activity-tree.ts](../src/activity-tree.ts) and [src/ui/activity-tree.ts](../src/ui/activity-tree.ts) | The branch tree in Activity: lanes, fork and merge links from the rendered rows, and the SVG cell of each row. [server/activity-query.ts](../server/activity-query.ts) attaches the stored pull request to CI runs on a pull request ref |
 | [src/web.ts](../src/web.ts) and [src/ui/](../src/ui/) | Browser wiring, view rendering, refresh coordination, navigation, and exact seen actions |
 | [web/app.css](../web/app.css), [web/styles/](../web/styles/) and [web/theme.ts](../web/theme.ts) | Modular CSS tokens, layouts, screen styles, light-mode glass, and System, Light, and Dark controls |
 

@@ -49,7 +49,7 @@ const connection = createConnectionController({
   },
 });
 const ui: import('./ui/browser-view.ts').BrowserUi = {
-  route: 'catchup',
+  route: 'activity',
   eventId: null,
   repoIds: null,
   search: '',
@@ -57,7 +57,7 @@ const ui: import('./ui/browser-view.ts').BrowserUi = {
   kind: '',
   filtersOpen: undefined,
   openMenu: '',
-  activityRoute: 'catchup',
+  unreadOnly: false,
   connection: connection.state,
 };
 /** Data each detail page loaded on request, by event. */
@@ -145,7 +145,7 @@ function renderOptions() {
   const { generation } = navigation.view();
   return {
     restored,
-    returnRoute: navigation.returnRoute,
+    returnUnreadOnly: navigation.returnUnreadOnly,
     matchingIds: navigation.matchingIds,
     commits: commitResults.get(ui.eventId),
     checkouts: checkoutPanel.snapshots,
@@ -352,17 +352,15 @@ function applySavedFilter({ id, name, filters }: import('./ui/saved-filters.ts')
     kind,
     repoIds: savedRepositoryScope(repoIds, watched),
   });
-  const destination = view === 'all' ? 'activity' : 'catchup';
-  const sameView = destination === ui.route;
-  if (sameView) activityChanged({ header: true });
-  else location.hash = activityHref(destination);
-  const destinationMessage = sameView ? '' : ` Opened ${view === 'all' ? 'All activity' : 'New updates'}.`;
+  const unreadOnly = view === 'new';
+  if (unreadOnly === ui.unreadOnly) activityChanged({ header: true });
+  else location.hash = activityHref(unreadOnly);
   const scopeMessage = unavailable
     ? unavailable === repoIds?.length
       ? ' All saved repositories are unavailable.'
       : ' Some saved repositories are unavailable.'
     : '';
-  toast(`Applied “${name}”.${destinationMessage}${scopeMessage}`);
+  toast(`Applied “${name}”.${scopeMessage}`);
 }
 
 const actions: Record<string, Action> = {
@@ -423,7 +421,7 @@ const actions: Record<string, Action> = {
     location.hash = `event/${encodeURIComponent(element.dataset.id ?? '')}`;
   },
   'back-to-results': () => {
-    location.hash = activityHref(navigation.returnRoute);
+    location.hash = activityHref(navigation.returnUnreadOnly);
   },
   'copy-commit': async element => {
     try {
@@ -464,7 +462,7 @@ const actions: Record<string, Action> = {
   },
   'save-filter': () => {
     const filters = currentActivityFilters(ui);
-    const summary = `Includes ${filters.view === 'all' ? 'All activity' : 'New updates'} · ${scopeName(refresh.state, filters)} · ${activityFilterLabel(filters.kind)}`;
+    const summary = `Includes ${filters.view === 'all' ? 'All activity' : 'Unread only'} · ${scopeName(refresh.state, filters)} · ${activityFilterLabel(filters.kind)}`;
     filterName.show(
       selectedFilter() ? 'Save as new filter' : 'Save Activity filter',
       '',
@@ -527,7 +525,11 @@ const actions: Record<string, Action> = {
     ui.search = '';
     ui.kind = '';
     ui.savedFilterId = '';
-    activityChanged();
+    if (ui.unreadOnly) location.hash = activityHref(false);
+    else activityChanged();
+  },
+  'toggle-unread': () => {
+    location.hash = activityHref(!ui.unreadOnly);
   },
   'filter-activity-type': element => {
     ui.filtersOpen = true;
@@ -751,7 +753,7 @@ document.addEventListener('visibilitychange', () => {
 window.matchMedia('(min-width:640px)').addEventListener('change', () => {
   // The filter bar changes layout, so an open toolbar menu closes and focus returns to its toggle.
   if (ui.openMenu !== 'repo-panel') ui.openMenu = '';
-  if (['catchup', 'activity'].includes(ui.route)) renderPage();
+  if (isActivity(ui.route)) renderPage();
 });
 navigation.initialize();
 await load({ force: true });

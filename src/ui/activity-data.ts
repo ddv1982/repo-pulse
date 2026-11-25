@@ -6,19 +6,19 @@ export type { ActivityEvent } from '../activity.ts';
 export type { ActivityItem, ActivityPage, EventDetail };
 
 export type Request = typeof import('../api.ts').request;
-export type ActivityView = { route: string; repoIds: string[] | null; kind?: string; search?: string };
+export type ActivityView = { route: string; unreadOnly?: boolean; repoIds: string[] | null; kind?: string; search?: string };
 
 const PAGE_SIZE = 50;
 const keyFor = (ui: ActivityView) =>
   JSON.stringify({
-    view: ui.route === 'activity' ? 'all' : 'new',
+    view: ui.unreadOnly ? 'new' : 'all',
     repoIds: ui.repoIds === null ? null : [...ui.repoIds].sort(),
     kind: ui.kind || '',
     search: ui.search || '',
   });
 const itemKey = (item: ActivityItem) => item.groupKey;
 
-export function activityScopeQuery(ui: ActivityView) {
+export function activityScopeQuery(ui: Pick<ActivityView, 'repoIds' | 'search' | 'kind'>) {
   const query = new URLSearchParams();
   if (ui.repoIds !== null) query.set('repoIds', ui.repoIds.join(','));
   if (ui.kind) query.set('kind', ui.kind);
@@ -30,7 +30,7 @@ export function activityScopeQuery(ui: ActivityView) {
 
 function activityUrl(ui: ActivityView, limit: number, cursor?: string | null): `/api/activity?${string}` {
   const query = activityScopeQuery(ui);
-  query.set('view', ui.route === 'activity' ? 'all' : 'new');
+  query.set('view', ui.unreadOnly ? 'new' : 'all');
   query.set('limit', String(limit));
   if (cursor) query.set('cursor', cursor);
   return `/api/activity?${query}`;

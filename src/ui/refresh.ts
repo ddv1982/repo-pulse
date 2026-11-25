@@ -59,8 +59,8 @@ function readMetadata(value: unknown) {
   return { ...data, watched, repos, streams, settings: data.settings || {}, diagnostics: data.diagnostics || {}, syncStatus };
 }
 
-const viewKey = ({ route, eventId, repoIds, search, kind, generation }: View) =>
-  JSON.stringify([route, eventId, repoIds, search, kind, generation]);
+const viewKey = ({ route, eventId, repoIds, search, kind, unreadOnly, generation }: View) =>
+  JSON.stringify([route, eventId, repoIds, search, kind, unreadOnly, generation]);
 
 export function createRefreshController({
   request,
