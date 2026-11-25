@@ -204,8 +204,9 @@ const hasTreeLegend = (tree: ActivityTree) =>
 function historyGroups(records: ActivityItem[], state: PageState, hasQuery: boolean, showRepo: boolean) {
   const recordedItems = records.filter(record => !record.imported);
   const importedItems = records.filter(record => record.imported);
-  const recordedTree = buildActivityTree(recordedItems);
-  const importedTree = buildActivityTree(importedItems);
+  const defaultBranches = new Map(state.repos.flatMap(repo => (repo.defaultBranch ? [[repo.id, repo.defaultBranch]] : [])));
+  const recordedTree = buildActivityTree(recordedItems, { defaultBranches });
+  const importedTree = buildActivityTree(importedItems, { defaultBranches });
   const width = Math.max(recordedTree.width, importedTree.width);
   const recorded = { ...recordedTree, width };
   const imported = { ...importedTree, width };

@@ -676,6 +676,7 @@ test('a read started before a repository was removed and added again commits not
     project: 'P',
     projectId: 'p',
     webUrl: 'https://dev.azure.com/org/P/_git/One',
+    defaultBranch: null,
     disabled: false,
   };
   const push = { pushId: 7, date: '2026-11-17T10:00:01Z', pushedBy: { displayName: 'A' }, refUpdates: [] };
