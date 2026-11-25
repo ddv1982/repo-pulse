@@ -6,11 +6,14 @@ import type { PageState } from './refresh.ts';
 
 export type { PageState };
 
-export function emptyActivityMessage(ui: { repoIds: string[] | null; route?: string; search?: string; kind?: string }, partial: boolean) {
+export function emptyActivityMessage(
+  ui: { repoIds: string[] | null; unreadOnly?: boolean; search?: string; kind?: string },
+  partial: boolean,
+) {
   const scoped = Boolean(ui.search || ui.kind || ui.repoIds !== null);
-  if (scoped) return ui.route === 'activity' ? 'No activity matches these filters' : 'No unread updates match these filters';
+  if (scoped) return ui.unreadOnly ? 'No unread updates match these filters' : 'No activity matches these filters';
   if (partial) return 'No activity loaded yet';
-  return ui.route === 'activity' ? 'No activity recorded yet' : 'No new updates';
+  return ui.unreadOnly ? 'No new updates' : 'No activity recorded yet';
 }
 /**
  * Unread totals come from the server so they cover every page, not only the loaded rows.
@@ -65,7 +68,7 @@ function ciBreakdown(layout: 'cell' | 'chip', counts: ActivityPage['newBuildCoun
 export function renderSummary(
   records: ActivityItem[],
   state: Pick<PageState, 'activity'>,
-  ui: { repoIds: string[] | null; route?: string; search?: string; kind?: string },
+  ui: { repoIds: string[] | null; unreadOnly?: boolean; search?: string; kind?: string },
   partial: boolean,
 ) {
   const { newItems, updates, counts } = unreadCounts(

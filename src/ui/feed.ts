@@ -16,7 +16,6 @@ import { worstStatus } from '../sync-worst.ts';
 import { emptyActivityMessage, renderSummary } from './activity-summary.ts';
 import { icons } from './icons.ts';
 import { renderTrail } from './activity-trail.ts';
-import { activityHref } from './navigation.ts';
 import { renderTypeFilter } from './type-filter.ts';
 import { activityScopeQuery } from './activity-data.ts';
 import { activityFilterLabel, activityRef, prForkSource, prTarget, prVoteChanges } from '../activity-text.ts';
@@ -32,13 +31,13 @@ export { renderDetail } from './activity-detail.ts';
 export type { PageState, ActivityItem };
 
 /** `openMenu` is the panel ID of the open toolbar menu, if any. */
-export type FeedView = Pick<import('./navigation.ts').NavigationState, 'route' | 'repoIds' | 'search' | 'kind' | 'filtersOpen'> & {
+export type FeedView = Pick<import('./navigation.ts').NavigationState, 'unreadOnly' | 'repoIds' | 'search' | 'kind' | 'filtersOpen'> & {
   openMenu?: string;
 };
 
 export function filterControls(ui: FeedView & { savedFilterId: string }, state: PageState) {
   const desktop = globalThis.matchMedia?.('(min-width: 640px)').matches ?? true;
-  const active = Number(Boolean(ui.search)) + Number(Boolean(ui.kind));
+  const active = Number(Boolean(ui.search)) + Number(Boolean(ui.kind)) + Number(ui.unreadOnly);
   const open = desktop || ui.filtersOpen === true;
   const presets = state.savedFilters ?? [];
   const saved = presets.find(filter => filter.id === ui.savedFilterId);
@@ -51,6 +50,7 @@ export function filterControls(ui: FeedView & { savedFilterId: string }, state: 
       <div class="toolbar"><input id="feed-search" class="search" type="search" aria-label="Search activity" aria-describedby="feed-search-help" placeholder="Search branch, commit, person or repository…" value="${ui.search}">
         <div class="filter-actions">
           ${renderTypeFilter(ui.kind, state.activity.filterOptions, state.activity.loading, ui.openMenu === 'kind-panel')}
+          <button class="btn" id="unread-only" type="button" data-action="toggle-unread" aria-pressed="${ui.unreadOnly}">Unread only</button>
           ${active ? html`<button class="btn" id="clear-filters" type="button" data-action="clear-filters">Clear filter</button>` : emptyHtml}
         </div>
       </div><p class="help" id="feed-search-help">Commas match any term · <code>people:Ali, Jo</code> searches names only</p>
@@ -198,7 +198,7 @@ const hasTreeLegend = (tree: ActivityTree) =>
   tree.rows.some(row => row.forkFrom || row.mergeFrom || row.node.shape === 'ring' || row.node.shape === 'merge' || row.node.down);
 
 /**
- * All activity: both groups carry a branch tree. They share one width so their columns line up.
+ * Both groups carry a branch tree. They share one width so their columns line up.
  */
 function historyGroups(records: ActivityItem[], state: PageState, hasQuery: boolean, showRepo: boolean) {
   const recordedItems = records.filter(record => !record.imported);
@@ -212,12 +212,6 @@ function historyGroups(records: ActivityItem[], state: PageState, hasQuery: bool
     content: html`${group('Activity', recordedItems, state, { tree: recorded, showRepo })}${group('Imported history', importedItems, state, { open: hasQuery, description: 'Captured before monitoring started', tree: imported, showRepo })}`,
     legend: hasTreeLegend(recordedTree) || hasTreeLegend(importedTree),
   };
-}
-
-function unseenGroup(records: ActivityItem[], state: PageState, showRepo: boolean) {
-  const unseen = records.filter(record => record.unseen);
-  const tree = buildActivityTree(unseen);
-  return { content: group('New updates', unseen, state, { tree, showRepo }), legend: hasTreeLegend(tree) };
 }
 
 /**
@@ -266,16 +260,24 @@ export function renderFeed(state: PageState, ui: FeedView & { savedFilterId: str
         );
   // With one repository in view every row would repeat its name, so rows name it only when several are shown.
   const showRepo = shown.length > 1;
-  const { content, legend } =
-    ui.route === 'activity' ? historyGroups(records, state, hasQuery, showRepo) : unseenGroup(records, state, showRepo);
-  const current = html`aria-current="page"`;
+  const { content, legend } = historyGroups(records, state, hasQuery, showRepo);
   const emptyMessage = emptyActivityMessage(ui, partial);
+  const emptyHint =
+    state.activity.error ||
+    (state.activity.loading
+      ? 'Reading your locally stored history.'
+      : partial
+        ? 'This does not confirm that nothing changed. Check repository status.'
+        : ui.unreadOnly
+          ? 'Turn off Unread only to browse history.'
+          : hasQuery || ui.repoIds !== null
+            ? 'Adjust your filters to see more activity.'
+            : '');
   const bulk = matchingAction(
     state,
     ui,
     shown.map(repo => repo.id),
   );
-  const viewControl = html`<h1 class="sr">Activity</h1><div class="activity-view"><nav class="seg" aria-label="Activity view" aria-describedby="activity-view-help"><a href="${activityHref('catchup')}" ${ui.route !== 'activity' ? current : emptyHtml}>New updates</a><a href="${activityHref('activity')}" ${ui.route === 'activity' ? current : emptyHtml}>All activity</a></nav><p class="help activity-view-help" id="activity-view-help">${ui.route === 'activity' ? 'Browse recorded updates, including seen and imported history.' : 'Updates you haven’t marked seen yet. Opening a page marks nothing.'}</p></div>`;
-  return html`${viewControl}${renderSummary(records, state, ui, partial)}${statusBanner(state, attention)}${filterControls(ui, state)}
-    <section class="card feed" aria-label="Repository activity">${bulk === emptyHtml ? emptyHtml : html`<div class="foot feed-actions">${bulk}</div>`}${legend ? treeLegend : emptyHtml}${records.length ? content : html`<div class="empty"><p class="big">${state.activity?.loading ? 'Loading activity…' : state.activity?.error ? 'Activity could not load' : emptyMessage}</p><p class="dim">${state.activity?.error ? state.activity.error : state.activity?.loading ? 'Reading your locally stored history.' : partial ? 'This does not confirm that nothing changed. Check repository status.' : 'Use All activity to browse history, or adjust your filters.'}</p>${state.activity?.error ? html`<button class="btn sm" type="button" data-action="retry-activity">Try again</button>` : emptyHtml}</div>`}${state.activity?.nextCursor ? html`<div class="foot"><button class="btn" type="button" data-action="load-more-activity">Load more</button><span>Showing ${records.length} of ${state.activity.total} recorded items.</span></div>` : emptyHtml}</section>`;
+  return html`<h1 class="sr">Activity</h1>${renderSummary(records, state, ui, partial)}${statusBanner(state, attention)}${filterControls(ui, state)}
+    <section class="card feed" aria-label="Repository activity">${bulk === emptyHtml ? emptyHtml : html`<div class="foot feed-actions">${bulk}</div>`}${legend ? treeLegend : emptyHtml}${records.length ? content : html`<div class="empty"><p class="big">${state.activity?.loading ? 'Loading activity…' : state.activity?.error ? 'Activity could not load' : emptyMessage}</p>${emptyHint ? html`<p class="dim">${emptyHint}</p>` : emptyHtml}${state.activity?.error ? html`<button class="btn sm" type="button" data-action="retry-activity">Try again</button>` : emptyHtml}</div>`}${state.activity?.nextCursor ? html`<div class="foot"><button class="btn" type="button" data-action="load-more-activity">Load more</button><span>Showing ${records.length} of ${state.activity.total} recorded items.</span></div>` : emptyHtml}</section>`;
 }

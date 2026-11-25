@@ -355,7 +355,7 @@ const commitViews: CommitsView[] = [pushCommits, { error: probe('pushCommits.err
 
 // No saved filter is selected: the feed reads savedFilterId only to find the selected one.
 const feedView = stub<import('../src/ui/feed.ts').FeedView & { savedFilterId: string }>({
-  route: 'activity',
+  unreadOnly: false,
   repoIds: null,
   search: '',
   kind: '',
@@ -373,7 +373,7 @@ const evidence = push.data?.mergeEvidence ?? {};
 const views: Record<string, View> = {
   feed: {
     render: () => [
-      renderFeed(state, { ...feedView, route: 'catchup' }),
+      renderFeed(state, { ...feedView, unreadOnly: true }),
       renderFeed(state, feedView),
       renderFeed(pageState({ items: [], error: probe('activity.error') }), feedView),
       renderFeed(delayed, feedView),
@@ -530,7 +530,7 @@ const views: Record<string, View> = {
     sinks: [],
   },
   header: {
-    render: () => [state, delayed].map(page => renderHeader(page, { repoIds: null, route: 'activity', activityRoute: 'activity' })),
+    render: () => [state, delayed].map(page => renderHeader(page, { repoIds: null, route: 'activity', unreadOnly: false })),
     shows: ['repo.id', 'repo.name', 'repo.project', 'syncStatus.overall.reason', 'syncStatus.delayed.reason'],
     sinks: [],
   },

@@ -8,7 +8,7 @@ export type HeaderState = ScopeState & Pick<import('./refresh.ts').PageState, 's
 export type ScopeView = Pick<import('./navigation.ts').NavigationState, 'repoIds'>;
 /** web.ts sets `refreshing` while a refresh runs; `openMenu` is `repo-panel` while the scope panel is open. */
 export type HeaderView = ScopeView &
-  Pick<import('./navigation.ts').NavigationState, 'route' | 'activityRoute'> & { refreshing?: boolean; openMenu?: string };
+  Pick<import('./navigation.ts').NavigationState, 'route' | 'unreadOnly'> & { refreshing?: boolean; openMenu?: string };
 
 function selectedRepos(state: ScopeState, ui: ScopeView) {
   return state.repos.filter(repo => ui.repoIds === null || ui.repoIds.includes(repo.id));
@@ -46,9 +46,9 @@ export function renderHeader(state: HeaderState, ui: HeaderView) {
           html`<label class="opt"><input type="checkbox" id="scope-${repo.id}" data-scope-repo="${repo.id}" ${ui.repoIds === null || ui.repoIds.includes(repo.id) ? html`checked` : emptyHtml}><b>${repo.name}</b><small>${repo.project}</small></label>`,
       )
     : html`<p class="help menu-empty">Add repositories to begin watching.</p>`;
-  return html`<div class="hg header-brand"><a class="brand" href="#activity/new">Repo Pulse</a><div class="menu"><button class="control" id="repo-toggle" type="button" aria-expanded="${ui.openMenu === 'repo-panel'}" aria-controls="repo-panel" aria-label="${scopeName(state, ui)}" title="Changing visible repositories marks nothing seen">${scopeLabel(state, ui)}</button><div class="menu-panel" id="repo-panel" role="group" aria-label="Repositories shown" ${ui.openMenu === 'repo-panel' ? emptyHtml : html`hidden`}>${repoOptions}<div class="mfoot"><span>Scope changes mark nothing seen.</span><button class="ghost sm" type="button" data-action="all-repos">All</button><button class="ghost sm" type="button" data-action="no-repos">None</button></div></div></div></div>
+  return html`<div class="hg header-brand"><a class="brand" href="${activityHref(false)}">Repo Pulse</a><div class="menu"><button class="control" id="repo-toggle" type="button" aria-expanded="${ui.openMenu === 'repo-panel'}" aria-controls="repo-panel" aria-label="${scopeName(state, ui)}" title="Changing visible repositories marks nothing seen">${scopeLabel(state, ui)}</button><div class="menu-panel" id="repo-panel" role="group" aria-label="Repositories shown" ${ui.openMenu === 'repo-panel' ? emptyHtml : html`hidden`}>${repoOptions}<div class="mfoot"><span>Scope changes mark nothing seen.</span><button class="ghost sm" type="button" data-action="all-repos">All</button><button class="ghost sm" type="button" data-action="no-repos">None</button></div></div></div></div>
     <nav class="seg tabs" aria-label="Main">
-      <a href="${activityHref(ui.activityRoute)}" ${isActivity(ui.route) || ui.route === 'event' ? current : emptyHtml}>Activity</a>
+      <a href="${activityHref(ui.unreadOnly)}" ${isActivity(ui.route) || ui.route === 'event' ? current : emptyHtml}>Activity</a>
       <a href="#repositories" ${ui.route === 'repositories' ? current : emptyHtml}>Repositories</a>
       <a href="#settings" ${ui.route === 'settings' ? current : emptyHtml}>Settings</a>
     </nav>

@@ -16,14 +16,14 @@ export function currentActivityFilters({
   search,
   kind,
   repoIds,
-  route,
+  unreadOnly,
 }: {
   search: string;
   kind: string;
   repoIds: string[] | null;
-  route: string;
+  unreadOnly: boolean;
 }): ActivityFilters {
-  return { ...splitActivitySearch(search), kind, repoIds, view: route === 'activity' ? 'all' : 'new' };
+  return { ...splitActivitySearch(search), kind, repoIds, view: unreadOnly ? 'new' : 'all' };
 }
 
 export function isSavedFilterModified(saved: ActivityFilters, current: ActivityFilters, watched: { id: string }[]) {
@@ -45,11 +45,11 @@ export function renderSavedFilters(filters: SavedActivityFilter[], selectedId: s
         ? html`<div class="menu saved-filter-menu">
       <button class="control saved-filter-toggle" id="saved-filter-toggle" type="button" aria-haspopup="listbox"
         aria-expanded="${openMenu === 'saved-filter-panel'}" aria-controls="saved-filter-panel" aria-describedby="saved-filter-help" aria-label="${label}" title="${title}"><span>${title}</span>${modified ? html`<small>Modified</small>` : emptyHtml} ▾</button>
-      <span class="sr" id="saved-filter-help">Choosing a saved filter also restores its Activity tab and repository scope.</span>
+      <span class="sr" id="saved-filter-help">Choosing a saved filter also restores its unread setting and repository scope.</span>
       <div class="menu-panel type-panel saved-filter-panel" id="saved-filter-panel" role="listbox" aria-label="Saved filters" ${panel('saved-filter-panel')}>
         ${filters.map(
           filter => html`<button class="type-option" type="button" role="option" id="saved-filter-option-${filter.id}" aria-selected="${filter.id === selected?.id}"
-          data-preset="${filter.id}" tabindex="-1"><span class="type-check" aria-hidden="true">${filter.id === selected?.id ? '✓' : ''}</span><span>${filter.name}<small class="help">${filter.filters.view === 'all' ? 'All activity' : 'New updates'}</small></span></button>`,
+          data-preset="${filter.id}" tabindex="-1"><span class="type-check" aria-hidden="true">${filter.id === selected?.id ? '✓' : ''}</span><span>${filter.name}<small class="help">${filter.filters.view === 'all' ? 'All activity' : 'Unread only'}</small></span></button>`,
         )}
       </div>
     </div>`

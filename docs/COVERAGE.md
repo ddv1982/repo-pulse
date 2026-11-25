@@ -50,7 +50,7 @@ Evidence saved before deeper analysis stopped also enumerated ref ranges, becaus
   "Repository push", because their saved record does not say which ref moved.
 - A snapshot discovery and a later push record can both describe the same branch. They remain
   separate observations when the app cannot prove a shared branch lifetime/source identity.
-- The branch tree in **All activity** and **New updates** follows the newest-first rows on the page. A lane joins
+- The branch tree in **Activity** follows the newest-first rows on the page. A lane joins
   nearby rows in the same branch lifetime and ends when the branch is quiet for more than 12 rows. Cached push-confirmed
   creations and deletions separate lifetimes even when those rows are hidden by filters, pagination, or seen state.
 - A branch created by a push, live or from the first sync's 7-day import, is checked in the background, during the automatic-check turns when no

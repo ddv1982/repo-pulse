@@ -37,7 +37,7 @@ function restoreFocus(id: string, neighbours: string[]) {
 }
 
 /**
- * A row's Seen toggle can leave with its row (New updates). Its neighbours, nearest first and following rows before
+ * A row's Seen toggle can leave with its row (Unread only). Its neighbours, nearest first and following rows before
  * earlier ones, take focus in that case.
  */
 function seenToggleNeighbours(element: HTMLElement) {
@@ -61,7 +61,7 @@ export type BrowserUi = NavigationState & {
 };
 export type RenderOptions = {
   restored: ResultsContext | null;
-  returnRoute: string;
+  returnUnreadOnly: boolean;
   matchingIds?: string[] | undefined;
   commits: import('./activity-detail.ts').LoadedView | undefined;
   checkouts: Record<string, import('./checkout.ts').CheckoutSnapshot>;
@@ -99,7 +99,7 @@ export function createBrowserView({
   function renderPage(
     state: PageState,
     ui: BrowserUi,
-    { restored, returnRoute, matchingIds, commits, checkouts, checkoutFocus, isCurrent }: RenderOptions,
+    { restored, returnUnreadOnly, matchingIds, commits, checkouts, checkoutFocus, isCurrent }: RenderOptions,
   ) {
     const groups = restored?.groups || captureGroups();
     const focused = document.activeElement;
@@ -117,10 +117,9 @@ export function createBrowserView({
           state,
           commits,
           {
-            returnRoute,
+            returnUnreadOnly,
             matchingIds,
             checkouts,
-            label: returnRoute === 'activity' ? 'Back to All activity' : 'Back to New updates',
           },
         ),
       );
