@@ -150,40 +150,48 @@ body::after {
 
 /* Translucent chrome catches the backdrop. Reading surfaces use the opaque card token. */
 @supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
-  @media not (prefers-reduced-transparency: reduce) {
+  :root:not(.dark) {
+    --chrome-sheen: radial-gradient(ellipse 83% 85% at 3% 0, #ffffffad, transparent 63%);
+    --chrome-fill: #ffffff86;
+    --chrome-filter: blur(26px) saturate(1.6);
+    --chrome-rim: #fff #ffffffce #ffffff60;
+    --chrome-shadow: inset 0 1px 0 #ffffffdd, 0 6px 19px -5px #7c4dff4e;
+    --active-filter-fill: color-mix(in srgb, var(--primary) 12%, var(--chrome-fill));
+  }
+  :root:not(.dark)
+    :where(
+      .summary,
+      .activity-filter-bar .control,
+      .activity-filter-bar .btn:not(.primary),
+      .activity-filter-bar .search,
+      .app .control,
+      .app .seg,
+      .app .sync-pill,
+      .repo-add > summary.btn
+    ) {
+    border-color: var(--chrome-rim);
+    background: var(--chrome-sheen), var(--chrome-fill);
+    box-shadow: var(--chrome-shadow);
+    -webkit-backdrop-filter: var(--chrome-filter);
+    backdrop-filter: var(--chrome-filter);
+  }
+  :root:not(.dark) .app .seg > :is([aria-current='page'], [aria-pressed='true']) {
+    color: var(--primary);
+    box-shadow:
+      0 0 0 1px rgb(109 40 217 / 37%),
+      0 3px 7px #6d28d930;
+  }
+  :root:not(.dark) .app .tabs > [aria-current='page'] {
+    font-weight: 700;
+  }
+  @media (prefers-reduced-transparency: reduce) {
     :root:not(.dark) {
-      --chrome-sheen: radial-gradient(ellipse 83% 85% at 3% 0, #ffffffad, transparent 63%);
-      --active-filter-fill: color-mix(in srgb, var(--primary) 12%, #ffffff86);
-    }
-    :root:not(.dark)
-      :where(
-        .summary,
-        .activity-filter-bar .control,
-        .activity-filter-bar .btn:not(.primary),
-        .activity-filter-bar .search,
-        .app .control,
-        .app .seg,
-        .app .sync-pill,
-        .repo-add > summary.btn
-      ) {
-      border-color: #ffffffce;
-      border-top-color: #fff;
-      border-bottom-color: #ffffff60;
-      background: var(--chrome-sheen), #ffffff86;
-      box-shadow:
-        inset 0 1px 0 #ffffffdd,
-        0 6px 19px -5px #7c4dff4e;
-      -webkit-backdrop-filter: blur(26px) saturate(1.6);
-      backdrop-filter: blur(26px) saturate(1.6);
-    }
-    :root:not(.dark) .app .seg > :is([aria-current='page'], [aria-pressed='true']) {
-      color: var(--primary);
-      box-shadow:
-        0 0 0 1px rgb(109 40 217 / 37%),
-        0 3px 7px #6d28d930;
-    }
-    :root:not(.dark) .app .tabs > [aria-current='page'] {
-      font-weight: 700;
+      --chrome-sheen: none;
+      --chrome-fill: var(--card);
+      --chrome-filter: none;
+      --chrome-rim: var(--input);
+      --chrome-shadow: none;
+      --active-filter-fill: initial;
     }
   }
 }

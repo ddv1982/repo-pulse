@@ -214,6 +214,15 @@ test('Ember Orbs keeps glass on the chrome and leaves the Activity feed opaque',
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(summary.locator('.headline')).toBeVisible();
   await expect(summary.locator('.cells')).toBeHidden();
+
+  // An unknown media feature is unmatched even when negated.
+  await page.route('**/web/styles/tokens.css', async route => {
+    const response = await route.fetch();
+    const body = (await response.text()).replaceAll('prefers-reduced-transparency', 'repo-pulse-unknown-preference');
+    await route.fulfill({ response, body });
+  });
+  await page.reload();
+  await expect(summary).toHaveCSS('backdrop-filter', /blur/);
 });
 
 test('repo subset acknowledgement preserves hidden/incoming events and survives restart', async t => {
