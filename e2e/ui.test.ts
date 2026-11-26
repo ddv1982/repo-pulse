@@ -2556,7 +2556,10 @@ test('Activity keeps the branch tree while exposing merge status, CI and push co
   await expect(page.locator('svg.tree .default-lane').first()).toHaveCSS('stroke-width', '2.5px');
 
   const push = page.locator('[data-event-id="demo-push-1"]');
-  await push.getByRole('button', { name: 'Load commits', exact: true }).click();
+  const loadCommits = push.getByRole('button', { name: 'Load commits', exact: true });
+  await loadCommits.focus();
+  await page.keyboard.press('Enter');
+  await expect(push.getByRole('button', { name: 'Reload commits', exact: true })).toBeFocused();
   await expect(push.getByText('Cover export retry behavior', { exact: false })).toBeVisible();
   await expect(page).toHaveURL(/#activity$/);
   await page.screenshot({ path: 'test-results/activity-tree-redesign-desktop.png' });

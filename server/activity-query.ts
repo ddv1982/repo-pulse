@@ -1,6 +1,6 @@
 import { activityCi } from './activity-ci.ts';
 import { foldSearchText, matchesPeople, parsePeople } from './activity-people.ts';
-import { isUnseen, projectActivity } from '../src/activity.ts';
+import { projectActivity } from '../src/activity.ts';
 import { treeBranchRefs, treePullRequestSource } from '../src/activity-tree.ts';
 import { activityFilterLabel, labels, parseActivityFilter } from '../src/activity-text.ts';
 import type { SQLInputValue as SqlValue } from 'node:sqlite';
@@ -73,7 +73,7 @@ const grouped = (selection: string) => `
   ) group_stats JOIN activity_members member ON member.event_id=group_stats.representative`;
 
 export type ActivityFilter = ReturnType<typeof parseActivityFilter>;
-export type MemberScope = { scope: string; params: SqlValue[]; people: boolean };
+export type MemberScope = { maxSequence: number; scope: string; params: SqlValue[]; people: boolean };
 
 /**
  * Member-level WHERE clause shared by the page query and the member lookup.
@@ -103,7 +103,7 @@ function memberScope(maxSequence: number, selected: string[] | undefined, needle
     conditions.push(`matches_people(e.id,e.data,n.data,${people.map(() => '?').join(',')})`);
     params.push(...people);
   }
-  return { scope: conditions.join(' AND '), params, people: people.length > 0 };
+  return { maxSequence, scope: conditions.join(' AND '), params, people: people.length > 0 };
 }
 
 function matchedScope({ scope, params, people }: MemberScope, filter: ActivityFilter, view: string) {
@@ -152,6 +152,7 @@ function pageQuery(
           (SELECT DISTINCT kind,status,evidence FROM (${grouped('scoped')}) ${visible}))`
       : "(SELECT json_group_array(json_object('kind',kind,'status',status,'evidence',evidence)) FROM (SELECT DISTINCT kind,status,evidence FROM visible))";
 
+  if (foldCi) params.push(member.maxSequence);
   if (after) params.push(after.time, after.observed, after.key);
   params.push(pageSize + 1);
   const linkRows = foldCi
@@ -236,10 +237,8 @@ function attachCi(items: ActivityItem[], links: CiLink[], members: Map<string, A
       if (link.folded) {
         for (const member of members.get(link.run_key) ?? []) {
           host.eventIds.push(member.id);
-          if (isUnseen(member)) host.unseenIds.push(member.id);
+          if (!member.imported) (host.foldedCiAckIds ??= []).push(member.id);
         }
-        host.unseen = host.unseenIds.length > 0;
-        host.seen = !host.unseen;
         host.foldedCi = (host.foldedCi ?? 0) + 1;
       }
     }
@@ -408,6 +407,7 @@ export function createActivityQuery(
   hydrate: (row: SqlRow) => ActivityEvent,
   requireRepo: (repoId: string) => unknown,
   activityRevision: () => string,
+  seenRevision: () => string,
 ) {
   db.function('matches_folded', { deterministic: true, varargs: true }, (text, ...terms) => {
     if (typeof text !== 'string') return 0;
@@ -451,12 +451,13 @@ export function createActivityQuery(
     if (!['all', 'new'].includes(view)) throw Object.assign(new Error('Invalid activity view.'), { code: 'BAD_REQUEST' });
     const pageSize = Math.max(1, Math.min(Number(limit) || 50, 200));
     const { selected, filter, needles, names } = readScope({ repoIds, kind, search, people });
+    const foldCi = !kind && !needles.length && !names.length && view === 'all';
     const filterKey = JSON.stringify({ selected, view, filter, search: needles, people: names });
     const position = decodeCursor(cursor, filterKey);
-    // Search cursors from before accent and name fragment matching must restart.
-    const revision = needles.length || names.length ? `2:${activityRevision()}` : undefined;
+    // Search depends on mutable evidence; folded CI depends only on seen status within the pinned event snapshot.
+    const revision = needles.length || names.length ? `2:${activityRevision()}` : foldCi ? `ci:${seenRevision()}` : undefined;
     if (position && revision !== undefined && position.revision !== revision) {
-      throw Object.assign(new Error('Activity changed while loading search results. Try again.'), {
+      throw Object.assign(new Error('Activity changed while loading results. Try again.'), {
         status: 409,
         code: 'ACTIVITY_CHANGED',
       });
@@ -464,14 +465,16 @@ export function createActivityQuery(
     const maxSequence =
       position?.maxSequence ?? Number(db.prepare('SELECT COALESCE(MAX(sequence),0) AS id FROM activity_members').get()?.id);
     const member = memberScope(maxSequence, selected, needles, names);
-    const foldCi = !kind && !needles.length && !names.length && view === 'all';
     const query = pageQuery(member, filter, view, position, pageSize, foldCi);
     const page = db.prepare(query.sql).get(...query.params);
     const groups = JSON.parse(String(page?.groups)) as Group[];
     const countRows = JSON.parse(String(page?.counts)) as CountRow[];
     const options = page?.options ? filterOptions(JSON.parse(String(page.options))) : undefined;
     const selectedGroups = groups.slice(0, pageSize);
-    const links = JSON.parse(String(page?.ci ?? '[]')) as CiLink[];
+    const selectedKeys = new Set(selectedGroups.map(group => group.key));
+    const links = (JSON.parse(String(page?.ci ?? '[]')) as CiLink[]).filter(
+      link => selectedKeys.has(link.host_key) || selectedKeys.has(link.run_key),
+    );
     const foldedKeys = [...new Set(links.filter(link => link.folded).map(link => link.run_key))];
     const members = loadMembers(db, hydrate, member, filter, [...selectedGroups.map(group => group.key), ...foldedKeys]);
     attachPullRequests(db, members.values());

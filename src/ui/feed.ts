@@ -88,8 +88,10 @@ function inlineCommits(record: ActivityItem, commits: CommitsView | undefined) {
     ${commits && 'items' in commits ? html`<details class="linked-event" data-group="push-commits-${record.groupKey}" open><summary>Push commits</summary>${renderCommits(commits)}</details>` : commits ? renderCommits(commits) : emptyHtml}`;
 }
 
-function renderRelatedCi(record: ActivityItem) {
+function renderRelatedCi(record: ActivityItem, expanded: boolean) {
   const runs = record.relatedCi ?? [];
+  const multiple = runs.length > 1;
+  if (expanded !== multiple) return emptyHtml;
   const ciButtons = html`${runs.map(run => html`<button type="button" class="ghost sm status-text ${run.outcome === 'passed' ? 'ok' : run.outcome === 'failed' ? 'crit' : 'warn'}" data-action="detail" data-id="${run.id}" title="${run.title}">${run.validation ? 'PR validation' : run.postMerge ? 'Post-merge CI' : 'Branch CI'} ${run.outcome}</button>`)}`;
   const failed = runs.filter(run => run.outcome === 'failed').length;
   const partial = runs.filter(run => run.outcome === 'partially succeeded').length;
@@ -100,12 +102,11 @@ function renderRelatedCi(record: ActivityItem) {
   ]
     .filter(Boolean)
     .join(' · ');
-  const summary =
-    runs.length > 1
-      ? html`<details class="linked-event" data-group="ci-${record.groupKey}"><summary>CI · ${counts}</summary><div class="event-main ci-rollup">${ciButtons}</div></details>`
-      : runs.length
-        ? ciButtons
-        : emptyHtml;
+  const summary = multiple
+    ? html`<details class="linked-event" data-group="ci-${record.groupKey}"><summary>CI · ${counts}</summary><div class="event-main ci-rollup">${ciButtons}</div></details>`
+    : runs.length
+      ? ciButtons
+      : emptyHtml;
   const host = record.ciHost
     ? html`<button type="button" class="ghost sm" data-action="detail" data-id="${record.ciHost}">View tested change</button>`
     : emptyHtml;
@@ -115,10 +116,10 @@ function renderRelatedCi(record: ActivityItem) {
 function eventSummary(record: ActivityItem, targetShown: boolean, pr: ActivityItem['data']) {
   const votes = pr ? prVoteChanges(pr) : [];
   const latest = record.latestPrMilestone && pr?.status === 'active' ? pr.reviewers : undefined;
-  const tally = latest?.filter(reviewer => reviewer.vote === 10).length;
+  const tally = latest?.filter(reviewer => reviewer.vote > 0).length;
   const approvals = votes.filter(change => change.vote === 10).length;
   const shownVotes = latest
-    ? votes.filter(change => change.vote !== 10)
+    ? votes.filter(change => change.vote <= 0)
     : approvals > 1
       ? [{ vote: 10, text: `${approvals} new approvals` }, ...votes.filter(change => change.vote !== 10)]
       : votes;
@@ -141,7 +142,8 @@ function renderEvent(record: ActivityItem, origin: string, targetShown: boolean,
   const lead = summary || targetShown || origins.length === 0 ? summary : origins.shift();
   const trail = record.unseen ? renderTrail(record) : emptyHtml;
   const inline = inlineCommits(record, commits);
-  const ci = renderRelatedCi(record);
+  const ci = renderRelatedCi(record, false);
+  const ciDetails = renderRelatedCi(record, true);
   const mergeSha = record.kind === 'pr' && record.data?.status === 'completed' ? record.data.mergeCommit : undefined;
   const linked = related
     ? html`<details class="linked-event" data-group="linked-${related.kind}-${record.groupKey}">
@@ -156,8 +158,8 @@ function renderEvent(record: ActivityItem, origin: string, targetShown: boolean,
       </details>`
     : emptyHtml;
   return html`<div class="event">${lead || badge !== emptyHtml || mergeSha || ci !== emptyHtml ? html`<div class="event-main">${typeof lead === 'string' ? (lead ? html`<span>${lead}</span>` : emptyHtml) : lead}${badge}${mergeSha ? html`<code class="mono" title="${mergeSha}">${mergeSha.slice(0, 9)}</code>` : emptyHtml}${ci}</div>` : emptyHtml}${renderMeta(record)}${
-    origins.length || trail !== emptyHtml || related || inline !== emptyHtml
-      ? html`<div class="event-notes">${origins.map(text => html`<div class="help event-origin">${icons.branch}<span>${text}</span></div>`)}${trail}${linked}${inline}</div>`
+    origins.length || trail !== emptyHtml || related || inline !== emptyHtml || ciDetails !== emptyHtml
+      ? html`<div class="event-notes">${origins.map(text => html`<div class="help event-origin">${icons.branch}<span>${text}</span></div>`)}${trail}${linked}${ciDetails}${inline}</div>`
       : emptyHtml
   }</div>`;
 }
@@ -191,9 +193,18 @@ function commitSubject(record: ActivityItem, loaded: CommitsView | undefined) {
   const refs = record.data?.refUpdates;
   const tip = refs?.length === 1 ? refs[0]?.newObjectId : undefined;
   const commits = loaded && 'items' in loaded && loaded.items.length ? loaded.items : (record.data?.commits ?? []);
-  const lead =
-    commits.find(commit => tip && commit && typeof commit === 'object' && 'commitId' in commit && commit.commitId === tip) ??
-    (commits.length === 1 && !(loaded && 'nextCursor' in loaded && loaded.nextCursor) ? commits[0] : undefined);
+  const lead = tip
+    ? commits.find(
+        commit =>
+          commit &&
+          typeof commit === 'object' &&
+          'commitId' in commit &&
+          typeof commit.commitId === 'string' &&
+          commit.commitId.toLowerCase() === tip.toLowerCase(),
+      )
+    : commits.length === 1 && !(loaded && 'nextCursor' in loaded && loaded.nextCursor)
+      ? commits[0]
+      : undefined;
   if (lead && typeof lead === 'object' && 'comment' in lead && typeof lead.comment === 'string') {
     const subject = lead.comment.split(/\r?\n/, 1)[0]?.trim();
     return subject;
@@ -310,7 +321,12 @@ function row(
   const unreadIds = JSON.stringify(unread);
   const ackIds = record.unseen
     ? unreadIds
-    : JSON.stringify([...record.events, ...(push?.events ?? [])].filter(event => !event.imported).map(event => event.id));
+    : JSON.stringify(
+        [...record.events, ...(push?.events ?? [])]
+          .filter(event => !event.imported)
+          .map(event => event.id)
+          .concat(record.foldedCiAckIds ?? []),
+      );
   const ackLinkedPush = push && (!record.unseen || push.unseen);
   const fullTitle = activityTitle(record);
   const title = rowTitle(record, fullTitle, commits);

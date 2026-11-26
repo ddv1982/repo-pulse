@@ -85,6 +85,7 @@ export type EventData = RefUpdate & {
   pullRequestCreatedAt?: string;
   sourceRefName?: string;
   sourceCommit?: string;
+  previewCommit?: string | undefined;
   targetCommit?: string;
   mergeCommit?: string | undefined;
   mergeStrategy?: string;
@@ -145,6 +146,7 @@ export type ActivityItem = ActivityEvent & {
   relatedCi?: RelatedCi[];
   ciHost?: string;
   foldedCi?: number;
+  foldedCiAckIds?: string[];
 };
 
 export type ActivityRequest = {

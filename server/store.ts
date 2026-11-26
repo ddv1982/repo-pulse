@@ -534,7 +534,9 @@ export function createStore(path = ':memory:') {
     bumpActivity();
     return { ...event, data: { ...event.data, ...overlay } };
   }
-  const queryActivity = createActivityQuery(db, hydrate, requireRepo, activityRevision);
+  const queryActivity = createActivityQuery(db, hydrate, requireRepo, activityRevision, () =>
+    String(q("SELECT data FROM settings WHERE key='ciSeenRevision'").get()?.data ?? '0'),
+  );
   function getSetting<K extends SettingKey>(key: K): Settings[K] | undefined;
   function getSetting<K extends SettingKey, F>(key: K, fallback: F): Settings[K] | F;
   function getSetting<K extends SettingKey, F>(key: K, fallback?: F): Settings[K] | F | undefined {
@@ -703,7 +705,11 @@ export function createStore(path = ':memory:') {
         const value = Number(Boolean(seen));
         const statement = q('UPDATE events SET seen=? WHERE id=? AND imported=0 AND seen<>?');
         const changedIds = ids.filter(id => statement.run(value, id, value).changes);
-        if (changedIds.length) bumpActivity();
+        if (changedIds.length) {
+          bumpActivity();
+          q(`INSERT INTO settings(key,data) VALUES('ciSeenRevision','1')
+            ON CONFLICT(key) DO UPDATE SET data=CAST(data AS INTEGER)+1`).run();
+        }
         return changedIds;
       });
     },

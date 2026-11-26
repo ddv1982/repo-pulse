@@ -89,8 +89,9 @@ export function renderSummary(
   // The header names the repository scope. These lines appear only when the list leaves something out.
   const loaded = !state.activity.loading && !state.activity.error;
   const filteredToFailures = canonicalActivityFilter(ui.kind ?? '') === 'status:failed';
+  const shown = records.reduce((total, record) => total + 1 + (record.foldedCi ?? 0), 0);
   const legend = loaded
-    ? [records.length < (state.activity.total ?? 0) ? `Showing ${records.length} of ${state.activity.total} items` : ''].filter(Boolean)
+    ? [shown < (state.activity.total ?? 0) ? `Showing ${shown} of ${state.activity.total} items` : ''].filter(Boolean)
     : [];
   return html`<section class="card summary mb" aria-label="Activity summary"><div class="top"><div class="headline"><p><b class="${newItems ? '' : 'zero'}">${headline}</b>${newItems && updates > newItems ? ` · ${updates} updates` : ''}</p>${legend.length ? html`<ul class="legend">${legend.map(line => html`<li>${line}</li>`)}</ul>` : emptyHtml}</div><div class="summary-chips" aria-label="Activity counts">${counts
     .filter(cell => cell.count || (cell.build && filteredToFailures && loaded))

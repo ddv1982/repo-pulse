@@ -560,6 +560,9 @@ ol.rows {
   color: var(--muted-foreground);
   font-size: 12px;
 }
+.linked-event .push {
+  padding: 3px 0;
+}
 .linked-event summary {
   cursor: pointer;
 }
@@ -1007,11 +1010,13 @@ ol.rows {
 .tree line.default-lane {
   stroke-width: 2.5;
 }
-.tree .ci-node {
+.tree .ci-node,
+.tree-key .ci-node {
   fill: currentColor;
   stroke: var(--card);
 }
-.tree .draft-ring {
+.tree .draft-ring,
+.tree-key .draft-ring {
   stroke-dasharray: 2 1;
 }
 .kind .ci-marker {

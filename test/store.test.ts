@@ -588,22 +588,29 @@ test('Activity resolves CI across pages and keeps failures and filtered runs vis
     });
   store.insertEvents([
     event('push-main', { data: { refUpdates: [{ name: main, oldObjectId: 'b'.repeat(40), newObjectId: sha }] } }),
-    event('pr-open', { kind: 'pr', time: stamp(1), data: { pullRequestId: 42, status: 'active', reviewers: [{ name: 'Jo', vote: 0 }] } }),
+    event('pr-open', {
+      kind: 'pr',
+      time: stamp(1),
+      data: { pullRequestId: 42, status: 'active', previewCommit: sha, reviewers: [{ name: 'Jo', vote: 0 }] },
+    }),
     event('merge', {
       kind: 'pr',
       seen: true,
       time: stamp(3),
       data: { pullRequestId: 42, status: 'completed', targetRefName: main, mergeCommit: sha, reviewers: [{ name: 'Jo', vote: 10 }] },
     }),
-    run('preview', 2, 'refs/pull/42/merge', 'succeeded', 'pullRequest'),
-    run('passing', 4, main, 'succeeded'),
+    { ...run('preview', 2, 'refs/pull/42/merge', 'succeeded', 'pullRequest'), seen: true },
+    { ...run('passing', 4, main, 'succeeded'), seen: true },
+    run('unread-pass', 8, main, 'succeeded'),
+    run('legacy-preview', 9, 'refs/pull/43/merge', 'succeeded', 'pullRequest'),
+    event('other-pr', { kind: 'pr', time: stamp(2), data: { pullRequestId: 43, status: 'active' } }),
+    event('new-pr-preview', { kind: 'pr', time: stamp(2), data: { pullRequestId: 42, status: 'active', previewCommit: 'd'.repeat(40) } }),
     run('wrong-ref', 5, 'refs/heads/other', 'succeeded'),
     run('scheduled', 6, main, 'succeeded', 'schedule'),
     run('failed', 7, main, 'failed'),
   ]);
   const first = store.queryActivity({ limit: 1 });
-  assert.equal(first.items[0]?.id, 'failed');
-  assert.equal(first.items[0]?.ciHost, 'merge');
+  assert.equal(first.items[0]?.id, 'legacy-preview');
   const all = [...first.items];
   let cursor = first.nextCursor;
   while (cursor) {
@@ -613,7 +620,7 @@ test('Activity resolves CI across pages and keeps failures and filtered runs vis
   }
   assert.deepEqual(
     all.map(item => item.id),
-    ['failed', 'scheduled', 'wrong-ref', 'merge', 'pr-open', 'push-main'],
+    ['legacy-preview', 'unread-pass', 'failed', 'scheduled', 'wrong-ref', 'merge', 'other-pr', 'new-pr-preview', 'pr-open', 'push-main'],
   );
   assert.deepEqual(
     all
@@ -623,15 +630,23 @@ test('Activity resolves CI across pages and keeps failures and filtered runs vis
     [
       ['failed', 'failed', true],
       ['passing', 'passed', true],
+      ['unread-pass', 'passed', true],
     ],
   );
-  assert.deepEqual(all.find(item => item.id === 'merge')?.unseenIds.sort(), ['passing']);
+  assert.deepEqual(all.find(item => item.id === 'merge')?.foldedCiAckIds, ['passing']);
+  assert.deepEqual(all.find(item => item.id === 'merge')?.unseenIds, []);
+  assert.equal(all.find(item => item.id === 'failed')?.ciHost, 'merge');
+  assert.equal(all.find(item => item.id === 'other-pr')?.relatedCi, undefined);
+  assert.equal(all.find(item => item.id === 'new-pr-preview')?.relatedCi, undefined);
   assert.equal(all.find(item => item.id === 'merge')?.latestPrMilestone, true);
   assert.equal(all.find(item => item.id === 'pr-open')?.latestPrMilestone, false);
   assert.equal(all.find(item => item.id === 'pr-open')?.relatedCi?.[0]?.validation, true);
   assert.deepEqual(
     store.queryActivity({ kind: 'build' }).items.map(item => item.id),
-    ['failed', 'scheduled', 'wrong-ref', 'passing', 'preview'],
+    ['legacy-preview', 'unread-pass', 'failed', 'scheduled', 'wrong-ref', 'passing', 'preview'],
   );
   assert.equal(store.queryActivity({ search: 'passing' }).items[0]?.id, 'passing');
+  store.acknowledge(['passing'], false);
+  assert.throws(() => store.queryActivity({ limit: 1, cursor: present(first.nextCursor) }), { code: 'ACTIVITY_CHANGED' });
+  assert.ok(store.queryActivity().items.some(item => item.id === 'passing'));
 });

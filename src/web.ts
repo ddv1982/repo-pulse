@@ -654,7 +654,6 @@ const actions: Record<string, Action> = {
     const eventId = inlineId ?? ui.eventId;
     const results = inlineId ? feedCommits : commitResults;
     element.setAttribute('aria-busy', 'true');
-    if (element instanceof HTMLButtonElement) element.disabled = true;
     try {
       results.set(
         eventId,
