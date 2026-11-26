@@ -2356,7 +2356,8 @@ test('Activity gives wrapped titles room and keeps their event metadata together
   await expect(prRow.locator('.feed-title')).toHaveAccessibleName(
     /source branch feature\/DAT-9861_animal_seeds_standards targeting branch main/,
   );
-  await expect(prRow.locator('.standalone-pr-ring')).toBeVisible();
+  await expect(prRow.locator('svg.tree circle')).toHaveCount(0);
+  await expect(prRow.locator('.standalone-pr-ring')).toHaveCount(0);
   const connectedPr = page.locator('[data-event-id="demo-pr-1"]');
   await expect(connectedPr.locator('svg.tree circle.hole')).toBeVisible();
   const destinationFits = async () =>
@@ -2378,7 +2379,6 @@ test('Activity gives wrapped titles room and keeps their event metadata together
   await page.screenshot({ path: 'test-results/open-pr-activity-desktop.png' });
   // On a phone the type label shares its line with the taller Seen control, so it centres on it.
   await page.setViewportSize({ width: 390, height: 900 });
-  await expect(prRow.locator('.standalone-pr-ring')).toBeHidden();
   await expect(prRow.locator('.kind > .d')).toBeVisible();
   await expect.poll(destinationFits).toBe(true);
   await page.screenshot({ path: 'test-results/open-pr-activity-phone.png' });
@@ -2450,7 +2450,7 @@ test('Git Graph shows a merged branch and exact CI links alongside the Activity 
   await rememberKey(page);
   await page.goto(`http://127.0.0.1:${portOf(app)}/#activity`);
   await page.getByText('Activity lane key', { exact: true }).click();
-  await expect(page.getByText(/A ring beside an open or draft PR/)).toBeVisible();
+  await expect(page.getByText(/Lines can pass rows of other branches/)).toBeVisible();
   await page.getByRole('link', { name: 'Open Git Graph', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Git Graph' })).toBeVisible();
   await page.setViewportSize({ width: 390, height: 844 });
@@ -2684,7 +2684,15 @@ test('Activity shows only highlights and links a landing and quieter CI to its d
   await expect(merge.locator('svg.tree')).toBeVisible();
   await expect(page.locator('[data-event-id="later-push-to-same-tip"]')).toContainText('Later default branch push');
   const approved = page.locator('[data-event-id="approval-highlight"]');
-  await expect(approved.locator('.kind')).toHaveText('Approvals met');
+  const approvalLabel = approved.locator('.kind');
+  const readyLabel = page.locator('[data-event-id="opened-0"] .kind');
+  await expect(approvalLabel).toHaveText('Approvals met');
+  await expect(approved.locator('.event-meta time')).toHaveCSS('white-space', 'nowrap');
+  const statusColor = () => approvalLabel.evaluate(element => getComputedStyle(element).color);
+  const sharesStatusColor = (label: typeof approvalLabel) =>
+    label.evaluate(element => getComputedStyle(element).color).then(color => statusColor().then(approval => approval === color));
+  assert.equal(await sharesStatusColor(readyLabel), false);
+  assert.equal(await sharesStatusColor(merge.locator('.kind')), false);
   await expect(approved.locator('.title')).toHaveText(approval.title);
   await expect(approved.locator('.feed-title')).toHaveAccessibleName(/fatty_acids_individual_risks/);
   await expect(approved.locator('.event-meta')).toContainText('PR author Ines Adriaens - Doekes');
@@ -2725,6 +2733,8 @@ test('Activity shows only highlights and links a landing and quieter CI to its d
   );
   await page.emulateMedia({ colorScheme: 'dark' });
   await expect(page.locator('html')).toHaveClass(/\bdark\b/);
+  assert.equal(await sharesStatusColor(readyLabel), false);
+  assert.equal(await sharesStatusColor(merge.locator('.kind')), false);
   await approved.scrollIntoViewIfNeeded();
   await page.screenshot({ path: 'test-results/activity-highlights.png' });
   await page.evaluate(() => {

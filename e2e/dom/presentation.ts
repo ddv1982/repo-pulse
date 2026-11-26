@@ -309,7 +309,8 @@ test('both activity views draw a branch tree with the fork evidence in the row t
   const standalone = row(doc, 'standalone-pr');
   assert.equal((await all(standalone, 'svg.tree line')).length, 1, 'the unrelated lane still passes the row');
   assert.equal((await all(standalone, 'svg.tree circle.hole')).length, 0);
-  assert.equal(await one(standalone, '.kind > .standalone-pr-ring').getAttribute('aria-hidden'), 'true');
+  assert.equal((await all(standalone, '.kind > .standalone-pr-ring')).length, 0);
+  assert.equal(await text(one(standalone, '.kind')), 'Open PR');
   const origin = one(row(doc, 'branch'), '.event-origin');
   assert.equal(await text(origin), 'PR 7 targets main, origin not checked');
   assert.equal(await one(origin, 'svg').getAttribute('aria-hidden'), 'true');
@@ -321,6 +322,10 @@ test('both activity views draw a branch tree with the fork evidence in the row t
   assert.equal((await all(updates, '.row')).length, 3);
   assert.equal((await all(updates, 'svg.tree')).length, 3);
   assert.equal(await text(one(row(updates, 'branch'), '.event-origin')), 'PR 7 targets main, origin not checked');
+  state.events = state.events.filter(event => event.id === 'standalone-pr');
+  const detachedOnly = parse(renderFeed(state, view));
+  assert.equal((await all(detachedOnly, '.activity-graph-guide')).length, 0);
+  assert.equal(await text(one(row(detachedOnly, 'standalone-pr'), '.kind')), 'Open PR');
 });
 
 test('a CI run on a pull request ref names the source branch and the pull request once the PR is known', async () => {
