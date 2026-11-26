@@ -142,6 +142,8 @@ const checkoutPanel = createCheckoutPanel({
 const navigation = createNavigation({ ui, captureGroups: view.captureGroups, activityCapacity: () => refresh.capacity() });
 
 let graphRepoId = '';
+let graphVisit = 0;
+let graphReturn: { visit: number; y: number; x: number; revision: PageState['activityRevision'] } | undefined;
 const graph = createGitGraph({
   read: (id, cursor) => {
     const path = `/api/repos/${encodeURIComponent(id)}/graph` as const;
@@ -676,6 +678,16 @@ document.addEventListener('click', event => {
     return;
   }
   if (document.querySelector('#repo-panel:not([hidden])') && !target.closest('#repo-panel')) showScopePanel(false);
+  if (ui.route === 'graph' && target.closest('.graph-link') && !event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey) {
+    graphReturn = {
+      visit: ++graphVisit,
+      y: window.scrollY,
+      x: page.querySelector('.graph-commits')?.scrollLeft ?? 0,
+      revision: refresh.state.activityRevision,
+    };
+    // Mark the history entry we left, so a fresh click on Git Graph still reads the checkout.
+    history.replaceState({ ...history.state, graphVisit }, '');
+  }
   const element = target.closest('[data-action]');
   const action = element instanceof HTMLElement ? element.dataset.action : undefined;
   if (element instanceof HTMLElement && action && actions[action]) {
@@ -794,14 +806,34 @@ function route() {
   clearTimeout(searchTimer);
   // The branch picker belongs to the Repositories visit that opened it.
   branchPicker.close();
+  const previous = ui.route;
   const { destination, capacity, scrollToTop } = navigation.enter(refresh.loaded ? refresh.state.watched : null);
+  const restoreGraph =
+    destination === 'graph' &&
+    previous === 'event' &&
+    graphReturn &&
+    graphReturn.visit === history.state?.graphVisit &&
+    graphReturn.revision === refresh.state.activityRevision &&
+    !graph.state.error
+      ? graphReturn
+      : undefined;
   if (isActivity(destination)) refresh.resetActivity(capacity);
   else if (destination === 'event') refresh.prepareDetail(ui.eventId);
-  else if (destination === 'graph') graph.reset();
+  else if (destination === 'graph' && !restoreGraph) {
+    graphReturn = undefined;
+    graph.reset();
+  }
   render();
   const needsActivity = isActivity(destination) || destination === 'event';
   void load({ force: needsActivity });
-  if (destination === 'graph' || (needsActivity && scrollToTop)) window.scrollTo({ top: 0, behavior: 'instant' });
+  if (restoreGraph) {
+    const isCurrent = currentView();
+    requestAnimationFrame(() => {
+      if (!isCurrent()) return;
+      page.querySelector('.graph-commits')?.scrollTo({ left: restoreGraph.x, behavior: 'instant' });
+      window.scrollTo({ top: restoreGraph.y, behavior: 'instant' });
+    });
+  } else if (destination === 'graph' || (needsActivity && scrollToTop)) window.scrollTo({ top: 0, behavior: 'instant' });
 }
 
 window.addEventListener('hashchange', route);

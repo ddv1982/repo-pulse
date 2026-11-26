@@ -2479,6 +2479,25 @@ test('Git Graph shows a merged branch and exact CI links alongside the Activity 
   await expect(page.getByRole('link', { name: 'PR · Merged' })).toHaveAttribute('href', '#event/finished-pr');
   await expect(page.getByRole('link', { name: 'CI · Failed' })).toHaveCount(0);
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+
+  for (let i = 0; i < 50; i++) git(local, 'commit', '--allow-empty', '-m', `Later commit ${i}`);
+  await page.getByRole('button', { name: 'Reload graph' }).click();
+  await page.getByRole('button', { name: 'Load more commits' }).click();
+  const build = page.getByRole('link', { name: 'CI · Succeeded' });
+  await build.evaluate(link => link.scrollIntoView({ block: 'center' }));
+  const scrollY = await page.evaluate(() => window.scrollY);
+  assert.ok(scrollY > 1000);
+  await build.click();
+  await expect(page.locator('#page .status-chip').first()).toHaveText('Succeeded');
+  await page.goBack();
+  await expect(page.locator('.graph-commit')).toHaveCount(53);
+  await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(scrollY);
+  await build.click();
+  await expect(page.locator('#page .status-chip').first()).toHaveText('Succeeded');
+  await page.getByRole('link', { name: 'Git Graph', exact: true }).click();
+  await expect(page.locator('.graph-commit')).toHaveCount(50);
+  await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0);
+
   await page.getByRole('link', { name: 'Activity', exact: true }).click();
   await expect(page.getByRole('button', { name: /^Preview pipeline/ })).toBeVisible();
 
