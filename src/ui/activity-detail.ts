@@ -153,7 +153,7 @@ const policyStatus = new Map([
 function renderReview(review: ReviewView) {
   if ('error' in review) return html`<p class="status-bad" role="alert">${review.error}</p>`;
   const { open, resolved } = review.threads;
-  return html`<div class="discussion-stats" role="group" aria-label="Discussion"><span class="${open ? 'status-text warn' : ''}"><strong>${open}</strong> open threads</span><span><strong>${resolved}</strong> resolved</span></div>
+  return html`<div class="discussion-stats" role="group" aria-label="Discussion"><span class="${open ? 'status-text warn' : ''}"><strong>${open}</strong> open thread${open === 1 ? '' : 's'}</span><span><strong>${resolved}</strong> resolved</span></div>
     ${
       review.policies.length
         ? html`<ul class="detail-list">${review.policies.map(policy => {
@@ -226,7 +226,7 @@ function relatedActivity(record: ActivityItem, events: ActivityEvent[]) {
             ? dateTime(event.time)
             : time.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
           return html`<li><span class="chip status-chip ${activityTone(event)}${label === 'Merged' ? ' merged' : ''}">${label}</span>
-        <a href="#event/${encodeURIComponent(event.id)}" title="${title}" aria-label="${label} · ${title}">${name}</a>
+        <a href="#event/${encodeURIComponent(event.id)}" title="${title}" aria-label="${samePr ? `${name} · ` : ''}${label} · ${title}">${name}</a>
         <time datetime="${event.time}" title="${fullDateTime(event.time)}">${clock}</time></li>`;
         })}</ul>`,
     )}

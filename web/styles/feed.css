@@ -942,6 +942,9 @@ ol.rows {
 .activity-history {
   margin: 16px 0;
 }
+.detail-section > .activity-history {
+  margin: 0;
+}
 .activity-history h2 {
   font-size: 14px;
 }

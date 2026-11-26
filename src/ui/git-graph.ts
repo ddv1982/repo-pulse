@@ -107,10 +107,7 @@ function historyRows(page: GitHistoryPage) {
         <code class="graph-sha" title="${commit.id}">${commit.id.slice(0, 9)}</code>
         <span class="graph-subject" title="${commit.subject}">${commit.subject || '(No commit message)'}</span>
         <span class="graph-author" title="${commit.author}">${commit.author}</span>
-        <div class="graph-badges">${current ? html`<span class="graph-ref graph-ref-current">HEAD</span>` : emptyHtml}
-          ${commit.refs.map(ref => html`<span class="graph-ref${ref === page.branch ? ' graph-ref-current' : ref === page.upstream ? ' graph-ref-upstream' : ''}" title="${ref}">${ref}</span>`)}
-          ${commit.activity.map(graphActivity)}
-        </div>
+        <div class="graph-badges">${current ? html`<span class="graph-ref graph-ref-current">HEAD</span>` : emptyHtml}${commit.refs.map(ref => html`<span class="graph-ref${ref === page.branch ? ' graph-ref-current' : ref === page.upstream ? ' graph-ref-upstream' : ''}" title="${ref}">${ref}</span>`)}${commit.activity.map(graphActivity)}</div>
       </div>
     </li>`;
     })}</ol>`;
