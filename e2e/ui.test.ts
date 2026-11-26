@@ -98,7 +98,7 @@ test('the row Seen toggle keeps keyboard focus and shows state without a status 
   await expect(seen).toHaveAttribute('aria-pressed', 'false');
   await expect(seen).toBeFocused();
 
-  // A kind without its own tint (a draft PR) still gets the unread wash, and loses it once seen.
+  // A draft PR gets the unread marker and loses it once seen.
   runtime.store.insertEvents([
     {
       id: 'live-draft',
@@ -113,11 +113,11 @@ test('the row Seen toggle keeps keyboard focus and shows state without a status 
   await page.reload();
   const draft = page.locator('li[data-event-id="live-draft"]');
   await expect(draft).toHaveClass(/\btone-neutral\b/);
-  const wash = () => draft.evaluate(element => getComputedStyle(element).backgroundImage);
-  assert.notEqual(await wash(), 'none');
+  await expect(draft).toHaveCSS('box-shadow', /inset/);
+  await expect(draft).toHaveCSS('background-image', 'none');
   await draft.locator('.seen-toggle').click();
   await expect(draft.locator('.seen-toggle')).toHaveAttribute('aria-pressed', 'true');
-  assert.equal(await wash(), 'none');
+  await expect(draft).toHaveCSS('box-shadow', 'none');
 });
 
 test('approved light/dark/System UI and responsive routes work without remote traffic', async t => {
@@ -156,7 +156,7 @@ test('approved light/dark/System UI and responsive routes work without remote tr
   await page.screenshot({ path: 'test-results/app-phone-light.png', fullPage: true });
 });
 
-test('Golden Hour keeps primary actions legible and the desktop Activity summary stacked', async t => {
+test('Ember Orbs keeps glass on the chrome and leaves the Activity feed opaque', async t => {
   const { page } = await setup(t);
   await page.getByRole('button', { name: 'Save filter…' }).click();
   const save = page.getByRole('dialog').getByRole('button', { name: 'Save', exact: true });
@@ -182,11 +182,47 @@ test('Golden Hour keeps primary actions legible and the desktop Activity summary
   const headline = await summary.locator('.headline').boundingBox();
   const counts = await summary.locator('.cells').boundingBox();
   assert.ok(headline && counts && counts.y >= headline.y + headline.height, 'Counts sit below the headline on desktop');
-  assert.match(await page.locator('body').evaluate(body => getComputedStyle(body, '::after').backgroundImage), /conic-gradient/);
+  const backdrop = await page.locator('body').evaluate(body => getComputedStyle(body, '::before').backgroundImage);
+  assert.match(backdrop, /255, 77, 157/);
+  assert.match(backdrop, /76% 105%/);
   await expect(summary).toHaveCSS('backdrop-filter', /blur/);
+  await expect(summary).toHaveCSS('border-top-color', 'rgb(255, 255, 255)');
+  await expect(page.locator('.feed')).toHaveCSS('backdrop-filter', 'none');
+  await expect(page.locator('.feed')).toHaveCSS('background-color', 'rgb(255, 255, 255)');
+  await expect(page.locator('#demo .banner')).toHaveCSS('background-color', 'rgb(255, 255, 255)');
+  const unread = page.getByRole('button', { name: 'Unread only', exact: true });
+  await unread.click();
+  await expect(unread).toHaveAttribute('aria-pressed', 'true');
+  await expect(unread).toHaveCSS('background-image', /radial-gradient/);
+  const filterOpacity = () =>
+    unread.evaluate(element => {
+      const context = document.createElement('canvas').getContext('2d');
+      if (!context) throw new Error('2D canvas is unavailable');
+      context.fillStyle = getComputedStyle(element).backgroundColor;
+      context.fillRect(0, 0, 1, 1);
+      return context.getImageData(0, 0, 1, 1).data[3] ?? 0;
+    });
+  assert.ok((await filterOpacity()) > 127, 'Active filter keeps a glass backing');
+  const session = await page.context().newCDPSession(page);
+  await session.send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-transparency', value: 'reduce' }] });
+  await expect(summary).toHaveCSS('backdrop-filter', 'none');
+  await expect(summary).toHaveCSS('background-color', 'rgb(255, 255, 255)');
+  await expect(unread).toHaveCSS('background-image', 'none');
+  await expect.poll(filterOpacity).toBe(255);
+  await session.send('Emulation.setEmulatedMedia', { features: [] });
+  await session.detach();
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(summary.locator('.headline')).toBeVisible();
   await expect(summary.locator('.cells')).toBeHidden();
+
+  // An unknown media feature is unmatched even when negated.
+  await page.route('**/web/styles/tokens.css', async route => {
+    const response = await route.fetch();
+    const body = (await response.text()).replaceAll('prefers-reduced-transparency', 'repo-pulse-unknown-preference');
+    await route.fulfill({ response, body });
+  });
+  await page.reload();
+  await expect(summary).toHaveCSS('backdrop-filter', /blur/);
 });
 
 test('repo subset acknowledgement preserves hidden/incoming events and survives restart', async t => {
@@ -1636,14 +1672,9 @@ test('semantic status colors match rows, imported history, details and trails in
         const token = kind.classList.contains('merged') ? '--merged' : defaultToken;
         const foreground = rgba(getComputedStyle(kind).color);
         let background = rgba(getComputedStyle(card).backgroundColor);
-        const [cardRed, cardGreen, cardBlue, cardAlpha] = background;
-        if (cardAlpha < 255) {
-          const sky = rgba(tokens.getPropertyValue('--sky-blue'));
-          const blend = (channel: number, base: number) => (channel * cardAlpha + base * (255 - cardAlpha)) / 255;
-          background = [blend(cardRed, sky[0]), blend(cardGreen, sky[1]), blend(cardBlue, sky[2]), 255];
-        }
+        const hasWash = getComputedStyle(row).backgroundImage !== 'none';
         const washToken = washes[tone];
-        if (washToken) {
+        if (washToken && hasWash) {
           const [washRed, washGreen, washBlue, washAlpha] = rgba(tokens.getPropertyValue(washToken));
           const blend = (value: number, tint: number) => (tint * washAlpha) / 255 + value * (1 - washAlpha / 255);
           const [red, green, blue] = background;
@@ -1654,8 +1685,9 @@ test('semantic status colors match rows, imported history, details and trails in
         return {
           id: row.dataset.eventId,
           tone,
-          hasWash: getComputedStyle(row).backgroundImage !== 'none',
-          washed: row.classList.contains('new') || row.classList.contains('crit'),
+          hasWash,
+          unread: row.classList.contains('new'),
+          critical: row.classList.contains('crit'),
           ratio: (Math.max(first, second) + 0.05) / (Math.min(first, second) + 0.05),
           matchesToken: JSON.stringify(foreground) === JSON.stringify(rgba(tokens.getPropertyValue(token))),
         };
@@ -1663,8 +1695,7 @@ test('semantic status colors match rows, imported history, details and trails in
     });
     for (const result of contrast) {
       assert.equal(result.matchesToken, true, `${theme} ${result.id} token`);
-      // The wash marks unread rows and failed runs; seen rows stay plain.
-      assert.equal(result.hasWash, result.washed, `${theme} ${result.id} wash`);
+      assert.equal(result.hasWash, result.critical || (theme === 'Dark' && result.unread), `${theme} ${result.id} wash`);
       assert.ok(result.ratio >= 4.5, `${theme} ${result.id} contrast ${result.ratio}`);
     }
     const trail = page.locator('[data-event-id="canceled-transition"] .trail');
@@ -1677,7 +1708,7 @@ test('semantic status colors match rows, imported history, details and trails in
   await page.locator('[data-event-id="color-completed"] .feed-title').click();
   await expect(page.locator('#page .status-chip')).toHaveClass(/\bok\b/);
   await expect(page.locator('#page .status-chip')).toHaveText('Merged');
-  await expect(page.locator('#page .status-chip')).toHaveCSS('color', 'rgb(122, 63, 196)');
+  await expect(page.locator('#page .status-chip')).toHaveCSS('color', 'rgb(15, 123, 95)');
 });
 
 test('the app-owned type dropdown is themed, keyboard accessible and stable during local polling', async t => {
@@ -1712,7 +1743,7 @@ test('the app-owned type dropdown is themed, keyboard accessible and stable duri
         };
         return {
           panel: style('#kind-panel').backgroundColor,
-          card: style('.summary').backgroundColor,
+          card: style('.feed').backgroundColor,
           option: style('.type-option').color,
           body: getComputedStyle(document.body).color,
         };
@@ -1724,8 +1755,8 @@ test('the app-owned type dropdown is themed, keyboard accessible and stable duri
           return getComputedStyle(element);
         };
         return {
-          panel: style('.summary').backgroundColor,
-          card: style('.summary').backgroundColor,
+          panel: style('.feed').backgroundColor,
+          card: style('.feed').backgroundColor,
           option: getComputedStyle(document.body).color,
           body: getComputedStyle(document.body).color,
         };
