@@ -156,7 +156,7 @@ test('approved light/dark/System UI and responsive routes work without remote tr
   await page.screenshot({ path: 'test-results/app-phone-light.png', fullPage: true });
 });
 
-test('light mode keeps primary actions legible on hover and compacts the desktop Activity summary', async t => {
+test('Golden Hour keeps primary actions legible and the desktop Activity summary stacked', async t => {
   const { page } = await setup(t);
   await page.getByRole('button', { name: 'Save filter…' }).click();
   const save = page.getByRole('dialog').getByRole('button', { name: 'Save', exact: true });
@@ -181,7 +181,9 @@ test('light mode keeps primary actions legible on hover and compacts the desktop
   const summary = page.getByRole('region', { name: 'Activity summary' });
   const headline = await summary.locator('.headline').boundingBox();
   const counts = await summary.locator('.cells').boundingBox();
-  assert.ok(headline && counts && counts.x > headline.x + headline.width, 'Counts sit beside the headline on desktop');
+  assert.ok(headline && counts && counts.y >= headline.y + headline.height, 'Counts sit below the headline on desktop');
+  assert.match(await page.locator('body').evaluate(body => getComputedStyle(body, '::after').backgroundImage), /conic-gradient/);
+  await expect(summary).toHaveCSS('backdrop-filter', /blur/);
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(summary.locator('.headline')).toBeVisible();
   await expect(summary.locator('.cells')).toBeHidden();
@@ -1630,9 +1632,16 @@ test('semantic status colors match rows, imported history, details and trails in
         if (!kind || !card) throw new Error(`${row.dataset.eventId} has no status label or card.`);
         const named = Object.entries(names).find(([name]) => kind.classList.contains(name));
         if (!named) throw new Error(`${row.dataset.eventId} has no status tone.`);
-        const [tone, token] = named;
+        const [tone, defaultToken] = named;
+        const token = kind.classList.contains('merged') ? '--merged' : defaultToken;
         const foreground = rgba(getComputedStyle(kind).color);
         let background = rgba(getComputedStyle(card).backgroundColor);
+        const [cardRed, cardGreen, cardBlue, cardAlpha] = background;
+        if (cardAlpha < 255) {
+          const sky = rgba(tokens.getPropertyValue('--sky-blue'));
+          const blend = (channel: number, base: number) => (channel * cardAlpha + base * (255 - cardAlpha)) / 255;
+          background = [blend(cardRed, sky[0]), blend(cardGreen, sky[1]), blend(cardBlue, sky[2]), 255];
+        }
         const washToken = washes[tone];
         if (washToken) {
           const [washRed, washGreen, washBlue, washAlpha] = rgba(tokens.getPropertyValue(washToken));
@@ -1664,9 +1673,11 @@ test('semantic status colors match rows, imported history, details and trails in
     await expect(trail.locator('.status-text.info')).toHaveCount(2);
     await page.screenshot({ path: `test-results/status-colors-${theme.toLowerCase()}.png`, fullPage: true });
   }
+  await page.getByRole('button', { name: 'Light', exact: true }).click();
   await page.locator('[data-event-id="color-completed"] .feed-title').click();
   await expect(page.locator('#page .status-chip')).toHaveClass(/\bok\b/);
   await expect(page.locator('#page .status-chip')).toHaveText('Merged');
+  await expect(page.locator('#page .status-chip')).toHaveCSS('color', 'rgb(122, 63, 196)');
 });
 
 test('the app-owned type dropdown is themed, keyboard accessible and stable during local polling', async t => {

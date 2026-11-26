@@ -115,7 +115,8 @@ function seenChip(matching: ActivityEvent[]) {
 }
 
 function detailFacts(record: ActivityItem, tone: string, matching: ActivityEvent[]) {
-  return html`<div class="facts"><span class="chip status-chip ${tone}">${activityLabel(record)}</span><span class="chip">${seenChip(matching)}</span>${record.kind === 'build' ? html`<span class="chip name">CI outcome · deployment unknown</span>` : emptyHtml}</div>`;
+  const label = activityLabel(record);
+  return html`<div class="facts"><span class="chip status-chip ${tone}${label === 'Merged' ? ' merged' : ''}">${label}</span><span class="chip">${seenChip(matching)}</span>${record.kind === 'build' ? html`<span class="chip name">CI outcome · deployment unknown</span>` : emptyHtml}</div>`;
 }
 
 function pushCommits(record: ActivityItem, repo: Repo | undefined, pushId: PushId, commits: CommitsView | undefined) {

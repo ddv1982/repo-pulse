@@ -9,10 +9,15 @@ A local Azure DevOps activity feed for testers. Watch multiple repositories for 
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/activity-dark.png">
-  <img src="docs/screenshots/activity-light.png" alt="Repo Pulse Activity with a compact graph key, branch lanes and a merged pull request with an expandable linked push.">
+  <img src="docs/screenshots/activity-light.png" alt="Repo Pulse Activity highlights with branch lanes, merged pull requests, and CI results.">
 </picture>
 
-[Light mode](docs/screenshots/activity-light.png) · [Dark mode](docs/screenshots/activity-dark.png)
+| Screen       | Light mode                                      | Dark mode                                     |
+| ------------ | ----------------------------------------------- | --------------------------------------------- |
+| Activity     | [Golden Hour](docs/screenshots/activity-light.png) | [Dark](docs/screenshots/activity-dark.png)     |
+| Git Graph    | [Golden Hour](docs/screenshots/git-graph-light.png) | [Dark](docs/screenshots/git-graph-dark.png)    |
+| Repositories | [Golden Hour](docs/screenshots/repositories-light.png) | [Dark](docs/screenshots/repositories-dark.png) |
+| Settings     | [Golden Hour](docs/screenshots/settings-light.png) | [Dark](docs/screenshots/settings-dark.png)    |
 
 ## Run locally
 

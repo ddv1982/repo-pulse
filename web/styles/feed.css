@@ -271,9 +271,6 @@
   cursor: pointer;
   border-top: 1px solid var(--border);
 }
-:root:not(.dark) .ghead {
-  background: var(--table-head);
-}
 section.group:first-of-type > .ghead,
 section.group:first-of-type > details > .ghead {
   border-top: 0;
@@ -409,6 +406,9 @@ ol.rows {
 .kind.ok {
   color: var(--ok);
 }
+.kind.merged {
+  color: var(--merged);
+}
 .kind.warn {
   color: var(--warning);
 }
@@ -423,6 +423,9 @@ ol.rows {
 }
 .kind.ok .d {
   background: var(--ok);
+}
+.kind.merged .d {
+  background: var(--merged);
 }
 .kind.warn .d {
   background: var(--warning);
@@ -869,32 +872,6 @@ ol.rows {
   }
 }
 @media (min-width: 1100px) {
-  :root:not(.dark) .summary {
-    display: grid;
-    grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
-  }
-  :root:not(.dark) .summary .top {
-    align-self: center;
-  }
-  :root:not(.dark) .summary .cells {
-    margin: 0;
-    width: auto;
-  }
-  :root:not(.dark) .summary .cell {
-    align-content: center;
-    padding: 10px 12px;
-    border-top: 0;
-  }
-  :root:not(.dark) .summary .cell :is(.label, .val) {
-    display: inline;
-  }
-  :root:not(.dark) .summary .cell .val {
-    font-size: 15px;
-    line-height: 20px;
-  }
-  :root:not(.dark) .summary .cell .val.zero {
-    font-weight: 400;
-  }
   .row {
     grid-template-columns: var(--kind-width, 8rem) minmax(0, 2fr) minmax(12rem, 1fr) 8.5rem;
     padding-block: 10px;
