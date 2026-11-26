@@ -14,10 +14,10 @@ A local Azure DevOps activity feed for testers. Watch multiple repositories for 
 
 | Screen       | Light mode                                      | Dark mode                                     |
 | ------------ | ----------------------------------------------- | --------------------------------------------- |
-| Activity     | [Golden Hour](docs/screenshots/activity-light.png) | [Dark](docs/screenshots/activity-dark.png)     |
-| Git Graph    | [Golden Hour](docs/screenshots/git-graph-light.png) | [Dark](docs/screenshots/git-graph-dark.png)    |
-| Repositories | [Golden Hour](docs/screenshots/repositories-light.png) | [Dark](docs/screenshots/repositories-dark.png) |
-| Settings     | [Golden Hour](docs/screenshots/settings-light.png) | [Dark](docs/screenshots/settings-dark.png)    |
+| Activity     | [Ember Orbs](docs/screenshots/activity-light.png) | [Dark](docs/screenshots/activity-dark.png)     |
+| Git Graph    | [Ember Orbs](docs/screenshots/git-graph-light.png) | [Dark](docs/screenshots/git-graph-dark.png)    |
+| Repositories | [Ember Orbs](docs/screenshots/repositories-light.png) | [Dark](docs/screenshots/repositories-dark.png) |
+| Settings     | [Ember Orbs](docs/screenshots/settings-light.png) | [Dark](docs/screenshots/settings-dark.png)    |
 
 ## Run locally
 
