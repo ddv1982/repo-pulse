@@ -8,6 +8,7 @@ import { adviseMissingUpstream, isCommit } from './checkout-advice.ts';
 import { branchFollowups, branchProblem, memoryFollowups } from './checkout-branches.ts';
 import { isSymbolicRef } from './checkout-delete-guard.cjs';
 import { checkoutDiagnostic, memoryObservations, observedRewrite } from './checkout-observations.ts';
+import { readGitHistory } from './git-history.ts';
 import { createActivitySwitch } from './checkout-activity-switch.ts';
 import { createCheckoutUpdater } from './checkout-update.ts';
 import { archivedSwitchRewrite, readDirectCommit } from './checkout-switch-refs.ts';
@@ -680,5 +681,15 @@ export function createCheckoutGit({
       .map(ref => ref.slice(11));
   }
 
-  return { status, update, branchAction, switchToActivityBranch, localBranches };
+  async function history(repo: LinkedRepo, cursor: string | null) {
+    const path = await checkoutPath(repo);
+    try {
+      return await readGitHistory(run, path, repo.defaultBranch, cursor);
+    } catch (error) {
+      if (error instanceof Error && 'status' in error) throw error;
+      throw problem('Git could not read commit history for this checkout.');
+    }
+  }
+
+  return { status, update, branchAction, switchToActivityBranch, localBranches, history };
 }

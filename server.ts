@@ -1,3 +1,4 @@
+import { activityLabel } from './src/activity-text.ts';
 import { createServer } from 'node:http';
 import { readFile, mkdir, chmod, rm, stat } from 'node:fs/promises';
 import { resolve, dirname, extname, sep } from 'node:path';
@@ -475,6 +476,24 @@ export function createApp({
             );
           }
         return json(res, 200, Object.fromEntries(results) satisfies CheckoutsResponse);
+      },
+    },
+    {
+      method: 'GET',
+      path: /^\/api\/repos\/([^/]+)\/graph$/,
+      handler: async ({ res, url, params: [rawId] }) => {
+        const repo = enabledRepoById(decodeParam(rawId));
+        if (demo) throw problem('Demo repositories have no local Git history.', 404);
+        const page = await checkoutGit.history(repo, url.searchParams.get('cursor'));
+        const commits = new Map(page.commits.map(commit => [commit.id, commit]));
+        for (const { sha, event } of store.commitActivity(repo.id, [...commits.keys()])) {
+          if (event.kind === 'pr' || event.kind === 'build') {
+            commits
+              .get(sha)
+              ?.activity.push({ id: event.id, kind: event.kind, title: event.title ?? '', status: activityLabel(event) ?? 'Updated' });
+          }
+        }
+        return json(res, 200, page);
       },
     },
     {

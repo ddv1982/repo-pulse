@@ -49,6 +49,7 @@ export function renderHeader(state: HeaderState, ui: HeaderView) {
   return html`<div class="hg header-brand"><a class="brand" href="${activityHref(false)}">Repo Pulse</a><div class="menu"><button class="control" id="repo-toggle" type="button" aria-expanded="${ui.openMenu === 'repo-panel'}" aria-controls="repo-panel" aria-label="${scopeName(state, ui)}" title="Changing visible repositories marks nothing seen">${scopeLabel(state, ui)}</button><div class="menu-panel" id="repo-panel" role="group" aria-label="Repositories shown" ${ui.openMenu === 'repo-panel' ? emptyHtml : html`hidden`}>${repoOptions}<div class="mfoot"><span>Scope changes mark nothing seen.</span><button class="ghost sm" type="button" data-action="all-repos">All</button><button class="ghost sm" type="button" data-action="no-repos">None</button></div></div></div></div>
     <nav class="seg tabs" aria-label="Main">
       <a href="${activityHref(ui.unreadOnly)}" ${isActivity(ui.route) || ui.route === 'event' ? current : emptyHtml}>Activity</a>
+      <a href="#graph" ${ui.route === 'graph' ? current : emptyHtml}>Git Graph</a>
       <a href="#repositories" ${ui.route === 'repositories' ? current : emptyHtml}>Repositories</a>
       <a href="#settings" ${ui.route === 'settings' ? current : emptyHtml}>Settings</a>
     </nav>

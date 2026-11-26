@@ -2415,3 +2415,106 @@ test('on desktop every row lines up its ref line with its meta line, and its sum
     )
     .toBeLessThanOrEqual(1);
 });
+
+test('Git Graph shows a merged branch and exact CI links alongside the Activity feed', async t => {
+  const { local, repo, checkoutGit, commit } = checkoutFixture(t);
+  git(local, 'switch', '-c', 'graph-topic');
+  const topic = commit(local, 'topic.txt', 'Feature branch work');
+  git(local, 'switch', 'main');
+  git(local, 'merge', '--no-ff', 'graph-topic', '-m', 'Merge graph topic');
+  const head = git(local, 'rev-parse', 'HEAD');
+  const store = createStore();
+  store.saveRepo(repo);
+  const time = new Date().toISOString();
+  store.insertEvents([
+    {
+      id: 'finished-pr',
+      repoId: repo.id,
+      kind: 'pr',
+      time,
+      title: 'Graph topic PR',
+      data: { pullRequestId: 7, status: 'completed', mergeCommit: head },
+    },
+    {
+      id: 'build-on-merge',
+      repoId: repo.id,
+      kind: 'build',
+      time,
+      title: 'Merge pipeline',
+      data: { buildId: 9, status: 'completed', result: 'succeeded', sourceVersion: head },
+    },
+    {
+      id: 'pr-preview',
+      repoId: repo.id,
+      kind: 'build',
+      time,
+      title: 'Preview pipeline',
+      branch: 'refs/pull/7/merge',
+      data: { buildId: 10, status: 'completed', result: 'failed', sourceVersion: 'f'.repeat(40) },
+    },
+  ]);
+  const app = createApp({
+    store,
+    checkoutGit,
+    provider: stub<AzureProvider>({ checkConnection: async () => stub<ConnectionStatus>({ available: true }) }),
+    sync: stub<AppSync>({ status: () => stub<SyncEngineStatus>({ running: false }) }),
+    accessKey: TEST_KEY,
+  });
+  await new Promise<void>(resolve => app.listen(0, '127.0.0.1', resolve));
+  const browser = await chromium.launch({ executablePath: await browserPath(), headless: true });
+  t.after(async () => {
+    await browser.close();
+    await new Promise(resolve => app.close(resolve));
+    store.close();
+  });
+  const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+  await rememberKey(page);
+  await page.goto(`http://127.0.0.1:${portOf(app)}/#activity`);
+  await page.getByRole('link', { name: 'Git Graph', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Git Graph' })).toBeVisible();
+  await expect(page.locator('.graph-subject').first()).toHaveText('Merge graph topic');
+  await expect(page.locator(`#commit-${topic}`)).toContainText('Feature branch work');
+  await expect(page.locator(`#commit-${head} .graph-rail path`)).toHaveCount(2);
+  await expect(page.getByRole('link', { name: 'CI · Succeeded' })).toHaveAttribute('href', '#event/build-on-merge');
+  await expect(page.getByRole('link', { name: 'PR · Merged' })).toHaveAttribute('href', '#event/finished-pr');
+  await expect(page.getByRole('link', { name: 'CI · Failed' })).toHaveCount(0);
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+
+  for (let i = 0; i < 50; i++) git(local, 'commit', '--allow-empty', '-m', `Later commit ${i}`);
+  await page.getByRole('button', { name: 'Reload graph' }).click();
+  await page.getByRole('button', { name: 'Load more commits' }).click();
+  const build = page.getByRole('link', { name: 'CI · Succeeded' });
+  await build.evaluate(link => link.scrollIntoView({ block: 'center' }));
+  const scrollY = await page.evaluate(() => window.scrollY);
+  assert.ok(scrollY > 1000);
+  await build.click();
+  await expect(page.locator('#page .status-chip').first()).toHaveText('Succeeded');
+  await page.goBack();
+  await expect(page.locator('.graph-commit')).toHaveCount(53);
+  await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(scrollY);
+  await build.click();
+  await expect(page.locator('#page .status-chip').first()).toHaveText('Succeeded');
+  await page.getByRole('link', { name: 'Git Graph', exact: true }).click();
+  await expect(page.locator('.graph-commit')).toHaveCount(50);
+  await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0);
+
+  await page.getByRole('link', { name: 'Activity', exact: true }).click();
+  await expect(page.getByRole('button', { name: /^Preview pipeline/ })).toBeVisible();
+
+  await page.getByRole('link', { name: 'Repositories', exact: true }).click();
+  git(local, 'switch', 'graph-topic');
+  store.resetActivity();
+  await page.getByRole('link', { name: 'Git Graph', exact: true }).click();
+  await expect(page.locator('.graph-subject').first()).toHaveText('Feature branch work');
+  await expect(page.locator('.graph-scope')).toHaveText('graph-topic');
+  await expect(page.locator('.graph-link')).toHaveCount(0);
+
+  git(local, 'config', 'core.sshCommand', 'unused');
+  await page.getByRole('button', { name: 'Reload graph' }).click();
+  await expect(page.getByRole('alert')).toContainText('core.sshcommand');
+  await expect(page.locator('.graph-commit')).toHaveCount(0);
+  git(local, 'config', '--unset', 'core.sshCommand');
+  await page.getByRole('link', { name: 'Activity', exact: true }).click();
+  await page.getByRole('link', { name: 'Git Graph', exact: true }).click();
+  await expect(page.locator('.graph-subject').first()).toHaveText('Feature branch work');
+});

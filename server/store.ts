@@ -639,6 +639,27 @@ export function createStore(path = ':memory:') {
         .map(hydrate);
     },
     queryActivity,
+    commitActivity(repoId: string, commits: string[]) {
+      if (!commits.length) return [];
+      const ids = commits.map(() => '?').join(',');
+      return q(`WITH matching AS (
+        SELECT e.id,e.data,m.kind,m.observed,m.time,
+          CASE m.kind WHEN 'build' THEN lower(json_extract(e.data,'$.data.sourceVersion'))
+            ELSE lower(json_extract(e.data,'$.data.mergeCommit')) END AS sha
+        FROM events e JOIN activity_members m ON m.event_id=e.id
+        WHERE e.repo_id=? AND ((m.kind='build' AND lower(json_extract(e.data,'$.data.sourceVersion')) IN (${ids}))
+          OR (m.kind='pr' AND json_extract(e.data,'$.data.status')='completed'
+            AND lower(json_extract(e.data,'$.data.mergeCommit')) IN (${ids})))
+      ), ranked AS (
+        SELECT *,ROW_NUMBER() OVER (PARTITION BY sha,kind,
+          COALESCE(json_extract(data,'$.data.buildId'),json_extract(data,'$.data.pullRequestId'),id)
+          ORDER BY observed DESC,time DESC,id DESC) AS position
+        FROM matching
+      )
+      SELECT id,data,sha FROM ranked WHERE position=1 ORDER BY time DESC,observed DESC,id DESC`)
+        .all(repoId, ...commits, ...commits)
+        .map(row => ({ sha: String(row.sha), event: readEvent(row) }));
+    },
     getEvent: (id: string) => hydrateFound(q(`${selectEvents} WHERE e.id=?`).get(id)),
     getEventGroup(id: string) {
       // The row has the one selected column.
