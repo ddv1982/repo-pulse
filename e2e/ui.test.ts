@@ -39,9 +39,9 @@ async function selectActivityType(page: Page, label: string) {
   await page.getByRole('option', { name: label, exact: true }).click();
 }
 
-async function setup(t: TestContext, demo = true, options: { hasTouch?: boolean } = {}) {
+async function setup(t: TestContext, demo = true, { highlights = false, ...options }: { hasTouch?: boolean; highlights?: boolean } = {}) {
   const directory = await mkdtemp(join(tmpdir(), 'repo-pulse-ui-'));
-  let runtime: Runtime = rememberRuntime(await startApp({ demo, port: 0, dataDir: directory }));
+  let runtime: Runtime = rememberRuntime(await startApp({ demo, highlights, port: 0, dataDir: directory }));
   const browser = await chromium.launch({ executablePath: await browserPath(), headless: true });
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 }, colorScheme: 'light', ...options });
   const errors: string[] = [];
@@ -65,7 +65,7 @@ async function setup(t: TestContext, demo = true, options: { hasTouch?: boolean 
     },
     async restart() {
       await runtime.close();
-      runtime = rememberRuntime(await startApp({ demo, port: 0, dataDir: directory }));
+      runtime = rememberRuntime(await startApp({ demo, highlights, port: 0, dataDir: directory }));
       // A new port is a new origin, so the browser needs the launch link again.
       await page.goto(runtime.launchUrl);
     },
@@ -2589,4 +2589,56 @@ test('Activity keeps the branch tree while exposing merge status, CI and push co
   await expect(failure.locator('.kind')).toHaveText('CI failed');
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
   await page.screenshot({ path: 'test-results/activity-tree-redesign-mobile.png' });
+});
+
+test('Activity shows only highlights and links a landing and quieter CI to its details', async t => {
+  const { page, runtime } = await setup(t, true, { highlights: true });
+  const head = 'c'.repeat(40);
+  const base = { repoId: 'demo-billing', branch: 'main', time: new Date().toISOString() };
+  const main = 'refs/heads/main';
+  runtime.store.insertEvents([
+    {
+      ...base,
+      id: 'highlight-pr',
+      kind: 'pr',
+      title: 'PR 512 · Landing in highlights',
+      data: { status: 'completed', pullRequestId: 512, targetRefName: main, mergeCommit: head },
+    },
+    {
+      ...base,
+      id: 'quiet-landing-push',
+      kind: 'push',
+      title: 'Landing push',
+      data: { refUpdates: [{ name: main, oldObjectId: 'a'.repeat(40), newObjectId: head }] },
+    },
+    {
+      ...base,
+      id: 'quiet-pass',
+      kind: 'build',
+      title: 'Billing CI',
+      data: { sourceBranch: main, sourceVersion: head, buildId: 600, status: 'completed', result: 'succeeded' },
+    },
+    {
+      ...base,
+      id: 'later-push-to-same-tip',
+      kind: 'push',
+      title: 'Later default branch push',
+      time: new Date(Date.parse(base.time) + 60 * 60_000).toISOString(),
+      data: { refUpdates: [{ name: main, oldObjectId: 'b'.repeat(40), newObjectId: head }] },
+    },
+  ]);
+  await page.reload();
+  const merge = page.locator('[data-event-id="highlight-pr"]');
+  await expect(merge.locator('.kind')).toHaveText('PR merged');
+  await expect(merge.getByText('Landed on main', { exact: false })).toBeVisible();
+  await expect(merge.getByRole('button', { name: 'Post-merge CI passed' })).toBeVisible();
+  await expect(page.locator('[data-event-id="quiet-landing-push"], [data-event-id="quiet-pass"]')).toHaveCount(0);
+  await expect(merge.locator('svg.tree')).toBeVisible();
+  await expect(page.locator('[data-event-id="later-push-to-same-tip"]')).toContainText('Later default branch push');
+  await page.screenshot({ path: 'test-results/activity-highlights.png' });
+  await merge.locator('.feed-title').click();
+  await page.getByText('Related activity', { exact: false }).click();
+  await expect(page.getByRole('link', { name: /Merge of PR 512 pushed to main/ })).toBeVisible();
+  await page.getByRole('link', { name: /Billing CI/ }).click();
+  await expect(page.getByRole('heading', { name: 'Billing CI' })).toBeVisible();
 });

@@ -34,7 +34,7 @@ export type CommitsView = PushCommitsResponse | { error: string };
 export type ReviewView = PrReviewResponse | { error: string };
 /** Data a detail page loaded on request: push commits for a push, review data for a PR. */
 export type LoadedView = CommitsView | ReviewView;
-export type DetailState = { events: ActivityEvent[]; repos: Repo[]; demo?: boolean };
+export type DetailState = { events: ActivityEvent[]; repos: Repo[]; demo?: boolean; detailRelated?: ActivityEvent[] | undefined };
 
 function commit(value: string) {
   return html`<code title="${value}">${value.slice(0, 8)}</code> <button class="ghost sm" type="button" data-action="copy-commit" data-value="${value}" aria-label="Copy full commit ID">Copy</button>`;
@@ -170,6 +170,14 @@ function detailData(
   return html`<div class="detail-data">${summary}<dl class="detail-facts">${facts}</dl>${completed}${evidence}${renderTrail(record, { expanded: true })}${extra}</div>`;
 }
 
+function relatedActivity(events: ActivityEvent[]) {
+  return events.length
+    ? html`<details class="linked-event"><summary>Related activity · ${events.length}</summary><ul class="rows">
+      ${events.map(event => html`<li><a href="#event/${encodeURIComponent(event.id)}">${activityLabel(event)} · ${activityTitle(event)}</a> <span class="dim">${dateTime(event.time)}</span></li>`)}
+      </ul></details>`
+    : emptyHtml;
+}
+
 export function renderDetail(
   event: ActivityEvent | undefined,
   state: DetailState,
@@ -203,7 +211,7 @@ export function renderDetail(
       : html`<button class="btn" type="button" id="activity-branch-action" data-action="switch-activity-branch">Switch to ${branch}…</button>`;
   return html`<div class="crumb">${back}<span>${repo?.name}</span></div><section class="card">${detailHead(record, repo, activityTitle(record), matching, branchAction)}
     ${detailFacts(record, activityTone(record), matching)}
-    ${detailData(record, repo, data, fields, pushId, commits)}</section>`;
+    ${detailData(record, repo, data, fields, pushId, commits)}${relatedActivity(state.detailRelated ?? [])}</section>`;
 }
 
 export function renderCommits(commits: CommitsView) {

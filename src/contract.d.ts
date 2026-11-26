@@ -396,7 +396,7 @@ export type StateResponse = {
 /** GET /api/activity, built by server/activity-query.ts. */
 export type { ActivityPage as ActivityResponse } from './activity.ts';
 /** GET /api/events/:id: the event and every event grouped with it. */
-export type EventResponse = { event: HydratedEvent; events: HydratedEvent[] };
+export type EventResponse = { event: HydratedEvent; events: HydratedEvent[]; related?: HydratedEvent[] };
 /** GET /api/checkouts: status per enabled repository id, empty in demo mode. */
 export type CheckoutsResponse = Record<string, CheckoutStatus>;
 /** GET /api/repos/:id/checkout/status. */
