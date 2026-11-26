@@ -383,7 +383,7 @@ export function createApp({
         const id = decodeParam(rawId);
         const event = store.getEvent(id);
         if (!event || !enabledRepoIds().includes(event.repoId)) throw problem('Activity not found.', 404);
-        return json(res, 200, { event, events: store.getEventGroup(id) } satisfies EventResponse);
+        return json(res, 200, { event, events: store.getEventGroup(id), related: store.relatedActivity(event) } satisfies EventResponse);
       },
     },
     {
@@ -772,16 +772,17 @@ export function createApp({
 
 export async function startApp({
   demo = false,
+  highlights = true,
   port = 0,
   dataDir = resolve(ROOT, '.repo-pulse'),
-}: { demo?: boolean; port?: number; dataDir?: string | undefined } = {}) {
+}: { demo?: boolean; highlights?: boolean; port?: number; dataDir?: string | undefined } = {}) {
   await secureDataDir(dataDir);
   const database = resolve(dataDir, demo ? 'demo.sqlite' : 'live.sqlite');
   const lock = await lockDatabase(database);
   // A start that fails after this point releases what it opened, so a retry in this process is not refused.
   let opened: { close(): void } | undefined;
   try {
-    return await startLocked(database, dataDir, demo, port, lock, store => (opened = store));
+    return await startLocked(database, dataDir, demo, highlights, port, lock, store => (opened = store));
   } catch (error) {
     opened?.close();
     lock.close();
@@ -793,13 +794,14 @@ async function startLocked(
   database: string,
   dataDir: string,
   demo: boolean,
+  highlights: boolean,
   port: number,
   lock: { close(): void },
   onOpen: (store: { close(): void }) => void,
 ) {
   // Earlier versions kept one key for good; every start now makes its own, so a key from a past run is useless.
   await rm(resolve(dataDir, 'access-key'), { force: true });
-  const store = createStore(database);
+  const store = createStore(database, { highlights });
   onOpen(store);
   // Reads go over HTTPS with one CLI token, so the shared budget can be far above the 12 az starts per minute.
   if (!demo) useSystemNetworkSettings();

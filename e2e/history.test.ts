@@ -18,9 +18,10 @@ import type { ActivityEvent, ConnectionStatus, DemoSyncStatus, HistoryJob, Repos
 
 type Store = ReturnType<typeof createStore>;
 
+// These history fixtures exercise recorded groups independently of the Activity highlight policy.
 async function demo(t: TestContext) {
   const directory = await mkdtemp(join(tmpdir(), 'repo-pulse-history-ui-'));
-  const runtime = await startApp({ demo: true, port: 0, dataDir: directory });
+  const runtime = await startApp({ demo: true, highlights: false, port: 0, dataDir: directory });
   const browser = await chromium.launch({ executablePath: await browserPath(), headless: true });
   const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
   const page = await context.newPage();
@@ -1212,7 +1213,7 @@ test('People and named filters restore a scoped Activity search after app restar
   await expect(page.locator('li[data-event-id="bob-person"]')).toBeVisible();
 
   await stop();
-  const restarted = await startApp({ demo: true, port: 0, dataDir: directory });
+  const restarted = await startApp({ demo: true, highlights: false, port: 0, dataDir: directory });
   try {
     assert.notEqual(restarted.url, runtime.url);
     await Promise.all([

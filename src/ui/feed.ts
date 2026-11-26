@@ -92,13 +92,14 @@ function renderRelatedCi(record: ActivityItem, expanded: boolean) {
   const runs = record.relatedCi ?? [];
   const multiple = runs.length > 1;
   if (expanded !== multiple) return emptyHtml;
-  const ciButtons = html`${runs.map(run => html`<button type="button" class="ghost sm status-text ${run.outcome === 'passed' ? 'ok' : run.outcome === 'failed' ? 'crit' : 'warn'}" data-action="detail" data-id="${run.id}" title="${run.title}">${run.validation ? 'PR validation' : run.postMerge ? 'Post-merge CI' : 'Branch CI'} ${run.outcome}</button>`)}`;
+  const ciButtons = html`${runs.map(run => html`<button type="button" class="ghost sm status-text ${run.outcome === 'passed' || run.outcome === 'passing again' ? 'ok' : run.outcome === 'failed' ? 'crit' : 'warn'}" data-action="detail" data-id="${run.id}" title="${run.title}">${run.validation ? 'PR validation' : run.postMerge ? 'Post-merge CI' : 'Branch CI'} ${run.outcome}${run.stale ? ' on earlier revision' : ''}</button>`)}`;
   const failed = runs.filter(run => run.outcome === 'failed').length;
   const partial = runs.filter(run => run.outcome === 'partially succeeded').length;
   const counts = [
+    runs.some(run => run.outcome === 'passing again') ? 'passing again' : '',
     failed ? `${failed} failed` : '',
     partial ? `${partial} partially succeeded` : '',
-    runs.length > failed + partial ? `${runs.length - failed - partial} passed` : '',
+    runs.some(run => run.outcome === 'passed') ? `${runs.filter(run => run.outcome === 'passed').length} passed` : '',
   ]
     .filter(Boolean)
     .join(' · ');
@@ -108,7 +109,7 @@ function renderRelatedCi(record: ActivityItem, expanded: boolean) {
       ? ciButtons
       : emptyHtml;
   const host = record.ciHost
-    ? html`<button type="button" class="ghost sm" data-action="detail" data-id="${record.ciHost}">View tested change</button>`
+    ? html`<button type="button" class="ghost sm" data-action="detail" data-id="${record.ciHost}">${record.highlight ? 'View pull request' : 'View tested change'}</button>`
     : emptyHtml;
   return summary === emptyHtml ? host : summary;
 }
@@ -135,7 +136,10 @@ function eventSummary(record: ActivityItem, targetShown: boolean, pr: ActivityIt
  */
 function renderEvent(record: ActivityItem, origin: string, targetShown: boolean, related?: ActivityItem, commits?: CommitsView) {
   const pr = record.kind === 'pr' ? record.data : undefined;
-  const summary = eventSummary(record, targetShown, pr);
+  const summary =
+    record.highlight === 'merged' && pr?.targetRefName
+      ? `Landed on ${branchName(pr.targetRefName)}`
+      : eventSummary(record, targetShown, pr);
   const badge = mergeEvidenceBadge(record);
   const origins = [pr ? prForkSource(pr.fork) : '', origin].filter(Boolean);
   // A new branch can lead with its origin. A PR with its target in the subject keeps the origin in its notes.
@@ -279,15 +283,27 @@ function renderKind(record: ActivityItem, tone: string, tree?: import('./activit
     !draft &&
     record.data?.pullRequestCreatedAt &&
     new Date(record.time).valueOf() === Date.parse(record.data.pullRequestCreatedAt);
-  const label = build
-    ? `CI ${kind.toLowerCase()}`
-    : kind === 'Merged'
-      ? 'PR merged'
-      : active && !draft && record.data?.voteChanges?.length
-        ? 'PR review'
-        : created
-          ? 'PR opened'
-          : kind;
+  const highlightLabels: Partial<Record<NonNullable<ActivityItem['highlight']>, string>> = {
+    'review-ready': 'Ready for review',
+    reopened: 'PR reopened',
+    retargeted: 'PR retargeted',
+    abandoned: 'PR abandoned',
+    'review-blocked': 'Review needs action',
+    'review-approved': 'Required reviewers approved',
+    'default-push': 'Push to default branch',
+    rewrite: 'History rewritten',
+  };
+  const label =
+    (record.highlight && highlightLabels[record.highlight]) ||
+    (build
+      ? `CI ${kind.toLowerCase()}`
+      : kind === 'Merged'
+        ? 'PR merged'
+        : active && !draft && record.data?.voteChanges?.length
+          ? 'PR review'
+          : created
+            ? 'PR opened'
+            : kind);
   const glyph =
     record.kind === 'branch-created'
       ? icons.branch
@@ -398,7 +414,10 @@ function historyGroups(
 }
 
 function historyRows(records: ActivityItem[], hasQuery: boolean) {
-  const linked = hasQuery ? new Map<string, ActivityItem>() : new Map([...linkedMergePushes(records), ...linkedTagBuilds(records)]);
+  const linked =
+    hasQuery || records.some(record => record.highlight)
+      ? new Map<string, ActivityItem>()
+      : new Map([...linkedMergePushes(records), ...linkedTagBuilds(records)]);
   const nestedIds = new Set([...linked.values()].map(push => push.id));
   return { items: records.filter(record => !nestedIds.has(record.id)), linked };
 }

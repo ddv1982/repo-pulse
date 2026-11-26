@@ -90,7 +90,7 @@ export function copyBeforeUpgrade(db: DatabaseSync, path: string, version: numbe
 }
 
 /** SQLite owns durable events, cursor transactions and indexed view-only activity membership. */
-export function createStore(path = ':memory:') {
+export function createStore(path = ':memory:', { highlights = false } = {}) {
   if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
   const db = new DatabaseSync(path);
   if (path !== ':memory:') chmodSync(path, 0o600);
@@ -534,8 +534,13 @@ export function createStore(path = ':memory:') {
     bumpActivity();
     return { ...event, data: { ...event.data, ...overlay } };
   }
-  const queryActivity = createActivityQuery(db, hydrate, requireRepo, activityRevision, () =>
-    String(q("SELECT data FROM settings WHERE key='ciSeenRevision'").get()?.data ?? '0'),
+  const queryActivity = createActivityQuery(
+    db,
+    hydrate,
+    requireRepo,
+    activityRevision,
+    () => String(q("SELECT data FROM settings WHERE key='ciSeenRevision'").get()?.data ?? '0'),
+    highlights,
   );
   function getSetting<K extends SettingKey>(key: K): Settings[K] | undefined;
   function getSetting<K extends SettingKey, F>(key: K, fallback: F): Settings[K] | F;
@@ -596,7 +601,8 @@ export function createStore(path = ':memory:') {
           value.id,
           JSON.stringify(value),
         );
-        if (old?.name !== value.name || Boolean(old?.disabled) !== Boolean(value.disabled)) bumpActivity();
+        if (old?.name !== value.name || old?.defaultBranch !== value.defaultBranch || Boolean(old?.disabled) !== Boolean(value.disabled))
+          bumpActivity();
       });
       return value;
     },
@@ -671,6 +677,63 @@ export function createStore(path = ':memory:') {
             .all(member.group_key)
             .map(hydrate)
         : [];
+    },
+    relatedActivity(event: ActivityEvent) {
+      const { repoId, data } = event;
+      const pr = event.kind === 'pr' ? data?.pullRequestId : /^refs\/pull\/(\d+)\/merge$/.exec(data?.sourceBranch ?? '')?.[1];
+      if (!pr) return [];
+      const ref = `refs/pull/${pr}/merge`;
+      const rows = q(`WITH pr AS MATERIALIZED (
+        SELECT id,data,time FROM events WHERE repo_id=? AND json_extract(data,'$.kind')='pr'
+          AND CAST(json_extract(data,'$.data.pullRequestId') AS TEXT)=?
+      ), related AS (
+        SELECT id FROM pr
+        UNION
+        SELECT e.id FROM events e JOIN activity_members m ON m.event_id=e.id
+        WHERE e.repo_id=? AND m.kind='build' AND json_extract(e.data,'$.data.sourceBranch')=?
+        UNION
+        SELECT e.id FROM pr JOIN events e ON e.repo_id=? AND json_extract(e.data,'$.kind')='build'
+          AND json_extract(e.data,'$.data.sourceBranch')=json_extract(pr.data,'$.data.targetRefName')
+          AND lower(json_extract(e.data,'$.data.sourceVersion'))=lower(json_extract(pr.data,'$.data.mergeCommit'))
+        WHERE ? AND json_extract(pr.data,'$.data.status')='completed'
+        UNION
+        SELECT e.id FROM pr JOIN events e ON e.repo_id=? AND json_extract(e.data,'$.kind')='push'
+          AND json_extract(pr.data,'$.data.fork') IS NULL
+          AND (json_extract(pr.data,'$.data.sourceRepositoryId') IS NULL OR json_extract(pr.data,'$.data.targetRepositoryId') IS NULL
+            OR lower(json_extract(pr.data,'$.data.sourceRepositoryId'))=lower(json_extract(pr.data,'$.data.targetRepositoryId')))
+          JOIN json_each(e.data,'$.data.refUpdates') ref
+        WHERE ? AND json_extract(ref.value,'$.name')=json_extract(pr.data,'$.data.sourceRefName')
+          AND lower(json_extract(ref.value,'$.newObjectId'))=lower(json_extract(pr.data,'$.data.sourceCommit'))
+          AND ltrim(json_extract(ref.value,'$.oldObjectId'),'0')=''
+        UNION
+        SELECT tip.event_id FROM pr JOIN push_tips tip ON tip.repo_id=?
+          AND ((tip.ref=json_extract(pr.data,'$.data.sourceRefName') AND json_extract(pr.data,'$.data.fork') IS NULL
+              AND (json_extract(pr.data,'$.data.sourceRepositoryId') IS NULL OR json_extract(pr.data,'$.data.targetRepositoryId') IS NULL
+                OR lower(json_extract(pr.data,'$.data.sourceRepositoryId'))=lower(json_extract(pr.data,'$.data.targetRepositoryId')))
+              AND tip.tip=lower(json_extract(pr.data,'$.data.sourceCommit')))
+            OR (tip.ref=json_extract(pr.data,'$.data.targetRefName') AND tip.tip=lower(json_extract(pr.data,'$.data.mergeCommit'))
+              AND json_extract(pr.data,'$.data.status')='completed'
+              AND EXISTS (SELECT 1 FROM events push WHERE push.id=tip.event_id
+                AND ABS((julianday(push.time)-julianday(pr.time))*86400)<=600)))
+        WHERE ?
+      )${selectEvents} JOIN activity_members m ON m.event_id=e.id
+      WHERE e.id IN (SELECT id FROM related) AND e.id<>?
+        AND (m.kind<>'build' OR e.id=(SELECT candidate.event_id FROM activity_members candidate
+          WHERE candidate.group_key=m.group_key ORDER BY candidate.observed DESC,candidate.time DESC,candidate.event_id DESC LIMIT 1))
+      ORDER BY m.time DESC,m.observed DESC,e.id DESC LIMIT 100`).all(
+        repoId,
+        String(pr),
+        repoId,
+        ref,
+        repoId,
+        Number(event.kind === 'pr'),
+        repoId,
+        Number(event.kind === 'pr'),
+        repoId,
+        Number(event.kind === 'pr'),
+        event.id,
+      );
+      return rows.map(hydrate);
     },
     completedCheckoutPulls(this: void, repoId: string, source: string) {
       const rows = q(`SELECT id,data FROM events WHERE repo_id=? AND json_extract(data,'$.kind')='pr'

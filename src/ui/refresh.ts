@@ -31,6 +31,7 @@ export type PageState = Omit<Metadata, 'syncStatus'> & {
   activity: DisplayActivity;
   events: ActivityEvent[];
   detailLoading?: boolean;
+  detailRelated?: ActivityEvent[] | undefined;
 };
 
 export type PageSyncStatus = { overall: import('./health.ts').ShownSyncStatus; repos: StateResponse['syncStatus']['repos'] };
@@ -122,6 +123,7 @@ export function createRefreshController({
         detailResult = detail;
         detailRevision = next.activityRevision;
         if (!cached) next.events = activityEvents(state.activity, detail);
+        next.detailRelated = detail.related;
         next.detailLoading = false;
       }
 
@@ -168,7 +170,7 @@ export function createRefreshController({
       state = { ...state, activity: { items: [], loading: true }, events: [] };
     },
     prepareDetail(id: string | null) {
-      state = { ...state, detailLoading: !state.events.some(event => event.id === id) };
+      state = { ...state, detailRelated: undefined, detailLoading: !state.events.some(event => event.id === id) };
     },
     load(this: void, { force = false, more = false } = {}) {
       const view = getView();

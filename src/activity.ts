@@ -78,7 +78,7 @@ export type EventData = RefUpdate & {
   targetRefName?: string;
   refUpdates?: RefUpdate[];
   commits?: unknown[] | undefined;
-  definition?: { name?: string };
+  definition?: { id?: number | string; name?: string };
   mergeEvidence?: MergeEvidenceData;
   forkOrigin?: ForkOrigin;
   pullRequestId?: number | string;
@@ -131,8 +131,23 @@ export type RelatedCi = {
   title: string;
   validation: boolean;
   postMerge: boolean;
-  outcome: 'passed' | 'failed' | 'partially succeeded';
+  stale?: boolean;
+  outcome: 'passed' | 'failed' | 'partially succeeded' | 'passing again';
 };
+export type HighlightReason =
+  | 'review-ready'
+  | 'merged'
+  | 'abandoned'
+  | 'reopened'
+  | 'retargeted'
+  | 'review-blocked'
+  | 'review-approved'
+  | 'default-push'
+  | 'rewrite'
+  | 'active-branch-deleted'
+  | 'tag'
+  | 'ci-failed';
+
 export type ActivityItem = ActivityEvent & {
   groupKey: string;
   events: ActivityEvent[];
@@ -144,6 +159,7 @@ export type ActivityItem = ActivityEvent & {
   prSourceLifetime?: string;
   latestPrMilestone?: boolean;
   relatedCi?: RelatedCi[];
+  highlight?: HighlightReason;
   ciHost?: string;
   foldedCi?: number;
 };

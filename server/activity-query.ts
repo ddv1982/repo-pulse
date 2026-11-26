@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+import { activityHighlights, attachHighlights } from './activity-highlights.ts';
 import { activityCi } from './activity-ci.ts';
 import { foldSearchText, matchesPeople, parsePeople } from './activity-people.ts';
 import { projectActivity } from '../src/activity.ts';
@@ -78,9 +80,20 @@ export type MemberScope = { maxSequence: number; scope: string; params: SqlValue
 /**
  * Member-level WHERE clause shared by the page query and the member lookup.
  */
-function memberScope(maxSequence: number, selected: string[] | undefined, needles: string[], people: string[]): MemberScope {
+function memberScope(
+  maxSequence: number,
+  selected: string[] | undefined,
+  needles: string[],
+  people: string[],
+  highlights?: string[],
+): MemberScope {
   const conditions = ['m.sequence<=?'];
   const params: SqlValue[] = [maxSequence];
+  if (highlights) {
+    conditions.push(`m.group_key IN (
+      SELECT highlight.group_key FROM json_each(?) ids JOIN activity_members highlight ON highlight.event_id=ids.value)`);
+    params.push(JSON.stringify(highlights));
+  }
   if (selected) {
     conditions.push(selected.length ? `e.repo_id IN (${selected.map(() => '?').join(',')})` : '0');
     params.push(...selected);
@@ -104,6 +117,22 @@ function memberScope(maxSequence: number, selected: string[] | undefined, needle
     params.push(...people);
   }
   return { maxSequence, scope: conditions.join(' AND '), params, people: people.length > 0 };
+}
+
+function highlightScope(
+  through: number,
+  selected: string[] | undefined,
+  needles: string[],
+  names: string[],
+  filter: ActivityFilter,
+  highlights: ReturnType<typeof activityHighlights> | undefined,
+) {
+  const scope = memberScope(through, selected, needles, names, highlights && [...highlights.keys()]);
+  if (highlights && filter.type === 'kind' && filter.id === 'push') {
+    scope.scope += ' AND m.event_id IN (SELECT value FROM json_each(?))';
+    scope.params.push(JSON.stringify([...highlights.keys()]));
+  }
+  return scope;
 }
 
 function matchedScope({ scope, params, people }: MemberScope, filter: ActivityFilter, view: string) {
@@ -407,6 +436,7 @@ export function createActivityQuery(
   requireRepo: (repoId: string) => unknown,
   activityRevision: () => string,
   seenRevision: () => string,
+  highlightsOnly: boolean,
 ) {
   db.function('matches_folded', { deterministic: true, varargs: true }, (text, ...terms) => {
     if (typeof text !== 'string') return 0;
@@ -438,6 +468,62 @@ export function createActivityQuery(
     return { selected, filter, needles, names };
   }
 
+  const highlightCache = new Map<string, ReturnType<typeof activityHighlights>>();
+  let cachedRevision: string | undefined;
+  function readHighlights(through: number, selected: string[] | undefined) {
+    if (!highlightsOnly) return;
+    const revision = activityRevision();
+    if (cachedRevision !== revision) {
+      cachedRevision = revision;
+      highlightCache.clear();
+    }
+    const key = JSON.stringify([through, selected]);
+    const cached = highlightCache.get(key);
+    if (cached) return cached;
+    const projection = activityHighlights(db, hydrate, through, selected);
+    if (highlightCache.size >= 4) highlightCache.delete(highlightCache.keys().next().value ?? '');
+    highlightCache.set(key, projection);
+    return projection;
+  }
+
+  function pageRevision(
+    highlights: ReturnType<typeof activityHighlights> | undefined,
+    view: string,
+    filtered: boolean,
+    kind: string,
+    foldCi: boolean,
+  ) {
+    // Late inserts are pinned out. A label or rewrite change to an existing row may invalidate the window.
+    if (highlights) {
+      const stamp = createHash('sha256')
+        .update(JSON.stringify([...highlights.keys()]))
+        .digest('base64url');
+      return `highlights:${stamp}:${view === 'new' ? seenRevision() : ''}:${filtered || kind ? activityRevision() : ''}`;
+    }
+    if (filtered) return `2:${activityRevision()}`;
+    if (foldCi) return `ci:${seenRevision()}`;
+  }
+
+  function materializePage(
+    member: MemberScope,
+    filter: ActivityFilter,
+    selectedGroups: Group[],
+    ci: import('node:sqlite').SQLOutputValue | undefined,
+    highlights: ReturnType<typeof activityHighlights> | undefined,
+  ) {
+    const selectedKeys = new Set(selectedGroups.map(group => group.key));
+    const links = (JSON.parse(String(ci ?? '[]')) as CiLink[]).filter(
+      link => selectedKeys.has(link.host_key) || selectedKeys.has(link.run_key),
+    );
+    const foldedKeys = [...new Set(links.filter(link => link.folded).map(link => link.run_key))];
+    const members = loadMembers(db, hydrate, member, filter, [...selectedGroups.map(group => group.key), ...foldedKeys]);
+    attachPullRequests(db, members.values());
+    const items = selectedGroups.flatMap(group => projectActivity(group.key, members.get(group.key) || [], group.representative) || []);
+    attachCi(items, links, members);
+    if (highlights) attachHighlights(items, highlights);
+    return items;
+  }
+
   function queryActivity({
     repoIds,
     view = 'all',
@@ -450,37 +536,29 @@ export function createActivityQuery(
     if (!['all', 'new'].includes(view)) throw Object.assign(new Error('Invalid activity view.'), { code: 'BAD_REQUEST' });
     const pageSize = Math.max(1, Math.min(Number(limit) || 50, 200));
     const { selected, filter, needles, names } = readScope({ repoIds, kind, search, people });
-    const foldCi = !kind && !needles.length && !names.length && view === 'all';
+    const foldCi = !highlightsOnly && !kind && !needles.length && !names.length && view === 'all';
     const filterKey = JSON.stringify({ selected, view, filter, search: needles, people: names });
     const position = decodeCursor(cursor, filterKey);
-    // Search depends on mutable evidence; folded CI depends only on seen status within the pinned event snapshot.
-    const revision = needles.length || names.length ? `2:${activityRevision()}` : foldCi ? `ci:${seenRevision()}` : undefined;
+    const maxSequence =
+      position?.maxSequence ?? Number(db.prepare('SELECT COALESCE(MAX(sequence),0) AS id FROM activity_members').get()?.id);
+    const highlights = readHighlights(maxSequence, selected);
+    const revision = pageRevision(highlights, view, Boolean(needles.length || names.length), kind, foldCi);
     if (position && revision !== undefined && position.revision !== revision) {
       throw Object.assign(new Error('Activity changed while loading results. Try again.'), {
         status: 409,
         code: 'ACTIVITY_CHANGED',
       });
     }
-    const maxSequence =
-      position?.maxSequence ?? Number(db.prepare('SELECT COALESCE(MAX(sequence),0) AS id FROM activity_members').get()?.id);
-    const member = memberScope(maxSequence, selected, needles, names);
+    const member = highlightScope(maxSequence, selected, needles, names, filter, highlights);
     const query = pageQuery(member, filter, view, position, pageSize, foldCi);
     const page = db.prepare(query.sql).get(...query.params);
     const groups = JSON.parse(String(page?.groups)) as Group[];
     const countRows = JSON.parse(String(page?.counts)) as CountRow[];
     const options = page?.options ? filterOptions(JSON.parse(String(page.options))) : undefined;
     const selectedGroups = groups.slice(0, pageSize);
-    const selectedKeys = new Set(selectedGroups.map(group => group.key));
-    const links = (JSON.parse(String(page?.ci ?? '[]')) as CiLink[]).filter(
-      link => selectedKeys.has(link.host_key) || selectedKeys.has(link.run_key),
-    );
-    const foldedKeys = [...new Set(links.filter(link => link.folded).map(link => link.run_key))];
-    const members = loadMembers(db, hydrate, member, filter, [...selectedGroups.map(group => group.key), ...foldedKeys]);
-    attachPullRequests(db, members.values());
-    const items = selectedGroups.flatMap(group => projectActivity(group.key, members.get(group.key) || [], group.representative) || []);
-    attachCi(items, links, members);
+    const items = materializePage(member, filter, selectedGroups, page?.ci, highlights);
     markLatestPrMilestones(db, items, maxSequence);
-    if (foldCi) attachTaggedCommits(db, items);
+    if (foldCi || highlightsOnly) attachTaggedCommits(db, items);
     attachBranchLifetimes(db, items, maxSequence);
     const counts = summarizeCounts(countRows);
     const nextCursor = groups.length > pageSize ? encodeCursor(selectedGroups.at(-1), maxSequence, filterKey, revision) : null;
@@ -491,7 +569,12 @@ export function createActivityQuery(
     const { selected, filter, needles, names } = readScope(input);
     const latest = Number(db.prepare('SELECT COALESCE(MAX(sequence),0) AS id FROM activity_members').get()?.id);
     const maxSequence = input.through === undefined ? latest : Math.min(input.through, latest);
-    const { sql, params, selection } = matchedScope(memberScope(maxSequence, selected, needles, names), filter, 'new');
+    const highlights = readHighlights(maxSequence, selected);
+    const { sql, params, selection } = matchedScope(
+      highlightScope(maxSequence, selected, needles, names, filter, highlights),
+      filter,
+      'new',
+    );
     return db
       .prepare(
         `${sql} SELECT source.event_id FROM ${selection} source
