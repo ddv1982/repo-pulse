@@ -8,6 +8,7 @@ import { connectionResult, createConnectionController } from './ui/connection.ts
 import { emptyHtml, html } from './ui/format.ts';
 import { createRepositoryPicker } from './ui/repository-picker.ts';
 import { createNavigation, activityHref, isActivity } from './ui/navigation.ts';
+import { createGitGraph, renderGitGraph } from './ui/git-graph.ts';
 import { createTypeFilter } from './ui/type-filter.ts';
 import { createRefreshController } from './ui/refresh.ts';
 import { createBrowserView, replacementFocus } from './ui/browser-view.ts';
@@ -140,6 +141,27 @@ const checkoutPanel = createCheckoutPanel({
 });
 const navigation = createNavigation({ ui, captureGroups: view.captureGroups, activityCapacity: () => refresh.capacity() });
 
+let graphRepoId = '';
+const graph = createGitGraph({
+  read: (id, cursor) => {
+    const path = `/api/repos/${encodeURIComponent(id)}/graph` as const;
+    return cursor ? request(`${path}?cursor=${encodeURIComponent(cursor)}`) : request(path);
+  },
+  render: () => {
+    if (ui.route === 'graph') renderPage();
+  },
+});
+
+function graphSelection() {
+  const { repos } = refresh.state;
+  const repo =
+    repos.find(item => item.id === graphRepoId) ??
+    repos.find(item => ui.repoIds?.length === 1 && item.id === ui.repoIds[0]) ??
+    repos.find(item => item.localPath) ??
+    repos[0];
+  return { repos, repo };
+}
+
 function renderOptions() {
   const restored = navigation.takeRestoration(refresh.state.activity?.loading);
   const { generation } = navigation.view();
@@ -148,6 +170,7 @@ function renderOptions() {
     returnUnreadOnly: navigation.returnUnreadOnly,
     matchingIds: navigation.matchingIds,
     commits: commitResults.get(ui.eventId),
+    ...(ui.route === 'graph' ? { graph: renderGraph() } : {}),
     checkouts: checkoutPanel.snapshots,
     checkoutFocus: navigation.takeCheckoutFocus(refresh.state.watched),
     isCurrent: () => navigation.view().generation === generation,
@@ -178,6 +201,12 @@ function showScopePanel(open: boolean) {
   const panel = document.querySelector('#repo-panel');
   if (panel instanceof HTMLElement) panel.hidden = !open;
   document.querySelector('#repo-toggle')?.setAttribute('aria-expanded', String(open));
+}
+
+function renderGraph() {
+  const { repos, repo } = graphSelection();
+  graph.select(repo);
+  return renderGitGraph(repos, repo, graph.state);
 }
 
 function renderPage() {
@@ -364,6 +393,12 @@ function applySavedFilter({ id, name, filters }: import('./ui/saved-filters.ts')
 }
 
 const actions: Record<string, Action> = {
+  'reload-graph': () => {
+    void graph.reload();
+  },
+  'more-graph': () => {
+    void graph.more();
+  },
   ...createCheckoutActions({
     checkoutPanel,
     getActivityCheckout,
@@ -661,6 +696,11 @@ document.addEventListener('input', event => {
 document.addEventListener('change', event => {
   const target = event.target;
   if (!(target instanceof HTMLInputElement || target instanceof HTMLSelectElement)) return;
+  if (target.id === 'graph-repo') {
+    graphRepoId = target.value;
+    renderPage();
+    return;
+  }
   if (target.matches('[data-scope-repo]')) {
     // Disabled repositories have no checkbox; keep their place in the scope for when they are enabled.
     const disabled = refresh.state.watched.filter(repo => repo.disabled && (ui.repoIds === null || ui.repoIds.includes(repo.id)));
@@ -757,10 +797,11 @@ function route() {
   const { destination, capacity, scrollToTop } = navigation.enter(refresh.loaded ? refresh.state.watched : null);
   if (isActivity(destination)) refresh.resetActivity(capacity);
   else if (destination === 'event') refresh.prepareDetail(ui.eventId);
+  else if (destination === 'graph') graph.reset();
   render();
   const needsActivity = isActivity(destination) || destination === 'event';
   void load({ force: needsActivity });
-  if (needsActivity && scrollToTop) window.scrollTo({ top: 0, behavior: 'instant' });
+  if (destination === 'graph' || (needsActivity && scrollToTop)) window.scrollTo({ top: 0, behavior: 'instant' });
 }
 
 window.addEventListener('hashchange', route);

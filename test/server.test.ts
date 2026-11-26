@@ -115,6 +115,7 @@ test('serves real UI and blocks other origins, DNS rebinding, and API requests w
     '/web/styles/feed.css',
     '/web/styles/repositories.css',
     '/web/styles/settings.css',
+    '/web/styles/git-graph.css',
   ]);
   for (const href of imports) {
     const part = await globalThis.fetch(new URL(href, url));

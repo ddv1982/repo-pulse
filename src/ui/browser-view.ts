@@ -5,7 +5,7 @@ import { renderRepositories } from './repositories.ts';
 import { renderSettings } from './settings.ts';
 import { eventIds } from './seen-actions.ts';
 import { required, setHtml } from './dom.ts';
-import { emptyHtml, html } from './format.ts';
+import { emptyHtml, html, type SafeHtml } from './format.ts';
 import type { PageState } from './refresh.ts';
 import type { ResultsContext, NavigationState } from './navigation.ts';
 
@@ -64,6 +64,7 @@ export type RenderOptions = {
   returnUnreadOnly: boolean;
   matchingIds?: string[] | undefined;
   commits: import('./activity-detail.ts').LoadedView | undefined;
+  graph?: SafeHtml;
   checkouts: Record<string, import('./checkout.ts').CheckoutSnapshot>;
   checkoutFocus?: string | null | undefined;
   isCurrent: () => boolean;
@@ -99,13 +100,14 @@ export function createBrowserView({
   function renderPage(
     state: PageState,
     ui: BrowserUi,
-    { restored, returnUnreadOnly, matchingIds, commits, checkouts, checkoutFocus, isCurrent }: RenderOptions,
+    { restored, returnUnreadOnly, matchingIds, commits, graph, checkouts, checkoutFocus, isCurrent }: RenderOptions,
   ) {
     const groups = restored?.groups || captureGroups();
     const focused = document.activeElement;
     const focusId = focused && page.contains(focused) ? focusedControlId(focused) : '';
     const neighbours = focused instanceof HTMLElement && page.contains(focused) ? seenToggleNeighbours(focused) : [];
     if (ui.route === 'repositories') setHtml(page, renderRepositories(state, ui, checkouts));
+    else if (ui.route === 'graph') setHtml(page, graph ?? emptyHtml);
     else if (ui.route === 'settings') setHtml(page, renderSettings(state, ui.connection));
     else if (ui.route === 'event' && state.detailLoading && !state.events.some(event => event.id === ui.eventId))
       setHtml(page, html`<div class="card loading" role="status">Loading activity details…</div>`);

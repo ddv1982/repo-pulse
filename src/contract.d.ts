@@ -433,3 +433,26 @@ export type FoldersResponse = {
 };
 /** POST /api/demo/event. */
 export type DemoEventResponse = ActivityEvent;
+
+export type GitHistoryActivity = {
+  id: string;
+  kind: 'build' | 'pr';
+  title: string;
+  status: string;
+};
+
+export type GitHistoryPage = {
+  head: string;
+  branch: string | null;
+  upstream: string | null;
+  shallow: boolean;
+  commits: {
+    id: string;
+    parents: string[];
+    author: string;
+    subject: string;
+    refs: string[];
+    activity: GitHistoryActivity[];
+  }[];
+  nextCursor: string | null;
+};

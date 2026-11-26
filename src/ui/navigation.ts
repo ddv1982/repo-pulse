@@ -47,7 +47,7 @@ export function parseRoute(hash: string) {
     }
     return name === 'event' ? { route: 'event', eventId: id } : { route: 'repositories', eventId: null, checkoutRepoId: id };
   }
-  if (name === 'settings') return { route: 'settings', eventId: null };
+  if (name === 'settings' || name === 'graph') return { route: name, eventId: null };
   return { route: 'activity', eventId: null, unreadOnly: false };
 }
 
