@@ -155,6 +155,7 @@ const prState = (pr: AzurePullRequest) => ({
   title: pr.title,
   source: pr.lastMergeSourceCommit?.commitId,
   target: pr.targetRefName,
+  ...(pr.status === 'active' ? { previewCommit: pr.lastMergeCommit?.commitId?.toLowerCase() || null } : {}),
   votes: reviewerVotes(pr),
 });
 // Active PRs can expose a successful preview merge. Only completion establishes
@@ -218,17 +219,25 @@ export function createNormalizer({ store, now = Date.now }: { store: NormalizeSt
     historical: boolean,
   ) {
     const previous = store.getEntity(repo.id, type, key);
-    // Snapshots saved before votes were recorded adopt the current votes instead of reporting them as a change.
-    const comparable = previous?.fingerprint && !('votes' in previous.fingerprint) ? { ...value, votes: undefined } : value;
+    // Older snapshots adopt newly tracked fields without emitting a change.
+    // A null preview on a new active snapshot still lets its first actual preview register later.
+    const saved = previous?.fingerprint;
+    const comparable = saved
+      ? {
+          ...value,
+          ...(!('votes' in saved) ? { votes: undefined } : {}),
+          ...(!('previewCommit' in saved) ? { previewCommit: undefined } : {}),
+        }
+      : value;
     const changed = !previous || JSON.stringify(previous.fingerprint) !== JSON.stringify(comparable);
     const revision = (previous?.revision || 0) + Number(changed);
     return {
       previous,
       changed,
-      // Historical IDs hash the state without votes, as before votes were recorded, so re-importing a closure finds its row.
+      // Preserve legacy IDs for re-imports and for live events without an actual preview.
       sourceId: historical
-        ? `history:${key}:${fingerprint({ ...value, votes: undefined })}`
-        : `${key}:${(previous?.revision || 0) + 1}:${fingerprint(value)}`,
+        ? `history:${key}:${fingerprint({ ...value, votes: undefined, previewCommit: undefined })}`
+        : `${key}:${(previous?.revision || 0) + 1}:${fingerprint({ ...value, previewCommit: value.previewCommit ?? undefined })}`,
       entity: historical ? null : ({ type, id: key, data: { fingerprint: value, status: value.status, revision } } satisfies Entity),
     };
   }
@@ -332,7 +341,8 @@ export function createNormalizer({ store, now = Date.now }: { store: NormalizeSt
     prs(item, { repo, add, entities, historical }) {
       if (!item.pullRequestId || (item.repository?.id && item.repository.id.toLowerCase() !== repo.azureId?.toLowerCase())) return;
       const key = String(item.pullRequestId);
-      const { previous, changed, sourceId, entity } = snapshot(repo, 'pr', key, prState(item), historical);
+      const state = prState(item);
+      const { previous, changed, sourceId, entity } = snapshot(repo, 'pr', key, state, historical);
       if (changed) {
         add('pr', sourceId, {
           title: `PR ${key} · ${text(item.title || 'Untitled', 'Untitled')}`,
@@ -349,6 +359,7 @@ export function createNormalizer({ store, now = Date.now }: { store: NormalizeSt
             sourceRefName: item.sourceRefName,
             targetRefName: item.targetRefName,
             sourceCommit: item.lastMergeSourceCommit?.commitId,
+            previewCommit: state.previewCommit ?? undefined,
             sourceRepositoryId: item.forkSource ? item.forkSource.repository?.id : item.repository?.id,
             targetRepositoryId: item.repository?.id,
             reviewers: reviewers(item),
@@ -385,6 +396,7 @@ export function createNormalizer({ store, now = Date.now }: { store: NormalizeSt
             status: item.status,
             result: item.result,
             sourceVersion: item.sourceVersion,
+            buildStartedAt: item.queueTime || item.startTime,
             sourceBranch: item.sourceBranch,
             definition: item.definition,
             reason: item.reason,

@@ -1169,7 +1169,7 @@ test('build transitions group into one item and exact acknowledgement leaves a l
   await expect(page.getByRole('region', { name: 'Activity summary' })).toContainText('1 new item · 2 updates');
   await expect(page.locator('[data-summary-kind="CI runs"]')).toContainText('1 running');
   await expect(page.locator('.cell .val.zero')).toHaveCount(3);
-  await expect(page.locator('li.row .kind')).toHaveText('Running');
+  await expect(page.locator('li.row .kind')).toHaveText('CI running');
   await expect(page.locator('li.row .feed-title .title')).toHaveText('Orders CI 2 new');
   await page.locator('.trail > summary').click();
   await expect(page.locator('.trail li')).toHaveCount(2);
@@ -1183,7 +1183,7 @@ test('build transitions group into one item and exact acknowledgement leaves a l
     { times: 1 },
   );
   await page.getByRole('button', { name: 'Mark all seen (2)', exact: true }).click();
-  await expect(page.locator('li.row .kind')).toHaveText('Succeeded');
+  await expect(page.locator('li.row .kind')).toHaveText('CI succeeded');
   assert.equal(runtime.store.listEvents().find(item => item.id === 'build-queued')?.seen, true);
   assert.equal(runtime.store.listEvents().find(item => item.id === 'build-running')?.seen, true);
   assert.equal(runtime.store.listEvents().find(item => item.id === 'build-succeeded')?.seen, false);
@@ -1521,18 +1521,18 @@ test('semantic status colors match rows, imported history, details and trails in
   const { page, runtime, event } = await groupedFixture(t);
   const cases: [string, ActivityKind, EventData, string, string][] = [
     ['deleted', 'branch-deleted', { evidence: 'push' }, 'crit', 'Branch deleted'],
-    ['failed', 'build', { status: 'completed', result: 'failed' }, 'crit', 'Failed'],
-    ['canceled', 'build', { status: 'completed', result: 'canceled' }, 'warn', 'Canceled'],
+    ['failed', 'build', { status: 'completed', result: 'failed' }, 'crit', 'CI failed'],
+    ['canceled', 'build', { status: 'completed', result: 'canceled' }, 'warn', 'CI canceled'],
     ['abandoned', 'pr', { status: 'abandoned' }, 'warn', 'PR abandoned'],
-    ['partial', 'build', { status: 'completed', result: 'partiallySucceeded' }, 'warn', 'Partially succeeded'],
-    ['completed', 'pr', { status: 'completed' }, 'ok', 'Merged'],
-    ['succeeded', 'build', { status: 'completed', result: 'succeeded' }, 'ok', 'Succeeded'],
+    ['partial', 'build', { status: 'completed', result: 'partiallySucceeded' }, 'warn', 'CI partially succeeded'],
+    ['completed', 'pr', { status: 'completed' }, 'ok', 'PR merged'],
+    ['succeeded', 'build', { status: 'completed', result: 'succeeded' }, 'ok', 'CI succeeded'],
     ['open', 'pr', { status: 'active' }, 'info', 'Open PR'],
-    ['queued', 'build', { status: 'notStarted' }, 'info', 'Queued'],
+    ['queued', 'build', { status: 'notStarted' }, 'info', 'CI queued'],
     ['created', 'branch-created', {}, 'info', 'New branch'],
     ['push', 'push', {}, 'info', 'Push'],
     ['draft', 'pr', { status: 'active', isDraft: true }, 'neutral', 'Draft PR'],
-    ['skipped', 'build', { status: 'completed', result: 'skipped' }, 'neutral', 'Skipped'],
+    ['skipped', 'build', { status: 'completed', result: 'skipped' }, 'neutral', 'CI skipped'],
     ['uncertain', 'branch-deleted', { evidence: 'snapshot' }, 'warn', 'No longer listed'],
   ];
   runtime.store.insertEvents(
@@ -1726,7 +1726,7 @@ test('the app-owned type dropdown is themed, keyboard accessible and stable duri
           data: { buildId: 700, status: 'completed', result: 'succeeded' },
         },
       ]);
-      await expect(page.locator('li.row .kind')).toHaveText('Succeeded', { timeout: 8000 });
+      await expect(page.locator('li.row .kind')).toHaveText('CI succeeded', { timeout: 8000 });
       await expect(toggle).toBeFocused();
     }
     await toggle.press('ArrowDown');
@@ -1777,7 +1777,7 @@ test('completed PRs clearly show a merge into the target and optional source/res
   ]);
   await page.reload();
   await selectActivityType(page, 'Pull request');
-  await expect(page.locator('li.row .kind')).toHaveText('Merged');
+  await expect(page.locator('li.row .kind')).toHaveText('PR merged');
   await expect(page.locator('li.row')).toContainText('Merged into main');
   await expect(page.locator('li.row')).toHaveClass(/tone-ok/);
   await page.locator('li.row .feed-title').click();
@@ -2237,7 +2237,7 @@ test('Start from scratch in Settings confirms, empties the feed and shows Syncin
   await expect(page.locator('[data-event-id="one:push:1"]')).toHaveCount(1, { timeout: 15000 });
 });
 
-test('the branch tree works with the unread filter and keeps the dot on narrow screens', async t => {
+test('the branch tree works with the unread filter and keeps status markers on narrow screens', async t => {
   const { page } = await setup(t);
   const rows = page.locator('.with-tree .row');
   await expect(rows.first()).toBeVisible();
@@ -2257,7 +2257,7 @@ test('the branch tree works with the unread filter and keeps the dot on narrow s
   await expect(ciRef.locator('.ref-name')).toHaveText('feature/date-range');
   await expect(ciRef.locator('.ref-pr')).toHaveText(' · PR 412');
   await expect(ciRef.locator('.ref-pr')).toBeVisible();
-  await expect(page.locator('[data-event-id="demo-build-2"] svg.tree circle.dot:not(.lane-none)')).toHaveCount(1);
+  await expect(page.locator('[data-event-id="demo-build-2"] svg.tree rect.ci-node:not(.lane-none)')).toHaveCount(1);
   // A lane must run unbroken through a row, so each cell covers its row from border to border.
   const [cell, row] = await Promise.all([hotfix.locator('svg.tree').boundingBox(), hotfix.boundingBox()]);
   assert.ok(cell && row);
@@ -2520,4 +2520,73 @@ test('Git Graph shows a merged branch and exact CI links alongside the Activity 
   await page.getByRole('link', { name: 'Activity', exact: true }).click();
   await page.getByRole('link', { name: 'Git Graph', exact: true }).click();
   await expect(page.locator('.graph-subject').first()).toHaveText('Feature branch work');
+});
+
+test('Activity keeps the branch tree while exposing merge status, CI and push commits inline', async t => {
+  const { page, runtime } = await setup(t);
+  const minutesAgo = (minutes: number) => new Date(Date.now() - minutes * 60000).toISOString();
+  const sha = 'a'.repeat(40);
+  const main = 'refs/heads/main';
+  const base = { repoId: 'demo-billing', branch: 'main' };
+  runtime.store.insertEvents([
+    {
+      ...base,
+      id: 'readable-merge',
+      seen: true,
+      kind: 'pr',
+      title: 'PR 504 · Update billing',
+      time: minutesAgo(6),
+      data: { pullRequestId: 504, status: 'completed', targetRefName: main, mergeCommit: sha },
+    },
+    {
+      ...base,
+      id: 'seen-passing-run',
+      kind: 'build',
+      title: 'Billing CI',
+      time: minutesAgo(4),
+      seen: true,
+      data: { buildId: 521, status: 'completed', result: 'succeeded', reason: 'individualCI', sourceBranch: main, sourceVersion: sha },
+    },
+    {
+      ...base,
+      id: 'failed-after-merge',
+      kind: 'build',
+      title: 'Billing CI',
+      time: minutesAgo(3),
+      data: { buildId: 520, status: 'completed', result: 'failed', reason: 'individualCI', sourceBranch: main, sourceVersion: sha },
+    },
+  ]);
+  await page.reload();
+  const merge = page.locator('[data-event-id="readable-merge"]');
+  const failure = page.locator('[data-event-id="failed-after-merge"]');
+  await expect(merge.locator('.kind')).toHaveText('PR merged');
+  await expect(merge.getByText('Merged into main')).toBeVisible();
+  const passing = page.locator('[data-event-id="seen-passing-run"]');
+  const seen = merge.locator('.seen-toggle');
+  await expect(passing).toHaveCount(0);
+  await expect(seen).toHaveAttribute('aria-pressed', 'true');
+  await seen.click();
+  await expect(seen).toHaveAttribute('aria-pressed', 'false');
+  await expect(passing).toHaveCount(0);
+  await seen.click();
+  await expect(seen).toHaveAttribute('aria-pressed', 'true');
+  await expect(passing).toHaveCount(0);
+  assert.equal(runtime.store.getEvent('seen-passing-run')?.seen, true);
+  await merge.getByText('CI · 1 failed · 1 passed').click();
+  await expect(merge.getByRole('button', { name: 'Post-merge CI failed' })).toBeVisible();
+  await expect(failure.locator('svg.tree rect.ci-node')).toBeVisible();
+  await expect(page.locator('svg.tree .default-lane').first()).toHaveCSS('stroke-width', '2.5px');
+
+  const push = page.locator('[data-event-id="demo-push-1"]');
+  const loadCommits = push.getByRole('button', { name: 'Load commits', exact: true });
+  await loadCommits.focus();
+  await page.keyboard.press('Enter');
+  await expect(push.getByRole('button', { name: 'Reload commits', exact: true })).toBeFocused();
+  await expect(push.getByText('Cover export retry behavior', { exact: false })).toBeVisible();
+  await expect(page).toHaveURL(/#activity$/);
+  await page.screenshot({ path: 'test-results/activity-tree-redesign-desktop.png' });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(failure.locator('.kind')).toHaveText('CI failed');
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+  await page.screenshot({ path: 'test-results/activity-tree-redesign-mobile.png' });
 });

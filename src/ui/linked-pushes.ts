@@ -31,7 +31,7 @@ export function linkedMergePushes(items: ActivityItem[]) {
     if (!key) continue;
     const push = pushes.get(key);
     // An unseen push beside an already-seen PR deserves a visible row of its own.
-    if (!push || (push.unseen && !item.unseen)) continue;
+    if (!push || push.relatedCi?.length || (push.unseen && !item.unseen)) continue;
     links.set(item.id, push);
     pushes.delete(key);
   }

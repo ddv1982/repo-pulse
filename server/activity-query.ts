@@ -1,3 +1,4 @@
+import { activityCi } from './activity-ci.ts';
 import { foldSearchText, matchesPeople, parsePeople } from './activity-people.ts';
 import { projectActivity } from '../src/activity.ts';
 import { treeBranchRefs, treePullRequestSource } from '../src/activity-tree.ts';
@@ -72,7 +73,7 @@ const grouped = (selection: string) => `
   ) group_stats JOIN activity_members member ON member.event_id=group_stats.representative`;
 
 export type ActivityFilter = ReturnType<typeof parseActivityFilter>;
-export type MemberScope = { scope: string; params: SqlValue[]; people: boolean };
+export type MemberScope = { maxSequence: number; scope: string; params: SqlValue[]; people: boolean };
 
 /**
  * Member-level WHERE clause shared by the page query and the member lookup.
@@ -102,7 +103,7 @@ function memberScope(maxSequence: number, selected: string[] | undefined, needle
     conditions.push(`matches_people(e.id,e.data,n.data,${people.map(() => '?').join(',')})`);
     params.push(...people);
   }
-  return { scope: conditions.join(' AND '), params, people: people.length > 0 };
+  return { maxSequence, scope: conditions.join(' AND '), params, people: people.length > 0 };
 }
 
 function matchedScope({ scope, params, people }: MemberScope, filter: ActivityFilter, view: string) {
@@ -130,12 +131,20 @@ function matchedScope({ scope, params, people }: MemberScope, filter: ActivityFi
 /**
  * One statement returns the page of groups (plus one to detect more), per-kind counts and, on the first page, filter choices.
  */
-function pageQuery(member: MemberScope, filter: ActivityFilter, view: string, position: Position | undefined, pageSize: number) {
+function pageQuery(
+  member: MemberScope,
+  filter: ActivityFilter,
+  view: string,
+  position: Position | undefined,
+  pageSize: number,
+  foldCi: boolean,
+) {
   const { sql: cte, params } = matchedScope(member, filter, view);
   const rawKind = filter.type === 'kind';
   const visible = view === 'new' ? 'WHERE unseen>0' : '';
   const after = position?.after;
-  const boundary = after ? 'WHERE (time, observed, key) < (?, ?, ?)' : '';
+  const boundary = after ? 'AND (time, observed, key) < (?, ?, ?)' : '';
+  const visibleRows = foldCi ? 'key NOT IN (SELECT run_key FROM ci_links WHERE folded)' : '1';
   const optionsQuery = position
     ? 'NULL'
     : rawKind
@@ -143,11 +152,18 @@ function pageQuery(member: MemberScope, filter: ActivityFilter, view: string, po
           (SELECT DISTINCT kind,status,evidence FROM (${grouped('scoped')}) ${visible}))`
       : "(SELECT json_group_array(json_object('kind',kind,'status',status,'evidence',evidence)) FROM (SELECT DISTINCT kind,status,evidence FROM visible))";
 
+  if (foldCi) params.push(member.maxSequence);
   if (after) params.push(after.time, after.observed, after.key);
   params.push(pageSize + 1);
-  const sql = `${cte},
-      selected_page AS (SELECT * FROM matched ${boundary} ORDER BY time DESC,observed DESC,key DESC LIMIT ?)
+  const linkRows = foldCi
+    ? `(SELECT json_group_array(json_object('run_key',run_key,'run_id',run_id,'title',title,'status',status,
+        'host_key',host_key,'host_id',host_id,'host_kind',host_kind,'validation',validation,'folded',folded) ORDER BY status='succeeded',run_time DESC,run_id)
+      FROM ci_links WHERE host_key IN (SELECT key FROM selected_page) OR (NOT folded AND run_key IN (SELECT key FROM selected_page)))`
+    : 'NULL';
+  const sql = `${cte}${foldCi ? activityCi : ''},
+      selected_page AS (SELECT * FROM matched WHERE ${visibleRows} ${boundary} ORDER BY time DESC,observed DESC,key DESC LIMIT ?)
       SELECT
+        ${linkRows} AS ci,
         (SELECT json_group_array(json_object('key',key,'time',time,'observed',observed,'representative',representative)) FROM selected_page) AS groups,
         (SELECT json_group_array(json_object('kind',kind,'count',count,'newItems',newItems,'newUpdates',newUpdates,
           'running',running,'queued',queued,'failed',failed))
@@ -167,22 +183,22 @@ function loadMembers(
   hydrate: (row: SqlRow) => ActivityEvent,
   { scope, params }: MemberScope,
   filter: ActivityFilter,
-  groups: Group[],
+  keys: string[],
 ) {
   const rawKind = filter.type === 'kind';
   const groupScope = rawKind ? `${scope} AND m.kind=?` : scope;
   const rowParams = rawKind && filter.type === 'kind' ? [...params, filter.id] : params;
-  const raw = groups.length
+  const raw = keys.length
     ? db
         .prepare(
           `
       SELECT e.id,e.data,e.seen,e.imported,n.data AS enrichment,m.group_key AS activity_key
       FROM events e LEFT JOIN enrichment n ON n.event_id=e.id
       JOIN activity_members m ON m.event_id=e.id JOIN repositories r ON r.id=e.repo_id
-      WHERE ${groupScope} AND m.group_key IN (${groups.map(() => '?').join(',')})
+      WHERE ${groupScope} AND m.group_key IN (${keys.map(() => '?').join(',')})
     `,
         )
-        .all(...rowParams, ...groups.map(group => group.key))
+        .all(...rowParams, ...keys)
     : [];
   const members: Map<string, ActivityEvent[]> = new Map();
   for (const row of raw) {
@@ -192,6 +208,52 @@ function loadMembers(
     else members.set(key, [hydrate(row)]);
   }
   return members;
+}
+
+type CiLink = {
+  run_key: string;
+  run_id: string;
+  host_key: string;
+  host_id: string;
+  host_kind: string;
+  title: string | null;
+  status: string;
+  validation: number;
+  folded: number;
+};
+
+function attachCi(items: ActivityItem[], links: CiLink[], members: Map<string, ActivityEvent[]>) {
+  const byKey = new Map(items.map(item => [item.groupKey, item]));
+  for (const link of links) {
+    const host = byKey.get(link.host_key);
+    if (host) {
+      (host.relatedCi ??= []).push({
+        id: link.run_id,
+        title: link.title ?? 'CI run',
+        validation: Boolean(link.validation),
+        postMerge: !link.validation && link.host_kind === 'pr',
+        outcome: link.status === 'succeeded' ? 'passed' : link.status === 'failed' ? 'failed' : 'partially succeeded',
+      });
+      if (link.folded) {
+        for (const member of members.get(link.run_key) ?? []) {
+          host.eventIds.push(member.id);
+        }
+        host.foldedCi = (host.foldedCi ?? 0) + 1;
+      }
+    }
+    const run = byKey.get(link.run_key);
+    if (run && link.status !== 'succeeded') run.ciHost = link.host_id;
+  }
+}
+
+function markLatestPrMilestones(db: import('node:sqlite').DatabaseSync, items: ActivityItem[], through: number) {
+  const latest = db.prepare(`SELECT e.id FROM events e JOIN activity_members m ON m.event_id=e.id
+    WHERE e.repo_id=? AND json_extract(e.data,'$.kind')='pr' AND CAST(json_extract(e.data,'$.data.pullRequestId') AS TEXT)=?
+      AND m.sequence<=? ORDER BY m.time DESC,m.observed DESC,m.event_id DESC LIMIT 1`);
+  for (const item of items) {
+    if (item.kind === 'pr' && item.data?.pullRequestId && item.data.reviewers?.length)
+      item.latestPrMilestone = latest.get(item.repoId, String(item.data.pullRequestId), through)?.id === item.id;
+  }
 }
 
 const PULL_REF = /^refs\/pull\/(\d+)\//;
@@ -344,6 +406,7 @@ export function createActivityQuery(
   hydrate: (row: SqlRow) => ActivityEvent,
   requireRepo: (repoId: string) => unknown,
   activityRevision: () => string,
+  seenRevision: () => string,
 ) {
   db.function('matches_folded', { deterministic: true, varargs: true }, (text, ...terms) => {
     if (typeof text !== 'string') return 0;
@@ -387,12 +450,13 @@ export function createActivityQuery(
     if (!['all', 'new'].includes(view)) throw Object.assign(new Error('Invalid activity view.'), { code: 'BAD_REQUEST' });
     const pageSize = Math.max(1, Math.min(Number(limit) || 50, 200));
     const { selected, filter, needles, names } = readScope({ repoIds, kind, search, people });
+    const foldCi = !kind && !needles.length && !names.length && view === 'all';
     const filterKey = JSON.stringify({ selected, view, filter, search: needles, people: names });
     const position = decodeCursor(cursor, filterKey);
-    // Search cursors from before accent and name fragment matching must restart.
-    const revision = needles.length || names.length ? `2:${activityRevision()}` : undefined;
+    // Search depends on mutable evidence; folded CI depends only on seen status within the pinned event snapshot.
+    const revision = needles.length || names.length ? `2:${activityRevision()}` : foldCi ? `ci:${seenRevision()}` : undefined;
     if (position && revision !== undefined && position.revision !== revision) {
-      throw Object.assign(new Error('Activity changed while loading search results. Try again.'), {
+      throw Object.assign(new Error('Activity changed while loading results. Try again.'), {
         status: 409,
         code: 'ACTIVITY_CHANGED',
       });
@@ -400,16 +464,23 @@ export function createActivityQuery(
     const maxSequence =
       position?.maxSequence ?? Number(db.prepare('SELECT COALESCE(MAX(sequence),0) AS id FROM activity_members').get()?.id);
     const member = memberScope(maxSequence, selected, needles, names);
-    const query = pageQuery(member, filter, view, position, pageSize);
+    const query = pageQuery(member, filter, view, position, pageSize, foldCi);
     const page = db.prepare(query.sql).get(...query.params);
     const groups = JSON.parse(String(page?.groups)) as Group[];
     const countRows = JSON.parse(String(page?.counts)) as CountRow[];
     const options = page?.options ? filterOptions(JSON.parse(String(page.options))) : undefined;
     const selectedGroups = groups.slice(0, pageSize);
-    const members = loadMembers(db, hydrate, member, filter, selectedGroups);
+    const selectedKeys = new Set(selectedGroups.map(group => group.key));
+    const links = (JSON.parse(String(page?.ci ?? '[]')) as CiLink[]).filter(
+      link => selectedKeys.has(link.host_key) || selectedKeys.has(link.run_key),
+    );
+    const foldedKeys = [...new Set(links.filter(link => link.folded).map(link => link.run_key))];
+    const members = loadMembers(db, hydrate, member, filter, [...selectedGroups.map(group => group.key), ...foldedKeys]);
     attachPullRequests(db, members.values());
     const items = selectedGroups.flatMap(group => projectActivity(group.key, members.get(group.key) || [], group.representative) || []);
-    if (!kind && !needles.length && !names.length && view !== 'new') attachTaggedCommits(db, items);
+    attachCi(items, links, members);
+    markLatestPrMilestones(db, items, maxSequence);
+    if (foldCi) attachTaggedCommits(db, items);
     attachBranchLifetimes(db, items, maxSequence);
     const counts = summarizeCounts(countRows);
     const nextCursor = groups.length > pageSize ? encodeCursor(selectedGroups.at(-1), maxSequence, filterKey, revision) : null;

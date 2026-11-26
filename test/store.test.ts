@@ -572,3 +572,81 @@ test('upgrading incomplete merge evidence does not persist an object as its erro
     upgraded.close();
   }
 });
+
+test('Activity resolves CI across pages and keeps failures and filtered runs visible', t => {
+  const store = createStore();
+  t.after(() => store.close());
+  store.saveRepo(repo);
+  const main = 'refs/heads/main';
+  const sha = 'a'.repeat(40);
+  const stamp = (minute: number) => `2026-11-17T10:${String(minute).padStart(2, '0')}:00Z`;
+  const run = (id: string, minute: number, sourceBranch: string, result: string, reason = 'individualCI') =>
+    event(id, {
+      kind: 'build',
+      time: stamp(minute),
+      data: { buildId: minute, status: 'completed', result, reason, sourceBranch, sourceVersion: sha },
+    });
+  store.insertEvents([
+    event('push-main', { data: { refUpdates: [{ name: main, oldObjectId: 'b'.repeat(40), newObjectId: sha }] } }),
+    event('pr-open', {
+      kind: 'pr',
+      time: stamp(1),
+      data: { pullRequestId: 42, status: 'active', previewCommit: sha, reviewers: [{ name: 'Jo', vote: 0 }] },
+    }),
+    event('merge', {
+      kind: 'pr',
+      seen: true,
+      time: stamp(3),
+      data: { pullRequestId: 42, status: 'completed', targetRefName: main, mergeCommit: sha, reviewers: [{ name: 'Jo', vote: 10 }] },
+    }),
+    { ...run('preview', 2, 'refs/pull/42/merge', 'succeeded', 'pullRequest'), seen: true },
+    { ...run('passing', 4, main, 'succeeded'), seen: true },
+    run('unread-pass', 8, main, 'succeeded'),
+    run('legacy-preview', 9, 'refs/pull/43/merge', 'succeeded', 'pullRequest'),
+    event('other-pr', { kind: 'pr', time: stamp(2), data: { pullRequestId: 43, status: 'active' } }),
+    event('new-pr-preview', { kind: 'pr', time: stamp(2), data: { pullRequestId: 42, status: 'active', previewCommit: 'd'.repeat(40) } }),
+    run('wrong-ref', 5, 'refs/heads/other', 'succeeded'),
+    run('scheduled', 6, main, 'succeeded', 'schedule'),
+    run('failed', 7, main, 'failed'),
+  ]);
+  const first = store.queryActivity({ limit: 1 });
+  assert.equal(first.items[0]?.id, 'legacy-preview');
+  const all = [...first.items];
+  let cursor = first.nextCursor;
+  while (cursor) {
+    const page = store.queryActivity({ limit: 1, cursor });
+    all.push(...page.items);
+    cursor = page.nextCursor;
+  }
+  assert.deepEqual(
+    all.map(item => item.id),
+    ['legacy-preview', 'unread-pass', 'failed', 'scheduled', 'wrong-ref', 'merge', 'other-pr', 'new-pr-preview', 'pr-open', 'push-main'],
+  );
+  assert.deepEqual(
+    all
+      .find(item => item.id === 'merge')
+      ?.relatedCi?.map(run => [run.id, run.outcome, run.postMerge])
+      .sort(),
+    [
+      ['failed', 'failed', true],
+      ['passing', 'passed', true],
+      ['unread-pass', 'passed', true],
+    ],
+  );
+  assert.ok(all.find(item => item.id === 'merge')?.eventIds.includes('passing'));
+  assert.deepEqual(all.find(item => item.id === 'merge')?.unseenIds, []);
+  assert.equal(all.find(item => item.id === 'failed')?.ciHost, 'merge');
+  assert.equal(all.find(item => item.id === 'other-pr')?.relatedCi, undefined);
+  assert.equal(all.find(item => item.id === 'new-pr-preview')?.relatedCi, undefined);
+  assert.equal(all.find(item => item.id === 'merge')?.latestPrMilestone, true);
+  assert.equal(all.find(item => item.id === 'pr-open')?.latestPrMilestone, false);
+  assert.equal(all.find(item => item.id === 'pr-open')?.relatedCi?.[0]?.validation, true);
+  assert.deepEqual(
+    store.queryActivity({ kind: 'build' }).items.map(item => item.id),
+    ['legacy-preview', 'unread-pass', 'failed', 'scheduled', 'wrong-ref', 'passing', 'preview'],
+  );
+  assert.equal(store.queryActivity({ search: 'passing' }).items[0]?.id, 'passing');
+  store.acknowledge(['passing'], false);
+  assert.throws(() => store.queryActivity({ limit: 1, cursor: present(first.nextCursor) }), { code: 'ACTIVITY_CHANGED' });
+  assert.ok(store.queryActivity().items.some(item => item.id === 'passing'));
+});

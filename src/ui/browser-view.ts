@@ -64,6 +64,7 @@ export type RenderOptions = {
   returnUnreadOnly: boolean;
   matchingIds?: string[] | undefined;
   commits: import('./activity-detail.ts').LoadedView | undefined;
+  feedCommits?: ReadonlyMap<string, import('./activity-detail.ts').CommitsView>;
   graph?: SafeHtml;
   checkouts: Record<string, import('./checkout.ts').CheckoutSnapshot>;
   checkoutFocus?: string | null | undefined;
@@ -100,7 +101,7 @@ export function createBrowserView({
   function renderPage(
     state: PageState,
     ui: BrowserUi,
-    { restored, returnUnreadOnly, matchingIds, commits, graph, checkouts, checkoutFocus, isCurrent }: RenderOptions,
+    { restored, returnUnreadOnly, matchingIds, commits, feedCommits, graph, checkouts, checkoutFocus, isCurrent }: RenderOptions,
   ) {
     const groups = restored?.groups || captureGroups();
     const focused = document.activeElement;
@@ -125,7 +126,7 @@ export function createBrowserView({
           },
         ),
       );
-    else setHtml(page, renderFeed(state, ui));
+    else setHtml(page, renderFeed(state, ui, feedCommits));
     const pickerHost = page.querySelector('#repository-picker');
     picker.mount(pickerHost instanceof HTMLElement ? pickerHost : null);
     for (const [selector, menu] of Object.entries(toolbarMenus)) {

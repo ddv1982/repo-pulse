@@ -323,3 +323,71 @@ test('a PR with a malformed title keeps the fingerprint and IDs main gave it, so
     upgraded.store.close();
   }
 });
+
+test('active PR milestones record delayed and refreshed merge previews without repeating unchanged previews', t => {
+  const { store, normalize } = makeFixture();
+  t.after(() => store.close());
+  const pr = {
+    pullRequestId: 19,
+    status: 'active',
+    title: 'Check the work',
+    repository: { id: repo.azureId },
+    sourceRefName: 'refs/heads/topic',
+    targetRefName: 'refs/heads/main',
+    lastMergeSourceCommit: { commitId: OLD },
+  };
+  const poll = (commitId?: string) => {
+    const record = commitId ? { ...pr, lastMergeCommit: { commitId } } : pr;
+    const { events, entities } = normalize(repo, 'prs', [record], { initialized: true });
+    store.commitPage({ repoId: repo.id, stream: 'prs', events, entities });
+    return events;
+  };
+
+  assert.equal(present(poll()[0]).data?.previewCommit, undefined);
+  assert.equal(present(poll(NEW)[0]).data?.previewCommit, NEW);
+  assert.deepEqual(poll(NEW.toUpperCase()), []);
+  const refreshed = 'c'.repeat(40);
+  const milestone = present(poll(refreshed)[0]);
+  assert.equal(milestone.data?.previewCommit, refreshed);
+  assert.equal(milestone.data?.mergeCommit, undefined);
+  assert.deepEqual(poll(refreshed), []);
+});
+
+test('the first poll adopts an active PR preview into an older fingerprint without adding an unread milestone', t => {
+  const { store, normalize } = makeFixture();
+  t.after(() => store.close());
+  const pr = {
+    pullRequestId: 23,
+    status: 'active',
+    title: 'Already tracked',
+    repository: { id: repo.azureId },
+    sourceRefName: 'refs/heads/topic',
+    targetRefName: 'refs/heads/main',
+    lastMergeSourceCommit: { commitId: OLD },
+    lastMergeCommit: { commitId: NEW },
+  };
+  store.commitPage({
+    repoId: repo.id,
+    stream: 'prs',
+    events: [],
+    entities: [
+      {
+        type: 'pr',
+        id: '23',
+        data: {
+          fingerprint: { status: 'active', isDraft: false, title: pr.title, source: OLD, target: pr.targetRefName, votes: [] },
+          status: 'active',
+          revision: 1,
+        },
+      },
+    ],
+  });
+
+  const { events, entities } = normalize(repo, 'prs', [pr], { initialized: true });
+  assert.deepEqual(events, []);
+  store.commitPage({ repoId: repo.id, stream: 'prs', events, entities });
+  assert.equal(store.getEntity(repo.id, 'pr', '23')?.fingerprint?.previewCommit, NEW);
+  const refreshed = 'c'.repeat(40);
+  const later = normalize(repo, 'prs', [{ ...pr, lastMergeCommit: { commitId: refreshed } }], { initialized: true });
+  assert.equal(present(later.events[0]).data?.previewCommit, refreshed);
+});

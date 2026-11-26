@@ -29,6 +29,7 @@ import { linkedMergePushes } from './linked-pushes.ts';
 import { linkedTagBuilds } from './linked-tag-builds.ts';
 import type { PageState } from './refresh.ts';
 import type { ActivityItem } from '../activity.ts';
+import { renderCommits, type CommitsView } from './activity-detail.ts';
 export { renderDetail } from './activity-detail.ts';
 
 export type { PageState, ActivityItem };
@@ -79,28 +80,71 @@ function renderMeta(record: ActivityItem) {
   return html`<div class="help event-meta">${shown ? html`${role}<span class="actor">${actor}</span> · ` : emptyHtml}<time datetime="${record.time}" title="${fullDateTime(record.time)}">${dateTime(record.time)}</time></div>`;
 }
 
+function inlineCommits(record: ActivityItem, commits: CommitsView | undefined) {
+  const pushId = record.kind === 'push' ? (record.data?.pushId ?? record.data?.push?.pushId) : undefined;
+  return pushId === undefined
+    ? emptyHtml
+    : html`<button class="ghost sm" type="button" id="commits-${record.id}" data-action="load-commits" data-inline-id="${record.id}" data-repo-id="${record.repoId}" data-push-id="${pushId}">${commits && 'error' in commits ? 'Retry loading commits' : commits ? 'Reload commits' : 'Load commits'}</button>
+    ${commits && 'items' in commits ? html`<details class="linked-event" data-group="push-commits-${record.groupKey}" open><summary>Push commits</summary>${renderCommits(commits)}</details>` : commits ? renderCommits(commits) : emptyHtml}`;
+}
+
+function renderRelatedCi(record: ActivityItem, expanded: boolean) {
+  const runs = record.relatedCi ?? [];
+  const multiple = runs.length > 1;
+  if (expanded !== multiple) return emptyHtml;
+  const ciButtons = html`${runs.map(run => html`<button type="button" class="ghost sm status-text ${run.outcome === 'passed' ? 'ok' : run.outcome === 'failed' ? 'crit' : 'warn'}" data-action="detail" data-id="${run.id}" title="${run.title}">${run.validation ? 'PR validation' : run.postMerge ? 'Post-merge CI' : 'Branch CI'} ${run.outcome}</button>`)}`;
+  const failed = runs.filter(run => run.outcome === 'failed').length;
+  const partial = runs.filter(run => run.outcome === 'partially succeeded').length;
+  const counts = [
+    failed ? `${failed} failed` : '',
+    partial ? `${partial} partially succeeded` : '',
+    runs.length > failed + partial ? `${runs.length - failed - partial} passed` : '',
+  ]
+    .filter(Boolean)
+    .join(' · ');
+  const summary = multiple
+    ? html`<details class="linked-event" data-group="ci-${record.groupKey}"><summary>CI · ${counts}</summary><div class="event-main ci-rollup">${ciButtons}</div></details>`
+    : runs.length
+      ? ciButtons
+      : emptyHtml;
+  const host = record.ciHost
+    ? html`<button type="button" class="ghost sm" data-action="detail" data-id="${record.ciHost}">View tested change</button>`
+    : emptyHtml;
+  return summary === emptyHtml ? host : summary;
+}
+
+function eventSummary(record: ActivityItem, targetShown: boolean, pr: ActivityItem['data']) {
+  const votes = pr ? prVoteChanges(pr) : [];
+  const latest = record.latestPrMilestone && pr?.status === 'active' ? pr.reviewers : undefined;
+  const tally = latest?.filter(reviewer => reviewer.vote > 0).length;
+  const approvals = votes.filter(change => change.vote === 10).length;
+  const shownVotes = latest
+    ? votes.filter(change => change.vote <= 0)
+    : approvals > 1
+      ? [{ vote: 10, text: `${approvals} new approvals` }, ...votes.filter(change => change.vote !== 10)]
+      : votes;
+  if (tally !== undefined || shownVotes.length) {
+    return html`${tally === undefined ? emptyHtml : html`<span>${tally} ${tally === 1 ? 'approval' : 'approvals'}</span>`}${shownVotes.map(change => html`<span class="status-text ${voteTone(change.vote)}"><span class="status-dot" aria-hidden="true"></span>${change.text}</span>`)}`;
+  }
+  if (pr?.targetRefName) return targetShown ? '' : prTarget(pr);
+  return rowSummary(record);
+}
+
 /**
  * The event column in tiers: what happened with its evidence chips, then who and when, then where the branch started.
  */
-function renderEvent(record: ActivityItem, origin: string, targetShown: boolean, related?: ActivityItem) {
-  const pr =
-    record.kind === 'pr' && record.data && (record.data.targetRefName || record.data.voteChanges?.length) ? record.data : undefined;
-  const votes = pr ? prVoteChanges(pr) : [];
-  const approvals = votes.filter(change => change.vote === 10).length;
-  const shownVotes =
-    approvals > 1 ? [{ vote: 10, text: `${approvals} new approvals` }, ...votes.filter(change => change.vote !== 10)] : votes;
-  const summary = votes.length
-    ? html`${shownVotes.map(change => html`<span class="status-text ${voteTone(change.vote)}"><span class="status-dot" aria-hidden="true"></span>${change.text}</span>`)}`
-    : pr
-      ? targetShown
-        ? ''
-        : prTarget(pr)
-      : rowSummary(record);
+function renderEvent(record: ActivityItem, origin: string, targetShown: boolean, related?: ActivityItem, commits?: CommitsView) {
+  const pr = record.kind === 'pr' ? record.data : undefined;
+  const summary = eventSummary(record, targetShown, pr);
   const badge = mergeEvidenceBadge(record);
   const origins = [pr ? prForkSource(pr.fork) : '', origin].filter(Boolean);
   // A new branch can lead with its origin. A PR with its target in the subject keeps the origin in its notes.
   const lead = summary || targetShown || origins.length === 0 ? summary : origins.shift();
   const trail = record.unseen ? renderTrail(record) : emptyHtml;
+  const inline = inlineCommits(record, commits);
+  const ci = renderRelatedCi(record, false);
+  const ciDetails = renderRelatedCi(record, true);
+  const mergeSha = record.kind === 'pr' && record.data?.status === 'completed' ? record.data.mergeCommit : undefined;
   const linked = related
     ? html`<details class="linked-event" data-group="linked-${related.kind}-${record.groupKey}">
         ${
@@ -113,9 +157,9 @@ function renderEvent(record: ActivityItem, origin: string, targetShown: boolean,
         }
       </details>`
     : emptyHtml;
-  return html`<div class="event">${lead || badge !== emptyHtml ? html`<div class="event-main">${typeof lead === 'string' ? (lead ? html`<span>${lead}</span>` : emptyHtml) : lead}${badge}</div>` : emptyHtml}${renderMeta(record)}${
-    origins.length || trail !== emptyHtml || related
-      ? html`<div class="event-notes">${origins.map(text => html`<div class="help event-origin">${icons.branch}<span>${text}</span></div>`)}${trail}${linked}</div>`
+  return html`<div class="event">${lead || badge !== emptyHtml || mergeSha || ci !== emptyHtml ? html`<div class="event-main">${typeof lead === 'string' ? (lead ? html`<span>${lead}</span>` : emptyHtml) : lead}${badge}${mergeSha ? html`<code class="mono" title="${mergeSha}">${mergeSha.slice(0, 9)}</code>` : emptyHtml}${ci}</div>` : emptyHtml}${renderMeta(record)}${
+    origins.length || trail !== emptyHtml || related || inline !== emptyHtml || ciDetails !== emptyHtml
+      ? html`<div class="event-notes">${origins.map(text => html`<div class="help event-origin">${icons.branch}<span>${text}</span></div>`)}${trail}${linked}${ciDetails}${inline}</div>`
       : emptyHtml
   }</div>`;
 }
@@ -136,7 +180,6 @@ function rowSummary(record: ActivityItem) {
         (record.data.reason === 'individualCI' || (record.data.reason === 'pullRequest' && activityRef(record).pullRequestId))))
   )
     return '';
-  if (record.kind === 'push' && /^[a-f\d]{7} → [a-f\d]{7}$/i.test(summary)) return '';
   return ['branch-created', 'branch-deleted'].includes(record.kind) && ['New remote branch', 'Remote branch deleted'].includes(summary)
     ? ''
     : summary;
@@ -146,12 +189,38 @@ function rowSummary(record: ActivityItem) {
 const namesRef = (title: string, ref: string) =>
   new RegExp(`(^|[\\s,(])${ref.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}($|[\\s,)])`).test(title);
 
+function commitSubject(record: ActivityItem, loaded: CommitsView | undefined) {
+  const refs = record.data?.refUpdates;
+  const tip = refs?.length === 1 ? refs[0]?.newObjectId : undefined;
+  const commits = loaded && 'items' in loaded && loaded.items.length ? loaded.items : (record.data?.commits ?? []);
+  const lead = tip
+    ? commits.find(
+        commit =>
+          commit &&
+          typeof commit === 'object' &&
+          'commitId' in commit &&
+          typeof commit.commitId === 'string' &&
+          commit.commitId.toLowerCase() === tip.toLowerCase(),
+      )
+    : commits.length === 1 && !(loaded && 'nextCursor' in loaded && loaded.nextCursor)
+      ? commits[0]
+      : undefined;
+  if (lead && typeof lead === 'object' && 'comment' in lead && typeof lead.comment === 'string') {
+    const subject = lead.comment.split(/\r?\n/, 1)[0]?.trim();
+    return subject;
+  }
+}
+
 /**
  * A branch row's title without its branch and pusher, which the ref line and the meta line show instead, so every
  * branch row reads the same way. Only a title that ends with the row's single branch loses it; one that names several
  * branches keeps them.
  */
-function rowTitle(record: ActivityItem, title: string) {
+function rowTitle(record: ActivityItem, title: string, loaded?: CommitsView) {
+  if (record.kind === 'push') {
+    const subject = commitSubject(record, loaded);
+    if (subject) return subject;
+  }
   if (record.kind === 'tag') {
     const prefix = `${activityLabel(record)} · `;
     return title.startsWith(prefix) ? title.slice(prefix.length) || title : title;
@@ -201,9 +270,35 @@ function renderRefLine(record: ActivityItem, title: string, repoName: string, pr
 }
 
 function renderKind(record: ActivityItem, tone: string, tree?: import('./activity-tree.ts').TreeRow) {
-  const glyph = record.kind === 'branch-created' ? icons.branch : record.kind === 'tag' ? icons.tag : html`<span class="d"></span>`;
-  const ring = tree && standalonePrRing(tree) ? html`<span class="standalone-pr-ring" aria-hidden="true"></span>` : emptyHtml;
-  return html`<span class="kind ${tone}">${glyph}${activityLabel(record)}${ring}</span>`;
+  const kind = activityLabel(record);
+  const build = record.kind === 'build';
+  const active = record.kind === 'pr' && record.data?.status === 'active';
+  const draft = active && record.data?.isDraft;
+  const created =
+    active &&
+    !draft &&
+    record.data?.pullRequestCreatedAt &&
+    new Date(record.time).valueOf() === Date.parse(record.data.pullRequestCreatedAt);
+  const label = build
+    ? `CI ${kind.toLowerCase()}`
+    : kind === 'Merged'
+      ? 'PR merged'
+      : active && !draft && record.data?.voteChanges?.length
+        ? 'PR review'
+        : created
+          ? 'PR opened'
+          : kind;
+  const glyph =
+    record.kind === 'branch-created'
+      ? icons.branch
+      : record.kind === 'tag'
+        ? icons.tag
+        : html`<span class="d${build ? ' ci-marker' : ''}${active ? ' pr-marker' : ''}${draft ? ' draft-marker' : ''}"></span>`;
+  const ring =
+    tree && standalonePrRing(tree)
+      ? html`<span class="standalone-pr-ring${draft ? ' draft-marker' : ''}" aria-hidden="true"></span>`
+      : emptyHtml;
+  return html`<span class="kind ${tone}">${glyph}${label}${ring}</span>`;
 }
 
 /**
@@ -215,6 +310,7 @@ function row(
   tree: import('../activity-tree.ts').TreeRow | undefined,
   showRepo: boolean,
   related?: ActivityItem,
+  commits?: CommitsView,
 ) {
   const repo = state.repos.find(item => item.id === record.repoId);
   const tone = activityTone(record);
@@ -228,13 +324,13 @@ function row(
     : JSON.stringify([...record.events, ...(push?.events ?? [])].filter(event => !event.imported).map(event => event.id));
   const ackLinkedPush = push && (!record.unseen || push.unseen);
   const fullTitle = activityTitle(record);
-  const title = rowTitle(record, fullTitle);
+  const title = rowTitle(record, fullTitle, commits);
   const origin = forkText(tree?.fork ?? null);
   const prDestination = record.kind === 'pr' && record.data?.status === 'active' ? branchName(record.data.targetRefName) : '';
   return html`<li class="${['row', failed ? 'crit' : '', record.unseen ? 'new' : '', `tone-${tone}`].filter(Boolean).join(' ')}" id="row-${record.groupKey}" data-event-id="${record.id}" data-event-ids="${ids}" data-group-key="${record.groupKey}" data-unseen-ids="${unreadIds}">${tree ? renderTreeCell(tree, tone) : emptyHtml}
     ${renderKind(record, tone, tree)}
     <div class="subject"><button class="feed-title" type="button" data-action="detail" data-id="${record.id}"><span class="title">${title}${unread.length > 1 ? html` <span class="pill u new-count">${unread.length} new</span>` : emptyHtml}</span>${renderRefLine(record, title, showRepo ? repo?.name || 'Unknown repository' : '', prDestination)}</button></div>
-    ${renderEvent(record, origin, Boolean(prDestination), related)}
+    ${renderEvent(record, origin, Boolean(prDestination), related, commits)}
     <div class="rowact">${azureLink(record.url)}${record.imported ? emptyHtml : html`<button class="ghost sm seen-toggle" type="button" id="seen-${record.groupKey}" data-action="ack-item" data-id="${record.id}" data-mark-seen="${record.unseen}" data-event-ids="${ackIds}" aria-pressed="${!record.unseen}" aria-label="Seen: ${fullTitle}${ackLinkedPush ? ' and linked push' : ''}">${icons.seenBox}Seen</button>`}</div></li>`;
 }
 
@@ -248,25 +344,41 @@ function group(
     tree,
     showRepo,
     linked,
+    feedCommits,
   }: {
     open?: boolean;
     description?: string;
     tree?: import('../activity-tree.ts').ActivityTree;
     showRepo: boolean;
     linked: Map<string, ActivityItem>;
+    feedCommits: ReadonlyMap<string, CommitsView> | undefined;
   },
 ) {
   if (!records.length) return emptyHtml;
-  return html`<section class="group"><details data-group="${title}" ${open ? html`open` : emptyHtml}><summary class="ghead">${title} <span class="pill u">${records.length + linked.size}</span><span class="note">${description}</span></summary><ul class="rows${tree ? ' with-tree' : ''}" ${tree ? html`data-tree-lanes="${tree.width}"` : emptyHtml}>${records.map((record, index) => row(record, state, tree?.rows[index], showRepo, linked.get(record.id)))}</ul></details></section>`;
+  return html`<section class="group"><details data-group="${title}" ${open ? html`open` : emptyHtml}><summary class="ghead">${title} <span class="pill u">${records.length + linked.size + records.reduce((total, record) => total + (record.foldedCi ?? 0), 0)}</span><span class="note">${description}</span></summary><ul class="rows${tree ? ' with-tree' : ''}" ${tree ? html`data-tree-lanes="${tree.width}"` : emptyHtml}>${records.map((record, index) => row(record, state, tree?.rows[index], showRepo, linked.get(record.id), feedCommits?.get(record.id)))}</ul></details></section>`;
 }
 
 const hasTreeLegend = (tree: ActivityTree) =>
-  tree.rows.some(row => row.forkFrom || row.mergeFrom || row.node.shape === 'ring' || row.node.shape === 'merge' || row.node.down);
+  tree.rows.some(
+    row =>
+      row.forkFrom ||
+      row.mergeFrom ||
+      row.node.shape === 'ring' ||
+      row.node.shape === 'draft' ||
+      row.node.shape === 'merge' ||
+      row.node.down,
+  );
 
 /**
  * Both groups carry a branch tree. They share one width so their columns line up.
  */
-function historyGroups(records: ActivityItem[], state: PageState, hasQuery: boolean, showRepo: boolean) {
+function historyGroups(
+  records: ActivityItem[],
+  state: PageState,
+  hasQuery: boolean,
+  showRepo: boolean,
+  feedCommits: ReadonlyMap<string, CommitsView> | undefined,
+) {
   const recorded = historyRows(
     records.filter(record => !record.imported),
     hasQuery,
@@ -280,7 +392,7 @@ function historyGroups(records: ActivityItem[], state: PageState, hasQuery: bool
   const importedTree = buildActivityTree(imported.items, { defaultBranches });
   const width = Math.max(recordedTree.width, importedTree.width);
   return {
-    content: html`${group('Activity', recorded.items, state, { tree: { ...recordedTree, width }, showRepo, linked: recorded.linked })}${group('Imported history', imported.items, state, { open: hasQuery, description: 'Captured before monitoring started', tree: { ...importedTree, width }, showRepo, linked: imported.linked })}`,
+    content: html`${group('Activity', recorded.items, state, { tree: { ...recordedTree, width }, showRepo, feedCommits, linked: recorded.linked })}${group('Imported history', imported.items, state, { open: hasQuery, description: 'Captured before monitoring started', tree: { ...importedTree, width }, showRepo, feedCommits, linked: imported.linked })}`,
     legend: hasTreeLegend(recordedTree) || hasTreeLegend(importedTree),
   };
 }
@@ -325,7 +437,7 @@ function matchingAction(state: PageState, ui: FeedView, repoIds: string[]) {
   return html`<button class="btn sm" type="button" data-action="ack-matching" data-query="${query.toString()}" data-scope="${scope}">${label} (${total})</button>`;
 }
 
-export function renderFeed(state: PageState, ui: FeedView & { savedFilterId: string }) {
+export function renderFeed(state: PageState, ui: FeedView & { savedFilterId: string }, feedCommits?: ReadonlyMap<string, CommitsView>) {
   const records = state.activity.items;
   const hasQuery = Boolean(ui.search || ui.kind);
   const shown = state.repos.filter(repo => ui.repoIds === null || ui.repoIds.includes(repo.id));
@@ -343,7 +455,7 @@ export function renderFeed(state: PageState, ui: FeedView & { savedFilterId: str
         );
   // With one repository in view every row would repeat its name, so rows name it only when several are shown.
   const showRepo = shown.length > 1;
-  const { content, legend } = historyGroups(records, state, hasQuery, showRepo);
+  const { content, legend } = historyGroups(records, state, hasQuery, showRepo, feedCommits);
   const emptyMessage = emptyActivityMessage(ui, partial);
   const emptyHint =
     state.activity.error ||
@@ -362,5 +474,5 @@ export function renderFeed(state: PageState, ui: FeedView & { savedFilterId: str
     shown.map(repo => repo.id),
   );
   return html`<h1 class="sr">Activity</h1>${renderSummary(records, state, ui, partial)}${statusBanner(state, attention)}${filterControls(ui, state)}
-    <section class="card feed" aria-label="Repository activity">${bulk === emptyHtml ? emptyHtml : html`<div class="foot feed-actions">${bulk}</div>`}${legend ? treeLegend : emptyHtml}${records.length ? content : html`<div class="empty"><p class="big">${state.activity?.loading ? 'Loading activity…' : state.activity?.error ? 'Activity could not load' : emptyMessage}</p>${emptyHint ? html`<p class="dim">${emptyHint}</p>` : emptyHtml}${state.activity?.error ? html`<button class="btn sm" type="button" data-action="retry-activity">Try again</button>` : emptyHtml}</div>`}${state.activity?.nextCursor ? html`<div class="foot"><button class="btn" type="button" data-action="load-more-activity">Load more</button><span>Showing ${records.length} of ${state.activity.total} recorded items.</span></div>` : emptyHtml}</section>`;
+    <section class="card feed" aria-label="Repository activity">${bulk === emptyHtml ? emptyHtml : html`<div class="foot feed-actions">${bulk}</div>`}${legend ? treeLegend : emptyHtml}${records.length ? content : html`<div class="empty"><p class="big">${state.activity?.loading ? 'Loading activity…' : state.activity?.error ? 'Activity could not load' : emptyMessage}</p>${emptyHint ? html`<p class="dim">${emptyHint}</p>` : emptyHtml}${state.activity?.error ? html`<button class="btn sm" type="button" data-action="retry-activity">Try again</button>` : emptyHtml}</div>`}${state.activity?.nextCursor ? html`<div class="foot"><button class="btn" type="button" data-action="load-more-activity">Load more</button><span>Showing ${records.reduce((total, record) => total + 1 + (record.foldedCi ?? 0), 0)} of ${state.activity.total} recorded items.</span></div>` : emptyHtml}</section>`;
 }

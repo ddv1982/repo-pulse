@@ -63,6 +63,7 @@ const ui: import('./ui/browser-view.ts').BrowserUi = {
 };
 /** Data each detail page loaded on request, by event. */
 const commitResults: Map<string | null, import('./ui/activity-detail.ts').LoadedView> = new Map();
+const feedCommits = new Map<string, import('./ui/activity-detail.ts').CommitsView>();
 const picker = createRepositoryPicker({
   request,
   getRepos: () => refresh.state.watched,
@@ -172,6 +173,7 @@ function renderOptions() {
     returnUnreadOnly: navigation.returnUnreadOnly,
     matchingIds: navigation.matchingIds,
     commits: commitResults.get(ui.eventId),
+    feedCommits,
     ...(ui.route === 'graph' ? { graph: renderGraph() } : {}),
     checkouts: checkoutPanel.snapshots,
     checkoutFocus: navigation.takeCheckoutFocus(refresh.state.watched),
@@ -611,6 +613,7 @@ const actions: Record<string, Action> = {
       'This deletes all stored activity, seen marks and imported history on this computer, then imports the last seven days from Azure DevOps again. Older history can be imported from Repositories. Your repositories, linked checkouts and settings stay.',
       async () => {
         await request('/api/reset', { method: 'POST', body: {} });
+        feedCommits.clear();
         await load({ force: true });
         toast('Starting from scratch. Stored activity is being deleted, then the last seven days are imported.');
       },
@@ -647,18 +650,21 @@ const actions: Record<string, Action> = {
     if (ui.route === 'event' && ui.eventId === eventId) renderPage();
   },
   'load-commits': async element => {
-    const { eventId } = ui;
+    const inlineId = element.dataset.inlineId;
+    const eventId = inlineId ?? ui.eventId;
+    const results = inlineId ? feedCommits : commitResults;
+    element.setAttribute('aria-busy', 'true');
     try {
-      commitResults.set(
+      results.set(
         eventId,
         await request(
           `/api/push/${encodeURIComponent(element.dataset.repoId ?? '')}/${encodeURIComponent(element.dataset.pushId ?? '')}/commits`,
         ),
       );
     } catch (error) {
-      commitResults.set(eventId, { error: error instanceof Error ? error.message : String(error) });
+      results.set(eventId, { error: error instanceof Error ? error.message : String(error) });
     }
-    if (ui.route === 'event' && ui.eventId === eventId) renderPage();
+    if ((inlineId && isActivity(ui.route)) || (ui.route === 'event' && ui.eventId === eventId)) renderPage();
   },
 };
 
