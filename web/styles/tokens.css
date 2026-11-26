@@ -1,4 +1,4 @@
-/* Control sizes, color, typography, sky, and light-mode glass surface tokens. */
+/* Control sizes, color, typography, and theme backdrops. */
 :root {
   color-scheme: light;
   --radius: 0.5rem;
@@ -6,69 +6,44 @@
   --control-height-sm: 28px;
   --font-sans: -apple-system, BlinkMacSystemFont, 'Inter Variable', 'Segoe UI', system-ui, sans-serif;
   --font-mono: ui-monospace, 'SF Mono', 'SFMono-Regular', Menlo, Consolas, 'Liberation Mono', monospace;
-  --background: oklch(0.955 0.02 236);
-  --foreground: oklch(0.17 0.02 264);
+  --background: #f3f5f9;
+  --foreground: #182338;
   --card: #fff;
-  --muted: oklch(0.962 0.004 264);
-  --table-head: oklch(0.985 0.002 264);
-  --muted-foreground: oklch(0.44 0.016 264);
+  --muted: #e9edf4;
+  --table-head: #eef1f6;
+  --muted-foreground: #536176;
   /* Between foreground and muted: text that supports a title without competing with it. Resolves per theme. */
   --foreground-soft: color-mix(in oklab, var(--foreground) 80%, var(--muted-foreground));
-  --accent: oklch(0.955 0.005 264);
-  --border: oklch(0.9 0.006 264);
-  --input: oklch(0.865 0.008 264);
-  --primary: oklch(0.488 0.217 264);
+  --accent: #edf1f8;
+  --border: #dce2eb;
+  --input: #c5cfde;
+  --primary: #3455b5;
   --primary-foreground: #fff;
-  --critical: oklch(0.52 0.2 25);
-  --warning: oklch(0.52 0.13 58);
-  --ok: oklch(0.47 0.1 162);
+  --critical: #a12d43;
+  --warning: #825416;
+  --ok: #176044;
   --critical-solid: oklch(63.7% 0.237 25.331);
   --warning-solid: oklch(76.9% 0.188 70.08);
   --ok-solid: oklch(69.6% 0.17 162.48);
-  --critical-wash: color-mix(in oklab, var(--critical-solid) 5%, transparent);
-  --warning-wash: color-mix(in oklab, var(--warning-solid) 5%, transparent);
-  --ok-wash: color-mix(in oklab, var(--ok-solid) 5%, transparent);
+  --critical-wash: color-mix(in oklab, var(--critical-solid) 7%, transparent);
+  --warning-wash: color-mix(in oklab, var(--warning-solid) 7%, transparent);
+  --ok-wash: color-mix(in oklab, var(--ok-solid) 7%, transparent);
   /* Unseen updates and new branches use a subtle primary tint. */
-  --primary-wash: color-mix(in oklab, var(--primary) 5%, transparent);
+  --primary-wash: color-mix(in oklab, var(--primary) 7%, transparent);
   --shadow-sm: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);
   --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
-  --sky:
-    radial-gradient(56rem 26rem at 96% -8rem, oklch(0.995 0.022 85), transparent 72%),
-    radial-gradient(30rem 7rem at 16% 13rem, oklch(1 0 0 / 0.75), transparent 70%),
-    radial-gradient(18rem 5rem at 27% 10.5rem, oklch(1 0 0 / 0.7), transparent 70%),
-    radial-gradient(34rem 8rem at 74% 31rem, oklch(1 0 0 / 0.7), transparent 70%),
-    radial-gradient(20rem 5.5rem at 62% 28.5rem, oklch(1 0 0 / 0.65), transparent 70%),
-    radial-gradient(38rem 9rem at 30% 86%, oklch(1 0 0 / 0.7), transparent 70%),
-    radial-gradient(22rem 6rem at 88% 72%, oklch(1 0 0 / 0.6), transparent 70%),
-    linear-gradient(to bottom, oklch(0.925 0.042 238), oklch(0.955 0.024 234) 55%, oklch(0.975 0.014 85));
+  --sky: linear-gradient(to bottom, #e9eef8, var(--background) 15rem);
   --stars: none;
-  --beams: conic-gradient(
-    from 180deg at 96% -8rem,
-    transparent 3deg,
-    oklch(1 0.012 90 / 0.5) 9deg,
-    transparent 16deg,
-    transparent 19deg,
-    oklch(1 0.012 90 / 0.85) 28deg,
-    transparent 38deg,
-    transparent 41deg,
-    oklch(1 0.012 90 / 0.55) 46deg,
-    transparent 51deg,
-    transparent 54deg,
-    oklch(1 0.012 90 / 0.9) 63deg,
-    transparent 73deg,
-    transparent 76deg,
-    oklch(1 0.012 90 / 0.6) 82deg,
-    transparent 88deg
-  );
   --info: var(--primary);
+  --approved: #21667b;
   --neutral-solid: color-mix(in oklab, var(--muted-foreground) 60%, transparent);
   /* Branch lanes in the Activity tree. Each keeps at least 4.5:1 against the card in its theme. */
-  --lane-1: oklch(0.5 0.2 264);
-  --lane-2: oklch(0.52 0.088 185);
-  --lane-3: oklch(0.55 0.11 70);
-  --lane-4: oklch(0.5 0.2 310);
-  --lane-5: oklch(0.55 0.2 5);
-  --lane-6: oklch(0.52 0.14 145);
+  --lane-1: #4863b0;
+  --lane-2: #28736d;
+  --lane-3: #81631d;
+  --lane-4: #68479a;
+  --lane-5: #a43b65;
+  --lane-6: #48723f;
 }
 @media (max-width: 767px) {
   :root {
@@ -96,6 +71,7 @@
   --ok-wash: color-mix(in oklab, var(--ok-solid) 7%, transparent);
   --primary-wash: color-mix(in oklab, var(--primary) 9%, transparent);
   --info: oklch(0.72 0.14 264); /* RP: primary as text on dark cards needs a lighter step for 4.5:1 */
+  --approved: color-mix(in oklab, var(--ok) 65%, var(--muted-foreground));
   --lane-1: oklch(0.72 0.14 264);
   --lane-2: oklch(0.78 0.12 185);
   --lane-3: oklch(0.8 0.14 70);
@@ -107,7 +83,6 @@
     radial-gradient(50rem 28rem at 2% 106%, oklch(0.42 0.1 200 / 0.4), transparent 72%),
     radial-gradient(64rem 18rem at 38% 44%, oklch(0.34 0.09 262 / 0.3), transparent 72%),
     linear-gradient(to bottom, oklch(0.2 0.06 266), oklch(0.15 0.045 270) 45%, oklch(0.1 0.025 278));
-  --beams: none;
   --stars:
     radial-gradient(circle at 239px 294px, oklch(1 0 0 / 0.53) 0.48px, transparent 1.08px),
     radial-gradient(circle at 549px 72px, oklch(0.97 0.03 85 / 0.75) 0.64px, transparent 1.24px),
@@ -165,58 +140,4 @@ body::after {
     419px 367px,
     613px 541px,
     877px 769px;
-}
-:root:not(.dark) body::after {
-  background-image: var(--beams);
-  background-repeat: no-repeat;
-  background-size: auto;
-  -webkit-mask-image: radial-gradient(120rem 75rem at 96% -8rem, black 20%, transparent 72%);
-  mask-image: radial-gradient(120rem 75rem at 96% -8rem, black 20%, transparent 72%);
-}
-
-@supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
-  :root:not(.dark) {
-    --glass-fill: oklch(1 0 0 / 0.72);
-    --glass-dense: oklch(1 0 0 / 0.9);
-    --glass-control: oklch(1 0 0 / 0.57);
-    --glass-edge: oklch(0.55 0.04 245 / 0.14);
-    --glass-blur: blur(14px) saturate(1.3);
-    --glass-shadow:
-      inset 0 1px 0 oklch(1 0 0 / 0.92), inset 0 0 0 1px oklch(1 0 0 / 0.3), 0 2px 4px oklch(0.35 0.05 245 / 0.07),
-      0 10px 24px -9px oklch(0.35 0.06 245 / 0.18);
-  }
-  :root:not(.dark) :is(.card, .menu-panel, dialog) {
-    background: var(--glass-fill);
-    border-color: var(--glass-edge);
-    box-shadow: var(--glass-shadow);
-    -webkit-backdrop-filter: var(--glass-blur);
-    backdrop-filter: var(--glass-blur);
-  }
-  :root:not(.dark) :is(.feed, .summary, .menu-panel, dialog) {
-    background: var(--glass-dense);
-  }
-  :root:not(.dark) :is(.control, .btn:not(.primary), .search, .seg) {
-    background: var(--glass-control);
-    border-color: var(--glass-edge);
-    box-shadow:
-      inset 0 1px 0 oklch(1 0 0 / 0.85),
-      0 1px 2px oklch(0.35 0.05 245 / 0.08);
-  }
-  :root:not(.dark) :is(.control, .btn:not(.primary)):hover {
-    background: oklch(1 0 0 / 0.8);
-  }
-  :root:not(.dark) .type-option:not(:hover, :focus) {
-    background: transparent;
-  }
-}
-@media (prefers-reduced-transparency: reduce) {
-  :root:not(.dark) {
-    --glass-fill: var(--card);
-    --glass-dense: var(--card);
-    --glass-control: var(--card);
-    --glass-blur: none;
-  }
-  :root:not(.dark) :is(.control, .btn:not(.primary)):hover {
-    background: var(--accent);
-  }
 }
