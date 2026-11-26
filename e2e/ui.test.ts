@@ -156,6 +156,37 @@ test('approved light/dark/System UI and responsive routes work without remote tr
   await page.screenshot({ path: 'test-results/app-phone-light.png', fullPage: true });
 });
 
+test('light mode keeps primary actions legible on hover and compacts the desktop Activity summary', async t => {
+  const { page } = await setup(t);
+  await page.getByRole('button', { name: 'Save filter…' }).click();
+  const save = page.getByRole('dialog').getByRole('button', { name: 'Save', exact: true });
+  await save.hover();
+  const primaryHover = await save.evaluate(async element => {
+    await Promise.all(element.getAnimations().map(animation => animation.finished));
+    const { backgroundColor, color } = getComputedStyle(element);
+    const context = document.createElement('canvas').getContext('2d');
+    if (!context) throw new Error('2D canvas is unavailable');
+    const luminance = (value: string) => {
+      context.fillStyle = value;
+      context.fillRect(0, 0, 1, 1);
+      const [red = 0, green = 0, blue = 0] = context.getImageData(0, 0, 1, 1).data;
+      const linear = (channel: number) => (channel <= 10 ? channel / 3294.6 : ((channel / 255 + 0.055) / 1.055) ** 2.4);
+      return 0.2126 * linear(red) + 0.7152 * linear(green) + 0.0722 * linear(blue);
+    };
+    const levels = [luminance(backgroundColor), luminance(color)];
+    return (Math.max(...levels) + 0.05) / (Math.min(...levels) + 0.05);
+  });
+  assert.ok(primaryHover >= 4.5, `Primary action hover contrast is ${primaryHover}`);
+  await page.keyboard.press('Escape');
+  const summary = page.getByRole('region', { name: 'Activity summary' });
+  const headline = await summary.locator('.headline').boundingBox();
+  const counts = await summary.locator('.cells').boundingBox();
+  assert.ok(headline && counts && counts.x > headline.x + headline.width, 'Counts sit beside the headline on desktop');
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(summary.locator('.headline')).toBeVisible();
+  await expect(summary.locator('.cells')).toBeHidden();
+});
+
 test('repo subset acknowledgement preserves hidden/incoming events and survives restart', async t => {
   const app = await setup(t);
   const { page } = app;

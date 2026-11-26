@@ -146,21 +146,20 @@ p {
   font-weight: 500;
   white-space: nowrap;
   cursor: pointer;
-  transition: background-color 0.15s;
   text-decoration: none;
 }
 .control:hover,
 .btn:hover {
   background: var(--accent);
-}
-:root:not(.dark) .control:hover,
-:root:not(.dark) .btn:hover {
-  background: var(--accent);
+  transition: background-color 0.15s;
 }
 .btn.primary {
   background: var(--primary);
   border-color: var(--primary);
   color: var(--primary-foreground);
+}
+:root:not(.dark) .btn.primary:hover {
+  background: color-mix(in oklab, var(--primary) 88%, var(--foreground));
 }
 .ghost {
   display: inline-flex;
@@ -249,6 +248,9 @@ p {
   border-radius: 12px;
   overflow: hidden;
 }
+:root:not(.dark) .card {
+  box-shadow: 0 1px 2px rgb(24 35 56 / 6%);
+}
 .card-pad {
   padding: 16px;
 }
@@ -310,11 +312,6 @@ p {
 .banner .ic {
   font-weight: 700;
   flex: none;
-}
-/* RP: warning text on its own 10% tint needs one step darker than --warning in light (4.5:1). */
-:root:not(.dark) .banner.warn .ic,
-:root:not(.dark) .banner.warn strong {
-  color: oklch(0.46 0.12 58);
 }
 .pill {
   display: inline-flex;
