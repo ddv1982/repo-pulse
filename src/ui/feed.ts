@@ -25,7 +25,7 @@ import { scopeName } from './header.ts';
 import { currentActivityFilters, isSavedFilterModified, renderSavedFilters } from './saved-filters.ts';
 import { mergeEvidenceBadge } from './merge-evidence.ts';
 import { buildActivityTree, type ActivityTree } from '../activity-tree.ts';
-import { forkText, renderTreeCell, standalonePrRing, treeLegend } from './activity-tree.ts';
+import { forkText, renderTreeCell, treeLegend } from './activity-tree.ts';
 import { linkedMergePushes } from './linked-pushes.ts';
 import { linkedTagBuilds } from './linked-tag-builds.ts';
 import type { PageState } from './refresh.ts';
@@ -283,7 +283,7 @@ function renderRefLine(record: ActivityItem, title: string, repoName: string, pr
   }</span>`;
 }
 
-function renderKind(record: ActivityItem, tone: string, tree?: import('./activity-tree.ts').TreeRow) {
+function renderKind(record: ActivityItem, tone: string) {
   const kind = activityLabel(record);
   const build = record.kind === 'build';
   const active = record.kind === 'pr' && record.data?.status === 'active';
@@ -320,11 +320,8 @@ function renderKind(record: ActivityItem, tone: string, tree?: import('./activit
       : record.kind === 'tag'
         ? icons.tag
         : html`<span class="d${build ? ' ci-marker' : ''}${active ? ' pr-marker' : ''}${draft ? ' draft-marker' : ''}"></span>`;
-  const ring =
-    tree && standalonePrRing(tree)
-      ? html`<span class="standalone-pr-ring${draft ? ' draft-marker' : ''}" aria-hidden="true"></span>`
-      : emptyHtml;
-  return html`<span class="kind ${tone}">${glyph}<span class="kind-label">${label}</span>${ring}</span>`;
+  const approval = record.highlight === 'review-approved' ? ' approved' : '';
+  return html`<span class="kind ${tone}${approval}">${glyph}<span class="kind-label">${label}</span></span>`;
 }
 
 /**
@@ -354,7 +351,7 @@ function row(
   const origin = forkText(tree?.fork ?? null);
   const prDestination = record.kind === 'pr' && record.data?.status === 'active' ? branchName(record.data.targetRefName) : '';
   return html`<li class="${['row', failed ? 'crit' : '', record.unseen ? 'new' : '', `tone-${tone}`].filter(Boolean).join(' ')}" id="row-${record.groupKey}" data-event-id="${record.id}" data-event-ids="${ids}" data-group-key="${record.groupKey}" data-unseen-ids="${unreadIds}">${tree ? renderTreeCell(tree, tone) : emptyHtml}
-    ${renderKind(record, tone, tree)}
+    ${renderKind(record, tone)}
     <div class="subject"><button class="feed-title" type="button" data-action="detail" data-id="${record.id}"><span class="title">${renderTitle(record, title)}${unread.length > 1 ? html` <span class="pill u new-count">${unread.length} new</span>` : emptyHtml}</span>${renderRefLine(record, title, showRepo ? repo?.name || 'Unknown repository' : '', prDestination)}</button></div>
     ${renderEvent(record, origin, Boolean(prDestination), related, commits)}
     <div class="rowact">${azureLink(record.url)}${record.imported ? emptyHtml : html`<button class="ghost sm seen-toggle" type="button" id="seen-${record.groupKey}" data-action="ack-item" data-id="${record.id}" data-mark-seen="${record.unseen}" data-event-ids="${ackIds}" aria-pressed="${!record.unseen}" aria-label="Seen: ${fullTitle}${ackLinkedPush ? ' and linked push' : ''}">${icons.seenBox}Seen</button>`}</div></li>`;
@@ -385,15 +382,7 @@ function group(
 }
 
 const hasTreeLegend = (tree: ActivityTree) =>
-  tree.rows.some(
-    row =>
-      row.forkFrom ||
-      row.mergeFrom ||
-      row.node.shape === 'ring' ||
-      row.node.shape === 'draft' ||
-      row.node.shape === 'merge' ||
-      row.node.down,
-  );
+  tree.rows.some(row => row.forkFrom || row.mergeFrom || row.node.shape === 'merge' || row.node.down);
 
 /**
  * Both groups carry a branch tree. They share one width so their columns line up.

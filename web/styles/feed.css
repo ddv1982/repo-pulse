@@ -376,8 +376,7 @@ ol.rows {
   overflow-wrap: anywhere;
 }
 .kind > .d,
-.kind > svg,
-.kind > .standalone-pr-ring {
+.kind > svg {
   flex: none;
   align-self: start;
 }
@@ -394,6 +393,9 @@ ol.rows {
 }
 .kind.info {
   color: var(--info);
+}
+.kind.approved {
+  color: color-mix(in oklab, var(--ok) 65%, var(--muted-foreground));
 }
 .kind.crit {
   color: var(--critical);
@@ -557,6 +559,7 @@ ol.rows {
 }
 .event-meta time {
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 .event-meta .actor {
   font-weight: 500;
@@ -886,8 +889,7 @@ ol.rows {
 /* Activity branch tree, drawn in the left padding of each row's type label. src/ui/activity-tree.ts draws one
    cell per row, with y = 0 on the type label. Below 640px there is no tree, so rows keep their dot. */
 .tree,
-.activity-graph-guide,
-.standalone-pr-ring {
+.activity-graph-guide {
   display: none;
 }
 @media (min-width: 640px) {
@@ -921,14 +923,6 @@ ol.rows {
   .with-tree .kind > .d,
   .with-tree .kind > svg {
     display: none;
-  }
-  .standalone-pr-ring {
-    display: inline-block;
-    flex: none;
-    width: 8px;
-    height: 8px;
-    border: 1px solid var(--muted-foreground);
-    border-radius: 50%;
   }
   .tree {
     display: block;
@@ -1023,7 +1017,6 @@ ol.rows {
   background: transparent;
   border: 1px solid currentColor;
 }
-.kind .draft-marker,
 .kind .d.draft-marker {
   border-style: dashed;
 }
