@@ -2735,6 +2735,10 @@ test('Activity shows only highlights and links a landing and quieter CI to its d
     document.adoptedStyleSheets = [...document.adoptedStyleSheets, rule];
   });
   await expect.poll(rowFits).toEqual(allFit);
+  assert.ok(
+    Math.abs((await metadataLeft(approved)) - (await metadataLeft(merge))) <= 1,
+    'metadata stays aligned with wider control labels',
+  );
   await page.setViewportSize({ width: 320, height: 900 });
   await expect.poll(rowFits).toEqual(allFit);
   await page.evaluate(() => {

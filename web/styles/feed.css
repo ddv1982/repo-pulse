@@ -861,7 +861,7 @@ ol.rows {
 }
 @media (min-width: 1100px) {
   .row {
-    grid-template-columns: var(--kind-width, 8rem) minmax(0, 2fr) minmax(12rem, 1fr) minmax(7.25rem, max-content);
+    grid-template-columns: var(--kind-width, 8rem) minmax(0, 2fr) minmax(12rem, 1fr) 8.5rem;
     padding-block: 10px;
   }
   .row > .kind {
@@ -878,6 +878,7 @@ ol.rows {
   }
   .rowact {
     grid-column: 4;
+    max-width: 100%;
     margin-block: calc((20px - var(--control-height-sm)) / 2);
   }
 }
