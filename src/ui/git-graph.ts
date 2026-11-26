@@ -1,4 +1,4 @@
-import type { GitHistoryPage, Repository } from '../contract.d.ts';
+import type { GitHistoryActivity, GitHistoryPage, Repository } from '../contract.d.ts';
 import { layoutGitGraph } from '../git-graph.ts';
 import { emptyHtml, html } from './format.ts';
 
@@ -58,7 +58,7 @@ export function createGitGraph({ read, render }: Options) {
   };
 }
 
-const laneX = (index: number) => 10 + 12 * index;
+const laneX = (index: number) => 10 + 14 * index;
 const laneClass = (color: number) => `graph-lane-${color % 6}`;
 const mid = 18;
 
@@ -69,41 +69,63 @@ function path(segment: { from: number; to: number; color: number }, top: number,
   return html`<path class="${laneClass(segment.color)}" d="M ${from} ${top} C ${from} ${middle}, ${to} ${middle}, ${to} ${bottom}"/>`;
 }
 
-function historyRows(page: GitHistoryPage) {
-  const graph = layoutGitGraph(page.commits);
-  return html`<ol class="graph-commits">${page.commits.map((commit, index) => {
-    const row = graph.rows[index];
-    if (!row) return emptyHtml;
-    const current = commit.id === page.head;
-    const width = laneX(graph.width);
-    return html`<li class="graph-commit" id="commit-${commit.id}" ${current ? html`aria-current="true"` : emptyHtml}>
-      <svg class="graph-rail" aria-hidden="true" width="${width}" height="36" viewBox="0 0 ${width} 36" preserveAspectRatio="none">
-        ${row.through.map(edge => path(edge, 0, 36))}
-        ${row.incoming.map(edge => path(edge, 0, mid))}
-        ${row.outgoing.map(edge => path(edge, mid, 36))}
-        <circle class="${laneClass(row.color)} ${current || commit.parents.length > 1 ? 'graph-ring' : ''}" cx="${laneX(row.slot)}" cy="${mid}" r="${current ? 5 : 3.7}"/>
-      </svg>
-      <code class="graph-sha" title="${commit.id}">${commit.id.slice(0, 9)}</code>
-      <span class="graph-subject" title="${commit.subject}">${commit.subject || '(No commit message)'}</span>
-      <span class="graph-author" title="${commit.author}">${commit.author}</span>
-      ${commit.refs.map(ref => html`<span class="graph-ref" title="${ref}">${ref}</span>`)}
-      ${commit.activity.map(item => html`<a class="graph-link" href="#event/${encodeURIComponent(item.id)}" title="${item.title}">${item.kind === 'build' ? 'CI' : 'PR'} · ${item.status}</a>`)}
-    </li>`;
-  })}</ol>`;
+const ciTones = new Map([
+  ['Succeeded', 'ok'],
+  ['Failed', 'crit'],
+  ['Canceled', 'warn'],
+  ['Canceling', 'warn'],
+  ['Partially succeeded', 'warn'],
+  ['Running', 'info'],
+  ['Queued', 'info'],
+]);
+
+function graphActivity(item: GitHistoryActivity) {
+  const merged = item.kind === 'pr' && item.status === 'Merged';
+  const tone = item.kind === 'build' ? (ciTones.get(item.status) ?? 'neutral') : merged ? 'ok merged' : 'neutral';
+  return html`<a class="graph-link chip status-chip ${tone}" href="#event/${encodeURIComponent(item.id)}" title="${item.title}">${item.kind === 'build' ? 'CI' : 'PR'} · ${item.status}</a>`;
 }
 
+function historyRows(page: GitHistoryPage) {
+  const graph = layoutGitGraph(page.commits);
+  const width = laneX(graph.width);
+  return html`<div class="graph-columns" aria-hidden="true"><span>Commit history</span><span>Refs and activity</span></div>
+    <ol class="graph-commits">${page.commits.map((commit, index) => {
+      const row = graph.rows[index];
+      if (!row) return emptyHtml;
+      const current = commit.id === page.head;
+      const merge = commit.parents.length > 1;
+      return html`<li class="graph-commit ${laneClass(row.color)}${merge ? ' graph-merge' : ''}" id="commit-${commit.id}" ${current ? html`aria-current="true"` : emptyHtml}>
+      <span class="graph-rail" aria-hidden="true">
+        <svg class="graph-edges" width="${width}" height="36" viewBox="0 0 ${width} 36" preserveAspectRatio="none">
+          ${row.through.map(edge => path(edge, 0, 36))}
+          ${row.incoming.map(edge => path(edge, 0, mid))}
+          ${row.outgoing.map(edge => path(edge, mid, 36))}
+        </svg>
+        <svg class="graph-node" width="${width}" height="14"><circle class="${laneClass(row.color)} ${current || merge ? 'graph-ring' : ''}" cx="${laneX(row.slot)}" cy="7" r="${current ? 5 : 4}"/></svg>
+      </span>
+      <div class="graph-entry">
+        <code class="graph-sha" title="${commit.id}">${commit.id.slice(0, 9)}</code>
+        <span class="graph-subject" title="${commit.subject}">${commit.subject || '(No commit message)'}</span>
+        <span class="graph-author" title="${commit.author}">${commit.author}</span>
+        <div class="graph-badges">${current ? html`<span class="graph-ref graph-ref-current">HEAD</span>` : emptyHtml}
+          ${commit.refs.map(ref => html`<span class="graph-ref${ref === page.branch ? ' graph-ref-current' : ref === page.upstream ? ' graph-ref-upstream' : ''}" title="${ref}">${ref}</span>`)}
+          ${commit.activity.map(graphActivity)}
+        </div>
+      </div>
+    </li>`;
+    })}</ol>`;
+}
 export function renderGitGraph(repos: Repository[], repo: Repository | undefined, state: State) {
   const { page, loading, error } = state;
   return html`<section class="card git-graph" aria-label="Git Graph">
     <header class="graph-toolbar">
-      <h1>Git Graph</h1>
+      <div class="graph-heading"><h1>Git Graph</h1>${page ? html`<p class="graph-scope"><span class="graph-branch">${page.branch ?? (page.head ? 'Detached HEAD' : 'No commits yet')}</span>${page.upstream ? html` · <code>${page.upstream}</code>` : emptyHtml}${page.shallow ? ' · Shallow checkout' : ''}</p>` : emptyHtml}</div>
       ${repos.length ? html`<label class="graph-repo" for="graph-repo"><span>Repository</span><select class="control" id="graph-repo">${repos.map(item => html`<option value="${item.id}" ${item.id === repo?.id ? html`selected` : emptyHtml}>${item.name}</option>`)}</select></label>` : emptyHtml}
       ${repo?.localPath ? html`<button type="button" id="graph-reload" class="btn sm" data-action="reload-graph" ${loading ? html`disabled` : emptyHtml}>Reload graph</button>` : emptyHtml}
     </header>
     ${
       repo?.localPath
-        ? html`${page ? html`<p class="graph-scope">${page.branch ?? (page.head ? 'Detached HEAD' : 'No commits yet')}${page.upstream ? html` · ${page.upstream}` : emptyHtml}${page.shallow ? html` · Shallow checkout` : emptyHtml}</p>` : emptyHtml}
-        ${page?.commits.length ? historyRows(page) : emptyHtml}
+        ? html`${page?.commits.length ? historyRows(page) : emptyHtml}
         ${loading ? html`<p class="graph-status" role="status">Loading Git history…</p>` : emptyHtml}
         ${error ? html`<p class="graph-status" role="alert">${error}</p>` : emptyHtml}
         ${page?.nextCursor ? html`<div class="foot"><button type="button" id="graph-more" class="btn" data-action="more-graph" ${loading || error ? html`disabled` : emptyHtml}>Load more commits</button></div>` : emptyHtml}`
