@@ -2266,7 +2266,18 @@ test('the branch tree works with the unread filter and keeps status markers on n
 
   await page.setViewportSize({ width: 420, height: 900 });
   await expect(hotfix.locator('svg.tree')).toBeHidden();
-  await expect(hotfix.locator('.kind > svg')).toBeVisible();
+  const glyph = hotfix.locator('.kind > svg');
+  await expect(glyph).toBeVisible();
+  await expect
+    .poll(() =>
+      glyph.evaluate(element => {
+        const glyph = element.getBoundingClientRect();
+        const label = element.parentElement!.getBoundingClientRect();
+        const firstLineCentre = label.top + parseFloat(getComputedStyle(element.parentElement!).lineHeight) / 2;
+        return Math.abs(glyph.top + glyph.height / 2 - firstLineCentre);
+      }),
+    )
+    .toBeLessThanOrEqual(1);
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.getByRole('button', { name: 'Unread only', exact: true }).click();
   await expect(hotfix.locator('svg.tree')).toBeVisible();
@@ -2278,7 +2289,7 @@ test('the branch tree works with the unread filter and keeps status markers on n
   await expect(hotfix.locator('.kind > svg')).toBeVisible();
 });
 
-test('on desktop every row lines up its ref line with its meta line, and its summary with its title', async t => {
+test('Activity gives wrapped titles room and keeps their event metadata together on desktop', async t => {
   const { page, runtime } = await setup(t);
   // A pull request title long enough to wrap at 1280px.
   runtime.store.insertEvents([
@@ -2286,7 +2297,8 @@ test('on desktop every row lines up its ref line with its meta line, and its sum
       id: 'long-title-pr',
       repoId: 'demo-orders',
       kind: 'pr',
-      title: 'PR 21431 · DAT-9861: the 12 animal seeds load into seed_standards, bridge views in animal and refined bull',
+      title:
+        'PR 21431 · DAT-9861: the 12 animal seeds load into seed_standards, bridge views in animal and refined bull, and verify downstream transformations and intermediate reports',
       branch: 'refs/heads/feature/DAT-9861_animal_seeds_standards',
       actor: 'Ana',
       time: new Date().toISOString(),
@@ -2324,54 +2336,22 @@ test('on desktop every row lines up its ref line with its meta line, and its sum
   // The page re-renders as it polls, so box reads retry until a rendered row answers.
   await expect.poll(async () => (await longTitle.boundingBox())?.height ?? 0, { message: 'the long title wraps' }).toBeGreaterThan(30);
   await expect(page.locator('.with-tree .row').first()).toBeVisible();
-  const rows = await page.locator('.with-tree .row').evaluateAll(items =>
-    items
-      .filter(row => row.checkVisibility())
-      .map(row => {
-        // The baseline of an element's first visible text: a zero-size inline box placed before that text sits on it.
-        const baseline = (selector: string) => {
-          const element = row.querySelector(selector);
-          if (!element) return undefined;
-          const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT, {
-            acceptNode: node =>
-              node.textContent?.trim() && !node.parentElement?.closest('.sr') ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP,
-          });
-          const text = walker.nextNode();
-          if (!(text instanceof Text)) throw new Error(`${selector} has no text.`);
-          const wrap = document.createElement('span');
-          const probe = document.createElement('span');
-          probe.style.cssText = 'display: inline-block; width: 0; height: 0';
-          text.replaceWith(wrap);
-          wrap.append(probe, text);
-          const y = probe.getBoundingClientRect().top;
-          wrap.replaceWith(text);
-          return y;
-        };
-        return {
-          id: row.dataset.eventId,
-          title: baseline('.feed-title .title') ?? NaN,
-          summary: baseline('.event-main'),
-          refs: ['.ref-repo', '.ref-name', '.ref-pr'].map(baseline).filter(y => y !== undefined),
-          meta: baseline('.event-meta') ?? NaN,
-        };
+  const event = page.locator('[data-event-id="long-title-pr"] .event');
+  await expect
+    .poll(() =>
+      event.evaluate(element => {
+        const title = element.closest('.row')?.querySelector('.title');
+        const meta = element.querySelector('.event-meta');
+        if (!title || !meta) return false;
+        const content = title.getBoundingClientRect();
+        const metadata = meta.getBoundingClientRect();
+        return Math.abs(metadata.top - content.top) <= 2 && content.width > element.getBoundingClientRect().width;
       }),
-  );
-  // A wrapped title, a wrapped summary or a row without a summary still keeps both second lines level.
-  const checked = rows.filter(row => row.refs.length);
-  assert.ok(checked.length >= 10, `enough rows to measure: ${checked.length}`);
-  const off = checked.filter(
-    // A ref line that wraps keeps its first line level with the meta line.
-    row => (row.summary !== undefined && Math.abs(row.title - row.summary) > 1) || Math.abs(Math.min(...row.refs) - row.meta) > 1,
-  );
-  assert.deepEqual(
-    off.map(
-      row =>
-        `${row.id}: title-summary ${((row.summary ?? row.title) - row.title).toFixed(1)}, ref-meta ${row.refs.map(y => (y - row.meta).toFixed(1)).join(' ')}`,
-    ),
-    [],
-  );
-  // At the narrowest desktop width a long branch is cut short and its PR chip stays inside the title column.
-  await page.setViewportSize({ width: 1024, height: 900 });
+    )
+    .toBe(true);
+
+  // At the narrowest wide layout, refs and PR chips stay in the title column.
+  await page.setViewportSize({ width: 1100, height: 900 });
   const prRow = page.locator('[data-event-id="long-title-pr"]');
   await expect(prRow.locator('.feed-title')).toHaveAccessibleName(
     /source branch feature\/DAT-9861_animal_seeds_standards targeting branch main/,
@@ -2395,7 +2375,6 @@ test('on desktop every row lines up its ref line with its meta line, and its sum
       { message: 'PR chip right edge past the title column' },
     )
     .toBeLessThanOrEqual(0);
-  expect(await ciRow.locator('.ref-branch').evaluate(branch => branch.scrollWidth > branch.clientWidth)).toBe(true);
   await page.screenshot({ path: 'test-results/open-pr-activity-desktop.png' });
   // On a phone the type label shares its line with the taller Seen control, so it centres on it.
   await page.setViewportSize({ width: 390, height: 900 });
@@ -2572,7 +2551,20 @@ test('Activity keeps the branch tree while exposing merge status, CI and push co
   await expect(seen).toHaveAttribute('aria-pressed', 'true');
   await expect(passing).toHaveCount(0);
   assert.equal(runtime.store.getEvent('seen-passing-run')?.seen, true);
-  await merge.getByText('CI · 1 failed · 1 passed').click();
+  const rollup = merge.getByText('CI · 1 failed · 1 passed', { exact: true });
+  await expect(rollup.locator('.crit')).toHaveText('1 failed');
+  await rollup.focus();
+  await page.keyboard.press('Enter');
+  await expect(rollup).toBeFocused();
+  await expect
+    .poll(() =>
+      merge.evaluate(row => {
+        const cell = row.querySelector('svg.tree')!.getBoundingClientRect();
+        const bounds = row.getBoundingClientRect();
+        return Math.abs(cell.top - bounds.top) <= 1 && Math.abs(cell.bottom - bounds.bottom) <= 1;
+      }),
+    )
+    .toBe(true);
   await expect(merge.getByRole('button', { name: 'Post-merge CI failed' })).toBeVisible();
   await expect(failure.locator('svg.tree rect.ci-node')).toBeVisible();
   await expect(page.locator('svg.tree .default-lane').first()).toHaveCSS('stroke-width', '2.5px');
@@ -2596,7 +2588,63 @@ test('Activity shows only highlights and links a landing and quieter CI to its d
   const head = 'c'.repeat(40);
   const base = { repoId: 'demo-billing', branch: 'main', time: new Date().toISOString() };
   const main = 'refs/heads/main';
+  const source = 'refs/heads/feature/DAT-1324_fatty_acids_individual_advice_and_governance';
+  const reviewer = { name: 'Required reviewer', required: true, vote: 10 };
+  const approval = {
+    ...base,
+    kind: 'pr' as const,
+    title: 'PR 513 · Rework the advice decision tree of fatty_acids_individual_risks and insemination_return_distribution',
+    actor: 'Ines Adriaens - Doekes',
+    url: 'https://dev.azure.com/demo/project/_git/billing/pullrequest/513',
+    data: { status: 'active' as const, pullRequestId: 513, sourceRefName: source, targetRefName: main, previewCommit: 'd'.repeat(40) },
+  };
+  const branchMilestones: ActivityEvent[] = Array.from({ length: 5 }, (_, index) => {
+    const branch = `refs/heads/feature/active-${index}`;
+    const pr = {
+      repoId: base.repoId,
+      branch,
+      kind: 'pr' as const,
+      title: `PR ${514 + index} · Update model ${index}`,
+      data: { status: 'active' as const, pullRequestId: 514 + index, sourceRefName: branch, targetRefName: main },
+    };
+    return [
+      { ...pr, id: `opened-${index}`, time: new Date(Date.parse(base.time) - 120_000 + index * 1000).toISOString() },
+      {
+        ...pr,
+        id: `retargeted-${index}`,
+        time: new Date(Date.parse(base.time) + 120_000 + index * 1000).toISOString(),
+        data: { ...pr.data, targetRefName: 'refs/heads/integration' },
+      },
+    ];
+  }).flat();
   runtime.store.insertEvents([
+    ...branchMilestones,
+    {
+      ...approval,
+      id: 'approval-baseline',
+      imported: true,
+      time: new Date(Date.parse(base.time) - 60_000).toISOString(),
+      data: { ...approval.data, previewCommit: 'e'.repeat(40), reviewers: [{ ...reviewer, vote: 0 }] },
+    },
+    {
+      ...approval,
+      id: 'approval-highlight',
+      data: { ...approval.data, reviewers: [reviewer], voteChanges: [reviewer] },
+    },
+    {
+      ...base,
+      id: 'stale-validation',
+      kind: 'build',
+      title: 'Billing CI',
+      time: new Date(Date.parse(base.time) + 60_000).toISOString(),
+      data: {
+        sourceBranch: 'refs/pull/513/merge',
+        sourceVersion: 'e'.repeat(40),
+        buildId: 601,
+        status: 'completed',
+        result: 'partiallySucceeded',
+      },
+    },
     {
       ...base,
       id: 'highlight-pr',
@@ -2635,7 +2683,70 @@ test('Activity shows only highlights and links a landing and quieter CI to its d
   await expect(page.locator('[data-event-id="quiet-landing-push"], [data-event-id="quiet-pass"]')).toHaveCount(0);
   await expect(merge.locator('svg.tree')).toBeVisible();
   await expect(page.locator('[data-event-id="later-push-to-same-tip"]')).toContainText('Later default branch push');
+  const approved = page.locator('[data-event-id="approval-highlight"]');
+  await expect(approved.locator('.kind')).toHaveText('Approvals met');
+  await expect(approved.locator('.title')).toHaveText(approval.title);
+  await expect(approved.locator('.feed-title')).toHaveAccessibleName(/fatty_acids_individual_risks/);
+  await expect(approved.locator('.event-meta')).toContainText('PR author Ines Adriaens - Doekes');
+  await expect(approved.locator('.ref-repo')).toBeVisible();
+  await expect(approved.locator('xpath=..')).toHaveAttribute('data-tree-lanes', '5');
+  const longCi = approved.getByRole('button', { name: 'PR validation partially succeeded on earlier revision' });
+  await expect(longCi).toBeVisible();
+  const rowFits = () =>
+    approved.evaluate(row => {
+      const kind = row.querySelector('.kind')!;
+      const range = document.createRange();
+      range.selectNodeContents(kind);
+      const rect = range.getBoundingClientRect();
+      const bounds = kind.getBoundingClientRect();
+      const box = (selector: string) => row.querySelector(selector)!.getBoundingClientRect();
+      const overlaps = (a: DOMRect, b: DOMRect) => a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
+      const subject = box('.subject');
+      const actions = box('.rowact');
+      const event = box('.event');
+      const ci = box('.event-ci button');
+      return {
+        labelFits: rect.right <= bounds.right + 1 && [subject, actions, event].every(area => !overlaps(rect, area)),
+        actionsClearTitle: !overlaps(actions, subject),
+        ciFits: ci.right <= event.right + 1,
+        pageFits: document.documentElement.scrollWidth <= innerWidth,
+      };
+    });
+  const allFit = { labelFits: true, actionsClearTitle: true, ciFits: true, pageFits: true };
+  for (const width of [1100, 640, 767, 1278, 320, 390, 639, 1024, 1099, 1536]) {
+    await page.setViewportSize({ width, height: 900 });
+    await expect.poll(rowFits, { message: `The approval row fits at ${width}px` }).toEqual(allFit);
+  }
+  await page.setViewportSize({ width: 1278, height: 900 });
+  const metadataLeft = (row: typeof approved) => row.locator('.event').evaluate(element => element.getBoundingClientRect().left);
+  assert.ok(
+    Math.abs((await metadataLeft(approved)) - (await metadataLeft(merge))) <= 1,
+    'metadata keeps its alignment on rows with and without an Azure link',
+  );
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await expect(page.locator('html')).toHaveClass(/\bdark\b/);
+  await approved.scrollIntoViewIfNeeded();
   await page.screenshot({ path: 'test-results/activity-highlights.png' });
+  await page.evaluate(() => {
+    const rule = new CSSStyleSheet();
+    rule.replaceSync(
+      '* { line-height: 1.5 !important; letter-spacing: .12em !important; word-spacing: .16em !important; } p { margin-bottom: 2em !important; }',
+    );
+    document.adoptedStyleSheets = [...document.adoptedStyleSheets, rule];
+  });
+  await expect.poll(rowFits).toEqual(allFit);
+  assert.ok(
+    Math.abs((await metadataLeft(approved)) - (await metadataLeft(merge))) <= 1,
+    'metadata stays aligned with wider control labels',
+  );
+  await page.setViewportSize({ width: 320, height: 900 });
+  await expect.poll(rowFits).toEqual(allFit);
+  await page.evaluate(() => {
+    document.adoptedStyleSheets = document.adoptedStyleSheets.slice(0, -1);
+  });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await approved.scrollIntoViewIfNeeded();
+  await page.screenshot({ path: 'test-results/activity-highlights-phone.png' });
   await merge.locator('.feed-title').click();
   await page.getByText('Related activity', { exact: false }).click();
   await expect(page.getByRole('link', { name: /Merge of PR 512 pushed to main/ })).toBeVisible();

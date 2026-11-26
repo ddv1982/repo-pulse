@@ -1,6 +1,7 @@
 import {
   emptyHtml,
   html,
+  joinHtml,
   dateTime,
   fullDateTime,
   azureLink,
@@ -76,7 +77,7 @@ const actorRoles: Record<import('../activity.ts').ActivityKind, string> = {
 function renderMeta(record: ActivityItem) {
   const actor = activityActor(record);
   const shown = Boolean(actor);
-  const role = actor === 'Unknown' ? '' : `${actorRoles[record.kind]} `;
+  const role = actor === 'Unknown' ? '' : record.highlight && record.kind === 'pr' ? 'PR author ' : `${actorRoles[record.kind]} `;
   return html`<div class="help event-meta">${shown ? html`${role}<span class="actor">${actor}</span> · ` : emptyHtml}<time datetime="${record.time}" title="${fullDateTime(record.time)}">${dateTime(record.time)}</time></div>`;
 }
 
@@ -88,30 +89,29 @@ function inlineCommits(record: ActivityItem, commits: CommitsView | undefined) {
     ${commits && 'items' in commits ? html`<details class="linked-event" data-group="push-commits-${record.groupKey}" open><summary>Push commits</summary>${renderCommits(commits)}</details>` : commits ? renderCommits(commits) : emptyHtml}`;
 }
 
-function renderRelatedCi(record: ActivityItem, expanded: boolean) {
+function renderRelatedCi(record: ActivityItem) {
   const runs = record.relatedCi ?? [];
   const multiple = runs.length > 1;
-  if (expanded !== multiple) return emptyHtml;
   const ciButtons = html`${runs.map(run => html`<button type="button" class="ghost sm status-text ${run.outcome === 'passed' || run.outcome === 'passing again' ? 'ok' : run.outcome === 'failed' ? 'crit' : 'warn'}" data-action="detail" data-id="${run.id}" title="${run.title}">${run.validation ? 'PR validation' : run.postMerge ? 'Post-merge CI' : 'Branch CI'} ${run.outcome}${run.stale ? ' on earlier revision' : ''}</button>`)}`;
   const failed = runs.filter(run => run.outcome === 'failed').length;
   const partial = runs.filter(run => run.outcome === 'partially succeeded').length;
+  const passed = runs.filter(run => run.outcome === 'passed').length;
   const counts = [
-    runs.some(run => run.outcome === 'passing again') ? 'passing again' : '',
-    failed ? `${failed} failed` : '',
-    partial ? `${partial} partially succeeded` : '',
-    runs.some(run => run.outcome === 'passed') ? `${runs.filter(run => run.outcome === 'passed').length} passed` : '',
-  ]
-    .filter(Boolean)
-    .join(' · ');
+    failed ? html`<span class="status-text crit">${failed} failed</span>` : emptyHtml,
+    partial ? html`<span class="status-text warn">${partial} partially succeeded</span>` : emptyHtml,
+    runs.some(run => run.outcome === 'passing again') ? html`<span class="status-text ok">passing again</span>` : emptyHtml,
+    passed ? html`<span>${passed} passed</span>` : emptyHtml,
+  ].filter(count => count !== emptyHtml);
   const summary = multiple
-    ? html`<details class="linked-event" data-group="ci-${record.groupKey}"><summary>CI · ${counts}</summary><div class="event-main ci-rollup">${ciButtons}</div></details>`
+    ? html`<details class="linked-event" data-group="ci-${record.groupKey}"><summary>CI · ${joinHtml(counts, html` · `)}</summary><div class="event-main ci-rollup">${ciButtons}</div></details>`
     : runs.length
-      ? ciButtons
+      ? html`<div class="event-main">${ciButtons}</div>`
       : emptyHtml;
   const host = record.ciHost
     ? html`<button type="button" class="ghost sm" data-action="detail" data-id="${record.ciHost}">${record.highlight ? 'View pull request' : 'View tested change'}</button>`
     : emptyHtml;
-  return summary === emptyHtml ? host : summary;
+  const content = summary === emptyHtml ? host : summary;
+  return content === emptyHtml ? emptyHtml : html`<div class="event-ci">${content}</div>`;
 }
 
 function eventSummary(record: ActivityItem, targetShown: boolean, pr: ActivityItem['data']) {
@@ -146,8 +146,7 @@ function renderEvent(record: ActivityItem, origin: string, targetShown: boolean,
   const lead = summary || targetShown || origins.length === 0 ? summary : origins.shift();
   const trail = record.unseen ? renderTrail(record) : emptyHtml;
   const inline = inlineCommits(record, commits);
-  const ci = renderRelatedCi(record, false);
-  const ciDetails = renderRelatedCi(record, true);
+  const ci = renderRelatedCi(record);
   const mergeSha = record.kind === 'pr' && record.data?.status === 'completed' ? record.data.mergeCommit : undefined;
   const linked = related
     ? html`<details class="linked-event" data-group="linked-${related.kind}-${record.groupKey}">
@@ -161,9 +160,9 @@ function renderEvent(record: ActivityItem, origin: string, targetShown: boolean,
         }
       </details>`
     : emptyHtml;
-  return html`<div class="event">${lead || badge !== emptyHtml || mergeSha || ci !== emptyHtml ? html`<div class="event-main">${typeof lead === 'string' ? (lead ? html`<span>${lead}</span>` : emptyHtml) : lead}${badge}${mergeSha ? html`<code class="mono" title="${mergeSha}">${mergeSha.slice(0, 9)}</code>` : emptyHtml}${ci}</div>` : emptyHtml}${renderMeta(record)}${
-    origins.length || trail !== emptyHtml || related || inline !== emptyHtml || ciDetails !== emptyHtml
-      ? html`<div class="event-notes">${origins.map(text => html`<div class="help event-origin">${icons.branch}<span>${text}</span></div>`)}${trail}${linked}${ciDetails}${inline}</div>`
+  return html`<div class="event">${lead || badge !== emptyHtml || mergeSha ? html`<div class="event-main">${typeof lead === 'string' ? (lead ? html`<span>${lead}</span>` : emptyHtml) : lead}${badge}${mergeSha ? html`<code class="mono" title="${mergeSha}">${mergeSha.slice(0, 9)}</code>` : emptyHtml}</div>` : emptyHtml}${renderMeta(record)}${ci}${
+    origins.length || trail !== emptyHtml || related || inline !== emptyHtml
+      ? html`<div class="event-notes">${origins.map(text => html`<div class="help event-origin">${icons.branch}<span>${text}</span></div>`)}${trail}${linked}${inline}</div>`
       : emptyHtml
   }</div>`;
 }
@@ -239,6 +238,17 @@ function rowTitle(record: ActivityItem, title: string, loaded?: CommitsView) {
   return branch && [activityLabel(record), 'Pushed'].includes(compact) ? branch : compact;
 }
 
+function renderTitle(record: ActivityItem, title: string) {
+  const prefix = record.kind === 'pr' && record.data?.pullRequestId ? `PR ${record.data.pullRequestId} · ` : '';
+  const hasPrefix = prefix && title.startsWith(prefix);
+  const subject = hasPrefix ? title.slice(prefix.length) : title;
+  const parts = subject.split(/(?<=\w_)(?=\w)/);
+  return html`${hasPrefix ? html`<span class="title-id">${prefix}</span>` : emptyHtml}${joinHtml(
+    parts.map(part => html`${part}`),
+    html`<wbr>`,
+  )}`;
+}
+
 /**
  * The line under a row's title says where it happened: repository, branch and pull request as separate tokens.
  * The hidden words keep the button's accessible name readable after its title. A push, branch or tag title already
@@ -289,8 +299,8 @@ function renderKind(record: ActivityItem, tone: string, tree?: import('./activit
     retargeted: 'PR retargeted',
     abandoned: 'PR abandoned',
     'review-blocked': 'Review needs action',
-    'review-approved': 'Required reviewers approved',
-    'default-push': 'Push to default branch',
+    'review-approved': 'Approvals met',
+    'default-push': 'Default branch push',
     rewrite: 'History rewritten',
   };
   const label =
@@ -314,7 +324,7 @@ function renderKind(record: ActivityItem, tone: string, tree?: import('./activit
     tree && standalonePrRing(tree)
       ? html`<span class="standalone-pr-ring${draft ? ' draft-marker' : ''}" aria-hidden="true"></span>`
       : emptyHtml;
-  return html`<span class="kind ${tone}">${glyph}${label}${ring}</span>`;
+  return html`<span class="kind ${tone}">${glyph}<span class="kind-label">${label}</span>${ring}</span>`;
 }
 
 /**
@@ -345,7 +355,7 @@ function row(
   const prDestination = record.kind === 'pr' && record.data?.status === 'active' ? branchName(record.data.targetRefName) : '';
   return html`<li class="${['row', failed ? 'crit' : '', record.unseen ? 'new' : '', `tone-${tone}`].filter(Boolean).join(' ')}" id="row-${record.groupKey}" data-event-id="${record.id}" data-event-ids="${ids}" data-group-key="${record.groupKey}" data-unseen-ids="${unreadIds}">${tree ? renderTreeCell(tree, tone) : emptyHtml}
     ${renderKind(record, tone, tree)}
-    <div class="subject"><button class="feed-title" type="button" data-action="detail" data-id="${record.id}"><span class="title">${title}${unread.length > 1 ? html` <span class="pill u new-count">${unread.length} new</span>` : emptyHtml}</span>${renderRefLine(record, title, showRepo ? repo?.name || 'Unknown repository' : '', prDestination)}</button></div>
+    <div class="subject"><button class="feed-title" type="button" data-action="detail" data-id="${record.id}"><span class="title">${renderTitle(record, title)}${unread.length > 1 ? html` <span class="pill u new-count">${unread.length} new</span>` : emptyHtml}</span>${renderRefLine(record, title, showRepo ? repo?.name || 'Unknown repository' : '', prDestination)}</button></div>
     ${renderEvent(record, origin, Boolean(prDestination), related, commits)}
     <div class="rowact">${azureLink(record.url)}${record.imported ? emptyHtml : html`<button class="ghost sm seen-toggle" type="button" id="seen-${record.groupKey}" data-action="ack-item" data-id="${record.id}" data-mark-seen="${record.unseen}" data-event-ids="${ackIds}" aria-pressed="${!record.unseen}" aria-label="Seen: ${fullTitle}${ackLinkedPush ? ' and linked push' : ''}">${icons.seenBox}Seen</button>`}</div></li>`;
 }
