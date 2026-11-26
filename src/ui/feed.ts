@@ -320,8 +320,8 @@ function renderKind(record: ActivityItem, tone: string) {
       : record.kind === 'tag'
         ? icons.tag
         : html`<span class="d${build ? ' ci-marker' : ''}${active ? ' pr-marker' : ''}${draft ? ' draft-marker' : ''}"></span>`;
-  const approval = record.highlight === 'review-approved' ? ' approved' : '';
-  return html`<span class="kind ${tone}${approval}">${glyph}<span class="kind-label">${label}</span></span>`;
+  const state = record.highlight === 'review-approved' ? ' approved' : kind === 'Merged' ? ' merged' : '';
+  return html`<span class="kind ${tone}${state}">${glyph}<span class="kind-label">${label}</span></span>`;
 }
 
 /**
