@@ -313,6 +313,9 @@ test('both activity views draw a branch tree with the fork evidence in the row t
   const origin = one(row(doc, 'branch'), '.event-origin');
   assert.equal(await text(origin), 'PR 7 targets main, origin not checked');
   assert.equal(await one(origin, 'svg').getAttribute('aria-hidden'), 'true');
+  const guide = one(doc, '.activity-graph-guide');
+  assert.equal(await text(one(guide, 'summary')), 'Activity lane key');
+  assert.equal(await one(guide, 'a').getAttribute('href'), '#graph');
   assert.match(await text(one(doc, '.tree-legend')), /Lines can pass rows of other branches\./);
   const updates = parse(renderFeed(state, view));
   assert.equal((await all(updates, '.row')).length, 3);
