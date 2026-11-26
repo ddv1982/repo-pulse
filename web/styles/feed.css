@@ -150,7 +150,10 @@
   color: var(--muted-foreground);
 }
 :root:not(.dark) .toolbar .search:not(:focus) {
-  border-color: #78869c;
+  border-color: #7c5ea0;
+}
+:root:not(.dark) #feed-search-help {
+  color: var(--foreground-soft);
 }
 .search:focus {
   border-color: var(--primary);
@@ -182,6 +185,10 @@
 #unread-only[aria-pressed='true'] {
   border-color: var(--primary);
   background: var(--primary-wash);
+}
+:root:not(.dark) :is(#kind-toggle[data-active='true'], #unread-only[aria-pressed='true']) {
+  background-color: var(--active-filter-fill, color-mix(in srgb, var(--primary) 10%, var(--card)));
+  background-image: var(--chrome-sheen, none);
 }
 .saved-filters {
   display: flex;
@@ -364,6 +371,9 @@ ol.rows {
 }
 :root:not(.dark) .feed .row.new:not(.crit) {
   background-image: none;
+}
+:root:not(.dark) .feed .row.new:not(.crit, :hover, :focus-within) {
+  background-color: color-mix(in srgb, var(--primary) 4%, transparent);
 }
 .row.new .title {
   font-weight: 600;
@@ -714,6 +724,9 @@ ol.rows {
 }
 .back {
   margin: 0 8px 4px -8px;
+}
+:root:not(.dark) :is(.crumb, .crumb .back) {
+  color: var(--foreground-soft);
 }
 .dhead {
   padding: 16px;

@@ -33,9 +33,10 @@
   --shadow-sm: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);
   --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
   --sky:
-    radial-gradient(ellipse min(68vw, 48rem) 22rem at 7% 2rem, rgb(255 77 157 / 75%), transparent 93%),
-    radial-gradient(ellipse min(63vw, 47rem) 19rem at 96% 0, rgb(255 138 61 / 84%), transparent 92%),
-    radial-gradient(ellipse min(55vw, 40rem) 25rem at 62% 12rem, rgb(124 77 255 / 57%), transparent 94%);
+    radial-gradient(ellipse min(68vw, 48rem) 22rem at 10% 2rem, #ff4d9dce, transparent 81%),
+    radial-gradient(ellipse min(63vw, 47rem) 19rem at 90% 0, #ff8a3de8, transparent 81%),
+    radial-gradient(ellipse min(55vw, 40rem) 25rem at 54% 12rem, #7c4dff8c, transparent 80%),
+    radial-gradient(ellipse min(67vw, 48rem) 16rem at 76% 105%, #7c4dff6b, transparent 80%);
   --stars: none;
   --info: var(--primary);
   --merged: #0f7b5f;
@@ -43,8 +44,8 @@
   --neutral-solid: color-mix(in oklab, var(--muted-foreground) 60%, transparent);
   /* Branch lanes in the Activity tree. Each keeps at least 4.5:1 against the card in its theme. */
   --lane-1: #6d28d9;
-  --lane-2: #0f766e;
-  --lane-3: #c81e6a;
+  --lane-2: #c81e6a;
+  --lane-3: #0f766e;
   --lane-4: #68479a;
   --lane-5: #95481d;
   --lane-6: #48723f;
@@ -150,31 +151,39 @@ body::after {
 /* Translucent chrome catches the backdrop. Reading surfaces use the opaque card token. */
 @supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
   @media not (prefers-reduced-transparency: reduce) {
+    :root:not(.dark) {
+      --chrome-sheen: radial-gradient(ellipse 83% 85% at 3% 0, #ffffffad, transparent 63%);
+      --active-filter-fill: color-mix(in srgb, var(--primary) 12%, #ffffff86);
+    }
     :root:not(.dark)
       :where(
         .summary,
-        .filters-toggle,
         .activity-filter-bar .control,
-        .activity-filter-bar .btn,
+        .activity-filter-bar .btn:not(.primary),
         .activity-filter-bar .search,
         .app .control,
         .app .seg,
-        .app .sync-pill
+        .app .sync-pill,
+        .repo-add > summary.btn
       ) {
-      border-color: rgb(255 255 255 / 76%);
-      border-bottom-color: rgb(255 255 255 / 43%);
-      background: radial-gradient(ellipse at 3% 0, rgb(255 255 255 / 47%), transparent 72%), rgb(255 255 255 / 59%);
+      border-color: #ffffffce;
+      border-top-color: #fff;
+      border-bottom-color: #ffffff60;
+      background: var(--chrome-sheen), #ffffff86;
       box-shadow:
-        inset 0 1px 0 rgb(255 255 255 / 92%),
-        0 8px 22px -8px rgb(109 40 217 / 32%);
-      -webkit-backdrop-filter: blur(26px) saturate(1.55);
-      backdrop-filter: blur(26px) saturate(1.55);
+        inset 0 1px 0 #ffffffdd,
+        0 6px 19px -5px #7c4dff4e;
+      -webkit-backdrop-filter: blur(26px) saturate(1.6);
+      backdrop-filter: blur(26px) saturate(1.6);
     }
     :root:not(.dark) .app .seg > :is([aria-current='page'], [aria-pressed='true']) {
       color: var(--primary);
       box-shadow:
         0 0 0 1px rgb(109 40 217 / 37%),
-        var(--shadow-sm);
+        0 3px 7px #6d28d930;
+    }
+    :root:not(.dark) .app .tabs > [aria-current='page'] {
+      font-weight: 700;
     }
   }
 }

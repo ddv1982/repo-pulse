@@ -182,14 +182,33 @@ test('Ember Orbs keeps glass on the chrome and leaves the Activity feed opaque',
   const headline = await summary.locator('.headline').boundingBox();
   const counts = await summary.locator('.cells').boundingBox();
   assert.ok(headline && counts && counts.y >= headline.y + headline.height, 'Counts sit below the headline on desktop');
-  assert.match(await page.locator('body').evaluate(body => getComputedStyle(body, '::before').backgroundImage), /255, 77, 157/);
+  const backdrop = await page.locator('body').evaluate(body => getComputedStyle(body, '::before').backgroundImage);
+  assert.match(backdrop, /255, 77, 157/);
+  assert.match(backdrop, /76% 105%/);
   await expect(summary).toHaveCSS('backdrop-filter', /blur/);
+  await expect(summary).toHaveCSS('border-top-color', 'rgb(255, 255, 255)');
   await expect(page.locator('.feed')).toHaveCSS('backdrop-filter', 'none');
   await expect(page.locator('.feed')).toHaveCSS('background-color', 'rgb(255, 255, 255)');
+  await expect(page.locator('#demo .banner')).toHaveCSS('background-color', 'rgb(255, 255, 255)');
+  const unread = page.getByRole('button', { name: 'Unread only', exact: true });
+  await unread.click();
+  await expect(unread).toHaveAttribute('aria-pressed', 'true');
+  await expect(unread).toHaveCSS('background-image', /radial-gradient/);
+  const filterOpacity = () =>
+    unread.evaluate(element => {
+      const context = document.createElement('canvas').getContext('2d');
+      if (!context) throw new Error('2D canvas is unavailable');
+      context.fillStyle = getComputedStyle(element).backgroundColor;
+      context.fillRect(0, 0, 1, 1);
+      return context.getImageData(0, 0, 1, 1).data[3] ?? 0;
+    });
+  assert.ok((await filterOpacity()) > 127, 'Active filter keeps a glass backing');
   const session = await page.context().newCDPSession(page);
   await session.send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-transparency', value: 'reduce' }] });
   await expect(summary).toHaveCSS('backdrop-filter', 'none');
   await expect(summary).toHaveCSS('background-color', 'rgb(255, 255, 255)');
+  await expect(unread).toHaveCSS('background-image', 'none');
+  await expect.poll(filterOpacity).toBe(255);
   await session.send('Emulation.setEmulatedMedia', { features: [] });
   await session.detach();
   await page.setViewportSize({ width: 390, height: 844 });

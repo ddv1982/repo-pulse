@@ -248,6 +248,11 @@ p {
   border-radius: 12px;
   overflow: hidden;
 }
+:root:not(.dark) .card:not(.summary) {
+  box-shadow:
+    inset 0 1px 0 #fffffff2,
+    0 11px 26px -11px #7c4dff4e;
+}
 .card-pad {
   padding: 16px;
 }
@@ -275,7 +280,8 @@ p {
   margin: 0 0 16px;
   border: 1px solid;
   font-size: 14px;
-  /* The tint is an image layer so dark mode can put the card colour beneath it. */
+  /* Keep the status tint readable over either theme's backdrop. */
+  background-color: var(--card);
   background-image: linear-gradient(var(--banner-tint, transparent), var(--banner-tint, transparent));
 }
 .banner.warn {
@@ -289,10 +295,6 @@ p {
 .banner.info {
   --banner-tint: color-mix(in oklab, var(--primary) 8%, transparent);
   border-color: color-mix(in oklab, var(--primary) 20%, transparent);
-}
-/* Stars behind a translucent banner read as stray punctuation, so dark banners sit on the card colour. */
-:root.dark .banner {
-  background-color: var(--card);
 }
 .banner strong {
   display: block;
