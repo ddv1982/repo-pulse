@@ -317,7 +317,7 @@ export function attachHighlights(items: ActivityItem[], highlights: Map<string, 
     item.highlight = highlight.reason;
     if (highlight.host) item.ciHost = highlight.host;
     if (highlight.mergeCommit) item.data = { ...item.data, mergeCommit: highlight.mergeCommit };
-    if (highlight.reason === 'default-push' && item.data?.refUpdates?.length === 1 && item.data.mergeEvidence) {
+    if (item.kind === 'push' && item.data?.refUpdates?.length === 1 && item.data.mergeEvidence) {
       item.data = { ...item.data, mergeEvidence: { ...item.data.mergeEvidence, prs: [] } };
     }
     if (highlight.ci) item.relatedCi = highlight.ci.slice(-6).reverse();

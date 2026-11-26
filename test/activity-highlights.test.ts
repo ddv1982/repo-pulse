@@ -136,6 +136,13 @@ test('prefers a live merge, adopts delayed landing SHA and leaves later pushes t
   assert.deepEqual(ids(page.items), ['later-reset', 'live-merge']);
   assert.equal(page.items.find(item => item.id === 'live-merge')?.data?.mergeCommit, landing);
   assert.equal(page.newItems, 2);
+  assert.equal(store.getEvent('later-reset')?.data?.mergeEvidence?.prs?.length, 1);
+  store.saveRewriteResult({ eventId: 'later-reset', jobId: 'check-reset', rewrite: { ref: main, status: 'rewrite', dropped: 2 } });
+  const reset = store.queryActivity().items.find(item => item.id === 'later-reset');
+  assert.equal(reset?.highlight, 'rewrite');
+  assert.deepEqual(reset?.data?.mergeEvidence?.prs, []);
+  assert.equal(reset?.data?.mergeEvidence?.rewrite?.[0]?.dropped, 2);
+
   store.close();
 });
 
