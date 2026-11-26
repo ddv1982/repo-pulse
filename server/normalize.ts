@@ -234,10 +234,10 @@ export function createNormalizer({ store, now = Date.now }: { store: NormalizeSt
     return {
       previous,
       changed,
-      // Historical IDs hash the state without votes, as before votes were recorded, so re-importing a closure finds its row.
+      // Preserve legacy IDs for re-imports and for live events without an actual preview.
       sourceId: historical
-        ? `history:${key}:${fingerprint({ ...value, votes: undefined })}`
-        : `${key}:${(previous?.revision || 0) + 1}:${fingerprint(value)}`,
+        ? `history:${key}:${fingerprint({ ...value, votes: undefined, previewCommit: undefined })}`
+        : `${key}:${(previous?.revision || 0) + 1}:${fingerprint({ ...value, previewCommit: value.previewCommit ?? undefined })}`,
       entity: historical ? null : ({ type, id: key, data: { fingerprint: value, status: value.status, revision } } satisfies Entity),
     };
   }
