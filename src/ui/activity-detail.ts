@@ -4,10 +4,10 @@ import { activityBranch } from '../activity-branch.ts';
 import {
   emptyHtml,
   html,
-  joinHtml,
   branchName,
   labels,
   dateTime,
+  fullDateTime,
   azureLink,
   activityLabel,
   activityTone,
@@ -37,7 +37,7 @@ export type LoadedView = CommitsView | ReviewView;
 export type DetailState = { events: ActivityEvent[]; repos: Repo[]; demo?: boolean; detailRelated?: ActivityEvent[] | undefined };
 
 function commit(value: string) {
-  return html`<code title="${value}">${value.slice(0, 8)}</code> <button class="ghost sm" type="button" data-action="copy-commit" data-value="${value}" aria-label="Copy full commit ID">Copy</button>`;
+  return html`<code title="${value}">${value.slice(0, 8)}</code> <button class="ghost sm detail-copy" type="button" data-action="copy-commit" data-value="${value}" aria-label="Copy full commit ID">Copy</button>`;
 }
 
 const mergeStrategies: Record<string, string | undefined> = {
@@ -47,11 +47,17 @@ const mergeStrategies: Record<string, string | undefined> = {
   rebaseMerge: 'Rebase with merge commit',
 };
 
-const reviewerList = (reviewers: NonNullable<EventData['reviewers']>) =>
-  joinHtml(
-    reviewers.map(reviewer => html`${reviewer.name}${reviewer.required ? ' (required)' : ''}: ${voteLabel(reviewer.vote)}`),
-    html`<br>`,
-  );
+function reviewerList(reviewers: NonNullable<EventData['reviewers']> | undefined) {
+  if (!reviewers?.length) return emptyHtml;
+  return html`<section class="detail-section"><h2>Reviewers</h2><ul class="detail-list">${reviewers.map(reviewer => {
+    const rawName: unknown = reviewer.name;
+    const name =
+      typeof rawName === 'string' && rawName.trim() ? rawName : typeof rawName === 'number' ? String(rawName) : 'Unknown reviewer';
+    const display = name.replace(/^\[[^\]]+\]\\/, '') || name;
+    const tone = reviewer.vote > 0 ? 'ok' : reviewer.vote === -5 ? 'warn' : reviewer.vote < 0 ? 'crit' : 'neutral';
+    return html`<li><span title="${name}">${display}</span>${reviewer.required ? html`<span class="chip">Required</span>` : emptyHtml}<span class="chip status-chip ${tone}">${voteLabel(reviewer.vote)}</span></li>`;
+  })}</ul></section>`;
+}
 
 /**
  * A pushed tag can point at an annotated tag object rather than a commit; only the refs snapshot peels it.
@@ -64,39 +70,52 @@ function tagFields(data: EventData): [string, HtmlValue][] {
   ];
 }
 
+function factValue(value: HtmlValue, fallback = 'Not supplied') {
+  if (!value || (typeof value === 'string' && /^unknown$/i.test(value))) {
+    return html`<span class="dim">${value || fallback}</span>`;
+  }
+  return value;
+}
+
 function detailFields(
   record: ActivityItem,
   repo: Repo | undefined,
   data: EventData,
   sha: string | undefined,
   pushId: PushId,
-): [string, HtmlValue][] {
+): [string, [string, HtmlValue][]][] {
   const pr = record.kind === 'pr',
     tag = record.kind === 'tag';
   const sameTime = new Date(record.time).valueOf() === new Date(record.observedAt ?? NaN).valueOf();
   const label = activityActor(record);
   const actor = label && label !== record.actor ? html`<abbr title="${record.actor}">${label}</abbr>` : label;
-  const fields: [string, HtmlValue][] = [
-    ['Repository', `${repo?.name || ''}${repo?.project ? ` · ${repo.project}` : ''}`],
-    [pr ? 'Source branch' : tag ? 'Tag' : 'Branch', branchName(record.branch) || 'Not supplied'],
-    [pr ? 'Created by' : record.kind === 'push' ? 'Pushed by' : 'By', actor || 'Not supplied by Azure'],
+  const change: [string, HtmlValue][] = [
+    ['Repository', repo ? `${repo.name}${repo.project ? ` · ${repo.project}` : ''}` : html`<span class="dim">Not supplied</span>`],
+    [pr ? 'Source branch' : tag ? 'Tag' : 'Branch', factValue(branchName(record.branch))],
+  ];
+  if (pr && data.targetRefName) change.push(['Target branch', branchName(data.targetRefName)]);
+  if (data.mergeStrategy) change.push(['Merge strategy', factValue(mergeStrategies[data.mergeStrategy])]);
+  if (data.reason) change.push(['Trigger', triggerLabel(data.reason)]);
+  if (data.pullRequestId) change.push(['Pull request', `#${data.pullRequestId}`]);
+  if (pushId) change.push(['Push', `#${pushId}`]);
+
+  const commits: [string, HtmlValue][] = [];
+  if (sha) commits.push([pr ? 'Source commit' : 'Commit', commit(sha)]);
+  if (tag) commits.push(...tagFields(data));
+  if (pr && data.status === 'completed' && data.mergeCommit) commits.push(['Merge commit', commit(data.mergeCommit)]);
+
+  const people: [string, HtmlValue][] = [
+    [pr ? 'Created by' : record.kind === 'push' ? 'Pushed by' : 'By', factValue(actor, 'Not supplied by Azure')],
     [sameTime ? 'Time' : 'Source time', dateTime(record.time)],
   ];
-  const add = (condition: unknown, label: string, value: () => HtmlValue) => {
-    if (condition) fields.push([label, value()]);
-  };
-  add(!sameTime, 'Observed locally', () => dateTime(record.observedAt));
-  add(pr && data.targetRefName, 'Target branch', () => branchName(data.targetRefName));
-  add(sha, pr ? 'Source commit' : 'Commit', () => commit(sha as string));
-  if (tag) fields.push(...tagFields(data));
-  add(pr && data.status === 'completed' && data.mergeCommit, 'Merge commit', () => commit(data.mergeCommit as string));
-  add(data.mergeStrategy, 'Merge strategy', () => mergeStrategies[data.mergeStrategy ?? ''] || 'Not supplied');
-  add(pr && data.closedBy, 'PR closed by', () => data.closedBy);
-  add(pr && data.reviewers?.length, 'Reviewers', () => reviewerList(data.reviewers as NonNullable<EventData['reviewers']>));
-  add(data.reason, 'Trigger', () => triggerLabel(data.reason));
-  add(data.pullRequestId, 'Pull request', () => `#${data.pullRequestId}`);
-  add(pushId, 'Push', () => `#${pushId}`);
-  return fields;
+  if (!sameTime && record.observedAt) people.push(['Observed locally', dateTime(record.observedAt)]);
+  if (pr && data.closedBy) people.push(['PR closed by', factValue(data.closedBy)]);
+
+  return [
+    ['Change', change],
+    ['Commits', commits],
+    ['People and time', people],
+  ];
 }
 
 function detailHead(record: ActivityItem, repo: Repo | undefined, title: string, matching: ActivityEvent[], branchAction: HtmlValue) {
@@ -105,7 +124,7 @@ function detailHead(record: ActivityItem, repo: Repo | undefined, title: string,
   const ack = !ids.length
     ? emptyHtml
     : html`<button class="btn" data-action="ack-item" data-mark-seen="${Boolean(unseen.length)}" data-id="${record.id}" data-event-ids="${JSON.stringify(ids)}">Mark ${unseen.length ? 'seen' : 'unseen'}</button>`;
-  return html`<div class="dhead"><div><h1>${title}</h1><div class="meta">${record.kind.startsWith('branch-') ? 'Branch' : labels[record.kind]} · ${repo?.name} · ${branchName(record.branch)}</div></div><div class="actions">${branchAction}${azureLink(record.url, 'Open in Azure DevOps', 'btn')}${ack}</div></div>`;
+  return html`<header class="dhead"><div class="detail-heading">${detailStatus(record, activityTone(record), matching)}<h1>${title}</h1><div class="meta">${record.kind.startsWith('branch-') ? 'Branch' : labels[record.kind]} · ${repo?.name} · ${branchName(record.branch)}</div></div><div class="actions">${branchAction}${azureLink(record.url, 'Open in Azure DevOps', 'btn')}${ack}</div></header>`;
 }
 
 function seenChip(matching: ActivityEvent[]) {
@@ -114,7 +133,7 @@ function seenChip(matching: ActivityEvent[]) {
   return matching.every(event => event.imported) ? 'Imported history' : 'Seen';
 }
 
-function detailFacts(record: ActivityItem, tone: string, matching: ActivityEvent[]) {
+function detailStatus(record: ActivityItem, tone: string, matching: ActivityEvent[]) {
   const label = activityLabel(record);
   return html`<div class="facts"><span class="chip status-chip ${tone}${label === 'Merged' ? ' merged' : ''}">${label}</span><span class="chip">${seenChip(matching)}</span>${record.kind === 'build' ? html`<span class="chip name">CI outcome · deployment unknown</span>` : emptyHtml}</div>`;
 }
@@ -124,59 +143,97 @@ function pushCommits(record: ActivityItem, repo: Repo | undefined, pushId: PushI
   return html`<button class="btn" data-action="load-commits" data-repo-id="${record.repoId}" data-push-id="${pushId}">${commits ? 'Reload commits' : 'Load push commits'}</button><p class="help">Loads on request within the shared budget.</p>${commits ? renderCommits(commits) : emptyHtml}`;
 }
 
-/** Azure's policy evaluation status in words. */
-const policyStatus: Record<string, string | undefined> = {
-  approved: 'passed',
-  rejected: 'failed',
-  running: 'running',
-  queued: 'waiting',
-  notApplicable: 'not applicable',
-  broken: 'broken',
-};
+/** Azure policy status labels and tones. Unknown policy statuses stay neutral. */
+const policyStatus = new Map([
+  ['approved', ['passed', 'ok']],
+  ['rejected', ['failed', 'crit']],
+  ['running', ['running', 'info']],
+  ['queued', ['waiting', 'warn']],
+  ['notApplicable', ['not applicable', 'neutral']],
+  ['broken', ['broken', 'crit']],
+]);
 
 function renderReview(review: ReviewView) {
-  if ('error' in review) return html`<p class="status-bad">${review.error}</p>`;
+  if ('error' in review) return html`<p class="status-bad" role="alert">${review.error}</p>`;
   const { open, resolved } = review.threads;
-  const policies = review.policies.map(
-    policy => html`<li>${policy.name}${policy.blocking ? ' (required)' : ''}: ${policyStatus[policy.status] || policy.status}</li>`,
-  );
-  return html`<p>Discussion: ${open} open, ${resolved} resolved thread${open + resolved === 1 ? '' : 's'}</p>${policies.length ? html`<ul class="rows">${policies}</ul>` : html`<p class="help">No branch policies apply to this pull request.</p>`}`;
+  return html`<div class="discussion-stats" role="group" aria-label="Discussion"><span class="${open ? 'status-text warn' : ''}"><strong>${open}</strong> open thread${open === 1 ? '' : 's'}</span><span><strong>${resolved}</strong> resolved</span></div>
+    ${
+      review.policies.length
+        ? html`<ul class="detail-list">${review.policies.map(policy => {
+            const [label, tone] = policyStatus.get(policy.status) ?? [policy.status, 'neutral'];
+            return html`<li><span>${policy.name}</span>${policy.blocking ? html`<span class="chip">Required</span>` : emptyHtml}<span class="chip status-chip ${tone}">${label}</span></li>`;
+          })}</ul>`
+        : html`<p class="help">No branch policies apply to this pull request.</p>`
+    }`;
 }
 
 function prReview(record: ActivityItem, data: EventData, review: ReviewView | undefined) {
   if (record.kind !== 'pr' || !data.pullRequestId) return emptyHtml;
-  return html`<button class="btn" data-action="load-review" data-repo-id="${record.repoId}" data-pr-id="${data.pullRequestId}">${review ? 'Reload discussion and policies' : 'Load discussion and policies'}</button><p class="help">Loads the current state on request within the shared budget.</p>${review ? renderReview(review) : emptyHtml}`;
+  return html`<section class="detail-section"><div class="detail-section-head"><h2>Discussion and policies</h2><button class="btn sm" data-action="load-review" data-repo-id="${record.repoId}" data-pr-id="${data.pullRequestId}">${review ? 'Reload discussion and policies' : 'Load discussion and policies'}</button></div><p class="help">Loads the current state on request within the shared budget.</p>${review ? renderReview(review) : emptyHtml}</section>`;
 }
 
 function detailData(
   record: ActivityItem,
   repo: Repo | undefined,
   data: EventData,
-  fields: [string, HtmlValue][],
+  fields: ReturnType<typeof detailFields>,
   pushId: PushId,
   loaded: LoadedView | undefined,
+  related: ActivityEvent[],
 ) {
-  const summary = record.kind !== 'build' ? html`<p>${activitySummary(record)}</p>` : emptyHtml;
-  const facts = fields.map(([name, value]) => html`<div><dt>${name}</dt><dd>${value}</dd></div>`);
-  const completed =
-    record.kind === 'pr' && data.status === 'completed'
-      ? html`<p class="help">Completed in Azure DevOps. Push details show separately checked commit and PR evidence.</p>`
-      : emptyHtml;
+  const completed = record.kind === 'pr' && data.status === 'completed';
+  const summary = record.kind !== 'build' ? activitySummary(record) : '';
   const evidence = record.kind === 'push' ? renderMergeEvidence(data) : emptyHtml;
-  // A detail loads one kind of data, keyed by its event: commits for a push, review data for a PR.
+  const trail = renderTrail(record, { expanded: true });
   const extra =
     record.kind === 'pr'
       ? prReview(record, data, loaded && !('items' in loaded) ? loaded : undefined)
       : pushCommits(record, repo, pushId, loaded && !('threads' in loaded) ? loaded : undefined);
-  return html`<div class="detail-data">${summary}<dl class="detail-facts">${facts}</dl>${completed}${evidence}${renderTrail(record, { expanded: true })}${extra}</div>`;
+  const timeline = relatedActivity(record, related);
+  const hasMain = [evidence, trail, extra, timeline].some(section => section !== emptyHtml);
+  const main = hasMain
+    ? html`<div class="detail-main">
+    ${evidence !== emptyHtml ? html`<div class="detail-section">${evidence}</div>` : emptyHtml}${trail !== emptyHtml ? html`<div class="detail-section">${trail}</div>` : emptyHtml}
+    ${record.kind === 'push' && extra !== emptyHtml ? html`<div class="detail-section">${extra}</div>` : extra}${timeline}</div>`
+    : emptyHtml;
+  const metadata = html`<div class="detail-metadata"><div class="detail-facts">${fields.filter(([, values]) => values.length).map(([name, values]) => html`<section class="detail-section"><h2>${name}</h2><dl>${values.map(([label, value]) => html`<div><dt>${label}</dt><dd>${value}</dd></div>`)}</dl></section>`)}</div>
+    ${record.kind === 'pr' ? reviewerList(data.reviewers) : emptyHtml}${completed ? html`<p class="help detail-note">Completed in Azure DevOps. Push details show separately checked commit and PR evidence.</p>` : emptyHtml}</div>`;
+  return html`${summary ? html`<div class="detail-outcome"><strong>${summary}</strong>${completed && data.targetRefName ? html`<span><code>${branchName(record.branch) || 'Source not supplied'}</code> → <code>${branchName(data.targetRefName)}</code></span>${data.mergeCommit ? html`<code title="${data.mergeCommit}">${data.mergeCommit.slice(0, 8)}</code>` : emptyHtml}<time datetime="${record.time}" title="${fullDateTime(record.time)}">${dateTime(record.time)}</time>` : emptyHtml}</div>` : emptyHtml}
+    <div class="detail-data ${record.kind === 'pr' && hasMain ? 'pr-detail-data' : ''}">${record.kind === 'pr' ? html`${main}${metadata}` : html`${metadata}${main}`}</div>`;
 }
 
-function relatedActivity(events: ActivityEvent[]) {
-  return events.length
-    ? html`<details class="linked-event"><summary>Related activity · ${events.length}</summary><ul class="rows">
-      ${events.map(event => html`<li><a href="#event/${encodeURIComponent(event.id)}">${activityLabel(event)} · ${activityTitle(event)}</a> <span class="dim">${dateTime(event.time)}</span></li>`)}
-      </ul></details>`
-    : emptyHtml;
+function relatedActivity(record: ActivityItem, events: ActivityEvent[]) {
+  if (!events.length) return emptyHtml;
+  const days = new Map<string, ActivityEvent[]>();
+  for (const event of events) {
+    const day = new Date(event.time).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' });
+    const group = days.get(day);
+    if (group) group.push(event);
+    else days.set(day, [event]);
+  }
+  return html`<details class="detail-section detail-related" data-group="related-${record.id}"><summary>Related activity · ${events.length}</summary>
+    ${[...days].map(
+      ([day, entries]) =>
+        html`<h3>${day}</h3><ul class="detail-list">${entries.map(event => {
+          const label = activityLabel(event);
+          const title = activityTitle(event);
+          const samePr =
+            record.kind === 'pr' &&
+            event.kind === 'pr' &&
+            record.data?.pullRequestId &&
+            String(record.data.pullRequestId) === String(event.data?.pullRequestId) &&
+            title === activityTitle(record);
+          const name = samePr ? 'Pull request update' : title;
+          const time = new Date(event.time);
+          const clock = Number.isNaN(time.valueOf())
+            ? dateTime(event.time)
+            : time.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+          return html`<li><span class="chip status-chip ${activityTone(event)}${label === 'Merged' ? ' merged' : ''}">${label}</span>
+        <a href="#event/${encodeURIComponent(event.id)}" title="${title}" aria-label="${samePr ? `${name} · ` : ''}${label} · ${title}">${name}</a>
+        <time datetime="${event.time}" title="${fullDateTime(event.time)}">${clock}</time></li>`;
+        })}</ul>`,
+    )}
+  </details>`;
 }
 
 export function renderDetail(
@@ -211,8 +268,7 @@ export function renderDetail(
       ? html`<a class="btn" id="activity-branch-action" href="${repositoryHref(event.repoId)}">View in Repositories</a>`
       : html`<button class="btn" type="button" id="activity-branch-action" data-action="switch-activity-branch">Switch to ${branch}…</button>`;
   return html`<div class="crumb">${back}<span>${repo?.name}</span></div><section class="card">${detailHead(record, repo, activityTitle(record), matching, branchAction)}
-    ${detailFacts(record, activityTone(record), matching)}
-    ${detailData(record, repo, data, fields, pushId, commits)}${relatedActivity(state.detailRelated ?? [])}</section>`;
+    ${detailData(record, repo, data, fields, pushId, commits, state.detailRelated ?? [])}</section>`;
 }
 
 export function renderCommits(commits: CommitsView) {

@@ -474,7 +474,7 @@ const views: Record<string, View> = {
         field: 'push.mergeEvidence.commits.branches',
         html: ` · ${html(`${probe('push.mergeEvidence.commits.branches.0')}, ${probe('push.mergeEvidence.commits.branches.1')}`)}</li>`,
       },
-      { field: 'newBranchPush.refUpdates.newObjectId', html: `<p>${summary}</p>` },
+      { field: 'newBranchPush.refUpdates.newObjectId', html: `<strong>${summary}</strong>` },
     ],
   },
   repositories: {

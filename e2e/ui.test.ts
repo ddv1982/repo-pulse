@@ -2147,22 +2147,28 @@ test('a push that rewrote history says so on its row and in how it was merged, a
 test('a pull request detail lists its reviewers and their votes in words', async t => {
   const { page } = await setup(t);
   await page.locator('[data-event-id="demo-pr-1"] .feed-title').click();
-  const facts = page.locator('.detail-facts');
-  await expect(facts).toContainText('Redacted 3 (required): approved');
-  await expect(facts).toContainText('Redacted 1: waiting for author');
-  await expect(facts).toContainText('Billing reviewers (required): no vote');
+  const reviewers = page.locator('.detail-section', { has: page.getByRole('heading', { name: 'Reviewers', exact: true }) });
+  await expect(reviewers.getByRole('listitem').filter({ hasText: 'Redacted 3' }).locator('.chip')).toHaveText(['Required', 'approved']);
+  await expect(reviewers.getByRole('listitem').filter({ hasText: 'Redacted 1' }).locator('.status-chip')).toHaveText('waiting for author');
+  await expect(reviewers.getByRole('listitem').filter({ hasText: 'Billing reviewers' }).locator('.chip')).toHaveText([
+    'Required',
+    'no vote',
+  ]);
 });
 
 test('a pull request detail loads its discussion and policy results only when asked', async t => {
   const { page } = await setup(t);
   await page.locator('[data-event-id="demo-pr-1"] .feed-title').click();
   const detail = page.locator('.detail-data');
-  await expect(detail).not.toContainText('Discussion:');
+  await expect(detail.locator('.discussion-stats')).toHaveCount(0);
   await detail.getByRole('button', { name: 'Load discussion and policies' }).click();
-  await expect(detail).toContainText('Discussion: 2 open, 3 resolved threads');
-  await expect(detail).toContainText('Minimum number of reviewers (required): waiting');
-  await expect(detail).toContainText('Build (required): failed');
-  await expect(detail).toContainText('Comment requirements: passed');
+  await expect(detail.locator('.discussion-stats > span')).toHaveText(['2 open threads', '3 resolved']);
+  await expect(detail.getByRole('listitem').filter({ hasText: 'Minimum number of reviewers' }).locator('.chip')).toHaveText([
+    'Required',
+    'waiting',
+  ]);
+  await expect(detail.getByRole('listitem').filter({ hasText: 'Build' }).locator('.chip')).toHaveText(['Required', 'failed']);
+  await expect(detail.getByRole('listitem').filter({ hasText: 'Comment requirements' }).locator('.status-chip')).toHaveText('passed');
   await expect(detail.getByRole('button', { name: 'Reload discussion and policies' })).toBeVisible();
 });
 
@@ -2475,6 +2481,8 @@ test('Git Graph shows a merged branch and exact CI links alongside the Activity 
   git(local, 'switch', 'main');
   git(local, 'merge', '--no-ff', 'graph-topic', '-m', 'Merge graph topic');
   const head = git(local, 'rev-parse', 'HEAD');
+  const longRef = 'feature/long-reference-for-testing-that-must-not-push-linked-ci-and-pr-offscreen';
+  git(local, 'branch', longRef);
   const store = createStore();
   store.saveRepo(repo);
   const time = new Date().toISOString();
@@ -2533,6 +2541,15 @@ test('Git Graph shows a merged branch and exact CI links alongside the Activity 
   await expect(page.getByRole('link', { name: 'CI · Succeeded' })).toHaveAttribute('href', '#event/build-on-merge');
   await expect(page.getByRole('link', { name: 'PR · Merged' })).toHaveAttribute('href', '#event/finished-pr');
   await expect(page.getByRole('link', { name: 'CI · Failed' })).toHaveCount(0);
+  await expect(page.locator(`#commit-${head} .graph-ref[title="${longRef}"]`)).toBeVisible();
+  for (const width of [390, 1280]) {
+    await page.setViewportSize({ width, height: 844 });
+    const graph = page.locator('.graph-commits');
+    assert.ok(await graph.evaluate(list => list.scrollWidth <= list.clientWidth));
+    const marker = await page.locator(`#commit-${head} .graph-rail circle`).boundingBox();
+    assert.ok(marker && Math.abs(marker.width - marker.height) < 1, 'Branch nodes stay round as rows wrap');
+  }
+  await page.setViewportSize({ width: 390, height: 844 });
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
 
   for (let i = 0; i < 50; i++) git(local, 'commit', '--allow-empty', '-m', `Later commit ${i}`);
@@ -2832,6 +2849,8 @@ test('Activity shows only highlights and links a landing and quieter CI to its d
   await page.screenshot({ path: 'test-results/activity-highlights-phone.png' });
   await merge.locator('.feed-title').click();
   await page.getByText('Related activity', { exact: false }).click();
+  await expect(page.locator('.detail-related h3')).not.toHaveCount(0);
+  await expect(page.locator('.detail-related time').first()).toHaveAttribute('datetime', /T/);
   await expect(page.getByRole('link', { name: /Merge of PR 512 pushed to main/ })).toBeVisible();
   await page.getByRole('link', { name: /Billing CI/ }).click();
   await expect(page.getByRole('heading', { name: 'Billing CI' })).toBeVisible();
