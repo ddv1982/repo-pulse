@@ -50,9 +50,12 @@ const mergeStrategies: Record<string, string | undefined> = {
 function reviewerList(reviewers: NonNullable<EventData['reviewers']> | undefined) {
   if (!reviewers?.length) return emptyHtml;
   return html`<section class="detail-section"><h2>Reviewers</h2><ul class="detail-list">${reviewers.map(reviewer => {
-    const display = reviewer.name.replace(/^\[[^\]]+\]\\/, '') || reviewer.name;
+    const rawName: unknown = reviewer.name;
+    const name =
+      typeof rawName === 'string' && rawName.trim() ? rawName : typeof rawName === 'number' ? String(rawName) : 'Unknown reviewer';
+    const display = name.replace(/^\[[^\]]+\]\\/, '') || name;
     const tone = reviewer.vote > 0 ? 'ok' : reviewer.vote === -5 ? 'warn' : reviewer.vote < 0 ? 'crit' : 'neutral';
-    return html`<li><span title="${reviewer.name}">${display}</span>${reviewer.required ? html`<span class="chip">Required</span>` : emptyHtml}<span class="chip status-chip ${tone}">${voteLabel(reviewer.vote)}</span></li>`;
+    return html`<li><span title="${name}">${display}</span>${reviewer.required ? html`<span class="chip">Required</span>` : emptyHtml}<span class="chip status-chip ${tone}">${voteLabel(reviewer.vote)}</span></li>`;
   })}</ul></section>`;
 }
 

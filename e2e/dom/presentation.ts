@@ -165,6 +165,27 @@ test('detail has readable labels, exact group IDs and abbreviated copyable commi
   ]);
 });
 
+test('PR details render reviewer names from older activity records safely', async () => {
+  const state = fixture();
+  const pr: Event = {
+    id: 'older-pr',
+    kind: 'pr',
+    title: 'PR 7 · Review names',
+    time: '2026-11-20T10:00:00Z',
+    data: {
+      reviewers: [
+        { name: '[Team]\\Reviewers', vote: 10 },
+        { name: 42 as unknown as string, vote: 0 },
+        { name: {} as unknown as string, vote: 0 },
+      ],
+    },
+  };
+  const doc = parse(renderDetail(pr, state));
+  const names = await all(doc, '.detail-list li > span[title]');
+  assert.deepEqual(await Promise.all(names.map(text)), ['Reviewers', '42', 'Unknown reviewer']);
+  assert.equal(await present(names[0]).getAttribute('title'), '[Team]\\Reviewers');
+});
+
 test('a completed pull request detail offers a switch to the branch it merged into', async () => {
   const state = fixture();
   const pr: ActivityEvent = {
