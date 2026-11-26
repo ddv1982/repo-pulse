@@ -155,6 +155,7 @@ const prState = (pr: AzurePullRequest) => ({
   title: pr.title,
   source: pr.lastMergeSourceCommit?.commitId,
   target: pr.targetRefName,
+  ...(pr.status === 'active' && pr.lastMergeCommit?.commitId ? { previewCommit: pr.lastMergeCommit.commitId.toLowerCase() } : {}),
   votes: reviewerVotes(pr),
 });
 // Active PRs can expose a successful preview merge. Only completion establishes
@@ -332,7 +333,8 @@ export function createNormalizer({ store, now = Date.now }: { store: NormalizeSt
     prs(item, { repo, add, entities, historical }) {
       if (!item.pullRequestId || (item.repository?.id && item.repository.id.toLowerCase() !== repo.azureId?.toLowerCase())) return;
       const key = String(item.pullRequestId);
-      const { previous, changed, sourceId, entity } = snapshot(repo, 'pr', key, prState(item), historical);
+      const state = prState(item);
+      const { previous, changed, sourceId, entity } = snapshot(repo, 'pr', key, state, historical);
       if (changed) {
         add('pr', sourceId, {
           title: `PR ${key} · ${text(item.title || 'Untitled', 'Untitled')}`,
@@ -349,7 +351,7 @@ export function createNormalizer({ store, now = Date.now }: { store: NormalizeSt
             sourceRefName: item.sourceRefName,
             targetRefName: item.targetRefName,
             sourceCommit: item.lastMergeSourceCommit?.commitId,
-            previewCommit: item.status === 'active' ? item.lastMergeCommit?.commitId : undefined,
+            previewCommit: state.previewCommit,
             sourceRepositoryId: item.forkSource ? item.forkSource.repository?.id : item.repository?.id,
             targetRepositoryId: item.repository?.id,
             reviewers: reviewers(item),
