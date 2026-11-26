@@ -146,7 +146,6 @@ export type ActivityItem = ActivityEvent & {
   relatedCi?: RelatedCi[];
   ciHost?: string;
   foldedCi?: number;
-  foldedCiAckIds?: string[];
 };
 
 export type ActivityRequest = {

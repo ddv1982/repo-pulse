@@ -2532,10 +2532,20 @@ test('Activity keeps the branch tree while exposing merge status, CI and push co
     {
       ...base,
       id: 'readable-merge',
+      seen: true,
       kind: 'pr',
       title: 'PR 504 · Update billing',
       time: minutesAgo(6),
       data: { pullRequestId: 504, status: 'completed', targetRefName: main, mergeCommit: sha },
+    },
+    {
+      ...base,
+      id: 'seen-passing-run',
+      kind: 'build',
+      title: 'Billing CI',
+      time: minutesAgo(4),
+      seen: true,
+      data: { buildId: 521, status: 'completed', result: 'succeeded', reason: 'individualCI', sourceBranch: main, sourceVersion: sha },
     },
     {
       ...base,
@@ -2551,6 +2561,18 @@ test('Activity keeps the branch tree while exposing merge status, CI and push co
   const failure = page.locator('[data-event-id="failed-after-merge"]');
   await expect(merge.locator('.kind')).toHaveText('PR merged');
   await expect(merge.getByText('Merged into main')).toBeVisible();
+  const passing = page.locator('[data-event-id="seen-passing-run"]');
+  const seen = merge.locator('.seen-toggle');
+  await expect(passing).toHaveCount(0);
+  await expect(seen).toHaveAttribute('aria-pressed', 'true');
+  await seen.click();
+  await expect(seen).toHaveAttribute('aria-pressed', 'false');
+  await expect(passing).toHaveCount(0);
+  await seen.click();
+  await expect(seen).toHaveAttribute('aria-pressed', 'true');
+  await expect(passing).toHaveCount(0);
+  assert.equal(runtime.store.getEvent('seen-passing-run')?.seen, true);
+  await merge.getByText('CI · 1 failed · 1 passed').click();
   await expect(merge.getByRole('button', { name: 'Post-merge CI failed' })).toBeVisible();
   await expect(failure.locator('svg.tree rect.ci-node')).toBeVisible();
   await expect(page.locator('svg.tree .default-lane').first()).toHaveCSS('stroke-width', '2.5px');

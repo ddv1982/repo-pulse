@@ -633,7 +633,7 @@ test('Activity resolves CI across pages and keeps failures and filtered runs vis
       ['unread-pass', 'passed', true],
     ],
   );
-  assert.deepEqual(all.find(item => item.id === 'merge')?.foldedCiAckIds, ['passing']);
+  assert.ok(all.find(item => item.id === 'merge')?.eventIds.includes('passing'));
   assert.deepEqual(all.find(item => item.id === 'merge')?.unseenIds, []);
   assert.equal(all.find(item => item.id === 'failed')?.ciHost, 'merge');
   assert.equal(all.find(item => item.id === 'other-pr')?.relatedCi, undefined);

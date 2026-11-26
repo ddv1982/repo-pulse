@@ -237,7 +237,6 @@ function attachCi(items: ActivityItem[], links: CiLink[], members: Map<string, A
       if (link.folded) {
         for (const member of members.get(link.run_key) ?? []) {
           host.eventIds.push(member.id);
-          if (!member.imported) (host.foldedCiAckIds ??= []).push(member.id);
         }
         host.foldedCi = (host.foldedCi ?? 0) + 1;
       }

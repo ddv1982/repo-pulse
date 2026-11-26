@@ -321,12 +321,7 @@ function row(
   const unreadIds = JSON.stringify(unread);
   const ackIds = record.unseen
     ? unreadIds
-    : JSON.stringify(
-        [...record.events, ...(push?.events ?? [])]
-          .filter(event => !event.imported)
-          .map(event => event.id)
-          .concat(record.foldedCiAckIds ?? []),
-      );
+    : JSON.stringify([...record.events, ...(push?.events ?? [])].filter(event => !event.imported).map(event => event.id));
   const ackLinkedPush = push && (!record.unseen || push.unseen);
   const fullTitle = activityTitle(record);
   const title = rowTitle(record, fullTitle, commits);
