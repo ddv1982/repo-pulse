@@ -2467,11 +2467,14 @@ test('Git Graph shows a merged branch and exact CI links alongside the Activity 
     await new Promise(resolve => app.close(resolve));
     store.close();
   });
-  const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+  const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
   await rememberKey(page);
   await page.goto(`http://127.0.0.1:${portOf(app)}/#activity`);
-  await page.getByRole('link', { name: 'Git Graph', exact: true }).click();
+  await page.getByText('Activity lane key', { exact: true }).click();
+  await expect(page.getByText(/A ring beside an open or draft PR/)).toBeVisible();
+  await page.getByRole('link', { name: 'Open Git Graph', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Git Graph' })).toBeVisible();
+  await page.setViewportSize({ width: 390, height: 844 });
   await expect(page.locator('.graph-subject').first()).toHaveText('Merge graph topic');
   await expect(page.locator(`#commit-${topic}`)).toContainText('Feature branch work');
   await expect(page.locator(`#commit-${head} .graph-rail path`)).toHaveCount(2);
