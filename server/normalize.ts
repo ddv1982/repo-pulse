@@ -155,7 +155,7 @@ const prState = (pr: AzurePullRequest) => ({
   title: pr.title,
   source: pr.lastMergeSourceCommit?.commitId,
   target: pr.targetRefName,
-  ...(pr.status === 'active' && pr.lastMergeCommit?.commitId ? { previewCommit: pr.lastMergeCommit.commitId.toLowerCase() } : {}),
+  ...(pr.status === 'active' ? { previewCommit: pr.lastMergeCommit?.commitId?.toLowerCase() || null } : {}),
   votes: reviewerVotes(pr),
 });
 // Active PRs can expose a successful preview merge. Only completion establishes
@@ -219,8 +219,16 @@ export function createNormalizer({ store, now = Date.now }: { store: NormalizeSt
     historical: boolean,
   ) {
     const previous = store.getEntity(repo.id, type, key);
-    // Snapshots saved before votes were recorded adopt the current votes instead of reporting them as a change.
-    const comparable = previous?.fingerprint && !('votes' in previous.fingerprint) ? { ...value, votes: undefined } : value;
+    // Older snapshots adopt newly tracked fields without emitting a change.
+    // A null preview on a new active snapshot still lets its first actual preview register later.
+    const saved = previous?.fingerprint;
+    const comparable = saved
+      ? {
+          ...value,
+          ...(!('votes' in saved) ? { votes: undefined } : {}),
+          ...(!('previewCommit' in saved) ? { previewCommit: undefined } : {}),
+        }
+      : value;
     const changed = !previous || JSON.stringify(previous.fingerprint) !== JSON.stringify(comparable);
     const revision = (previous?.revision || 0) + Number(changed);
     return {
@@ -351,7 +359,7 @@ export function createNormalizer({ store, now = Date.now }: { store: NormalizeSt
             sourceRefName: item.sourceRefName,
             targetRefName: item.targetRefName,
             sourceCommit: item.lastMergeSourceCommit?.commitId,
-            previewCommit: state.previewCommit,
+            previewCommit: state.previewCommit ?? undefined,
             sourceRepositoryId: item.forkSource ? item.forkSource.repository?.id : item.repository?.id,
             targetRepositoryId: item.repository?.id,
             reviewers: reviewers(item),

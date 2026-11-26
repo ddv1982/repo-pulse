@@ -352,3 +352,42 @@ test('active PR milestones record delayed and refreshed merge previews without r
   assert.equal(milestone.data?.mergeCommit, undefined);
   assert.deepEqual(poll(refreshed), []);
 });
+
+test('the first poll adopts an active PR preview into an older fingerprint without adding an unread milestone', t => {
+  const { store, normalize } = makeFixture();
+  t.after(() => store.close());
+  const pr = {
+    pullRequestId: 23,
+    status: 'active',
+    title: 'Already tracked',
+    repository: { id: repo.azureId },
+    sourceRefName: 'refs/heads/topic',
+    targetRefName: 'refs/heads/main',
+    lastMergeSourceCommit: { commitId: OLD },
+    lastMergeCommit: { commitId: NEW },
+  };
+  store.commitPage({
+    repoId: repo.id,
+    stream: 'prs',
+    events: [],
+    entities: [
+      {
+        type: 'pr',
+        id: '23',
+        data: {
+          fingerprint: { status: 'active', isDraft: false, title: pr.title, source: OLD, target: pr.targetRefName, votes: [] },
+          status: 'active',
+          revision: 1,
+        },
+      },
+    ],
+  });
+
+  const { events, entities } = normalize(repo, 'prs', [pr], { initialized: true });
+  assert.deepEqual(events, []);
+  store.commitPage({ repoId: repo.id, stream: 'prs', events, entities });
+  assert.equal(store.getEntity(repo.id, 'pr', '23')?.fingerprint?.previewCommit, NEW);
+  const refreshed = 'c'.repeat(40);
+  const later = normalize(repo, 'prs', [{ ...pr, lastMergeCommit: { commitId: refreshed } }], { initialized: true });
+  assert.equal(present(later.events[0]).data?.previewCommit, refreshed);
+});
