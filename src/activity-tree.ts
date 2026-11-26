@@ -11,10 +11,10 @@ export type { ActivityEvent };
  */
 export type ForkEvidence = 'pr' | 'recorded' | 'contained' | 'ambiguous' | 'refuted' | 'unplaced' | 'orphan' | 'merge';
 /** A drawn lane. `color` indexes the lane palette; -1 is neutral. */
-export type TreeLane = { slot: number; color: number };
+export type TreeLane = { slot: number; color: number; isDefault?: boolean };
 /** A lane in one row, and whether it runs on above and below. */
 export type TreeLine = TreeLane & { up: boolean; down: boolean };
-export type TreeNode = TreeLine & { shape: 'dot' | 'tag' | 'ring' | 'merge'; overflow: boolean };
+export type TreeNode = TreeLine & { shape: 'dot' | 'tag' | 'ring' | 'draft' | 'merge' | 'ci'; overflow: boolean };
 /**
  * The origin of a new branch. Only a fork with a `parent` is drawn. `branches` names the branches of an ambiguous base.
  */
@@ -187,8 +187,9 @@ export function treePullRequestSource(item: ActivityEvent) {
 
 function nodeShape(item: ActivityEvent): TreeNode['shape'] {
   if (item.kind === 'tag') return 'tag';
+  if (item.kind === 'build') return 'ci';
   if (item.kind !== 'pr') return 'dot';
-  return item.data?.status === 'completed' ? 'merge' : item.data?.status === 'active' ? 'ring' : 'dot';
+  return item.data?.status === 'completed' ? 'merge' : item.data?.status === 'active' ? (item.data.isDraft ? 'draft' : 'ring') : 'dot';
 }
 
 /**
@@ -392,7 +393,13 @@ export function buildActivityTree(
   for (const row of visibleJoins.keys()) joined.add(ownLanes[row] as Lane);
   colorLanes(drawn, joined);
   const width = drawn.reduce((most, lane) => Math.max(most, lane.slot + 1), 0);
-  const line = (lane: Lane, row: number): TreeLine => ({ slot: lane.slot, color: lane.color, up: lane.top < row, down: lane.bottom > row });
+  const line = (lane: Lane, row: number): TreeLine => ({
+    slot: lane.slot,
+    color: lane.color,
+    ...(lane.priority === 3 ? { isDefault: true } : {}),
+    up: lane.top < row,
+    down: lane.bottom > row,
+  });
   const rows = items.map((item, row) => {
     const own = ownLanes[row] as Lane;
     const other = visibleJoins.get(row);
@@ -405,7 +412,7 @@ export function buildActivityTree(
           : { slot: width, color: -1, up: false, down: false, shape: nodeShape(item), overflow: true },
       through: drawn
         .filter(lane => lane !== own && lane !== other && lane.top < row && lane.bottom > row)
-        .map(lane => ({ slot: lane.slot, color: lane.color })),
+        .map(lane => ({ slot: lane.slot, color: lane.color, ...(lane.priority === 3 ? { isDefault: true } : {}) })),
       fork: forks[row] ?? null,
       forkFrom: joined && fork ? { ...joined, evidence: fork.evidence } : null,
       mergeFrom: fork ? null : joined,

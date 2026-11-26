@@ -385,6 +385,7 @@ export function createNormalizer({ store, now = Date.now }: { store: NormalizeSt
             status: item.status,
             result: item.result,
             sourceVersion: item.sourceVersion,
+            buildStartedAt: item.startTime || item.queueTime,
             sourceBranch: item.sourceBranch,
             definition: item.definition,
             reason: item.reason,

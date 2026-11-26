@@ -206,7 +206,7 @@ export function renderDetail(
     ${detailData(record, repo, data, fields, pushId, commits)}</section>`;
 }
 
-function renderCommits(commits: CommitsView) {
+export function renderCommits(commits: CommitsView) {
   if ('error' in commits && commits.error) return html`<p class="status-bad">${commits.error}</p>`;
   const items = 'items' in commits ? commits.items : [];
   return html`<ul class="rows">${items.map(item => html`<li class="push">${commit(item.commitId || '')} ${item.comment || ''}</li>`)}</ul>${'nextCursor' in commits && commits.nextCursor ? html`<p class="help">More commits are available in Azure DevOps.</p>` : emptyHtml}`;

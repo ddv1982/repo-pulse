@@ -1004,6 +1004,27 @@ ol.rows {
   stroke-width: 1.75;
   stroke-linecap: round;
 }
+.tree line.default-lane {
+  stroke-width: 2.5;
+}
+.tree .ci-node {
+  fill: currentColor;
+  stroke: var(--card);
+}
+.tree .draft-ring {
+  stroke-dasharray: 2 1;
+}
+.kind .ci-marker {
+  border-radius: 1px;
+}
+.kind .d.pr-marker {
+  background: transparent;
+  border: 1px solid currentColor;
+}
+.kind .draft-marker,
+.kind .d.draft-marker {
+  border-style: dashed;
+}
 .tree circle,
 .tree-key circle {
   fill: currentColor;

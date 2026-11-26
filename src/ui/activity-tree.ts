@@ -16,7 +16,7 @@ const lane = (color: number) => (color < 0 ? 'lane-none' : `lane-${color + 1}`);
 /** The part of a lane inside one row. `anchor` is where a lane that stops here ends. */
 function segment(line: TreeLine, anchor: number) {
   if (!line.up && !line.down) return emptyHtml;
-  return html`<line class="${lane(line.color)}" x1="${x(line.slot)}" x2="${x(line.slot)}" y1="${line.up ? ABOVE : anchor}" y2="${line.down ? '100%' : anchor}"/>`;
+  return html`<line class="${lane(line.color)}${line.isDefault ? ' default-lane' : ''}" x1="${x(line.slot)}" x2="${x(line.slot)}" y1="${line.up ? ABOVE : anchor}" y2="${line.down ? '100%' : anchor}"/>`;
 }
 
 /**
@@ -34,13 +34,15 @@ function join(other: TreeLine, node: TreeRow['node'], color: string, assumed = f
 function marker(node: TreeRow['node'], color: string) {
   const at = html`cx="${x(node.slot)}" cy="0"`;
   if (node.shape === 'tag') return html`<g class="tag-mark" transform="translate(${x(node.slot) - 5} -5) scale(0.4167)">${tagGlyph}</g>`;
-  if (node.shape === 'ring') return html`<circle class="${color} hole" ${at} r="3.75"/>`;
+  if (node.shape === 'ci') return html`<rect class="${color} ci-node" x="${x(node.slot) - 3}" y="-3" width="6" height="6" rx="1"/>`;
+  if (node.shape === 'ring' || node.shape === 'draft')
+    return html`<circle class="${color} hole${node.shape === 'draft' ? ' draft-ring' : ''}" ${at} r="3.75"/>`;
   if (node.shape === 'merge') return html`<circle class="${color} hole" ${at} r="4.1"/><circle class="${color}" ${at} r="1.9"/>`;
   return html`<circle class="${color} dot" ${at} r="3.75"/>`;
 }
 
 export function standalonePrRing({ node, forkFrom, mergeFrom }: TreeRow) {
-  return node.shape === 'ring' && !node.up && !node.down && !forkFrom && !mergeFrom;
+  return (node.shape === 'ring' || node.shape === 'draft') && !node.up && !node.down && !forkFrom && !mergeFrom;
 }
 
 /**

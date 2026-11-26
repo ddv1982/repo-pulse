@@ -918,7 +918,7 @@ test('Activity offers statuses and evidence from matching history beyond the fir
   await expect(panel.getByRole('option', { name: 'Merged', exact: true })).toBeVisible();
   await expect(panel.getByRole('option', { name: 'PR evidence', exact: true })).toBeVisible();
   await panel.getByRole('option', { name: 'Canceled', exact: true }).click();
-  await expect(page.locator('[data-event-id="archived-canceled"] .kind')).toHaveText('Canceled');
+  await expect(page.locator('[data-event-id="archived-canceled"] .kind')).toHaveText('CI canceled');
   await expect(page.locator('li.row')).toHaveCount(1);
   await toggle.click();
   await expect(panel.getByRole('option', { name: 'Merged', exact: true })).toBeVisible();
@@ -950,7 +950,7 @@ test('Unread only filters a grouped run by the status it shows and acknowledges 
     },
   ]);
   await page.goto(runtime.url + '/#activity/unread');
-  await expect(page.locator('[data-event-id="scope-succeeded"] .kind')).toHaveText('Succeeded');
+  await expect(page.locator('[data-event-id="scope-succeeded"] .kind')).toHaveText('CI succeeded');
   const toggle = page.getByRole('button', { name: /^Activity type:/ });
   await toggle.click();
   await page.getByRole('option', { name: 'Succeeded', exact: true }).click();

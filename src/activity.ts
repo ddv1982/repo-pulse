@@ -90,6 +90,7 @@ export type EventData = RefUpdate & {
   mergeStrategy?: string;
   closedBy?: string;
   sourceVersion?: string;
+  buildStartedAt?: string | undefined;
   sourceBranch?: string;
   commitId?: string;
   push?: { pushId?: number | string };
@@ -124,6 +125,13 @@ export type ActivityEvent = {
   imported?: boolean;
   data?: EventData;
 };
+export type RelatedCi = {
+  id: string;
+  title: string;
+  validation: boolean;
+  postMerge: boolean;
+  outcome: 'passed' | 'failed' | 'partially succeeded';
+};
 export type ActivityItem = ActivityEvent & {
   groupKey: string;
   events: ActivityEvent[];
@@ -133,6 +141,10 @@ export type ActivityItem = ActivityEvent & {
   /** Latest cached lifecycle boundary for each branch used by the tree, or an empty ID before any boundary. */
   branchLifetimes?: Record<string, string>;
   prSourceLifetime?: string;
+  latestPrMilestone?: boolean;
+  relatedCi?: RelatedCi[];
+  ciHost?: string;
+  foldedCi?: number;
 };
 
 export type ActivityRequest = {
