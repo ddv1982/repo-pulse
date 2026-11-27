@@ -335,3 +335,25 @@ test('a successful tag build folds only for the exact tag revision in the mixed 
   await expect(build).toBeVisible();
   await expect(tag.locator('summary').filter({ hasText: 'CI succeeded' })).toHaveCount(0);
 });
+
+test('a pending refresh leaves Activity details available', async t => {
+  const { page } = await setup(t);
+  let release = () => {};
+  const held = new Promise<void>(resolve => {
+    release = resolve;
+  });
+  await page.route('**/api/refresh', async route => {
+    await held;
+    await route.continue();
+  });
+  const refreshed = page.waitForResponse('**/api/refresh');
+  await page.getByRole('button', { name: 'Refresh activity', exact: true }).first().click();
+  const row = page.locator('#page li.row').first();
+  const title = (await row.locator('.feed-title .title').first().innerText()).trim();
+  await row.locator('.feed-title').first().click();
+  await expect(page).toHaveURL(/#event\//);
+  await expect(page.getByRole('heading', { name: title, exact: false }).first()).toBeVisible();
+  release();
+  await refreshed;
+  await expect(page.locator('#toast')).toContainText('Activity refresh queued.');
+});
