@@ -13,7 +13,7 @@ import { createAzureClient } from './azure-client.ts';
 import { discoverRepositories } from './repositories.ts';
 import { seedDemo, demoProvider, demoSync, NOT_IN_DEMO } from './demo.ts';
 import { notFound, notInDemo } from './errors.ts';
-import { createBackfill } from './backfill.ts';
+import { createHistoryImporter } from './history-import.ts';
 import { createRewriteCheck } from './rewrite-check.ts';
 import { createForkOriginCheck } from './fork-origin.ts';
 import { createCheckoutLookup } from './checkout-advice.ts';
@@ -34,7 +34,7 @@ export type AppOptions = {
   provider: AppProvider;
   sync: AppSync;
   cli?: AppContext['cli'];
-  backfill?: AppContext['backfill'];
+  historyImporter?: AppContext['historyImporter'];
   demo?: boolean;
   discover?: typeof discoverRepositories;
   browse?: (input: unknown) => Promise<FoldersResponse>;
@@ -73,7 +73,7 @@ export function createApp({
   provider,
   sync,
   cli,
-  backfill,
+  historyImporter,
   demo = false,
   discover = discoverRepositories,
   browse = browseFolders,
@@ -87,7 +87,7 @@ export function createApp({
     provider,
     sync,
     cli,
-    backfill,
+    historyImporter,
     demo,
     discover,
     browse,
@@ -160,7 +160,7 @@ async function startLocked(
   const azure = cli && createAzureClient({ cli });
   const provider = azure || demoProvider;
   let lastClientAt = 0;
-  let backfill: ReturnType<typeof createBackfill> | undefined;
+  let historyImporter: ReturnType<typeof createHistoryImporter> | undefined;
   const rewriteCheck = azure && createRewriteCheck({ store, provider: azure });
   const forkCheck = azure && createForkOriginCheck({ store, provider: azure });
   const defaultBranchLookups = new Set<string>();
@@ -193,7 +193,7 @@ async function startLocked(
       // Fork origin checks share the automatic-check turn and run when no rewrite check is due.
       background: {
         rewrite: async () => (await rewriteCheck?.tick()) || (await forkCheck?.tick()) || loadMissingDefaultBranch(),
-        history: () => backfill?.tick(),
+        history: () => historyImporter?.tick(),
       },
     });
   const sync =
@@ -204,19 +204,19 @@ async function startLocked(
           clear();
           rewriteCheck?.reset();
           forkCheck?.reset();
-          backfill?.reset();
+          historyImporter?.reset();
         }),
       forget(repoId: string) {
         liveSync.forget(repoId);
         rewriteCheck?.forget(repoId);
         forkCheck?.forget(repoId);
-        backfill?.forget(repoId);
+        historyImporter?.forget(repoId);
       },
     }) ||
     demoSync;
   if (!azure || !liveSync) seedDemo(store);
   else {
-    backfill = createBackfill({ store, provider: azure, normalize: normalizer.normalize });
+    historyImporter = createHistoryImporter({ store, provider: azure, normalize: normalizer.normalize });
   }
   const accessKey = randomBytes(32).toString('base64url');
   const launchToken = randomBytes(32).toString('base64url');
@@ -225,7 +225,7 @@ async function startLocked(
     provider,
     sync,
     cli,
-    backfill,
+    historyImporter,
     demo,
     accessKey,
     launchToken,

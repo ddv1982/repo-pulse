@@ -11,8 +11,8 @@
 // docs/BACKLOG.md).
 import { fields, is, isRecord, list, type Check } from './azure-records.ts';
 
-import { AZURE_STREAMS, HISTORY_STREAMS } from '../src/contract.ts';
-import type { Repository, StoredEvent, StreamState, HistoryJob, SavedActivityFilter } from '../src/contract.ts';
+import { AZURE_STREAMS, HISTORY_IMPORT_STREAMS } from '../src/contract.ts';
+import type { Repository, StoredEvent, StreamState, HistoryImportJob, SavedActivityFilter } from '../src/contract.ts';
 import { ACTIVITY_KINDS } from '../src/activity.ts';
 import type { ForkJob, RewriteJob } from './jobs.ts';
 import type { Followup } from './checkout-branches.ts';
@@ -23,7 +23,7 @@ import { AppError, isAppError } from './errors.ts';
 export type SqlRow = Record<string, import('node:sqlite').SQLOutputValue>;
 
 /** Jobs by type. Merge jobs were dropped by store migration 11. */
-export type Job = HistoryJob | RewriteJob | ForkJob;
+export type Job = HistoryImportJob | RewriteJob | ForkJob;
 export type JobType = Job['type'];
 export type JobOf<T extends JobType> = Extract<Job, { type: T }>;
 
@@ -172,7 +172,7 @@ const stream = fields({
   unreadableLookups: maybe(list(fields({ id: string, field: string }))),
 });
 
-const historyJob = fields({
+const historyImportJob = fields({
   id: string,
   type: oneOf('backfill'),
   repoId: string,
@@ -182,7 +182,7 @@ const historyJob = fields({
   nextAt: string,
   rangeStart: string,
   rangeEnd: string,
-  stream: oneOf(...HISTORY_STREAMS),
+  stream: oneOf(...HISTORY_IMPORT_STREAMS),
   cursor: nullable(cursor),
   window: nullable(window),
   pages: finite,
@@ -190,7 +190,7 @@ const historyJob = fields({
   windowsCompleted: finite,
   failures: finite,
   error: nullable(failure),
-  warnings: maybe(list(fields({ ...warningShape, stream: oneOf(...HISTORY_STREAMS) }))),
+  warnings: maybe(list(fields({ ...warningShape, stream: oneOf(...HISTORY_IMPORT_STREAMS) }))),
   note: string,
   lastAttempt: maybe(string),
   lastProgressAt: maybe(string),
@@ -226,7 +226,7 @@ const forkJob = fields({
   unanswered: maybe(strings),
 });
 const jobGuards: { [T in JobType]: [Check, Guard<JobOf<T>>] } = {
-  backfill: [historyJob, readsAs(historyJob)],
+  backfill: [historyImportJob, readsAs(historyImportJob)],
   rewrite: [rewriteJob, readsAs(rewriteJob)],
   fork: [forkJob, readsAs(forkJob)],
 };

@@ -3,29 +3,32 @@ import { required } from './dom.ts';
 import { createDialog } from './dialog.ts';
 import { action } from './actions.ts';
 
-/** /api/state lists backfill jobs; these are the fields the Repositories page shows. */
-export type HistoryJob = Pick<import('../contract.ts').HistoryJob, 'status' | 'error' | 'pages' | 'lastProgressAt' | 'warnings'>;
-type HistoryRepo = Pick<import('./refresh.ts').Repo, 'id' | 'name'>;
+/** /api/state lists history import jobs; these are the fields the Repositories page shows. */
+export type HistoryImportJob = Pick<
+  import('../contract.ts').HistoryImportJob,
+  'status' | 'error' | 'pages' | 'lastProgressAt' | 'warnings'
+>;
+type HistoryImportRepo = Pick<import('./refresh.ts').Repo, 'id' | 'name'>;
 
-function statusFor(job: HistoryJob): [string, string] {
+function statusFor(job: HistoryImportJob): [string, string] {
   if (job.status === 'completed') return ['History sync finished', job.warnings?.length ? 'warn' : 'ok'];
   if (job.error || job.status === 'retrying') return ['History sync retrying', 'warn'];
   if (job.status === 'running') return ['History sync running', 'info'];
   return ['History sync queued', 'info'];
 }
 
-export function renderHistoryButton(repo: Pick<HistoryRepo, 'id'>, job: HistoryJob | null | undefined) {
+export function renderHistoryImportButton(repo: Pick<HistoryImportRepo, 'id'>, job: HistoryImportJob | null | undefined) {
   const busy = job && job.status !== 'completed';
   return html`<button class="btn sm" type="button" id="import-${repo.id}" ${action('open-history-import')} data-id="${repo.id}" ${busy ? html`disabled` : emptyHtml}>Sync older activity…</button>`;
 }
 
 /** The chip names the records the import skipped, since the warnings that explain them show only in Details. */
-function skippedNote(job: HistoryJob) {
+function skippedNote(job: HistoryImportJob) {
   const skipped = (job.warnings ?? []).reduce((total, warning) => total + warning.count, 0);
   return skipped ? ` · ${skipped} ${skipped === 1 ? 'record' : 'records'} skipped` : '';
 }
 
-export function renderHistoryProgress(repo: Pick<HistoryRepo, 'id'>, job: HistoryJob | null | undefined) {
+export function renderHistoryImportProgress(repo: Pick<HistoryImportRepo, 'id'>, job: HistoryImportJob | null | undefined) {
   if (!job) return emptyHtml;
   const [label, tone] = statusFor(job);
   return html`<div class="history-progress" id="history-${repo.id}" role="status" tabindex="-1">
@@ -77,7 +80,7 @@ export function createHistoryImport(
   form.addEventListener('submit', event => void submitImport(event));
 
   return {
-    show(repo: HistoryRepo) {
+    show(repo: HistoryImportRepo) {
       repoId = repo.id;
       repositoryName.textContent = repo.name;
       form.reset();

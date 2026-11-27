@@ -28,7 +28,7 @@ export type AzurePage<T = AzureStreamRecord> = {
   unreadable?: UnreadableRecords;
   unreadableIds?: { id: string; field: string }[];
 };
-/** One page of a stream, as sync and backfill read it. */
+/** One page of a stream, as sync and history import read it. */
 export type StreamRead = (repo: AzureRepo, stream: AzureStream, options?: ReadOptions) => Promise<AzurePage>;
 export type ReadOptions = { since?: string; until?: string; cursor?: PageCursor | null };
 export type CheckoutPull = {
@@ -59,7 +59,7 @@ export type ResolvedRepository = {
 export type RepositoryInput = { organization: string; project: string; repoName?: string; name?: string };
 /** The Azure queue the client reads through (see createAzureCli): az commands with `run`, REST reads with `read`. */
 export type AzureClientCli = { run: (args: string[]) => Promise<unknown>; read: (request: AzureRead) => Promise<unknown> };
-/** The provider contract. Sync and backfill type their provider as the subset of it they call. */
+/** The provider contract. Sync and history import type their provider as the subset of it they call. */
 export type AzureProvider = ReturnType<typeof createAzureClient>;
 
 const RESOLVED = new Set(['fixed', 'wontFix', 'closed', 'byDesign']);

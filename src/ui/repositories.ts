@@ -3,11 +3,11 @@ import { connectionResult } from './connection.ts';
 import { syncPill } from './health.ts';
 import { renderCheckout } from './checkout-render.ts';
 import { disclosure, type Groups } from './groups.ts';
-import { renderHistoryButton, renderHistoryProgress } from './history-import.ts';
+import { renderHistoryImportButton, renderHistoryImportProgress } from './history-import.ts';
 import { displayLocalPath } from './repository-picker.ts';
 import type { PageState, Repo } from './refresh.ts';
 import type { CheckoutSnapshot } from './checkout.ts';
-import type { HistoryJob } from './history-import.ts';
+import type { HistoryImportJob } from './history-import.ts';
 import { action } from './actions.ts';
 
 type RepositoriesView = Pick<import('./connection.ts').ConnectionState, 'results'>;
@@ -75,7 +75,7 @@ function renderRepo(
   repo: Repo,
   status: import('../contract.ts').SyncStatus | undefined,
   streams: PageState['streams'],
-  job: HistoryJob | null | undefined,
+  job: HistoryImportJob | null | undefined,
   checkout: CheckoutSnapshot | undefined,
   demo: boolean | undefined,
   settings: PageState['settings'],
@@ -96,7 +96,7 @@ function renderRepo(
       ${renderCheckout(repo.id, gitStatus, 'status')}
     </div>
     <div class="checkout-guidance" id="checkout-guidance-${repo.id}" data-checkout-part="guidance" data-checkout-id="${repo.id}" tabindex="-1" aria-live="polite">${renderCheckout(repo.id, gitStatus, 'guidance', groups)}</div>
-    ${renderHistoryProgress(repo, job)}
+    ${renderHistoryImportProgress(repo, job)}
     <details class="streams repo-details" ${disclosure(groups, `repo-${repo.id}`)}>
       <summary ${action('toggle-group')} class="ghost sm" id="repo-details-${repo.id}" aria-label="Details for ${repo.name}">Details</summary>
       <div class="repo-details-content">
@@ -113,7 +113,7 @@ function renderRepo(
             : emptyHtml
         }
         <div class="actions">
-          ${demo ? emptyHtml : renderHistoryButton(repo, job)}
+          ${demo ? emptyHtml : renderHistoryImportButton(repo, job)}
           ${azureLink(repo.webUrl)}
           <button class="ghost sm" type="button" id="remove-${repo.id}" ${action('remove-repo')} data-id="${repo.id}">Remove watch</button>
         </div>

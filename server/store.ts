@@ -114,7 +114,7 @@ export function createStore(path = ':memory:', { highlights = false } = {}) {
     getEntity: state.getEntity,
     listEntities: state.listEntities,
     /**
-     * Sync pages carry their stream state; backfill pages carry none.
+     * Sync pages carry their stream state; history import pages carry none.
      */
     commitPage(
       this: void,

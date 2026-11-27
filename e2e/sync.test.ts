@@ -7,13 +7,13 @@ import { TEST_KEY } from '../test/fixtures/access.ts';
 import { createStore } from '../server/store.ts';
 import { createNormalizer } from '../server/normalize.ts';
 import { createSync } from '../server/sync.ts';
-import { createBackfill } from '../server/backfill.ts';
+import { createHistoryImporter } from '../server/history-import.ts';
 import type { AzureProvider } from '../server/azure-client.ts';
-import type { ConnectionStatus, Repository, SyncStatus, HistoryJob } from '../src/contract.ts';
+import type { ConnectionStatus, Repository, SyncStatus, HistoryImportJob } from '../src/contract.ts';
 import { present, stub } from '../test/fixtures/typed.ts';
 import { setup, renderInBackground } from './fixtures/ui-app.ts';
 import type { AppSync } from '../server/routes/context.ts';
-import { historyJob } from '../test/fixtures/jobs.ts';
+import { historyImportJob } from '../test/fixtures/jobs.ts';
 import { conflict } from '../server/errors.ts';
 import { idleSyncStatus } from '../server/demo.ts';
 
@@ -81,10 +81,10 @@ test('Activity shows a sign-in failure on return and retries the blocked live st
       return { items: [], nextCursor: null };
     },
   });
-  let backfill: ReturnType<typeof createBackfill>;
+  let historyImporter: ReturnType<typeof createHistoryImporter>;
   const normalizer = createNormalizer({ store, now: () => at });
-  const sync = createSync({ store, provider, now: () => at, normalizer, background: { history: () => backfill.tick() } });
-  backfill = createBackfill({ store, provider, normalize: normalizer.normalize, now: () => at });
+  const sync = createSync({ store, provider, now: () => at, normalizer, background: { history: () => historyImporter.tick() } });
+  historyImporter = createHistoryImporter({ store, provider, normalize: normalizer.normalize, now: () => at });
   sync.refresh();
   for (const state of store.getStreams()) {
     store.saveStream({
@@ -100,7 +100,7 @@ test('Activity shows a sign-in failure on return and retries the blocked live st
     store,
     sync,
     provider,
-    backfill,
+    historyImporter,
     accessKey: TEST_KEY,
     onStateRead() {
       if (returning) sync.checkOnForeground();
@@ -140,7 +140,7 @@ test('Activity shows a sign-in failure on return and retries the blocked live st
 
   const builds = present(store.getStreams().find(state => state.stream === 'builds'));
   store.saveStream({ ...builds, error });
-  const job = backfill.start(repo.id);
+  const job = historyImporter.start(repo.id);
   store.saveJob({ ...job, status: 'retrying', error, nextAt: future });
   signedIn = true;
   const response = page.waitForResponse('**/api/refresh');
@@ -394,21 +394,21 @@ test('repository history import keeps the accepted request visible even if its f
   ] satisfies [string, string][])
     store.saveRepo(stub<Repository>({ id, name }));
   defer(t, () => store.close());
-  const calls: { repoId: string; days: HistoryJob['days'] | undefined }[] = [];
+  const calls: { repoId: string; days: HistoryImportJob['days'] | undefined }[] = [];
   let failOnce = true;
   const app = createApp({
     accessKey: TEST_KEY,
     store,
     provider: stub<AzureProvider>({ checkConnection: async () => stub<ConnectionStatus>({ available: true }) }),
     sync: stub<AppSync>({ status: () => idleSyncStatus() }),
-    backfill: {
+    historyImporter: {
       start(repoId, days) {
         calls.push({ repoId, days });
         if (failOnce) {
           failOnce = false;
           throw conflict('Try this date range again.');
         }
-        const job = historyJob(repoId, { days: days ?? 30 });
+        const job = historyImportJob(repoId, { days: days ?? 30 });
         store.saveJob(job);
         return job;
       },

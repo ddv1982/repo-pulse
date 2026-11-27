@@ -12,7 +12,7 @@ import { spawn } from 'node:child_process';
 import type { ActivityEvent, EventData } from '../src/activity.ts';
 import type { StreamState } from '../src/contract.ts';
 import { dataOf, fieldsOf, present, stub } from './fixtures/typed.ts';
-import { historyJob, rewriteJob } from './fixtures/jobs.ts';
+import { historyImportJob, rewriteJob } from './fixtures/jobs.ts';
 
 const repo = {
   id: 'one',
@@ -246,7 +246,7 @@ test('starting from scratch clears activity, checkpoints, jobs and baselines but
     entities: [{ type: 'push', id: '1', data: { date: '2026-11-17T10:00:00Z' } }],
     jobs: [rewriteJob('one', 'push-0')],
   });
-  store.saveJob(historyJob('one'));
+  store.saveJob(historyImportJob('one'));
   store.enrichEvent('push-0', { mergeEvidence: { status: 'complete' } });
   store.setBaseline('one', '2026-11-01T00:00:00.000Z');
   store.setBaseline('two', '2026-11-01T00:00:00.000Z');
@@ -569,7 +569,7 @@ test('upgrading leaves imported branch creations unchecked in a repository that 
       data: { ...created('x').data, name: 'refs/heads/stored-result', forkOrigin: { status: 'orphan' } },
     },
   ]);
-  store.saveJob(historyJob('one', { status: 'completed', nextAt: '2026-11-17T10:00:00.000Z' }));
+  store.saveJob(historyImportJob('one', { status: 'completed', nextAt: '2026-11-17T10:00:00.000Z' }));
   store.close();
   const raw = new DatabaseSync(path);
   raw.exec('PRAGMA user_version = 14;');

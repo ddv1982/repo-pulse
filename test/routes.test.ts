@@ -10,7 +10,7 @@ import { createRouter, type Handlers } from '../server/http.ts';
 import { seedDemo, idleSyncStatus } from '../server/demo.ts';
 import type { AzureProvider } from '../server/azure-client.ts';
 import type { createCheckoutGit } from '../server/checkout-git.ts';
-import { ROUTES, type CheckoutStatus, type ConnectionStatus, type HistoryJob } from '../src/contract.ts';
+import { ROUTES, type CheckoutStatus, type ConnectionStatus, type HistoryImportJob } from '../src/contract.ts';
 import { TEST_KEY, fetchWithKey, keyedFetch, portOf, rememberRuntime } from './fixtures/access.ts';
 import { stub } from './fixtures/typed.ts';
 
@@ -34,7 +34,7 @@ async function app(t: TestContext, options: Partial<AppOptions> = {}) {
       prReview: async () => ({ threads: { open: 0, resolved: 0 }, policies: [] }),
     }),
     sync: { refresh: () => ({ scheduled: true }), status: () => idleSyncStatus() },
-    backfill: { start: () => stub<HistoryJob>({ id: 'job' }) },
+    historyImporter: { start: () => stub<HistoryImportJob>({ id: 'job' }) },
     checkoutGit: stub<ReturnType<typeof createCheckoutGit>>({
       status: async () => stub<CheckoutStatus>({ state: 'not-linked' }),
       localBranches: async () => [],

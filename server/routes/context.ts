@@ -2,7 +2,7 @@ import { forbidden } from '../errors.ts';
 import type { Store } from '../store.ts';
 import type { AzureProvider } from '../azure-client.ts';
 import type { createAzureCli } from '../azure-cli.ts';
-import type { createBackfill } from '../backfill.ts';
+import type { createHistoryImporter } from '../history-import.ts';
 import type { createCheckoutGit } from '../checkout-git.ts';
 import type { createSavedActivityFilters } from '../saved-activity-filters.ts';
 import type { Discovery, FoldersResponse, RefreshStatus, SyncEngineStatus } from '../../src/contract.ts';
@@ -33,8 +33,9 @@ export type AppContext = {
   provider: AppProvider;
   sync: AppSync;
   cli: Pick<ReturnType<typeof createAzureCli>, 'diagnostics'> | null | undefined;
-  backfill:
-    (Pick<ReturnType<typeof createBackfill>, 'start'> & Partial<Pick<ReturnType<typeof createBackfill>, 'retrySignIn'>>) | undefined;
+  historyImporter:
+    | (Pick<ReturnType<typeof createHistoryImporter>, 'start'> & Partial<Pick<ReturnType<typeof createHistoryImporter>, 'retrySignIn'>>)
+    | undefined;
   demo: boolean;
   discover: (path: unknown) => Promise<Discovery>;
   browse: (input: unknown) => Promise<FoldersResponse>;

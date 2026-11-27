@@ -20,7 +20,7 @@ import type {
 } from '../src/contract.ts';
 
 export type WatchedRepo = AzureRepo & { id: string; disabled?: boolean };
-/** What `normalize` reads from a stream state; backfill passes `historical: true`. */
+/** What `normalize` reads from a stream state; history import passes `historical: true`. */
 type NormalizeState = { initialized: boolean; historical?: boolean };
 /** What `reconcileRefs` reads from a stream state. */
 type RefReconcileState = { initialized: boolean; window: { until: string } };

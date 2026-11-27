@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { createStore, type Store } from '../server/store.ts';
 import { createNormalizer } from '../server/normalize.ts';
 import { createSync } from '../server/sync.ts';
-import { createBackfill } from '../server/backfill.ts';
+import { createHistoryImporter } from '../server/history-import.ts';
 import { createForkOriginCheck, MAX_READS } from '../server/fork-origin.ts';
 import type { AzureProvider } from '../server/azure-client.ts';
 import type { AzureStreamRecord } from '../src/contract.ts';
@@ -92,7 +92,7 @@ function setup({
     },
   });
   const check = createForkOriginCheck({ store, provider, now: () => time });
-  let backfill: ReturnType<typeof createBackfill> | undefined;
+  let historyImporter: ReturnType<typeof createHistoryImporter> | undefined;
   const normalizer = createNormalizer({ store, now: () => time });
   const sync = createSync({
     store,
@@ -100,9 +100,9 @@ function setup({
     now: () => time,
     normalizer,
     intervalMs: 60000,
-    background: { rewrite: () => check.tick(), history: () => backfill?.tick() },
+    background: { rewrite: () => check.tick(), history: () => historyImporter?.tick() },
   });
-  backfill = createBackfill({ store, provider, normalize: normalizer.normalize, now: () => time });
+  historyImporter = createHistoryImporter({ store, provider, normalize: normalizer.normalize, now: () => time });
   sync.refresh();
   for (const state of store.getStreams())
     if (!['pushes', 'prs'].includes(state.stream)) store.saveStream({ ...state, nextAt: '2099-01-01T00:00:00Z' });
@@ -111,7 +111,7 @@ function setup({
     reads,
     checks,
     offered,
-    backfill,
+    historyImporter,
     check,
     sync,
     advance(this: void, ms: number) {
@@ -353,10 +353,10 @@ test('a branch creation from the first sync import is checked like a live one', 
 });
 
 test('a history import queues no fork check', async () => {
-  const { store, reads, run, offered, backfill } = setup();
+  const { store, reads, run, offered, historyImporter } = setup();
   await run();
   offered.pushes = [push(18, [move('feature', ZERO, B)], new Date(BASE - 2 * 86400000).toISOString())];
-  backfill.start(repo.id, 30);
+  historyImporter.start(repo.id, 30);
   await run(20);
   assert.equal(store.getEvent('one:branch-created:18:refs/heads/feature')?.imported, true);
   assert.deepEqual(reads, []);

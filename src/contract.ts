@@ -232,13 +232,13 @@ export type SyncStatusReport = { overall: OverallSyncStatus; repos: Record<strin
 // History import
 
 /** The streams a history import reads, in the order it reads them. */
-export const HISTORY_STREAMS = ['pushes', 'closedPrs', 'builds'] as const;
-export type HistoryStream = (typeof HISTORY_STREAMS)[number];
-export type HistoryWindow = { since: string; until: string };
+export const HISTORY_IMPORT_STREAMS = ['pushes', 'closedPrs', 'builds'] as const;
+export type HistoryImportStream = (typeof HISTORY_IMPORT_STREAMS)[number];
+export type HistoryImportWindow = { since: string; until: string };
 export type JobError = { code: string; message: string };
 /** The records of one stream that a history import skipped because Azure returned them unreadable, summed across its pages. */
-export type HistoryWarning = StreamWarning & { stream: HistoryStream };
-export type HistoryJob = {
+export type HistoryImportWarning = StreamWarning & { stream: HistoryImportStream };
+export type HistoryImportJob = {
   id: string;
   type: 'backfill';
   repoId: string;
@@ -248,16 +248,16 @@ export type HistoryJob = {
   nextAt: string;
   rangeStart: string;
   rangeEnd: string;
-  stream: HistoryStream;
+  stream: HistoryImportStream;
   cursor: PageCursor | null;
-  window: HistoryWindow | null;
+  window: HistoryImportWindow | null;
   pages: number;
   records: number;
   windowsCompleted: number;
   failures: number;
   error: JobError | null;
   /** One per stream that had unreadable records, in the order the import first met them. */
-  warnings?: HistoryWarning[];
+  warnings?: HistoryImportWarning[];
   note: string;
   lastAttempt?: string;
   lastProgressAt?: string;
@@ -391,7 +391,7 @@ export type StateResponse = {
   repos: Repository[];
   streams: Pick<StreamState, 'repoId' | 'stream' | 'initialized' | 'lastSuccess' | 'error' | 'warning'>[];
   diagnostics: Partial<CliDiagnostics> & { sync: SyncEngineStatus };
-  jobs: HistoryJob[];
+  jobs: HistoryImportJob[];
   activityRevision: string;
   savedFilters: SavedActivityFilter[];
   settings: { refreshEnabled: boolean; refreshResumedAt: number | null };
@@ -442,7 +442,7 @@ export type PushCommitsResponse = { items: PushCommit[]; nextCursor: PageCursor 
 /** GET /api/repos/:id/prs/:prId/review. */
 export type PrReviewResponse = PullRequestReview & { message?: string };
 /** POST /api/repos/:id/backfill. */
-export type BackfillResponse = HistoryJob;
+export type HistoryImportResponse = HistoryImportJob;
 /** POST /api/refresh. */
 export type RefreshResponse = { ok: true; status: RefreshStatus };
 /** POST /api/reset. */
@@ -529,7 +529,7 @@ export const ROUTES = {
   'PATCH /api/repos/:id': route<OkResponse, { disabled: boolean }>(200),
   'DELETE /api/repos/:id': route<OkResponse>(200),
   'GET /api/repos/:id/connection': route<ConnectionResponse>(200),
-  'POST /api/repos/:id/backfill': route<BackfillResponse, { days: HistoryJob['days'] }>(202),
+  'POST /api/repos/:id/backfill': route<HistoryImportResponse, { days: HistoryImportJob['days'] }>(202),
   'GET /api/repos/:id/checkout/status': route<CheckoutStatusResponse, undefined, 'fresh'>(200),
   'GET /api/repos/:id/checkout/branches': route<CheckoutBranchesResponse>(200),
   'POST /api/repos/:id/checkout': route<CheckoutUpdateResponse, CheckoutRequest>(200),

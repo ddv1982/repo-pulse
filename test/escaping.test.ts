@@ -200,7 +200,7 @@ function pageState(activity: PageState['activity']): PageState {
         pages: 2,
         lastProgressAt: time,
         error: { code: 'FAILED', message: probe('job.error.message') },
-      } as import('../src/contract.ts').HistoryJob,
+      } as import('../src/contract.ts').HistoryImportJob,
     ],
     syncStatus: {
       overall: { state: 'problem', reason: probe('syncStatus.overall.reason'), stream: 'pushes', repoId: repo.id },

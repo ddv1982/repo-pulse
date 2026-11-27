@@ -10,7 +10,7 @@ import { renderMergeEvidence, mergeEvidenceBadge } from '../src/ui/merge-evidenc
 import type { ActivityEvent, ActivityRequest, EventData } from '../src/activity.ts';
 import type { Repository, StreamState } from '../src/contract.ts';
 import { dataOf, fieldsOf, present, stub } from './fixtures/typed.ts';
-import { historyJob } from './fixtures/jobs.ts';
+import { historyImportJob } from './fixtures/jobs.ts';
 import type { Job } from '../server/store-records.ts';
 
 type Reviewer = NonNullable<EventData['reviewers']>[number];
@@ -330,7 +330,7 @@ test('enrichment is durable search metadata without changing raw identity, timin
 
 test('job, event and stream writes roll back together', () => {
   const store = setup();
-  const job = historyJob(repo.id, { nextAt: '2026-01-01T00:00:00Z' });
+  const job = historyImportJob(repo.id, { nextAt: '2026-01-01T00:00:00Z' });
   const state: StreamState = { repoId: repo.id, stream: 'pushes', initialized: false, nextAt: '2026-01-01T00:00:00Z', cursor: { skip: 1 } };
   assert.throws(() =>
     store.commitPage({
@@ -512,7 +512,7 @@ test('opening a database with merge work left drops the jobs and keeps evidence 
       limitations: ['Merge enrichment is still in progress.', 'Merge evidence could not be read. Retrying later.'],
     },
   });
-  store.saveJob(historyJob(repo.id, { status: 'pending', nextAt: '2026-11-17T10:00:00Z' }));
+  store.saveJob(historyImportJob(repo.id, { status: 'pending', nextAt: '2026-11-17T10:00:00Z' }));
   store.close();
   const db = new DatabaseSync(path);
   for (const id of ['done', 'partial', 'retrying'])

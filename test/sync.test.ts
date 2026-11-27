@@ -4,7 +4,7 @@ import { createStore } from '../server/store.ts';
 import { createHash } from 'node:crypto';
 import { createNormalizer } from '../server/normalize.ts';
 import { createSync } from '../server/sync.ts';
-import { createBackfill } from '../server/backfill.ts';
+import { createHistoryImporter } from '../server/history-import.ts';
 import { activityMergeBadge } from '../src/activity-text.ts';
 import type { SyncProvider } from '../server/sync.ts';
 import { createAzureClient } from '../server/azure-client.ts';
@@ -1965,18 +1965,18 @@ test('a history import page makes only stream reads and queues no merge work', a
   const { provider, calls } = recordingProvider({
     pushes: [[push(5, new Date(BASE - day).toISOString()), push(6, new Date(BASE - 2 * day).toISOString())]],
   });
-  let backfill: ReturnType<typeof createBackfill>;
+  let historyImporter: ReturnType<typeof createHistoryImporter>;
   const normalizer = createNormalizer({ store, now: () => time });
   const sync = createSync({
     store,
     provider,
     now: () => time,
     normalizer,
-    background: { history: () => backfill.tick() },
+    background: { history: () => historyImporter.tick() },
   });
-  backfill = createBackfill({ store, provider, normalize: normalizer.normalize, now: () => time });
+  historyImporter = createHistoryImporter({ store, provider, normalize: normalizer.normalize, now: () => time });
   store.setBaseline(repo.id, new Date(BASE).toISOString());
-  backfill.start(repo.id, 30);
+  historyImporter.start(repo.id, 30);
   // Automatic checks stay on, but no live stream is due.
   sync.refresh();
   for (const state of store.getStreams()) store.saveStream({ ...state, nextAt: '2099-01-01T00:00:00Z' });

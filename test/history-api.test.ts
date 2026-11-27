@@ -4,7 +4,7 @@ import { createStore } from '../server/store.ts';
 import { createApp } from '../server/runtime.ts';
 import { type AppProvider, type AppSync } from '../server/routes/context.ts';
 import type { ActivityEvent } from '../src/activity.ts';
-import type { HistoryJob, Repository } from '../src/contract.ts';
+import type { HistoryImportJob, Repository } from '../src/contract.ts';
 import { TEST_KEY, keyedFetch, portOf } from './fixtures/access.ts';
 import { stub } from './fixtures/typed.ts';
 import { idleSyncStatus } from '../server/demo.ts';
@@ -66,10 +66,10 @@ test('historical import endpoint validates repository, range and access key', as
     store,
     provider,
     sync,
-    backfill: {
+    historyImporter: {
       start: (repoId, days) => {
         starts.push({ repoId, days });
-        return stub<HistoryJob>({ status: 'pending' });
+        return stub<HistoryImportJob>({ status: 'pending' });
       },
     },
     accessKey: TEST_KEY,
