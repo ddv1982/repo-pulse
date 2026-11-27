@@ -61,7 +61,7 @@ test('repo subset acknowledgement preserves hidden/incoming events and survives 
   await page.locator('[data-scope-repo="demo-orders"]').uncheck();
   await page.locator('[data-scope-repo="demo-shared"]').uncheck();
   await page.keyboard.press('Escape');
-  await expect(page.locator('[data-event-id].new')).toHaveCount(2);
+  await expect(page.locator('li[data-event-id].new')).toHaveCount(2);
   let incoming: { id: string } | undefined;
   await page.route(
     '**/api/ack',
@@ -96,7 +96,7 @@ test('repo subset acknowledgement preserves hidden/incoming events and survives 
       .every(event => event.seen),
   );
   assert.equal(app.runtime.store.getEvent(incoming.id)?.seen, false);
-  await page.locator('[data-event-id="demo-branch-1"] .feed-title').click();
+  await page.locator('li[data-event-id="demo-branch-1"] .feed-title').click();
   await expect(page.getByRole('heading', { name: 'hotfix/2026.11-dose-rounding' })).toBeVisible();
   assert.equal((await (await fetch(app.runtime.url + '/api/activity/demo-branch-1')).json()).event.seen, false);
 });
@@ -388,7 +388,7 @@ test('Unread only filters a grouped run by the status it shows and acknowledges 
     },
   ]);
   await page.goto(runtime.url + '/#activity/unread');
-  await expect(page.locator('[data-event-id="scope-succeeded"] .kind')).toHaveText('CI succeeded');
+  await expect(page.locator('li[data-event-id="scope-succeeded"] .kind')).toHaveText('CI succeeded');
   const toggle = page.getByRole('button', { name: /^Activity type:/ });
   await toggle.click();
   await page.getByRole('option', { name: 'Succeeded', exact: true }).click();
@@ -408,7 +408,7 @@ test('People detail only acknowledges the updates that matched the originating r
   ]);
   await page.goto(runtime.url + '/#activity');
   await page.getByRole('searchbox', { name: 'Search activity' }).fill('people:Alice Example');
-  await page.locator('[data-event-id="alice-build"] button.feed-title').click();
+  await page.locator('li[data-event-id="alice-build"] button.feed-title').click();
   await expect(page).toHaveURL(/#event\/alice-build$/);
   await page.reload();
   const mark = page.getByRole('button', { name: 'Mark seen', exact: true });

@@ -281,7 +281,7 @@ test('Start from scratch in Settings confirms, empties the feed and shows Syncin
   for (let i = 0; i < 200 && !store.listEvents().length; i++) await new Promise(resolve => setTimeout(resolve, 10));
   const page = await openPage(t, { key: TEST_KEY });
   await page.goto(`${url}/#activity`);
-  await expect(page.locator('[data-event-id="one:push:1"]')).toHaveCount(1);
+  await expect(page.locator('li[data-event-id="one:push:1"]')).toHaveCount(1);
 
   await page.getByRole('link', { name: 'Settings', exact: true }).click();
   const row = page.locator('.settings-row', { hasText: 'Start from scratch' });
@@ -308,13 +308,13 @@ test('Start from scratch in Settings confirms, empties the feed and shows Syncin
 
   await page.getByRole('link', { name: 'Activity', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Activity', exact: true })).toBeVisible();
-  await expect(page.locator('[data-event-id]')).toHaveCount(0);
+  await expect(page.locator('li[data-event-id]')).toHaveCount(0);
   await expect(page.locator('.feed .empty .big')).toHaveText('No activity loaded yet');
   assert.equal(store.listRepos().length, 1);
 
   gate.closed = false;
   gate.release();
-  await expect(page.locator('[data-event-id="one:push:1"]')).toHaveCount(1, { timeout: 15000 });
+  await expect(page.locator('li[data-event-id="one:push:1"]')).toHaveCount(1, { timeout: 15000 });
 });
 
 test('first sync shows imported activity while other checks continue and preserves the open state', async t => {

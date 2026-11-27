@@ -47,10 +47,10 @@ test('Activity shows history by default and filters to unread without changing s
   await expect(page).toHaveURL(/#activity$/);
   await expect(page.getByRole('searchbox', { name: 'Search activity' })).toHaveValue('Orders');
   await expect(page.locator('li.row')).toHaveCount(3);
-  await expect(page.locator('[data-event-id="seen-push"]')).toBeVisible();
+  await expect(page.locator('li[data-event-id="seen-push"]')).toBeVisible();
   const importedHistory = page.locator('details[data-group="imported-history"]');
   if ((await importedHistory.getAttribute('open')) === null) await importedHistory.locator('summary').click();
-  await expect(page.locator('[data-event-id="imported-push"]')).toBeVisible();
+  await expect(page.locator('li[data-event-id="imported-push"]')).toBeVisible();
   await expect(page.getByRole('region', { name: 'Activity summary' })).toContainText('1 new item');
   // Every matching item is loaded, so the summary does not repeat the count.
   await expect(page.getByRole('region', { name: 'Activity summary' })).not.toContainText('Showing');
@@ -223,17 +223,17 @@ test('Activity offers statuses and evidence from matching history beyond the fir
   runtime.store.enrichEvent('archive-1049', { mergeEvidence: { prs: [{ pullRequestId: 5 }] } });
   await page.goto(runtime.url + '/#activity');
   await expect(page.locator('li.row')).toHaveCount(50);
-  await expect(page.locator('[data-event-id="archived-canceled"]')).toHaveCount(0);
+  await expect(page.locator('li[data-event-id="archived-canceled"]')).toHaveCount(0);
   const toggle = page.getByRole('button', { name: /^Activity type:/ });
   const panel = page.getByRole('listbox', { name: 'Activity type' });
   await toggle.click();
   await expect(panel.getByRole('option', { name: 'Merged', exact: true })).toBeVisible();
   await expect(panel.getByRole('option', { name: 'PR evidence', exact: true })).toBeVisible();
   await panel.getByRole('option', { name: 'Canceled', exact: true }).click();
-  await expect(page.locator('[data-event-id="archived-canceled"] .kind')).toHaveText('CI canceled');
+  await expect(page.locator('li[data-event-id="archived-canceled"] .kind')).toHaveText('CI canceled');
   await expect(page.locator('li.row')).toHaveCount(1);
   await toggle.click();
   await expect(panel.getByRole('option', { name: 'Merged', exact: true })).toBeVisible();
   await panel.getByRole('option', { name: 'PR evidence', exact: true }).click();
-  await expect(page.locator('[data-event-id="archive-1049"]')).toBeVisible();
+  await expect(page.locator('li[data-event-id="archive-1049"]')).toBeVisible();
 });

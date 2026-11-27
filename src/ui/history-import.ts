@@ -19,7 +19,7 @@ function statusFor(job: HistoryImportJob): [string, string] {
 
 export function renderHistoryImportButton(repo: Pick<HistoryImportRepo, 'id'>, job: HistoryImportJob | null | undefined) {
   const busy = job && job.status !== 'completed';
-  return html`<button class="btn sm" type="button" id="import-${repo.id}" ${action('open-history-import')} data-id="${repo.id}" ${busy ? html`disabled` : emptyHtml}>Sync older activity…</button>`;
+  return html`<button class="btn sm" type="button" id="import-${repo.id}" ${action('open-history-import')} data-repo-id="${repo.id}" ${busy ? html`disabled` : emptyHtml}>Sync older activity…</button>`;
 }
 
 /** The chip names the records the import skipped, since the warnings that explain them show only in Details. */

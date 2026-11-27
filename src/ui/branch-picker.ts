@@ -36,7 +36,7 @@ export function createBranchPicker(dialog: HTMLDialogElement, { load }: { load: 
       html`${shown.map(branch => {
         const here = branch.name === current;
         const label = here ? 'Checked out' : branch.local ? 'Local' : 'Remote only';
-        const attributes = html`data-id="${repo?.id ?? ''}" data-path="${repo?.localPath ?? ''}" data-branch="${branch.name}"`;
+        const attributes = html`data-repo-id="${repo?.id ?? ''}" data-path="${repo?.localPath ?? ''}" data-branch="${branch.name}"`;
         return html`<li><button type="button" class="branch-option" ${action('switch-checkout-branch')} ${attributes} ${here ? html`disabled aria-current="true"` : emptyHtml}><code>${branch.name}</code> <span class="chip ${here ? 'status-chip ok' : ''}">${label}</span></button></li>`;
       })}`,
     );

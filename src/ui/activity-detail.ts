@@ -156,7 +156,7 @@ function detailHead(record: ActivityItem, repo: Repo | undefined, title: string,
   const ids = (unseen.length ? unseen : matching.filter(event => !event.imported)).map(event => event.id);
   const ack = !ids.length
     ? emptyHtml
-    : html`<button class="btn" ${action('ack-item')} data-mark-seen="${Boolean(unseen.length)}" data-id="${record.id}" data-event-ids="${JSON.stringify(ids)}">Mark ${unseen.length ? 'seen' : 'unseen'}</button>`;
+    : html`<button class="btn" ${action('ack-item')} data-mark-seen="${Boolean(unseen.length)}" data-event-id="${record.id}" data-event-ids="${JSON.stringify(ids)}">Mark ${unseen.length ? 'seen' : 'unseen'}</button>`;
   return html`<header class="dhead"><div class="detail-heading">${detailStatus(record, activityTone(record), matching)}<h1>${title}</h1><div class="meta">${record.kind.startsWith('branch-') ? 'Branch' : labels[record.kind]} · ${repo?.name} · ${branchName(record.branch)}</div></div><div class="actions">${azureLink(record.url, 'Open in Azure DevOps', 'btn')}${ack}</div></header>`;
 }
 

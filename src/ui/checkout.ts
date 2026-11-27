@@ -148,7 +148,7 @@ export function createCheckoutPanel({
       // Ticked review commits live on the snapshot, so a render after a poll keeps them.
       'choose-carry-commit'(input) {
         if (!(input instanceof HTMLInputElement)) return;
-        const checkout = snapshots[input.dataset.id ?? ''];
+        const checkout = snapshots[input.dataset.repoId ?? ''];
         if (!checkout?.review) return;
         const carry = new Set(checkout.carry);
         if (input.checked) carry.add(input.value);

@@ -66,13 +66,13 @@ test('a disabled repository row offers only enabling or removing it', async t =>
   const enabled = present(articles[0]);
   const disabled = present(articles[1]);
   const toggle = (article: DomRoot) => one(article, 'input[role="switch"][data-action="toggle-repo"]');
-  assert.equal(await toggle(enabled).getAttribute('data-id'), 'on');
+  assert.equal(await toggle(enabled).getAttribute('data-repo-id'), 'on');
   assert.ok(await toggle(enabled).hasAttribute('checked'));
   assert.equal(await one(enabled, 'summary').getAttribute('aria-label'), 'Details for Orders');
-  assert.equal(await toggle(disabled).getAttribute('data-id'), 'off');
+  assert.equal(await toggle(disabled).getAttribute('data-repo-id'), 'off');
   assert.equal((await all(disabled, '[checked]')).length, 0);
   assert.equal(await text(one(disabled, '.chip.name')), 'Disabled');
-  assert.equal(await one(disabled, '[data-action="remove-repo"]').getAttribute('data-id'), 'off');
+  assert.equal(await one(disabled, '[data-action="remove-repo"]').getAttribute('data-repo-id'), 'off');
   // A disabled repository offers only its switch and Remove watch: no details, checkout state, update check or sync.
   assert.deepEqual(
     await Promise.all(

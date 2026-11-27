@@ -101,7 +101,7 @@ function inlineCommits(record: ActivityItem, commits: CommitsView | undefined, g
 
 function ciRunButton(run: import('../activity.ts').RelatedCi, tone: string, named = false, note?: string) {
   const phase = run.validation ? 'PR validation' : run.postMerge ? 'Post-merge CI' : 'Branch CI';
-  return html`<button type="button" class="ghost sm ci-run status-text ${tone}" ${action('detail')} data-id="${run.id}" title="${run.title} · ${fullDateTime(run.time)}"><span>${phase} ${run.outcome}${run.stale ? ' on earlier revision' : ''}${named && run.title !== 'CI run' ? ` · ${run.title}` : ''}${note ? ` · ${note}` : ''}</span> ${ciTime(run.time, true)}</button>`;
+  return html`<button type="button" class="ghost sm ci-run status-text ${tone}" ${action('detail')} data-event-id="${run.id}" title="${run.title} · ${fullDateTime(run.time)}"><span>${phase} ${run.outcome}${run.stale ? ' on earlier revision' : ''}${named && run.title !== 'CI run' ? ` · ${run.title}` : ''}${note ? ` · ${note}` : ''}</span> ${ciTime(run.time, true)}</button>`;
 }
 
 function renderRelatedCi(record: ActivityItem, groups: Groups) {
@@ -110,9 +110,9 @@ function renderRelatedCi(record: ActivityItem, groups: Groups) {
   const history = record.relatedCi?.filter(run => !currentIds.has(run.id)) ?? [];
   const content = results.length
     ? html`<div class="ci-rollup">${results.map(({ run, tone, note }) => ciRunButton(run, tone, results.length > 1 || tone === 'crit' || tone === 'warn', note))}</div>
-      ${historyCount ? html`<details class="linked-event ci-history" ${disclosure(groups, `ci-${record.groupKey}`)}><summary ${action('toggle-group')}>Run history · ${historyCount} ${historyCount === 1 ? 'run' : 'runs'}</summary><div class="ci-rollup">${history.map(run => ciRunButton(run.outcome === 'passing again' ? { ...run, outcome: 'passed' } : run, 'neutral'))}${historyCount > history.length ? html`<button type="button" class="ghost sm" ${action('detail')} data-id="${record.id}" data-related>View all CI runs</button>` : emptyHtml}</div></details>` : emptyHtml}`
+      ${historyCount ? html`<details class="linked-event ci-history" ${disclosure(groups, `ci-${record.groupKey}`)}><summary ${action('toggle-group')}>Run history · ${historyCount} ${historyCount === 1 ? 'run' : 'runs'}</summary><div class="ci-rollup">${history.map(run => ciRunButton(run.outcome === 'passing again' ? { ...run, outcome: 'passed' } : run, 'neutral'))}${historyCount > history.length ? html`<button type="button" class="ghost sm" ${action('detail')} data-event-id="${record.id}" data-related>View all CI runs</button>` : emptyHtml}</div></details>` : emptyHtml}`
     : record.ciHost
-      ? html`<button type="button" class="ghost sm" ${action('detail')} data-id="${record.ciHost}">${record.highlight ? 'View pull request' : 'View tested change'}</button>`
+      ? html`<button type="button" class="ghost sm" ${action('detail')} data-event-id="${record.ciHost}">${record.highlight ? 'View pull request' : 'View tested change'}</button>`
       : emptyHtml;
   return content === emptyHtml ? emptyHtml : html`<div class="event-ci">${content}</div>`;
 }
@@ -163,10 +163,10 @@ function renderEvent(
         ${
           related.kind === 'build'
             ? html`<summary ${action('toggle-group')}>CI succeeded ${ciTime(related.time, true)}</summary>
-              <button class="ghost sm" type="button" ${action('detail')} data-id="${related.id}">${activityTitle(related)}</button>
+              <button class="ghost sm" type="button" ${action('detail')} data-event-id="${related.id}">${activityTitle(related)}</button>
               ${renderMeta(related)}${azureLink(related.url, 'Build in Azure ↗')}`
             : html`<summary ${action('toggle-group')}>Linked push${related.unseen ? ' · unread' : ''}</summary>
-              <button class="ghost sm" type="button" ${action('detail')} data-id="${related.id}">View push to ${activityRef(related).branch}</button>`
+              <button class="ghost sm" type="button" ${action('detail')} data-event-id="${related.id}">View push to ${activityRef(related).branch}</button>`
         }
       </details>`
     : emptyHtml;
@@ -363,9 +363,9 @@ function row(
   const prDestination = record.kind === 'pr' && record.data?.status === 'active' ? branchName(record.data.targetRefName) : '';
   return html`<li class="${['row', failed ? 'crit' : '', record.unseen ? 'new' : '', `tone-${tone}`].filter(Boolean).join(' ')}" id="row-${record.groupKey}" data-event-id="${record.id}" data-event-ids="${ids}" data-group-key="${record.groupKey}" data-unseen-ids="${unseenIds}">${tree ? renderTreeCell(tree, tone) : emptyHtml}
     ${renderKind(record, tone)}
-    <div class="subject"><button class="feed-title" type="button" ${action('detail')} data-id="${record.id}"><span class="title">${renderTitle(record, title)}${unseen.length > 1 ? html` <span class="pill u new-count">${unseen.length} new</span>` : emptyHtml}</span>${renderRefLine(record, title, showRepo ? repo?.name || 'Unknown repository' : '', prDestination)}</button></div>
+    <div class="subject"><button class="feed-title" type="button" ${action('detail')} data-event-id="${record.id}"><span class="title">${renderTitle(record, title)}${unseen.length > 1 ? html` <span class="pill u new-count">${unseen.length} new</span>` : emptyHtml}</span>${renderRefLine(record, title, showRepo ? repo?.name || 'Unknown repository' : '', prDestination)}</button></div>
     ${renderEvent(record, origin, Boolean(prDestination), groups, related, commits)}
-    <div class="rowact">${azureLink(record.url)}${record.imported ? emptyHtml : html`<button class="ghost sm seen-toggle" type="button" id="seen-${record.groupKey}" ${action('ack-item')} data-id="${record.id}" data-mark-seen="${record.unseen}" data-event-ids="${ackIds}" aria-pressed="${!record.unseen}" aria-label="Seen: ${fullTitle}${ackLinkedPush ? ' and linked push' : ''}">${icons.seenBox}Seen</button>`}</div></li>`;
+    <div class="rowact">${azureLink(record.url)}${record.imported ? emptyHtml : html`<button class="ghost sm seen-toggle" type="button" id="seen-${record.groupKey}" ${action('ack-item')} data-event-id="${record.id}" data-mark-seen="${record.unseen}" data-event-ids="${ackIds}" aria-pressed="${!record.unseen}" aria-label="Seen: ${fullTitle}${ackLinkedPush ? ' and linked push' : ''}">${icons.seenBox}Seen</button>`}</div></li>`;
 }
 
 function group(

@@ -169,7 +169,7 @@ test('toasts and the error banner show repository names and API messages as text
   await page.goto(runtime.launchUrl);
   await page.goto(`${runtime.url}/#repositories`);
 
-  const toggle = page.locator('[data-action="toggle-repo"][data-id="demo-billing"]');
+  const toggle = page.locator('[data-action="toggle-repo"][data-repo-id="demo-billing"]');
   await toggle.click();
   await expect(page.locator('#toast')).toHaveText(`${name} disabled.`);
   assert.deepEqual(await rawProbes(page), []);

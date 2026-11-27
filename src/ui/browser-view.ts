@@ -212,7 +212,7 @@ export function createBrowserView({
           element => element instanceof HTMLElement && restored.eventId != null && eventIds(element).includes(restored.eventId),
         );
         const detail = (row ? all('[data-action="detail"]', HTMLButtonElement, row) : []).find(
-          element => element.dataset.id === restored.eventId && element.checkVisibility(),
+          element => element.dataset.eventId === restored.eventId && element.checkVisibility(),
         );
         const title = detail ?? row?.querySelector('.feed-title');
         if (title instanceof HTMLElement) title.focus({ preventScroll: true });

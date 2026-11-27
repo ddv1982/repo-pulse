@@ -53,11 +53,11 @@ export function createDetailController(
     },
     actions: {
       detail: element => {
-        // Detail buttons always carry data-id, so the fallbacks never apply.
+        // Detail buttons always carry data-event-id, so the fallbacks never apply.
         const row = element.closest('li[data-event-id]');
         const matchingIds = (ui.search || ui.activityFilter) && row instanceof HTMLElement ? eventIds(row) : undefined;
-        navigation.remember(element.dataset.id ?? null, matchingIds);
-        location.hash = `event/${encodeURIComponent(element.dataset.id ?? '')}${element.hasAttribute('data-related') ? '/ci' : ''}`;
+        navigation.remember(element.dataset.eventId ?? null, matchingIds);
+        location.hash = `event/${encodeURIComponent(element.dataset.eventId ?? '')}${element.hasAttribute('data-related') ? '/ci' : ''}`;
       },
       'back-to-graph': () => history.back(),
       'back-to-results': () => {

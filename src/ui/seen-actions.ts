@@ -10,10 +10,7 @@ function readIds(encoded: string | undefined): string[] | undefined {
 }
 
 export function eventIds(element: HTMLElement) {
-  return (
-    readIds(element.dataset.eventIds) ??
-    (element.dataset.id ? [element.dataset.id] : element.dataset.eventId ? [element.dataset.eventId] : [])
-  );
+  return readIds(element.dataset.eventIds) ?? (element.dataset.eventId ? [element.dataset.eventId] : []);
 }
 
 /** The state a Seen control sets. Anything but "true" or "false" is broken markup, so nothing is sent. */

@@ -22,7 +22,7 @@ test('all branches remain visible without rules, with working settings', async t
   await page.reload();
   await expect(page.getByRole('link', { name: 'Rules', exact: true })).toHaveCount(0);
   await expect(page.getByRole('checkbox', { name: 'Show muted', exact: true })).toHaveCount(0);
-  await expect(page.locator('[data-event-id="demo-branch-1"]')).toBeVisible();
+  await expect(page.locator('li[data-event-id="demo-branch-1"]')).toBeVisible();
   await page.goto(app.runtime.url + '/#rules');
   await expect(page.getByRole('heading', { name: 'Settings', exact: true })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Watch and mute rules' })).toHaveCount(0);

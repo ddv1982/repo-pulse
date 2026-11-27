@@ -54,7 +54,7 @@ export function renderRepositories(
 }
 
 function repoSwitch(repo: Repo) {
-  return html`<input class="setting-switch" type="checkbox" role="switch" id="enable-${repo.id}" ${action('toggle-repo')} data-id="${repo.id}"
+  return html`<input class="setting-switch" type="checkbox" role="switch" id="enable-${repo.id}" ${action('toggle-repo')} data-repo-id="${repo.id}"
     aria-label="Watch ${repo.name}" title="${repo.disabled ? 'Disabled: no checks and hidden from Activity' : 'Enabled: checked and shown in Activity'}" ${repo.disabled ? emptyHtml : html`checked`}>`;
 }
 
@@ -66,7 +66,7 @@ function renderDisabledRepo(repo: Repo) {
       <span class="chip name">Disabled</span>
     </div>
     <div class="repo-disabled-actions">
-      <button class="ghost sm" type="button" id="remove-${repo.id}" ${action('remove-repo')} data-id="${repo.id}">Remove watch</button>
+      <button class="ghost sm" type="button" id="remove-${repo.id}" ${action('remove-repo')} data-repo-id="${repo.id}">Remove watch</button>
     </div>
   </article>`;
 }
@@ -115,7 +115,7 @@ function renderRepo(
         <div class="actions">
           ${demo ? emptyHtml : renderHistoryImportButton(repo, job)}
           ${azureLink(repo.webUrl)}
-          <button class="ghost sm" type="button" id="remove-${repo.id}" ${action('remove-repo')} data-id="${repo.id}">Remove watch</button>
+          <button class="ghost sm" type="button" id="remove-${repo.id}" ${action('remove-repo')} data-repo-id="${repo.id}">Remove watch</button>
         </div>
       </div>
     </details>
