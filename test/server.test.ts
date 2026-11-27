@@ -73,6 +73,39 @@ async function fixture(t: TestContext, { demo = true, ...options }: Partial<AppO
   return { store, app, url, state, mutate, calls };
 }
 
+test('state summarizes streams without shipping pending ref snapshots', async t => {
+  let stateReads = 0;
+  const { url, store } = await fixture(t, { demo: false, onStateRead: () => stateReads++ });
+  const stream = {
+    repoId: 'demo-orders',
+    stream: 'refs' as const,
+    initialized: false,
+    nextAt: new Date().toISOString(),
+    cursor: { token: 'continuation', allRefs: true },
+  };
+  store.saveStream(stream);
+  const read = async () => (await fetch(url + '/api/state')).text();
+  const before = await read();
+  const pendingItems = Array.from({ length: 2500 }, (_, i) => ({ name: `refs/heads/branch-${i}`, objectId: 'a'.repeat(40) }));
+  store.saveStream({ ...stream, pendingItems });
+  const after = await read();
+  const state = JSON.parse(after) as StateResponse;
+  assert.deepEqual(
+    state.streams.find(entry => entry.repoId === stream.repoId && entry.stream === stream.stream),
+    {
+      repoId: stream.repoId,
+      stream: stream.stream,
+      initialized: false,
+    },
+  );
+  assert.equal(Buffer.byteLength(after), Buffer.byteLength(before));
+  assert.equal(
+    store.getStreams().find(entry => entry.repoId === stream.repoId && entry.stream === stream.stream)?.pendingItems?.length,
+    2500,
+  );
+  assert.equal(stateReads, 3);
+});
+
 test('serves real UI and blocks other origins, DNS rebinding, and API requests without the access key', async t => {
   const { url } = await fixture(t);
   const page = await fetch(url);

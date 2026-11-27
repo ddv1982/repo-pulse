@@ -1,6 +1,6 @@
 // Simulates live polling against the shared Azure call budget.
 // Usage: node scripts/measure-budget.ts [--limit 12] [--repos 1,5,10,20] [--pushes-per-hour 4] [--call-ms 1500] [--minutes 60]
-//   [--refs-per-repo 1] [--active-prs 0 --pr-every 3]: also spend one threads read and one policy evaluations read per active PR every N minutes.
+//   [--recent-pushes 0] [--refs-per-repo 1] [--active-prs 0 --pr-every 3]: also spend one threads read and one policy evaluations read per active PR every N minutes.
 import { mock } from 'node:test';
 import { createHash } from 'node:crypto';
 import { createStore } from '../server/store.ts';
@@ -22,6 +22,8 @@ const LIMIT_PER_MINUTE = Number(option('limit', 12));
 if (!(LIMIT_PER_MINUTE >= 1)) throw new RangeError('--limit must be at least 1.');
 const refsPerRepo = Number(option('refs-per-repo', 1));
 if (!Number.isSafeInteger(refsPerRepo) || refsPerRepo < 1) throw new RangeError('--refs-per-repo must be a positive integer.');
+const recentPushes = Number(option('recent-pushes', 0));
+if (!Number.isSafeInteger(recentPushes) || recentPushes < 0) throw new RangeError('--recent-pushes must be a non-negative integer.');
 const activePrs = Number(option('active-prs', 0));
 const prEveryMs = Number(option('pr-every', 3)) * 60000;
 const sha = (value: string) => createHash('sha1').update(value).digest('hex');
@@ -33,15 +35,18 @@ function simulate(repoTotal: number) {
   let time = start;
   const now = () => time;
   const starts: number[] = [];
+  const queueWaits: number[] = [];
   let calls = 0;
   // One process-wide queue: wait for a free slot in the sliding minute, then spend the call's duration.
   function charge() {
+    const arrivedAt = time;
     while (starts[0] !== undefined && starts[0] <= time - 60000) starts.shift();
     const [oldest] = starts;
     if (oldest !== undefined && starts.length >= LIMIT_PER_MINUTE) {
       time = oldest + 60000;
       starts.shift();
     }
+    queueWaits.push(time - arrivedAt);
     starts.push(time);
     calls++;
     time += callMs;
@@ -61,7 +66,19 @@ function simulate(repoTotal: number) {
     const list = [];
     let tip = sha(`${azureId}:root`);
     const gap = 3600000 / pushesPerHour;
-    for (let at = start + gap * ((r + 1) / (repoTotal + 1)), id = 1; at < end; at += gap, id++) {
+    const firstLivePush = start + gap * ((r + 1) / (repoTotal + 1));
+    for (let id = 1; id <= recentPushes; id++) {
+      const at = start - 86400000 + Math.floor((id * 86400000) / (recentPushes + 1));
+      const next = sha(`${azureId}:recent:${id}`);
+      list.push({
+        pushId: id,
+        date: new Date(at).toISOString(),
+        pushedBy: { displayName: 'Tester' },
+        refUpdates: [{ name: 'refs/heads/main', oldObjectId: tip, newObjectId: next }],
+      });
+      tip = next;
+    }
+    for (let at = firstLivePush, id = recentPushes + 1; at < end; at += gap, id++) {
       const next = sha(`${azureId}:${id}`);
       list.push({
         pushId: id,
@@ -144,7 +161,7 @@ function simulate(repoTotal: number) {
     isForeground: () => true,
     background: { history: async () => false },
   });
-  const generated = [...pushes.values()].reduce((total, list) => total + list.length, 0);
+  const generated = [...pushes.values()].reduce((total, list) => total + list.length - recentPushes, 0);
   return {
     store,
     sync,
@@ -155,6 +172,7 @@ function simulate(repoTotal: number) {
       time += ms;
     },
     calls: () => calls,
+    queueWaits,
     prReads,
   };
 }
@@ -167,13 +185,17 @@ function percentile(values: number[], p: number) {
 const minutesOf = (ms: number | null) => (ms === null ? 'n/a' : (ms / 60000).toFixed(1));
 
 console.log(
-  `Budget ${LIMIT_PER_MINUTE} calls/min, ${callMs} ms per call, ${pushesPerHour} pushes/hour/repo, ${minutes} simulated minutes, ${refsPerRepo} refs/repo, tab in foreground${activePrs ? `, ${activePrs} active PRs/repo read twice every ${prEveryMs / 60000} min` : ''}.`,
+  `Budget ${LIMIT_PER_MINUTE} calls/min, ${callMs} ms per call, ${pushesPerHour} pushes/hour/repo, ${minutes} simulated minutes, ${refsPerRepo} refs/repo, ${recentPushes} recent pushes/repo, tab in foreground${activePrs ? `, ${activePrs} active PRs/repo read twice every ${prEveryMs / 60000} min` : ''}.`,
 );
-console.log('repos | initial sync s | calls/min | pushes | in Activity | delay p50 min | delay p95 min | delay max min');
+console.log(
+  'repos | first page with rows s | initial sync s | queue wait p95/max s | calls/min | live pushes | in Activity | delay p50 min | delay p95 min | delay max min',
+);
 for (const repoTotal of repoCounts) {
   const run = simulate(repoTotal);
   const startedAt = run.now();
   let startupMs: number | undefined;
+  let firstPageMs: number | undefined;
+  let pageRevision = run.store.activityRevision();
   mock.timers.enable({ apis: ['setTimeout'] });
   run.sync.start();
   try {
@@ -182,6 +204,10 @@ for (const repoTotal of repoCounts) {
       mock.timers.tick(100);
       await new Promise(resolve => setImmediate(resolve));
       run.prReads();
+      if (firstPageMs === undefined && pageRevision !== run.store.activityRevision()) {
+        pageRevision = run.store.activityRevision();
+        if (run.store.queryActivity({ limit: 50 }).items.length) firstPageMs = run.now() - startedAt;
+      }
       if (startupMs === undefined && run.store.getStreams().every(stream => stream.initialized)) startupMs = run.now() - startedAt;
     }
   } finally {
@@ -189,12 +215,14 @@ for (const repoTotal of repoCounts) {
     mock.timers.reset();
   }
   const elapsedMinutes = (run.now() - startedAt) / 60000;
-  const events = run.store.listEvents({ limit: 5000 }).filter(event => event.kind === 'push');
+  const events = run.store.listEvents({ limit: 5000 }).filter(event => event.kind === 'push' && !event.imported);
   const delays = events.map(event => Date.parse(event.observedAt) - Date.parse(String(event.time)));
   console.log(
     [
       repoTotal,
+      firstPageMs === undefined ? 'n/a' : (firstPageMs / 1000).toFixed(1),
       startupMs === undefined ? 'n/a' : (startupMs / 1000).toFixed(1),
+      [0.95, 1].map(p => ((percentile(run.queueWaits, p) ?? 0) / 1000).toFixed(1)).join('/'),
       (run.calls() / elapsedMinutes).toFixed(1),
       run.generated,
       events.length,

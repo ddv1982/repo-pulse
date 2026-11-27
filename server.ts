@@ -304,7 +304,14 @@ export function createApp({
         const diagnostics = { ...(cli?.diagnostics() || {}), sync: status };
         return json(res, 200, {
           repos,
-          streams,
+          streams: streams.map(({ repoId, stream, initialized, lastSuccess, error, warning }) => ({
+            repoId,
+            stream,
+            initialized,
+            lastSuccess,
+            ...(error === undefined ? {} : { error }),
+            warning,
+          })),
           diagnostics,
           jobs,
           activityRevision: store.activityRevision(),

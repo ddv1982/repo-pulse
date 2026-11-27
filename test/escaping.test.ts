@@ -174,8 +174,8 @@ const newBranchPush = present(events[6]);
 
 const streamError = (field: string) => ({ code: 'FAILED', message: probe(field) });
 const streams: PageState['streams'] = [
-  { repoId: repo.id, stream: 'pushes', initialized: true, nextAt: time, lastSuccess: time, error: streamError('stream.pushes.error') },
-  { repoId: repo.id, stream: 'prs', initialized: true, nextAt: time, error: streamError('stream.prs.error') },
+  { repoId: repo.id, stream: 'pushes', initialized: true, lastSuccess: time, error: streamError('stream.pushes.error') },
+  { repoId: repo.id, stream: 'prs', initialized: true, error: streamError('stream.prs.error') },
 ];
 
 function pageState(activity: PageState['activity']): PageState {
