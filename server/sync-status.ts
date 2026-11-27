@@ -21,6 +21,8 @@ export type SyncStatusInput = {
   backgroundProblem?: string | undefined;
 };
 
+export const SYNC_STREAMS: StreamState['stream'][] = ['pushes', 'refs', 'prs', 'closedPrs', 'builds', 'activeBuilds'];
+
 const MINUTE = 60000;
 const HOUR = 60 * MINUTE;
 const LATE = 3 * MINUTE;
@@ -108,12 +110,10 @@ export function syncStatus({
     // Stored activity is being deleted and then imported again, whatever the streams still say.
     if (resetting) return { state: 'syncing' };
     if (resetFailed) return { state: 'problem', reason: 'Starting from scratch failed. Try again.' };
-    const importing = jobs.some(job => job.repoId === repoId && job.status !== 'completed');
-    // A history import keeps reading with automatic checks off, so it is not paused.
-    if (!automatic && !importing && !own.some(stream => stream.manual)) return { state: 'paused', ...since };
-    const failing = own.find(
-      ({ error, failures = 0 }) => error && error.code !== 'THROTTLED' && (failures >= 2 || LASTING.has(error.code)),
-    );
+    const paused = !automatic && !own.some(stream => stream.manual);
+    const failing = paused
+      ? undefined
+      : own.find(({ error, failures = 0 }) => error && error.code !== 'THROTTLED' && (failures >= 2 || LASTING.has(error.code)));
     if (failing?.error)
       return {
         state: 'problem',
@@ -134,6 +134,7 @@ export function syncStatus({
         ...(failingImport.error.code === 'AUTH_REQUIRED' ? { signInRequired: true } : {}),
         ...since,
       };
+    if (paused) return { state: 'paused', ...since };
     // The read succeeded but left out records Azure returned in a shape this version cannot read, so it is not synced.
     const warned = own.find(stream => stream.warning);
     if (warned?.warning) return { state: 'problem', reason: warned.warning.message, stream: warned.stream, ...since };
@@ -146,9 +147,15 @@ export function syncStatus({
       return { state: 'delayed', reason, stream: behind.stream, ...since };
     }
     // A stale read that got here is still inside the grace period above, so it is catching up.
-    const working = own.some(stream => !stream.initialized || stream.pending || stream.cursor || stream.manual || stale(stream));
+    if (!own.length || own.some(stream => !stream.initialized))
+      return {
+        state: 'syncing',
+        firstSync: { completed: own.filter(stream => stream.initialized).length, total: SYNC_STREAMS.length },
+        ...since,
+      };
+    const working = own.some(stream => stream.pending || stream.cursor || stream.manual || stale(stream));
     const busy = inProgress.some(entry => entry.repoId === repoId);
-    if (!own.length || importing || working || busy) return { state: 'syncing', ...since };
+    if (working || busy) return { state: 'syncing', ...since };
     return { state: 'synced', ...since, ...fresh };
   }
 

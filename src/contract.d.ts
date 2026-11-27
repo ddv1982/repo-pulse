@@ -217,6 +217,7 @@ export type SyncState = 'paused' | 'problem' | 'delayed' | 'syncing' | 'synced';
  */
 export type SyncStatus = {
   state: SyncState;
+  firstSync?: { completed: number; total: number };
   reason?: string;
   since?: string;
   lastCheck?: string;
@@ -384,7 +385,7 @@ export type SessionResponse = { key: string };
  */
 export type StateResponse = {
   repos: Repository[];
-  streams: StreamState[];
+  streams: Pick<StreamState, 'repoId' | 'stream' | 'initialized' | 'lastSuccess' | 'error' | 'warning'>[];
   diagnostics: Partial<CliDiagnostics> & { sync: SyncEngineStatus | DemoSyncStatus };
   jobs: HistoryJob[];
   activityRevision: string;

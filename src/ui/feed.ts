@@ -402,7 +402,7 @@ function historyGroups(
   const importedTree = buildActivityTree(imported.items, { defaultBranches });
   const width = Math.max(recordedTree.width, importedTree.width);
   return {
-    content: html`${group('Activity', recorded.items, state, { tree: { ...recordedTree, width }, showRepo, feedCommits, linked: recorded.linked })}${group('Imported history', imported.items, state, { open: hasQuery, description: 'Captured before monitoring started', tree: { ...importedTree, width }, showRepo, feedCommits, linked: imported.linked })}`,
+    content: html`${group('Activity', recorded.items, state, { tree: { ...recordedTree, width }, showRepo, feedCommits, linked: recorded.linked })}${group('Imported history', imported.items, state, { open: hasQuery || !recorded.items.length, description: 'Captured before monitoring started', tree: { ...importedTree, width }, showRepo, feedCommits, linked: imported.linked })}`,
     legend: hasTreeLegend(recordedTree) || hasTreeLegend(importedTree),
   };
 }
@@ -466,10 +466,15 @@ export function renderFeed(state: PageState, ui: FeedView & { savedFilterId: str
             return status ? [{ ...status, repoId: repo.id }] : [];
           }),
         );
+  const progress = attention?.state === 'syncing' ? attention.firstSync : undefined;
+  const firstSync =
+    attention && progress
+      ? `${shown.length > 1 ? `${syncRepoName(state.repos, attention)} · ` : ''}${progress.completed} of ${progress.total} checks complete`
+      : undefined;
   // With one repository in view every row would repeat its name, so rows name it only when several are shown.
   const showRepo = shown.length > 1;
   const { content, legend } = historyGroups(records, state, hasQuery, showRepo, feedCommits);
-  const emptyMessage = emptyActivityMessage(ui, partial);
+  const emptyMessage = firstSync ? 'No activity loaded yet' : emptyActivityMessage(ui, partial);
   const emptyHint =
     state.activity.error ||
     (state.activity.loading
@@ -486,6 +491,6 @@ export function renderFeed(state: PageState, ui: FeedView & { savedFilterId: str
     ui,
     shown.map(repo => repo.id),
   );
-  return html`<h1 class="sr">Activity</h1>${renderSummary(records, state, ui, partial)}${statusBanner(state, attention)}${filterControls(ui, state)}
+  return html`<h1 class="sr">Activity</h1>${renderSummary(records, state, ui, partial, firstSync)}${statusBanner(state, attention)}${filterControls(ui, state)}
     <section class="card feed" aria-label="Repository activity">${bulk === emptyHtml ? emptyHtml : html`<div class="foot feed-actions">${bulk}</div>`}${legend ? treeLegend : emptyHtml}${records.length ? content : html`<div class="empty"><p class="big">${state.activity?.loading ? 'Loading activity…' : state.activity?.error ? 'Activity could not load' : emptyMessage}</p>${emptyHint ? html`<p class="dim">${emptyHint}</p>` : emptyHtml}${state.activity?.error ? html`<button class="btn sm" type="button" data-action="retry-activity">Try again</button>` : emptyHtml}</div>`}${state.activity?.nextCursor ? html`<div class="foot"><button class="btn" type="button" data-action="load-more-activity">Load more</button><span>Showing ${records.reduce((total, record) => total + 1 + (record.foldedCi ?? 0), 0)} of ${state.activity.total} recorded items.</span></div>` : emptyHtml}</section>`;
 }

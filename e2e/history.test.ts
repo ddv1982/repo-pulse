@@ -9,6 +9,7 @@ import { chromium, expect } from '@playwright/test';
 import type { Response } from '@playwright/test';
 import { startApp, createApp } from '../server.ts';
 import { createStore } from '../server/store.ts';
+import { createSync } from '../server/sync.ts';
 import { TEST_KEY, rememberKey, portOf } from '../test/fixtures/access.ts';
 import type { AppSync } from '../server.ts';
 import type { AzureProvider } from '../server/azure-client.ts';
@@ -77,6 +78,70 @@ function seedHistory(store: Store) {
   });
   store.insertEvents(records);
 }
+
+test('first sync shows imported activity while other checks continue and preserves the open state', async t => {
+  const store = createStore();
+  const repo = stub<Repository>({ id: 'first-repo', azureId: 'first-repo', name: 'First repo', defaultBranch: 'refs/heads/main' });
+  store.saveRepo(repo);
+  const now = Date.now();
+  const provider = stub<AzureProvider>({
+    async read(_repo, stream) {
+      return {
+        items:
+          stream === 'pushes'
+            ? [
+                {
+                  pushId: 1,
+                  date: new Date(now - 60000).toISOString(),
+                  pushedBy: { displayName: 'Example Author' },
+                  refUpdates: [{ name: 'refs/heads/main', oldObjectId: 'a'.repeat(40), newObjectId: 'b'.repeat(40) }],
+                },
+              ]
+            : [],
+        nextCursor: null,
+      };
+    },
+  });
+  const sync = createSync({ store, provider });
+  sync.refresh();
+  const app = createApp({ accessKey: TEST_KEY, store, provider, sync });
+  await new Promise<void>(resolve => app.listen(0, '127.0.0.1', resolve));
+  const browser = await chromium.launch({ executablePath: await browserPath(), headless: true });
+  t.after(async () => {
+    await browser.close();
+    await new Promise(resolve => app.close(resolve));
+    store.close();
+  });
+  const page = await browser.newPage({ viewport: { width: 1280, height: 900 }, colorScheme: 'light' });
+  await rememberKey(page);
+  await page.goto(`http://127.0.0.1:${portOf(app)}/#activity`);
+  const status = page.locator('#header .header-tools > .sync-pill');
+  await expect(status).toHaveText('First sync · 0 of 6');
+  await expect(page.getByText('Reading recent activity…')).toBeVisible();
+  const started = performance.now();
+  await sync.tick();
+  const imported = page.locator('details[data-group="Imported history"]');
+  const row = imported.locator('li[data-event-id="first-repo:push:1"]');
+  await expect(row).toBeVisible({ timeout: 8000 });
+  t.diagnostic(`First imported row visible after ${Math.round(performance.now() - started)} ms with a synthetic provider`);
+  await expect(page.getByText('Recent activity available')).toBeVisible();
+  await expect(status).toHaveText('First sync · 1 of 6');
+  await mkdir('test-results', { recursive: true });
+  await page.screenshot({ path: 'test-results/first-sync-activity-light.png', animations: 'disabled' });
+  await page.setViewportSize({ width: 375, height: 812 });
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await expect(row).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Activity summary' }).getByText('1 of 6 checks complete')).toBeVisible();
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+  await page.screenshot({ path: 'test-results/first-sync-activity-phone-dark.png', animations: 'disabled' });
+
+  await imported.locator('summary').click();
+  await expect(row).toBeHidden();
+  for (let i = 0; i < 5; i++) await sync.tick();
+  await expect(status).toHaveText(/^Synced/, { timeout: 8000 });
+  await expect(row).toBeHidden();
+  assert.equal(store.getEvent('first-repo:push:1')?.seen, true);
+});
 
 test('unread filtering, paged history, filters and deep links reach events beyond the old 1000 window', async t => {
   const { runtime, page } = await demo(t);

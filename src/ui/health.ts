@@ -35,7 +35,7 @@ export function syncLabel(status: AnySyncStatus) {
     case 'synced':
       return status.lastCheck ? `Synced · ${clock(status.lastCheck)}` : 'Synced';
     case 'syncing':
-      return 'Syncing…';
+      return status.firstSync ? `First sync · ${status.firstSync.completed} of ${status.firstSync.total}` : 'Syncing…';
     case 'delayed':
       return `Delayed · ${lowerFirst(reason(status) || 'behind schedule')}`;
     case 'problem':
@@ -56,7 +56,9 @@ export function syncSentence(status: AnySyncStatus, repoName: string = '') {
     case 'synced':
       return status.lastCheck ? `Synced, last check ${clock(status.lastCheck)}` : 'Synced';
     case 'syncing':
-      return 'Syncing, checks are running';
+      return status.firstSync
+        ? `First sync${where}, ${status.firstSync.completed} of ${status.firstSync.total} checks complete`
+        : 'Syncing, checks are running';
     case 'delayed':
       return `Delayed${where}: ${lowerFirst(reason(status) || 'behind schedule')}`;
     case 'problem':

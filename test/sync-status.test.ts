@@ -68,14 +68,14 @@ test('automatic checks off pause every repository unless a manual refresh is out
   assert.equal(manual.overall.state, 'syncing');
 });
 
-test('with automatic checks off a running history import is not paused: it syncs, or waits on Azure throttling', () => {
+test('an older import keeps running independently of paused live monitoring', () => {
   const settings = { refreshEnabled: false, refreshResumedAt: null };
   const jobs: SyncStatusInput['jobs'] = [{ repoId: 'a', status: 'running' }];
   const importing = status({ settings, jobs });
-  assert.equal(present(importing.repos.a).state, 'syncing');
+  assert.equal(present(importing.repos.a).state, 'paused');
   assert.equal(present(importing.repos.b).state, 'paused');
   const throttled = status({ settings, jobs, throttledUntil: iso(NOW + 30000) });
-  assert.deepEqual(throttled.repos.a, { state: 'delayed', reason: 'Azure DevOps asked us to slow down', since: ago(1) });
+  assert.deepEqual(throttled.repos.a, { state: 'paused', since: ago(1) });
   assert.equal(present(throttled.repos.b).state, 'paused');
   assert.equal(present(status({ settings, jobs: [{ repoId: 'a', status: 'completed' }] }).repos.a).state, 'paused');
 });
@@ -227,12 +227,21 @@ test('checks starting over 3 minutes late delay only the repository they belong 
   assert.equal(present(status({ a: { builds: { nextAt: ago(2) } } }).repos.a).state, 'synced');
 });
 
-test('a first import, an open page, a manual refresh or a running history import is syncing', () => {
-  assert.deepEqual(status({ a: { refs: { initialized: false, lastSuccess: undefined } } }).repos.a, { state: 'syncing' });
+test('first sync reports completed checks before ongoing live checks switch to the usual status', () => {
+  const first = status({
+    a: { refs: { initialized: false, lastSuccess: undefined }, prs: { initialized: false, lastSuccess: undefined } },
+  });
+  assert.deepEqual(first.repos.a, { state: 'syncing', firstSync: { completed: 4, total: 6 } });
+  assert.deepEqual(first.overall, { state: 'syncing', repoId: 'a', firstSync: { completed: 4, total: 6 } });
+  assert.deepEqual(status({ repos: [{ id: 'a' }], streams: [] }).repos.a, { state: 'syncing', firstSync: { completed: 0, total: 6 } });
+  assert.equal(status().repos.a?.firstSync, undefined);
+});
+
+test('an open page or manual refresh is syncing, and an older import has its own progress', () => {
   assert.equal(present(status({ a: { pushes: { pending: true, cursor: { skip: 100 } } } }).repos.a).state, 'syncing');
   assert.equal(present(status({ a: { pushes: { manual: true } } }).repos.a).state, 'syncing');
   const importing = status({ jobs: [{ repoId: 'a', status: 'running' }] });
-  assert.equal(present(importing.repos.a).state, 'syncing');
+  assert.equal(present(importing.repos.a).state, 'synced');
   assert.equal(present(importing.repos.b).state, 'synced');
   assert.equal(present(status({ jobs: [{ repoId: 'a', status: 'completed' }] }).repos.a).state, 'synced');
 });
@@ -475,7 +484,7 @@ test('a disabled repository or a stopped sync lists no queued refresh', async ()
 
 test('a history import that keeps failing is a problem, not endless syncing', () => {
   const error = { code: 'FAILED', message: 'Azure DevOps could not list pushes.' };
-  assert.equal(present(status({ jobs: [{ repoId: 'a', status: 'retrying', failures: 1, error }] }).repos.a).state, 'syncing');
+  assert.equal(present(status({ jobs: [{ repoId: 'a', status: 'retrying', failures: 1, error }] }).repos.a).state, 'synced');
   assert.deepEqual(status({ jobs: [{ repoId: 'a', status: 'retrying', failures: 2, error }] }).repos.a, {
     state: 'problem',
     reason: error.message,
@@ -483,7 +492,7 @@ test('a history import that keeps failing is a problem, not endless syncing', ()
     since: ago(1),
   });
   const throttled = { code: 'THROTTLED', message: 'Azure DevOps asked us to slow down. Retrying later.' };
-  assert.equal(present(status({ jobs: [{ repoId: 'a', status: 'retrying', failures: 5, error: throttled }] }).repos.a).state, 'syncing');
+  assert.equal(present(status({ jobs: [{ repoId: 'a', status: 'retrying', failures: 5, error: throttled }] }).repos.a).state, 'synced');
   const denied = { code: 'FORBIDDEN', message: 'No access to this repository.' };
   assert.equal(present(status({ jobs: [{ repoId: 'a', status: 'retrying', failures: 1, error: denied }] }).repos.a).state, 'problem');
 });

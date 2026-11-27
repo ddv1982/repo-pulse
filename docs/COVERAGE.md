@@ -118,18 +118,15 @@ Evidence saved before deeper analysis stopped also enumerated ref ranges, becaus
   Rewrite and fork checks wait while automatic checks are off; a history import keeps running. Background work
   gets every turn when no live check is due and, under sustained live work, one turn after six live
   turns. These are scheduler turns, so queueing and provider response times still affect freshness.
-- The server derives one sync status per enabled repository. The header shows the one that needs the
-  most attention, in the order Problem, Delayed, Syncing, Paused, Synced. A repository takes the first
-  status that applies: **Paused** when automatic checks are off and no manual refresh or history import
-  is outstanding; **Problem** when the latest read failed for a reason other than throttling and the
-  stream has failed at least twice since its last completed check, or at once when sign-in or access is
-  refused or the Azure CLI or its extension is missing; **Delayed** while Azure DevOps asked for a pause,
-  when a stream's last read was throttled, or when a check is more than three minutes late or its data
-  is older than ten minutes (twenty for refs); **Syncing** while a first read, page, refresh or import
-  is still running; otherwise **Synced**. While Start from scratch deletes data every repository shows
-  Syncing, and after it fails, Problem. Demo mode always shows Synced. Streams catching up right after a start or resume count as
-  syncing, not delayed. Until every shown repository is synced, an empty or short Activity list does
-  not prove that nothing changed.
+- The header shows the live check status that needs the most attention across enabled repositories.
+  **Paused** means automatic checks are off and no manual refresh is outstanding. **Problem** calls
+  out unreadable records, lasting access or setup errors, or repeated failures. **Delayed** means
+  Azure DevOps asked for a pause or checks are behind schedule. **First sync** shows how many initial
+  checks have completed, and rows can be browsed as they arrive. **Syncing** covers later live reads
+  in progress. **Synced** means all live streams are current. Older imports have separate progress
+  in Repositories, and lasting import failures can still appear as a **Problem**. During a reset the
+  header shows **Syncing**, or **Problem** if the reset fails. Demo mode always shows **Synced**.
+  While a shown repository is still catching up, Activity counts may be incomplete.
 - **Start from scratch** in Settings deletes stored activity, seen marks, imported history, sync
   checkpoints and pending jobs, keeps repositories, linked checkouts and settings, and then runs the
   first import again. History imports are refused while the reset is pending or clearing data, and

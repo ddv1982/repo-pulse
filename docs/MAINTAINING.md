@@ -81,7 +81,7 @@ Run `node scripts/measure-activity.ts` for synthetic local HTTP and SQLite timin
 
 ## Check the Azure budget
 
-Use `node scripts/measure-budget.ts --limit 60` to compare simulated polling under the current request budget. Add `--refs-per-repo 1106` to measure a multi-page refs listing. The script runs the real scheduler and Azure client with a fake clock and a fake CLI, and reports time to initialize every stream. It serializes calls, uses an assumed 1.5 seconds per call by default, and omits the rewrite check and its retries. Use the results for relative comparisons between simulated polling changes. Live queue capacity and detection latency need separate measurements.
+Use `node scripts/measure-budget.ts --limit 60` to compare simulated polling under the current request budget. Add `--refs-per-repo 1106` to measure a multi-page refs listing and `--recent-pushes 2500` for an active initial window. The script runs the real scheduler and Azure client with a fake clock and a fake CLI, and reports time to the first Activity page with rows, time to initialize every stream, and simulated request-budget wait. It serializes calls, uses an assumed 1.5 seconds per call by default, and omits the rewrite check and its retries. Use the results for relative comparisons between simulated polling changes. Live queue capacity and detection latency need separate measurements.
 
 The [historical local-load and Azure budget measurements](https://github.com/ddv1982/repo-pulse/blob/b8fb8561854d472bcc17543326df5c4644c53cd8/docs/MAINTAINING.md#check-local-load) remain in Git history. The old Azure runs included background merge analysis, so compare current polling changes using the same simulator settings on both revisions.
 
