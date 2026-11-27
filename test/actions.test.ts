@@ -2,9 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { isActionName } from '../src/ui/actions.ts';
 
-const root = new URL('..', import.meta.url).pathname;
+const root = fileURLToPath(new URL('..', import.meta.url));
 
 test('browser markup names actions only through action(), so the type check covers every name', async () => {
   const files = ['src/web.ts', ...(await readdir(join(root, 'src/ui'))).filter(name => name.endsWith('.ts')).map(name => `src/ui/${name}`)];
