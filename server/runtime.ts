@@ -6,6 +6,7 @@ import { createSavedActivityFilters } from './saved-activity-filters.ts';
 import { createStore, type Store } from './store.ts';
 import { lockDatabase } from './database-lock.ts';
 import { createSync } from './sync.ts';
+import { createNormalizer } from './normalize.ts';
 import { createAzureCli, defaultExecutor } from './azure-cli.ts';
 import { createRestReader, useSystemNetworkSettings } from './azure-rest.ts';
 import { createAzureClient } from './azure-client.ts';
@@ -179,11 +180,14 @@ async function startLocked(
     }
     return true;
   }
+  // Sync and history import turn Azure records into events through the same normalizer.
+  const normalizer = createNormalizer({ store });
   const liveSync =
     azure &&
     createSync({
       store,
       provider: azure,
+      normalizer,
       isForeground: () => Date.now() - lastClientAt < 45_000,
       // Assigned below, before sync.start() can schedule any work.
       // Fork origin checks share the automatic-check turn and run when no rewrite check is due.
@@ -212,7 +216,7 @@ async function startLocked(
     demoSync;
   if (!azure || !liveSync) seedDemo(store);
   else {
-    backfill = createBackfill({ store, provider: azure, normalize: liveSync.normalize });
+    backfill = createBackfill({ store, provider: azure, normalize: normalizer.normalize });
   }
   const accessKey = randomBytes(32).toString('base64url');
   const launchToken = randomBytes(32).toString('base64url');

@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { createStore } from '../server/store.ts';
+import { createNormalizer } from '../server/normalize.ts';
 import { createSync } from '../server/sync.ts';
 import { createBackfill } from '../server/backfill.ts';
 import { createRewriteCheck } from '../server/rewrite-check.ts';
@@ -65,14 +66,16 @@ function setup({
   });
   const check = createRewriteCheck({ store, provider, now: () => time });
   let backfill: ReturnType<typeof createBackfill> | undefined;
+  const normalizer = createNormalizer({ store, now: () => time });
   const sync = createSync({
     store,
     provider,
     now: () => time,
+    normalizer,
     intervalMs: 60000,
     background: { rewrite: () => check.tick(), history: () => backfill?.tick() },
   });
-  backfill = createBackfill({ store, provider, normalize: sync.normalize, now: () => time });
+  backfill = createBackfill({ store, provider, normalize: normalizer.normalize, now: () => time });
   sync.refresh();
   for (const state of store.getStreams()) if (state.stream !== 'pushes') store.saveStream({ ...state, nextAt: '2099-01-01T00:00:00Z' });
   return {

@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createStore } from '../server/store.ts';
 import { createHash } from 'node:crypto';
+import { createNormalizer } from '../server/normalize.ts';
 import { createSync } from '../server/sync.ts';
 import { createBackfill } from '../server/backfill.ts';
 import { activityMergeBadge } from '../src/activity-text.ts';
@@ -25,13 +26,15 @@ function setup(provider: SyncProvider, streams: string[] = ['pushes']) {
   const store = createStore();
   store.saveRepo(repo);
   let time = BASE;
-  const sync = createSync({ store, provider, now: () => time, intervalMs: 1000 });
+  const normalizer = createNormalizer({ store, now: () => time });
+  const sync = createSync({ store, provider, now: () => time, intervalMs: 1000, normalizer });
   sync.refresh();
   for (const state of store.getStreams())
     if (!streams.includes(state.stream)) store.saveStream({ ...state, nextAt: '2099-01-01T00:00:00Z' });
   return {
     store,
     sync,
+    normalizer,
     advance(this: void, ms = 2000) {
       time += ms;
     },
@@ -1037,11 +1040,11 @@ test('active preview and abandoned PRs never acquire actual merge-result fields'
 });
 
 test('ingestion stores pushes and leaves historical imports out of live ref state', async () => {
-  const { store, sync } = setup({ read: async () => ({ items: [push(333)], nextCursor: null }) });
+  const { store, sync, normalizer } = setup({ read: async () => ({ items: [push(333)], nextCursor: null }) });
   await sync.tick();
   assert.ok(store.getEvent('one:push:333'));
   const before = store.getEntity('one', 'ref', 'refs/heads/hotfix/example');
-  const historical = sync.normalize(repo, 'pushes', [push(1, '2020-01-01T00:00:00Z')], { historical: true, initialized: false });
+  const historical = normalizer.normalize(repo, 'pushes', [push(1, '2020-01-01T00:00:00Z')], { historical: true, initialized: false });
   assert.ok(historical.events.every(event => event.imported && event.seen));
   assert.equal(
     historical.entities.some(entity => entity.type === 'ref'),
@@ -1777,7 +1780,7 @@ test('a reviewer vote is PR activity, and PRs saved before votes were recorded a
 test('a historical PR import keeps the event ID it had before votes were recorded', () => {
   const store = createStore();
   store.saveRepo(repo);
-  const sync = createSync({ store, provider: stub<SyncProvider>({}) });
+  const normalizer = createNormalizer({ store });
   const closed = {
     pullRequestId: 8,
     title: 'Fix',
@@ -1788,7 +1791,7 @@ test('a historical PR import keeps the event ID it had before votes were recorde
     repository: { id: 'a' },
     reviewers: [{ id: 'ana', displayName: 'Ana', vote: 10 }],
   };
-  const { events } = sync.normalize(repo, 'closedPrs', [closed], { historical: true, initialized: false });
+  const { events } = normalizer.normalize(repo, 'closedPrs', [closed], { historical: true, initialized: false });
   const before = { status: 'completed', isDraft: false, title: 'Fix', source: 'c'.repeat(40), target: 'refs/heads/main' };
   const hash = createHash('sha256').update(JSON.stringify(before)).digest('hex').slice(0, 24);
   assert.equal(present(events[0]).id, `one:pr:history:8:${hash}`);
@@ -1963,13 +1966,15 @@ test('a history import page makes only stream reads and queues no merge work', a
     pushes: [[push(5, new Date(BASE - day).toISOString()), push(6, new Date(BASE - 2 * day).toISOString())]],
   });
   let backfill: ReturnType<typeof createBackfill>;
+  const normalizer = createNormalizer({ store, now: () => time });
   const sync = createSync({
     store,
     provider,
     now: () => time,
+    normalizer,
     background: { history: () => backfill.tick() },
   });
-  backfill = createBackfill({ store, provider, normalize: sync.normalize, now: () => time });
+  backfill = createBackfill({ store, provider, normalize: normalizer.normalize, now: () => time });
   store.setBaseline(repo.id, new Date(BASE).toISOString());
   backfill.start(repo.id, 30);
   // Automatic checks stay on, but no live stream is due.

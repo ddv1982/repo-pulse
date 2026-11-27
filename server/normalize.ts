@@ -568,3 +568,5 @@ export function createNormalizer({ store, now = Date.now }: { store: NormalizeSt
 
   return { normalize, reconcileRefs };
 }
+
+export type Normalizer = ReturnType<typeof createNormalizer>;

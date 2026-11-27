@@ -4,7 +4,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createStore } from '../server/store.ts';
-import { createSync } from '../server/sync.ts';
+import { createNormalizer } from '../server/normalize.ts';
 import { createBackfill } from '../server/backfill.ts';
 import type { AzurePage, AzureProvider, ReadOptions } from '../server/azure-client.ts';
 import type { ActivityEvent } from '../src/activity.ts';
@@ -370,8 +370,8 @@ test('a build queued before an internal window boundary and completed after it r
       return { items: stream === 'builds' && options.until === boundary ? [build] : [], nextCursor: null };
     },
   };
-  const sync = createSync({ store, provider, now: () => BASE });
-  const backfill = createBackfill({ store, provider, normalize: sync.normalize, now: () => BASE });
+  const normalizer = createNormalizer({ store, now: () => BASE });
+  const backfill = createBackfill({ store, provider, normalize: normalizer.normalize, now: () => BASE });
   backfill.start(repo.id, 90);
   for (let i = 0; i < 9; i++) await backfill.tick();
   assert.equal(present(backfill.status()[0]).status, 'completed');

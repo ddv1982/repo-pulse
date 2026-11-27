@@ -2,6 +2,7 @@ import test from 'node:test';
 import { request } from 'node:http';
 import assert from 'node:assert/strict';
 import { createStore } from '../server/store.ts';
+import { createNormalizer } from '../server/normalize.ts';
 import { createSync } from '../server/sync.ts';
 import { seedDemo, demoProvider, demoSync } from '../server/demo.ts';
 import { createBackfill } from '../server/backfill.ts';
@@ -44,8 +45,9 @@ async function live(t: TestContext, { pollMs }: { pollMs?: number } = {}) {
       return { items, nextCursor: null };
     },
   });
-  const sync = createSync({ store, provider, pollMs });
-  const backfill = createBackfill({ store, provider, normalize: sync.normalize });
+  const normalizer = createNormalizer({ store });
+  const sync = createSync({ store, provider, pollMs, normalizer });
+  const backfill = createBackfill({ store, provider, normalize: normalizer.normalize });
   const app = createApp({ store, provider, sync, backfill, accessKey: TEST_KEY });
   await new Promise<void>(resolve => app.listen(0, '127.0.0.1', resolve));
   t.after(async () => {

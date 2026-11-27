@@ -1,5 +1,5 @@
 import { iso } from './time.ts';
-import { addUnreadable, warningOf } from './sync.ts';
+import { addUnreadable, warningOf } from './read-warnings.ts';
 import type { ActivityEvent } from '../src/activity.ts';
 import { HISTORY_STREAMS } from '../src/contract.ts';
 import type { AzureStreamRecord, HistoryStream, HistoryWindow, HistoryJob, HistoryWarning, UnreadableRecords } from '../src/contract.ts';

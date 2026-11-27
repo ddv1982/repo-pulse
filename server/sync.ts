@@ -1,7 +1,8 @@
 import { FIRST_SYNC_MS, iso } from './time.ts';
-import { createNormalizer } from './normalize.ts';
+import { createNormalizer, type Normalizer } from './normalize.ts';
+import { createActiveLookups } from './sync-lookups.ts';
+import { addUnreadable, warningOf } from './read-warnings.ts';
 import { isRecord, recordId, recordsOf, unreadableField } from './azure-records.ts';
-import { READS } from './sync-status.ts';
 import { AZURE_STREAMS } from '../src/contract.ts';
 import { isCorruptRow, refreshEnabled } from './store-records.ts';
 import type { AzureProvider, AzurePage } from './azure-client.ts';
@@ -47,11 +48,6 @@ const FOREGROUND_CHECK_COOLDOWN_MS = 60000;
 const RECENT_READ_MS = 30000;
 const LIVE_TURNS = 6;
 
-/** Both counts of records left out, with the fields of each. */
-export function addUnreadable(sum: UnreadableRecords | undefined, more: UnreadableRecords | undefined): UnreadableRecords | undefined {
-  if (!sum || !more) return sum || more;
-  return { count: sum.count + more.count, fields: [...new Set([...sum.fields, ...more.fields])] };
-}
 /** Both lists of the readable IDs of records left out, and both counts of those without one. */
 function addIds(sum: UnreadableIds | undefined, more: UnreadableIds | undefined): UnreadableIds | undefined {
   if (!sum || !more) return sum || more;
@@ -94,39 +90,6 @@ const listedIds = (stream: 'prs' | 'activeBuilds', items: readonly AzureStreamRe
   stream === 'prs'
     ? recordsOf('prs', items).map(item => String(item.pullRequestId))
     : recordsOf('activeBuilds', items).map(item => String(item.id));
-/**
- * Up to `size` of the missing IDs, those that have waited longest for a lookup first. `order` holds the missing IDs in
- * turn order: an ID joins the end when it goes missing, in numeric order with the others that do, and `lookedUp` moves
- * it to the end, so neither IDs that stay missing nor IDs that keep going missing can hold every turn.
- */
-function lookupTurn(order: Set<string>, missing: string[], size: number) {
-  const wanted = new Set(missing);
-  for (const id of order) if (!wanted.has(id)) order.delete(id);
-  for (const id of [...missing].sort((a, b) => Number(a) - Number(b))) order.add(id);
-  return [...order].slice(0, size);
-}
-/** Moves an ID that is being looked up to the end of the turn order. */
-function lookedUp(order: Set<string>, id: string) {
-  order.delete(id);
-  order.add(id);
-}
-/** The remembered unreadable lookups of IDs that are still missing, by ID. */
-const rememberedLookups = (remembered: UnreadableLookups, missing: (id: string) => boolean) =>
-  new Map((remembered || []).filter(entry => missing(entry.id)).map(entry => [entry.id, entry.field]));
-/** The count and fields of the remembered unreadable lookups, or undefined when there are none. */
-const lookupsUnreadable = (lookups: Map<string, string>): UnreadableRecords | undefined =>
-  lookups.size ? { count: lookups.size, fields: [...new Set(lookups.values())] } : undefined;
-/** The warning for records a read left out, or undefined when it left none out. */
-export function warningOf(stream: StreamName, unreadable: UnreadableRecords | undefined): StreamWarning | undefined {
-  if (!unreadable?.count) return undefined;
-  const { count, fields } = unreadable;
-  return {
-    code: 'UNREADABLE_RECORDS',
-    count,
-    fields,
-    message: `Skipped ${count} ${count === 1 ? 'record' : 'records'} in ${READS[stream]} that Azure returned without a readable value for ${fields.join(' or ')}.`,
-  };
-}
 
 /** The streams that traverse a current listing instead of reading a fixed time range. */
 function isSnapshot(stream: StreamName) {
@@ -296,9 +259,12 @@ export function createSync({
   pollMs = 1000,
   overlapMs = 120000,
   background = {},
+  normalizer = createNormalizer({ store, now }),
 }: {
   store: SyncStore;
   provider: SyncProvider;
+  /** The normalizer the app composes once and shares with history import. A sync built alone makes its own. */
+  normalizer?: Normalizer;
   now?: () => number;
   intervalMs?: number;
   isForeground?: () => boolean;
@@ -307,7 +273,7 @@ export function createSync({
   overlapMs?: number;
   background?: Partial<Record<BackgroundKind, () => unknown>>;
 }) {
-  const { normalize, reconcileRefs } = createNormalizer({ store, now });
+  const { normalize, reconcileRefs } = normalizer;
   let timer: ReturnType<typeof setTimeout> | undefined;
   let active: Promise<boolean | undefined> | null | undefined;
   // `stopped` is whether stop() asked the scheduler to end; `resetting` only pauses it, so a stop during a reset still wins.
@@ -331,14 +297,7 @@ export function createSync({
   const lastTurn: Partial<Record<BackgroundKind | 'live', string>> = {};
   const counters = { pages: 0, errors: 0 };
   const backgroundProblems: SyncEngineStatus['backgroundProblems'] = {};
-  /** The turn order of the cached active PRs and in-progress builds to look up by ID, per repository (see lookupTurn). */
-  const prTurns: Map<string, Set<string>> = new Map();
-  const buildTurns: Map<string, Set<string>> = new Map();
-  const turnOrder = (turns: Map<string, Set<string>>, repoId: string) => {
-    const order = turns.get(repoId) ?? new Set();
-    turns.set(repoId, order);
-    return order;
-  };
+  const lookups = createActiveLookups({ store, provider });
   /**
    * How many times each repository stopped being watched. A read keeps the count it started under and commits only
    * while it is unchanged, so a read of a removed repository cannot write into the watch that re-adds it.
@@ -352,7 +311,7 @@ export function createSync({
     const repos = store.listRepos();
     // A repository removed and added again starts its lookup order afresh.
     const watched = new Set(repos.map(repo => repo.id));
-    for (const turns of [prTurns, buildTurns]) for (const repoId of turns.keys()) if (!watched.has(repoId)) turns.delete(repoId);
+    lookups.prune(watched);
     for (const repo of repos) {
       if (store.getBaseline(repo.id) === undefined) store.setBaseline(repo.id, iso(now()));
       for (const stream of AZURE_STREAMS) {
@@ -424,106 +383,6 @@ export function createSync({
     return { state, repo };
   }
   /**
-   * Looks up by ID up to 20 cached in-progress builds that the active list no longer holds. Returns the builds Azure
-   * answered with, what it returned unreadable, and the builds it no longer has. A build whose lookup came back
-   * unreadable is remembered and counted in every read until it reads, its lookup finds it gone, or it is listed
-   * active again, so a read whose turn skips it does not clear the warning.
-   */
-  async function lookUpBuilds(repo: WatchedRepo, activeIds: string[], remembered: UnreadableLookups, listed: number) {
-    if (!provider.buildsById) return { items: [], gone: [] };
-    const missing = new Map(
-      store
-        .listEntities(repo.id, 'build')
-        .filter(entry => entry.data.status !== 'completed' && !activeIds.includes(entry.id))
-        .map(entry => [entry.id, entry.data]),
-    );
-    const lookups = rememberedLookups(remembered, id => missing.has(id));
-    const order = turnOrder(buildTurns, repo.id);
-    const turn = lookupTurn(order, [...missing.keys()], 20);
-    if (!turn.length) return { items: [], gone: [] };
-    for (const id of turn) lookedUp(order, id);
-    const byId = await provider.buildsById(repo, turn);
-    // Azure omits a build it no longer has (removed by retention, see docs/probe-results.md), so stop asking for it.
-    // The fingerprint stays, so no event is made for it and a later sighting still compares against its last state.
-    // With more pages to read, an omitted build may only be on a later one, so none is given up this turn. A build
-    // Azure returned unreadable is not omitted, and when one of those has no readable ID it may be any build asked
-    // for, so none is given up either.
-    const named = byId.unreadableIds || [];
-    const answered = new Set([...byId.items.map(item => String(item.id)), ...named.map(entry => entry.id)]);
-    const unnamed = (byId.unreadable?.count ?? 0) - named.length;
-    const gone: Entity[] =
-      byId.nextCursor || unnamed > 0
-        ? []
-        : turn.flatMap(id => {
-            // `turn` holds IDs of `missing` only.
-            const data = missing.get(id);
-            return answered.has(id) || !data ? [] : [{ type: 'build', id, data: { ...data, status: 'completed' } } satisfies Entity];
-          });
-    // A remembered build leaves the warning only when this lookup read it or found it gone, not when the answer had
-    // more pages or unreadable builds without an ID, either of which may be it.
-    for (const id of [...byId.items.map(item => String(item.id)), ...gone.map(entry => entry.id)]) lookups.delete(id);
-    // An unreadable build without a readable ID cannot be remembered, so it counts only in this read, and not for a
-    // remembered build asked for in this lookup, or for one of the `listed` builds the active list returned without a
-    // readable ID, either of which it may be and which are counted already. Its fields are named either way, since they
-    // are what this read found.
-    const namedIds = new Set(named.map(entry => entry.id));
-    const counted = turn.filter(id => lookups.has(id) && !namedIds.has(id)).length;
-    const anonymous = Math.max(0, unnamed - counted - listed);
-    for (const { id, field } of named) lookups.set(id, field);
-    const unreadable = addUnreadable(
-      lookupsUnreadable(lookups),
-      unnamed > 0 && byId.unreadable ? { count: anonymous, fields: byId.unreadable.fields } : undefined,
-    );
-    return { items: byId.items, unreadable, gone, unreadableLookups: [...lookups].map(([id, field]) => ({ id, field })) };
-  }
-  /**
-   * Looks up by ID up to 3 cached active PRs that the active list no longer holds. Returns the PRs Azure answered with,
-   * what it returned unreadable, and the PRs to remember, or null when the repository stopped being watched. A lookup
-   * that came back unreadable counts in every read until that PR reads, its lookup finds it deleted or moved, or it is
-   * no longer missing, so a read whose turn skips it does not clear the warning. `listed` counts the records without a
-   * readable ID the active list returned in this read.
-   */
-  async function lookUpPrs(repo: WatchedRepo, activeIds: string[], remembered: UnreadableLookups, listed: number, watch: number) {
-    const pullRequest = provider.pullRequest;
-    if (!pullRequest) return { items: [], unreadable: undefined, unreadableLookups: undefined };
-    const missing = store
-      .listEntities(repo.id, 'pr')
-      .filter(entry => entry.data.status === 'active' && !activeIds.includes(entry.id))
-      .map(entry => entry.id);
-    const lookups = rememberedLookups(remembered, id => missing.includes(id));
-    const order = turnOrder(prTurns, repo.id);
-    const items: AzureStreamRecord[] = [];
-    // Answers whose own ID cannot be read count only in this read, and not again for a PR remembered already or for
-    // one of the `listed` records, either of which they may be. Their fields are named either way.
-    const anonymous: UnreadableRecords = { count: 0, fields: [] };
-    for (const id of lookupTurn(order, missing, 3)) {
-      if (!watching(repo, watch)) return null;
-      lookedUp(order, id);
-      try {
-        items.push(await pullRequest(repo, id));
-        lookups.delete(id);
-      } catch (error) {
-        // Only "this PR cannot be read" (unreadable, deleted, or now in another repository) is left for a later turn.
-        if (!isRecord(error) || !['UNREADABLE_RECORD', 'NOT_FOUND', 'WRONG_REPOSITORY'].includes(String(error.code))) throw error;
-        if (error.code !== 'UNREADABLE_RECORD') {
-          lookups.delete(id);
-          continue;
-        }
-        // A PR Azure returned in a shape this code cannot read is skipped and counted like an unreadable page record.
-        const field = typeof error.field === 'string' ? error.field : 'record';
-        if (error.anonymous !== true) {
-          lookups.set(id, field);
-          continue;
-        }
-        anonymous.fields = [...new Set([...anonymous.fields, field])];
-        if (!lookups.has(id)) anonymous.count++;
-      }
-    }
-    anonymous.count = Math.max(0, anonymous.count - listed);
-    const unreadable = addUnreadable(lookupsUnreadable(lookups), anonymous.fields.length ? anonymous : undefined);
-    return { items, unreadable, unreadableLookups: [...lookups].map(([id, field]) => ({ id, field })) };
-  }
-  /**
    * Reads one page plus, on the last page of a snapshot stream, the entities it no longer lists.
    * Returns null when the repository stopped being watched during a read.
    */
@@ -547,14 +406,16 @@ export function createSync({
     unreadable = addUnreadable(unreadable, snapshot.unreadable);
     const unreadableIds = addIds(addIds(page.restarted ? undefined : state.unreadableIds, idsOf(page)), snapshot.unreadableIds);
     if (complete && state.stream === 'activeBuilds') {
-      const builds = await lookUpBuilds(repo, activeIds || [], state.unreadableLookups, unreadableIds?.anonymous ?? 0);
+      const builds = await lookups.builds(repo, activeIds || [], state.unreadableLookups, unreadableIds?.anonymous ?? 0);
       items = [...items, ...builds.items];
       unreadable = addUnreadable(unreadable, builds.unreadable);
       gone = builds.gone;
       unreadableLookups = builds.unreadableLookups;
     }
     if (complete && state.stream === 'prs' && provider.pullRequest) {
-      const prs = await lookUpPrs(repo, activeIds || [], state.unreadableLookups, unreadableIds?.anonymous ?? 0, watch);
+      const prs = await lookups.prs(repo, activeIds || [], state.unreadableLookups, unreadableIds?.anonymous ?? 0, () =>
+        watching(repo, watch),
+      );
       if (!prs) return null;
       items = [...items, ...prs.items];
       unreadable = addUnreadable(unreadable, prs.unreadable);
@@ -707,7 +568,6 @@ export function createSync({
       return active;
     },
     tick,
-    normalize,
     checkOnForeground() {
       const at = now();
       if (halted() || reading || !refreshEnabled(store) || at - foregroundCheckedAt < FOREGROUND_CHECK_COOLDOWN_MS) return;
@@ -742,8 +602,7 @@ export function createSync({
         continuingSnapshots.clear();
         refreshedAt.clear();
         signInRetriedAt.clear();
-        prTurns.clear();
-        buildTurns.clear();
+        lookups.clear();
         lastKey = undefined;
         liveTurns = 0;
         resetting = false;
@@ -760,8 +619,7 @@ export function createSync({
       if (reading?.repoId === repoId) reading = null;
       refreshedAt.delete(repoId);
       signInRetriedAt.delete(repoId);
-      prTurns.delete(repoId);
-      buildTurns.delete(repoId);
+      lookups.forget(repoId);
       for (const stream of AZURE_STREAMS) continuingSnapshots.delete(`${repoId}:${stream}`);
       for (const [key, entry] of requested) if (entry.repoId === repoId) requested.delete(key);
       if (AZURE_STREAMS.some(stream => lastKey === `${repoId}:${stream}`)) lastKey = undefined;
