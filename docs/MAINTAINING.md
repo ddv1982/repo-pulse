@@ -37,7 +37,7 @@ Pull checks the checkout, upstream and fetched tip before running `git merge --f
 
 ## Render into the live page
 
-`setHtml` in [src/ui/dom.ts](../src/ui/dom.ts) is the only `innerHTML` sink. It parses `SafeHtml` into a template and merges it into the element with idiomorph, so a node that still matches keeps its focus, caret, text selection and listeners. Do not add code that saves and restores focus or selection around a render; if a render loses them, find the markup that stopped matching. State a person changes on the page belongs in `ui` and the markup renders from it, as `ui.openMenu` does for the toolbar menus and the repository scope panel. A control whose state the markup does not carry, such as a ticked commit checkbox, is still protected by `refreshTarget` in [src/ui/browser-view.ts](../src/ui/browser-view.ts).
+`setHtml` in [src/ui/dom.ts](../src/ui/dom.ts) is the only `innerHTML` sink. It parses `SafeHtml` into a template and merges it into the element with idiomorph, so a node that still matches keeps its focus, caret, text selection and listeners. Do not add code that saves and restores focus or selection around a render; if a render loses them, find the markup that stopped matching. State a person changes on the page belongs in `ui` and the markup renders from it, as `ui.openMenu` does for the toolbar menus. A control whose state the markup does not carry, such as a ticked commit checkbox, is still protected by `refreshTarget` in [src/ui/browser-view.ts](../src/ui/browser-view.ts).
 
 ## Vendored browser code
 

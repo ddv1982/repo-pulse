@@ -2,6 +2,8 @@
 :root {
   color-scheme: light;
   --radius: 0.5rem;
+  /* Rows inside menus and pickers: type options, scope rows, select options, repository and branch rows. */
+  --row-radius: 6px;
   --control-height: 36px;
   --control-height-sm: 28px;
   --font-sans: -apple-system, BlinkMacSystemFont, 'Inter Variable', 'Segoe UI', system-ui, sans-serif;

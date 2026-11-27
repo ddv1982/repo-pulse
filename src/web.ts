@@ -15,7 +15,7 @@ import { createBrowserView, replacementFocus } from './ui/browser-view.ts';
 import { createSeenActions, eventIds } from './ui/seen-actions.ts';
 import { createFilterNameDialog, currentActivityFilters, isSavedFilterModified, savedRepositoryScope } from './ui/saved-filters.ts';
 import { createToolbarMenu } from './ui/toolbar-menu.ts';
-import { scopeName } from './ui/header.ts';
+import { createRepositoryScope, scopeName } from './ui/repository-scope.ts';
 import { createHistoryImport } from './ui/history-import.ts';
 import { createBranchPicker } from './ui/branch-picker.ts';
 import { all, checked, required, setHtml } from './ui/dom.ts';
@@ -77,6 +77,7 @@ const typeFilter = createTypeFilter({
   state: ui,
   onChange: setActivityType,
 });
+const repositoryScope = createRepositoryScope(ui);
 const savedFilterPicker = createToolbarMenu({
   toggleId: 'saved-filter-toggle',
   panelId: 'saved-filter-panel',
@@ -134,7 +135,12 @@ const view = createBrowserView({
   demo: required('#demo'),
   syncLive: required('#sync-live'),
   picker,
-  toolbarMenus: { '.type-menu': typeFilter, '.saved-filter-menu': savedFilterPicker, '.saved-filter-actions': savedFilterActions },
+  toolbarMenus: {
+    '.type-menu': typeFilter,
+    '.scope-menu': repositoryScope,
+    '.saved-filter-menu': savedFilterPicker,
+    '.saved-filter-actions': savedFilterActions,
+  },
 });
 const checkoutPanel = createCheckoutPanel({
   page,
@@ -277,16 +283,6 @@ function currentView() {
   };
 }
 
-/** The header, and with it the scope panel, renders only after the first state load. */
-function showScopePanel(open: boolean) {
-  if (open) ui.openMenu = 'repo-panel';
-  // A toolbar menu opened by the same click has already taken ui.openMenu.
-  else if (ui.openMenu === 'repo-panel') ui.openMenu = '';
-  const panel = document.querySelector('#repo-panel');
-  if (panel instanceof HTMLElement) panel.hidden = !open;
-  document.querySelector('#repo-toggle')?.setAttribute('aria-expanded', String(open));
-}
-
 function renderGraph() {
   const { repos, repo } = graphSelection();
   graph.select(repo);
@@ -343,11 +339,10 @@ function setActivityType(kind: string | undefined) {
   activityChanged();
 }
 
-function activityChanged({ debounce = false, header = false } = {}) {
+function activityChanged({ debounce = false } = {}) {
   navigation.invalidate();
   refresh.resetActivity();
-  if (header) render();
-  else renderPage();
+  renderPage();
   clearTimeout(searchTimer);
   if (debounce)
     searchTimer = setTimeout(() => {
@@ -496,7 +491,7 @@ function applySavedFilter({ id, name, filters }: import('./ui/saved-filters.ts')
     repoIds: savedRepositoryScope(repoIds, watched),
   });
   const unreadOnly = view === 'new';
-  if (unreadOnly === ui.unreadOnly) activityChanged({ header: true });
+  if (unreadOnly === ui.unreadOnly) activityChanged();
   else location.hash = activityHref(unreadOnly);
   const scopeMessage = unavailable
     ? unavailable === repoIds?.length
@@ -717,11 +712,11 @@ const actions: Record<string, Action> = {
   'dismiss-error': clearNotice,
   'all-repos': () => {
     ui.repoIds = null;
-    activityChanged({ header: true });
+    activityChanged();
   },
   'no-repos': () => {
     ui.repoIds = [];
-    activityChanged({ header: true });
+    activityChanged();
   },
   'reset-activity': () => {
     confirm(
@@ -795,11 +790,6 @@ document.addEventListener('click', event => {
     (window as ThemedWindow).repoPulseTheme?.set(theme.dataset.theme ?? '');
     return;
   }
-  if (target.closest('#repo-toggle')) {
-    showScopePanel(ui.openMenu !== 'repo-panel');
-    return;
-  }
-  if (document.querySelector('#repo-panel:not([hidden])') && !target.closest('#repo-panel')) showScopePanel(false);
   const graphLink = checked(target.closest('.graph-link'), HTMLAnchorElement, '.graph-link');
   if (ui.route === 'graph' && graphLink && !event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey) {
     graphReturn = {
@@ -852,7 +842,6 @@ document.addEventListener('change', event => {
       .map(input => input.dataset.scopeRepo ?? '')
       .concat(disabled.map(repo => repo.id));
     activityChanged();
-    view.updateScopeLabel(refresh.state, ui);
   }
   if (target.id === 'connection-repo') {
     connection.select(target.value);
@@ -906,10 +895,6 @@ document.addEventListener('keydown', event => {
     monitoring.open = false;
     required('summary', HTMLElement, monitoring).focus();
     return;
-  }
-  if (event.key === 'Escape' && ui.openMenu === 'repo-panel') {
-    showScopePanel(false);
-    required('#repo-toggle').focus();
   }
   if (
     event.key === '/' &&
@@ -992,7 +977,7 @@ document.addEventListener('visibilitychange', () => {
 });
 window.matchMedia('(min-width:640px)').addEventListener('change', () => {
   // The filter bar changes layout, so an open toolbar menu closes and focus returns to its toggle.
-  if (ui.openMenu !== 'repo-panel') ui.openMenu = '';
+  ui.openMenu = '';
   if (isActivity(ui.route)) renderPage();
 });
 navigation.initialize();

@@ -9,7 +9,8 @@ import { createStore } from '../server/store.ts';
 import type { AppSync } from '../server.ts';
 import type { AzureProvider } from '../server/azure-client.ts';
 import type { ConnectionStatus, SyncEngineStatus } from '../src/contract.d.ts';
-import { stub } from '../test/fixtures/typed.ts';
+import { present, stub } from '../test/fixtures/typed.ts';
+import { setup } from './fixtures/ui-app.ts';
 
 test('Git Graph shows a merged branch and exact CI links alongside the Activity feed', async t => {
   const { source, local, repo, checkoutGit, commit } = checkoutFixture(cleanupStack(t));
@@ -70,7 +71,15 @@ test('Git Graph shows a merged branch and exact CI links alongside the Activity 
   await expect(page.getByText(/Lines can pass rows of other branches/)).toBeVisible();
   await page.getByRole('link', { name: 'Open Git Graph', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Git Graph' })).toBeVisible();
-  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(page.locator('#graph-repo option').first()).toHaveText(`${repo.name} · ${repo.project}`);
+  for (const width of [1280, 390]) {
+    await page.setViewportSize({ width, height: 844 });
+    const heights = await page
+      .locator('#graph-repo, #graph-reload')
+      .evaluateAll(controls => controls.map(control => control.getBoundingClientRect().height));
+    assert.equal(heights.length, 2);
+    assert.equal(heights[0], heights[1], `Repository select and Reload graph share a height at ${width}px`);
+  }
   await expect(page.locator('.graph-subject').first()).toHaveText('Merge graph topic');
   await expect(page.locator(`#commit-${topic}`)).toContainText('Feature branch work');
   await expect(page.locator(`#commit-${head} .graph-rail path`)).toHaveCount(2);
@@ -227,4 +236,45 @@ test('Git Graph shows a merged branch and exact CI links alongside the Activity 
   await expect(page.locator('.graph-subject').first()).toHaveText('Graph upstream update');
   await expect(search).toHaveValue('people:Jo Dij');
   await expect(page.getByRole('button', { name: 'Load more commits' })).toHaveCount(0);
+});
+
+test('picking a repository with the pointer leaves no focus ring, while keyboard focus still shows one', async t => {
+  const { page } = await setup(t);
+  await page.getByRole('link', { name: 'Git Graph', exact: true }).click();
+  const select = page.locator('#graph-repo');
+  const ring = () =>
+    select.evaluate(element => ({ focusVisible: element.matches(':focus-visible'), outline: getComputedStyle(element).outlineStyle }));
+  for (const theme of ['Light', 'Dark']) {
+    await page.getByRole('button', { name: theme, exact: true }).click();
+    const current = await select.inputValue();
+    await select.click();
+    assert.deepEqual(await ring(), { focusVisible: false, outline: 'none' }, `${theme}: opening with the pointer`);
+    const other = page.locator('#graph-repo option:not(:checked)').first();
+    const value = present(await other.getAttribute('value'));
+    await other.click();
+    await expect(select).toHaveValue(value);
+    assert.notEqual(value, current);
+    await expect(select).toBeFocused();
+    assert.deepEqual(await ring(), { focusVisible: false, outline: 'none' }, `${theme}: after a pointer pick`);
+    await page.keyboard.press('Shift+Tab');
+    await page.keyboard.press('Tab');
+    await expect(select).toBeFocused();
+    assert.deepEqual(await ring(), { focusVisible: true, outline: 'solid' }, `${theme}: keyboard focus`);
+  }
+});
+
+test('a long repository name wraps inside the picker on a narrow screen', async t => {
+  const { page, runtime } = await setup(t);
+  const first = present(runtime.store.listRepos()[0]);
+  const name = 'customer-onboarding-and-identity-verification-service';
+  runtime.store.saveRepo({ ...first, id: 'long-name', azureId: 'long-name', name, project: 'Regulatory Reporting Platform' });
+  await page.setViewportSize({ width: 320, height: 640 });
+  await page.reload();
+  await page.getByRole('link', { name: 'Git Graph', exact: true }).click();
+  await page.locator('#graph-repo').click();
+  const option = page.locator('#graph-repo option', { hasText: name });
+  await expect(option).toBeVisible();
+  const box = present(await option.boundingBox());
+  assert.ok(box.x >= 0 && box.x + box.width <= 320, `the option spans ${box.x} to ${box.x + box.width} on a 320px screen`);
+  await expect(option).toContainText('Regulatory Reporting Platform');
 });

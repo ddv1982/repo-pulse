@@ -81,7 +81,7 @@ const page = (overall: ShownSyncStatus, repos: Record<string, SyncStatus> = {}):
   events: [],
   syncStatus: { overall, repos },
 });
-const headerView = { repoIds: null, route: 'activity', unreadOnly: true };
+const headerView = { route: 'activity', unreadOnly: true };
 
 test('the header shows one sync status pill per state in place of the last Azure check', async t => {
   for (const [status, label, tone] of states) {
@@ -198,7 +198,7 @@ test('the Activity banner and partial wording follow the repositories in the Act
   const syncedScope = renderFeed(twoRepos({ r: problem, s: synced }), { ...feedView, repoIds: ['s'] });
   assert.deepEqual(await banners(t, syncedScope), []);
   assert.equal(await bigMessage(t, syncedScope), 'No unread updates match these filters');
-  assert.equal((await pill(t, renderHeader(twoRepos({ r: problem, s: synced }), { ...headerView, repoIds: ['s'] })))?.text, 'Problem');
+  assert.equal((await pill(t, renderHeader(twoRepos({ r: problem, s: synced }), headerView)))?.text, 'Problem');
 
   const delayedScope = await banners(t, renderFeed(twoRepos({ r: problem, s: delayed }), { ...feedView, repoIds: ['s'] }));
   assert.deepEqual(

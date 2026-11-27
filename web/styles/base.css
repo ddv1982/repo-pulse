@@ -188,6 +188,61 @@ p {
   padding: 0 8px;
   font-size: 12px;
 }
+/*
+ * A customizable select draws its picker like the toolbar menus. Where the browser lacks it, the native select stays.
+ * Pointer focus on a customizable select does not match :focus-visible, so a pick leaves no ring.
+ */
+@supports (appearance: base-select) {
+  select.control,
+  select.control::picker(select) {
+    appearance: base-select;
+  }
+  select.control {
+    justify-content: space-between;
+    color: var(--foreground);
+  }
+  select.control::picker-icon {
+    content: '▾';
+    color: inherit;
+    transition: none;
+  }
+  select.control:open::picker-icon {
+    rotate: none;
+  }
+  select.control::picker(select) {
+    margin-block: 4px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--card);
+    color: var(--foreground);
+    padding: 4px;
+    box-shadow: var(--shadow-lg);
+    max-width: calc(100vw - 32px);
+  }
+  select.control option {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 32px;
+    padding: 6px 8px;
+    border-radius: var(--row-radius);
+    font-size: 14px;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    cursor: pointer;
+  }
+  select.control option:is(:hover, :focus, :checked) {
+    background: var(--accent);
+  }
+  select.control option:focus-visible {
+    outline-offset: -2px;
+  }
+  select.control option::checkmark {
+    content: '✓';
+    width: 16px;
+    color: var(--info);
+  }
+}
 .seg {
   display: inline-flex;
   gap: 2px;

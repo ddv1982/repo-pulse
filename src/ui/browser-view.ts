@@ -1,4 +1,4 @@
-import { renderHeader, scopeLabel, scopeName } from './header.ts';
+import { renderHeader } from './header.ts';
 import { syncAnnouncement, syncRepoName } from './health.ts';
 import { renderFeed, renderDetail } from './feed.ts';
 import { renderRepositories } from './repositories.ts';
@@ -255,11 +255,6 @@ export function createBrowserView({
           ? html`<div class="banner info notice"><div><strong>Demo mode · fictional repositories and people</strong>No Azure requests are made. This uses an isolated local database. <button class="btn sm" type="button" data-action="demo-event">Simulate incoming hotfix</button></div></div>`
           : emptyHtml,
       );
-    },
-    updateScopeLabel(state: PageState, ui: BrowserUi) {
-      const toggle = required('#repo-toggle', HTMLElement, header);
-      setHtml(toggle, scopeLabel(state, ui));
-      toggle.setAttribute('aria-label', scopeName(state, ui));
     },
   };
 }

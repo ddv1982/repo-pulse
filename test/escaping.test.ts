@@ -383,7 +383,9 @@ const views: Record<string, View> = {
       'syncStatus.delayed.reason',
       'activity.filterOption',
       'created.title',
+      'repo.id',
       'repo.name',
+      'repo.project',
       'created.branch',
       'build.running.id',
       'build.running.title',
@@ -530,8 +532,8 @@ const views: Record<string, View> = {
     sinks: [],
   },
   header: {
-    render: () => [state, delayed].map(page => renderHeader(page, { repoIds: null, route: 'activity', unreadOnly: false })),
-    shows: ['repo.id', 'repo.name', 'repo.project', 'syncStatus.overall.reason', 'syncStatus.delayed.reason'],
+    render: () => [state, delayed].map(page => renderHeader(page, { route: 'activity', unreadOnly: false })),
+    shows: ['syncStatus.overall.reason', 'syncStatus.delayed.reason'],
     sinks: [],
   },
   checkout: {

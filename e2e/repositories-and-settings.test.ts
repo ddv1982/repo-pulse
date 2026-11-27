@@ -55,6 +55,7 @@ test('disabling a repository hides it everywhere except Repositories until it is
     (await (await fetch(runtime.url + '/api/state')).json()).repos.find((repo: Repository) => repo.id === 'demo-billing').disabled,
     true,
   );
+  await page.getByRole('link', { name: 'Activity', exact: true }).click();
   await expect(page.locator('#repo-toggle')).toHaveAccessibleName('1 repository shown');
   await page.locator('#repo-toggle').click();
   await expect(page.locator('#repo-panel [data-scope-repo]')).toHaveCount(2);
@@ -62,7 +63,6 @@ test('disabling a repository hides it everywhere except Repositories until it is
   await page.locator('#repo-panel [data-scope-repo="demo-shared"]').check();
   await expect(page.locator('#repo-toggle')).toHaveAccessibleName('2 repositories shown');
   await page.locator('#repo-toggle').click();
-  await page.getByRole('link', { name: 'Activity', exact: true }).click();
   await expect(page.locator('#page .subref').first()).toBeVisible();
   await expect(billingRows).toHaveCount(0);
   await page.getByRole('link', { name: 'Repositories', exact: true }).click();
@@ -373,7 +373,7 @@ test('Settings shows scoped CLI access and header switches share the automatic c
   for (let id = 1; id <= 10; id++) store.saveRepo(stub<Repository>({ id: `extra-${id}`, name: `Extra ${id}` }));
   await page.setViewportSize({ width: 320, height: 812 });
   await page.reload();
-  await expect(header.getByText('12 repos', { exact: true })).toBeVisible();
+  await expect(header.getByLabel('Checks: automatic off', { exact: true })).toBeVisible();
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
   await header.getByLabel('Checks: automatic off', { exact: true }).click();
   const panel = await header.locator('.header-monitoring-menu').boundingBox();

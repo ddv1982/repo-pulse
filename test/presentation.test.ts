@@ -11,7 +11,7 @@ import {
   labels,
 } from '../src/ui/format.ts';
 import { renderRepositories as renderRepositoriesHtml } from '../src/ui/repositories.ts';
-import { scopeName } from '../src/ui/header.ts';
+import { scopeName } from '../src/ui/repository-scope.ts';
 import { createStore } from '../server/store.ts';
 import type { ActivityEvent, ActivityKind, EventData, EvidencePr } from '../src/activity.ts';
 import type { Repository, StreamError, StreamState } from '../src/contract.d.ts';
