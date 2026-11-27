@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { expect } from '@playwright/test';
 import { selectActivityType, setup, groupedFixture } from './fixtures/ui-app.ts';
 import { demo, isSeen } from './fixtures/history-app.ts';
+import { gate } from './fixtures/app.ts';
 
 test('confirmed branch deletion wording replaces legacy missing titles in rows, filters and detail', async t => {
   const { page, runtime } = await groupedFixture(t);
@@ -338,12 +339,9 @@ test('a successful tag build folds only for the exact tag revision in the mixed 
 
 test('a pending refresh leaves Activity details available', async t => {
   const { page } = await setup(t);
-  let release = () => {};
-  const held = new Promise<void>(resolve => {
-    release = resolve;
-  });
+  const held = gate(t, 'refresh response');
   await page.route('**/api/refresh', async route => {
-    await held;
+    await held.opened;
     await route.continue();
   });
   const refreshed = page.waitForResponse('**/api/refresh');
@@ -353,7 +351,7 @@ test('a pending refresh leaves Activity details available', async t => {
   await row.locator('.feed-title').first().click();
   await expect(page).toHaveURL(/#event\//);
   await expect(page.getByRole('heading', { name: title, exact: false }).first()).toBeVisible();
-  release();
+  held.release();
   await refreshed;
   await expect(page.locator('#toast')).toContainText('Activity refresh queued.');
 });
