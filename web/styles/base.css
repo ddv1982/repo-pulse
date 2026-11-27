@@ -249,9 +249,7 @@ p {
   overflow: hidden;
 }
 :root:not(.dark) .card:not(.summary) {
-  box-shadow:
-    inset 0 1px 0 #fffffff2,
-    0 11px 26px -11px #7c4dff4e;
+  box-shadow: 0 5px 15px #27253612;
 }
 .card-pad {
   padding: 16px;

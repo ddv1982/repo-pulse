@@ -156,8 +156,15 @@ test('approved light/dark/System UI and responsive routes work without remote tr
   await page.screenshot({ path: 'test-results/app-phone-light.png', fullPage: true });
 });
 
-test('Ember Orbs keeps glass on the chrome and leaves the Activity feed opaque', async t => {
+test('Ocean uses the selected light palette with glass chrome and an opaque Activity feed', async t => {
   const { page } = await setup(t);
+  const palette = await page.locator('html').evaluate(root => {
+    const style = getComputedStyle(root);
+    return ['background', 'foreground', 'muted-foreground', 'primary', 'border', 'input', 'lane-1', 'lane-2', 'lane-3'].map(name =>
+      style.getPropertyValue(`--${name}`).trim(),
+    );
+  });
+  assert.deepEqual(palette, ['#f5f7f8', '#241523', '#5e5863', '#1f6199', '#cdd4dc', '#c0c9d4', '#1f6199', '#0f766e', '#a2476b']);
   await page.getByRole('button', { name: 'Save filter…' }).click();
   const save = page.getByRole('dialog').getByRole('button', { name: 'Save', exact: true });
   await save.hover();
@@ -183,9 +190,10 @@ test('Ember Orbs keeps glass on the chrome and leaves the Activity feed opaque',
   const counts = await summary.locator('.cells').boundingBox();
   assert.ok(headline && counts && counts.y >= headline.y + headline.height, 'Counts sit below the headline on desktop');
   const backdrop = await page.locator('body').evaluate(body => getComputedStyle(body, '::before').backgroundImage);
-  assert.match(backdrop, /255, 77, 157/);
-  assert.match(backdrop, /76% 105%/);
-  await expect(summary).toHaveCSS('backdrop-filter', /blur/);
+  assert.match(backdrop, /119, 201, 227/);
+  assert.match(backdrop, /92, 199, 190/);
+  assert.match(backdrop, /51, 132, 189/);
+  await expect(summary).toHaveCSS('backdrop-filter', 'blur(20px) saturate(1.35)');
   await expect(summary).toHaveCSS('border-top-color', 'rgb(255, 255, 255)');
   await expect(page.locator('.feed')).toHaveCSS('backdrop-filter', 'none');
   await expect(page.locator('.feed')).toHaveCSS('background-color', 'rgb(255, 255, 255)');
@@ -193,7 +201,7 @@ test('Ember Orbs keeps glass on the chrome and leaves the Activity feed opaque',
   const unread = page.getByRole('button', { name: 'Unread only', exact: true });
   await unread.click();
   await expect(unread).toHaveAttribute('aria-pressed', 'true');
-  await expect(unread).toHaveCSS('background-image', /radial-gradient/);
+  await expect(unread).toHaveCSS('background-image', /linear-gradient/);
   const filterOpacity = () =>
     unread.evaluate(element => {
       const context = document.createElement('canvas').getContext('2d');

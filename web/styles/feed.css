@@ -150,7 +150,7 @@
   color: var(--muted-foreground);
 }
 :root:not(.dark) .toolbar .search:not(:focus) {
-  border-color: #7c5ea0;
+  border-color: color-mix(in srgb, var(--muted-foreground) 70%, var(--primary));
 }
 :root:not(.dark) .search-help {
   color: var(--foreground-soft);
