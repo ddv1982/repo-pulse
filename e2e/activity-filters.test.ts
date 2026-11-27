@@ -574,3 +574,31 @@ test('an Activity response renders while a saved-filter menu stays open, and del
     finishDelete.release();
   }
 });
+
+test('a delayed Mark all seen lookup does not replace an open confirmation', async t => {
+  const { runtime, page } = await demo(t);
+  runtime.store.setSetting('savedActivityFilters', [
+    { id: 'keep', name: 'Keep me', filters: { search: '', people: '', kind: '', repoIds: null, view: 'all' } },
+  ]);
+  await page.goto(runtime.url + '/#activity');
+  await page.locator('#saved-filter-toggle').click();
+  await page.getByRole('option', { name: /Keep me/ }).click();
+  const lookup = gate(t, 'unseen lookup');
+  await page.route(/\/api\/activity\/unseen\?/, async route => {
+    await lookup.opened;
+    await route.fulfill({ json: { ids: ['below-the-page'] } });
+  });
+  const answered = page.waitForResponse(/\/api\/activity\/unseen\?/);
+  await page.getByRole('button', { name: /^Mark all (matching )?seen/ }).click();
+  await page.getByRole('button', { name: 'More saved filter actions' }).click();
+  await page.getByRole('menuitem', { name: 'Delete…' }).click();
+  const deleteDialog = page.getByRole('dialog', { name: 'Delete saved filter?' });
+  await expect(deleteDialog).toBeVisible();
+  lookup.release();
+  await answered;
+  await expect(page.locator('#notice')).toContainText('Finish the open confirmation');
+  await expect(deleteDialog).toBeVisible();
+  await deleteDialog.getByRole('button', { name: 'Delete filter', exact: true }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'Saved filter deleted.' })).toBeVisible();
+  assert.deepEqual(runtime.store.getSetting('savedActivityFilters'), []);
+});

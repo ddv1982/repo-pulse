@@ -438,6 +438,8 @@ function confirm(
   label = 'Confirm',
   { subject = '', destructive = false, resource = 'confirm-dialog' } = {},
 ) {
+  // One confirmation at a time: a command that asks while another waits for an answer is refused, never swapped in.
+  if (dialog.open) throw new Error('Finish the open confirmation before starting another action.');
   pendingConfirmation = { callback, resource };
   const opener = document.activeElement;
   dialogOpener = opener instanceof HTMLElement || opener instanceof SVGElement ? opener : null;
