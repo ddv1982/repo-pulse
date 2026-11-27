@@ -19,7 +19,7 @@ import type {
   AzureStreamRecord,
 } from '../src/contract.ts';
 import type { WatchedRepo, SyncBatch } from './normalize.ts';
-import type { Entity, EntityData, EntityType, Settings, SettingKey } from './store-records.ts';
+import type { AppSettingKey, Entity, EntityData, EntityType, Settings } from './store-records.ts';
 import { notFound } from './errors.ts';
 
 type UnreadableLookups = StreamState['unreadableLookups'];
@@ -27,8 +27,9 @@ type UnreadableLookups = StreamState['unreadableLookups'];
 type StartedStream = StreamState & { window: StreamWindow; windowGeneration: number; lastAttempt: string; pending: true };
 type SyncStore = {
   listRepos: () => WatchedRepo[];
-  getSetting: <K extends SettingKey, F>(key: K, fallback: F) => Settings[K] | F;
-  setSetting: <K extends SettingKey>(key: K, value: Settings[K]) => void;
+  getSetting: <K extends AppSettingKey, F>(key: K, fallback: F) => Settings[K] | F;
+  getBaseline: (repoId: string) => string | undefined;
+  setBaseline: (repoId: string, at: string) => void;
   getStreams: () => StreamState[];
   saveStream: (state: StreamState) => void;
   getEntity: <T extends EntityType>(repoId: string, type: T, id: string) => EntityData[T] | undefined;
@@ -353,7 +354,7 @@ export function createSync({
     const watched = new Set(repos.map(repo => repo.id));
     for (const turns of [prTurns, buildTurns]) for (const repoId of turns.keys()) if (!watched.has(repoId)) turns.delete(repoId);
     for (const repo of repos) {
-      if (store.getSetting(`baseline:${repo.id}`, null) === null) store.setSetting(`baseline:${repo.id}`, iso(now()));
+      if (store.getBaseline(repo.id) === undefined) store.setBaseline(repo.id, iso(now()));
       for (const stream of AZURE_STREAMS) {
         if (!current.some(state => state.repoId === repo.id && state.stream === stream)) {
           store.saveStream({ repoId: repo.id, stream, initialized: false, nextAt: iso(now()), error: null });

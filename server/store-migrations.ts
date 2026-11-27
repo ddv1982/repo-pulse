@@ -20,7 +20,7 @@ import type { StoreState } from './store-state.ts';
 type MigrationDeps = {
   events: Pick<StoreEvents, 'hydrate' | 'saveMembership' | 'indexLabels' | 'reindexAll' | 'enrich'>;
   links: Pick<StoreLinks, 'indexPush'>;
-  state: Pick<StoreState, 'getSetting' | 'setSetting' | 'bumpActivity' | 'requestCompact'>;
+  state: Pick<StoreState, 'getSetting' | 'setSetting' | 'getBaseline' | 'bumpActivity' | 'requestCompact'>;
 };
 type Migration = readonly [version: number, run: () => void];
 
@@ -181,7 +181,7 @@ function migrations({ db, q }: StoreDb, { events, links, state }: MigrationDeps)
           if (!job) continue;
           if (event.imported) {
             if (histories.has(event.repoId)) continue;
-            const baseline = Date.parse(state.getSetting(`baseline:${event.repoId}`, ''));
+            const baseline = Date.parse(state.getBaseline(event.repoId) ?? '');
             if (!(Date.parse(String(event.time)) >= baseline - FIRST_SYNC_WINDOW_AT_V15)) continue;
           }
           insert.run(job.id, job.repoId, job.type, job.nextAt || '1970-01-01T00:00:00.000Z', JSON.stringify(job));

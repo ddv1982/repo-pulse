@@ -19,7 +19,7 @@ export type Store = ReturnType<typeof createStore>;
  */
 export function createStore(path = ':memory:', { highlights = false } = {}) {
   const conn = openStoreDb(path);
-  const { db, q, transaction } = conn;
+  const { db, transaction } = conn;
   const state = createStoreState(conn);
   const events = createStoreEvents(conn, state);
   const links = createStoreLinks(conn, events);
@@ -75,8 +75,7 @@ export function createStore(path = ':memory:', { highlights = false } = {}) {
       transaction(() => {
         state.deleteRepo(id);
         bumpActivity();
-        q('DELETE FROM settings WHERE key IN (?,?,?)').run(`baseline:${id}`, `checkout:${id}`, `checkout-followup:${id}`);
-        q('DELETE FROM settings WHERE substr(key,1,length(?))=?').run(`checkout:${id}:`, `checkout:${id}:`);
+        state.deleteRepoSettings(id);
       });
     },
     /**
@@ -86,7 +85,8 @@ export function createStore(path = ':memory:', { highlights = false } = {}) {
     resetActivity() {
       transaction(() => {
         db.exec(`DELETE FROM push_tips; DELETE FROM enrichment; DELETE FROM activity_members; DELETE FROM events;
-          DELETE FROM entities; DELETE FROM streams; DELETE FROM jobs; DELETE FROM settings WHERE key LIKE 'baseline:%';`);
+          DELETE FROM entities; DELETE FROM streams; DELETE FROM jobs;`);
+        state.clearBaselines();
         bumpActivity();
         state.requestCompact();
       });
@@ -168,6 +168,12 @@ export function createStore(path = ':memory:', { highlights = false } = {}) {
     forkCandidates: queries.forkCandidates,
     getSetting: state.getSetting,
     setSetting: state.setSetting,
+    getBaseline: state.getBaseline,
+    setBaseline: state.setBaseline,
+    getCheckoutObservation: state.getCheckoutObservation,
+    saveCheckoutObservation: state.saveCheckoutObservation,
+    getCheckoutFollowup: state.getCheckoutFollowup,
+    saveCheckoutFollowup: state.saveCheckoutFollowup,
     close: conn.close,
   };
 }

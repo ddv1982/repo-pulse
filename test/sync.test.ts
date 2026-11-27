@@ -1492,7 +1492,7 @@ test('first-sync history at the baseline instant is imported whatever its fracti
       return { items: [push(7, '2026-11-17T10:00:00Z')], nextCursor: null };
     },
   });
-  assert.equal(store.getSetting(`baseline:${repo.id}`), '2026-11-17T10:00:00.000Z');
+  assert.equal(store.getBaseline(repo.id), '2026-11-17T10:00:00.000Z');
   await sync.tick();
   const event = present(store.listEvents().find(item => item.kind === 'push'));
   assert.equal(event.imported, true, 'an event at the baseline instant is history, not a new update');
@@ -1969,7 +1969,7 @@ test('a history import page makes only stream reads and queues no merge work', a
     background: { history: () => backfill.tick() },
   });
   backfill = createBackfill({ store, provider, normalize: sync.normalize, now: () => time });
-  store.setSetting(`baseline:${repo.id}`, new Date(BASE).toISOString());
+  store.setBaseline(repo.id, new Date(BASE).toISOString());
   backfill.start(repo.id, 30);
   // Automatic checks stay on, but no live stream is due.
   sync.refresh();

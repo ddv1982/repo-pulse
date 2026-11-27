@@ -52,17 +52,8 @@ function storeCheckoutGit(store: Store, provider: AppProvider) {
       cached: store.completedCheckoutPulls,
       lookup: provider.completedCheckoutPulls,
     }),
-    followups: {
-      get: id => store.getSetting(`checkout-followup:${id}`),
-      save: (id, value) => store.setSetting(`checkout-followup:${id}`, value),
-    },
-    observations: {
-      get: (id, identity) => {
-        const saved = store.getSetting(`checkout:${id}:${identity}`) ?? store.getSetting(`checkout:${id}`);
-        return saved?.identity === identity ? saved : undefined;
-      },
-      save: (id, value) => store.setSetting(`checkout:${id}:${value.identity}`, value),
-    },
+    followups: { get: store.getCheckoutFollowup, save: store.saveCheckoutFollowup },
+    observations: { get: store.getCheckoutObservation, save: store.saveCheckoutObservation },
   });
 }
 

@@ -15,7 +15,7 @@ type HistoryBatch = { events?: ActivityEvent[]; entities?: Entity[] };
 type HistoryStore = {
   listRepos: () => WatchedRepo[];
   listJobs: <T extends JobType>(filter: { type: T }) => JobOf<T>[];
-  getSetting: (key: `baseline:${string}`, fallback: string) => string;
+  getBaseline: (repoId: string) => string | undefined;
   saveJob: (job: HistoryJob) => void;
   commitPage: (page: { repoId: string; events: ActivityEvent[]; entities: Entity[]; jobs: HistoryJob[] }) => void;
 };
@@ -60,7 +60,7 @@ export function createBackfill({
       return previous;
     }
     const requestedAt = now();
-    const baseline = Date.parse(store.getSetting(`baseline:${repoId}`, ''));
+    const baseline = Date.parse(store.getBaseline(repoId) ?? '');
     // Never acknowledge a live change merely because historical import reached the present.
     const until = Number.isFinite(baseline) ? Math.min(requestedAt, baseline) : requestedAt;
     const since = period === 'all' ? EARLIEST : requestedAt - period * DAY;

@@ -47,7 +47,7 @@ type ReviewerVote = NonNullable<PrFingerprint['votes']>[number];
 
 export type SyncBatch = { events: SyncEvent[]; entities: Entity[]; jobs?: (RewriteJob | ForkJob)[] };
 type NormalizeStore = {
-  getSetting: (key: `baseline:${string}`, fallback: string) => string;
+  getBaseline: (repoId: string) => string | undefined;
   getEntity: <T extends EntityType>(repoId: string, type: T, id: string) => EntityData[T] | undefined;
   listEntities: <T extends EntityType>(repoId: string, type: T) => { id: string; data: EntityData[T] }[];
 };
@@ -369,7 +369,7 @@ export function createNormalizer({ store, now = Date.now }: { store: NormalizeSt
     const entities: Entity[] = [];
     const historical = Boolean(state.historical);
     const refs = stream === 'pushes' ? new Map(store.listEntities(repo.id, 'ref').map(entry => [entry.id, entry.data])) : null;
-    const baseline = store.getSetting(`baseline:${repo.id}`, iso(now()));
+    const baseline = store.getBaseline(repo.id) ?? iso(now());
     const add: NormalizeContext['add'] = (kind, sourceId, detail) => {
       const time = detail.time || iso(now());
       const imported = !state.initialized && Date.parse(time) <= Date.parse(baseline);

@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createStore, type Store } from '../server/store.ts';
 import { copyBeforeUpgrade } from '../server/store-migrations.ts';
+import { repoSettingKeys } from '../server/store-state.ts';
 import { SEARCH_INDEX_VERSION } from '../src/activity-text.ts';
 import { DatabaseSync } from 'node:sqlite';
 import { spawn } from 'node:child_process';
@@ -87,6 +88,41 @@ test('repository removal cascades only its local data', () => {
   );
   assert.throws(() => store.listEvents({ repoIds: ['unknown'] }));
   store.close();
+});
+
+test('removing a repository deletes every settings key a per-repository key builder makes for it, and only those', () => {
+  const folder = mkdtempSync(join(tmpdir(), 'pulse-store-'));
+  const path = join(folder, 'state.sqlite');
+  const seeded = createStore(path);
+  seeded.saveRepo(repo);
+  seeded.saveRepo({ ...repo, id: 'two' });
+  seeded.close();
+  // Plant one key from every builder for both repositories, including the legacy checkout key only older versions wrote.
+  const builders = Object.values(repoSettingKeys);
+  const keysOf = (id: string) => builders.map(build => build(id, 'identity'));
+  const db = new DatabaseSync(path);
+  for (const key of [...keysOf('one'), ...keysOf('two')])
+    db.prepare('INSERT INTO settings(key,data) VALUES(?,?)').run(key, JSON.stringify('planted'));
+  db.close();
+  const store = createStore(path);
+  store.removeRepo('one');
+  store.close();
+  const check = new DatabaseSync(path, { readOnly: true });
+  const keys = check
+    .prepare('SELECT key FROM settings')
+    .all()
+    .map(row => String(row.key));
+  check.close();
+  rmSync(folder, { recursive: true });
+  assert.ok(builders.length >= 4, 'baseline, checkout, legacy checkout and follow-up keys are all built here');
+  assert.deepEqual(
+    keysOf('one').filter(key => keys.includes(key)),
+    [],
+  );
+  assert.deepEqual(
+    keysOf('two').filter(key => !keys.includes(key)),
+    [],
+  );
 });
 
 const tip = 'd'.repeat(40);
@@ -186,10 +222,10 @@ test('starting from scratch clears activity, checkpoints, jobs and baselines but
   });
   store.saveJob(historyJob('one'));
   store.enrichEvent('push-0', { mergeEvidence: { status: 'complete' } });
-  store.setSetting('baseline:one', '2026-11-01T00:00:00.000Z');
-  store.setSetting('baseline:two', '2026-11-01T00:00:00.000Z');
-  store.setSetting('checkout:one', { identity: 'abc' });
-  store.setSetting('checkout-followup:one', {
+  store.setBaseline('one', '2026-11-01T00:00:00.000Z');
+  store.setBaseline('two', '2026-11-01T00:00:00.000Z');
+  store.saveCheckoutObservation('one', { identity: 'abc' });
+  store.saveCheckoutFollowup('one', {
     id: 'plan',
     source: 'refs/heads/feature',
     path: '/checkout',
@@ -223,7 +259,7 @@ test('starting from scratch clears activity, checkpoints, jobs and baselines but
       .prepare('SELECT key FROM settings ORDER BY key')
       .all()
       .map(row => row.key),
-    ['activityRevision', 'checkout-followup:one', 'checkout:one', 'refreshEnabled', 'refreshResumedAt', 'searchIndexVersion'],
+    ['activityRevision', 'checkout-followup:one', 'checkout:one:abc', 'refreshEnabled', 'refreshResumedAt', 'searchIndexVersion'],
   );
   assert.equal(Number(store.activityRevision()), revision + 1, 'the page reloads its activity');
   assert.ok(diskSize() < before / 4, `compacted from ${before} to ${diskSize()} bytes`);
@@ -453,7 +489,7 @@ test('upgrading queues a fork check once for each stored branch creation a sync 
     });
   let store = createStore(path);
   store.saveRepo(repo);
-  store.setSetting('baseline:one', '2026-11-17T10:00:00.000Z');
+  store.setBaseline('one', '2026-11-17T10:00:00.000Z');
   store.insertEvents([
     created('live'),
     created('checked'),
@@ -498,7 +534,7 @@ test('upgrading leaves imported branch creations unchecked in a repository that 
     });
   let store = createStore(path);
   store.saveRepo(repo);
-  store.setSetting('baseline:one', '2026-11-17T10:00:00.000Z');
+  store.setBaseline('one', '2026-11-17T10:00:00.000Z');
   store.insertEvents([
     created('live'),
     created('imported', { imported: true }),

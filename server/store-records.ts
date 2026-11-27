@@ -317,11 +317,12 @@ const savedFilter = fields({
   }),
 });
 /** Automatic checks run unless a person turned them off; a database without the setting has them on. */
-export function refreshEnabled(store: { getSetting: <K extends SettingKey, F>(key: K, fallback: F) => Settings[K] | F }) {
+export function refreshEnabled(store: { getSetting: <K extends AppSettingKey, F>(key: K, fallback: F) => Settings[K] | F }) {
   return store.getSetting('refreshEnabled', true) !== false;
 }
-type FixedSettingKey = Exclude<SettingKey, `${string}:${string}`>;
-const settingChecks: Record<FixedSettingKey, Check> = {
+/** The app settings, as opposed to the per-repository keys the store builds (server/store-state.ts). */
+export type AppSettingKey = Exclude<SettingKey, `${string}:${string}`>;
+const settingChecks: Record<AppSettingKey, Check> = {
   compactPending: boolean,
   refreshEnabled: boolean,
   refreshResumedAt: finite,
@@ -331,9 +332,9 @@ const settingChecks: Record<FixedSettingKey, Check> = {
   savedActivityFilters: list(savedFilter),
 };
 /** The check for a setting's value, by its key or the pattern its key matches. */
-const isFixedSettingKey = (key: string): key is FixedSettingKey => Object.hasOwn(settingChecks, key);
+const isAppSettingKey = (key: string): key is AppSettingKey => Object.hasOwn(settingChecks, key);
 function settingCheck(key: SettingKey): Check {
-  if (isFixedSettingKey(key)) return settingChecks[key];
+  if (isAppSettingKey(key)) return settingChecks[key];
   if (key.startsWith('baseline:')) return string;
   if (key.startsWith('checkout-followup:')) return followup;
   if (key.startsWith('checkout:')) return observation;

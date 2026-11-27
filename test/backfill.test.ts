@@ -49,7 +49,7 @@ function setup(
 ) {
   const store = createStore(path);
   if (!store.listRepos().length) store.saveRepo(repo);
-  store.setSetting(`baseline:${repo.id}`, iso(BASE));
+  store.setBaseline(repo.id, iso(BASE));
   const backfill = createBackfill({ store, provider, normalize, now });
   return { store, backfill };
 }
@@ -232,7 +232,7 @@ test('all available history uses explicit 2010 boundary and keeps scanning older
     },
     { now: () => time },
   );
-  store.setSetting(`baseline:${repo.id}`, iso(time));
+  store.setBaseline(repo.id, iso(time));
   const job = backfill.start(repo.id, 'all');
   assert.equal(job.rangeStart, '2010-01-01T00:00:00.000Z');
   assert.match(job.note, /retention and permissions/);
@@ -352,7 +352,7 @@ test('transaction failure keeps the page resumable and validation rejects ambigu
 test('a build queued before an internal window boundary and completed after it remains imported', async () => {
   const store = createStore();
   store.saveRepo(repo);
-  store.setSetting(`baseline:${repo.id}`, iso(BASE));
+  store.setBaseline(repo.id, iso(BASE));
   const boundary = iso(BASE - 30 * DAY);
   const build = {
     id: 99,

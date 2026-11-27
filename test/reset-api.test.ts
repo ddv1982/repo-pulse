@@ -32,7 +32,7 @@ const push = (id: number) => ({
 async function live(t: TestContext, { pollMs }: { pollMs?: number } = {}) {
   const store = createStore();
   store.saveRepo(repo);
-  store.setSetting('checkout:one', { identity: 'abc' });
+  store.saveCheckoutObservation('one', { identity: 'abc' });
   const reads: string[] = [];
   const offered: Record<string, AzureStreamRecord[]> = { pushes: [push(1)] };
   const control = { hold: false, release: () => {} };
@@ -132,7 +132,7 @@ test('POST /api/reset needs the access key, clears activity and starts a first i
   await settled();
   assert.deepEqual(store.listEvents(), []);
   assert.deepEqual(store.listRepos(), [{ ...repo, disabled: false }]);
-  assert.deepEqual(store.getSetting('checkout:one'), { identity: 'abc' });
+  assert.deepEqual(store.getCheckoutObservation('one', 'abc'), { identity: 'abc' });
   const after = await state();
   assert.equal(after.syncStatus.overall.state, 'syncing');
   assert.ok(after.streams.length === 6 && after.streams.every(stream => !stream.initialized));

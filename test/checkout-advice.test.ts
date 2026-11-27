@@ -137,11 +137,8 @@ test('Check and Pull detect a rewritten upstream and keep comparison across adap
   t.after(() => store.close());
   const options: CheckoutGitOptions = {
     matchesRemote: url => url === remote,
-    // Read back as server.ts does: the store keeps observations as JSON settings.
-    observations: {
-      get: id => store.getSetting(`checkout:${id}`),
-      save: (id, value) => store.setSetting(`checkout:${id}`, value),
-    },
+    // Read back as server/runtime.ts does: the store keeps observations as JSON settings.
+    observations: { get: store.getCheckoutObservation, save: store.saveCheckoutObservation },
   };
   const adapter = createCheckoutGit(options);
   const before = await adapter.update(repo, 'check', expectedOf(await adapter.status(repo)));

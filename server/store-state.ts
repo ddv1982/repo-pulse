@@ -1,8 +1,37 @@
 import { readActivityRevision, readAnyJob, readEntity, readJob, readRepository, readSetting, readStream } from './store-records.ts';
 import type { Repository, StreamState } from '../src/contract.ts';
-import type { Entity, EntityData, EntityType, Job, JobType, JobOf, Settings, SettingKey } from './store-records.ts';
+import type { AppSettingKey, Entity, EntityData, EntityType, Job, JobType, JobOf, Settings, SettingKey } from './store-records.ts';
+import type { Followup } from './checkout-branches.ts';
+import type { Observation } from './checkout-observations.ts';
 import type { StoreDb } from './store-db.ts';
 import { invalid, notFound } from './errors.ts';
+
+/** The prefixes of the settings keys a repository owns. Each key is `<prefix>:<repo ID>` or `<prefix>:<repo ID>:<part>`. */
+const REPO_SETTING_PREFIXES = ['baseline', 'checkout', 'checkout-followup'] as const;
+type RepoSettingPrefix = (typeof REPO_SETTING_PREFIXES)[number];
+const repoKey =
+  <P extends RepoSettingPrefix>(prefix: P) =>
+  (repoId: string) =>
+    `${prefix}:${repoId}` as const;
+const repoPartKey =
+  <P extends RepoSettingPrefix>(prefix: P) =>
+  (repoId: string, part: string) =>
+    `${prefix}:${repoId}:${part}` as const;
+
+/**
+ * Every settings key a repository owns is built here from a prefix in REPO_SETTING_PREFIXES, and removing the
+ * repository deletes every key with those prefixes, so no key outlives its repository.
+ */
+export const repoSettingKeys = {
+  /** When the first sync of the repository started; the first window and history imports count back from it. */
+  baseline: repoKey('baseline'),
+  /** The checkout observation for one linked checkout identity. */
+  checkout: repoPartKey('checkout'),
+  /** The checkout observation older versions kept under one key per repository. Read only. */
+  legacyCheckout: repoKey('checkout'),
+  /** The saved PR branch follow-up plan. */
+  followup: repoKey('checkout-followup'),
+};
 
 type JobQuery = { repoId?: string; status?: string; dueBefore?: string };
 type JobFilter = JobQuery & { type?: JobType };
@@ -25,14 +54,43 @@ export function createStoreState({ q }: StoreDb) {
     q(`INSERT INTO settings(key,data) VALUES('ciSeenRevision','1')
             ON CONFLICT(key) DO UPDATE SET data=CAST(data AS INTEGER)+1`).run();
 
-  function getSetting<K extends SettingKey>(key: K): Settings[K] | undefined;
-  function getSetting<K extends SettingKey, F>(key: K, fallback: F): Settings[K] | F;
-  function getSetting<K extends SettingKey, F>(key: K, fallback?: F): Settings[K] | F | undefined {
+  function readKey<K extends SettingKey>(key: K): Settings[K] | undefined {
     const row = q('SELECT data FROM settings WHERE key=?').get(key);
-    return row ? readSetting(key, row.data) : fallback;
+    return row ? readSetting(key, row.data) : undefined;
   }
-  function setSetting<K extends SettingKey>(key: K, value: Settings[K]) {
+  function writeKey<K extends SettingKey>(key: K, value: Settings[K]) {
     q('INSERT INTO settings(key,data) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET data=excluded.data').run(key, JSON.stringify(value));
+  }
+  /** An app setting. Per-repository values have their own accessors below. */
+  function getSetting<K extends AppSettingKey>(key: K): Settings[K] | undefined;
+  function getSetting<K extends AppSettingKey, F>(key: K, fallback: F): Settings[K] | F;
+  function getSetting<K extends AppSettingKey, F>(key: K, fallback?: F): Settings[K] | F | undefined {
+    const value = readKey(key);
+    return value === undefined ? fallback : value;
+  }
+  const setSetting = <K extends AppSettingKey>(key: K, value: Settings[K]) => writeKey(key, value);
+
+  const getBaseline = (repoId: string) => readKey(repoSettingKeys.baseline(repoId));
+  const setBaseline = (repoId: string, at: string) => writeKey(repoSettingKeys.baseline(repoId), at);
+  /** Deletes the baseline of every repository. */
+  const clearBaselines = () => q("DELETE FROM settings WHERE key LIKE 'baseline:%'").run();
+  /** The observation saved for this checkout identity, also from the key older versions used. */
+  function getCheckoutObservation(repoId: string, identity: string): Observation | undefined {
+    const saved = readKey(repoSettingKeys.checkout(repoId, identity)) ?? readKey(repoSettingKeys.legacyCheckout(repoId));
+    return saved?.identity === identity ? saved : undefined;
+  }
+  const saveCheckoutObservation = (repoId: string, observation: Observation) =>
+    writeKey(repoSettingKeys.checkout(repoId, observation.identity), observation);
+  const getCheckoutFollowup = (repoId: string) => readKey(repoSettingKeys.followup(repoId));
+  const saveCheckoutFollowup = (repoId: string, followup: Followup) => writeKey(repoSettingKeys.followup(repoId), followup);
+  /** Deletes every settings key the repository owns. */
+  function deleteRepoSettings(repoId: string) {
+    const exact = q('DELETE FROM settings WHERE key=?');
+    const parts = q('DELETE FROM settings WHERE substr(key,1,length(?))=?');
+    for (const prefix of REPO_SETTING_PREFIXES) {
+      exact.run(`${prefix}:${repoId}`);
+      parts.run(`${prefix}:${repoId}:`, `${prefix}:${repoId}:`);
+    }
   }
   const compactPending = () => Boolean(q("SELECT 1 FROM settings WHERE key='compactPending'").get());
   const requestCompact = () => q("INSERT OR REPLACE INTO settings(key,data) VALUES('compactPending','true')").run();
@@ -132,6 +190,14 @@ export function createStoreState({ q }: StoreDb) {
     bumpCiSeen,
     getSetting,
     setSetting,
+    getBaseline,
+    setBaseline,
+    clearBaselines,
+    getCheckoutObservation,
+    saveCheckoutObservation,
+    getCheckoutFollowup,
+    saveCheckoutFollowup,
+    deleteRepoSettings,
     compactPending,
     requestCompact,
     clearCompact,
