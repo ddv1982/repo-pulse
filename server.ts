@@ -1,3 +1,4 @@
+import { branchName } from './src/events.ts';
 import { activityLabel } from './src/activity-text.ts';
 import { createServer } from 'node:http';
 import { readFile, mkdir, chmod, rm, stat } from 'node:fs/promises';
@@ -7,7 +8,7 @@ import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { homedir } from 'node:os';
 import { createSavedActivityFilters } from './server/saved-activity-filters.ts';
 import { createStore, type Store } from './server/store.ts';
-import { isCorruptRow } from './server/store-records.ts';
+import { isCorruptRow, refreshEnabled } from './server/store-records.ts';
 import { lockDatabase } from './server/database-lock.ts';
 import { createSync } from './server/sync.ts';
 import { createAzureCli, defaultExecutor } from './server/azure-cli.ts';
@@ -269,7 +270,7 @@ export function createApp({
           backgroundProblem = error.message;
         }
         const settings = {
-          refreshEnabled: store.getSetting('refreshEnabled', true),
+          refreshEnabled: refreshEnabled(store),
           refreshResumedAt: store.getSetting('refreshResumedAt', null),
         };
         const diagnostics = { ...(cli?.diagnostics() || {}), sync: status };
@@ -496,11 +497,11 @@ export function createApp({
         if (demo) throw problem('Demo checkouts have no local branches.', 403);
         const repo = enabledRepoById(decodeParam(rawId));
         const local = new Set(await checkoutGit.localBranches(repo));
-        const pinned = [repo.defaultBranch?.slice(11), 'main', 'master'];
+        const pinned = [branchName(repo.defaultBranch), 'main', 'master'];
         const branches = store
           .listEntities(repo.id, 'ref')
           .filter(({ id, data }) => id.startsWith('refs/heads/') && id.length > 11 && data.active !== false)
-          .map(({ id, data }) => ({ name: id.slice(11), pushId: Number(data.lastPushId) || 0 }))
+          .map(({ id, data }) => ({ name: branchName(id), pushId: Number(data.lastPushId) || 0 }))
           .sort(
             (a, b) =>
               Number(pinned.includes(b.name)) - Number(pinned.includes(a.name)) ||
@@ -659,7 +660,7 @@ export function createApp({
       handler: async ({ req, res }) => {
         const input = await body(req);
         if (typeof input.refreshEnabled !== 'boolean') throw problem('refreshEnabled must be true or false.');
-        if (input.refreshEnabled && store.getSetting('refreshEnabled', true) === false) {
+        if (input.refreshEnabled && !refreshEnabled(store)) {
           store.setSetting('refreshResumedAt', Date.now());
         }
         store.setSetting('refreshEnabled', input.refreshEnabled);

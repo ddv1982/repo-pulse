@@ -1,7 +1,8 @@
+import { FIRST_SYNC_MS, iso } from './time.ts';
 import { createNormalizer } from './normalize.ts';
 import { isRecord, recordId, recordsOf, unreadableField } from './azure-records.ts';
 import { READS, SYNC_STREAMS } from './sync-status.ts';
-import { isCorruptRow } from './store-records.ts';
+import { isCorruptRow, refreshEnabled } from './store-records.ts';
 import type { AzureProvider, AzurePage } from './azure-client.ts';
 import type {
   AzureRef,
@@ -36,14 +37,12 @@ type SyncStore = {
 export type SyncProvider = { read: import('./azure-client.ts').StreamRead } & Partial<Pick<AzureProvider, 'buildsById' | 'pullRequest'>>;
 type BackgroundKind = 'rewrite' | 'history';
 
-const DAY = 86400000;
 const SNAPSHOT_TTL_MS = 2 * 60000;
 const HISTORY_WINDOW_TTL_MS = 10 * 60000;
 const BUSY_POLL_MS = 100;
 const FOREGROUND_CHECK_COOLDOWN_MS = 60000;
 const RECENT_READ_MS = 30000;
 const LIVE_TURNS = 6;
-const iso = (ms: number) => new Date(ms).toISOString();
 
 /** Both counts of records left out, with the fields of each. */
 export function addUnreadable(sum: UnreadableRecords | undefined, more: UnreadableRecords | undefined): UnreadableRecords | undefined {
@@ -145,7 +144,7 @@ function startPage(state: StreamState, at: number, overlapMs: number, continuing
   }
 
   // Start over at the same lower bound, including for an interrupted first import.
-  const since = state.window?.since ?? iso(state.lastSuccess ? Date.parse(state.lastSuccess) - overlapMs : at - 7 * DAY);
+  const since = state.window?.since ?? iso(state.lastSuccess ? Date.parse(state.lastSuccess) - overlapMs : at - FIRST_SYNC_MS);
   return {
     ...state,
     ...start,
@@ -581,7 +580,7 @@ export function createSync({
       ? completePage(working, latest, {
           at,
           delayMs: state.stream === 'refs' ? refsIntervalMs : cadence,
-          catchUp: at - Date.parse(working.window.until) > interval && store.getSetting('refreshEnabled', true) !== false,
+          catchUp: at - Date.parse(working.window.until) > interval && refreshEnabled(store),
           quietCycles,
           warning: warningOf(state.stream, read.unreadable),
           unreadableLookups: read.unreadableLookups,
@@ -609,7 +608,7 @@ export function createSync({
   async function runPage() {
     if (halted()) return;
     ensureStreams();
-    const automatic = store.getSetting('refreshEnabled', true) !== false;
+    const automatic = refreshEnabled(store);
     let { due, repos } = dueStreams(automatic);
     if (!due.length) {
       await runBackground(automatic);
@@ -619,7 +618,7 @@ export function createSync({
       if (await runBackground(automatic)) return true;
       if (halted()) return;
       // A background turn can yield while the watch or its streams change.
-      ({ due, repos } = dueStreams(store.getSetting('refreshEnabled', true) !== false));
+      ({ due, repos } = dueStreams(refreshEnabled(store)));
     }
     const [first, second] = due;
     if (!first) return;
@@ -651,7 +650,7 @@ export function createSync({
   }
   // Due streams normally start within seconds; one full budget minute late means the shared CLI queue is behind.
   function lag() {
-    const automatic = store.getSetting('refreshEnabled', true) !== false;
+    const automatic = refreshEnabled(store);
     const enabled = new Set(
       store
         .listRepos()
@@ -708,13 +707,7 @@ export function createSync({
     normalize,
     checkOnForeground() {
       const at = now();
-      if (
-        halted() ||
-        reading ||
-        store.getSetting('refreshEnabled', true) === false ||
-        at - foregroundCheckedAt < FOREGROUND_CHECK_COOLDOWN_MS
-      )
-        return;
+      if (halted() || reading || !refreshEnabled(store) || at - foregroundCheckedAt < FOREGROUND_CHECK_COOLDOWN_MS) return;
       const { due, repos } = dueStreams(true);
       if (due.length) return;
       const streams = store.getStreams().filter(state => repos.has(state.repoId));
@@ -789,7 +782,7 @@ export function createSync({
       for (const state of streams) {
         const repo = repos.find(entry => entry.id === state.repoId);
         if (!repo || !targets.includes(repo.id)) continue;
-        const next = requestRefresh(state, now(), store.getSetting('refreshEnabled', true) === false);
+        const next = requestRefresh(state, now(), !refreshEnabled(store));
         store.saveStream(next);
         requested.set(`${next.repoId}:${next.stream}`, {
           repoId: next.repoId,

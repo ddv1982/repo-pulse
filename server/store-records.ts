@@ -279,6 +279,10 @@ const savedFilter = fields({
     view: oneOf('new', 'all'),
   }),
 });
+/** Automatic checks run unless a person turned them off; a database without the setting has them on. */
+export function refreshEnabled(store: { getSetting: <K extends SettingKey, F>(key: K, fallback: F) => Settings[K] | F }) {
+  return store.getSetting('refreshEnabled', true) !== false;
+}
 type FixedSettingKey = Exclude<SettingKey, `${string}:${string}`>;
 const settingChecks: Record<FixedSettingKey, Check> = {
   compactPending: boolean,

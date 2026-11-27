@@ -1,3 +1,4 @@
+import { iso } from './time.ts';
 import type { AzureProvider } from './azure-client.ts';
 import type { ForkOrigin } from '../src/activity.ts';
 
@@ -34,7 +35,6 @@ const RETRY_MS = 60000;
 export const MAX_READS = 8;
 /** Candidate branches tested for containing the base, one read each. */
 const MAX_CHECKS = 3;
-const iso = (ms: number) => new Date(ms).toISOString();
 
 /**
  * The check for one push branch creation, or null when the row cannot be checked (no full ref or created tip).

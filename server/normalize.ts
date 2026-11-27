@@ -1,5 +1,6 @@
+import { iso } from './time.ts';
 import { createHash } from 'node:crypto';
-import { actorName, branchName, safeAzureUrl } from '../src/events.ts';
+import { actorName, branchName, safeAzureUrl, ZERO_ID } from '../src/events.ts';
 import { mergeUpdates } from './merge-evidence.ts';
 import { forkJob } from './fork-origin.ts';
 import { isRecord, recordsOf } from './azure-records.ts';
@@ -86,12 +87,10 @@ type NormalizeStore = {
   listEntities: <T extends EntityType>(repoId: string, type: T) => { id: string; data: EntityData[T] }[];
 };
 
-const ZERO = /^0+$/;
 const PULL_REF = /^refs\/pull\//;
 const fingerprint = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex').slice(0, 24);
 const tagName = (name: string) => name.replace(/^refs\/tags\//, '');
 const tagTitles: Record<'created' | 'moved' | 'deleted', string> = { created: 'New tag', moved: 'Tag moved', deleted: 'Tag deleted' };
-const iso = (ms: number) => new Date(ms).toISOString();
 // Display fields reach the normalizers as Azure sent them, so their fallbacks see what main saw.
 /** A field of a value that is not an object reads as absent, as optional chaining read it on main. */
 const fieldOf = (value: unknown, key: string): unknown => (isRecord(value) ? value[key] : undefined);
@@ -265,7 +264,7 @@ export function createNormalizer({ store, now = Date.now }: { store: NormalizeSt
         const current = {
           name: ref.name,
           objectId: ref.newObjectId,
-          active: !ZERO.test(ref.newObjectId || ''),
+          active: !ZERO_ID.test(ref.newObjectId || ''),
           evidence: 'push',
           lastPushId: Number(item.pushId),
           lastPushObservedAt: iso(now()),
@@ -274,7 +273,7 @@ export function createNormalizer({ store, now = Date.now }: { store: NormalizeSt
         entities.push({ type: 'ref', id: ref.name, data: current });
       };
       for (const ref of tags) {
-        const change = ZERO.test(ref.oldObjectId || '') ? 'created' : ZERO.test(ref.newObjectId || '') ? 'deleted' : 'moved';
+        const change = ZERO_ID.test(ref.oldObjectId || '') ? 'created' : ZERO_ID.test(ref.newObjectId || '') ? 'deleted' : 'moved';
         add('tag', `${source}:${ref.name}`, {
           title: `${tagTitles[change]} · ${tagName(ref.name)}`,
           branch: tagName(ref.name),
@@ -309,8 +308,8 @@ export function createNormalizer({ store, now = Date.now }: { store: NormalizeSt
         data,
       });
       for (const ref of branches) {
-        const created = ref.oldObjectId && ZERO.test(ref.oldObjectId);
-        const deleted = ref.newObjectId && ZERO.test(ref.newObjectId);
+        const created = ref.oldObjectId && ZERO_ID.test(ref.oldObjectId);
+        const deleted = ref.newObjectId && ZERO_ID.test(ref.newObjectId);
         if (created || deleted)
           add(created ? 'branch-created' : 'branch-deleted', `${source}:${ref.name}`, {
             title: `${created ? 'New branch' : 'Branch deleted'} · ${branchName(ref.name)}`,

@@ -1,3 +1,4 @@
+import { branchName } from '../src/events.ts';
 import { createHash } from 'node:crypto';
 import type { GitRunner } from './checkout-git.ts';
 import type { GitHistoryPage } from '../src/contract.d.ts';
@@ -51,7 +52,7 @@ export async function readGitHistory(run: GitRunner, path: string, defaultBranch
   const upstream = references.find(ref => ref.name === current?.upstream);
   const remote = current?.remote && current.remote !== '.' ? current.remote : 'origin';
   const remotePrefix = `refs/remotes/${remote}/`;
-  const defaultRef = references.find(ref => ref.name === remotePrefix + defaultBranch?.slice(11));
+  const defaultRef = references.find(ref => ref.name === remotePrefix + branchName(defaultBranch));
   const remoteHead = references.find(ref => ref.name === remotePrefix + 'HEAD')?.symbolic;
   const base = current && (references.find(ref => ref.name === remoteHead) ?? defaultRef);
   const tips = [...new Set([head, upstream?.id, base ? base.id : undefined].filter((id): id is string => Boolean(id && fullId.test(id))))];
@@ -94,7 +95,7 @@ export async function readGitHistory(run: GitRunner, path: string, defaultBranch
   return {
     snapshot,
     head,
-    branch: current?.name.slice(11) ?? null,
+    branch: current ? branchName(current.name) : null,
     upstream: upstream?.name.replace(/^refs\/(heads|remotes)\//, '') ?? null,
     shallow: shallow.trim() === 'true',
     commits,

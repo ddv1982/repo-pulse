@@ -1,3 +1,4 @@
+import { branchName } from '../src/events.ts';
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { access, realpath, stat } from 'node:fs/promises';
@@ -405,7 +406,8 @@ export function createCheckoutGit({
       `refs/heads/${branch}`,
     ]);
     const [remote, source, tracking] = raw.trimEnd().split('\0');
-    if (!remote || !source?.startsWith('refs/heads/') || tracking !== `refs/remotes/${remote}/${source.slice(11)}`) return { target: null };
+    if (!remote || !source?.startsWith('refs/heads/') || tracking !== `refs/remotes/${remote}/${branchName(source)}`)
+      return { target: null };
     return remoteTarget(path, repo, remote, source);
   }
 
@@ -413,7 +415,7 @@ export function createCheckoutGit({
     const urls = (await run(path, ['remote', 'get-url', '--all', '--', remote])).trimEnd().split('\n');
     // Git would receive the URL on its command line, where other local users can read it.
     if (urls.some(hasRemoteCredentials)) return { target: null, passwordInUrl: true };
-    const tracking = `refs/remotes/${remote}/${source.slice(11)}`;
+    const tracking = `refs/remotes/${remote}/${branchName(source)}`;
     const [url, ...others] = urls;
     return { target: url !== undefined && !others.length && matchesRemote(url, repo) ? { remote, source, tracking, url } : null };
   }
@@ -673,7 +675,7 @@ export function createCheckoutGit({
     return refs
       .split('\n')
       .filter(ref => ref.startsWith('refs/heads/'))
-      .map(ref => ref.slice(11));
+      .map(ref => branchName(ref));
   }
 
   async function history(repo: LinkedRepo, cursor: string | null) {

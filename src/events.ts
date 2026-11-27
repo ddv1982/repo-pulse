@@ -1,3 +1,6 @@
+/** Azure's all-zero object ID: the old side of a created ref, or the new side of a deleted one. */
+export const ZERO_ID = /^0+$/;
+
 export function branchName(ref: string | null | undefined) {
   const name = String(ref || '');
   // Saved merge enrichment can still carry unchecked provider fields.

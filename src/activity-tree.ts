@@ -1,4 +1,4 @@
-import { branchName } from './events.ts';
+import { branchName, ZERO_ID } from './events.ts';
 import type { ActivityEvent, ActivityItem } from './activity.ts';
 
 /**
@@ -59,7 +59,6 @@ const LANE_COLORS = 6;
 /** Rows a branch may stay quiet before its lane ends. */
 const MAX_GAP = 12;
 const PR_REF = /^refs\/pull\/(\d+)\//;
-const ZERO = /^0+$/;
 
 const laneKey = (repoId: string, branch: string) => `${repoId}\n${branch}`;
 
@@ -117,7 +116,7 @@ function pullRequests(items: TreeEvent[]) {
 /** The revision a push created a branch at. A snapshot only reports the tip at discovery, which says nothing of the start. */
 function createdAt(item: ActivityEvent) {
   const { evidence, oldObjectId, newObjectId } = item.data ?? {};
-  return item.kind === 'branch-created' && evidence === 'push' && (!oldObjectId || ZERO.test(oldObjectId)) ? (newObjectId ?? '') : '';
+  return item.kind === 'branch-created' && evidence === 'push' && (!oldObjectId || ZERO_ID.test(oldObjectId)) ? (newObjectId ?? '') : '';
 }
 
 /**

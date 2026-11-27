@@ -1,3 +1,4 @@
+import { iso } from './time.ts';
 import type { AzureProvider } from './azure-client.ts';
 import type { RewriteResult } from '../src/activity.ts';
 
@@ -21,7 +22,6 @@ type RewriteStore = Pick<
 
 const ATTEMPTS = 4;
 const RETRY_MS = 60000;
-const iso = (ms: number) => new Date(ms).toISOString();
 
 /**
  * Each tick runs at most one due check, so it is one Azure call.

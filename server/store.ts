@@ -1,3 +1,4 @@
+import { FIRST_SYNC_MS } from './time.ts';
 import { DatabaseSync } from 'node:sqlite';
 import { chmodSync, mkdirSync, readdirSync, renameSync, rmSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
@@ -35,7 +36,6 @@ export type Store = ReturnType<typeof createStore>;
 type JobQuery = { repoId?: string; status?: string; dueBefore?: string };
 type JobFilter = JobQuery & { type?: JobType };
 /** The first sync imports this far back from its baseline (server/sync.ts, the first window's `since`). */
-const FIRST_SYNC_MS = 7 * 86400000;
 const badRequest = (message: string) => Object.assign(new Error(message), { code: 'BAD_REQUEST' });
 const stamp = (value: string | number) => {
   const time = Date.parse(String(value));
