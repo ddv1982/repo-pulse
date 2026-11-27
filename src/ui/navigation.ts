@@ -83,10 +83,9 @@ function readResultsContext(): ResultsContext | null {
       search: value.version === RESULTS_VERSION ? search : joinActivitySearch(search, typeof value.people === 'string' ? value.people : ''),
       kind: typeof value.kind === 'string' ? value.kind : '',
       repoIds: Array.isArray(value.repoIds) ? value.repoIds.filter((id: unknown) => typeof id === 'string') : null,
+      // Entries stored before the groups had stable IDs name them by title; restoring maps those to IDs.
       groups: Array.isArray(value.groups)
-        ? value.groups
-            .filter((entry: unknown) => Array.isArray(entry) && typeof entry[0] === 'string' && typeof entry[1] === 'boolean')
-            .map(([group, open]: [string, boolean]) => [group === 'New updates' ? 'Activity' : group, open])
+        ? value.groups.filter((entry: unknown) => Array.isArray(entry) && typeof entry[0] === 'string' && typeof entry[1] === 'boolean')
         : [],
       filtersOpen: typeof value.filtersOpen === 'boolean' ? value.filtersOpen : undefined,
       savedFilterId: typeof value.savedFilterId === 'string' ? value.savedFilterId : '',

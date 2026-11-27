@@ -252,7 +252,7 @@ test('a focused imported row keeps focus when a newer imported row renders above
   await page.locator('summary', { hasText: 'Imported history' }).click();
   const title = page
     .locator('li[data-event-id] .feed-title')
-    .filter({ has: page.locator('xpath=ancestor::details[@data-group="Imported history"]') })
+    .filter({ has: page.locator('xpath=ancestor::details[@data-group="imported-history"]') })
     .first();
   const id = await title.getAttribute('data-id');
   await title.focus();
@@ -308,23 +308,30 @@ test('opening a toolbar menu closes the scope panel, and a breakpoint change clo
   await expect(page.locator('#repo-toggle')).toHaveAttribute('aria-expanded', 'false');
 });
 
-test('ticked commits survive incoming activity while focus is elsewhere on the page', async t => {
+test('disclosures keep the state the reader gave them while incoming activity renders, and after a detail', async t => {
   const { page, runtime } = await setup(t);
-  // The carry fieldset needs a rewritten Git checkout; a copy of its markup is enough to exercise the refresh guard.
-  await page.evaluate(() => {
-    const fieldset = Object.assign(document.createElement('fieldset'), { className: 'checkout-commits' });
-    fieldset.innerHTML =
-      '<input type="checkbox" name="checkout-commit" value="a" checked><button type="button">Carry selected commits</button>';
-    const other = Object.assign(document.createElement('button'), { type: 'button', textContent: 'Remove old local branch…' });
-    const main = document.getElementById('page');
-    if (!main) throw new Error('The page has no #page element.');
-    main.append(fieldset, other);
-    other.focus();
-  });
+  const base = page.url().split('#')[0];
+  await page.goto(`${base}#activity`);
+  // The Activity group comes first and opens by default.
+  const activity = page.locator('section.group > details').first();
+  await expect(activity).toHaveAttribute('open', '');
+  await activity.locator('summary').click();
+  await expect(activity).not.toHaveAttribute('open');
+  const incoming = await postDemoEvent(runtime);
+  await renderInBackground(page);
+  await expect(page.locator(`[data-event-id="${incoming.id}"]`)).toBeAttached();
+  await expect(activity).not.toHaveAttribute('open');
+  await page.goto(`${base}#event/${encodeURIComponent(incoming.id)}`);
+  await page.getByRole('link', { name: '← Back to Activity', exact: true }).click();
+  await expect(page.locator(`[data-event-id="${incoming.id}"]`)).toBeAttached();
+  await expect(activity).not.toHaveAttribute('open');
+  await page.goto(`${base}#repositories`);
+  const details = page.locator('details.repo-details').first();
+  await details.locator('summary').click();
+  await expect(details).toHaveAttribute('open', '');
   await postDemoEvent(runtime);
   await renderInBackground(page);
-  await expect(page.locator('.checkout-commits input')).toBeChecked();
-  await expect(page.getByRole('button', { name: 'Remove old local branch…' })).toBeFocused();
+  await expect(details).toHaveAttribute('open', '');
 });
 
 test('a backward selection in the focused search box survives incoming activity', async t => {

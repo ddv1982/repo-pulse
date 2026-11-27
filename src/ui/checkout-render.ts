@@ -1,5 +1,6 @@
 import { azureLink, emptyHtml, html, joinHtml } from './format.ts';
 import { repositoryHref } from './navigation.ts';
+import { disclosure, type Groups } from './groups.ts';
 import type { CheckoutSnapshot } from './checkout.ts';
 import type { CheckoutDiagnostic } from '../contract.ts';
 
@@ -63,7 +64,7 @@ const strategyNames: Record<string, string | undefined> = {
   squash: ' via squash',
 };
 
-function diagnosticMarkup(id: string, diagnostic: CheckoutDiagnostic | undefined, canSwitch: unknown) {
+function diagnosticMarkup(id: string, diagnostic: CheckoutDiagnostic | undefined, canSwitch: unknown, groups: Groups) {
   if (!diagnostic) return emptyHtml;
   const { message, suggestion, advice, comparison } = diagnostic;
   const adviceLink = advice ? azureLink(advice.url, `PR #${advice.id}`) : emptyHtml;
@@ -86,7 +87,7 @@ function diagnosticMarkup(id: string, diagnostic: CheckoutDiagnostic | undefined
     ${!canSwitch ? html`<p>${suggestion}</p>` : emptyHtml}
     ${
       comparison
-        ? html`<details data-group="checkout-compare-${id}">
+        ? html`<details ${disclosure(groups, `checkout-compare-${id}`)}>
       <summary id="checkout-compare-${id}">Compare fetched history</summary>
       <p>Previous <code title="${comparison.previous}">${comparison.previous.slice(0, 12)}</code> ·
         New <code title="${comparison.tip}">${comparison.tip.slice(0, 12)}</code></p>
@@ -150,9 +151,9 @@ function reviewMarkup(id: string, checkout: CheckoutSnapshot) {
   </div>`;
 }
 
-function updateOptions(id: string, checkout: CheckoutSnapshot | undefined) {
+function updateOptions(id: string, checkout: CheckoutSnapshot | undefined, groups: Groups) {
   if (!checkout?.canPull || !checkout.dirty) return emptyHtml;
-  return html`<details class="checkout-update-options help" data-group="checkout-update-${id}">
+  return html`<details class="checkout-update-options help" ${disclosure(groups, `checkout-update-${id}`)}>
     <summary id="checkout-update-${id}" aria-label="Update options" aria-describedby="checkout-update-reason-${id}">
       <span id="checkout-update-reason-${id}">Git will check that Pull can keep your local changes.</span>
       <span class="btn sm" aria-hidden="true">Update options</span>
@@ -166,9 +167,9 @@ function lastCheckMarkup(checkout: CheckoutSnapshot | undefined) {
   return at ? html`Last successful Git check <time datetime="${at}">${exactCheckTime.format(new Date(at))}</time>` : emptyHtml;
 }
 
-function guidanceMarkup(id: string, checkout: CheckoutSnapshot | undefined) {
+function guidanceMarkup(id: string, checkout: CheckoutSnapshot | undefined, groups: Groups) {
   return joinHtml([
-    updateOptions(id, checkout),
+    updateOptions(id, checkout, groups),
     diagnosticMarkup(
       id,
       checkout?.diagnostic,
@@ -176,6 +177,7 @@ function guidanceMarkup(id: string, checkout: CheckoutSnapshot | undefined) {
         !checkout.dirty &&
         checkout.diagnostic?.advice?.destination === 'local' &&
         checkout.diagnostic.advice.receipt,
+      groups,
     ),
     checkout ? reviewMarkup(id, checkout) : emptyHtml,
     checkout?.nextStep ? html`<p class="help" role="status">${checkout.nextStep}</p>` : emptyHtml,
@@ -229,8 +231,9 @@ export function renderCheckoutBar(id: string, checkout: CheckoutSnapshot | undef
   </div>`;
 }
 
-export function renderCheckout(id: string, checkout: CheckoutSnapshot | undefined, part: string | undefined) {
+/** One part of a Repositories checkout entry. `groups` says which of its disclosures the reader opened. */
+export function renderCheckout(id: string, checkout: CheckoutSnapshot | undefined, part: string | undefined, groups: Groups = new Map()) {
   if (part === 'last-check') return lastCheckMarkup(checkout);
-  if (part === 'guidance') return guidanceMarkup(id, checkout);
+  if (part === 'guidance') return guidanceMarkup(id, checkout, groups);
   return statusMarkup(id, checkout);
 }

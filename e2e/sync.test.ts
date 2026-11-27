@@ -353,7 +353,7 @@ test('first sync shows imported activity while other checks continue and preserv
   await expect(page.getByText('Reading recent activity…')).toBeVisible();
   const started = performance.now();
   await sync.tick();
-  const imported = page.locator('details[data-group="Imported history"]');
+  const imported = page.locator('details[data-group="imported-history"]');
   const row = imported.locator('li[data-event-id="first-repo:push:1"]');
   await expect(row).toBeVisible({ timeout: 8000 });
   t.diagnostic(`First imported row visible after ${Math.round(performance.now() - started)} ms with a synthetic provider`);

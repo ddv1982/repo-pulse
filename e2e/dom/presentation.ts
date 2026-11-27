@@ -30,7 +30,7 @@ const renderRepositories = (state: State, ...rest: Parameters<typeof renderRepos
   String(renderRepositoriesHtml(stub<PageState>(state), ...rest));
 // Every feed renders the saved filter menu, so a state without saved filters has none.
 const renderPagedFeed = (state: State, ui: Partial<FeedUi>) =>
-  String(renderPagedFeedHtml(stub<PageState>({ savedFilters: [], ...state }), stub<FeedUi>(ui)));
+  String(renderPagedFeedHtml(stub<PageState>({ savedFilters: [], ...state }), stub<FeedUi>({ groups: new Map(), ...ui })));
 // The detail only tests commits for truthiness, so a test's null stands for "not loaded" as undefined does.
 const renderDetail = (
   event: Event,
@@ -617,8 +617,8 @@ test('each fork origin has its own row text, and only an unchecked PR target is 
     ],
   );
   assert.equal(forkText(null), '');
-  assert.doesNotMatch(await text(parse(t, treeLegend)), /assumed from the pull request target/);
-  assert.match(await text(parse(t, treeLegend)), /PR target, origin not checked/);
+  assert.doesNotMatch(await text(parse(t, treeLegend(new Map()))), /assumed from the pull request target/);
+  assert.match(await text(parse(t, treeLegend(new Map()))), /PR target, origin not checked/);
 });
 
 test('Activity distinguishes tag events and tag builds from branch activity', async t => {

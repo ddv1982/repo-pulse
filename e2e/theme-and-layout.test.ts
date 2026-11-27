@@ -246,7 +246,7 @@ test('semantic status colors match rows, imported history, details and trails in
   await page.goto(page.url().split('#')[0] + '#activity');
   for (const theme of ['Light', 'Dark']) {
     await page.getByRole('button', { name: theme, exact: true }).click();
-    const history = page.locator('details[data-group="Imported history"]');
+    const history = page.locator('details[data-group="imported-history"]');
     if (!(await history.evaluate((element: HTMLDetailsElement) => element.open))) await history.locator('summary').first().click();
     for (const [id, , , tone, label] of cases) {
       const row = page.locator(`li[data-event-id="color-${id}"]`);

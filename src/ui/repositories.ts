@@ -2,6 +2,7 @@ import { emptyHtml, html, dateTime, streamProblems, azureLink, streamLabel } fro
 import { connectionResult } from './connection.ts';
 import { syncPill } from './health.ts';
 import { renderCheckout } from './checkout-render.ts';
+import { disclosure, type Groups } from './groups.ts';
 import { renderHistoryButton, renderHistoryProgress } from './history-import.ts';
 import { displayLocalPath } from './repository-picker.ts';
 import type { PageState, Repo } from './refresh.ts';
@@ -12,15 +13,16 @@ type RepositoriesView = Pick<import('./connection.ts').ConnectionState, 'results
 
 export function renderRepositories(
   state: PageState,
-  ui: { connection?: RepositoriesView },
+  ui: { connection?: RepositoriesView; groups?: Groups },
   checkouts: Record<string, CheckoutSnapshot> = {},
 ) {
+  const groups = ui.groups ?? new Map<string, boolean>();
   const jobs = new Map(state.jobs.map(job => [job.repoId, job]));
   const disabled = state.watched.filter(repo => repo.disabled).length;
   return html`<div class="repo-heading">
     <h1 class="sr">Repositories</h1>
     <div class="section-heading"><span class="dim">${state.watched.length} watched${disabled ? ` · ${disabled} disabled` : ''}</span></div>
-    <details class="repo-add" data-group="add-repositories" ${state.watched.length ? emptyHtml : html`open`}>
+    <details class="repo-add" ${disclosure(groups, 'add-repositories', !state.watched.length)}>
       <summary class="btn sm" id="add-repositories" aria-label="Add repositories">Add repositories</summary>
       <div class="card repo-add-body">
         <div id="repository-picker" class="card-pad" data-owned></div>
@@ -42,6 +44,7 @@ export function renderRepositories(
                     state.demo ? { state: 'not-linked' } : checkouts[repo.id],
                     state.demo,
                     state.settings,
+                    groups,
                   ),
             )
           : html`<div class="card-pad"><p>No repositories watched yet.</p><p class="help">Add a local checkout to watch all its remote branches.</p></div>`
@@ -75,6 +78,7 @@ function renderRepo(
   checkout: CheckoutSnapshot | undefined,
   demo: boolean | undefined,
   settings: PageState['settings'],
+  groups: Groups,
 ) {
   const automatic = settings.refreshEnabled;
   const records = streams.filter(stream => stream.repoId === repo.id);
@@ -90,9 +94,9 @@ function renderRepo(
     <div class="repo-checkout-line" id="checkout-state-${repo.id}" data-checkout-part="status" data-checkout-id="${repo.id}" tabindex="-1" aria-live="polite">
       ${renderCheckout(repo.id, gitStatus, 'status')}
     </div>
-    <div class="checkout-guidance" id="checkout-guidance-${repo.id}" data-checkout-part="guidance" data-checkout-id="${repo.id}" tabindex="-1" aria-live="polite">${renderCheckout(repo.id, gitStatus, 'guidance')}</div>
+    <div class="checkout-guidance" id="checkout-guidance-${repo.id}" data-checkout-part="guidance" data-checkout-id="${repo.id}" tabindex="-1" aria-live="polite">${renderCheckout(repo.id, gitStatus, 'guidance', groups)}</div>
     ${renderHistoryProgress(repo, job)}
-    <details class="streams repo-details" data-group="repo-${repo.id}">
+    <details class="streams repo-details" ${disclosure(groups, `repo-${repo.id}`)}>
       <summary class="ghost sm" id="repo-details-${repo.id}" aria-label="Details for ${repo.name}">Details</summary>
       <div class="repo-details-content">
         <p class="help">${repo.project}${checked.length ? `${repo.project ? ' · ' : ''}Last successful Azure check ${dateTime(Math.max(...checked))}` : ''}</p>

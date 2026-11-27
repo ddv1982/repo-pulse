@@ -9,7 +9,7 @@ import { createSync } from '../server/sync.ts';
 import { createAzureCli } from '../server/azure-cli.ts';
 import { createAzureClient } from '../server/azure-client.ts';
 import type { Repository, ConnectionStatus } from '../src/contract.ts';
-import { fetch, setup, setupPicker } from './fixtures/ui-app.ts';
+import { fetch, renderInBackground, setup, setupPicker } from './fixtures/ui-app.ts';
 import type { AppSync } from '../server/routes/context.ts';
 import type { AzureProvider } from '../server/azure-client.ts';
 import { stub } from '../test/fixtures/typed.ts';
@@ -406,4 +406,24 @@ test('the repository picker list closes when a pointer goes down or focus moves 
   await search.focus();
   await page.getByRole('option').first().click();
   await expect(list).toBeVisible();
+});
+
+test('the phone header check menu stays open while the page renders and closes on a click outside or Escape', async t => {
+  const { page, runtime } = await setup(t);
+  await page.setViewportSize({ width: 375, height: 812 });
+  const header = page.locator('#header');
+  const trigger = header.getByLabel(/^Checks: automatic/);
+  const refresh = header.getByRole('button', { name: /^Refresh activity/ });
+  await trigger.click();
+  await expect(refresh).toBeVisible();
+  await fetch(runtime.url + '/api/demo/event', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
+  await renderInBackground(page);
+  await expect(refresh).toBeVisible();
+  await page.locator('#page').click({ position: { x: 5, y: 5 } });
+  await expect(refresh).toBeHidden();
+  await trigger.click();
+  await header.getByRole('switch', { name: 'Automatic checks' }).focus();
+  await page.keyboard.press('Escape');
+  await expect(refresh).toBeHidden();
+  await expect(trigger).toBeFocused();
 });

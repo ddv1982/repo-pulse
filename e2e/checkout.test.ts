@@ -454,3 +454,49 @@ test('ticked follow-up commits survive a checkout snapshot poll that changes the
   await expect.poll(() => row.innerText()).not.toBe(before);
   await expect(row.getByRole('checkbox', { name: /second local commit/ })).toBeChecked();
 });
+
+test('ticked follow-up commits stay ticked while a state change renders Repositories in the background', async t => {
+  const { squashFixture, git } = await import('../test/fixtures/checkout.ts');
+  const { repo, pr, local, remote, commit } = squashFixture(cleanupStack(t));
+  const { createCheckoutGit } = await import('../server/checkout-git.ts');
+  git(local, 'config', 'user.email', 'test@example.test');
+  git(local, 'config', 'user.name', 'Test');
+  commit(local, 'first.txt', 'first local commit');
+  commit(local, 'second.txt', 'second local commit');
+  git(local, 'fetch', 'origin', 'release');
+  git(local, 'branch', '--track', 'release', 'origin/release');
+  const store = createStore();
+  defer(t, () => store.close());
+  store.saveRepo(stub<Repository>(repo));
+  store.setSetting('refreshEnabled', false);
+  const checkoutGit = createCheckoutGit({ matchesRemote: url => url === remote, findPulls: async () => [pr] });
+  const app = createApp({
+    accessKey: TEST_KEY,
+    store,
+    checkoutGit,
+    provider: stub<AzureProvider>({ checkConnection: async () => stub<ConnectionStatus>({ available: true }) }),
+    sync: stub<AppSync>({ status: () => idleSyncStatus() }),
+  });
+  const url = await listen(t, app);
+  const page = await openPage(t, { viewport: { width: 1280, height: 850 }, key: TEST_KEY });
+  await page.goto(`${url}/#repositories`);
+  const row = page.getByRole('article').filter({ hasText: repo.name });
+  await row.locator('summary').click();
+  await row.getByRole('button', { name: 'Check for updates' }).click();
+  await row.getByRole('button', { name: 'Switch to release and update' }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Switch and update' }).click();
+  await row.getByRole('button', { name: 'Review old branch' }).click();
+  const second = row.getByRole('checkbox', { name: /second local commit/ });
+  await second.check();
+  const other = row.getByRole('button', { name: 'Remove old local branch…' });
+  await other.focus();
+
+  // Another watched repository arrives with the next state read, and the page renders it while the commit is ticked.
+  store.saveRepo(stub<Repository>({ id: 'other', name: 'Other repository', disabled: true }));
+  const polled = page.waitForResponse(response => response.url().endsWith('/api/state') && response.ok());
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+  await polled;
+  await expect(page.getByRole('article').filter({ hasText: 'Other repository' })).toBeVisible();
+  await expect(second).toBeChecked();
+  await expect(other).toBeFocused();
+});

@@ -16,6 +16,7 @@ test('an older checkout poll cannot overwrite a fresh reading', async () => {
       return { state: 'current', branch: 'topic' };
     }),
     isVisible: () => true,
+    groups: new Map(),
     onChange: () => {},
     onMutation: () => {},
   });

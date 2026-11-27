@@ -51,8 +51,11 @@ export function createCheckoutPanel({
   isVisible,
   onChange,
   onMutation,
+  groups,
 }: {
   page: HTMLElement;
+  /** Which disclosures the reader opened, such as Update options. */
+  groups: import('./groups.ts').Groups;
   request: typeof import('../api.ts').request;
   isVisible: () => boolean;
   onChange: (before: Record<string, CheckoutSnapshot>) => void;
@@ -101,10 +104,7 @@ export function createCheckoutPanel({
       }
       const focused = document.activeElement;
       const focusedId = focused && target.contains(focused) ? focused.id : '';
-      const options = target.querySelector('.checkout-update-options');
-      const updateOptionsOpen = options instanceof HTMLDetailsElement && options.open;
-      setHtml(target, renderCheckout(checkoutId, next[checkoutId], checkoutPart));
-      if (updateOptionsOpen) target.querySelector('.checkout-update-options')?.setAttribute('open', '');
+      setHtml(target, renderCheckout(checkoutId, next[checkoutId], checkoutPart, groups));
       if (focusedId) {
         const replacement =
           document.getElementById(focusedId) ||

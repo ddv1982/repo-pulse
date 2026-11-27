@@ -4,6 +4,7 @@ import { syncRepoName, syncSentence } from './health.ts';
 import type { PageState } from './refresh.ts';
 import type { ConnectionState } from './connection.ts';
 import type { ConnectionResponse as ConnectionStatus } from '../contract.ts';
+import { disclosure, type Groups } from './groups.ts';
 
 function repositorySelect(repos: PageState['repos'], repoId: string) {
   if (!repos.length) return emptyHtml;
@@ -25,13 +26,14 @@ function connectionDetails(state: PageState, connection: ConnectionState, repoId
           <p class="help">The connection check reads repository details. CI permissions and local Git upstream access are separate.</p>`;
 }
 
-export function renderSettings(state: PageState, connection: ConnectionState) {
+/** `groups` says which of the page's disclosures the reader opened. */
+export function renderSettings(state: PageState, connection: ConnectionState, groups: Groups = new Map()) {
   const { settings, syncStatus } = state;
   const repoId = state.repos.some(repo => repo.id === connection.repoId) ? connection.repoId : state.repos[0]?.id || '';
   const result = connection.results.get(repoId);
   return html`<div class="section-heading"><h1>Settings</h1></div>
     <div class="card settings-card">
-      <details data-group="azure-connection">
+      <details ${disclosure(groups, 'azure-connection')}>
         <summary class="settings-row connection-heading" id="azure-connection-toggle">
           <span><strong>Azure DevOps connection</strong><span class="help">Uses your existing Azure CLI (az) and Azure DevOps extension.</span></span>
           <span class="help connection-state" role="status">${connectionStatus(state, connection, repoId)}</span>
@@ -45,7 +47,7 @@ export function renderSettings(state: PageState, connection: ConnectionState) {
         <span><strong id="refresh-label">Automatic checks</strong><span class="help" id="refresh-help">Checks watched branches, pull requests and CI in Azure DevOps. You can still refresh activity manually.</span></span>
         <input class="setting-switch" type="checkbox" role="switch" id="refresh-enabled" data-auto-toggle aria-labelledby="refresh-label" aria-describedby="refresh-help" ${settings.refreshEnabled ? html`checked` : emptyHtml}>
       </label>
-      <details data-group="troubleshooting">
+      <details ${disclosure(groups, 'troubleshooting')}>
         <summary class="settings-row" id="troubleshooting-toggle"><strong>Troubleshooting</strong> <span class="settings-chevron" aria-hidden="true"></span></summary>
         <div class="settings-content">
           <p class="sync-sentence">${syncSentence(syncStatus.overall, syncRepoName(state.repos, syncStatus.overall))}</p>
@@ -60,7 +62,7 @@ export function renderSettings(state: PageState, connection: ConnectionState) {
         <button class="btn sm" type="button" data-action="reset-activity" aria-describedby="reset-help">Start from scratch</button>
       </div>`
       }
-      <details data-group="coverage">
+      <details ${disclosure(groups, 'coverage')}>
         <summary class="settings-row" id="coverage-toggle"><strong>What Repo Pulse tracks</strong> <span class="settings-chevron" aria-hidden="true"></span></summary>
         <div class="settings-content help">
           <p>Repo Pulse reads remote branches, pushes, pull requests, and CI runs for the primary repository. It stores the results locally.</p>

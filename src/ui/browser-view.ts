@@ -5,15 +5,19 @@ import { detailView } from './activity-detail.ts';
 import { renderRepositories } from './repositories.ts';
 import { renderSettings } from './settings.ts';
 import { eventIds } from './seen-actions.ts';
-import { all, checked, required, setHtml } from './dom.ts';
+import { all, checked, setHtml } from './dom.ts';
 import { emptyHtml, html, type SafeHtml } from './format.ts';
 import type { PageState } from './refresh.ts';
 import type { ResultsContext, NavigationState } from './navigation.ts';
+import type { GroupState, Groups } from './groups.ts';
 
+/**
+ * The control that takes focus when the focused control `id` left the page or the render hid it: the same control
+ * rendered again, or its nearest replacement. Only controls that leave or hide need a case here; state that stays on
+ * the page renders from `ui`.
+ */
 export function replacementFocus(id: string) {
   const current = document.getElementById(id);
-  if (current instanceof HTMLButtonElement && current.disabled && current.matches('[data-action="open-history-import"]'))
-    return document.getElementById(`history-${current.dataset.id}`);
   // A control the render hid, such as an option of a menu that closed, cannot take focus back.
   if (current?.checkVisibility()) return current;
   if (id === 'clear-filters') return document.getElementById('feed-search');
@@ -71,6 +75,10 @@ export type BrowserUi = NavigationState & {
   connection: import('./connection.ts').ConnectionState;
   refreshing?: boolean;
   openMenu?: string;
+  /** Whether the phone header's check menu is open. */
+  headerMenuOpen?: boolean;
+  /** Which disclosures are open, by stable ID; `createGroupState` keeps it. */
+  groups: Groups;
 };
 type RenderOptions = {
   restored: ResultsContext | null;
@@ -96,6 +104,7 @@ export function createBrowserView({
   syncLive,
   picker,
   toolbarMenus,
+  groups,
 }: {
   page: HTMLElement;
   header: HTMLElement;
@@ -103,48 +112,24 @@ export function createBrowserView({
   syncLive: HTMLElement;
   picker: { mount: (element: HTMLElement | null) => void };
   toolbarMenus: Record<string, { mount: (element: HTMLElement | null) => void }>;
+  groups: GroupState;
 }) {
-  const importedGroup = 'details[data-group="Imported history"]';
-  const importedHistoryKey = 'repo-pulse:imported-history-open';
-  let importedHistoryOpen: boolean | undefined;
-  try {
-    const saved = sessionStorage.getItem(importedHistoryKey);
-    if (saved === 'open' || saved === 'closed') importedHistoryOpen = saved === 'open';
-  } catch {
-    // The current page can still remember the choice when storage is unavailable.
-  }
+  // A disclosure opens and closes from its state: the summary records the reader's choice, and the element shows it.
   page.addEventListener('click', event => {
     if (!(event.target instanceof Element)) return;
-    const summary = event.target.closest(`${importedGroup} > summary`);
-    const group = summary?.parentElement;
+    const group = event.target.closest('details[data-group] > summary')?.parentElement;
     if (!(group instanceof HTMLDetailsElement)) return;
     event.preventDefault();
-    importedHistoryOpen = !group.open;
-    group.open = importedHistoryOpen;
-    try {
-      sessionStorage.setItem(importedHistoryKey, group.open ? 'open' : 'closed');
-    } catch {
-      // Keep the in-memory choice for subsequent renders.
-    }
+    // The selector guarantees data-group, so the fallback never applies.
+    groups.toggle(group.dataset.group ?? '', !group.open);
+    group.open = !group.open;
   });
 
-  const groupElements = () => [...page.querySelectorAll('details[data-group]')].filter(element => element instanceof HTMLDetailsElement);
-
-  function captureGroups(): [string, boolean][] {
-    // The selector guarantees data-group, so the fallback never applies.
-    return groupElements().map(element => [element.dataset.group ?? '', element.open]);
-  }
-
-  function restoreGroups(groups: [string, boolean][]) {
-    for (const [name, open] of groups) {
-      groupElements()
-        .find(element => element.dataset.group === name)
-        ?.toggleAttribute('open', open);
-    }
-    if (importedHistoryOpen !== undefined) {
-      page.querySelector(importedGroup)?.toggleAttribute('open', importedHistoryOpen);
-    }
-  }
+  /** The disclosures a render left on the page, with the state each rendered in. */
+  const shownGroups = () =>
+    [...page.querySelectorAll('details[data-group]')]
+      .filter(element => element instanceof HTMLDetailsElement)
+      .map((element): [string, boolean] => [element.dataset.group ?? '', element.open]);
 
   function renderPage(
     state: PageState,
@@ -163,7 +148,7 @@ export function createBrowserView({
       isCurrent,
     }: RenderOptions,
   ) {
-    const groups = restored?.groups || captureGroups();
+    if (restored) groups.restore(restored.groups);
     const focused = document.activeElement;
     const focusId = focused && page.contains(focused) ? focusedControlId(focused) : '';
     const neighbours = focused instanceof HTMLElement && page.contains(focused) ? seenToggleNeighbours(focused) : [];
@@ -175,12 +160,16 @@ export function createBrowserView({
         setHtml(page, graph ?? emptyHtml);
         break;
       case 'settings':
-        setHtml(page, renderSettings(state, ui.connection));
+        setHtml(page, renderSettings(state, ui.connection, ui.groups));
         break;
       case 'event': {
         const view = detailView(state, ui.eventId);
         if (!view && state.detailLoading) setHtml(page, html`<div class="card loading" role="status">Loading activity details…</div>`);
-        else setHtml(page, renderDetail(view, state, commits, { returnUnreadOnly, returnToGraph, showRelated, matchingIds, checkouts }));
+        else
+          setHtml(
+            page,
+            renderDetail(view, state, commits, { returnUnreadOnly, returnToGraph, showRelated, matchingIds, checkouts, groups: ui.groups }),
+          );
         break;
       }
       case 'activity':
@@ -195,7 +184,7 @@ export function createBrowserView({
       const host = page.querySelector(selector);
       menu.mount(host instanceof HTMLElement ? host : null);
     }
-    restoreGroups(groups);
+    groups.settle(shownGroups());
     // A control that survived the render keeps focus; one that left, or that the render hid (a closed menu's option),
     // needs a replacement.
     if (focusId && (document.activeElement !== focused || !focused?.checkVisibility())) restoreFocus(focusId, neighbours);
@@ -225,36 +214,35 @@ export function createBrowserView({
     }
   }
 
+  function renderHeaderPart(state: PageState, ui: BrowserUi) {
+    setHtml(header, renderHeader(state, ui));
+    const sentence = syncAnnouncement(state.syncStatus.overall, syncRepoName(state.repos, state.syncStatus.overall));
+    // Writing the same text again would replace the text node and could repeat the announcement.
+    if (syncLive.textContent !== sentence) syncLive.textContent = sentence;
+    // As in renderPage: theme.ts runs first, and the optional call covers its absence.
+    window.repoPulseTheme?.apply();
+  }
+
   function refreshTarget(force: boolean, interacting: boolean): 'full' | null {
     if (force) return 'full';
-    // A focused form control holds a choice the markup may not carry yet, such as a ticked commit, unless its state lives
-    // in ui (search, repository scope) or the settings it renders from.
+    // A focused form control holds a choice the markup may not carry yet, unless its state lives in ui (search, repository
+    // scope) or in the data it renders from (settings). Ticked commits render from their checkout's snapshot.
     const focused = document.activeElement;
     const refreshable =
       focused?.id === 'feed-search' ||
       focused?.id === 'graph-search' ||
       focused?.matches('[data-scope-repo]') ||
       (focused?.id && focused.matches('.settings-card *, .repo-entry *'));
-    // Ticked commits are not in the markup, so a render would clear them before they are carried.
-    const choosingCommits = Boolean(page.querySelector('.checkout-commits input:checked'));
-    const preserve = interacting || choosingCommits || (!refreshable && ['INPUT', 'SELECT', 'TEXTAREA'].includes(focused?.tagName ?? ''));
+    const preserve = interacting || (!refreshable && ['INPUT', 'SELECT', 'TEXTAREA'].includes(focused?.tagName ?? ''));
     return preserve ? null : 'full';
   }
 
   return {
-    captureGroups,
     refreshTarget,
     renderPage,
+    renderHeader: renderHeaderPart,
     render(state: PageState, ui: BrowserUi, options: RenderOptions) {
-      const menu = header.querySelector('.header-overflow');
-      const menuOpen = menu instanceof HTMLDetailsElement && menu.open;
-      setHtml(header, renderHeader(state, ui));
-      const sentence = syncAnnouncement(state.syncStatus.overall, syncRepoName(state.repos, state.syncStatus.overall));
-      // Writing the same text again would replace the text node and could repeat the announcement.
-      if (syncLive.textContent !== sentence) syncLive.textContent = sentence;
-      if (menuOpen) required('.header-overflow', HTMLDetailsElement, header).open = true;
-      // As in renderPage: theme.ts runs first, and the optional call covers its absence.
-      window.repoPulseTheme?.apply();
+      renderHeaderPart(state, ui);
       renderPage(state, ui, options);
       setHtml(
         demo,

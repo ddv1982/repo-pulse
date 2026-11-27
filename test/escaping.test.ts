@@ -360,6 +360,7 @@ const feedView = stub<import('../src/ui/feed.ts').FeedView & { savedFilterId: st
   search: '',
   kind: '',
   filtersOpen: false,
+  groups: new Map(),
 });
 
 /** A full commit ID in its title with the first 8 characters shown, as the detail view renders commits. */

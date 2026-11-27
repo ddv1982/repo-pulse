@@ -20,6 +20,7 @@ import {
 } from './format.ts';
 import { renderTrail } from './activity-trail.ts';
 import { renderCheckoutBar } from './checkout-render.ts';
+import { disclosure, type Groups } from './groups.ts';
 import { activityHref } from './navigation.ts';
 import type { ActivityEvent, ActivityItem, EventData } from '../activity.ts';
 import type { HtmlValue } from './format.ts';
@@ -212,6 +213,7 @@ function detailData(
   loaded: LoadedView | undefined,
   related: ActivityEvent[],
   showRelated: boolean,
+  groups: Groups,
 ) {
   const completed = record.kind === 'pr' && data.status === 'completed';
   const summary = record.kind !== 'build' ? activitySummary(record) : '';
@@ -221,7 +223,7 @@ function detailData(
     record.kind === 'pr'
       ? prReview(record, data, loaded && !('items' in loaded) ? loaded : undefined)
       : pushCommits(record, repo, pushId, loaded && !('threads' in loaded) ? loaded : undefined);
-  const timeline = relatedActivity(record, related, showRelated);
+  const timeline = relatedActivity(record, related, showRelated, groups);
   const hasMain = [evidence, trail, extra, timeline].some(section => section !== emptyHtml);
   const main = hasMain
     ? html`<div class="detail-main">
@@ -234,7 +236,7 @@ function detailData(
     <div class="detail-data ${record.kind === 'pr' && hasMain ? 'pr-detail-data' : ''}">${record.kind === 'pr' ? html`${main}${metadata}` : html`${metadata}${main}`}</div>`;
 }
 
-function relatedActivity(record: ActivityItem, events: ActivityEvent[], showRelated: boolean) {
+function relatedActivity(record: ActivityItem, events: ActivityEvent[], showRelated: boolean, groups: Groups) {
   if (!events.length) return emptyHtml;
   const days = new Map<string, ActivityEvent[]>();
   for (const event of events) {
@@ -243,7 +245,7 @@ function relatedActivity(record: ActivityItem, events: ActivityEvent[], showRela
     if (group) group.push(event);
     else days.set(day, [event]);
   }
-  return html`<details class="detail-section detail-related" data-group="related-${record.id}" ${showRelated ? html`open` : emptyHtml}><summary>${showRelated ? 'Related CI runs' : 'Related activity'} · ${events.length}</summary>
+  return html`<details class="detail-section detail-related" ${disclosure(groups, `related-${record.id}`, showRelated)}><summary>${showRelated ? 'Related CI runs' : 'Related activity'} · ${events.length}</summary>
     ${[...days].map(
       ([day, entries]) =>
         html`<h3>${day}</h3><ul class="detail-list">${entries.map(event => {
@@ -278,12 +280,15 @@ export function renderDetail(
     showRelated = false,
     matchingIds,
     checkouts,
+    groups = new Map(),
   }: {
     returnUnreadOnly?: boolean;
     returnToGraph?: boolean;
     showRelated?: boolean;
     matchingIds?: string[] | undefined;
     checkouts?: Record<string, import('./checkout.ts').CheckoutSnapshot>;
+    /** Which disclosures the reader opened; none before the reader chooses. */
+    groups?: Groups;
   } = {},
 ) {
   const back = returnToGraph
@@ -300,7 +305,7 @@ export function renderDetail(
   const branch = !state.demo && repo?.localPath ? activityBranch(event) : null;
   const checkoutBar = branch ? renderCheckoutBar(event.repoId, checkouts?.[event.repoId], branch) : emptyHtml;
   return html`<div class="crumb">${back}<span>${repo?.name}</span></div><section class="card">${detailHead(record, repo, activityTitle(record), matching)}${checkoutBar}
-    ${detailData(record, repo, data, fields, pushId, commits, related, showRelated)}</section>`;
+    ${detailData(record, repo, data, fields, pushId, commits, related, showRelated, groups)}</section>`;
 }
 
 export function renderCommits(commits: CommitsView) {

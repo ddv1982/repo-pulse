@@ -83,7 +83,7 @@ test('tag activity has its own type filter and a detail that names the tag and w
 
 test('a push that rewrote history says so on its row and in how it was merged, and a fast-forward push does not', async t => {
   const { page } = await setup(t);
-  await page.locator('details[data-group="Imported history"] > summary').click();
+  await page.locator('details[data-group="imported-history"] > summary').click();
   const rewritten = page.locator('[data-event-id="demo-history"]');
   await expect(rewritten).toContainText('History rewritten · 2 commits dropped');
   await expect(page.locator('[data-event-id="demo-push-1"]')).not.toContainText('History rewritten');

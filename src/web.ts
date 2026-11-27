@@ -17,6 +17,7 @@ import { detailView } from './ui/activity-detail.ts';
 import { createFilterNameDialog, currentActivityFilters, isSavedFilterModified, savedRepositoryScope } from './ui/saved-filters.ts';
 import { createToolbarMenu } from './ui/toolbar-menu.ts';
 import { createMenuManager } from './ui/menus.ts';
+import { createGroupState } from './ui/groups.ts';
 import { createRepositoryScope, scopeName } from './ui/repository-scope.ts';
 import { createHistoryImport } from './ui/history-import.ts';
 import { createBranchPicker } from './ui/branch-picker.ts';
@@ -71,6 +72,7 @@ const connection = createConnectionController({
     }
   },
 });
+const groups = createGroupState();
 const ui: import('./ui/browser-view.ts').BrowserUi = {
   route: 'activity',
   eventId: null,
@@ -82,6 +84,7 @@ const ui: import('./ui/browser-view.ts').BrowserUi = {
   openMenu: '',
   unreadOnly: false,
   connection: connection.state,
+  groups: groups.open,
 };
 /** Data each detail page loaded on request, by event. */
 const commitResults: Map<string | null, import('./ui/activity-detail.ts').LoadedView> = new Map();
@@ -165,9 +168,11 @@ const view = createBrowserView({
     '.saved-filter-menu': savedFilterPicker,
     '.saved-filter-actions': savedFilterActions,
   },
+  groups,
 });
 const checkoutPanel = createCheckoutPanel({
   page,
+  groups: ui.groups,
   request,
   isVisible: () => ui.route === 'repositories' && !refresh.state.demo && refresh.state.repos.some(repo => repo.localPath),
   onChange(before) {
@@ -178,7 +183,7 @@ const checkoutPanel = createCheckoutPanel({
     graph.checkoutChanged(id);
   },
 });
-const navigation = createNavigation({ ui, captureGroups: view.captureGroups, activityCapacity: () => refresh.capacity() });
+const navigation = createNavigation({ ui, captureGroups: groups.snapshot, activityCapacity: () => refresh.capacity() });
 
 let focusRelatedCi = false;
 const graph = createGraphController({
@@ -728,11 +733,19 @@ const actions: Record<string, Action> = {
   },
 };
 
+function setHeaderMenu(open: boolean) {
+  ui.headerMenuOpen = open;
+  view.renderHeader(refresh.state, ui);
+}
+
 document.addEventListener('click', event => {
   const target = event.target;
-  const monitoring = header.querySelector('.header-overflow[open]');
-  if (monitoring instanceof HTMLDetailsElement && !(target instanceof Node && monitoring.contains(target))) monitoring.open = false;
   if (!(target instanceof Element)) return;
+  // The phone header's check menu opens from its summary and closes on a click anywhere outside it.
+  if (target.closest('.header-overflow > summary')) {
+    event.preventDefault();
+    setHeaderMenu(!ui.headerMenuOpen);
+  } else if (ui.headerMenuOpen && !target.closest('.header-overflow')) setHeaderMenu(false);
   const theme = target.closest('[data-theme]');
   if (theme instanceof HTMLElement) {
     // web/theme.ts defines repoPulseTheme on window before this module loads; the optional call covers its absence.
@@ -821,10 +834,9 @@ document.addEventListener('change', event => {
 });
 
 document.addEventListener('keydown', event => {
-  const monitoring = header.querySelector('.header-overflow[open]');
-  if (event.key === 'Escape' && monitoring instanceof HTMLDetailsElement && monitoring.contains(document.activeElement)) {
-    monitoring.open = false;
-    required('summary', HTMLElement, monitoring).focus();
+  if (event.key === 'Escape' && ui.headerMenuOpen && document.activeElement?.closest('.header-overflow')) {
+    setHeaderMenu(false);
+    required('.header-overflow > summary', HTMLElement, header).focus();
     return;
   }
   if (

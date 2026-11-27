@@ -15,7 +15,8 @@ const renderHeader = (...args: Parameters<typeof renderHeaderHtml>) => String(re
 const renderRepositories = (...args: Parameters<typeof renderRepositoriesHtml>) => String(renderRepositoriesHtml(...args));
 /** The feed's view state; a test leaves out what it does not set, such as the selected saved filter. */
 type FeedUi = Parameters<typeof renderFeedHtml>[1];
-const renderFeed = (state: PageState, view: Partial<FeedUi>) => String(renderFeedHtml(state, stub<FeedUi>(view)));
+// No disclosure has been opened or closed, so each renders in its default state.
+const renderFeed = (state: PageState, view: Partial<FeedUi>) => String(renderFeedHtml(state, stub<FeedUi>({ groups: new Map(), ...view })));
 const renderSettings = (...args: Parameters<typeof renderSettingsHtml>) => String(renderSettingsHtml(...args));
 
 // themeSwitch() in the header reads the theme that web/theme.ts puts on window.

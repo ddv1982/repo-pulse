@@ -4,8 +4,11 @@ import { icons, themeSwitch } from './icons.ts';
 import { activityHref, isActivity } from './navigation.ts';
 
 type HeaderState = Pick<import('./refresh.ts').PageState, 'repos' | 'settings' | 'syncStatus'>;
-/** web.ts sets `refreshing` while a refresh runs. */
-type HeaderView = Pick<import('./navigation.ts').NavigationState, 'route' | 'unreadOnly'> & { refreshing?: boolean };
+/** web.ts sets `refreshing` while a refresh runs; `headerMenuOpen` while the phone check menu is open. */
+type HeaderView = Pick<import('./navigation.ts').NavigationState, 'route' | 'unreadOnly'> & {
+  refreshing?: boolean;
+  headerMenuOpen?: boolean;
+};
 
 export function renderHeader(state: HeaderState, ui: HeaderView) {
   const automatic = state.settings.refreshEnabled;
@@ -37,7 +40,7 @@ export function renderHeader(state: HeaderState, ui: HeaderView) {
           <label class="header-auto" for="header-auto-desktop">${switchInput('desktop')}<span>Automatic checks</span></label>
           ${refresh('desktop')}
         </div>
-        <details class="header-overflow">
+        <details class="header-overflow" ${ui.headerMenuOpen ? html`open` : emptyHtml}>
           <summary class="ghost monitor-trigger" id="header-monitoring" aria-label="Checks: automatic ${automatic ? 'on' : 'off'}">${icons.pulse}${automatic ? html`<span class="monitor-dot" aria-hidden="true"></span>` : emptyHtml}</summary>
           <div class="menu-panel header-monitoring-menu">
             <label class="settings-row settings-toggle" for="header-auto-mobile">
