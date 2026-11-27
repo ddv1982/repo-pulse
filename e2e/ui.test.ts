@@ -156,7 +156,7 @@ test('approved light/dark/System UI and responsive routes work without remote tr
   await page.screenshot({ path: 'test-results/app-phone-light.png', fullPage: true });
 });
 
-test('Ocean uses the selected light palette with glass chrome and an opaque Activity feed', async t => {
+test('Light uses the vivid palette with glass chrome, status pills and an opaque Activity feed', async t => {
   const { page } = await setup(t);
   const palette = await page.locator('html').evaluate(root => {
     const style = getComputedStyle(root);
@@ -164,7 +164,10 @@ test('Ocean uses the selected light palette with glass chrome and an opaque Acti
       style.getPropertyValue(`--${name}`).trim(),
     );
   });
-  assert.deepEqual(palette, ['#f5f7f8', '#241523', '#5e5863', '#1f6199', '#cdd4dc', '#c0c9d4', '#1f6199', '#0f766e', '#a2476b']);
+  assert.deepEqual(palette, ['#dfe7f1', '#0a1020', '#47506a', '#2447e0', '#b8c3d6', '#9eabc2', '#2447e0', '#0a7269', '#c2255c']);
+  const pill = page.locator('.feed .kind.crit .kind-label').first();
+  await expect(pill).toHaveCSS('font-weight', '600');
+  await expect(pill).toHaveCSS('background-color', /^color\(srgb 0\.97\d* 0\.88\d* 0\.89\d*\)$/);
   await page.getByRole('button', { name: 'Save filter…' }).click();
   const save = page.getByRole('dialog').getByRole('button', { name: 'Save', exact: true });
   await save.hover();
@@ -190,9 +193,9 @@ test('Ocean uses the selected light palette with glass chrome and an opaque Acti
   const counts = await summary.locator('.cells').boundingBox();
   assert.ok(headline && counts && counts.y >= headline.y + headline.height, 'Counts sit below the headline on desktop');
   const backdrop = await page.locator('body').evaluate(body => getComputedStyle(body, '::before').backgroundImage);
-  assert.match(backdrop, /119, 201, 227/);
-  assert.match(backdrop, /92, 199, 190/);
-  assert.match(backdrop, /51, 132, 189/);
+  assert.match(backdrop, /74, 168, 255/);
+  assert.match(backdrop, /123, 107, 255/);
+  assert.match(backdrop, /31, 184, 201/);
   await expect(summary).toHaveCSS('backdrop-filter', 'blur(20px) saturate(1.35)');
   await expect(summary).toHaveCSS('border-top-color', 'rgb(255, 255, 255)');
   await expect(page.locator('.feed')).toHaveCSS('backdrop-filter', 'none');
@@ -1716,7 +1719,7 @@ test('semantic status colors match rows, imported history, details and trails in
   await page.locator('[data-event-id="color-completed"] .feed-title').click();
   await expect(page.locator('#page .status-chip')).toHaveClass(/\bok\b/);
   await expect(page.locator('#page .status-chip')).toHaveText('Merged');
-  await expect(page.locator('#page .status-chip')).toHaveCSS('color', 'rgb(15, 123, 95)');
+  await expect(page.locator('#page .status-chip')).toHaveCSS('color', 'rgb(6, 116, 61)');
 });
 
 test('the app-owned type dropdown is themed, keyboard accessible and stable during local polling', async t => {

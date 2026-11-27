@@ -14,11 +14,11 @@ A local Azure DevOps activity feed for testers. Watch multiple repositories for 
 
 | Screen       | Light mode                                      | Dark mode                                     |
 | ------------ | ----------------------------------------------- | --------------------------------------------- |
-| Activity     | [Ocean](docs/screenshots/activity-light.png) | [Dark](docs/screenshots/activity-dark.png)     |
-| PR detail    | [Ocean](docs/screenshots/pr-detail-light.png) | [Dark](docs/screenshots/pr-detail-dark.png)    |
-| Git Graph    | [Ocean](docs/screenshots/git-graph-light.png) | [Dark](docs/screenshots/git-graph-dark.png)    |
-| Repositories | [Ocean](docs/screenshots/repositories-light.png) | [Dark](docs/screenshots/repositories-dark.png) |
-| Settings     | [Ocean](docs/screenshots/settings-light.png) | [Dark](docs/screenshots/settings-dark.png)    |
+| Activity     | [Light](docs/screenshots/activity-light.png) | [Dark](docs/screenshots/activity-dark.png)     |
+| PR detail    | [Light](docs/screenshots/pr-detail-light.png) | [Dark](docs/screenshots/pr-detail-dark.png)    |
+| Git Graph    | [Light](docs/screenshots/git-graph-light.png) | [Dark](docs/screenshots/git-graph-dark.png)    |
+| Repositories | [Light](docs/screenshots/repositories-light.png) | [Dark](docs/screenshots/repositories-dark.png) |
+| Settings     | [Light](docs/screenshots/settings-light.png) | [Dark](docs/screenshots/settings-dark.png)    |
 
 ## Run locally
 
