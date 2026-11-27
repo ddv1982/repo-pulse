@@ -1,11 +1,44 @@
-/* Control sizes, color, typography, and theme backdrops. */
+/* Control sizes, spacing and type scales, breakpoints, color, typography, and theme backdrops.
+
+   Breakpoints. Media queries cannot read custom properties, so the widths are written out in each query:
+   - 640px, the layout breakpoint. Below it the phone layout applies: filters fold into the Filters disclosure, menus
+     span the row, the header collapses into its overflow menu and Activity has no branch tree. src/ui/breakpoints.ts
+     holds the same width for the scripts that follow it.
+   - 768px, the touch size. Below it controls are 44px (36px compact) and the page tabs take their own row.
+   - 1100px, the wide feed. From here Activity rows lay out as columns.
+   - 360px, the narrowest phones. Below it row controls and header buttons shrink to fit.
+   Four others fit one component's content and apply nowhere else: 480px and 800px (Git Graph rows), 880px (the two
+   column pull request detail) and 1024px (five summary cells). Write min-width: N and max-width: N - 1px. */
 :root {
   color-scheme: light;
   --radius: 0.5rem;
   /* Rows inside menus and pickers: type options, scope rows, select options, repository and branch rows. */
   --row-radius: 6px;
+  /* Option rows. Menu rows (scope, type and saved filter options) share one height. Rows in a dialog's list (branch
+     choices, history ranges) leave room for a chip or a radio and its label, and a folder picker row holds two lines
+     and badges. */
+  --option-row-height: 32px;
+  --option-row-padding: 6px 8px;
+  --option-row-height-list: 36px;
+  --option-row-height-two-line: 44px;
   --control-height: 36px;
   --control-height-sm: 28px;
+  /* Type and spacing scales. A value off the scale stays literal where it is used. */
+  --text-2xs: 11px;
+  --text-xs: 12px;
+  --text-sm: 13px;
+  --text-base: 14px;
+  --text-md: 15px;
+  --text-lg: 16px;
+  --text-xl: 18px;
+  --space-0-5: 2px;
+  --space-1: 4px;
+  --space-1-5: 6px;
+  --space-2: 8px;
+  --space-2-5: 10px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
   --font-sans: -apple-system, BlinkMacSystemFont, 'Inter Variable', 'Segoe UI', system-ui, sans-serif;
   --font-mono: ui-monospace, 'SF Mono', 'SFMono-Regular', Menlo, Consolas, 'Liberation Mono', monospace;
   --background: #dfe7f1;
@@ -127,7 +160,7 @@ html {
 }
 body {
   margin: 0;
-  font-size: 14px;
+  font-size: var(--text-base);
   line-height: 20px;
 }
 body::before,

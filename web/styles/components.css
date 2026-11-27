@@ -5,8 +5,8 @@
   border: 1px solid var(--input);
   background: var(--card);
   border-radius: var(--radius);
-  padding: 0 12px;
-  font-size: 14px;
+  padding: 0 var(--space-3);
+  font-size: var(--text-base);
   outline: none;
 }
 .search::placeholder {
@@ -27,21 +27,22 @@
   top: 100%;
   left: 0;
   z-index: 30;
-  margin-top: 4px;
+  margin-top: var(--space-1);
   width: 340px;
   max-width: calc(100vw - 32px);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--card);
-  padding: 4px;
+  padding: var(--space-1);
   box-shadow: var(--shadow-lg);
 }
 .menu-panel .opt {
   display: grid;
   grid-template-columns: 16px minmax(0, 1fr);
-  gap: 2px 10px;
+  gap: var(--space-0-5) var(--space-2-5);
   align-items: center;
-  padding: 6px 8px;
+  min-height: var(--option-row-height);
+  padding: var(--option-row-padding);
   border-radius: var(--row-radius);
   cursor: pointer;
 }
@@ -61,21 +62,21 @@
 }
 .menu-panel .opt small {
   grid-column: 2;
-  font-size: 12px;
+  font-size: var(--text-xs);
   color: var(--muted-foreground);
 }
 .menu-panel .menu-empty {
-  padding: 8px;
+  padding: var(--space-2);
 }
 .menu-panel .mfoot {
   display: flex;
   justify-content: space-between;
-  gap: 8px;
+  gap: var(--space-2);
   align-items: center;
-  padding: 6px 8px 4px;
-  margin-top: 2px;
+  padding: var(--space-1-5) var(--space-2) var(--space-1);
+  margin-top: var(--space-0-5);
   border-top: 1px solid var(--border);
-  font-size: 12px;
+  font-size: var(--text-xs);
   color: var(--muted-foreground);
 }
 @media (max-width: 639px) {
@@ -95,17 +96,17 @@
 .type-option {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
   width: 100%;
-  min-height: 32px;
-  padding: 6px 8px;
+  min-height: var(--option-row-height);
+  padding: var(--option-row-padding);
   border: 0;
   border-radius: var(--row-radius);
   background: var(--card);
   color: var(--foreground);
   text-align: left;
   cursor: pointer;
-  font-size: 14px;
+  font-size: var(--text-base);
 }
 .type-option:hover,
 .type-option:focus {
@@ -134,16 +135,16 @@ dialog::backdrop {
   background: oklch(0 0 0 / 0.35);
 }
 dialog .dbody {
-  padding: 16px;
+  padding: var(--space-4);
   display: grid;
-  gap: 10px;
-  font-size: 14px;
+  gap: var(--space-2-5);
+  font-size: var(--text-base);
 }
 dialog .dfoot {
   display: flex;
-  gap: 8px;
+  gap: var(--space-2);
   justify-content: flex-end;
-  padding: 12px 16px;
+  padding: var(--space-3) var(--space-4);
   border-top: 1px solid var(--border);
 }
 #confirm-dialog {
@@ -154,14 +155,14 @@ dialog .dfoot {
   overflow-wrap: anywhere;
 }
 #confirm-title {
-  font-size: 18px;
+  font-size: var(--text-xl);
   line-height: 1.35;
 }
 #confirm-description {
   color: var(--muted-foreground);
 }
 #confirm-subject {
-  padding: 8px 10px;
+  padding: var(--space-2) var(--space-2-5);
   border: 1px solid var(--border);
   border-radius: 6px;
   background: var(--muted);
@@ -173,7 +174,7 @@ dialog .dfoot {
 #confirm-dialog .dfoot .btn {
   min-height: var(--control-height);
   height: auto;
-  padding-block: 6px;
+  padding-block: var(--space-1-5);
   white-space: normal;
   overflow-wrap: anywhere;
 }

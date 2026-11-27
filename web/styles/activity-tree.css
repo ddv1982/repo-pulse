@@ -59,27 +59,27 @@
   }
   .activity-graph-guide > a {
     margin: 0;
-    padding: 5px 12px;
+    padding: 5px var(--space-3);
     white-space: nowrap;
   }
   .tree-guide summary {
     margin: 0;
     width: fit-content;
     cursor: pointer;
-    padding: 5px 12px;
+    padding: 5px var(--space-3);
   }
   .tree-legend {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: 4px 16px;
+    gap: var(--space-1) var(--space-4);
     margin: 0;
-    padding: 8px 12px;
+    padding: var(--space-2) var(--space-3);
   }
   .tree-key-item {
     display: inline-flex;
     align-items: center;
-    gap: 6px;
+    gap: var(--space-1-5);
     white-space: nowrap;
   }
   .tree-key {
@@ -96,7 +96,7 @@
     --kind-width: calc(9.25rem + var(--tree-width));
   }
   .with-tree .row {
-    padding-inline-start: 12px;
+    padding-inline-start: var(--space-3);
   }
   .with-tree .kind {
     padding-inline-start: calc(4px + var(--tree-width));

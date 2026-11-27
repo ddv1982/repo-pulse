@@ -1,24 +1,24 @@
 /* Activity detail screen. */
 .crumb {
-  font-size: 13px;
+  font-size: var(--text-sm);
   color: var(--muted-foreground);
-  margin: 0 0 8px;
+  margin: 0 0 var(--space-2);
   display: flex;
-  gap: 8px;
+  gap: var(--space-2);
   align-items: center;
   flex-wrap: wrap;
 }
 .back {
-  margin: 0 8px 4px -8px;
+  margin: 0 var(--space-2) var(--space-1) -8px;
 }
 :root:not(.dark) :is(.crumb, .crumb .back) {
   color: var(--foreground-soft);
 }
 .dhead {
-  padding: 18px 16px;
+  padding: 18px var(--space-4);
   display: flex;
   justify-content: space-between;
-  gap: 12px 20px;
+  gap: var(--space-3) 20px;
   flex-wrap: wrap;
 }
 .detail-heading {
@@ -33,9 +33,9 @@
   overflow-wrap: anywhere;
 }
 .dhead .meta {
-  margin-top: 4px;
+  margin-top: var(--space-1);
   color: var(--muted-foreground);
-  font-size: 13px;
+  font-size: var(--text-sm);
   overflow-wrap: anywhere;
 }
 .dhead .actions {
@@ -52,29 +52,29 @@
 .facts {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
-  margin-bottom: 8px;
+  gap: var(--space-1-5);
+  margin-bottom: var(--space-2);
 }
 .detail-outcome {
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
-  gap: 4px 12px;
-  padding: 10px 16px;
+  gap: var(--space-1) var(--space-3);
+  padding: var(--space-2-5) var(--space-4);
   border-top: 1px solid var(--border);
   background: var(--table-head);
   overflow-wrap: anywhere;
 }
 .detail-outcome code {
   color: var(--muted-foreground);
-  font: 12px var(--font-mono);
+  font: var(--text-xs) var(--font-mono);
 }
 .detail-data {
   border-top: 1px solid var(--border);
 }
 .detail-section {
   min-width: 0;
-  padding: 14px 16px;
+  padding: 14px var(--space-4);
   border-bottom: 1px solid var(--border);
 }
 .detail-section:last-child {
@@ -86,18 +86,18 @@
 }
 .detail-section > h2,
 .detail-section-head {
-  margin: 0 0 8px;
+  margin: 0 0 var(--space-2);
 }
 .detail-section h2,
 .detail-related > summary {
-  font-size: 14px;
+  font-size: var(--text-base);
   font-weight: 650;
 }
 .detail-section-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  gap: var(--space-2);
   flex-wrap: wrap;
 }
 .detail-facts dl {
@@ -109,19 +109,19 @@
   display: grid;
   grid-template-columns: minmax(0, 9rem) minmax(0, 1fr);
   align-items: baseline;
-  gap: 6px;
+  gap: var(--space-1-5);
 }
 .detail-facts dt,
 .detail-related time {
   color: var(--muted-foreground);
-  font-size: 12px;
+  font-size: var(--text-xs);
 }
 .detail-facts dd {
   margin: 0;
   overflow-wrap: anywhere;
 }
 .detail-facts code {
-  font: 12px var(--font-mono);
+  font: var(--text-xs) var(--font-mono);
 }
 .detail-copy {
   min-height: 24px;
@@ -129,16 +129,16 @@
   vertical-align: baseline;
 }
 .detail-note {
-  padding: 0 16px 14px;
+  padding: 0 var(--space-4) 14px;
 }
 .discussion-stats {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
-  margin: 10px 0;
+  gap: var(--space-1-5);
+  margin: var(--space-2-5) 0;
 }
 .discussion-stats > span {
-  padding: 4px 8px;
+  padding: var(--space-1) var(--space-2);
   background: var(--muted);
   border-radius: 6px;
   font-variant-numeric: tabular-nums;
@@ -152,8 +152,8 @@
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto auto;
   align-items: baseline;
-  gap: 6px;
-  padding: 6px 0;
+  gap: var(--space-1-5);
+  padding: var(--space-1-5) 0;
   border-top: 1px solid var(--border);
   overflow-wrap: anywhere;
 }
@@ -169,13 +169,13 @@
   cursor: pointer;
 }
 .detail-related h3 {
-  margin: 12px 0 4px;
-  font-size: 12px;
+  margin: var(--space-3) 0 var(--space-1);
+  font-size: var(--text-xs);
   color: var(--muted-foreground);
 }
 .detail-related li {
   grid-template-columns: minmax(6rem, 24%) minmax(0, 1fr) auto;
-  column-gap: 10px;
+  column-gap: var(--space-2-5);
 }
 .detail-related li > .chip {
   justify-self: start;
@@ -226,23 +226,23 @@
   }
 }
 .activity-history {
-  margin: 16px 0;
+  margin: var(--space-4) 0;
 }
 .detail-section > .activity-history {
   margin: 0;
 }
 .activity-history h2 {
-  font-size: 14px;
+  font-size: var(--text-base);
 }
 .push {
-  padding: 10px 16px;
+  padding: var(--space-2-5) var(--space-4);
   border-top: 1px solid var(--border);
 }
 .push:first-of-type {
   border-top: 0;
 }
 .streams {
-  margin-top: 6px;
+  margin-top: var(--space-1-5);
 }
 .streams > summary {
   display: inline-flex;

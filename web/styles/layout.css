@@ -2,10 +2,10 @@
 .wrap {
   max-width: 1536px;
   margin: 0 auto;
-  padding: 12px 16px 24px;
+  padding: var(--space-3) var(--space-4) var(--space-6);
 }
 .app-footer {
-  margin-top: 16px;
+  margin-top: var(--space-4);
 }
 :root:not(.dark) .app-footer {
   color: var(--foreground-soft);
@@ -14,25 +14,25 @@ header.app {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px 12px;
-  margin-bottom: 8px;
+  gap: var(--space-2) var(--space-3);
+  margin-bottom: var(--space-2);
   position: relative;
 }
 .hg {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
   min-width: 0;
   max-width: 100%;
 }
 .hg.end {
   flex-grow: 1;
   justify-content: space-between;
-  gap: 8px 16px;
+  gap: var(--space-2) var(--space-4);
 }
 .brand {
-  font-size: 18px;
+  font-size: var(--text-xl);
   line-height: 28px;
   font-weight: 600;
   letter-spacing: -0.025em;
@@ -42,7 +42,7 @@ header.app {
 
 @media (min-width: 640px) {
   .wrap {
-    padding: 12px 24px 24px;
+    padding: var(--space-3) var(--space-6) var(--space-6);
   }
 }
 @media (max-width: 767px) {
@@ -61,16 +61,16 @@ header.app {
   header.app {
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;
-    gap: 6px 8px;
+    gap: var(--space-1-5) var(--space-2);
   }
   .header-brand {
     grid-column: 1;
     grid-row: 1;
     flex-wrap: nowrap;
-    gap: 6px;
+    gap: var(--space-1-5);
   }
   .header-brand .brand {
-    font-size: 16px;
+    font-size: var(--text-lg);
   }
   .hg.end {
     width: 100%;
@@ -80,11 +80,11 @@ header.app {
     grid-row: 1;
     width: auto;
     flex-wrap: nowrap;
-    gap: 4px;
+    gap: var(--space-1);
   }
   .header-actions {
     flex-wrap: nowrap;
-    gap: 4px;
+    gap: var(--space-1);
   }
   .seg.tabs {
     grid-column: 1 / -1;
@@ -95,23 +95,23 @@ header.app {
   }
   .seg.tabs a {
     min-height: var(--control-height-sm);
-    padding: 0 8px;
-    font-size: 11px;
+    padding: 0 var(--space-2);
+    font-size: var(--text-2xs);
   }
 }
 
 /* Header monitoring group and mobile overflow menu (overrides base .menu-panel on mobile). */
 .hg.end.header-tools {
   justify-content: flex-end;
-  gap: 8px;
+  gap: var(--space-2);
 }
 .header-auto {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding-inline: 8px;
+  gap: var(--space-1-5);
+  padding-inline: var(--space-2);
   border-radius: 6px;
-  font-size: 12px;
+  font-size: var(--text-xs);
   line-height: 16px;
   font-weight: 500;
   color: var(--muted-foreground);
@@ -131,7 +131,7 @@ header.app {
   height: 12px;
 }
 .header-auto .setting-switch:checked::after {
-  margin-left: 16px;
+  margin-left: var(--space-4);
 }
 .seg.monitor-group > .monitor-refresh {
   width: 32px;
@@ -174,8 +174,8 @@ header.app {
 }
 .header-monitoring-menu .settings-row {
   min-height: 44px;
-  padding: 8px 10px;
-  font-size: 14px;
+  padding: var(--space-2) var(--space-2-5);
+  font-size: var(--text-base);
   font-weight: 500;
 }
 .header-monitoring-menu .settings-row .help {
@@ -184,7 +184,7 @@ header.app {
 .header-monitoring-menu .mobile-refresh {
   width: 100%;
   justify-content: flex-start;
-  gap: 10px;
+  gap: var(--space-2-5);
   color: var(--foreground);
 }
 .header-monitoring-menu .mobile-refresh,
@@ -193,7 +193,7 @@ header.app {
 }
 .monitor-footer {
   margin: 0;
-  padding: 8px 10px;
+  padding: var(--space-2) var(--space-2-5);
 }
 .header-tools [aria-busy='true'] svg {
   animation: monitor-spin 1s linear infinite;

@@ -35,6 +35,7 @@ import type { PageState } from './refresh.ts';
 import type { ActivityItem } from '../activity.ts';
 import { renderCommits, type CommitsView } from './activity-detail.ts';
 import { action } from './actions.ts';
+import { WIDE_LAYOUT } from './breakpoints.ts';
 export { renderDetail } from './activity-detail.ts';
 
 /** `openMenu` is the panel ID of the open toolbar menu, if any; `groups` holds which disclosures are open. */
@@ -44,7 +45,7 @@ export type FeedView = Pick<import('./navigation.ts').NavigationState, 'unreadOn
 };
 
 function filterControls(ui: FeedView & { savedFilterId: string }, state: PageState) {
-  const desktop = globalThis.matchMedia?.('(min-width: 640px)').matches ?? true;
+  const desktop = globalThis.matchMedia?.(WIDE_LAYOUT).matches ?? true;
   const active = Number(Boolean(ui.search)) + Number(Boolean(ui.kind)) + Number(ui.unreadOnly);
   // Clear filter leaves the repository scope alone, so only the Filters count includes it.
   const count = active + Number(ui.repoIds !== null);

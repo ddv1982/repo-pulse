@@ -6,7 +6,7 @@
   justify-content: start;
   padding-right: 136px;
   min-height: 34px;
-  gap: 2px 10px;
+  gap: var(--space-0-5) var(--space-2-5);
 }
 :root:not(.dark) .repo-heading .section-heading .dim {
   color: var(--foreground-soft);
@@ -19,21 +19,21 @@
   cursor: pointer;
 }
 .repo-add-body {
-  margin-bottom: 12px;
+  margin-bottom: var(--space-3);
 }
 .repo-add > summary::before {
   content: '+';
-  margin-right: 8px;
+  margin-right: var(--space-2);
   color: var(--info);
 }
 .repo-add[open] > summary::before {
   content: '−';
 }
 .repo-add .card-pad {
-  padding-top: 4px;
+  padding-top: var(--space-1);
 }
 .repo-card {
-  padding: 14px 16px;
+  padding: 14px var(--space-4);
   border-top: 1px solid var(--border);
 }
 .repo-card:first-child {
@@ -48,7 +48,7 @@
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr) 55px;
   align-items: start;
-  gap: 8px 14px;
+  gap: var(--space-2) 14px;
   position: relative;
 }
 .repo-overview,
@@ -57,12 +57,12 @@
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: var(--space-1-5);
   min-width: 0;
 }
 .repo-overview h3 {
   overflow-wrap: anywhere;
-  font-size: 14px;
+  font-size: var(--text-base);
 }
 .repo-overview .sync-pill {
   white-space: normal;
@@ -88,8 +88,8 @@
 }
 .repo-details-content {
   display: grid;
-  gap: 6px;
-  margin-top: 4px;
+  gap: var(--space-1-5);
+  margin-top: var(--space-1);
 }
 .repo-entry > .history-progress {
   grid-column: 1 / -1;
@@ -124,27 +124,27 @@
 }
 .checkout-commits {
   min-width: 0;
-  margin-block: 8px;
+  margin-block: var(--space-2);
   border: 1px solid var(--border);
   border-radius: 6px;
 }
 .checkout-commits label {
   display: block;
-  padding-block: 4px;
+  padding-block: var(--space-1);
 }
 .checkout-diagnostic summary {
   cursor: pointer;
 }
 .checkout-diagnostic ul {
   padding-inline-start: 18px;
-  margin-block: 4px;
+  margin-block: var(--space-1);
 }
 .checkout-guidance {
   grid-column: 1 / -1;
   display: grid;
   justify-items: start;
-  gap: 8px;
-  padding: 10px 12px;
+  gap: var(--space-2);
+  padding: var(--space-2-5) var(--space-3);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--muted);
@@ -165,7 +165,7 @@
   align-items: center;
   justify-content: space-between;
   flex-wrap: wrap;
-  gap: 8px 16px;
+  gap: var(--space-2) var(--space-4);
 }
 .checkout-update-options {
   width: 100%;
@@ -175,14 +175,14 @@
   flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: 8px 16px;
+  gap: var(--space-2) var(--space-4);
   cursor: pointer;
 }
 .checkout-update-options > summary::-webkit-details-marker {
   display: none;
 }
 .checkout-update-options > p {
-  margin-top: 8px;
+  margin-top: var(--space-2);
 }
 .checkout-last-check:empty {
   display: none;
@@ -193,7 +193,7 @@
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
-  gap: 4px 8px;
+  gap: var(--space-1) var(--space-2);
 }
 .history-progress .help {
   overflow-wrap: anywhere;
@@ -205,8 +205,8 @@
 .history-ranges {
   min-inline-size: 0;
   display: grid;
-  gap: 4px;
-  padding: 4px 0 0;
+  gap: var(--space-1);
+  padding: var(--space-1) 0 0;
   border: 0;
   margin: 0;
 }
@@ -216,9 +216,9 @@
 .history-ranges label {
   display: flex;
   align-items: center;
-  gap: 8px;
-  min-height: 36px;
-  padding: 4px 8px;
+  gap: var(--space-2);
+  min-height: var(--option-row-height-list);
+  padding: var(--space-1) var(--space-2);
   border-radius: var(--radius);
   cursor: pointer;
 }
@@ -242,7 +242,7 @@
 }
 .branch-list {
   display: grid;
-  gap: 2px;
+  gap: var(--space-0-5);
   max-height: min(360px, 50vh);
   overflow-y: auto;
   padding: 0;
@@ -253,10 +253,10 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  gap: var(--space-2);
   width: 100%;
-  min-height: 36px;
-  padding: 4px 8px;
+  min-height: var(--option-row-height-list);
+  padding: var(--space-1) var(--space-2);
   border: 0;
   border-radius: var(--row-radius);
   background: none;
@@ -284,10 +284,10 @@
 .picker-root-row {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: var(--space-2);
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 12px;
+  margin-bottom: var(--space-3);
 }
 .picker-crumbs {
   display: flex;
@@ -295,17 +295,17 @@
   align-items: center;
   gap: 3px;
   min-width: 0;
-  font-size: 12px;
+  font-size: var(--text-xs);
   overflow-wrap: anywhere;
 }
 .picker-crumbs .ghost {
-  padding: 2px 4px;
+  padding: var(--space-0-5) var(--space-1);
 }
 .picker-label {
   display: block;
-  font-size: 12px;
+  font-size: var(--text-xs);
   font-weight: 500;
-  margin-bottom: 6px;
+  margin-bottom: var(--space-1-5);
 }
 .picker-input {
   display: flex;
@@ -330,7 +330,7 @@
   box-shadow: none;
 }
 .picker-results {
-  margin-top: 8px;
+  margin-top: var(--space-2);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--card);
@@ -340,7 +340,7 @@
 }
 .picker-results ul {
   list-style: none;
-  padding: 4px;
+  padding: var(--space-1);
   margin: 0;
   max-height: min(320px, 50vh);
   overflow-y: auto;
@@ -349,9 +349,9 @@
   display: grid;
   grid-template-columns: 18px minmax(0, 1fr) auto;
   align-items: center;
-  gap: 8px;
-  padding: 8px;
-  min-height: 44px;
+  gap: var(--space-2);
+  padding: var(--space-2);
+  min-height: var(--option-row-height-two-line);
   border-radius: var(--row-radius);
   cursor: pointer;
 }
@@ -368,7 +368,7 @@
 }
 .picker-option small {
   display: block;
-  font-size: 12px;
+  font-size: var(--text-xs);
   color: var(--muted-foreground);
   white-space: nowrap;
   overflow: hidden;
@@ -382,18 +382,18 @@
 .picker-badges {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--space-1);
   align-items: flex-end;
 }
 .picker-empty,
 .picker-count {
-  padding: 8px 12px;
+  padding: var(--space-2) var(--space-3);
 }
 .picker-chips {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
-  margin-top: 12px;
+  gap: var(--space-1-5);
+  margin-top: var(--space-3);
 }
 .picker-chips .chip {
   max-width: 100%;
@@ -403,10 +403,10 @@
   background: none;
   color: inherit;
   cursor: pointer;
-  margin-left: 6px;
+  margin-left: var(--space-1-5);
 }
 .picker-footer {
-  margin-top: 12px;
+  margin-top: var(--space-3);
   flex-wrap: wrap;
   align-items: flex-start;
 }
@@ -443,12 +443,12 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 6px 12px;
+  gap: var(--space-1-5) var(--space-3);
   min-width: 0;
 }
 .checkout-bar {
   justify-content: space-between;
-  padding: 8px 16px;
+  padding: var(--space-2) var(--space-4);
   border-block: 1px solid var(--border);
   background: var(--table-head);
 }

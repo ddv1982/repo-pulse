@@ -25,6 +25,7 @@ import { createSavedFilterMenus } from './ui/saved-filters.ts';
 import { createSettingsController } from './ui/settings-controller.ts';
 import { createTypeFilter } from './ui/type-filter.ts';
 import { listenForSearchKey } from './ui/search-field.ts';
+import { WIDE_LAYOUT } from './ui/breakpoints.ts';
 import type { Shell } from './ui/shell.ts';
 
 // Composition: the shared services, the route controllers and the one action table, then routing and start-up.
@@ -243,7 +244,7 @@ window.addEventListener('focus', () => {
 document.addEventListener('visibilitychange', () => {
   if (!document.hidden) void load();
 });
-window.matchMedia('(min-width:640px)').addEventListener('change', () => {
+window.matchMedia(WIDE_LAYOUT).addEventListener('change', () => {
   // The filter bar changes layout, so an open toolbar menu closes and focus returns to its toggle. Other pages keep
   // their menus: the Repositories picker stays open and tracked.
   if (!isActivity(ui.route)) return;

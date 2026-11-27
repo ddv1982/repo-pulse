@@ -6,10 +6,10 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 6px 10px;
-  padding: 10px 12px;
+  gap: var(--space-1-5) var(--space-2-5);
+  padding: var(--space-2-5) var(--space-3);
   background: color-mix(in oklab, var(--muted) 40%, transparent);
-  font-size: 14px;
+  font-size: var(--text-base);
   font-weight: 600;
   list-style: none;
   cursor: pointer;
@@ -32,7 +32,7 @@ summary.ghead::before {
   content: '';
   width: 6px;
   height: 6px;
-  margin: 0 2px 0 1px;
+  margin: 0 var(--space-0-5) 0 1px;
   border-right: 1.5px solid currentColor;
   border-bottom: 1.5px solid currentColor;
   transform: rotate(-45deg);
@@ -46,7 +46,7 @@ summary.ghead:hover {
 }
 .ghead .note {
   font-weight: 400;
-  font-size: 12px;
+  font-size: var(--text-xs);
   color: var(--muted-foreground);
 }
 ul.rows {
@@ -57,9 +57,9 @@ ul.rows {
 .row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  gap: 6px 12px;
+  gap: var(--space-1-5) var(--space-3);
   align-items: start;
-  padding: 12px;
+  padding: var(--space-3);
   border-top: 1px solid var(--border);
   transition: background-color 0.15s;
   background-repeat: no-repeat;
@@ -115,15 +115,15 @@ ul.rows {
   font-weight: 600;
 }
 .new-count {
-  margin-left: 4px;
+  margin-left: var(--space-1);
   vertical-align: 1px;
-  font-size: 11px;
+  font-size: var(--text-2xs);
 }
 .kind {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  font-size: 12px;
+  gap: var(--space-1-5);
+  font-size: var(--text-xs);
   font-weight: 500;
   min-width: 0;
   min-height: 20px;
@@ -135,7 +135,7 @@ ul.rows {
 }
 /* Light mode carries status as a tinted pill, so the column reads at the strength dark mode gets from saturated text. */
 :root:not(.dark) .feed .kind-label {
-  padding: 0 8px;
+  padding: 0 var(--space-2);
   border-radius: 10px;
   font-weight: 600;
   background: color-mix(in srgb, currentColor 12%, var(--card));
@@ -225,7 +225,7 @@ ul.rows {
 .subref {
   display: block;
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: var(--text-xs);
   color: var(--muted-foreground);
   overflow-wrap: anywhere;
 }
@@ -237,9 +237,9 @@ ul.rows {
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
-  gap: 0 10px;
-  margin-top: 2px;
-  font-size: 12px;
+  gap: 0 var(--space-2-5);
+  margin-top: var(--space-0-5);
+  font-size: var(--text-xs);
   line-height: 20px;
   color: var(--muted-foreground);
 }
@@ -257,7 +257,7 @@ ul.rows {
 .ref-target {
   display: inline-flex;
   align-items: baseline;
-  gap: 10px;
+  gap: var(--space-2-5);
   min-width: 0;
   max-width: 100%;
 }
@@ -271,7 +271,7 @@ ul.rows {
 .ref-branch svg {
   width: 12px;
   height: 12px;
-  margin-right: 4px;
+  margin-right: var(--space-1);
   vertical-align: middle;
 }
 .ref-name {
@@ -279,7 +279,7 @@ ul.rows {
   line-height: 1;
 }
 .ref-route {
-  gap: 4px;
+  gap: var(--space-1);
 }
 .ref-route .ref-branch {
   flex-shrink: 999;
@@ -293,8 +293,8 @@ ul.rows {
 }
 .chip.ref-pr {
   flex: none;
-  padding: 0 6px;
-  font-size: 12px;
+  padding: 0 var(--space-1-5);
+  font-size: var(--text-xs);
   line-height: 16px;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
@@ -302,15 +302,15 @@ ul.rows {
 .event {
   grid-column: 1 / -1;
   min-width: 0;
-  font-size: 13px;
+  font-size: var(--text-sm);
   color: var(--foreground);
 }
 .event .mono {
-  font-size: 12px;
+  font-size: var(--text-xs);
 }
 /* Keep evidence and metadata together when a long title wraps. */
 .event > * + * {
-  margin-top: 2px;
+  margin-top: var(--space-0-5);
 }
 .event > .event-meta {
   overflow-wrap: anywhere;
@@ -321,7 +321,7 @@ ul.rows {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 4px 8px;
+  gap: var(--space-1) var(--space-2);
   line-height: 20px;
 }
 .event-main .chip {
@@ -344,20 +344,20 @@ ul.rows {
   display: flex;
   align-items: flex-start;
   gap: 5px;
-  margin-top: 2px;
+  margin-top: var(--space-0-5);
 }
 .event-origin svg {
   flex: none;
   width: 12px;
   height: 12px;
-  margin-top: 2px;
+  margin-top: var(--space-0-5);
 }
 .linked-event {
   width: fit-content;
   max-width: 100%;
-  margin-top: 2px;
+  margin-top: var(--space-0-5);
   color: var(--muted-foreground);
-  font-size: 12px;
+  font-size: var(--text-xs);
 }
 .event-ci > .linked-event {
   margin-top: 0;
@@ -373,7 +373,7 @@ ul.rows {
   max-width: 100%;
   height: auto;
   min-height: var(--control-height-sm);
-  padding-block: 4px;
+  padding-block: var(--space-1);
   white-space: normal;
   text-align: left;
   overflow-wrap: anywhere;
@@ -385,8 +385,8 @@ ul.rows {
   width: 100%;
 }
 .ci-history > .ci-rollup {
-  margin-inline-start: 4px;
-  padding-inline-start: 4px;
+  margin-inline-start: var(--space-1);
+  padding-inline-start: var(--space-1);
   border-inline-start: 1px solid var(--border);
 }
 .ci-rollup > [data-related] {
@@ -409,7 +409,7 @@ ul.rows {
   align-items: center;
   flex-wrap: wrap;
   justify-content: flex-end;
-  gap: 2px;
+  gap: var(--space-0-5);
   grid-column: 2;
   grid-row: 1;
   justify-self: end;
@@ -436,8 +436,8 @@ ul.rows {
   color: var(--info);
 }
 .foot {
-  padding: 10px 16px;
-  font-size: 12px;
+  padding: var(--space-2-5) var(--space-4);
+  font-size: var(--text-xs);
   color: var(--muted-foreground);
   border-top: 1px solid var(--border);
 }
@@ -447,7 +447,7 @@ ul.rows {
 .feed .foot {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: var(--space-1-5);
   align-items: center;
 }
 .feed .feed-actions {
@@ -455,30 +455,30 @@ ul.rows {
   border-bottom: 1px solid var(--border);
 }
 .trail {
-  margin-top: 6px;
-  font-size: 12px;
+  margin-top: var(--space-1-5);
+  font-size: var(--text-xs);
   color: var(--muted-foreground);
 }
 /* In a row the trail follows the meta line by the row's 2px line gap. */
 .event-notes .trail {
-  margin-top: 2px;
+  margin-top: var(--space-0-5);
 }
 .trail summary {
   cursor: pointer;
   display: inline-flex;
-  gap: 4px;
+  gap: var(--space-1);
 }
 .trail ol {
   list-style: none;
-  margin: 4px 0 0;
-  padding: 0 0 0 10px;
+  margin: var(--space-1) 0 0;
+  padding: 0 0 0 var(--space-2-5);
   border-left: 2px solid var(--border);
 }
 .trail li {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px 8px;
-  padding: 2px 0;
+  gap: var(--space-1) var(--space-2);
+  padding: var(--space-0-5) 0;
 }
 .trail time {
   font-family: var(--font-mono);
@@ -507,7 +507,7 @@ ul.rows {
 @media (min-width: 1100px) {
   .row {
     grid-template-columns: var(--kind-width, 9.25rem) minmax(0, 2fr) minmax(12rem, 1fr) 8.5rem;
-    padding-block: 10px;
+    padding-block: var(--space-2-5);
   }
   .row > .kind {
     grid-column: 1;
