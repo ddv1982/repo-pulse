@@ -445,3 +445,18 @@ test('the phone header check menu stays open while the page renders and closes o
   await expect(refresh).toBeHidden();
   await expect(trigger).toBeFocused();
 });
+
+test('after the phone check menu was open, the first desktop Automatic checks click sends the new value', async t => {
+  const { page } = await setup(t);
+  await page.setViewportSize({ width: 375, height: 812 });
+  const header = page.locator('#header');
+  await header.getByLabel(/^Checks: automatic on/).click();
+  await expect(header.getByRole('button', { name: /^Refresh activity/ })).toBeVisible();
+  await page.setViewportSize({ width: 1280, height: 812 });
+  const desktop = page.locator('#header-auto-desktop');
+  await expect(desktop).toBeChecked();
+  const patch = page.waitForRequest(request => request.method() === 'PATCH' && new URL(request.url()).pathname === '/api/settings');
+  await desktop.click();
+  assert.deepEqual((await patch).postDataJSON(), { refreshEnabled: false });
+  await expect(desktop).not.toBeChecked();
+});

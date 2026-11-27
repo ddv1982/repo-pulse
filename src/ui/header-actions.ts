@@ -27,8 +27,12 @@ export function createHeaderActions(
   }
 
   // The phone check menu closes on a click anywhere outside it, and on Escape inside it, which returns focus to it.
+  // The click closes it without rendering the header: a render during the click would reset a switch the click just
+  // toggled before its change event reads it.
   document.addEventListener('click', event => {
-    if (ui.headerMenuOpen && event.target instanceof Element && !event.target.closest('.header-overflow')) setMenu(false);
+    if (!ui.headerMenuOpen || !(event.target instanceof Element) || event.target.closest('.header-overflow')) return;
+    ui.headerMenuOpen = false;
+    required('.header-overflow', HTMLDetailsElement, header).open = false;
   });
   document.addEventListener('keydown', event => {
     if (event.key !== 'Escape' || !ui.headerMenuOpen || !document.activeElement?.closest('.header-overflow')) return;
