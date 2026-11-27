@@ -56,14 +56,16 @@ const refresh = createRefreshController({
   onUpdate({ metadata, force }) {
     const { activity, detail } = refresh.state;
     // The answer can change which repository the graph shows; its history loads before any render, checkout read or
-    // probe, even when a focused control holds off the full render.
-    if (ui.route === 'graph') graph.sync();
+    // probe, even when a focused control holds off the full render. A changed repository renders the graph regardless.
+    let graphChanged = ui.route === 'graph' && graph.sync();
     if (force || metadata !== lastRendered.metadata || activity !== lastRendered.activity || detail !== lastRendered.detail) {
       if (refreshTarget(force) === 'full') {
         render();
         lastRendered = { metadata, activity, detail };
+        graphChanged = false;
       }
     }
+    if (graphChanged) renderPage();
     feedback.clearNetworkError();
     void checkoutPanel.refresh();
     checkoutPanel.readShown();

@@ -52,10 +52,12 @@ export function createGitGraph({ read, render }: Options) {
     get state() {
       return state;
     },
+    /** @returns whether the shown repository or its checkout changed */
     select(repo: Repository | undefined) {
-      if (state.repoId === (repo?.id ?? '') && state.path === repo?.localPath) return;
+      if (state.repoId === (repo?.id ?? '') && state.path === repo?.localPath) return false;
       state = { repoId: repo?.id ?? '', path: repo?.localPath, page: null, loading: false, error: '' };
       if (repo?.localPath) void load(null, false);
+      return true;
     },
     reset() {
       state = empty;
@@ -141,9 +143,9 @@ export function createGraphController({
     return { repos, repo };
   }
 
-  /** Loads the history of the repository the page shows, when that is not the one loaded. */
+  /** Loads the history of the repository the page shows, when that is not the one loaded; returns whether it changed. */
   function sync() {
-    history.select(selection().repo);
+    return history.select(selection().repo);
   }
 
   /** Checks whether the checkout moved under the loaded history; after a Git action, reloads it instead. */

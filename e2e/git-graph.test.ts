@@ -322,3 +322,34 @@ test('a state answer that disables the shown repository moves the graph to the n
   await expect(page.locator(`#commit-${subjectB}`)).toBeVisible();
   assert.deepEqual([...new Set(graphReads)], ['repo-b']);
 });
+
+test('a state answer that disables the shown repository moves a focused graph to an unlinked one', async t => {
+  const first = checkoutFixture(cleanupStack(t));
+  const subjectA = first.commit(first.local, 'a.txt', 'Only in repository A');
+  const repoA = { ...first.repo, id: 'repo-a', azureId: 'repo-a', name: 'Alpha' };
+  const { localPath: _unlinked, ...unlinked } = first.repo;
+  const repoB = { ...unlinked, id: 'repo-b', azureId: 'repo-b', name: 'Beta' };
+  const store = createStore();
+  defer(t, () => store.close());
+  store.saveRepo(repoA);
+  store.saveRepo(repoB);
+  const app = createApp({
+    store,
+    checkoutGit: first.checkoutGit,
+    provider: stub<AzureProvider>({ checkConnection: async () => stub<ConnectionStatus>({ available: true }) }),
+    sync: stub<AppSync>({ status: () => idleSyncStatus() }),
+    accessKey: TEST_KEY,
+  });
+  const url = await listen(t, app);
+  const page = await openPage(t, { key: TEST_KEY });
+  await page.goto(`${url}/#graph`);
+  const select = page.locator('#graph-repo');
+  await expect(select).toHaveValue('repo-a');
+  await expect(page.locator(`#commit-${subjectA}`)).toBeVisible();
+  await select.focus();
+  store.saveRepo({ ...repoA, disabled: true });
+  await refreshNow(page);
+  await expect(select).toHaveValue('repo-b');
+  await expect(page.locator(`#commit-${subjectA}`)).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Reload graph' })).toHaveCount(0);  await expect(select).toBeFocused();
+});
