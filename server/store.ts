@@ -678,7 +678,7 @@ export function createStore(path = ':memory:', { highlights = false } = {}) {
             .map(hydrate)
         : [];
     },
-    relatedActivity(event: ActivityEvent) {
+    relatedActivity(event: ActivityEvent, { ciOnly = false } = {}) {
       const { repoId, data } = event;
       const pr = event.kind === 'pr' ? data?.pullRequestId : /^refs\/pull\/(\d+)\/merge$/.exec(data?.sourceBranch ?? '')?.[1];
       if (!pr) return [];
@@ -718,9 +718,10 @@ export function createStore(path = ':memory:', { highlights = false } = {}) {
         WHERE ?
       )${selectEvents} JOIN activity_members m ON m.event_id=e.id
       WHERE e.id IN (SELECT id FROM related) AND e.id<>?
+        ${ciOnly ? "AND m.kind='build'" : ''}
         AND (m.kind<>'build' OR e.id=(SELECT candidate.event_id FROM activity_members candidate
           WHERE candidate.group_key=m.group_key ORDER BY candidate.observed DESC,candidate.time DESC,candidate.event_id DESC LIMIT 1))
-      ORDER BY m.time DESC,m.observed DESC,e.id DESC LIMIT 100`).all(
+      ORDER BY m.time DESC,m.observed DESC,e.id DESC ${ciOnly ? '' : 'LIMIT 100'}`).all(
         repoId,
         String(pr),
         repoId,

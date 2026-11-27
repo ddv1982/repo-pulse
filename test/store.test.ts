@@ -623,14 +623,11 @@ test('Activity resolves CI across pages and keeps failures and filtered runs vis
     ['legacy-preview', 'unread-pass', 'failed', 'scheduled', 'wrong-ref', 'merge', 'other-pr', 'new-pr-preview', 'pr-open', 'push-main'],
   );
   assert.deepEqual(
-    all
-      .find(item => item.id === 'merge')
-      ?.relatedCi?.map(run => [run.id, run.outcome, run.postMerge])
-      .sort(),
+    all.find(item => item.id === 'merge')?.relatedCi?.map(run => [run.id, run.outcome, run.postMerge, new Date(run.time).toISOString()]),
     [
-      ['failed', 'failed', true],
-      ['passing', 'passed', true],
-      ['unread-pass', 'passed', true],
+      ['unread-pass', 'passed', true, new Date(stamp(8)).toISOString()],
+      ['failed', 'failed', true, new Date(stamp(7)).toISOString()],
+      ['passing', 'passed', true, new Date(stamp(4)).toISOString()],
     ],
   );
   assert.ok(all.find(item => item.id === 'merge')?.eventIds.includes('passing'));

@@ -128,6 +128,7 @@ export type ActivityEvent = {
 };
 export type RelatedCi = {
   id: string;
+  time: ActivityEvent['time'];
   title: string;
   validation: boolean;
   postMerge: boolean;
@@ -159,6 +160,7 @@ export type ActivityItem = ActivityEvent & {
   prSourceLifetime?: string;
   latestPrMilestone?: boolean;
   relatedCi?: RelatedCi[];
+  earlierCiCount?: number;
   highlight?: HighlightReason;
   ciHost?: string;
   foldedCi?: number;

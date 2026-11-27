@@ -16,6 +16,8 @@ export function replacementFocus(id: string) {
   // A control the render hid, such as an option of a menu that closed, cannot take focus back.
   if (current?.checkVisibility()) return current;
   if (id === 'clear-filters') return document.getElementById('feed-search');
+  const checkoutAction = /^checkout-(?:switch-target|check|pull|switch)-(.+)$/.exec(id);
+  if (checkoutAction) return document.getElementById(`checkout-state-${checkoutAction[1]}`);
   if (id === 'graph-clear-search') return document.getElementById('graph-search');
   if (id.startsWith('kind-option-') || id.startsWith('summary-ci-')) return document.getElementById('kind-toggle');
   if (id.startsWith('saved-filter-option-'))
@@ -63,6 +65,8 @@ export type BrowserUi = NavigationState & {
 export type RenderOptions = {
   restored: ResultsContext | null;
   returnUnreadOnly: boolean;
+  returnToGraph?: boolean;
+  showRelated?: boolean;
   matchingIds?: string[] | undefined;
   commits: import('./activity-detail.ts').LoadedView | undefined;
   feedCommits?: ReadonlyMap<string, import('./activity-detail.ts').CommitsView>;
@@ -102,7 +106,19 @@ export function createBrowserView({
   function renderPage(
     state: PageState,
     ui: BrowserUi,
-    { restored, returnUnreadOnly, matchingIds, commits, feedCommits, graph, checkouts, checkoutFocus, isCurrent }: RenderOptions,
+    {
+      restored,
+      returnUnreadOnly,
+      returnToGraph = false,
+      showRelated = false,
+      matchingIds,
+      commits,
+      feedCommits,
+      graph,
+      checkouts,
+      checkoutFocus,
+      isCurrent,
+    }: RenderOptions,
   ) {
     const groups = restored?.groups || captureGroups();
     const focused = document.activeElement;
@@ -122,6 +138,8 @@ export function createBrowserView({
           commits,
           {
             returnUnreadOnly,
+            returnToGraph,
+            showRelated,
             matchingIds,
             checkouts,
           },

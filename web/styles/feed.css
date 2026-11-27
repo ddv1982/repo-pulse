@@ -642,6 +642,21 @@ ol.rows {
   text-align: left;
   overflow-wrap: anywhere;
 }
+.ci-rollup {
+  display: grid;
+}
+.event-ci button.ci-run {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: 0.5rem;
+  width: 100%;
+}
+.ci-time {
+  color: var(--muted-foreground);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
 .rowact {
   display: flex;
   align-items: center;

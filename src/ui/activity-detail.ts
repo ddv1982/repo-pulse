@@ -8,6 +8,7 @@ import {
   labels,
   dateTime,
   fullDateTime,
+  ciTime,
   azureLink,
   activityLabel,
   activityTone,
@@ -18,7 +19,8 @@ import {
   voteLabel,
 } from './format.ts';
 import { renderTrail } from './activity-trail.ts';
-import { activityHref, repositoryHref } from './navigation.ts';
+import { renderCheckoutBar } from './checkout-render.ts';
+import { activityHref } from './navigation.ts';
 import type { ActivityEvent, ActivityItem, EventData } from '../activity.ts';
 import type { StateResponse, PushCommitsResponse, PrReviewResponse } from '../api.ts';
 import type { HtmlValue } from './format.ts';
@@ -118,13 +120,13 @@ function detailFields(
   ];
 }
 
-function detailHead(record: ActivityItem, repo: Repo | undefined, title: string, matching: ActivityEvent[], branchAction: HtmlValue) {
+function detailHead(record: ActivityItem, repo: Repo | undefined, title: string, matching: ActivityEvent[]) {
   const unseen = matching.filter(isUnseen);
   const ids = (unseen.length ? unseen : matching.filter(event => !event.imported)).map(event => event.id);
   const ack = !ids.length
     ? emptyHtml
     : html`<button class="btn" data-action="ack-item" data-mark-seen="${Boolean(unseen.length)}" data-id="${record.id}" data-event-ids="${JSON.stringify(ids)}">Mark ${unseen.length ? 'seen' : 'unseen'}</button>`;
-  return html`<header class="dhead"><div class="detail-heading">${detailStatus(record, activityTone(record), matching)}<h1>${title}</h1><div class="meta">${record.kind.startsWith('branch-') ? 'Branch' : labels[record.kind]} · ${repo?.name} · ${branchName(record.branch)}</div></div><div class="actions">${branchAction}${azureLink(record.url, 'Open in Azure DevOps', 'btn')}${ack}</div></header>`;
+  return html`<header class="dhead"><div class="detail-heading">${detailStatus(record, activityTone(record), matching)}<h1>${title}</h1><div class="meta">${record.kind.startsWith('branch-') ? 'Branch' : labels[record.kind]} · ${repo?.name} · ${branchName(record.branch)}</div></div><div class="actions">${azureLink(record.url, 'Open in Azure DevOps', 'btn')}${ack}</div></header>`;
 }
 
 function seenChip(matching: ActivityEvent[]) {
@@ -180,6 +182,7 @@ function detailData(
   pushId: PushId,
   loaded: LoadedView | undefined,
   related: ActivityEvent[],
+  showRelated: boolean,
 ) {
   const completed = record.kind === 'pr' && data.status === 'completed';
   const summary = record.kind !== 'build' ? activitySummary(record) : '';
@@ -189,7 +192,7 @@ function detailData(
     record.kind === 'pr'
       ? prReview(record, data, loaded && !('items' in loaded) ? loaded : undefined)
       : pushCommits(record, repo, pushId, loaded && !('threads' in loaded) ? loaded : undefined);
-  const timeline = relatedActivity(record, related);
+  const timeline = relatedActivity(record, related, showRelated);
   const hasMain = [evidence, trail, extra, timeline].some(section => section !== emptyHtml);
   const main = hasMain
     ? html`<div class="detail-main">
@@ -202,7 +205,7 @@ function detailData(
     <div class="detail-data ${record.kind === 'pr' && hasMain ? 'pr-detail-data' : ''}">${record.kind === 'pr' ? html`${main}${metadata}` : html`${metadata}${main}`}</div>`;
 }
 
-function relatedActivity(record: ActivityItem, events: ActivityEvent[]) {
+function relatedActivity(record: ActivityItem, events: ActivityEvent[], showRelated: boolean) {
   if (!events.length) return emptyHtml;
   const days = new Map<string, ActivityEvent[]>();
   for (const event of events) {
@@ -211,7 +214,7 @@ function relatedActivity(record: ActivityItem, events: ActivityEvent[]) {
     if (group) group.push(event);
     else days.set(day, [event]);
   }
-  return html`<details class="detail-section detail-related" data-group="related-${record.id}"><summary>Related activity · ${events.length}</summary>
+  return html`<details class="detail-section detail-related" data-group="related-${record.id}" ${showRelated ? html`open` : emptyHtml}><summary>${showRelated ? 'Related CI runs' : 'Related activity'} · ${events.length}</summary>
     ${[...days].map(
       ([day, entries]) =>
         html`<h3>${day}</h3><ul class="detail-list">${entries.map(event => {
@@ -230,7 +233,7 @@ function relatedActivity(record: ActivityItem, events: ActivityEvent[]) {
             : time.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
           return html`<li><span class="chip status-chip ${activityTone(event)}${label === 'Merged' ? ' merged' : ''}">${label}</span>
         <a href="#event/${encodeURIComponent(event.id)}" title="${title}" aria-label="${samePr ? `${name} · ` : ''}${label} · ${title}">${name}</a>
-        <time datetime="${event.time}" title="${fullDateTime(event.time)}">${clock}</time></li>`;
+        ${event.kind === 'build' ? ciTime(event.time, true) : html`<time datetime="${event.time}" title="${fullDateTime(event.time)}">${clock}</time>`}</li>`;
         })}</ul>`,
     )}
   </details>`;
@@ -242,15 +245,21 @@ export function renderDetail(
   commits: LoadedView | undefined,
   {
     returnUnreadOnly = false,
+    returnToGraph = false,
+    showRelated = false,
     matchingIds,
     checkouts,
   }: {
     returnUnreadOnly?: boolean;
+    returnToGraph?: boolean;
+    showRelated?: boolean;
     matchingIds?: string[] | undefined;
     checkouts?: Record<string, import('./checkout.ts').CheckoutSnapshot>;
   } = {},
 ) {
-  const back = html`<a class="ghost sm back" data-action="back-to-results" href="${activityHref(returnUnreadOnly)}">← Back to Activity</a>`;
+  const back = returnToGraph
+    ? html`<a class="ghost sm back" data-action="back-to-graph" href="#graph">← Back to Git Graph</a>`
+    : html`<a class="ghost sm back" data-action="back-to-results" href="${activityHref(returnUnreadOnly)}">← Back to Activity</a>`;
   if (!event) return html`${back}<div class="card empty"><h1>Activity not found</h1></div>`;
   const record = groupActivity(state.events).find(item => item.eventIds.includes(event.id)) || groupActivity([event])[0];
   // Grouping one event always yields its group.
@@ -262,13 +271,9 @@ export function renderDetail(
   const fields = detailFields(record, repo, data, sha, pushId);
   const matching = matchingIds ? record.events.filter(item => matchingIds.includes(item.id)) : record.events;
   const branch = !state.demo && repo?.localPath ? activityBranch(event) : null;
-  const branchAction = !branch
-    ? emptyHtml
-    : checkouts?.[event.repoId]?.branch === branch
-      ? html`<a class="btn" id="activity-branch-action" href="${repositoryHref(event.repoId)}">View in Repositories</a>`
-      : html`<button class="btn" type="button" id="activity-branch-action" data-action="switch-activity-branch">Switch to ${branch}…</button>`;
-  return html`<div class="crumb">${back}<span>${repo?.name}</span></div><section class="card">${detailHead(record, repo, activityTitle(record), matching, branchAction)}
-    ${detailData(record, repo, data, fields, pushId, commits, state.detailRelated ?? [])}</section>`;
+  const checkoutBar = branch ? renderCheckoutBar(event.repoId, checkouts?.[event.repoId], branch) : emptyHtml;
+  return html`<div class="crumb">${back}<span>${repo?.name}</span></div><section class="card">${detailHead(record, repo, activityTitle(record), matching)}${checkoutBar}
+    ${detailData(record, repo, data, fields, pushId, commits, state.detailRelated ?? [], showRelated)}</section>`;
 }
 
 export function renderCommits(commits: CommitsView) {

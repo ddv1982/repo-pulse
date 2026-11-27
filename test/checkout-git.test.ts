@@ -61,7 +61,8 @@ test('Pull rechecks working files, checkout identity, branch and upstream instea
   await assert.rejects(checkoutGit.update(repo, 'check', expectedOf(passwordRemote)), /no longer eligible/);
   writeFileSync(join(local, 'feature.txt'), 'uncommitted');
   const dirtyPasswordRemote = await checkoutGit.status(repo);
-  assert.equal(dirtyPasswordRemote.state, 'dirty');
+  assert.equal(dirtyPasswordRemote.state, 'different-remote');
+  assert.ok('dirty' in dirtyPasswordRemote && dirtyPasswordRemote.dirty);
   assert.equal(dirtyPasswordRemote.diagnostic?.title, 'Remote URL contains credentials');
   writeFileSync(join(local, 'feature.txt'), 'initial');
   assert.equal(git(local, 'rev-parse', 'HEAD'), localCommit);

@@ -5,26 +5,40 @@ import type { GitHistoryPage } from '../src/contract.d.ts';
 const fullId = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
 const pageSize = 50;
 
-export async function readGitHistory(run: GitRunner, path: string, defaultBranch: string | null | undefined, cursor: string | null) {
-  const git = (args: string[], input?: string) =>
-    run(path, args, { guard: { GIT_ALLOW_PROTOCOL: '' }, ...(input === undefined ? {} : { input }) });
+const readOnlyGit = (run: GitRunner, path: string) => (args: string[], input?: string) =>
+  run(path, args, { guard: { GIT_ALLOW_PROTOCOL: '' }, ...(input === undefined ? {} : { input }) });
+
+async function readGraphRefs(run: ReturnType<typeof readOnlyGit>, defaultBranch: string | null | undefined) {
   const [head, refs, shallow] = await Promise.all([
-    git(['rev-parse', '--verify', '--quiet', 'HEAD']).then(
+    run(['rev-parse', '--verify', '--quiet', 'HEAD']).then(
       value => value.trim(),
       error => {
         if (error.code === 1) return '';
         throw error;
       },
     ),
-    git([
+    run([
       'for-each-ref',
       '--format=%(refname)%00%(objectname)%00%(*objectname)%00%(objecttype)%00%(*objecttype)%00%(HEAD)%00%(upstream)%00%(upstream:remotename)%00%(symref)',
       'refs/heads',
       'refs/remotes',
       'refs/tags',
     ]),
-    git(['rev-parse', '--is-shallow-repository']),
+    run(['rev-parse', '--is-shallow-repository']),
   ]);
+  const snapshot = createHash('sha256')
+    .update(JSON.stringify([head, refs, shallow, defaultBranch]))
+    .digest('hex');
+  return { head, refs, shallow, snapshot };
+}
+
+export async function gitHistorySnapshot(run: GitRunner, path: string, defaultBranch: string | null | undefined) {
+  return { snapshot: (await readGraphRefs(readOnlyGit(run, path), defaultBranch)).snapshot };
+}
+
+export async function readGitHistory(run: GitRunner, path: string, defaultBranch: string | null | undefined, cursor: string | null) {
+  const git = readOnlyGit(run, path);
+  const { head, refs, shallow, snapshot } = await readGraphRefs(git, defaultBranch);
   const references = refs
     .trimEnd()
     .split('\n')
@@ -41,9 +55,6 @@ export async function readGitHistory(run: GitRunner, path: string, defaultBranch
   const remoteHead = references.find(ref => ref.name === remotePrefix + 'HEAD')?.symbolic;
   const base = current && (references.find(ref => ref.name === remoteHead) ?? defaultRef);
   const tips = [...new Set([head, upstream?.id, base ? base.id : undefined].filter((id): id is string => Boolean(id && fullId.test(id))))];
-  const snapshot = createHash('sha256')
-    .update(JSON.stringify([head, refs, shallow]))
-    .digest('hex');
   const [, offsetText, version] = cursor?.match(/^(\d{1,8})\.([0-9a-f]{64})$/) ?? [];
   const offset = Number(offsetText ?? 0);
   if (cursor !== null && (!version || offset === 0 || offset % pageSize !== 0)) {
@@ -81,6 +92,7 @@ export async function readGitHistory(run: GitRunner, path: string, defaultBranch
   const { commits, more } = parseCommits(output, labels);
 
   return {
+    snapshot,
     head,
     branch: current?.name.slice(11) ?? null,
     upstream: upstream?.name.replace(/^refs\/(heads|remotes)\//, '') ?? null,

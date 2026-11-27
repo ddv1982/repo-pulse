@@ -7,7 +7,7 @@ export const activityCi = `
   , ci_snapshot AS (SELECT ? AS through), runs AS MATERIALIZED (
     SELECT run.*,e.repo_id AS repo,e.imported,lower(json_extract(e.data,'$.data.sourceVersion')) AS sha,
       json_extract(e.data,'$.data.sourceBranch') AS ref,json_extract(e.data,'$.data.reason') AS reason,
-      json_extract(e.data,'$.title') AS title,
+      json_extract(e.data,'$.title') AS title,e.time AS event_time,
       COALESCE(unixepoch(json_extract(e.data,'$.data.buildStartedAt'),'subsec')*1000,run.time) AS started
     FROM matched run JOIN events e ON e.id=run.representative
     WHERE run.kind='build' AND run.status IN ('succeeded','failed','partially-succeeded')
@@ -56,7 +56,7 @@ export const activityCi = `
       SUM(priority=3) OVER (PARTITION BY run_key) AS push_matches
     FROM candidates
   ), ci_links AS MATERIALIZED (
-    SELECT run.key AS run_key,run.representative AS run_id,run.status,run.title,run.time AS run_time,host.key AS host_key,
+    SELECT run.key AS run_key,run.representative AS run_id,run.status,run.title,run.event_time AS run_time,host.key AS host_key,
       host.representative AS host_id,host.kind AS host_kind,candidate.validation,
       (run.status='succeeded' AND run.unseen=0) AS folded
     FROM ranked_candidates candidate JOIN runs run ON run.key=candidate.run_key

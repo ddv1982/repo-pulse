@@ -853,7 +853,7 @@ test('a background render leaves the repository picker in place, so its focused 
   assert.equal(await page.evaluate(() => document.querySelector<Marked>('#checkout-search')?.marker), 'picker');
 });
 
-test('a New branch detail reviews a rewritten tracking ref before switching, then opens the checkout for pull', async t => {
+test('a New branch detail reviews a rewritten tracking ref before switching, then pulls without leaving the detail', async t => {
   const { source, local, repo, checkoutGit, commit, original } = checkoutFixture(t);
   const branch = 'feature/checkout-from-activity';
   git(source, 'switch', '-c', branch);
@@ -919,7 +919,7 @@ test('a New branch detail reviews a rewritten tracking ref before switching, the
   await dialog.getByRole('button', { name: 'Switch branch', exact: true }).click();
   await dialog.getByRole('button', { name: 'Confirm switch', exact: true }).click();
 
-  await expect(page).toHaveURL(/#repositories\/repo$/);
+  await expect(page).toHaveURL(/#event\//);
   const checkout = page.locator('#checkout-state-repo');
   await expect(checkout).toContainText(branch);
   await expect(checkout).toContainText('Local changes');
@@ -939,7 +939,6 @@ test('a New branch detail reviews a rewritten tracking ref before switching, the
   assert.equal(git(local, 'rev-parse', 'HEAD'), newerTip);
   assert.equal(await readFile(localFile, 'utf8'), 'uncommitted local edit');
 
-  await page.goBack();
   await expect(page.getByRole('link', { name: 'View in Repositories' })).toBeVisible();
   git(local, 'switch', 'main');
   await expect(page.getByRole('button', { name: `Switch to ${branch}…` })).toBeVisible({ timeout: 12000 });
@@ -1052,8 +1051,8 @@ test('Repositories switches between watched branches, and a merged pull request 
   await page.goto(`http://127.0.0.1:${portOf(app)}/#event/merged-topic`);
   await page.getByRole('button', { name: 'Switch to main…' }).click();
   await confirmDialog.getByRole('button', { name: 'Switch branch', exact: true }).click();
-  await expect(page).toHaveURL(/#repositories\/repo$/);
-  await expect(checkout).toContainText('main');
+  await expect(page).toHaveURL(/#event\/merged-topic$/);
+  await expect(checkout.locator('.checkout-state > code').first()).toHaveText('main');
   assert.equal(git(local, 'branch', '--show-current'), 'main');
   assert.equal(git(local, 'rev-parse', 'HEAD'), original);
   assert.deepEqual(errors, []);
@@ -2486,11 +2485,14 @@ test('Activity gives wrapped titles room and keeps their event metadata together
 });
 
 test('Git Graph shows a merged branch and exact CI links alongside the Activity feed', async t => {
-  const { local, repo, checkoutGit } = checkoutFixture(t);
+  const { source, local, repo, checkoutGit, commit } = checkoutFixture(t);
   git(local, 'switch', '-c', 'graph-topic');
   const topicSubject = 'Feature branch work · Andre\u0301 Lane';
   git(local, 'commit', '--allow-empty', '--author', 'José van Dijk <jose@example.test>', '-m', topicSubject);
   const topic = git(local, 'rev-parse', 'HEAD');
+  git(local, 'push', '--set-upstream', 'origin', 'graph-topic');
+  git(source, 'fetch', 'origin');
+  git(source, 'switch', '--track', 'origin/graph-topic');
   git(local, 'switch', 'main');
   git(local, 'merge', '--no-ff', 'graph-topic', '-m', 'Merge graph topic');
   const head = git(local, 'rev-parse', 'HEAD');
@@ -2552,6 +2554,7 @@ test('Git Graph shows a merged branch and exact CI links alongside the Activity 
   await expect(page.locator(`#commit-${topic}`)).toContainText('Feature branch work');
   await expect(page.locator(`#commit-${head} .graph-rail path`)).toHaveCount(2);
   await expect(page.getByRole('link', { name: 'CI · Succeeded' })).toHaveAttribute('href', '#event/build-on-merge');
+  await expect(page.getByRole('link', { name: 'CI · Succeeded' }).locator('time')).toHaveAttribute('datetime', time);
   await expect(page.getByRole('link', { name: 'PR · Merged' })).toHaveAttribute('href', '#event/finished-pr');
   await expect(page.getByRole('link', { name: 'CI · Failed' })).toHaveCount(0);
   await expect(page.locator(`#commit-${head} .graph-ref[title="${longRef}"]`)).toBeVisible();
@@ -2610,7 +2613,7 @@ test('Git Graph shows a merged branch and exact CI links alongside the Activity 
   assert.ok(scrollY > 1000);
   await build.click();
   await expect(page.locator('#page .status-chip').first()).toHaveText('Succeeded');
-  await page.goBack();
+  await page.getByRole('link', { name: /Back to Git Graph/ }).click();
   await expect(page.locator('.graph-commit')).toHaveCount(53);
   await expect(search).toHaveValue('people:Jo Dij');
   await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(scrollY);
@@ -2630,9 +2633,13 @@ test('Git Graph shows a merged branch and exact CI links alongside the Activity 
   await page.getByRole('link', { name: 'Repositories', exact: true }).click();
   git(local, 'switch', 'graph-topic');
   store.resetActivity();
+  store.commitPage({
+    repoId: repo.id,
+    entities: ['main', 'graph-topic'].map(name => ({ type: 'ref' as const, id: `refs/heads/${name}`, data: { active: true } })),
+  });
   await page.getByRole('link', { name: 'Git Graph', exact: true }).click();
   await expect(page.locator('.graph-subject').first()).toHaveText(topicSubject);
-  await expect(page.locator('.graph-scope')).toHaveText('graph-topic');
+  await expect(page.locator('.checkout-bar')).toContainText('graph-topic');
   await expect(search).toHaveValue('people:Jo Dij');
   await expect(page.locator('.graph-link')).toHaveCount(0);
 
@@ -2644,6 +2651,60 @@ test('Git Graph shows a merged branch and exact CI links alongside the Activity 
   await page.getByRole('link', { name: 'Activity', exact: true }).click();
   await page.getByRole('link', { name: 'Git Graph', exact: true }).click();
   await expect(page.locator('.graph-subject').first()).toHaveText(topicSubject);
+
+  const checkout = page.locator('.checkout-bar');
+  const remoteTip = commit(source, 'graph-remote.txt', 'Graph upstream update');
+  git(source, 'push', 'origin', 'graph-topic');
+  await checkout.getByRole('button', { name: 'Check for updates' }).click();
+  await expect(checkout).toContainText('1 commit behind');
+  await expect(page.locator(`#commit-${remoteTip}`)).toBeVisible();
+  assert.equal(git(local, 'rev-parse', 'HEAD'), topic);
+  await checkout.getByRole('button', { name: 'Pull', exact: true }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Pull', exact: true }).click();
+  await expect(page.locator(`#commit-${remoteTip}`)).toHaveAttribute('aria-current', 'true');
+  await expect(search).toHaveValue('people:Jo Dij');
+
+  const switchButton = checkout.getByRole('button', { name: 'Switch branch…' });
+  const picker = page.locator('#branch-dialog');
+  await switchButton.click();
+  await page.keyboard.press('Escape');
+  await expect(switchButton).toBeFocused();
+  await switchButton.click();
+  await picker.getByRole('button', { name: /^main/ }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Switch branch', exact: true }).click();
+  await expect(page.locator('.checkout-bar .checkout-state > code').first()).toHaveText('main');
+  await expect(page.locator('.graph-subject').first()).toHaveText('Later commit 49');
+
+  git(local, 'switch', 'graph-topic');
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+  await expect(page.getByText('Checkout changed. Reload the graph to see the current history.')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Load more commits' })).toBeDisabled();
+  await page.getByRole('button', { name: 'Reload graph' }).click();
+  await expect(page.locator('.graph-subject').first()).toHaveText('Graph upstream update');
+  await page.screenshot({ path: 'test-results/git-graph-checkout-phone.png' });
+
+  git(local, 'switch', 'main');
+  store.insertEvents([
+    {
+      id: 'topic-ci',
+      repoId: repo.id,
+      kind: 'build',
+      time,
+      title: 'Topic CI',
+      data: { buildId: 16, status: 'completed', result: 'failed', sourceVersion: topic, sourceBranch: 'refs/heads/graph-topic' },
+    },
+  ]);
+  await page.getByRole('button', { name: 'Reload graph' }).click();
+  await expect(page.locator('.graph-subject').first()).toHaveText('Later commit 49');
+  await page.getByRole('button', { name: 'Load more commits' }).click();
+  await page.getByRole('link', { name: 'CI · Failed' }).click();
+  await page.getByRole('button', { name: 'Switch to graph-topic…' }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Switch branch', exact: true }).click();
+  await expect(page.locator('.checkout-bar .checkout-state > code').first()).toHaveText('graph-topic');
+  await page.getByRole('link', { name: /Back to Git Graph/ }).click();
+  await expect(page.locator('.graph-subject').first()).toHaveText('Graph upstream update');
+  await expect(search).toHaveValue('people:Jo Dij');
+  await expect(page.getByRole('button', { name: 'Load more commits' })).toHaveCount(0);
 });
 
 test('Activity keeps the branch tree while exposing merge status, CI and push commits inline', async t => {
@@ -2811,6 +2872,14 @@ test('Activity shows only highlights and links a landing and quieter CI to its d
       title: 'Billing CI',
       data: { sourceBranch: main, sourceVersion: head, buildId: 600, status: 'completed', result: 'succeeded' },
     },
+    ...Array.from({ length: 6 }, (_, index) => ({
+      ...base,
+      id: `earlier-pass-${index}`,
+      kind: 'build' as const,
+      title: `Billing validation ${index}`,
+      time: new Date(Date.parse(base.time) - (index + 1) * 60_000).toISOString(),
+      data: { sourceBranch: 'refs/pull/512/merge', buildId: 610 + index, status: 'completed', result: 'succeeded' },
+    })),
     {
       ...base,
       id: 'later-push-to-same-tip',
@@ -2824,7 +2893,10 @@ test('Activity shows only highlights and links a landing and quieter CI to its d
   const merge = page.locator('[data-event-id="highlight-pr"]');
   await expect(merge.locator('.kind')).toHaveText('PR merged');
   await expect(merge.getByText('Landed on main', { exact: false })).toBeVisible();
-  await expect(merge.getByRole('button', { name: 'Post-merge CI passed' })).toBeVisible();
+  await merge.getByText('CI · 6 passed shown').click();
+  await expect(merge.locator('.ci-run time')).toHaveCount(6);
+  await expect(merge.getByRole('button', { name: 'Post-merge CI passed' }).locator('time')).toHaveAttribute('datetime', base.time);
+  await expect(merge.getByRole('button', { name: 'View 1 earlier run' })).toBeVisible();
   await expect(page.locator('[data-event-id="quiet-landing-push"], [data-event-id="quiet-pass"]')).toHaveCount(0);
   await expect(merge.locator('svg.tree')).toBeVisible();
   await expect(page.locator('[data-event-id="later-push-to-same-tip"]')).toContainText('Later default branch push');
@@ -2845,6 +2917,7 @@ test('Activity shows only highlights and links a landing and quieter CI to its d
   await expect(approved.locator('xpath=..')).toHaveAttribute('data-tree-lanes', '5');
   const longCi = approved.getByRole('button', { name: 'PR validation partially succeeded on earlier revision' });
   await expect(longCi).toBeVisible();
+  await expect(longCi.locator('time')).toHaveAttribute('datetime', new Date(Date.parse(base.time) + 60_000).toISOString());
   const rowFits = () =>
     approved.evaluate(row => {
       const kind = row.querySelector('.kind')!;
@@ -2882,6 +2955,8 @@ test('Activity shows only highlights and links a landing and quieter CI to its d
   assert.equal(await sharesStatusColor(merge.locator('.kind')), false);
   await approved.scrollIntoViewIfNeeded();
   await page.screenshot({ path: 'test-results/activity-highlights.png' });
+  await merge.scrollIntoViewIfNeeded();
+  await merge.screenshot({ path: 'test-results/activity-dated-ci-dark.png' });
   await page.evaluate(() => {
     const rule = new CSSStyleSheet();
     rule.replaceSync(
@@ -2902,6 +2977,14 @@ test('Activity shows only highlights and links a landing and quieter CI to its d
   await page.setViewportSize({ width: 390, height: 844 });
   await approved.scrollIntoViewIfNeeded();
   await page.screenshot({ path: 'test-results/activity-highlights-phone.png' });
+  await page.emulateMedia({ colorScheme: 'light' });
+  await expect(page.locator('html')).not.toHaveClass(/\bdark\b/);
+  await merge.screenshot({ path: 'test-results/activity-dated-ci-light-phone.png' });
+  await merge.getByRole('button', { name: 'View 1 earlier run' }).click();
+  await expect(page.locator('.detail-related')).toHaveAttribute('open', '');
+  await expect(page.locator('.detail-related summary')).toHaveText('Related CI runs · 7');
+  await expect(page.getByRole('link', { name: /Billing validation 5/ })).toBeVisible();
+  await page.getByRole('link', { name: /Back to Activity/ }).click();
   await merge.locator('.feed-title').click();
   await page.getByText('Related activity', { exact: false }).click();
   await expect(page.locator('.detail-related h3')).not.toHaveCount(0);

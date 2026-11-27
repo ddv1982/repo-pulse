@@ -30,12 +30,17 @@ export function createCheckoutPanel({
   page,
   request,
   isVisible,
+  onChange,
+  onMutation,
 }: {
   page: HTMLElement;
   request: typeof import('../api.ts').request;
   isVisible: () => boolean;
+  onChange: (before: Record<string, CheckoutSnapshot>) => void;
+  onMutation: (id: string) => void;
 }) {
   let snapshots: Record<string, CheckoutSnapshot> = {};
+  const singleReads = new Map<string, symbol>();
   let reading = false,
     mutating = false,
     generation = 0;
@@ -60,6 +65,7 @@ export function createCheckoutPanel({
   function publish(next: Record<string, CheckoutSnapshot>) {
     const before = snapshots;
     snapshots = next;
+    onChange(before);
     if (!isVisible()) return;
     for (const target of page.querySelectorAll('[data-checkout-part]')) {
       if (!(target instanceof HTMLElement)) continue;
@@ -91,10 +97,16 @@ export function createCheckoutPanel({
     get snapshots() {
       return snapshots;
     },
-    async read(id: string): Promise<CheckoutSnapshot> {
+    async read(id: string, fresh = false): Promise<CheckoutSnapshot> {
       const issued = generation;
-      const checkout = await request(`/api/repos/${encodeURIComponent(id)}/checkout/status`);
-      if (!mutating && issued === generation) publish({ ...snapshots, [id]: retainLocalState(id, checkout) });
+      const read = Symbol(id);
+      singleReads.set(id, read);
+      const path = `/api/repos/${encodeURIComponent(id)}/checkout/status` as const;
+      const checkout = await request(fresh ? `${path}?fresh=1` : path).catch(() => ({ state: 'unavailable' as const }));
+      if (singleReads.get(id) === read) {
+        singleReads.delete(id);
+        if (!mutating && issued === generation) publish({ ...snapshots, [id]: retainLocalState(id, checkout) });
+      }
       return checkout;
     },
     async refresh() {
@@ -103,12 +115,12 @@ export function createCheckoutPanel({
       reading = true;
       try {
         const next: Record<string, CheckoutSnapshot> = await request('/api/checkouts');
-        if (!mutating && issued === generation) {
+        if (isVisible() && !mutating && issued === generation) {
           for (const [id, checkout] of Object.entries(next)) retainLocalState(id, checkout);
           publish(next);
         }
       } catch {
-        if (!mutating && issued === generation)
+        if (isVisible() && !mutating && issued === generation)
           publish(
             Object.fromEntries(
               [...page.querySelectorAll('[data-checkout-part="status"]')]
@@ -144,7 +156,9 @@ export function createCheckoutPanel({
         });
         return result;
       } finally {
+        generation++;
         mutating = false;
+        if (operation !== 'review') onMutation(id);
       }
     },
   };

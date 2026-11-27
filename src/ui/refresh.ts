@@ -6,7 +6,7 @@ import type { StateResponse } from '../api.ts';
 
 export type { ActivityEvent, ActivityPage, EventDetail, StateResponse };
 
-export type View = ActivityView & { eventId: string | null; generation: number };
+export type View = ActivityView & { eventId: string | null; relatedCi?: boolean | undefined; generation: number };
 
 export type Request = typeof import('../api.ts').request;
 
@@ -91,6 +91,7 @@ export function createRefreshController({
   let loaded = false;
   let detailResult: EventDetail | null | undefined;
   let detailRevision: string | undefined;
+  let detailCi: boolean | undefined;
   let active: { view: View; promise: Promise<RefreshOutcome> } | null | undefined;
   let queued: (RefreshJob & PromiseWithResolvers<RefreshOutcome>) | null | undefined;
   const isCurrent = (view: View) => viewKey(view) === viewKey(getView());
@@ -116,12 +117,14 @@ export function createRefreshController({
         if (activity !== state.activity) next.events = activityEvents(activity);
       } else if (view.route === 'event') {
         if (view.eventId === null) throw new Error('Activity details are unavailable.');
-        const cached = !force && detailResult?.event?.id === view.eventId && detailRevision === next.activityRevision;
-        const detail = cached ? detailResult : await activityData.event(view.eventId);
+        const cached =
+          !force && detailResult?.event?.id === view.eventId && detailRevision === next.activityRevision && detailCi === view.relatedCi;
+        const detail = cached ? detailResult : await activityData.event(view.eventId, view.relatedCi);
         if (!detail) throw new Error('Activity details are unavailable.');
         if (!isCurrent(view)) return { type: 'superseded' };
         detailResult = detail;
         detailRevision = next.activityRevision;
+        detailCi = view.relatedCi;
         if (!cached) next.events = activityEvents(state.activity, detail);
         next.detailRelated = detail.related;
         next.detailLoading = false;

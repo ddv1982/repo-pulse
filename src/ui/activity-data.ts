@@ -129,8 +129,8 @@ export function createActivityData(request: Request) {
         return read(ui, { ...options, force: true, restart: true });
       }
     },
-    async event(id: string) {
-      return await request(`/api/events/${encodeURIComponent(id)}`);
+    async event(id: string, ciOnly = false) {
+      return await request(`/api/events/${encodeURIComponent(id)}${ciOnly ? '?ci=1' : ''}`);
     },
   };
 }

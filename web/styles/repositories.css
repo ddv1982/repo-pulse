@@ -437,3 +437,23 @@
     flex-basis: 100%;
   }
 }
+
+.checkout-bar,
+.checkout-bar-state {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  min-width: 0;
+}
+.checkout-bar {
+  justify-content: space-between;
+  padding: 8px 16px;
+  border-block: 1px solid var(--border);
+  background: var(--table-head);
+}
+.checkout-bar .subref {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}

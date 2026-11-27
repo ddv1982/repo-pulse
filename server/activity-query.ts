@@ -186,8 +186,8 @@ function pageQuery(
   if (after) params.push(after.time, after.observed, after.key);
   params.push(pageSize + 1);
   const linkRows = foldCi
-    ? `(SELECT json_group_array(json_object('run_key',run_key,'run_id',run_id,'title',title,'status',status,
-        'host_key',host_key,'host_id',host_id,'host_kind',host_kind,'validation',validation,'folded',folded) ORDER BY status='succeeded',run_time DESC,run_id)
+    ? `(SELECT json_group_array(json_object('run_key',run_key,'run_id',run_id,'title',title,'status',status,'time',run_time,
+        'host_key',host_key,'host_id',host_id,'host_kind',host_kind,'validation',validation,'folded',folded) ORDER BY julianday(run_time) DESC,run_id DESC)
       FROM ci_links WHERE host_key IN (SELECT key FROM selected_page) OR (NOT folded AND run_key IN (SELECT key FROM selected_page)))`
     : 'NULL';
   const sql = `${cte}${foldCi ? activityCi : ''},
@@ -243,6 +243,7 @@ function loadMembers(
 type CiLink = {
   run_key: string;
   run_id: string;
+  time: ActivityEvent['time'];
   host_key: string;
   host_id: string;
   host_kind: string;
@@ -259,6 +260,7 @@ function attachCi(items: ActivityItem[], links: CiLink[], members: Map<string, A
     if (host) {
       (host.relatedCi ??= []).push({
         id: link.run_id,
+        time: link.time,
         title: link.title ?? 'CI run',
         validation: Boolean(link.validation),
         postMerge: !link.validation && link.host_kind === 'pr',

@@ -1,4 +1,4 @@
-import { repositoryHref } from './navigation.ts';
+import { canSwitch } from './checkout-render.ts';
 import type { CheckoutSnapshot, CheckoutOperation } from './checkout.ts';
 
 export type { CheckoutSnapshot, CheckoutOperation };
@@ -41,7 +41,7 @@ export function createCheckoutActions({
       }
       toast(result.updated ? `Updated ${branch}.` : 'The checkout is already at the fetched upstream.');
     } catch (error) {
-      void checkoutPanel.refresh();
+      void checkoutPanel.read(id, true);
       throw error;
     }
   }
@@ -105,23 +105,23 @@ export function createCheckoutActions({
     request: Record<string, unknown>,
     done: () => void,
   ) {
-    const checkout = await checkoutPanel.read(repoId);
+    const checkout = await checkoutPanel.read(repoId, true);
     if (!isCurrent()) return;
     if (checkout.branch === branch) return done();
     if (checkout.state === 'unavailable' || checkout.state === 'not-linked')
       throw new Error(checkout.diagnostic?.title || 'The linked checkout is unavailable.');
-    if (checkout.state === 'in-progress') throw new Error('Finish the Git operation before switching branches.');
+    if (!canSwitch(checkout)) throw new Error('An existing branch and an idle checkout are required to switch.');
     const { branch: current, head, upstream, identity, switchIdentity } = checkout;
     if (!current || !head || !identity) throw new Error('Switching requires an existing branch checked out in Git.');
     if (!switchIdentity) throw new Error('Repo Pulse could not verify the local Git directory.');
     const switchBranch = async (confirmation?: string) => {
       if (!isCurrent()) return;
-      const result = await checkoutPanel.update(
-        repoId,
-        operation,
-        { branch: current, head, upstream, identity, switchIdentity },
-        { ...request, confirmation },
-      );
+      const result = await checkoutPanel
+        .update(repoId, operation, { branch: current, head, upstream, identity, switchIdentity }, { ...request, confirmation })
+        .catch(error => {
+          void checkoutPanel.read(repoId, true);
+          throw error;
+        });
       if (!isCurrent()) return;
       if (result.switchReview) {
         const review = result.switchReview;
@@ -149,11 +149,23 @@ export function createCheckoutActions({
     };
     confirm(
       `Switch to ${branch}?`,
-      `Switch the local checkout from ${current} to ${branch}. Git will stop if switching would overwrite local changes. You can check for updates or pull from Repositories afterward.`,
+      `Switch the local checkout from ${current} to ${branch}. Git will stop if switching would overwrite local changes. You can pull afterward if an update is available.`,
       () => switchBranch(),
       'Switch branch',
       { subject: localPath },
     );
+  }
+
+  function checkShownCheckout(shown: CheckoutSnapshot | undefined, current: CheckoutSnapshot) {
+    if (
+      !shown ||
+      shown.branch !== current.branch ||
+      shown.head !== current.head ||
+      shown.identity !== current.identity ||
+      shown.switchIdentity !== current.switchIdentity ||
+      shown.upstream !== current.upstream
+    )
+      throw new Error('The checkout changed. Review the current branch and try again.');
   }
 
   return {
@@ -162,7 +174,7 @@ export function createCheckoutActions({
       if (!context) return;
       const { repoId, localPath, eventId, branch, isCurrent } = context;
       await switchCheckout({ repoId, localPath, branch, isCurrent }, 'switch-activity', { eventId }, () => {
-        location.hash = repositoryHref(repoId);
+        document.getElementById(`checkout-state-${repoId}`)?.focus({ preventScroll: true });
       });
     },
     'switch-checkout-branch': async element => {
@@ -173,19 +185,29 @@ export function createCheckoutActions({
       const isCurrent = currentView();
       await switchCheckout({ repoId, localPath, branch, isCurrent }, 'switch-branch', { branch }, focus);
     },
-    'check-checkout': element => {
+    'check-checkout': async element => {
       const id = element.dataset.id ?? '';
-      const checkout = checkoutPanel.snapshots[id];
-      if (checkout?.canCheck) return updateCheckout(id, 'check', checkout);
+      const isCurrent = currentView();
+      const shown = checkoutPanel.snapshots[id];
+      const checkout = await checkoutPanel.read(id, true);
+      if (!isCurrent()) return;
+      checkShownCheckout(shown, checkout);
+      if (checkout.canCheck) return updateCheckout(id, 'check', checkout);
     },
-    'pull-checkout': element => {
+    'pull-checkout': async element => {
       const id = element.dataset.id ?? '';
-      const checkout = checkoutPanel.snapshots[id];
-      if (!checkout?.canPull) return;
+      const isCurrent = currentView();
+      const shown = checkoutPanel.snapshots[id];
+      const checkout = await checkoutPanel.read(id, true);
+      if (!isCurrent()) return;
+      checkShownCheckout(shown, checkout);
+      if (!checkout.canPull) return;
       confirm(
         `Update ${checkout.branch}?`,
         `Pull the latest commits from ${checkout.upstream} into this local checkout. Git will only fast-forward the branch and will check that it can keep your local changes.`,
-        () => updateCheckout(id, 'pull', checkout),
+        async () => {
+          if (isCurrent()) await updateCheckout(id, 'pull', checkout);
+        },
         'Pull',
       );
     },
