@@ -23,7 +23,7 @@ import { renderTypeFilter } from './type-filter.ts';
 import { activityScopeQuery } from './activity-data.ts';
 import { activityFilterLabel, activityRef, prForkSource, prTarget, prVoteChanges } from '../activity-text.ts';
 import { branchName } from '../events.ts';
-import { scopeName } from './header.ts';
+import { renderRepositoryScope, scopeName } from './repository-scope.ts';
 import { currentActivityFilters, isSavedFilterModified, renderSavedFilters } from './saved-filters.ts';
 import { mergeEvidenceBadge } from './merge-evidence.ts';
 import { buildActivityTree, type ActivityTree } from '../activity-tree.ts';
@@ -45,18 +45,21 @@ export type FeedView = Pick<import('./navigation.ts').NavigationState, 'unreadOn
 export function filterControls(ui: FeedView & { savedFilterId: string }, state: PageState) {
   const desktop = globalThis.matchMedia?.('(min-width: 640px)').matches ?? true;
   const active = Number(Boolean(ui.search)) + Number(Boolean(ui.kind)) + Number(ui.unreadOnly);
+  // Clear filter leaves the repository scope alone, so only the Filters count includes it.
+  const count = active + Number(ui.repoIds !== null);
   const open = desktop || ui.filtersOpen === true;
   const presets = state.savedFilters ?? [];
   const saved = presets.find(filter => filter.id === ui.savedFilterId);
   const modified = Boolean(saved && isSavedFilterModified(saved.filters, currentActivityFilters(ui), state.watched));
   return html`<div class="activity-filter-bar">
     <button class="btn filters-toggle" id="activity-filters-toggle" data-action="toggle-activity-filters" type="button"
-      aria-expanded="${open}" aria-controls="activity-filters">Filters${active ? ` · ${active}` : ''}</button>
+      aria-expanded="${open}" aria-controls="activity-filters">Filters${count ? ` · ${count}` : ''}</button>
     ${renderSavedFilters(presets, ui.savedFilterId, modified, ui.openMenu)}
     <div class="filters-box" id="activity-filters" ${open ? emptyHtml : html`hidden`}>
       <div class="toolbar">${renderSearchInput('feed-search', 'Search activity', 'Search branch, commit, person or repository…', ui.search)}
         <div class="filter-actions">
           ${renderTypeFilter(ui.kind, state.activity.filterOptions, state.activity.loading, ui.openMenu === 'kind-panel')}
+          ${renderRepositoryScope(state, ui)}
           <button class="btn" id="unread-only" type="button" data-action="toggle-unread" aria-pressed="${ui.unreadOnly}">Unread only</button>
           ${active ? html`<button class="btn" id="clear-filters" type="button" data-action="clear-filters">Clear filter</button>` : emptyHtml}
         </div>

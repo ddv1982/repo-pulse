@@ -135,7 +135,7 @@
   color: inherit;
 }
 
-/* Search, type filter dropdown, and activity scope toggle. */
+/* Search, type filter dropdown, and repository scope menu. */
 .toolbar {
   display: flex;
   flex-wrap: wrap;
@@ -189,11 +189,12 @@
   gap: 8px;
 }
 #kind-toggle[data-active='true'],
+#repo-toggle[data-active='true'],
 #unread-only[aria-pressed='true'] {
   border-color: var(--primary);
   background: var(--primary-wash);
 }
-:root:not(.dark) :is(#kind-toggle[data-active='true'], #unread-only[aria-pressed='true']) {
+:root:not(.dark) :is(#kind-toggle[data-active='true'], #repo-toggle[data-active='true'], #unread-only[aria-pressed='true']) {
   background-color: var(--active-filter-fill, color-mix(in srgb, var(--primary) 10%, var(--card)));
   background-image: var(--chrome-sheen, none);
 }
@@ -249,7 +250,7 @@
   min-height: 32px;
   padding: 6px 8px;
   border: 0;
-  border-radius: 5px;
+  border-radius: var(--row-radius);
   background: var(--card);
   color: var(--foreground);
   text-align: left;
@@ -262,6 +263,26 @@
 }
 .type-option:focus-visible {
   outline-offset: -2px;
+}
+.scope-panel:not([hidden]) {
+  display: flex;
+  flex-direction: column;
+}
+/* The scope panel opens below the filter controls and ends at their right edge, so it stays on screen. */
+.filter-actions {
+  position: relative;
+}
+.filter-actions .scope-menu {
+  position: static;
+}
+.scope-panel {
+  left: auto;
+  right: 0;
+}
+.scope-options {
+  max-height: min(55dvh, 360px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 .type-check {
   width: 16px;
@@ -1013,6 +1034,11 @@ ol.rows {
   }
   .type-menu {
     position: relative;
+  }
+  /* On phones the scope panel spans the filter row and opens below its toggle. */
+  .scope-panel {
+    top: auto;
+    left: 0;
   }
   .type-panel {
     top: 100%;

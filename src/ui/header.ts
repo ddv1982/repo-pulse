@@ -3,26 +3,9 @@ import { syncPill, syncRepoName } from './health.ts';
 import { icons, themeSwitch } from './icons.ts';
 import { activityHref, isActivity } from './navigation.ts';
 
-export type ScopeState = Pick<import('./refresh.ts').PageState, 'repos'>;
-export type HeaderState = ScopeState & Pick<import('./refresh.ts').PageState, 'settings' | 'syncStatus'>;
-export type ScopeView = Pick<import('./navigation.ts').NavigationState, 'repoIds'>;
-/** web.ts sets `refreshing` while a refresh runs; `openMenu` is `repo-panel` while the scope panel is open. */
-export type HeaderView = ScopeView &
-  Pick<import('./navigation.ts').NavigationState, 'route' | 'unreadOnly'> & { refreshing?: boolean; openMenu?: string };
-
-function selectedRepos(state: ScopeState, ui: ScopeView) {
-  return state.repos.filter(repo => ui.repoIds === null || ui.repoIds.includes(repo.id));
-}
-
-export function scopeName(state: ScopeState, ui: ScopeView) {
-  const count = ui.repoIds === null ? state.repos.length : selectedRepos(state, ui).length;
-  return `${ui.repoIds === null && count > 1 ? 'All ' : ''}${count} repositor${count === 1 ? 'y' : 'ies'}${ui.repoIds === null ? '' : ' shown'}`;
-}
-
-export function scopeLabel(state: ScopeState, ui: ScopeView) {
-  const selected = selectedRepos(state, ui);
-  return html`<span class="scope-label-long">${scopeName(state, ui)}</span><span class="scope-label-short" aria-hidden="true">${selected.length} repo${selected.length === 1 ? '' : 's'}</span> ▾`;
-}
+export type HeaderState = Pick<import('./refresh.ts').PageState, 'repos' | 'settings' | 'syncStatus'>;
+/** web.ts sets `refreshing` while a refresh runs. */
+export type HeaderView = Pick<import('./navigation.ts').NavigationState, 'route' | 'unreadOnly'> & { refreshing?: boolean };
 
 export function renderHeader(state: HeaderState, ui: HeaderView) {
   const automatic = state.settings.refreshEnabled !== false;
@@ -31,7 +14,7 @@ export function renderHeader(state: HeaderState, ui: HeaderView) {
     suffix: 'desktop' | 'mobile',
   ) => html`<input class="setting-switch" type="checkbox" role="switch" id="header-auto-${suffix}" data-auto-toggle
     aria-label="Automatic checks" ${automatic ? html`checked` : emptyHtml}>`;
-  const refreshTitle = 'Refresh activity across selected repositories.';
+  const refreshTitle = 'Refresh activity for the repositories shown in Activity.';
   const refresh = (
     suffix: 'desktop' | 'mobile',
   ) => html`<button type="button" class="${suffix === 'mobile' ? 'ghost mobile-refresh' : 'monitor-refresh'}"
@@ -40,13 +23,7 @@ export function renderHeader(state: HeaderState, ui: HeaderView) {
     data-idle-title="${refreshTitle}" title="${ui.refreshing ? 'Refreshing activity…' : refreshTitle}">
     ${icons.refresh}${suffix === 'mobile' ? html`<span>Refresh activity</span>` : emptyHtml}</button>`;
   const current = html`aria-current="page"`;
-  const repoOptions = state.repos.length
-    ? state.repos.map(
-        repo =>
-          html`<label class="opt"><input type="checkbox" id="scope-${repo.id}" data-scope-repo="${repo.id}" ${ui.repoIds === null || ui.repoIds.includes(repo.id) ? html`checked` : emptyHtml}><b>${repo.name}</b><small>${repo.project}</small></label>`,
-      )
-    : html`<p class="help menu-empty">Add repositories to begin watching.</p>`;
-  return html`<div class="hg header-brand"><a class="brand" href="${activityHref(false)}">Repo Pulse</a><div class="menu"><button class="control" id="repo-toggle" type="button" aria-expanded="${ui.openMenu === 'repo-panel'}" aria-controls="repo-panel" aria-label="${scopeName(state, ui)}" title="Changing visible repositories marks nothing seen">${scopeLabel(state, ui)}</button><div class="menu-panel" id="repo-panel" role="group" aria-label="Repositories shown" ${ui.openMenu === 'repo-panel' ? emptyHtml : html`hidden`}>${repoOptions}<div class="mfoot"><span>Scope changes mark nothing seen.</span><button class="ghost sm" type="button" data-action="all-repos">All</button><button class="ghost sm" type="button" data-action="no-repos">None</button></div></div></div></div>
+  return html`<div class="hg header-brand"><a class="brand" href="${activityHref(false)}">Repo Pulse</a></div>
     <nav class="seg tabs" aria-label="Main">
       <a href="${activityHref(ui.unreadOnly)}" ${isActivity(ui.route) || ui.route === 'event' ? current : emptyHtml}>Activity</a>
       <a href="#graph" ${ui.route === 'graph' ? current : emptyHtml}>Git Graph</a>

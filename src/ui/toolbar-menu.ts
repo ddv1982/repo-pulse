@@ -3,6 +3,9 @@ import { required } from './dom.ts';
 /**
  * The open menu is kept in `state.openMenu` (its panel ID), so a render draws it open and incoming activity can render
  * while a person is choosing.
+ *
+ * Without `onSelect` the items are checkboxes a person ticks several of: a tick keeps the menu open, Tab moves through
+ * its controls, and the menu closes once focus leaves it.
  */
 export function createToolbarMenu({
   toggleId,
@@ -15,7 +18,7 @@ export function createToolbarMenu({
   panelId: string;
   itemSelector: string;
   state: { openMenu?: string };
-  onSelect: (item: HTMLElement) => void;
+  onSelect?: (item: HTMLElement) => void;
 }) {
   let root: HTMLElement | null | undefined;
   let pointerDown = false;
@@ -36,10 +39,13 @@ export function createToolbarMenu({
   function focusOption(panel: HTMLElement, option: HTMLElement | undefined) {
     if (!option) return;
     option.focus({ preventScroll: true });
-    const bounds = panel.getBoundingClientRect(),
-      row = option.getBoundingClientRect();
-    if (row.bottom > bounds.bottom) panel.scrollTop += row.bottom - bounds.bottom;
-    else if (row.top < bounds.top) panel.scrollTop -= bounds.top - row.top;
+    // A checkbox sits in its label row, and the rows' parent is the list that scrolls.
+    const item = option.closest('label') ?? option;
+    const list = item.parentElement ?? panel;
+    const bounds = list.getBoundingClientRect(),
+      row = item.getBoundingClientRect();
+    if (row.bottom > bounds.bottom) list.scrollTop += row.bottom - bounds.bottom;
+    else if (row.top < bounds.top) list.scrollTop -= bounds.top - row.top;
   }
   function open() {
     const current = menu();
@@ -55,6 +61,7 @@ export function createToolbarMenu({
     current.toggle.setAttribute('aria-expanded', 'true');
     const selected = current.root.querySelector('[aria-selected="true"]');
     focusOption(current.panel, selected instanceof HTMLElement ? selected : options(current.root)[0]);
+    current.panel.scrollIntoView({ block: 'nearest' });
   }
   const outside = (event: Event) => {
     const target = event.target;
@@ -94,14 +101,14 @@ export function createToolbarMenu({
           return;
         }
         const option = target.closest(itemSelector);
-        if (option instanceof HTMLElement) {
+        if (onSelect && option instanceof HTMLElement) {
           close(true);
           onSelect(option);
         }
       };
       root.onkeydown = event => {
         if (event.key === 'Tab') {
-          close();
+          if (onSelect) close();
           return;
         }
         if (event.key === 'Escape' && !menu()?.panel.hidden) {
@@ -122,7 +129,7 @@ export function createToolbarMenu({
         const next =
           event.key === 'Home'
             ? 0
-            : event.key === 'End'
+            : event.key === 'End' || (event.key === 'ArrowUp' && index === -1)
               ? all.length - 1
               : (index + (event.key === 'ArrowDown' ? 1 : -1) + all.length) % all.length;
         focusOption(current.panel, all[next]);

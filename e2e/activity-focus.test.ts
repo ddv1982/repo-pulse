@@ -287,7 +287,7 @@ test('a focused scope checkbox stays on its repository when an earlier repositor
   await expect(billing).toBeFocused();
 });
 
-test('opening a toolbar menu closes the scope panel, and the scope panel survives a breakpoint change', async t => {
+test('opening a toolbar menu closes the scope panel, and a breakpoint change closes it like the other filter menus', async t => {
   const { page } = await setup(t);
   const scope = page.getByRole('group', { name: 'Repositories shown' });
   await page.locator('#repo-toggle').click();
@@ -301,10 +301,11 @@ test('opening a toolbar menu closes the scope panel, and the scope panel survive
   await expect(scope).toBeHidden();
   await page.keyboard.press('Escape');
   await page.locator('#repo-toggle').click();
-  await page.setViewportSize({ width: 390, height: 844 });
   await expect(scope).toBeVisible();
-  await page.keyboard.press('Escape');
+  await page.setViewportSize({ width: 390, height: 844 });
   await expect(scope).toBeHidden();
+  await page.locator('#activity-filters-toggle').click();
+  await expect(page.locator('#repo-toggle')).toHaveAttribute('aria-expanded', 'false');
 });
 
 test('ticked commits survive incoming activity while focus is elsewhere on the page', async t => {
