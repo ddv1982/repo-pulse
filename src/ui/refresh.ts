@@ -54,8 +54,10 @@ export function readState(value: unknown): StateResponse {
     !Array.isArray(jobs) ||
     !Array.isArray(savedFilters) ||
     !isObject(diagnostics) ||
+    !isObject(diagnostics.sync) ||
     !isObject(settings) ||
     typeof settings.refreshEnabled !== 'boolean' ||
+    (settings.refreshResumedAt !== null && typeof settings.refreshResumedAt !== 'number') ||
     !isObject(syncStatus) ||
     !isObject(syncStatus.overall) ||
     typeof syncStatus.overall.state !== 'string' ||

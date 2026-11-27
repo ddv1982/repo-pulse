@@ -1,13 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createRefreshController, type View } from '../src/ui/refresh.ts';
+import { createRefreshController, readState, type View } from '../src/ui/refresh.ts';
 import { fakeRequest } from './fixtures/typed.ts';
 
 /** A complete /api/state answer: the refresh controller refuses one with a missing field. */
 const state = (fields: Record<string, unknown>) => ({
   repos: [],
   streams: [],
-  diagnostics: {},
+  diagnostics: { sync: {} },
   jobs: [],
   activityRevision: '1',
   savedFilters: [],
@@ -150,4 +150,16 @@ test('disabled repositories stay watched but leave the shown repositories and th
     ['orders'],
   );
   assert.deepEqual(reconciled, [['orders', 'billing']]);
+});
+
+test('a state answer without its settings resume time or sync counters is unreadable', () => {
+  assert.doesNotThrow(() => readState(state({})));
+  assert.doesNotThrow(() => readState(state({ settings: { refreshEnabled: false, refreshResumedAt: 5 } })));
+  for (const fields of [
+    { diagnostics: {} },
+    { diagnostics: { sync: null } },
+    { settings: { refreshEnabled: true } },
+    { settings: { refreshEnabled: true, refreshResumedAt: '5' } },
+  ])
+    assert.throws(() => readState(state(fields)), { message: 'Local state is unreadable.' }, JSON.stringify(fields));
 });
