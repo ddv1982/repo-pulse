@@ -10,7 +10,7 @@ import { join } from 'node:path';
 import type { Server } from 'node:http';
 import { chromium } from '@playwright/test';
 import type { Browser, BrowserContext, BrowserContextOptions, Locator, Page, PageScreenshotOptions } from '@playwright/test';
-import { startApp } from '../../server.ts';
+import { startApp } from '../../server/runtime.ts';
 import { portOf, rememberKey, rememberRuntime } from '../../test/fixtures/access.ts';
 import { browserPath } from './browser.ts';
 

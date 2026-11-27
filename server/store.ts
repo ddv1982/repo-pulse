@@ -1,4 +1,5 @@
 import { FIRST_SYNC_MS } from './time.ts';
+import { branchName } from '../src/events.ts';
 import { DatabaseSync } from 'node:sqlite';
 import { chmodSync, mkdirSync, readdirSync, renameSync, rmSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
@@ -30,7 +31,7 @@ import type { ActivityEvent } from '../src/activity.ts';
 import type { StoredEvent, HydratedEvent, Repository, StreamState, AzureStream as StreamName } from '../src/contract.ts';
 import type { Job, JobType, JobOf, Settings, SettingKey, SqlRow } from './store-records.ts';
 import type { Entity, EntityData, EntityType } from './normalize.ts';
-import { invalid, notFound } from './errors.ts';
+import { conflict, invalid, notFound } from './errors.ts';
 
 export type Store = ReturnType<typeof createStore>;
 
@@ -104,6 +105,7 @@ export function createStore(path = ':memory:', { highlights = false } = {}) {
       throw error;
     }
   };
+  const listRepos = () => q('SELECT id,data FROM repositories ORDER BY rowid').all().map(readRepository);
   const requireRepo = (id: string) => {
     const row = q('SELECT id,data FROM repositories WHERE id=?').get(id);
     const repo = row && readRepository(row);
@@ -567,8 +569,37 @@ export function createStore(path = ':memory:', { highlights = false } = {}) {
 
   const store = {
     activityRevision,
-    listRepos: () => q('SELECT id,data FROM repositories ORDER BY rowid').all().map(readRepository),
+    listRepos,
     getRepo: requireRepo,
+    /** The watched repository, refused while it is disabled: reads and actions on it wait until it is enabled. */
+    getEnabledRepo(id: string) {
+      const repo = requireRepo(id);
+      if (repo.disabled) throw conflict('Repository is disabled. Enable it on Repositories first.');
+      return repo;
+    },
+    enabledRepoIds: () =>
+      listRepos()
+        .filter(repo => !repo.disabled)
+        .map(repo => repo.id),
+    /**
+     * The branch names the repository lists, in the order the branch picker shows them: the default branch, main and
+     * master first, then the most recently pushed, then by name.
+     */
+    listBranches(repo: Pick<Repository, 'id' | 'defaultBranch'>) {
+      const pinned = [branchName(repo.defaultBranch), 'main', 'master'];
+      return store
+        .listEntities(repo.id, 'ref')
+        .filter(({ id, data }) => id.startsWith('refs/heads/') && id.length > 11 && data.active !== false)
+        .map(({ id, data }) => ({ name: branchName(id), pushId: Number(data.lastPushId) || 0 }))
+        .sort(
+          (a, b) =>
+            Number(pinned.includes(b.name)) - Number(pinned.includes(a.name)) ||
+            pinned.indexOf(a.name) - pinned.indexOf(b.name) ||
+            b.pushId - a.pushId ||
+            a.name.localeCompare(b.name),
+        )
+        .map(({ name }) => name);
+    },
     saveRepo(repo: Repository) {
       if (!repo.id || !repo.name) throw invalid('Repository ID and name are required.');
       const row = q('SELECT id,data FROM repositories WHERE id=?').get(repo.id);

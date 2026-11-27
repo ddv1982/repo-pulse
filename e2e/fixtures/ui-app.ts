@@ -2,7 +2,7 @@ import type { TestContext } from 'node:test';
 import { refreshNow, defer, listen, openPage, startTestApp } from './app.ts';
 import { expect } from '@playwright/test';
 import type { Page } from '@playwright/test';
-import { createApp } from '../../server.ts';
+import { createApp } from '../../server/runtime.ts';
 import { TEST_KEY, fetchWithKey } from '../../test/fixtures/access.ts';
 import { createStore } from '../../server/store.ts';
 import { createSync } from '../../server/sync.ts';

@@ -7,7 +7,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import { createApp, startApp } from '../server.ts';
+import { createApp, startApp } from '../server/runtime.ts';
 import type { AzureProvider } from '../server/azure-client.ts';
 import { createBackfill } from '../server/backfill.ts';
 import { demoProvider } from '../server/demo.ts';

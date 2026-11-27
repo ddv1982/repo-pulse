@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { capture, defer, listen, openPage } from './fixtures/app.ts';
 import { expect } from '@playwright/test';
-import { createApp } from '../server.ts';
+import { createApp } from '../server/runtime.ts';
 import { TEST_KEY } from '../test/fixtures/access.ts';
 import { createStore } from '../server/store.ts';
 import { createSync } from '../server/sync.ts';
@@ -11,7 +11,7 @@ import type { AzureProvider } from '../server/azure-client.ts';
 import type { ConnectionStatus, Repository, SyncStatus, DemoSyncStatus, HistoryJob } from '../src/contract.ts';
 import { present, stub } from '../test/fixtures/typed.ts';
 import { setup, renderInBackground } from './fixtures/ui-app.ts';
-import type { AppSync } from '../server.ts';
+import type { AppSync } from '../server/routes/context.ts';
 import { historyJob } from '../test/fixtures/jobs.ts';
 import { conflict } from '../server/errors.ts';
 

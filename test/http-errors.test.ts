@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { TestContext } from 'node:test';
 import { createStore } from '../server/store.ts';
-import { createApp, type AppOptions } from '../server.ts';
+import { createApp, type AppOptions } from '../server/runtime.ts';
 import { seedDemo } from '../server/demo.ts';
 import { cliError } from '../server/azure-cli.ts';
 import type { AzureProvider } from '../server/azure-client.ts';

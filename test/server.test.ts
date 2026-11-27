@@ -9,13 +9,13 @@ import { promisify } from 'node:util';
 import { request as httpRequest, createServer as createHttpServer } from 'node:http';
 import { once } from 'node:events';
 import { createStore } from '../server/store.ts';
-import { createApp, startApp } from '../server.ts';
+import { createApp, startApp } from '../server/runtime.ts';
 import { createSync } from '../server/sync.ts';
 import { seedDemo } from '../server/demo.ts';
 import type { TestContext } from 'node:test';
 import { createAzureClient, type AzureProvider, type ResolvedRepository } from '../server/azure-client.ts';
 import type { createCheckoutGit } from '../server/checkout-git.ts';
-import type { AppOptions } from '../server.ts';
+import type { AppOptions } from '../server/runtime.ts';
 import type { CheckoutStatus, ConnectionStatus, PushCommitsResponse, StateResponse, SyncEngineStatus } from '../src/contract.ts';
 import type { ActivityEvent, ActivityPage as ActivityResponse } from '../src/activity.ts';
 import { TEST_KEY, keyedFetch, portOf } from './fixtures/access.ts';
@@ -458,6 +458,7 @@ test('the data directory is closed to other accounts', { skip: typeof process.ge
 });
 
 const SERVER = fileURLToPath(new URL('../server.ts', import.meta.url));
+const RUNTIME = fileURLToPath(new URL('../server/runtime.ts', import.meta.url));
 /** A start expected to be refused; one that starts anyway is closed, so the test fails instead of hanging. */
 const refusedStart = async (dataDir: string) => {
   const runtime = await startApp({ demo: true, port: 0, dataDir });
@@ -508,7 +509,7 @@ test('a lock held by a run that was killed is taken over', async t => {
       `const { startApp } = await import(process.argv[1]);
        await startApp({ demo: true, port: 0, dataDir: process.argv[2] });
        process.stdout.write('started');`,
-      pathToFileURL(SERVER).href,
+      pathToFileURL(RUNTIME).href,
       directory,
     ],
     { stdio: ['ignore', 'pipe', 'inherit'] },

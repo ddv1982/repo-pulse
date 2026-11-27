@@ -1,7 +1,9 @@
 import { branchName } from '../src/events.ts';
 import { createHash } from 'node:crypto';
 import type { GitRunner } from './checkout-git.ts';
+import { activityLabel } from '../src/activity-text.ts';
 import type { GitHistoryPage } from '../src/contract.ts';
+import type { ActivityEvent } from '../src/activity.ts';
 import { conflict, invalid } from './errors.ts';
 
 const fullId = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
@@ -116,4 +118,21 @@ function parseCommits(output: string, labels: Map<string, string[]>) {
   }
 
   return { commits, more: fields.length > pageSize * 4 + 1 };
+}
+
+/** Adds the pull requests and builds that ran on a page's commits, as the graph lists them beside each commit. */
+export function withCommitActivity(page: GitHistoryPage, activity: { sha: string; event: ActivityEvent }[]) {
+  const commits = new Map(page.commits.map(commit => [commit.id, commit]));
+  for (const { sha, event } of activity) {
+    if (event.kind === 'pr' || event.kind === 'build') {
+      commits.get(sha)?.activity.push({
+        id: event.id,
+        kind: event.kind,
+        time: event.time,
+        title: event.title ?? '',
+        status: activityLabel(event) ?? 'Updated',
+      });
+    }
+  }
+  return page;
 }

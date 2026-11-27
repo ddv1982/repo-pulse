@@ -4,11 +4,11 @@ import { cleanupStack, defer, listen, openPage, capture } from './fixtures/app.t
 import { readFile, writeFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { expect } from '@playwright/test';
-import { createApp } from '../server.ts';
+import { createApp } from '../server/runtime.ts';
 import { TEST_KEY } from '../test/fixtures/access.ts';
 import { checkoutFixture, git } from '../test/fixtures/checkout.ts';
 import { createStore } from '../server/store.ts';
-import type { AppSync } from '../server.ts';
+import type { AppSync } from '../server/routes/context.ts';
 import type { AzureProvider } from '../server/azure-client.ts';
 import type { ConnectionStatus, Repository, SyncEngineStatus, DemoSyncStatus, Repository as LinkedRepo } from '../src/contract.ts';
 import { stub } from '../test/fixtures/typed.ts';

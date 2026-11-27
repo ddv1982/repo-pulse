@@ -188,3 +188,23 @@ export async function discoverRepositories(inputPath: unknown): Promise<Discover
     await Promise.all(children.slice(i, Math.min(i + 2, 200)).map(entry => readCheckout(resolve(path, entry.name))));
   return result;
 }
+
+/**
+ * The Azure remote a request to watch a repository names: a repository URL, or a local checkout with its one Azure
+ * remote or the remote it names. A checkout keeps its folder as the repository's local path.
+ */
+export async function remoteToWatch(
+  input: Record<string, unknown>,
+  discover: (path: string) => Promise<Discovery>,
+): Promise<ParsedRemote & { localPath?: string }> {
+  if (typeof input.url === 'string' && input.url.trim()) return parseRemote(input.url.trim());
+  if (typeof input.path !== 'string' || !input.path.trim()) throw invalid('Enter an Azure repository URL or local checkout path.');
+  const result = await discover(input.path);
+  const enteredPath = input.path.startsWith('~/') ? resolve(homedir(), input.path.slice(2)) : resolve(input.path);
+  const checkout = result.repositories.find(repo => resolve(repo.localPath) === enteredPath);
+  if (!checkout) throw invalid('This folder is not an Azure Git checkout. Choose a repository folder.');
+  const remotes = input.remote ? checkout.remotes.filter(item => item.name === input.remote) : checkout.remotes;
+  const [only] = remotes;
+  if (!only || remotes.length !== 1) throw invalid('Choose the remote explicitly for a checkout with multiple Azure remotes.');
+  return { ...parseRemote(only.url), localPath: checkout.localPath };
+}

@@ -1,6 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import type { AddressInfo } from 'node:net';
-import { createApp, type AppProvider, type AppSync } from '../server.ts';
+import { createApp } from '../server/runtime.ts';
+import { type AppProvider, type AppSync } from '../server/routes/context.ts';
 import { createStore } from '../server/store.ts';
 import type { ActivityEvent } from '../src/activity.ts';
 import type { Repository } from '../src/contract.ts';
