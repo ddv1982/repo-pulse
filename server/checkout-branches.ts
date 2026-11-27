@@ -5,7 +5,7 @@ import { dirname, join } from 'node:path';
 import { ancestry, isCommit } from './checkout-advice.ts';
 import { isSymbolicRef, worktreeUsesBranch } from './checkout-delete-guard.cjs';
 import type { GitRunner, Upstream } from './checkout-git.ts';
-import type { FollowupSummary, Review, PullAdvice, Repository as LinkedRepo, ActiveCheckout } from '../src/contract.ts';
+import type { BranchAction, FollowupSummary, Review, PullAdvice, Repository as LinkedRepo, ActiveCheckout } from '../src/contract.ts';
 import { conflict, isAppError } from './errors.ts';
 
 export type Reading = { snapshot: ActiveCheckout; target: Upstream | null };
@@ -20,10 +20,6 @@ export type Followup = FollowupSummary & {
   archive?: string;
 };
 export type Followups = { get: (id: string) => Followup | undefined; save: (id: string, plan: Followup) => void };
-export type BranchAction =
-  | { operation: 'switch-update'; prId: number; result: string }
-  | { operation: 'review' | 'remove'; planId: string }
-  | { operation: 'carry'; planId: string; commits: string[] };
 
 export function memoryFollowups(): Followups {
   const values: Map<string, Followup> = new Map();

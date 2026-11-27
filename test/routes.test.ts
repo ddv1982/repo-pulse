@@ -166,3 +166,40 @@ test('demo mode refuses every route it cannot serve with 403', async t => {
   assert.equal((await send('GET', '/api/state')).status, 200);
   assert.equal((await send('POST', '/api/demo/event', {})).status, 201);
 });
+
+test('a checkout command is read at the route into one operation, and its answer names that operation', async t => {
+  const calls: string[] = [];
+  const checkout = stub<CheckoutStatus>({ state: 'current' });
+  const { send } = await app(t, {
+    checkoutGit: stub<ReturnType<typeof createCheckoutGit>>({
+      update: async (repo, operation) => {
+        calls.push(operation);
+        return { checkout, updated: false };
+      },
+      branchAction: async (repo, action) => {
+        calls.push(action.operation);
+        return { checkout, message: 'Reviewed.' };
+      },
+    }),
+  });
+  const expected = { branch: 'main', head: 'a'.repeat(40), upstream: 'origin/main', identity: 'i' };
+  const planId = '0b0e3f9e-5a8e-4f43-9b52-2b4c3d1a0f11';
+  const post = (body: unknown) => send('POST', '/api/repos/demo-orders/checkout', body);
+  const check = await post({ operation: 'check', expected });
+  assert.equal(check.status, 200);
+  assert.deepEqual(await check.json(), { operation: 'check', checkout, updated: false });
+  const review = await post({ operation: 'review', planId, expected });
+  assert.deepEqual(await review.json(), { operation: 'review', checkout, message: 'Reviewed.' });
+  for (const body of [
+    { operation: 'pull' },
+    { operation: 'pull', expected: { ...expected, upstream: null } },
+    { operation: 'carry', planId, commits: [], expected },
+    { operation: 'remove', planId: 'not-a-plan', expected },
+    { operation: 'rebase', expected },
+  ]) {
+    const refused = await post(body);
+    assert.equal(refused.status, 400, JSON.stringify(body));
+    assert.equal((await refused.json()).message, 'Choose a checkout and Git action.');
+  }
+  assert.deepEqual(calls, ['check', 'review']);
+});

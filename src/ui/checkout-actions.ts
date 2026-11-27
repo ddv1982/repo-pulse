@@ -1,4 +1,5 @@
-import type { CheckoutSnapshot, CheckoutOperation } from './checkout.ts';
+import type { CheckoutSnapshot } from './checkout.ts';
+import type { CheckoutOperation } from '../contract.ts';
 
 import type { Action } from './dom.ts';
 export type ActivityCheckout = { repoId: string; localPath: string; eventId: string; branch: string; isCurrent: () => boolean };

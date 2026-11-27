@@ -403,8 +403,31 @@ export type CheckoutsResponse = Record<string, CheckoutStatus>;
 export type CheckoutStatusResponse = CheckoutStatus;
 /** GET /api/repos/:id/checkout/branches. */
 export type CheckoutBranchesResponse = { branches: { name: string; local: boolean }[] };
-/** POST /api/repos/:id/checkout. */
-export type CheckoutUpdateResponse = CheckoutUpdateResult | BranchActionResult | ActivitySwitchResult;
+/** A step of a branch follow-up: switch to the PR target and update it, review or remove the old branch, or carry commits. */
+export type BranchAction =
+  | { operation: 'switch-update'; prId: number; result: string }
+  | { operation: 'review' | 'remove'; planId: string }
+  | { operation: 'carry'; planId: string; commits: string[] };
+/**
+ * A Git action on a linked checkout, as the server acts on it once the route has read the request. Each names the
+ * checkout the page showed in `expected`; the server checks it against the checkout before it changes anything.
+ */
+export type CheckoutCommand =
+  | { operation: 'check' | 'pull'; expected: CheckoutIntent }
+  | { operation: 'switch-activity'; expected: SwitchIntent; eventId: string; confirmation: string | undefined }
+  | { operation: 'switch-branch'; expected: SwitchIntent; branch: string; confirmation: string | undefined }
+  | (BranchAction & { expected: CheckoutIntent });
+export type CheckoutOperation = CheckoutCommand['operation'];
+/** POST /api/repos/:id/checkout as the page sends it: the command's fields as read from the checkout it shows. */
+export type CheckoutRequest = {
+  operation: CheckoutOperation;
+  expected: { [K in 'branch' | 'head' | 'upstream' | 'identity' | 'switchIdentity']?: string | null | undefined };
+} & Record<string, unknown>;
+/** POST /api/repos/:id/checkout: the result of the command, with the operation it answers. */
+export type CheckoutUpdateResponse =
+  | ({ operation: 'check' | 'pull' } & CheckoutUpdateResult)
+  | ({ operation: 'switch-activity' | 'switch-branch' } & ActivitySwitchResult)
+  | ({ operation: BranchAction['operation'] } & BranchActionResult);
 /** GET /api/connection and GET /api/repos/:id/connection: a connection check's answer. */
 export type ConnectionResponse = ConnectionStatus;
 export type PushCommit = { commitId: string; comment?: string };
@@ -530,7 +553,7 @@ type RouteTypes = {
   'POST /api/repos/:id/backfill': Route<BackfillResponse, { days: HistoryJob['days'] }>;
   'GET /api/repos/:id/checkout/status': Route<CheckoutStatusResponse, undefined, 'fresh'>;
   'GET /api/repos/:id/checkout/branches': Route<CheckoutBranchesResponse>;
-  'POST /api/repos/:id/checkout': Route<CheckoutUpdateResponse, Record<string, unknown>>;
+  'POST /api/repos/:id/checkout': Route<CheckoutUpdateResponse, CheckoutRequest>;
   'GET /api/repos/:id/graph': Route<GitHistoryPage, undefined, 'cursor'>;
   'GET /api/repos/:id/graph/snapshot': Route<GitHistorySnapshot>;
   'GET /api/repos/:id/pushes/:pushId/commits': Route<PushCommitsResponse, undefined, 'skip'>;

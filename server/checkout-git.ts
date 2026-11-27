@@ -639,7 +639,7 @@ export function createCheckoutGit({
 
   function branchAction(
     repo: LinkedRepo,
-    action: import('./checkout-branches.ts').BranchAction,
+    action: import('../src/contract.ts').BranchAction,
     expected: CheckoutIntent,
   ): Promise<import('../src/contract.ts').BranchActionResult> {
     return exclusively(repo, async path => {

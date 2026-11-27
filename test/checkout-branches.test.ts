@@ -7,9 +7,8 @@ import { join } from 'node:path';
 import { promisify } from 'node:util';
 import type { TestContext } from 'node:test';
 import { createCheckoutGit, runGit, type GitRunner } from '../server/checkout-git.ts';
-import type { BranchAction } from '../server/checkout-branches.ts';
 import type { Observation, Observations } from '../server/checkout-observations.ts';
-import type { CheckoutStatus } from '../src/contract.ts';
+import type { BranchAction, CheckoutStatus } from '../src/contract.ts';
 import {
   actions,
   adviceOf,
