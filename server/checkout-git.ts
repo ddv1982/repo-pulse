@@ -1,3 +1,4 @@
+import { branchName } from '../src/events.ts';
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { access, realpath, stat } from 'node:fs/promises';
@@ -12,7 +13,6 @@ import { gitHistorySnapshot, readGitHistory } from './git-history.ts';
 import { createActivitySwitch } from './checkout-activity-switch.ts';
 import { createCheckoutUpdater } from './checkout-update.ts';
 import { archivedSwitchRewrite, readDirectCommit } from './checkout-switch-refs.ts';
-import type { Repository as LinkedRepo } from './store.ts';
 import type {
   GitStatus,
   CheckoutSelection,
@@ -22,18 +22,10 @@ import type {
   BlockedState,
   ActiveCheckout,
   CheckoutStatus,
+  Repository as LinkedRepo,
 } from '../src/contract.d.ts';
 
-/**
- * Checkouts belong to watched repositories, so their Azure identity is always present.
- */
-export type { LinkedRepo };
-
-export type { GitStatus, CheckoutSelection, SwitchIntent, CheckoutIntent, CheckoutReading, BlockedState, ActiveCheckout, CheckoutStatus };
-
 export type Upstream = { remote: string; source: string; tracking: string; url: string };
-
-export type { ActivitySwitchReview, DecoratedCheckout } from '../src/contract.d.ts';
 
 export type ReadCheckoutStatus = (
   path: string,
@@ -414,7 +406,8 @@ export function createCheckoutGit({
       `refs/heads/${branch}`,
     ]);
     const [remote, source, tracking] = raw.trimEnd().split('\0');
-    if (!remote || !source?.startsWith('refs/heads/') || tracking !== `refs/remotes/${remote}/${source.slice(11)}`) return { target: null };
+    if (!remote || !source?.startsWith('refs/heads/') || tracking !== `refs/remotes/${remote}/${branchName(source)}`)
+      return { target: null };
     return remoteTarget(path, repo, remote, source);
   }
 
@@ -422,7 +415,7 @@ export function createCheckoutGit({
     const urls = (await run(path, ['remote', 'get-url', '--all', '--', remote])).trimEnd().split('\n');
     // Git would receive the URL on its command line, where other local users can read it.
     if (urls.some(hasRemoteCredentials)) return { target: null, passwordInUrl: true };
-    const tracking = `refs/remotes/${remote}/${source.slice(11)}`;
+    const tracking = `refs/remotes/${remote}/${branchName(source)}`;
     const [url, ...others] = urls;
     return { target: url !== undefined && !others.length && matchesRemote(url, repo) ? { remote, source, tracking, url } : null };
   }
@@ -550,7 +543,7 @@ export function createCheckoutGit({
     if (!fresh && previous?.path === repo.localPath && previous.until > now()) return previous.value;
     const value = checkoutPath(repo).then(
       path => inspect(path, repo, { configChecked: true }),
-      (error: { diagnostic?: import('./checkout-observations.ts').CheckoutDiagnostic }): CheckoutStatus =>
+      (error: { diagnostic?: import('../src/contract.d.ts').CheckoutDiagnostic }): CheckoutStatus =>
         error.diagnostic ? { state: 'unavailable', diagnostic: error.diagnostic } : { state: 'unavailable' },
     );
     readings.set(repo.id, { path: repo.localPath, until: now() + 5000, value });
@@ -682,7 +675,7 @@ export function createCheckoutGit({
     return refs
       .split('\n')
       .filter(ref => ref.startsWith('refs/heads/'))
-      .map(ref => ref.slice(11));
+      .map(ref => branchName(ref));
   }
 
   async function history(repo: LinkedRepo, cursor: string | null) {

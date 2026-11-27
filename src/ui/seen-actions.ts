@@ -1,4 +1,4 @@
-export type Action = (element: HTMLElement) => Promise<void> | void;
+import type { Action } from './dom.ts';
 
 function readIds(encoded: string | undefined): string[] | undefined {
   try {
@@ -92,6 +92,10 @@ export function createSeenActions({
 
   return {
     acknowledge,
+    /** Forget the updates Undo would restore, for when they no longer exist. */
+    forgetUndo() {
+      undoIds = [];
+    },
     shownUnseenIds: () => shownUnseenIds(page),
     actions: {
       'ack-item': element => {

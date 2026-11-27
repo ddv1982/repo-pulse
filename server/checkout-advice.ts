@@ -1,22 +1,7 @@
 import { branchName, safeAzureUrl } from '../src/events.ts';
-import type { LinkedRepo, GitRunner } from './checkout-git.ts';
-import type { PullAdvice } from '../src/contract.d.ts';
-
-export type { LinkedRepo, GitRunner, PullAdvice };
-
-export type CheckoutPull = {
-  id: number;
-  source: string;
-  target: string;
-  sourceId?: string;
-  targetId?: string;
-  head?: string;
-  result?: string | undefined;
-  strategy?: string;
-  url?: string;
-};
-/** A completed PR from the source branch whose fields checkout uses cannot be read, named by the first such field. */
-export type UnreadableCheckoutPull = { unreadable: string };
+import type { GitRunner } from './checkout-git.ts';
+import type { CheckoutPull, UnreadableCheckoutPull } from './azure-client.ts';
+import type { PullAdvice, Repository as LinkedRepo } from '../src/contract.d.ts';
 
 export type FindCheckoutPulls = (repo: LinkedRepo, source: string, head: string) => Promise<(CheckoutPull | UnreadableCheckoutPull)[]>;
 const readable = (pr: CheckoutPull | UnreadableCheckoutPull): pr is CheckoutPull => !('unreadable' in pr);
@@ -35,7 +20,7 @@ function hasSameRepoResult(repo: LinkedRepo, pr: CheckoutPull) {
   );
 }
 
-export function isExactCheckoutPull(repo: LinkedRepo, pr: CheckoutPull, head: string) {
+function isExactCheckoutPull(repo: LinkedRepo, pr: CheckoutPull, head: string) {
   return pr.head === head && hasSameRepoResult(repo, pr);
 }
 

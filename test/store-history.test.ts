@@ -7,11 +7,11 @@ import { join } from 'node:path';
 import { createStore } from '../server/store.ts';
 import { buildActivityTree } from '../src/activity-tree.ts';
 import { renderMergeEvidence, mergeEvidenceBadge } from '../src/ui/merge-evidence.ts';
-import type { Job } from '../server/store.ts';
 import type { ActivityEvent, ActivityRequest, EventData } from '../src/activity.ts';
 import type { Repository, StreamState } from '../src/contract.d.ts';
 import { dataOf, fieldsOf, present, stub } from './fixtures/typed.ts';
 import { historyJob } from './fixtures/jobs.ts';
+import type { Job } from '../server/store-records.ts';
 
 type Reviewer = NonNullable<EventData['reviewers']>[number];
 const repo = stub<Repository>({ id: 'repo', name: 'Repo', azureId: 'a' });

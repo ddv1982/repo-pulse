@@ -1,15 +1,14 @@
 import { dateTime, emptyHtml, html } from './format.ts';
-import type { ConnectionResponse as ConnectionStatus } from '../api.ts';
+import type { ConnectionResponse as ConnectionStatus } from '../contract.d.ts';
 
-/** A connection check's answer; a failed request is recorded as an unavailable status. */
-export type { ConnectionStatus };
 export type ConnectionState = {
+  /** Check answers by repository id; a failed request is recorded as an unavailable status. */
   results: Map<string, ConnectionStatus>;
   local: ConnectionStatus | null;
   pending: string | null;
   repoId: string;
 };
-export type ConnectionPage = Pick<import('./refresh.ts').PageState, 'demo' | 'streams'>;
+type ConnectionPage = Pick<import('./refresh.ts').PageState, 'demo' | 'streams'>;
 
 export function connectionResult(connection: ConnectionStatus | undefined) {
   if (!connection) return html`<p class="help" role="status">Detecting your existing Azure CLI configuration…</p>`;
@@ -54,7 +53,7 @@ export function createConnectionController({ request, render }: { request: typeo
         if (result.version || !repoId) state.local = result;
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        results.set(repoId, { available: false, identity: null, identityVerified: false, message });
+        results.set(repoId, { available: false, message });
       } finally {
         state.pending = null;
         render();

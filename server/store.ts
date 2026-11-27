@@ -1,3 +1,4 @@
+import { FIRST_SYNC_MS } from './time.ts';
 import { DatabaseSync } from 'node:sqlite';
 import { chmodSync, mkdirSync, readdirSync, renameSync, rmSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
@@ -25,38 +26,16 @@ import {
   readSetting,
   readStream,
 } from './store-records.ts';
-import type { SQLOutputValue as SqlValue } from 'node:sqlite';
 import type { ActivityEvent } from '../src/activity.ts';
-import type { StreamState, StreamName } from './sync.ts';
-import type { StoredEvent, HydratedEvent, Repository } from '../src/contract.d.ts';
-import type { Job, JobType, JobOf, Settings, SettingKey } from './store-records.ts';
+import type { StoredEvent, HydratedEvent, Repository, StreamState, AzureStream as StreamName } from '../src/contract.d.ts';
+import type { Job, JobType, JobOf, Settings, SettingKey, SqlRow } from './store-records.ts';
 import type { Entity, EntityData, EntityType } from './normalize.ts';
 
-export type {
-  SqlValue,
-  ActivityEvent,
-  StreamState,
-  StreamName,
-  StoredEvent,
-  HydratedEvent,
-  Repository,
-  Job,
-  JobType,
-  JobOf,
-  Settings,
-  SettingKey,
-  Entity,
-  EntityData,
-  EntityType,
-};
-export type SqlRow = Record<string, SqlValue>;
-
-export type { EventData } from '../src/activity.ts';
+export type Store = ReturnType<typeof createStore>;
 
 type JobQuery = { repoId?: string; status?: string; dueBefore?: string };
 type JobFilter = JobQuery & { type?: JobType };
 /** The first sync imports this far back from its baseline (server/sync.ts, the first window's `since`). */
-const FIRST_SYNC_MS = 7 * 86400000;
 const badRequest = (message: string) => Object.assign(new Error(message), { code: 'BAD_REQUEST' });
 const stamp = (value: string | number) => {
   const time = Date.parse(String(value));

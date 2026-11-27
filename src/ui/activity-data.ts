@@ -1,11 +1,7 @@
 import { splitActivitySearch } from './activity-search.ts';
 import type { ActivityItem, ActivityPage } from '../activity.ts';
-import type { EventResponse as EventDetail } from '../api.ts';
+import type { EventResponse } from '../contract.d.ts';
 
-export type { ActivityEvent } from '../activity.ts';
-export type { ActivityItem, ActivityPage, EventDetail };
-
-export type Request = typeof import('../api.ts').request;
 export type ActivityView = { route: string; unreadOnly?: boolean; repoIds: string[] | null; kind?: string; search?: string };
 
 const PAGE_SIZE = 50;
@@ -39,7 +35,7 @@ function activityUrl(ui: ActivityView, limit: number, cursor?: string | null): `
 /**
  * Local database paging. The loaded history window survives routine polling.
  */
-export function createActivityData(request: Request) {
+export function createActivityData(request: typeof import('../api.ts').request) {
   let key: string | undefined;
   let revision: string | undefined;
   let result: ActivityPage | undefined;
@@ -135,7 +131,7 @@ export function createActivityData(request: Request) {
   };
 }
 
-export function activityEvents(activity: Pick<ActivityPage, 'items'> | undefined, detail?: EventDetail) {
+export function activityEvents(activity: Pick<ActivityPage, 'items'> | undefined, detail?: EventResponse) {
   const values = new Map();
   for (const item of activity?.items || []) for (const event of item.events) values.set(event.id, event);
   for (const event of detail?.events || []) values.set(event.id, event);

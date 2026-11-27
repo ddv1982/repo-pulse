@@ -1,5 +1,7 @@
 # TypeScript migration plan
 
+Archived on 2026-11-27, finished.
+
 Goal: every source, script and test file is strict TypeScript on TypeScript 7.0.2, with behaviour
 unchanged and the same end state as `crv-jamq-queue-view`. The existing 469 unit and 85 Chromium tests
 prove behaviour. Each phase is one PR and ends with the full CI matrix green (`check`, `check:types`,

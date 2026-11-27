@@ -10,7 +10,7 @@ import { checkoutFixture, git } from '../test/fixtures/checkout.ts';
 import { createStore } from '../server/store.ts';
 import type { AppSync } from '../server.ts';
 import type { AzureProvider } from '../server/azure-client.ts';
-import type { ConnectionStatus, Repository, SyncEngineStatus, DemoSyncStatus } from '../src/contract.d.ts';
+import type { ConnectionStatus, Repository, SyncEngineStatus, DemoSyncStatus, Repository as LinkedRepo } from '../src/contract.d.ts';
 import { stub } from '../test/fixtures/typed.ts';
 
 test('a New branch detail reviews a rewritten tracking ref before switching, then pulls without leaving the detail', async t => {
@@ -106,7 +106,7 @@ test('Repositories switches between watched branches, and a merged pull request 
   const store = createStore();
   defer(t, () => store.close());
   store.saveRepo(stub<Repository>(repo));
-  const ref = (name: string, lastPushId: number): import('../server/store.ts').Entity => ({
+  const ref = (name: string, lastPushId: number): import('../server/normalize.ts').Entity => ({
     type: 'ref',
     id: `refs/heads/${name}`,
     data: { name: `refs/heads/${name}`, active: true, lastPushId },
@@ -403,4 +403,53 @@ test('verified PR follow-up switches, reviews and removes the old branch from Re
   await expect(row.getByRole('button', { name: 'Review old branch' })).toHaveCount(0);
   await expect(row.getByRole('button', { name: 'Restore local branch' })).toHaveCount(0);
   assert.equal(git(local, 'branch', '--show-current'), 'release');
+});
+
+test('ticked follow-up commits survive a checkout snapshot poll that changes the snapshot', async t => {
+  const { squashFixture, git, expectedOf } = await import('../test/fixtures/checkout.ts');
+  const { repo, pr, local, remote, commit } = squashFixture(cleanupStack(t));
+  const { createCheckoutGit } = await import('../server/checkout-git.ts');
+  git(local, 'config', 'user.email', 'test@example.test');
+  git(local, 'config', 'user.name', 'Test');
+  commit(local, 'first.txt', 'first local commit');
+  commit(local, 'second.txt', 'second local commit');
+  git(local, 'fetch', 'origin', 'release');
+  git(local, 'branch', '--track', 'release', 'origin/release');
+  const store = createStore();
+  defer(t, () => store.close());
+  store.saveRepo(stub<Repository>(repo));
+  store.setSetting('refreshEnabled', false);
+  let clock = Date.now();
+  const checkoutGit = createCheckoutGit({ matchesRemote: url => url === remote, findPulls: async () => [pr], now: () => clock });
+  const app = createApp({
+    accessKey: TEST_KEY,
+    store,
+    checkoutGit,
+    provider: stub<AzureProvider>({ checkConnection: async () => stub<ConnectionStatus>({ available: true }) }),
+    sync: stub<AppSync>({ status: () => stub<DemoSyncStatus>({}) }),
+  });
+  const url = await listen(t, app);
+  const page = await openPage(t, { viewport: { width: 1280, height: 850 }, key: TEST_KEY });
+  await page.goto(`${url}/#repositories`);
+  const row = page.getByRole('article');
+  await row.locator('summary').click();
+  await row.getByRole('button', { name: 'Check for updates' }).click();
+  await row.getByRole('button', { name: 'Switch to release and update' }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Switch and update' }).click();
+  await row.getByRole('button', { name: 'Review old branch' }).click();
+  const second = row.getByRole('checkbox', { name: /second local commit/ });
+  await second.check();
+  await expect(second).toBeChecked();
+  const before = await row.innerText();
+
+  // A Check from another tab records a new last check, so the next poll returns a different snapshot for the same
+  // checkout, head and follow-up.
+  clock += 60000;
+  await checkoutGit.update(stub<LinkedRepo>(repo), 'check', expectedOf(await checkoutGit.status(stub<LinkedRepo>(repo))));
+  clock += 60000;
+  const polled = page.waitForResponse(response => response.url().includes('/api/checkouts') && response.ok());
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+  await polled;
+  await expect.poll(() => row.innerText()).not.toBe(before);
+  await expect(row.getByRole('checkbox', { name: /second local commit/ })).toBeChecked();
 });

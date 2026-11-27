@@ -93,7 +93,7 @@ export function gate(t: TestContext, label: string, limit = ACTION_LIMIT) {
   return { opened: promise, release };
 }
 
-export type PageOptions = BrowserContextOptions & {
+type PageOptions = BrowserContextOptions & {
   /** Store this access key before the app loads, as opening the launch link once does. */
   key?: string;
   /** Also fail the test on console errors, not only on uncaught page errors. */

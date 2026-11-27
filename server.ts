@@ -1,3 +1,4 @@
+import { branchName } from './src/events.ts';
 import { activityLabel } from './src/activity-text.ts';
 import { createServer } from 'node:http';
 import { readFile, mkdir, chmod, rm, stat } from 'node:fs/promises';
@@ -6,8 +7,8 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { homedir } from 'node:os';
 import { createSavedActivityFilters } from './server/saved-activity-filters.ts';
-import { createStore } from './server/store.ts';
-import { isCorruptRow } from './server/store-records.ts';
+import { createStore, type Store } from './server/store.ts';
+import { isCorruptRow, refreshEnabled } from './server/store-records.ts';
 import { lockDatabase } from './server/database-lock.ts';
 import { createSync } from './server/sync.ts';
 import { createAzureCli, defaultExecutor } from './server/azure-cli.ts';
@@ -25,7 +26,7 @@ import { createCheckoutGit, isCheckoutIntent, isSwitchIntent } from './server/ch
 import { activityBranch } from './src/activity-branch.ts';
 import { browseFolders } from './server/folders.ts';
 import { canOpenBrowser, openBrowser } from './server/open-browser.ts';
-import type { IncomingMessage as Request, ServerResponse as Response } from 'node:http';
+import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { AzureProvider } from './server/azure-client.ts';
 // The JSON each route answers with is defined in src/contract.d.ts, which src/api.ts maps request paths to, so the
 // browser modules that read a response are checked against what the handler below produces.
@@ -36,7 +37,6 @@ import type {
   ErrorResponse,
   OkResponse,
   StateResponse,
-  ActivityResponse,
   EventResponse,
   CheckoutsResponse,
   CheckoutStatusResponse,
@@ -52,35 +52,7 @@ import type {
   FoldersResponse,
   DemoEventResponse,
 } from './src/contract.d.ts';
-
-export type {
-  Request,
-  Response,
-  AzureProvider,
-  DemoSyncStatus,
-  Repository,
-  SessionResponse,
-  ErrorResponse,
-  OkResponse,
-  StateResponse,
-  ActivityResponse,
-  EventResponse,
-  CheckoutsResponse,
-  CheckoutStatusResponse,
-  CheckoutBranchesResponse,
-  CheckoutUpdateResponse,
-  ConnectionResponse,
-  PushCommitsResponse,
-  PrReviewResponse,
-  BackfillResponse,
-  RefreshResponse,
-  ResetResponse,
-  DiscoverResponse,
-  FoldersResponse,
-  DemoEventResponse,
-};
-
-export type Store = ReturnType<typeof createStore>;
+import type { ActivityPage as ActivityResponse } from './src/activity.ts';
 
 /** Live mode passes the Azure client; demo mode passes demoProvider, which answers only the routes demo serves. */
 export type AppProvider = AzureProvider | typeof demoProvider;
@@ -90,14 +62,14 @@ export type AppProvider = AzureProvider | typeof demoProvider;
  * in live mode.
  */
 export type AppSync = {
-  status: () => import('./server/sync.ts').SyncStatus | DemoSyncStatus;
-  refresh: (repoIds?: string[], authOnly?: boolean) => import('./server/sync.ts').RefreshStatus | { demo: true };
+  status: () => import('./src/contract.d.ts').SyncEngineStatus | DemoSyncStatus;
+  refresh: (repoIds?: string[], authOnly?: boolean) => import('./src/contract.d.ts').RefreshStatus | { demo: true };
   reset?: (clear: () => void) => Promise<void>;
   forget?: (repoId: string) => void;
 };
-export type RouteContext = { req: Request; res: Response; url: URL; params: string[] };
-export type Route = { method: 'GET' | 'POST' | 'PATCH' | 'DELETE'; path: string | RegExp; handler: (context: RouteContext) => unknown };
-export type RequestError = Error & { status?: number; code?: string };
+type RouteContext = { req: IncomingMessage; res: ServerResponse; url: URL; params: string[] };
+type Route = { method: 'GET' | 'POST' | 'PATCH' | 'DELETE'; path: string | RegExp; handler: (context: RouteContext) => unknown };
+type RequestError = Error & { status?: number; code?: string };
 export type AppOptions = {
   store: Store;
   provider: AppProvider;
@@ -141,7 +113,7 @@ function decodeParam(value: string | undefined) {
 /**
  * Parses a JSON object body. Its fields stay unknown until each route validates them.
  */
-async function body(req: Request): Promise<Record<string, unknown>> {
+async function body(req: IncomingMessage): Promise<Record<string, unknown>> {
   if (!req.headers['content-type']?.startsWith('application/json')) throw problem('Send application/json.', 415);
   const chunks = [];
   let size = 0;
@@ -159,7 +131,7 @@ async function body(req: Request): Promise<Record<string, unknown>> {
   }
 }
 
-function checkLocalRequest(req: Request) {
+function checkLocalRequest(req: IncomingMessage) {
   // Compare the actual bound port too: other localhost apps are different origins.
   const port = req.socket.localPort;
   const hosts = new Set([`localhost:${port}`, `127.0.0.1:${port}`, `[::1]:${port}`]);
@@ -173,7 +145,7 @@ function checkLocalRequest(req: Request) {
   if (req.headers['sec-fetch-site'] === 'cross-site' && !pageLoad) throw problem('Cross-site requests are not allowed.', 403);
 }
 
-async function staticFile(pathname: string, res: Response) {
+async function staticFile(pathname: string, res: ServerResponse) {
   const alias: Record<string, string> = {
     '/': 'web/index.html',
     '/app.css': 'web/app.css',
@@ -242,10 +214,10 @@ export function createApp({
     const given = Buffer.from(Array.isArray(value) ? value.join(',') : (value ?? ''));
     return given.length === expected.length && timingSafeEqual(given, expected);
   };
-  const hasAccessKey = (req: Request) => matches(req.headers['x-repo-pulse-key'], expectedKey);
+  const hasAccessKey = (req: IncomingMessage) => matches(req.headers['x-repo-pulse-key'], expectedKey);
   // The launch link carries this token instead of the key. It works once, so a copied or recorded link is spent.
   let launch = launchToken ? Buffer.from(launchToken) : null;
-  const json = (res: Response, status: number, data: unknown) =>
+  const json = (res: ServerResponse, status: number, data: unknown) =>
     res.writeHead(status, { 'content-type': 'application/json; charset=utf-8' }).end(JSON.stringify(data));
   const repoById = (id: unknown) => {
     const repo = store.listRepos().find(item => item.id === id);
@@ -298,7 +270,7 @@ export function createApp({
           backgroundProblem = error.message;
         }
         const settings = {
-          refreshEnabled: store.getSetting('refreshEnabled', true),
+          refreshEnabled: refreshEnabled(store),
           refreshResumedAt: store.getSetting('refreshResumedAt', null),
         };
         const diagnostics = { ...(cli?.diagnostics() || {}), sync: status };
@@ -448,7 +420,7 @@ export function createApp({
         if (demo || !('resolveRepository' in provider))
           throw problem('Demo repositories are fictional. Start live mode to add your repositories.');
         const input = await body(req);
-        let remote: import('./server/repositories.ts').ParsedRemote & { localPath?: string };
+        let remote: import('./src/contract.d.ts').DiscoveredRemote & { localPath?: string };
         if (typeof input.url === 'string' && input.url.trim()) remote = parseRemote(input.url.trim());
         else if (typeof input.path === 'string' && input.path.trim()) {
           const result = await discover(input.path);
@@ -460,7 +432,7 @@ export function createApp({
           if (!only || remotes.length !== 1) throw problem('Choose the remote explicitly for a checkout with multiple Azure remotes.');
           remote = { ...parseRemote(only.url), localPath: checkout.localPath };
         } else throw problem('Enter an Azure repository URL or local checkout path.');
-        const repo: import('./server/store.ts').Repository = await provider.resolveRepository(remote);
+        const repo: import('./src/contract.d.ts').Repository = await provider.resolveRepository(remote);
         if (remote.localPath) repo.localPath = remote.localPath;
         const existing = store.listRepos().find(item => item.id === repo.id);
         store.saveRepo({ ...repo, disabled: existing?.disabled || false });
@@ -473,16 +445,14 @@ export function createApp({
       path: '/api/checkouts',
       handler: async ({ res }) => {
         const repos = store.listRepos().filter(repo => !repo.disabled);
-        const results: [string, import('./server/checkout-git.ts').CheckoutStatus][] = [];
+        const results: [string, import('./src/contract.d.ts').CheckoutStatus][] = [];
         if (!demo)
           for (let i = 0; i < repos.length; i += 2) {
             results.push(
               ...(await Promise.all(
                 repos
                   .slice(i, i + 2)
-                  .map(
-                    async repo => [repo.id, await checkoutGit.status(repo)] as [string, import('./server/checkout-git.ts').CheckoutStatus],
-                  ),
+                  .map(async repo => [repo.id, await checkoutGit.status(repo)] as [string, import('./src/contract.d.ts').CheckoutStatus]),
               )),
             );
           }
@@ -527,11 +497,11 @@ export function createApp({
         if (demo) throw problem('Demo checkouts have no local branches.', 403);
         const repo = enabledRepoById(decodeParam(rawId));
         const local = new Set(await checkoutGit.localBranches(repo));
-        const pinned = [repo.defaultBranch?.slice(11), 'main', 'master'];
+        const pinned = [branchName(repo.defaultBranch), 'main', 'master'];
         const branches = store
           .listEntities(repo.id, 'ref')
           .filter(({ id, data }) => id.startsWith('refs/heads/') && id.length > 11 && data.active !== false)
-          .map(({ id, data }) => ({ name: id.slice(11), pushId: Number(data.lastPushId) || 0 }))
+          .map(({ id, data }) => ({ name: branchName(id), pushId: Number(data.lastPushId) || 0 }))
           .sort(
             (a, b) =>
               Number(pinned.includes(b.name)) - Number(pinned.includes(a.name)) ||
@@ -690,7 +660,7 @@ export function createApp({
       handler: async ({ req, res }) => {
         const input = await body(req);
         if (typeof input.refreshEnabled !== 'boolean') throw problem('refreshEnabled must be true or false.');
-        if (input.refreshEnabled && store.getSetting('refreshEnabled', true) === false) {
+        if (input.refreshEnabled && !refreshEnabled(store)) {
           store.setSetting('refreshResumedAt', Date.now());
         }
         store.setSetting('refreshEnabled', input.refreshEnabled);
@@ -742,7 +712,7 @@ export function createApp({
       },
     },
   ];
-  const handle = async (req: Request, res: Response) => {
+  const handle = async (req: IncomingMessage, res: ServerResponse) => {
     Object.entries(HEADERS).forEach(([key, value]) => res.setHeader(key, value));
     try {
       checkLocalRequest(req);

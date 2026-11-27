@@ -4,10 +4,9 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import { createStore } from '../server/store.ts';
+import { createStore, type Store } from '../server/store.ts';
 import type { StoredEvent } from '../src/contract.d.ts';
 
-type Store = ReturnType<typeof createStore>;
 const repo = {
   id: 'one',
   name: 'One',

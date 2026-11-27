@@ -1,25 +1,21 @@
 import { createActivityData, activityEvents } from './activity-data.ts';
 import { isActivity } from './navigation.ts';
 import type { ActivityEvent, ActivityPage } from '../activity.ts';
-import type { EventDetail, ActivityView } from './activity-data.ts';
-import type { StateResponse } from '../api.ts';
-
-export type { ActivityEvent, ActivityPage, EventDetail, StateResponse };
+import type { ActivityView } from './activity-data.ts';
+import type { StateResponse, EventResponse } from '../contract.d.ts';
 
 export type View = ActivityView & { eventId: string | null; relatedCi?: boolean | undefined; generation: number };
 
-export type Request = typeof import('../api.ts').request;
-
 export type Repo = StateResponse['repos'][number];
 
-export type Metadata = Partial<Omit<StateResponse, 'settings' | 'diagnostics'>> & {
+type Metadata = Partial<Omit<StateResponse, 'settings' | 'diagnostics'>> & {
   watched?: Repo[];
   settings?: Partial<StateResponse['settings']>;
   diagnostics?: Partial<StateResponse['diagnostics']>;
 };
 
 /** Before the first page arrives only `items` and `loading` are set. */
-export type DisplayActivity = Pick<ActivityPage, 'items'> & Partial<Omit<ActivityPage, 'items'>> & { loading?: boolean; error?: string };
+type DisplayActivity = Pick<ActivityPage, 'items'> & Partial<Omit<ActivityPage, 'items'>> & { loading?: boolean; error?: string };
 
 export type PageState = Omit<Metadata, 'syncStatus'> & {
   repos: Repo[];
@@ -34,11 +30,11 @@ export type PageState = Omit<Metadata, 'syncStatus'> & {
   detailRelated?: ActivityEvent[] | undefined;
 };
 
-export type PageSyncStatus = { overall: import('./health.ts').ShownSyncStatus; repos: StateResponse['syncStatus']['repos'] };
+type PageSyncStatus = { overall: import('./health.ts').ShownSyncStatus; repos: StateResponse['syncStatus']['repos'] };
 
-export type RefreshJob = { view: View; force: boolean; more: boolean };
+type RefreshJob = { view: View; force: boolean; more: boolean };
 
-export type RefreshOutcome = { type: 'applied' | 'superseded' } | { type: 'failed'; error: Error };
+type RefreshOutcome = { type: 'applied' | 'superseded' } | { type: 'failed'; error: Error };
 
 const noSyncStatus: PageSyncStatus = { overall: { state: 'unavailable' }, repos: {} };
 
@@ -70,7 +66,7 @@ export function createRefreshController({
   onUpdate,
   onError,
 }: {
-  request: Request;
+  request: typeof import('../api.ts').request;
   getView: () => View;
   reconcileRepositories: (repos: Repo[]) => void;
   onUpdate: (event: { metadata: string; force: boolean }) => void;
@@ -89,7 +85,7 @@ export function createRefreshController({
   };
   // Until the first state read lands, state.watched is a placeholder, not the watch list.
   let loaded = false;
-  let detailResult: EventDetail | null | undefined;
+  let detailResult: EventResponse | null | undefined;
   let detailRevision: string | undefined;
   let detailCi: boolean | undefined;
   let active: { view: View; promise: Promise<RefreshOutcome> } | null | undefined;

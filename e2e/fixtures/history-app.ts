@@ -2,9 +2,7 @@ import type { TestContext } from 'node:test';
 import assert from 'node:assert/strict';
 import { openPage, startTestApp } from './app.ts';
 import { expect } from '@playwright/test';
-import { createStore } from '../../server/store.ts';
-
-export type Store = ReturnType<typeof createStore>;
+import type { Store } from '../../server/store.ts';
 
 // These history fixtures exercise recorded groups independently of the Activity highlight policy.
 export async function demo(t: TestContext) {

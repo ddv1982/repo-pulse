@@ -1,28 +1,13 @@
+import { iso } from './time.ts';
 import { addUnreadable, warningOf } from './sync.ts';
 import type { ActivityEvent } from '../src/activity.ts';
 import type { AzureStreamRecord, HistoryStream, HistoryWindow, HistoryJob, HistoryWarning, UnreadableRecords } from '../src/contract.d.ts';
-import type { AzureRepo, AzurePage as SourcePage } from './azure-client.ts';
-import type { Entity } from './normalize.ts';
+import type { AzurePage as SourcePage } from './azure-client.ts';
+import type { Entity, WatchedRepo } from './normalize.ts';
 import type { JobType, JobOf } from './store-records.ts';
 
-export type {
-  ActivityEvent,
-  AzureStreamRecord,
-  HistoryStream,
-  HistoryWindow,
-  SourcePage,
-  HistoryJob,
-  HistoryWarning,
-  UnreadableRecords,
-  Entity,
-  JobType,
-  JobOf,
-};
-
-export type WatchedRepo = AzureRepo & { id: string; disabled?: boolean };
-
-export type HistoryBatch = { events?: ActivityEvent[]; entities?: Entity[] };
-export type HistoryStore = {
+type HistoryBatch = { events?: ActivityEvent[]; entities?: Entity[] };
+type HistoryStore = {
   listRepos: () => WatchedRepo[];
   listJobs: <T extends JobType>(filter: { type: T }) => JobOf<T>[];
   getSetting: (key: `baseline:${string}`, fallback: string) => string;
@@ -34,7 +19,6 @@ const DAY = 86400000;
 const WINDOW = 30 * DAY;
 const EARLIEST = Date.parse('2010-01-01T00:00:00Z');
 const STREAMS: [HistoryStream, ...HistoryStream[]] = ['pushes', 'closedPrs', 'builds'];
-const iso = (value: number) => new Date(value).toISOString();
 const failure = (message: string, status: number) => Object.assign(new Error(message), { status });
 /** The job's warnings with the records a page of `stream` skipped added to that stream's. */
 function withSkipped(warnings: HistoryWarning[], stream: HistoryStream, skipped: UnreadableRecords): HistoryWarning[] {

@@ -76,7 +76,6 @@ const streamLabels: Record<string, string | undefined> = {
   refs: 'Branches',
   pushes: 'Pushes',
   prs: 'Open pull requests',
-  pullRequests: 'Pull requests',
   closedPrs: 'Closed pull requests',
   builds: 'Recent CI runs',
   activeBuilds: 'Active CI runs',

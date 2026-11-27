@@ -1,7 +1,6 @@
-import { branchName } from './events.ts';
+import { branchName, ZERO_ID } from './events.ts';
 import type { ActivityEvent, ActivityItem } from './activity.ts';
 
-export type { ActivityEvent };
 /**
  * How a fork origin is known. Unchecked, from the rows on the page: `pr`, a pull request from the branch names a target, which is an assumption.
  * Checked by server/fork-origin.ts, from the commit the branch started at (`base`): `recorded`, the base was the
@@ -9,12 +8,12 @@ export type { ActivityEvent };
  * outcomes with no parent draw nothing: `ambiguous` (several branches held the base), `refuted` (the PR target did
  * not hold it), `unplaced` (no recorded or checked branch held it), `orphan` and `merge`.
  */
-export type ForkEvidence = 'pr' | 'recorded' | 'contained' | 'ambiguous' | 'refuted' | 'unplaced' | 'orphan' | 'merge';
+type ForkEvidence = 'pr' | 'recorded' | 'contained' | 'ambiguous' | 'refuted' | 'unplaced' | 'orphan' | 'merge';
 /** A drawn lane. `color` indexes the lane palette; -1 is neutral. */
-export type TreeLane = { slot: number; color: number; isDefault?: boolean };
+type TreeLane = { slot: number; color: number; isDefault?: boolean };
 /** A lane in one row, and whether it runs on above and below. */
 export type TreeLine = TreeLane & { up: boolean; down: boolean };
-export type TreeNode = TreeLine & { shape: 'dot' | 'tag' | 'ring' | 'draft' | 'merge' | 'ci'; overflow: boolean };
+type TreeNode = TreeLine & { shape: 'dot' | 'tag' | 'ring' | 'draft' | 'merge' | 'ci'; overflow: boolean };
 /**
  * The origin of a new branch. Only a fork with a `parent` is drawn. `branches` names the branches of an ambiguous base.
  */
@@ -55,12 +54,11 @@ type Lane = {
   color: number;
 };
 
-export const MAX_LANES = 4;
-export const LANE_COLORS = 6;
+const MAX_LANES = 4;
+const LANE_COLORS = 6;
 /** Rows a branch may stay quiet before its lane ends. */
-export const MAX_GAP = 12;
+const MAX_GAP = 12;
 const PR_REF = /^refs\/pull\/(\d+)\//;
-const ZERO = /^0+$/;
 
 const laneKey = (repoId: string, branch: string) => `${repoId}\n${branch}`;
 
@@ -118,7 +116,7 @@ function pullRequests(items: TreeEvent[]) {
 /** The revision a push created a branch at. A snapshot only reports the tip at discovery, which says nothing of the start. */
 function createdAt(item: ActivityEvent) {
   const { evidence, oldObjectId, newObjectId } = item.data ?? {};
-  return item.kind === 'branch-created' && evidence === 'push' && (!oldObjectId || ZERO.test(oldObjectId)) ? (newObjectId ?? '') : '';
+  return item.kind === 'branch-created' && evidence === 'push' && (!oldObjectId || ZERO_ID.test(oldObjectId)) ? (newObjectId ?? '') : '';
 }
 
 /**

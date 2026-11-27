@@ -1,10 +1,10 @@
+import { iso } from './time.ts';
 import { createHash } from 'node:crypto';
-import { actorName, branchName, safeAzureUrl } from '../src/events.ts';
+import { actorName, branchName, safeAzureUrl, ZERO_ID } from '../src/events.ts';
 import { mergeUpdates } from './merge-evidence.ts';
 import { forkJob } from './fork-origin.ts';
 import { isRecord, recordsOf } from './azure-records.ts';
 import type { ActivityKind } from '../src/activity.ts';
-import type { AzureStream as StreamName, AzureRepo } from './azure-client.ts';
 import type {
   AzureStreamRecords,
   AzureStreamRecord,
@@ -14,31 +14,18 @@ import type {
   AzurePullRequest,
   AzureBuild,
   UnreadableIds,
+  AzureStream as StreamName,
+  AzureRepo,
 } from '../src/contract.d.ts';
 import type { RewriteJob } from './rewrite-check.ts';
 import type { ForkJob } from './fork-origin.ts';
 
-export type {
-  ActivityKind,
-  StreamName,
-  AzureStreamRecords,
-  AzureStreamRecord,
-  AzurePush,
-  AzureRefUpdate,
-  AzureRef,
-  AzurePullRequest,
-  AzureBuild,
-  UnreadableIds,
-  RewriteJob,
-  ForkJob,
-};
-
 export type WatchedRepo = AzureRepo & { id: string; disabled?: boolean };
 /** What `normalize` reads from a stream state; backfill passes `historical: true`. */
-export type NormalizeState = { initialized: boolean; historical?: boolean };
+type NormalizeState = { initialized: boolean; historical?: boolean };
 /** What `reconcileRefs` reads from a stream state. */
-export type RefReconcileState = { initialized: boolean; window: { until: string } };
-export type SyncEvent = {
+type RefReconcileState = { initialized: boolean; window: { until: string } };
+type SyncEvent = {
   id: string;
   repoId: string;
   kind: ActivityKind;
@@ -53,14 +40,14 @@ export type SyncEvent = {
   imported: boolean;
   seen: boolean;
 };
-export type EventDetail = Partial<Omit<SyncEvent, 'id' | 'repoId' | 'kind' | 'observedAt' | 'imported' | 'seen'>>;
+type EventDetail = Partial<Omit<SyncEvent, 'id' | 'repoId' | 'kind' | 'observedAt' | 'imported' | 'seen'>>;
 /** A push recorded so a later page or snapshot skips it. Its date is what Azure sent. */
-export type PushEntity = { date?: unknown };
+type PushEntity = { date?: unknown };
 /**
  * A branch or tag as the last push or refs snapshot left it. The object IDs are what Azure sent; a ref put away keeps
  * its last ones with `active: false`.
  */
-export type RefEntity = {
+type RefEntity = {
   name?: string;
   objectId?: unknown;
   peeledObjectId?: unknown;
@@ -75,13 +62,13 @@ type PrFingerprint = Record<string, unknown> & { votes?: ReviewerVote[] };
  * A PR or build snapshot: an event is made only when its fingerprint changes. A PR fingerprint saved before votes were
  * recorded has none. A snapshot without a fingerprint or revision reads as changed, at revision 0.
  */
-export type SnapshotEntity<Fingerprint = Record<string, unknown>> = {
+type SnapshotEntity<Fingerprint = Record<string, unknown>> = {
   fingerprint?: Fingerprint;
   status?: unknown;
   revision?: number;
 };
 /** A refs stream's tag baseline (`tags`), or the tags an incomplete snapshot could not rule out (`tags-uncertain`). */
-export type RefBaseline = { at: string; all?: boolean; names?: string[] };
+type RefBaseline = { at: string; all?: boolean; names?: string[] };
 /** Entity data by entity type. */
 export type EntityData = {
   push: PushEntity;
@@ -94,18 +81,16 @@ export type EntityType = keyof EntityData;
 export type Entity = { [T in EntityType]: { type: T; id: string; data: EntityData[T] } }[EntityType];
 
 export type SyncBatch = { events: SyncEvent[]; entities: Entity[]; jobs?: (RewriteJob | ForkJob)[] };
-export type NormalizeStore = {
+type NormalizeStore = {
   getSetting: (key: `baseline:${string}`, fallback: string) => string;
   getEntity: <T extends EntityType>(repoId: string, type: T, id: string) => EntityData[T] | undefined;
   listEntities: <T extends EntityType>(repoId: string, type: T) => { id: string; data: EntityData[T] }[];
 };
 
-const ZERO = /^0+$/;
 const PULL_REF = /^refs\/pull\//;
 const fingerprint = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex').slice(0, 24);
 const tagName = (name: string) => name.replace(/^refs\/tags\//, '');
 const tagTitles: Record<'created' | 'moved' | 'deleted', string> = { created: 'New tag', moved: 'Tag moved', deleted: 'Tag deleted' };
-const iso = (ms: number) => new Date(ms).toISOString();
 // Display fields reach the normalizers as Azure sent them, so their fallbacks see what main saw.
 /** A field of a value that is not an object reads as absent, as optional chaining read it on main. */
 const fieldOf = (value: unknown, key: string): unknown => (isRecord(value) ? value[key] : undefined);
@@ -279,7 +264,7 @@ export function createNormalizer({ store, now = Date.now }: { store: NormalizeSt
         const current = {
           name: ref.name,
           objectId: ref.newObjectId,
-          active: !ZERO.test(ref.newObjectId || ''),
+          active: !ZERO_ID.test(ref.newObjectId || ''),
           evidence: 'push',
           lastPushId: Number(item.pushId),
           lastPushObservedAt: iso(now()),
@@ -288,7 +273,7 @@ export function createNormalizer({ store, now = Date.now }: { store: NormalizeSt
         entities.push({ type: 'ref', id: ref.name, data: current });
       };
       for (const ref of tags) {
-        const change = ZERO.test(ref.oldObjectId || '') ? 'created' : ZERO.test(ref.newObjectId || '') ? 'deleted' : 'moved';
+        const change = ZERO_ID.test(ref.oldObjectId || '') ? 'created' : ZERO_ID.test(ref.newObjectId || '') ? 'deleted' : 'moved';
         add('tag', `${source}:${ref.name}`, {
           title: `${tagTitles[change]} · ${tagName(ref.name)}`,
           branch: tagName(ref.name),
@@ -323,8 +308,8 @@ export function createNormalizer({ store, now = Date.now }: { store: NormalizeSt
         data,
       });
       for (const ref of branches) {
-        const created = ref.oldObjectId && ZERO.test(ref.oldObjectId);
-        const deleted = ref.newObjectId && ZERO.test(ref.newObjectId);
+        const created = ref.oldObjectId && ZERO_ID.test(ref.oldObjectId);
+        const deleted = ref.newObjectId && ZERO_ID.test(ref.newObjectId);
         if (created || deleted)
           add(created ? 'branch-created' : 'branch-deleted', `${source}:${ref.name}`, {
             title: `${created ? 'New branch' : 'Branch deleted'} · ${branchName(ref.name)}`,

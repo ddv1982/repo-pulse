@@ -3,8 +3,6 @@ import { repositoryHref } from './navigation.ts';
 import type { CheckoutSnapshot } from './checkout.ts';
 import type { CheckoutDiagnostic } from '../contract.d.ts';
 
-export type { CheckoutSnapshot, CheckoutDiagnostic };
-
 const statusLabels: Record<string, string | undefined> = {
   'not-linked': 'No local checkout linked',
   unavailable: 'Checkout unavailable',
@@ -140,7 +138,8 @@ function reviewMarkup(id: string, checkout: CheckoutSnapshot) {
         ? html`<fieldset class="checkout-commits">
       <legend>Commits to carry onto a new branch</legend>
       ${review.commits.map(
-        commit => html`<label><input type="checkbox" name="checkout-commit" value="${commit.id}">
+        commit =>
+          html`<label><input type="checkbox" name="checkout-commit" data-id="${id}" value="${commit.id}" ${checkout.carry?.includes(commit.id) ? html`checked` : emptyHtml}>
         <code>${commit.id.slice(0, 8)}</code> ${commit.subject}</label>`,
       )}
       ${action('carry', 'Carry selected commits')}

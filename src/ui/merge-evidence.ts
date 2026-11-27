@@ -2,8 +2,6 @@ import { activityMergeBadge, matchesPushResult, matchingPushResults, singleNamed
 import { emptyHtml, html, dateTime, branchName, azureLink } from './format.ts';
 import type { EventData, EvidencePr } from '../activity.ts';
 
-export type { EventData, EvidencePr };
-
 /** Evidence is supplemental metadata, never an inferred actor or merge operation.  */
 export function renderMergeEvidence(data: EventData = {}) {
   const evidence = data.mergeEvidence;
@@ -32,7 +30,7 @@ export function renderMergeEvidence(data: EventData = {}) {
 const droppedText = (update: { dropped?: number; more?: boolean }) =>
   `${update.dropped}${update.more ? '+' : ''} commit${update.dropped === 1 && !update.more ? '' : 's'} dropped`;
 
-export type CheckedUpdate = { name?: string | undefined; update: { status?: string; dropped?: number; more?: boolean } };
+type CheckedUpdate = { name?: string | undefined; update: { status?: string; dropped?: number; more?: boolean } };
 /**
  * Branch updates with a history check: saved as ref ranges by the earlier merge analysis, or by the rewrite check.
  */

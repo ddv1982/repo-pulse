@@ -1,37 +1,21 @@
 import type {
   StateResponse,
-  ActivityResponse,
   EventResponse,
   CheckoutsResponse,
   CheckoutUpdateResponse,
   ConnectionResponse,
   PushCommitsResponse,
   PrReviewResponse,
-  ErrorResponse,
   OkResponse,
   DiscoverResponse,
   FoldersResponse,
 } from './contract.d.ts';
-
-export type {
-  StateResponse,
-  ActivityResponse,
-  EventResponse,
-  CheckoutsResponse,
-  CheckoutUpdateResponse,
-  ConnectionResponse,
-  PushCommitsResponse,
-  PrReviewResponse,
-  ErrorResponse,
-  OkResponse,
-  DiscoverResponse,
-  FoldersResponse,
-};
+import type { ActivityPage as ActivityResponse } from './activity.ts';
 
 /**
  * The response body for a request path, matched on the path's shape. More specific shapes come first.
  */
-export type ResponseFor<P extends string> = P extends '/api/state'
+type ResponseFor<P extends string> = P extends '/api/state'
   ? StateResponse
   : P extends '/api/activity' | `/api/activity?${string}`
     ? ActivityResponse
@@ -82,7 +66,7 @@ export type ResponseFor<P extends string> = P extends '/api/state'
                                             : P extends '/api/settings'
                                               ? OkResponse
                                               : unknown;
-export type RequestOptions = { method?: 'GET' | 'POST' | 'PATCH' | 'DELETE'; body?: Record<string, unknown> };
+type RequestOptions = { method?: 'GET' | 'POST' | 'PATCH' | 'DELETE'; body?: Record<string, unknown> };
 
 const KEY_STORAGE = 'repo-pulse-access-key';
 
@@ -150,13 +134,10 @@ export async function request<P extends string>(path: P, { method = 'GET', body 
   }
   if (!response.ok) {
     const body: Partial<Record<string, unknown>> = typeof value === 'object' && value !== null ? value : {};
-    const error = body.error;
-    const nested = typeof error === 'object' && error !== null && 'message' in error ? error.message : undefined;
-    const message = [body.message, nested].find(text => typeof text === 'string' && text);
-    const fallback = typeof error === 'string' ? error : `Request failed (${response.status}).`;
-    throw Object.assign(new Error(typeof message === 'string' ? message : fallback), { code: body.code });
+    const message = typeof body.message === 'string' && body.message ? body.message : `Request failed (${response.status}).`;
+    throw Object.assign(new Error(message), { code: body.code });
   }
   // The local server answers this path with ResponseFor<P> (server.ts checks each handler with `satisfies`); checking
-  // the body here waits for the shared route table the post-migration plan leaves for the next new route.
+  // the body here waits for the shared route table in docs/BACKLOG.md.
   return value as ResponseFor<P>;
 }

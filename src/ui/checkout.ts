@@ -2,17 +2,17 @@ import { checkAge, renderCheckout } from './checkout-render.ts';
 import { setHtml } from './dom.ts';
 import type { CheckoutStatus, BlockedCheckout, Review, FollowupSummary } from '../contract.d.ts';
 
-export type { CheckoutStatus, BlockedCheckout, Review, FollowupSummary };
-
 /**
  * One repository's checkout as this page reads it. Every /api/checkouts entry fits: the server adds `followup`
- * when a branch follow-up is open, and the page keeps the `review` and `nextStep` a branch action returned.
+ * when a branch follow-up is open, and the page keeps the `review` and `nextStep` a branch action returned, and the
+ * review commits a person ticked (`carry`).
  */
 export type CheckoutSnapshot = {
   state: CheckoutStatus['state'];
   canPull?: boolean;
   followup?: FollowupSummary;
   review?: Review | undefined;
+  carry?: string[] | undefined;
   nextStep?: string | undefined;
 } & Partial<Omit<BlockedCheckout, 'state' | 'canPull'>>;
 export type CheckoutUpdate = {
@@ -56,6 +56,7 @@ export function createCheckoutPanel({
       previous.dirty === checkout.dirty
     ) {
       checkout.review = previous.review;
+      checkout.carry = previous.carry;
     }
     if (previous?.nextStep && previous.branch === checkout.branch && previous.head === checkout.head) {
       checkout.nextStep = previous.nextStep;
@@ -93,6 +94,18 @@ export function createCheckoutPanel({
       }
     }
   }
+
+  // Ticked review commits live on the snapshot, so a render after a poll keeps them.
+  page.addEventListener('change', event => {
+    const input = event.target;
+    if (!(input instanceof HTMLInputElement) || input.name !== 'checkout-commit') return;
+    const checkout = snapshots[input.dataset.id ?? ''];
+    if (!checkout?.review) return;
+    const carry = new Set(checkout.carry);
+    if (input.checked) carry.add(input.value);
+    else carry.delete(input.value);
+    checkout.carry = [...carry];
+  });
 
   return {
     get snapshots() {

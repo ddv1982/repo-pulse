@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createStore } from '../server/store.ts';
+import { createStore, type Store } from '../server/store.ts';
 import { createSync } from '../server/sync.ts';
 import { createBackfill } from '../server/backfill.ts';
 import { createForkOriginCheck, MAX_READS } from '../server/fork-origin.ts';
@@ -8,7 +8,6 @@ import type { AzureProvider } from '../server/azure-client.ts';
 import type { AzureStreamRecord } from '../src/contract.d.ts';
 import { present, stub } from './fixtures/typed.ts';
 
-type Store = ReturnType<typeof createStore>;
 /** What a commit read answers: the commit's parents and the push that brought it. */
 type Commit = Awaited<ReturnType<AzureProvider['commit']>>;
 

@@ -37,7 +37,11 @@ Pull checks the checkout, upstream and fetched tip before running `git merge --f
 
 ## Render into the live page
 
-`setHtml` in [src/ui/dom.ts](../src/ui/dom.ts) is the only `innerHTML` sink. It parses `SafeHtml` into a template and merges it into the element with idiomorph, so a node that still matches keeps its focus, caret, text selection and listeners. Do not add code that saves and restores focus or selection around a render; if a render loses them, find the markup that stopped matching. State a person changes on the page belongs in `ui` and the markup renders from it, as `ui.openMenu` does for the toolbar menus. A control whose state the markup does not carry, such as a ticked commit checkbox, is still protected by `refreshTarget` in [src/ui/browser-view.ts](../src/ui/browser-view.ts).
+`setHtml` in [src/ui/dom.ts](../src/ui/dom.ts) is the only `innerHTML` sink. It parses `SafeHtml` into a template and merges it into the element with idiomorph, so a node that still matches keeps its focus, caret, text selection and listeners.
+
+State a person changes on the page belongs in `ui`, or in the data the markup renders from, and the markup renders from it: `ui.openMenu` for the toolbar menus, and the checkout snapshot's `carry` list for ticked follow-up commits. Do not save and restore focus or selection around a render. If a control that is still on the page loses focus, find the markup that stopped matching.
+
+Focus moves on purpose only when the focused control leaves the page or the render hides it. `renderPage` in [src/ui/browser-view.ts](../src/ui/browser-view.ts) then focuses a replacement: the control `replacementFocus` names, such as a menu's toggle for one of its options or the Filters disclosure when that toggle is collapsed inside it below 640 px, or the nearest Seen toggle when a row leaves with its own. Add a case to `replacementFocus` when a new control can leave while focused. `refreshTarget` in the same file still skips a background render while a dialog is open, a command is pending, a commit is ticked, or a form control whose value the markup may not carry has focus.
 
 ## Vendored browser code
 
@@ -60,14 +64,13 @@ UI rendering tests read markup in Chromium through [e2e/fixtures/dom.ts](../e2e/
 ## Run checks
 
 ```sh
-npm run check
 npm run check:types
 npm run lint
 npm test
 npm run test:ui
 ```
 
-CI runs the first four on Linux and Windows. Linux runs the full browser suite, and Windows runs the rendered DOM suite (`npm run test:dom`). Browser tests use Chromium. Run `npx playwright install chromium` if needed, or set `CHROME` to a local executable. Tests use isolated databases and temporary Git repositories. They verify workflows and failure cases without proving live Azure permissions. See [coverage and limits](COVERAGE.md) for the distinction.
+CI runs the first three on Linux and Windows. Linux runs the full browser suite, and Windows runs the rendered DOM suite (`npm run test:dom`). Browser tests use Chromium. Run `npx playwright install chromium` if needed, or set `CHROME` to a local executable. Tests use isolated databases and temporary Git repositories. They verify workflows and failure cases without proving live Azure permissions. See [coverage and limits](COVERAGE.md) for the distinction.
 
 ## Match review to risk
 

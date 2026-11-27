@@ -3,9 +3,9 @@ import { syncPill, syncRepoName } from './health.ts';
 import { icons, themeSwitch } from './icons.ts';
 import { activityHref, isActivity } from './navigation.ts';
 
-export type HeaderState = Pick<import('./refresh.ts').PageState, 'repos' | 'settings' | 'syncStatus'>;
+type HeaderState = Pick<import('./refresh.ts').PageState, 'repos' | 'settings' | 'syncStatus'>;
 /** web.ts sets `refreshing` while a refresh runs. */
-export type HeaderView = Pick<import('./navigation.ts').NavigationState, 'route' | 'unreadOnly'> & { refreshing?: boolean };
+type HeaderView = Pick<import('./navigation.ts').NavigationState, 'route' | 'unreadOnly'> & { refreshing?: boolean };
 
 export function renderHeader(state: HeaderState, ui: HeaderView) {
   const automatic = state.settings.refreshEnabled !== false;

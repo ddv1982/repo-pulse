@@ -20,21 +20,41 @@ import { createHistoryImport } from './ui/history-import.ts';
 import { createBranchPicker } from './ui/branch-picker.ts';
 import { all, checked, required, setHtml } from './ui/dom.ts';
 import type { PageState } from './ui/refresh.ts';
-import type { Action } from './ui/checkout-actions.ts';
-
-export type { PageState, Action };
-
-/** web/theme.ts publishes this before the modules load. */
-export type ThemedWindow = Window & { repoPulseTheme?: { set: (value: string) => void } };
+import type { Action } from './ui/dom.ts';
 
 const page = required('#page');
 const header = required('#header');
 const dialog = required('#confirm-dialog', HTMLDialogElement);
-let pendingConfirmation: (() => Promise<void>) | null;
+let pendingConfirmation: { callback: () => Promise<void>; resource: string } | null;
 let dialogOpener: HTMLElement | SVGElement | null;
-let busy = false;
+/**
+ * Commands in flight, by the resource they change. A command is held back only while another command on the same
+ * resource runs, so a pending refresh never blocks navigation or a detail view.
+ */
+const pending = new Set<string>();
+const savedFiltersBusy = 'A saved filter change is still being saved. Try again when it finishes.';
+/** Commands that change the same local data share a resource; every other command is its own. */
+const actionResources: Record<string, string> = {
+  'ack-item': 'activity',
+  'undo-ack': 'activity',
+  'ack-matching': 'activity',
+  'reset-activity': 'activity',
+  'demo-event': 'activity',
+  'switch-activity-branch': 'checkout',
+  'switch-checkout-branch': 'checkout',
+  'check-checkout': 'checkout',
+  'pull-checkout': 'checkout',
+  'switch-checkout-target': 'checkout',
+  'review-checkout-branch': 'checkout',
+  'remove-checkout-branch': 'checkout',
+  'carry-checkout-branch': 'checkout',
+  'update-filter': 'saved-filters',
+  'delete-filter': 'saved-filters',
+  'remove-repo': 'repos',
+};
 let lastRendered: { metadata?: string; activity?: PageState['activity']; events?: PageState['events'] } = {};
 let toastTimer: ReturnType<typeof setTimeout> | undefined;
+let undoTimer: ReturnType<typeof setTimeout> | undefined;
 
 let searchTimer: ReturnType<typeof setTimeout> | undefined;
 const connection = createConnectionController({
@@ -95,7 +115,7 @@ const savedFilterActions = createToolbarMenu({
   itemSelector: '[data-filter-action]',
   state: ui,
   onSelect: option => {
-    void withAction(() => dispatch(option.dataset.filterAction, option));
+    void withAction(actionResource(option.dataset.filterAction), () => dispatch(option.dataset.filterAction, option));
   },
 });
 const filterName = createFilterNameDialog(required('#filter-name-dialog', HTMLDialogElement));
@@ -123,7 +143,7 @@ const historyImport = createHistoryImport(required('#history-dialog', HTMLDialog
 const seen = createSeenActions({
   page,
   request,
-  toast,
+  toast: seenToast,
   async reload() {
     const outcome = await load({ force: true });
     if (outcome.type === 'failed') throw new Error(`Could not refresh seen status. ${outcome.error.message}`);
@@ -330,7 +350,12 @@ function render() {
 function refreshTarget(force: boolean) {
   return view.refreshTarget(
     force,
-    busy || dialog.open || historyImport.open || filterName.open || branchPicker.open || (ui.route === 'repositories' && picker.active()),
+    pending.size > 0 ||
+      dialog.open ||
+      historyImport.open ||
+      filterName.open ||
+      branchPicker.open ||
+      (ui.route === 'repositories' && picker.active()),
   );
 }
 
@@ -395,17 +420,34 @@ function clearNotice() {
   delete notice.dataset.networkError;
 }
 
-function toast(message: string, { undo = false } = {}) {
+function toast(message: string) {
   const element = required('#toast');
   clearTimeout(toastTimer);
-  setHtml(element, html`${message}${undo ? html`<button type="button" data-action="undo-ack">Undo</button>` : emptyHtml}`);
+  setHtml(element, html`${message}`);
   element.hidden = false;
-  toastTimer = setTimeout(
-    () => {
-      element.hidden = true;
-    },
-    undo ? 20000 : 6000,
-  );
+  toastTimer = setTimeout(() => {
+    element.hidden = true;
+  }, 6000);
+}
+
+function hideUndo() {
+  clearTimeout(undoTimer);
+  required('#undo-toast').hidden = true;
+}
+
+/**
+ * Seen feedback. An Undo offer has its own slot and timer below the message toast, so other messages show above it
+ * and never remove or move it; the next seen result replaces it.
+ */
+function seenToast(message: string, { undo = false } = {}) {
+  const element = required('#undo-toast');
+  hideUndo();
+  if (!undo) return toast(message);
+  setHtml(element, html`${message}<button type="button" data-action="undo-ack">Undo</button>`);
+  element.hidden = false;
+  undoTimer = setTimeout(() => {
+    element.hidden = true;
+  }, 20000);
 }
 
 function confirm(
@@ -413,9 +455,11 @@ function confirm(
   description: string,
   callback: () => Promise<void>,
   label = 'Confirm',
-  { subject = '', destructive = false } = {},
+  { subject = '', destructive = false, resource = 'confirm-dialog' } = {},
 ) {
-  pendingConfirmation = callback;
+  // One confirmation at a time: a command that asks while another waits for an answer is refused, never swapped in.
+  if (dialog.open) throw new Error('Finish the open confirmation before starting another action.');
+  pendingConfirmation = { callback, resource };
   const opener = document.activeElement;
   dialogOpener = opener instanceof HTMLElement || opener instanceof SVGElement ? opener : null;
   required('#confirm-title').textContent = title;
@@ -441,16 +485,38 @@ function reportError(error: unknown) {
   showError(error instanceof Error ? error.message : String(error));
 }
 
-async function withAction(callback: () => unknown) {
-  if (busy) return;
-  busy = true;
+async function withAction(resource: string, callback: () => unknown) {
+  if (pending.has(resource)) return;
+  pending.add(resource);
   try {
     await callback();
   } catch (error) {
     reportError(error);
   } finally {
-    busy = false;
+    pending.delete(resource);
   }
+}
+
+/**
+ * Runs a dialog's submission under a resource, so it cannot overlap a command on the same resource. A busy resource
+ * throws, and the dialog shows the message.
+ */
+function holding<T extends unknown[]>(resource: string, message: string, callback: (...args: T) => Promise<void>) {
+  return async (...args: T) => {
+    if (pending.has(resource)) throw new Error(message);
+    pending.add(resource);
+    try {
+      await callback(...args);
+    } finally {
+      pending.delete(resource);
+    }
+  };
+}
+
+/** The resource a named action changes; a confirmation runs under the resource of the command that asked for it. */
+function actionResource(name: string | undefined) {
+  if (name === 'confirm-dialog') return pendingConfirmation?.resource ?? name;
+  return (name && Object.hasOwn(actionResources, name) ? actionResources[name] : undefined) ?? name ?? '';
 }
 
 /** Runs the named action. A name without one is broken markup, reported instead of ignored. */
@@ -479,7 +545,7 @@ function reconcileSavedFilter() {
   if (ui.savedFilterId && refresh.state.savedFilters && !selectedFilter()) ui.savedFilterId = '';
 }
 
-function applySavedFilter({ id, name, filters }: import('./ui/saved-filters.ts').SavedActivityFilter) {
+function applySavedFilter({ id, name, filters }: import('./contract.d.ts').SavedActivityFilter) {
   const { search, people, kind, repoIds, view } = filters;
   const watched = refresh.state.watched;
   const available = new Set(refresh.state.repos.map(repo => repo.id));
@@ -516,7 +582,8 @@ const actions: Record<string, Action> = {
   ...createCheckoutActions({
     checkoutPanel,
     getActivityCheckout,
-    confirm,
+    confirm: (title, description, callback, label, options) =>
+      confirm(title, description, callback, label, { ...options, resource: 'checkout' }),
     toast,
     closeBranchPicker: () => branchPicker.close(),
     currentView,
@@ -621,12 +688,12 @@ const actions: Record<string, Action> = {
       `${below} ${below === 1 ? 'is' : 'are'} below the rows shown. Updates recorded after this page loaded stay unread.`,
       () => seen.acknowledge(ids, true),
       'Mark as seen',
-      { subject: scope },
+      { subject: scope, resource: 'activity' },
     );
   },
   'cancel-dialog': closeDialog,
   'confirm-dialog': async () => {
-    const callback = pendingConfirmation;
+    const callback = pendingConfirmation?.callback;
     closeDialog();
     if (callback) await callback();
   },
@@ -636,7 +703,7 @@ const actions: Record<string, Action> = {
     filterName.show(
       selectedFilter() ? 'Save as new filter' : 'Save Activity filter',
       '',
-      async name => {
+      holding('saved-filters', savedFiltersBusy, async name => {
         const preset = await request('/api/activity-filters', { method: 'POST', body: { name, filters } });
         await load({ force: true });
         if (isActivity(ui.route) && refresh.state.savedFilters?.some(filter => filter.id === preset.id)) {
@@ -644,7 +711,7 @@ const actions: Record<string, Action> = {
           renderPage();
         }
         toast(`Filter “${preset.name}” saved.`);
-      },
+      }),
       `${summary}${ui.search ? ` · Search “${ui.search}”` : ''}`,
     );
   },
@@ -660,11 +727,15 @@ const actions: Record<string, Action> = {
   'rename-filter': () => {
     const preset = selectedFilter();
     if (!preset) return;
-    filterName.show('Rename Activity filter', preset.name, async name => {
-      await request(`/api/activity-filters/${preset.id}`, { method: 'PATCH', body: { name } });
-      await load({ force: true });
-      toast('Filter renamed.');
-    });
+    filterName.show(
+      'Rename Activity filter',
+      preset.name,
+      holding('saved-filters', savedFiltersBusy, async name => {
+        await request(`/api/activity-filters/${preset.id}`, { method: 'PATCH', body: { name } });
+        await load({ force: true });
+        toast('Filter renamed.');
+      }),
+    );
   },
   'update-filter': async () => {
     const preset = selectedFilter();
@@ -688,7 +759,7 @@ const actions: Record<string, Action> = {
         toast('Saved filter deleted.');
       },
       'Delete filter',
-      { subject: preset.name, destructive: true },
+      { subject: preset.name, destructive: true, resource: 'saved-filters' },
     );
   },
   'clear-filters': () => {
@@ -724,12 +795,15 @@ const actions: Record<string, Action> = {
       'This deletes all stored activity, seen marks and imported history on this computer, then imports the last seven days from Azure DevOps again. Older history can be imported from Repositories. Your repositories, linked checkouts and settings stay.',
       async () => {
         await request('/api/reset', { method: 'POST', body: {} });
+        // The activity Undo would restore is being deleted.
+        seen.forgetUndo();
+        hideUndo();
         feedCommits.clear();
         await load({ force: true });
         toast('Starting from scratch. Stored activity is being deleted, then the last seven days are imported.');
       },
       'Delete and import again',
-      { destructive: true },
+      { destructive: true, resource: 'activity' },
     );
   },
   'remove-repo': element => {
@@ -744,6 +818,7 @@ const actions: Record<string, Action> = {
         await load({ force: true });
       },
       'Remove local watch',
+      { resource: 'repos' },
     );
   },
   'load-review': async element => {
@@ -787,7 +862,7 @@ document.addEventListener('click', event => {
   const theme = target.closest('[data-theme]');
   if (theme instanceof HTMLElement) {
     // web/theme.ts defines repoPulseTheme on window before this module loads; the optional call covers its absence.
-    (window as ThemedWindow).repoPulseTheme?.set(theme.dataset.theme ?? '');
+    window.repoPulseTheme?.set(theme.dataset.theme ?? '');
     return;
   }
   const graphLink = checked(target.closest('.graph-link'), HTMLAnchorElement, '.graph-link');
@@ -807,7 +882,7 @@ document.addEventListener('click', event => {
   const element = target.closest('[data-action]');
   if (element instanceof HTMLElement) {
     event.preventDefault();
-    void withAction(() => dispatch(element.dataset.action, element));
+    void withAction(actionResource(element.dataset.action), () => dispatch(element.dataset.action, element));
   }
 });
 
@@ -850,12 +925,12 @@ document.addEventListener('change', event => {
   if (target instanceof HTMLInputElement && target.matches('[data-repo-toggle]')) {
     const control = target;
     const repo = refresh.state.watched.find(item => item.id === control.dataset.id);
-    if (busy || !repo) {
+    if (pending.has('repos') || !repo) {
       control.checked = !repo?.disabled;
       return;
     }
     const enabled = control.checked;
-    void withAction(async () => {
+    void withAction('repos', async () => {
       try {
         await request(`/api/repos/${encodeURIComponent(repo.id)}`, { method: 'PATCH', body: { disabled: !enabled } });
         await load({ force: true });
@@ -868,11 +943,11 @@ document.addEventListener('change', event => {
   }
   if (target instanceof HTMLInputElement && target.matches('[data-auto-toggle]')) {
     const checked = target.checked;
-    if (busy) {
+    if (pending.has('settings')) {
       target.checked = refresh.state.settings.refreshEnabled !== false;
       return;
     }
-    void withAction(async () => {
+    void withAction('settings', async () => {
       try {
         await request('/api/settings', { method: 'POST', body: { refreshEnabled: checked } });
         await load({ force: true });

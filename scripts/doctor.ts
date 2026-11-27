@@ -9,11 +9,11 @@ const execFileAsync = promisify(execFile);
 const MIN_NODE_MAJOR = 26;
 const COMMAND_TIMEOUT_MS = 15000;
 
-export type DoctorCheck = { id: string; label: string; status: 'ok' | 'fail' | 'skip'; detail: string; fix?: string };
+type DoctorCheck = { id: string; label: string; status: 'ok' | 'fail' | 'skip'; detail: string; fix?: string };
 
-export type DoctorReport = { ok: boolean; checks: DoctorCheck[] };
+type DoctorReport = { ok: boolean; checks: DoctorCheck[] };
 
-export type CommandOutput = { stdout: string; stderr: string };
+type CommandOutput = { stdout: string; stderr: string };
 
 export type CommandRunner = (
   file: string,

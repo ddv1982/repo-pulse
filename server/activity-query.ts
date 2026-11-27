@@ -8,14 +8,12 @@ import { projectActivity } from '../src/activity.ts';
 import { treeBranchRefs, treePullRequestSource } from '../src/activity-tree.ts';
 import { activityFilterLabel, labels, parseActivityFilter } from '../src/activity-text.ts';
 import type { SQLInputValue as SqlValue } from 'node:sqlite';
+import type { SqlRow } from './store-records.ts';
 import type { ActivityEvent, ActivityItem, ActivityRequest, ActivityPage } from '../src/activity.ts';
 
-export type { SqlValue, ActivityEvent, ActivityRequest, ActivityPage };
-export type SqlRow = Record<string, import('node:sqlite').SQLOutputValue>;
-
-export type Group = { key: string; time: number; observed: number; representative: string };
-export type FilterRow = { kind: string; status: string; evidence: string };
-export type CountRow = {
+type Group = { key: string; time: number; observed: number; representative: string };
+type FilterRow = { kind: string; status: string; evidence: string };
+type CountRow = {
   kind: string;
   count: number;
   newItems: number;
@@ -24,7 +22,7 @@ export type CountRow = {
   queued: number;
   failed: number;
 };
-export type Position = { maxSequence: number; filterKey: string; revision?: string; after: Pick<Group, 'key' | 'time' | 'observed'> };
+type Position = { maxSequence: number; filterKey: string; revision?: string; after: Pick<Group, 'key' | 'time' | 'observed'> };
 
 const invalidFilter = () => Object.assign(new Error('Activity cursor does not match these filters.'), { code: 'BAD_REQUEST' });
 
@@ -77,7 +75,7 @@ const grouped = (selection: string) => `
   ) group_stats JOIN activity_members member ON member.event_id=group_stats.representative`;
 
 export type ActivityFilter = ReturnType<typeof parseActivityFilter>;
-export type MemberScope = { maxSequence: number; scope: string; params: SqlValue[]; people: boolean };
+type MemberScope = { maxSequence: number; scope: string; params: SqlValue[]; people: boolean };
 
 /**
  * Member-level WHERE clause shared by the page query and the member lookup.

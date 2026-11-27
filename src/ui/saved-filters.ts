@@ -4,8 +4,6 @@ import { splitActivitySearch } from './activity-search.ts';
 import { emptyHtml, html } from './format.ts';
 import type { SavedActivityFilter } from '../contract.d.ts';
 
-export type { SavedActivityFilter };
-
 export type ActivityFilters = SavedActivityFilter['filters'];
 
 export function savedRepositoryScope(ids: string[] | null, watched: { id: string }[]) {

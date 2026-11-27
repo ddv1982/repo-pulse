@@ -19,13 +19,12 @@ import { renderCheckout } from '../src/ui/checkout-render.ts';
 import type { ActivityEvent } from '../src/activity.ts';
 import type { PageState, Repo } from '../src/ui/refresh.ts';
 import type { CheckoutSnapshot } from '../src/ui/checkout.ts';
-import type { ConnectionState, ConnectionStatus } from '../src/ui/connection.ts';
+import type { ConnectionState } from '../src/ui/connection.ts';
 import type { CommitsView } from '../src/ui/activity-detail.ts';
-
-export type { ActivityEvent, PageState, Repo, CheckoutSnapshot, ConnectionState, ConnectionStatus, CommitsView };
+import type { ConnectionResponse as ConnectionStatus } from '../src/contract.d.ts';
 
 /** A transformed value and the exact escaped markup expected where it is rendered. */
-export type Sink = { field: string; html: string };
+type Sink = { field: string; html: string };
 export type View = { render: () => (string | SafeHtml)[]; shows: string[]; sinks: Sink[] };
 
 // themeSwitch() in the header reads the theme that web/theme.ts puts on window.
@@ -201,7 +200,7 @@ function pageState(activity: PageState['activity']): PageState {
         pages: 2,
         lastProgressAt: time,
         error: { code: 'FAILED', message: probe('job.error.message') },
-      } as import('../server/backfill.ts').HistoryJob,
+      } as import('../src/contract.d.ts').HistoryJob,
     ],
     syncStatus: {
       overall: { state: 'problem', reason: probe('syncStatus.overall.reason'), stream: 'pushes', repoId: repo.id },
@@ -231,7 +230,7 @@ const delayed: PageState = {
   },
 };
 
-const advice = (field: string, branch: string): import('../server/checkout-advice.ts').PullAdvice => ({
+const advice = (field: string, branch: string): import('../src/contract.d.ts').PullAdvice => ({
   branch,
   id: 12,
   url: url(`${field}.url`),
@@ -312,8 +311,6 @@ const connection = (name: string, unshown: string[] = []): ConnectionStatus => {
   const text = (field: string) => (unshown.includes(field) ? hidden : probe)(`${name}.${field}`);
   return {
     available: false,
-    identity: null,
-    identityVerified: false,
     message: text('message'),
     version: text('version'),
     extension: text('extension'),

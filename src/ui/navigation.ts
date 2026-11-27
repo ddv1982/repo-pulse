@@ -26,7 +26,8 @@ export type ResultsContext = {
   activityCapacity: number;
 };
 
-export type WatchedRepo = { id: string; disabled?: boolean };
+/** The fields of a watched repository that navigation reads. */
+type ScopeRepo = Pick<import('../contract.d.ts').Repository, 'id' | 'disabled'>;
 
 /**
  * Resolve legacy Activity bookmarks to the corresponding filter.
@@ -140,7 +141,7 @@ export function createNavigation({
   }
 
   // Disabled repositories keep their place in an explicit scope so enabling one restores it.
-  function reconcileRepositories(watched: WatchedRepo[]) {
+  function reconcileRepositories(watched: ScopeRepo[]) {
     if (ui.repoIds !== null) ui.repoIds = ui.repoIds.filter(id => watched.some(repo => repo.id === id));
     if (!watched.some(repo => !repo.disabled) && isActivity(ui.route)) {
       ui.route = 'repositories';
@@ -168,7 +169,7 @@ export function createNavigation({
     invalidate,
     reconcileRepositories,
     remember,
-    takeCheckoutFocus(repos: WatchedRepo[]) {
+    takeCheckoutFocus(repos: ScopeRepo[]) {
       if (ui.route !== 'repositories' || !repos.some(repo => repo.id === checkoutRepoId && !repo.disabled)) return null;
       const id = checkoutRepoId;
       checkoutRepoId = null;
@@ -181,7 +182,7 @@ export function createNavigation({
       return restored;
     },
     /** Null repositories mean the watch list has not loaded yet; the first state read reconciles instead. */
-    enter(repos: WatchedRepo[] | null) {
+    enter(repos: ScopeRepo[] | null) {
       const previous = ui.route;
       const previousUnreadOnly = ui.unreadOnly;
       const { checkoutRepoId: id, ...parsed } = canonicalRoute();

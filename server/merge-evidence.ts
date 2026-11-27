@@ -1,11 +1,10 @@
+import { ZERO_ID } from '../src/events.ts';
 import type { RefUpdate } from '../src/activity.ts';
 
-export type { RefUpdate };
 export type PushEvent = { data?: { refUpdates?: RefUpdate[] } };
 /** A branch update that moved an existing branch to another existing object. */
-export type MergeUpdate = RefUpdate & { name: string; oldObjectId: string; newObjectId: string };
+type MergeUpdate = RefUpdate & { name: string; oldObjectId: string; newObjectId: string };
 
-const ZERO = /^0+$/;
 const branchUpdates = (event: PushEvent) => (event.data?.refUpdates || []).filter(ref => ref.name?.startsWith('refs/heads/'));
 
 export function mergeUpdates(event: PushEvent): MergeUpdate[] {
@@ -14,8 +13,8 @@ export function mergeUpdates(event: PushEvent): MergeUpdate[] {
       ref.oldObjectId &&
       ref.newObjectId &&
       ref.oldObjectId !== ref.newObjectId &&
-      !ZERO.test(ref.oldObjectId) &&
-      !ZERO.test(ref.newObjectId),
+      !ZERO_ID.test(ref.oldObjectId) &&
+      !ZERO_ID.test(ref.newObjectId),
     ),
   );
 }

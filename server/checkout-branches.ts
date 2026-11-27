@@ -4,11 +4,8 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { ancestry, isCommit } from './checkout-advice.ts';
 import { isSymbolicRef, worktreeUsesBranch } from './checkout-delete-guard.cjs';
-import type { GitRunner, LinkedRepo, ActiveCheckout, Upstream } from './checkout-git.ts';
-import type { PullAdvice } from './checkout-advice.ts';
-import type { FollowupSummary, Review } from '../src/contract.d.ts';
-
-export type { GitRunner, LinkedRepo, ActiveCheckout, Upstream, PullAdvice, FollowupSummary, Review };
+import type { GitRunner, Upstream } from './checkout-git.ts';
+import type { FollowupSummary, Review, PullAdvice, Repository as LinkedRepo, ActiveCheckout } from '../src/contract.d.ts';
 
 export type Reading = { snapshot: ActiveCheckout; target: Upstream | null };
 
@@ -129,7 +126,7 @@ export function branchFollowups({
     repo: LinkedRepo,
     path: string,
     snapshot: ActiveCheckout,
-  ): Promise<import('./checkout-git.ts').DecoratedCheckout> {
+  ): Promise<import('../src/contract.d.ts').DecoratedCheckout> {
     const plan = eligiblePlan(repo, path, snapshot);
     if (!plan || (plan.archive && (await readRef(run, path, `refs/heads/${plan.source}`).catch(() => undefined)) === null)) return snapshot;
     const workspace =

@@ -1,6 +1,9 @@
 import { Idiomorph } from '../../web/vendor/idiomorph.esm.js';
 import { SafeHtml } from './format.ts';
 
+/** The handler for a control's `data-action` name; web.ts dispatches clicks to it. */
+export type Action = (element: HTMLElement) => Promise<void> | void;
+
 type ElementType<T extends Element> = new (...args: never[]) => T;
 
 function ofType<T extends Element>(element: Element, Type: ElementType<T>, selector: string, role: string) {

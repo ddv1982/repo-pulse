@@ -1,3 +1,4 @@
+import { ZERO_ID } from './events.ts';
 export type ActivityKind = 'branch-created' | 'branch-deleted' | 'tag' | 'push' | 'pr' | 'build';
 export type RefUpdate = { name?: string; oldObjectId?: string; newObjectId?: string | undefined };
 /**
@@ -14,11 +15,11 @@ export type EvidencePr = {
   mergeCommit?: string | undefined;
   relationship?: string;
 };
-export type EvidenceCommit = { commitId?: string; parents?: string[]; branches?: (string | undefined)[] };
+type EvidenceCommit = { commitId?: string; parents?: string[]; branches?: (string | undefined)[] };
 /**
  * A moved branch's range, saved by the earlier merge analysis.
  */
-export type EvidenceRange = {
+type EvidenceRange = {
   name?: string;
   oldObjectId?: string;
   newObjectId?: string;
@@ -180,6 +181,7 @@ export type ActivityRequest = {
   limit?: number;
   cursor?: string | undefined;
 };
+/** GET /api/activity, built by server/activity-query.ts. */
 export type ActivityPage = {
   items: ActivityItem[];
   nextCursor: string | null;
@@ -213,8 +215,12 @@ export function lifecycleKey(event: ActivityEvent) {
   const { pushId, name, oldObjectId, newObjectId } = event.data || {};
   const id = sourceId(pushId);
   if (!id || !name?.startsWith('refs/heads/') || typeof oldObjectId !== 'string' || typeof newObjectId !== 'string') return null;
-  const zero = (value: string) => /^0+$/.test(value);
-  if (event.kind === 'branch-created' ? !zero(oldObjectId) || zero(newObjectId) : !zero(newObjectId) || zero(oldObjectId)) return null;
+  if (
+    event.kind === 'branch-created'
+      ? !ZERO_ID.test(oldObjectId) || ZERO_ID.test(newObjectId)
+      : !ZERO_ID.test(newObjectId) || ZERO_ID.test(oldObjectId)
+  )
+    return null;
   return JSON.stringify(['branch', event.repoId, id, name, event.kind, oldObjectId, newObjectId]);
 }
 

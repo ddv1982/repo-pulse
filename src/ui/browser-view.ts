@@ -20,7 +20,17 @@ export function replacementFocus(id: string) {
   if (checkoutAction) return document.getElementById(`checkout-state-${checkoutAction[1]}`);
   if (id === 'activity-branch-action') return checked(document.querySelector('.checkout-bar'), HTMLElement, '.checkout-bar');
   if (id === 'graph-clear-search') return document.getElementById('graph-search');
-  if (id.startsWith('kind-option-') || id.startsWith('summary-ci-')) return document.getElementById('kind-toggle');
+  const filterTrigger =
+    id === 'kind-toggle' || id.startsWith('kind-option-') || id.startsWith('summary-ci-')
+      ? 'kind-toggle'
+      : id === 'repo-toggle' || id.startsWith('scope-')
+        ? 'repo-toggle'
+        : '';
+  if (filterTrigger) {
+    // Below 640px the triggers sit inside the Filters disclosure, which can be collapsed.
+    const trigger = document.getElementById(filterTrigger);
+    return trigger?.checkVisibility() ? trigger : document.getElementById('activity-filters-toggle');
+  }
   if (id.startsWith('saved-filter-option-'))
     return document.getElementById('saved-filter-toggle') ?? document.getElementById('save-filter');
   if (['saved-filter-toggle', 'saved-filter-actions-toggle', 'update-filter', 'save-filter'].includes(id))
@@ -55,15 +65,13 @@ function focusedControlId(element: Element) {
   return element.id || element.closest('.saved-filter-menu, .saved-filter-actions')?.querySelector('[aria-expanded]')?.id || '';
 }
 
-export type { PageState, ResultsContext };
-
 /** web.ts owns this object: navigation state plus the connection panel state and the refresh flag the header reads. */
 export type BrowserUi = NavigationState & {
   connection: import('./connection.ts').ConnectionState;
   refreshing?: boolean;
   openMenu?: string;
 };
-export type RenderOptions = {
+type RenderOptions = {
   restored: ResultsContext | null;
   returnUnreadOnly: boolean;
   returnToGraph?: boolean;
@@ -76,8 +84,6 @@ export type RenderOptions = {
   checkoutFocus?: string | null | undefined;
   isCurrent: () => boolean;
 };
-/** web/theme.ts publishes this before the modules load. */
-export type ThemedWindow = Window & { repoPulseTheme?: { apply: () => void } };
 
 /**
  * `syncLive` sits outside the header so re-rendering the header never replaces it.
@@ -193,7 +199,7 @@ export function createBrowserView({
     // needs a replacement.
     if (focusId && (document.activeElement !== focused || !focused?.checkVisibility())) restoreFocus(focusId, neighbours);
     // web/theme.ts defines repoPulseTheme on window before the modules load; the optional call covers its absence.
-    (window as ThemedWindow).repoPulseTheme?.apply();
+    window.repoPulseTheme?.apply();
     if (checkoutFocus) {
       requestAnimationFrame(() => {
         if (!isCurrent()) return;
@@ -247,7 +253,7 @@ export function createBrowserView({
       if (syncLive.textContent !== sentence) syncLive.textContent = sentence;
       if (menuOpen) required('.header-overflow', HTMLDetailsElement, header).open = true;
       // As in renderPage: theme.ts runs first, and the optional call covers its absence.
-      (window as ThemedWindow).repoPulseTheme?.apply();
+      window.repoPulseTheme?.apply();
       renderPage(state, ui, options);
       setHtml(
         demo,

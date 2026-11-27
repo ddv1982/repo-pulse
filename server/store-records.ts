@@ -8,10 +8,9 @@
 // shows with a fallback reads whatever its value. Events and enrichment are the exception: their provider data and
 // display fields held whatever Azure sent before the Azure records were checked, so only the fields that identify an
 // event are checked, and `data` and the enrichment overlay are checked to be objects (see the EventData item in
-// docs/post-migration-plan.md).
+// docs/BACKLOG.md).
 import { fields, is, isRecord, list, type Check } from './azure-records.ts';
 
-import type { SqlRow } from './store.ts';
 import type { Repository, StoredEvent, StreamState, AzureStream, HistoryJob, SavedActivityFilter } from '../src/contract.d.ts';
 import type { ActivityKind } from '../src/activity.ts';
 import type { RewriteJob } from './rewrite-check.ts';
@@ -19,6 +18,9 @@ import type { ForkJob } from './fork-origin.ts';
 import type { Followup } from './checkout-branches.ts';
 import type { Observation } from './checkout-observations.ts';
 import type { EntityData, EntityType } from './normalize.ts';
+
+/** A row as node:sqlite returns it. */
+export type SqlRow = Record<string, import('node:sqlite').SQLOutputValue>;
 
 /** Jobs by type. Merge jobs were dropped by store migration 11. */
 export type Job = HistoryJob | RewriteJob | ForkJob;
@@ -277,6 +279,10 @@ const savedFilter = fields({
     view: oneOf('new', 'all'),
   }),
 });
+/** Automatic checks run unless a person turned them off; a database without the setting has them on. */
+export function refreshEnabled(store: { getSetting: <K extends SettingKey, F>(key: K, fallback: F) => Settings[K] | F }) {
+  return store.getSetting('refreshEnabled', true) !== false;
+}
 type FixedSettingKey = Exclude<SettingKey, `${string}:${string}`>;
 const settingChecks: Record<FixedSettingKey, Check> = {
   compactPending: boolean,

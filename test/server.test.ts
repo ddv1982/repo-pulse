@@ -16,15 +16,8 @@ import type { TestContext } from 'node:test';
 import { createAzureClient, type AzureProvider, type ResolvedRepository } from '../server/azure-client.ts';
 import type { createCheckoutGit } from '../server/checkout-git.ts';
 import type { AppOptions } from '../server.ts';
-import type {
-  ActivityResponse,
-  CheckoutStatus,
-  ConnectionStatus,
-  PushCommitsResponse,
-  StateResponse,
-  SyncEngineStatus,
-} from '../src/contract.d.ts';
-import type { ActivityEvent } from '../src/activity.ts';
+import type { CheckoutStatus, ConnectionStatus, PushCommitsResponse, StateResponse, SyncEngineStatus } from '../src/contract.d.ts';
+import type { ActivityEvent, ActivityPage as ActivityResponse } from '../src/activity.ts';
 import { TEST_KEY, keyedFetch, portOf } from './fixtures/access.ts';
 import { fieldsOf, present, stub, watchedIdOf, type Thrown } from './fixtures/typed.ts';
 
@@ -49,7 +42,7 @@ async function fixture(t: TestContext, { demo = true, ...options }: Partial<AppO
   };
   const app = createApp({
     store,
-    provider: stub<AzureProvider>({ checkConnection: async () => stub<ConnectionStatus>({ available: true, identity: null }) }),
+    provider: stub<AzureProvider>({ checkConnection: async () => stub<ConnectionStatus>({ available: true }) }),
     sync,
     demo,
     accessKey: TEST_KEY,
@@ -331,7 +324,7 @@ test('Repositories switches only to a branch the repository still lists', async 
     },
   });
   const { store, mutate, url } = await fixture(t, { demo: false, checkoutGit });
-  const ref = (name: string, data = {}): import('../server/store.ts').Entity => ({
+  const ref = (name: string, data = {}): import('../server/normalize.ts').Entity => ({
     type: 'ref',
     id: name,
     data: { name, objectId: 'a'.repeat(40), active: true, ...data },

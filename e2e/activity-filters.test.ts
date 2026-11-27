@@ -2,9 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { capture, refreshNow, gate } from './fixtures/app.ts';
 import { expect } from '@playwright/test';
-import type { ActivityEvent, SavedActivityFilter } from '../src/contract.d.ts';
+import type { SavedActivityFilter } from '../src/contract.d.ts';
 import { selectActivityType, setup, groupedFixture } from './fixtures/ui-app.ts';
 import { demo } from './fixtures/history-app.ts';
+import type { ActivityEvent } from '../src/activity.ts';
 
 test('CI summary shortcuts filter the full activity scope on desktop and compact layouts', async t => {
   const { page, runtime } = await setup(t, true, { hasTouch: true });
@@ -572,4 +573,64 @@ test('an Activity response renders while a saved-filter menu stays open, and del
   } finally {
     finishDelete.release();
   }
+});
+
+test('a delayed Mark all seen lookup does not replace an open confirmation', async t => {
+  const { runtime, page } = await demo(t);
+  runtime.store.setSetting('savedActivityFilters', [
+    { id: 'keep', name: 'Keep me', filters: { search: '', people: '', kind: '', repoIds: null, view: 'all' } },
+  ]);
+  await page.goto(runtime.url + '/#activity');
+  await page.locator('#saved-filter-toggle').click();
+  await page.getByRole('option', { name: /Keep me/ }).click();
+  const lookup = gate(t, 'unseen lookup');
+  await page.route(/\/api\/activity\/unseen\?/, async route => {
+    await lookup.opened;
+    await route.fulfill({ json: { ids: ['below-the-page'] } });
+  });
+  const answered = page.waitForResponse(/\/api\/activity\/unseen\?/);
+  await page.getByRole('button', { name: /^Mark all (matching )?seen/ }).click();
+  await page.getByRole('button', { name: 'More saved filter actions' }).click();
+  await page.getByRole('menuitem', { name: 'Delete…' }).click();
+  const deleteDialog = page.getByRole('dialog', { name: 'Delete saved filter?' });
+  await expect(deleteDialog).toBeVisible();
+  lookup.release();
+  await answered;
+  await expect(page.locator('#notice')).toContainText('Finish the open confirmation');
+  await expect(deleteDialog).toBeVisible();
+  await deleteDialog.getByRole('button', { name: 'Delete filter', exact: true }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'Saved filter deleted.' })).toBeVisible();
+  assert.deepEqual(runtime.store.getSetting('savedActivityFilters'), []);
+});
+
+test('renaming a saved filter waits for an update of the same filter that is still running', async t => {
+  const { runtime, page } = await demo(t);
+  runtime.store.setSetting('savedActivityFilters', [
+    { id: 'keep', name: 'Keep me', filters: { search: '', people: '', kind: '', repoIds: null, view: 'all' } },
+  ]);
+  await page.goto(runtime.url + '/#activity');
+  await page.locator('#saved-filter-toggle').click();
+  await page.getByRole('option', { name: /Keep me/ }).click();
+  await page.getByRole('searchbox', { name: 'Search activity' }).fill('orders');
+  const patches: string[] = [];
+  const update = gate(t, 'filter update');
+  await page.route('**/api/activity-filters/keep', async route => {
+    patches.push(route.request().postData() ?? '');
+    if (patches.length === 1) await update.opened;
+    await route.continue();
+  });
+  await page.getByRole('button', { name: 'Update “Keep me”' }).click();
+  await expect.poll(() => patches.length).toBe(1);
+  await page.getByRole('button', { name: 'More saved filter actions' }).click();
+  await page.getByRole('menuitem', { name: 'Rename…' }).click();
+  const rename = page.getByRole('dialog', { name: 'Rename Activity filter' });
+  await rename.getByRole('textbox', { name: 'Filter name' }).fill('Renamed');
+  await rename.getByRole('button', { name: 'Save' }).click();
+  await expect(rename.getByRole('alert')).toContainText('still being saved');
+  assert.equal(patches.length, 1);
+  update.release();
+  await expect(page.getByRole('status').filter({ hasText: 'Saved filter updated.' })).toBeVisible();
+  await rename.getByRole('button', { name: 'Save' }).click();
+  await expect(rename).toBeHidden();
+  assert.equal(patches.length, 2);
 });

@@ -1,7 +1,7 @@
+import { iso } from './time.ts';
 import type { AzureProvider } from './azure-client.ts';
 import type { RewriteResult } from '../src/activity.ts';
 
-export type { AzureProvider, RewriteResult };
 /** One moved branch of a live push, checked once for commits the new tip no longer reaches. */
 export type RewriteJob = {
   id: string;
@@ -15,14 +15,13 @@ export type RewriteJob = {
   nextAt: string;
 };
 
-export type RewriteStore = Pick<
+type RewriteStore = Pick<
   ReturnType<typeof import('./store.ts').createStore>,
   'listRepos' | 'listJobs' | 'saveJob' | 'getEvent' | 'saveRewriteResult'
 >;
 
 const ATTEMPTS = 4;
 const RETRY_MS = 60000;
-const iso = (ms: number) => new Date(ms).toISOString();
 
 /**
  * Each tick runs at most one due check, so it is one Azure call.

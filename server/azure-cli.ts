@@ -4,7 +4,7 @@ import { stat } from 'node:fs/promises';
 import { win32 } from 'node:path';
 import type { CliLastError as LastError } from '../src/contract.d.ts';
 
-export type CliError = Error & { code: string };
+type CliError = Error & { code: string };
 
 export type ExecFailure = { code?: string; name?: string; stderr?: unknown; killed?: boolean; message?: string };
 
@@ -14,9 +14,7 @@ export type Executor = (args: string[], options: ExecutorOptions) => Promise<unk
 
 export type AzCommand = { file: string; prefix: string[]; env: Record<string, string>; cwd?: string };
 
-export type QueueJob = { args: string[]; key: string; resolve: (value: unknown) => void; reject: (reason: unknown) => void };
-
-export type { LastError };
+type QueueJob = { args: string[]; key: string; resolve: (value: unknown) => void; reject: (reason: unknown) => void };
 
 const exec = promisify(execFile);
 const MAX_RETRY_AFTER_MS = 10 * 60000;
@@ -246,7 +244,6 @@ export function createAzureCli({
         running: running.size,
         limitPerMinute,
         concurrency,
-        upstreamRequests: null,
         lastError,
         throttledUntil: throttledUntil > now() ? new Date(throttledUntil).toISOString() : null,
       };

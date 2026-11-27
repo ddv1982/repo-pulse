@@ -55,9 +55,6 @@ p {
 .mb {
   margin-bottom: 16px;
 }
-.spacer {
-  flex: 1;
-}
 .help {
   font-size: 12px;
   color: var(--muted-foreground);
@@ -521,26 +518,35 @@ dialog .dfoot {
 #confirm-button.danger:hover {
   background: color-mix(in oklab, var(--critical) 14%, var(--card));
 }
-.toast {
+.toast-stack {
   position: fixed;
   left: 50%;
   bottom: 20px;
   transform: translateX(-50%);
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  width: max-content;
+  max-width: calc(100% - 32px);
+  /* The stack spans the gap between toasts; only the toasts take clicks. */
+  pointer-events: none;
+}
+.toast {
+  pointer-events: auto;
+  display: flex;
+  gap: 12px;
+  align-items: center;
   background: var(--foreground);
   color: var(--card);
   padding: 8px 14px;
   border-radius: var(--radius);
   font-size: 13px;
-  max-width: calc(100% - 32px);
+  max-width: 100%;
   box-shadow: var(--shadow-lg);
 }
-#toast {
-  z-index: 100;
-  display: flex;
-  gap: 12px;
-  align-items: center;
-}
-#toast button {
+.toast button {
   border: 1px solid currentColor;
   color: inherit;
   background: transparent;

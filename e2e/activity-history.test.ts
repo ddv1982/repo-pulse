@@ -3,9 +3,9 @@ import assert from 'node:assert/strict';
 import { expect } from '@playwright/test';
 import { groupedFixture } from './fixtures/ui-app.ts';
 import { refreshNow } from './fixtures/app.ts';
-import type { ActivityEvent } from '../src/contract.d.ts';
 import { demo, isSeen } from './fixtures/history-app.ts';
-import type { Store } from './fixtures/history-app.ts';
+import type { Store } from '../server/store.ts';
+import type { ActivityEvent } from '../src/activity.ts';
 
 test('Activity shows history by default and filters to unread without changing seen state', async t => {
   const { page, runtime } = await groupedFixture(t);

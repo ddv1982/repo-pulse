@@ -6,7 +6,10 @@ import { fakeRequest, stub } from './fixtures/typed.ts';
 test('an older checkout poll cannot overwrite a fresh reading', async () => {
   const poll = Promise.withResolvers<Record<string, CheckoutSnapshot>>();
   const panel = createCheckoutPanel({
-    page: stub<HTMLElement>({ querySelectorAll: () => stub<NodeListOf<Element>>({ [Symbol.iterator]: [][Symbol.iterator].bind([]) }) }),
+    page: stub<HTMLElement>({
+      addEventListener: () => {},
+      querySelectorAll: () => stub<NodeListOf<Element>>({ [Symbol.iterator]: [][Symbol.iterator].bind([]) }),
+    }),
     request: fakeRequest(async path => {
       if (path === '/api/checkouts') return poll.promise;
       assert.equal(path, '/api/repos/repo/checkout/status?fresh=1');

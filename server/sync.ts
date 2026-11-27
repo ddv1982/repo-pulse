@@ -1,8 +1,9 @@
+import { FIRST_SYNC_MS, iso } from './time.ts';
 import { createNormalizer } from './normalize.ts';
 import { isRecord, recordId, recordsOf, unreadableField } from './azure-records.ts';
 import { READS, SYNC_STREAMS } from './sync-status.ts';
-import { isCorruptRow } from './store-records.ts';
-import type { AzureStream as StreamName, AzureProvider, PageCursor, AzureStreamRecord, AzurePage } from './azure-client.ts';
+import { isCorruptRow, refreshEnabled } from './store-records.ts';
+import type { AzureProvider, AzurePage } from './azure-client.ts';
 import type {
   AzureRef,
   UnreadableRecords,
@@ -10,41 +11,19 @@ import type {
   StreamWarning,
   StreamWindow,
   StreamState,
-  SyncEngineStatus as SyncStatus,
+  SyncEngineStatus,
   RefreshStatus,
+  AzureStream as StreamName,
+  PageCursor,
+  AzureStreamRecord,
 } from '../src/contract.d.ts';
 import type { WatchedRepo, Entity, EntityData, EntityType, SyncBatch } from './normalize.ts';
 import type { Settings, SettingKey } from './store-records.ts';
 
-export type { ActivityKind, NormalizeState, SyncEvent, EventDetail, RewriteJob } from './normalize.ts';
-export type {
-  StreamName,
-  AzureProvider,
-  PageCursor,
-  AzureStreamRecord,
-  AzurePage,
-  AzureRef,
-  UnreadableRecords,
-  UnreadableIds,
-  StreamWarning,
-  WatchedRepo,
-  Entity,
-  EntityData,
-  EntityType,
-  Settings,
-  SettingKey,
-  SyncBatch,
-  StreamState,
-  RefreshStatus,
-};
-
-/** The time range one read covers. It stays fixed across the pages of that read. */
-export type { StreamWindow };
-
 type UnreadableLookups = StreamState['unreadableLookups'];
 /** A stream while a read is in flight: the window and the refresh generation it answers are fixed. */
-export type StartedStream = StreamState & { window: StreamWindow; windowGeneration: number; lastAttempt: string; pending: true };
-export type SyncStore = {
+type StartedStream = StreamState & { window: StreamWindow; windowGeneration: number; lastAttempt: string; pending: true };
+type SyncStore = {
   listRepos: () => WatchedRepo[];
   getSetting: <K extends SettingKey, F>(key: K, fallback: F) => Settings[K] | F;
   setSetting: <K extends SettingKey>(key: K, value: Settings[K]) => void;
@@ -54,21 +33,16 @@ export type SyncStore = {
   listEntities: <T extends EntityType>(repoId: string, type: T) => { id: string; data: EntityData[T] }[];
   commitPage: (page: SyncBatch & { repoId: string; stream: StreamName; state: StreamState }) => void;
 };
-/** GET /api/state reports this as `diagnostics.sync`. */
-export type { SyncStatus };
-
 /** Sync needs `read`; the active-build and PR follow-ups run only when the provider offers them. */
 export type SyncProvider = { read: import('./azure-client.ts').StreamRead } & Partial<Pick<AzureProvider, 'buildsById' | 'pullRequest'>>;
-export type BackgroundKind = 'rewrite' | 'history';
+type BackgroundKind = 'rewrite' | 'history';
 
-const DAY = 86400000;
 const SNAPSHOT_TTL_MS = 2 * 60000;
 const HISTORY_WINDOW_TTL_MS = 10 * 60000;
 const BUSY_POLL_MS = 100;
 const FOREGROUND_CHECK_COOLDOWN_MS = 60000;
 const RECENT_READ_MS = 30000;
 const LIVE_TURNS = 6;
-const iso = (ms: number) => new Date(ms).toISOString();
 
 /** Both counts of records left out, with the fields of each. */
 export function addUnreadable(sum: UnreadableRecords | undefined, more: UnreadableRecords | undefined): UnreadableRecords | undefined {
@@ -170,7 +144,7 @@ function startPage(state: StreamState, at: number, overlapMs: number, continuing
   }
 
   // Start over at the same lower bound, including for an interrupted first import.
-  const since = state.window?.since ?? iso(state.lastSuccess ? Date.parse(state.lastSuccess) - overlapMs : at - 7 * DAY);
+  const since = state.window?.since ?? iso(state.lastSuccess ? Date.parse(state.lastSuccess) - overlapMs : at - FIRST_SYNC_MS);
   return {
     ...state,
     ...start,
@@ -353,7 +327,7 @@ export function createSync({
   let nextBackground: BackgroundKind = 'rewrite';
   const lastTurn: Partial<Record<BackgroundKind | 'live', string>> = {};
   const counters = { pages: 0, errors: 0 };
-  const backgroundProblems: SyncStatus['backgroundProblems'] = {};
+  const backgroundProblems: SyncEngineStatus['backgroundProblems'] = {};
   /** The turn order of the cached active PRs and in-progress builds to look up by ID, per repository (see lookupTurn). */
   const prTurns: Map<string, Set<string>> = new Map();
   const buildTurns: Map<string, Set<string>> = new Map();
@@ -606,7 +580,7 @@ export function createSync({
       ? completePage(working, latest, {
           at,
           delayMs: state.stream === 'refs' ? refsIntervalMs : cadence,
-          catchUp: at - Date.parse(working.window.until) > interval && store.getSetting('refreshEnabled', true) !== false,
+          catchUp: at - Date.parse(working.window.until) > interval && refreshEnabled(store),
           quietCycles,
           warning: warningOf(state.stream, read.unreadable),
           unreadableLookups: read.unreadableLookups,
@@ -634,7 +608,7 @@ export function createSync({
   async function runPage() {
     if (halted()) return;
     ensureStreams();
-    const automatic = store.getSetting('refreshEnabled', true) !== false;
+    const automatic = refreshEnabled(store);
     let { due, repos } = dueStreams(automatic);
     if (!due.length) {
       await runBackground(automatic);
@@ -644,7 +618,7 @@ export function createSync({
       if (await runBackground(automatic)) return true;
       if (halted()) return;
       // A background turn can yield while the watch or its streams change.
-      ({ due, repos } = dueStreams(store.getSetting('refreshEnabled', true) !== false));
+      ({ due, repos } = dueStreams(refreshEnabled(store)));
     }
     const [first, second] = due;
     if (!first) return;
@@ -676,7 +650,7 @@ export function createSync({
   }
   // Due streams normally start within seconds; one full budget minute late means the shared CLI queue is behind.
   function lag() {
-    const automatic = store.getSetting('refreshEnabled', true) !== false;
+    const automatic = refreshEnabled(store);
     const enabled = new Set(
       store
         .listRepos()
@@ -733,13 +707,7 @@ export function createSync({
     normalize,
     checkOnForeground() {
       const at = now();
-      if (
-        halted() ||
-        reading ||
-        store.getSetting('refreshEnabled', true) === false ||
-        at - foregroundCheckedAt < FOREGROUND_CHECK_COOLDOWN_MS
-      )
-        return;
+      if (halted() || reading || !refreshEnabled(store) || at - foregroundCheckedAt < FOREGROUND_CHECK_COOLDOWN_MS) return;
       const { due, repos } = dueStreams(true);
       if (due.length) return;
       const streams = store.getStreams().filter(state => repos.has(state.repoId));
@@ -814,7 +782,7 @@ export function createSync({
       for (const state of streams) {
         const repo = repos.find(entry => entry.id === state.repoId);
         if (!repo || !targets.includes(repo.id)) continue;
-        const next = requestRefresh(state, now(), store.getSetting('refreshEnabled', true) === false);
+        const next = requestRefresh(state, now(), !refreshEnabled(store));
         store.saveStream(next);
         requested.set(`${next.repoId}:${next.stream}`, {
           repoId: next.repoId,
@@ -824,7 +792,7 @@ export function createSync({
       }
       return { scheduled: true };
     },
-    status(): SyncStatus {
+    status(): SyncEngineStatus {
       // The page in flight and unanswered user refreshes are not visible in the persisted streams.
       const inProgress: { repoId: string; stream: StreamName }[] = [];
       const enabled = new Set(

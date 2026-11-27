@@ -22,21 +22,19 @@ import { renderTrail } from './activity-trail.ts';
 import { renderCheckoutBar } from './checkout-render.ts';
 import { activityHref } from './navigation.ts';
 import type { ActivityEvent, ActivityItem, EventData } from '../activity.ts';
-import type { StateResponse, PushCommitsResponse, PrReviewResponse } from '../api.ts';
 import type { HtmlValue } from './format.ts';
-
-export type { ActivityEvent, ActivityItem, EventData, HtmlValue };
+import type { StateResponse, PushCommitsResponse, PrReviewResponse } from '../contract.d.ts';
 
 export type Repo = StateResponse['repos'][number];
-export type PushId = number | string | undefined;
+type PushId = number | string | undefined;
 
 /** What the detail page shows after "Load push commits": the response, or the error the request threw. */
 export type CommitsView = PushCommitsResponse | { error: string };
 /** What a PR detail shows after "Load discussion and policies". */
-export type ReviewView = PrReviewResponse | { error: string };
+type ReviewView = PrReviewResponse | { error: string };
 /** Data a detail page loaded on request: push commits for a push, review data for a PR. */
 export type LoadedView = CommitsView | ReviewView;
-export type DetailState = { events: ActivityEvent[]; repos: Repo[]; demo?: boolean; detailRelated?: ActivityEvent[] | undefined };
+type DetailState = { events: ActivityEvent[]; repos: Repo[]; demo?: boolean; detailRelated?: ActivityEvent[] | undefined };
 
 function commit(value: string) {
   return html`<code title="${value}">${value.slice(0, 8)}</code> <button class="ghost sm detail-copy" type="button" data-action="copy-commit" data-value="${value}" aria-label="Copy full commit ID">Copy</button>`;

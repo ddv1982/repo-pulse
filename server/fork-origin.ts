@@ -1,7 +1,6 @@
+import { iso } from './time.ts';
 import type { AzureProvider } from './azure-client.ts';
 import type { ForkOrigin } from '../src/activity.ts';
-
-export type { AzureProvider, ForkOrigin };
 
 /**
  * One live branch creation, checked for the commit it started from and the branch that held it. Until `base` is known,
@@ -25,7 +24,7 @@ export type ForkJob = {
   notOn?: string[];
   unanswered?: string[];
 };
-export type ForkStore = Pick<
+type ForkStore = Pick<
   ReturnType<typeof import('./store.ts').createStore>,
   'listRepos' | 'listJobs' | 'saveJob' | 'getEvent' | 'saveForkResult' | 'branchTipsBefore' | 'forkCandidates' | 'getStreams'
 >;
@@ -35,8 +34,7 @@ const RETRY_MS = 60000;
 /** Commit reads that may walk back through the commits the creating push brought. */
 export const MAX_READS = 8;
 /** Candidate branches tested for containing the base, one read each. */
-export const MAX_CHECKS = 3;
-const iso = (ms: number) => new Date(ms).toISOString();
+const MAX_CHECKS = 3;
 
 /**
  * The check for one push branch creation, or null when the row cannot be checked (no full ref or created tip).
@@ -112,7 +110,7 @@ export function createForkOriginCheck({
     return check;
   }
 
-  async function step(job: ForkJob, repo: import('./azure-client.ts').AzureRepo): Promise<ForkJob | ForkOrigin> {
+  async function step(job: ForkJob, repo: import('../src/contract.d.ts').AzureRepo): Promise<ForkJob | ForkOrigin> {
     if (!job.base) {
       const commit = await provider.commit(repo, job.at);
       // The first commit an earlier push brought is where the branch started. Without a push order there is no base.

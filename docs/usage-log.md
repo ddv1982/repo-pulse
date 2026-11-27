@@ -1,6 +1,6 @@
 # Usage log
 
-Phase 4 of the [improvement plan](IMPROVEMENT-PLAN.md): two weeks of daily use, then the retention and packaging decisions in [PLAN.md](../PLAN.md). Add one dated line per friction point: what you were trying to do, what went wrong or was missing, and whether it was fixed.
+The [usage period](BACKLOG.md#usage-period) from the [improvement plan](archive/IMPROVEMENT-PLAN.md#phase-4-use-then-decide): two weeks of daily use, then the retention and packaging decisions in [PLAN.md](../PLAN.md). Add one dated line per friction point: what you were trying to do, what went wrong or was missing, and whether it was fixed.
 
 ## Database size
 

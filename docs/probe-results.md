@@ -1,6 +1,6 @@
 # Coverage probe results
 
-Recorded 2026-11-20 by `scripts/probe-coverage.js` for 1 watched repositories. GET requests only. Repositories are numbered; no names, IDs or identities are kept.
+Recorded 2026-11-20 by `scripts/probe-coverage.ts` for 1 watched repositories. GET requests only. Repositories are numbered; no names, IDs or identities are kept.
 
 | Repository | Read | HTTP | ms | Facts |
 | --- | --- | --- | --- | --- |
@@ -29,4 +29,4 @@ Recorded 2026-11-23 by hand through the app's own `buildsById` for a watched rep
 | 1 | builds by ID, real ID only | 200 | `{"items":1,"statuses":["completed"]}` |
 | 1 | builds by ID, missing and real ID | 200 | `{"items":1}`: only the real build is returned |
 
-This file is rewritten by `scripts/probe-coverage.js`, which does not repeat this probe.
+This file is rewritten by `scripts/probe-coverage.ts`, which does not repeat this probe.

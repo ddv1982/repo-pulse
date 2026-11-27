@@ -1,5 +1,7 @@
 # Improvement plan
 
+Archived on 2026-11-27. Its open items moved to the [backlog](../BACKLOG.md).
+
 Written 2026-11-22 from a council review by Claude Opus 5.5, Gemini 4 Neon and GPT Sol 6.2. Each read the code independently and read-only. One line per verifiable unit; tick a box only after its check has run.
 
 Sources of each item are marked: **O** Opus, **N** Neon, **S** Sol. "Reproduced" means a delegate ran it; "read" means it was found by reading the code.
@@ -30,7 +32,7 @@ The rule is written in `docs/MAINTAINING.md` ("Match review to risk"). The boxes
 
 ## Phase 4: Use, then decide
 
-Started 2026-11-23 with [usage-log.md](usage-log.md) and its first size reading. The boxes stay open until the two weeks have passed.
+Started 2026-11-23 with [usage-log.md](../usage-log.md) and its first size reading. The boxes stay open until the two weeks have passed.
 
 - [ ] 4.1 Two weeks of daily use. Fix bugs found in use; no new polish. Keep `docs/usage-log.md` with one dated line per friction point. Check: the log exists and covers ten working days. (O, N, S)
 - [ ] 4.2 Record database size at the start, after one week and after two weeks (10.1 MB for 1,982 events on 2026-11-21). Check: three readings in the log. (O)
