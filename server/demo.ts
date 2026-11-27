@@ -1,7 +1,7 @@
 import type { ActivityEvent } from '../src/activity.ts';
 import type { AzureStream } from '../src/contract.d.ts';
+import type { Store } from './store.ts';
 
-export type Store = ReturnType<typeof import('./store.ts').createStore>;
 /** Fixtures carry provider fields beyond EventData, as stored events do. */
 export type DemoEvent = ActivityEvent & { data?: import('../src/activity.ts').EventData & Record<string, unknown> };
 

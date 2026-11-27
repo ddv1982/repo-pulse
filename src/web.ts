@@ -20,10 +20,7 @@ import { createHistoryImport } from './ui/history-import.ts';
 import { createBranchPicker } from './ui/branch-picker.ts';
 import { all, checked, required, setHtml } from './ui/dom.ts';
 import type { PageState } from './ui/refresh.ts';
-import type { Action } from './ui/checkout-actions.ts';
-
-/** web/theme.ts publishes this before the modules load. */
-export type ThemedWindow = Window & { repoPulseTheme?: { set: (value: string) => void } };
+import type { Action } from './ui/dom.ts';
 
 const page = required('#page');
 const header = required('#header');
@@ -821,7 +818,7 @@ document.addEventListener('click', event => {
   const theme = target.closest('[data-theme]');
   if (theme instanceof HTMLElement) {
     // web/theme.ts defines repoPulseTheme on window before this module loads; the optional call covers its absence.
-    (window as ThemedWindow).repoPulseTheme?.set(theme.dataset.theme ?? '');
+    window.repoPulseTheme?.set(theme.dataset.theme ?? '');
     return;
   }
   const graphLink = checked(target.closest('.graph-link'), HTMLAnchorElement, '.graph-link');

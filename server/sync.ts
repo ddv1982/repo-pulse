@@ -10,7 +10,7 @@ import type {
   StreamWarning,
   StreamWindow,
   StreamState,
-  SyncEngineStatus as SyncStatus,
+  SyncEngineStatus,
   RefreshStatus,
   AzureStream as StreamName,
   PageCursor,
@@ -328,7 +328,7 @@ export function createSync({
   let nextBackground: BackgroundKind = 'rewrite';
   const lastTurn: Partial<Record<BackgroundKind | 'live', string>> = {};
   const counters = { pages: 0, errors: 0 };
-  const backgroundProblems: SyncStatus['backgroundProblems'] = {};
+  const backgroundProblems: SyncEngineStatus['backgroundProblems'] = {};
   /** The turn order of the cached active PRs and in-progress builds to look up by ID, per repository (see lookupTurn). */
   const prTurns: Map<string, Set<string>> = new Map();
   const buildTurns: Map<string, Set<string>> = new Map();
@@ -799,7 +799,7 @@ export function createSync({
       }
       return { scheduled: true };
     },
-    status(): SyncStatus {
+    status(): SyncEngineStatus {
       // The page in flight and unanswered user refreshes are not visible in the persisted streams.
       const inProgress: { repoId: string; stream: StreamName }[] = [];
       const enabled = new Set(

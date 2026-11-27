@@ -1,4 +1,4 @@
-export type Action = (element: HTMLElement) => Promise<void> | void;
+import type { Action } from './dom.ts';
 
 function readIds(encoded: string | undefined): string[] | undefined {
   try {

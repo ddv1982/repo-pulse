@@ -1,6 +1,10 @@
 // Apply before first paint; System follows the operating system even when it changes while open.
-/** The modules read this through window (see src/ui/icons.ts). */
 type RepoPulseTheme = { get: () => string; set: (value: string) => void; apply: () => void };
+/** This classic script defines `repoPulseTheme` before the modules load; they read it through window. */
+// oxlint-disable-next-line no-unused-vars -- a script-scope interface merges into the global Window type.
+interface Window {
+  repoPulseTheme?: RepoPulseTheme;
+}
 (() => {
   const key = 'repo-pulse-theme';
   const query = matchMedia('(prefers-color-scheme: dark)');
@@ -15,7 +19,7 @@ type RepoPulseTheme = { get: () => string; set: (value: string) => void; apply: 
       button.setAttribute('aria-pressed', String(button.getAttribute('data-theme') === choice));
     });
   }
-  (window as Window & { repoPulseTheme?: RepoPulseTheme }).repoPulseTheme = {
+  window.repoPulseTheme = {
     get: () => choice,
     set(value) {
       if (!['system', 'light', 'dark'].includes(value)) return;

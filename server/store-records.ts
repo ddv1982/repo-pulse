@@ -11,7 +11,6 @@
 // docs/post-migration-plan.md).
 import { fields, is, isRecord, list, type Check } from './azure-records.ts';
 
-import type { SqlRow } from './store.ts';
 import type { Repository, StoredEvent, StreamState, AzureStream, HistoryJob, SavedActivityFilter } from '../src/contract.d.ts';
 import type { ActivityKind } from '../src/activity.ts';
 import type { RewriteJob } from './rewrite-check.ts';
@@ -19,6 +18,9 @@ import type { ForkJob } from './fork-origin.ts';
 import type { Followup } from './checkout-branches.ts';
 import type { Observation } from './checkout-observations.ts';
 import type { EntityData, EntityType } from './normalize.ts';
+
+/** A row as node:sqlite returns it. */
+export type SqlRow = Record<string, import('node:sqlite').SQLOutputValue>;
 
 /** Jobs by type. Merge jobs were dropped by store migration 11. */
 export type Job = HistoryJob | RewriteJob | ForkJob;

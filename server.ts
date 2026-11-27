@@ -6,7 +6,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { homedir } from 'node:os';
 import { createSavedActivityFilters } from './server/saved-activity-filters.ts';
-import { createStore } from './server/store.ts';
+import { createStore, type Store } from './server/store.ts';
 import { isCorruptRow } from './server/store-records.ts';
 import { lockDatabase } from './server/database-lock.ts';
 import { createSync } from './server/sync.ts';
@@ -25,7 +25,7 @@ import { createCheckoutGit, isCheckoutIntent, isSwitchIntent } from './server/ch
 import { activityBranch } from './src/activity-branch.ts';
 import { browseFolders } from './server/folders.ts';
 import { canOpenBrowser, openBrowser } from './server/open-browser.ts';
-import type { IncomingMessage as Request, ServerResponse as Response } from 'node:http';
+import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { AzureProvider } from './server/azure-client.ts';
 // The JSON each route answers with is defined in src/contract.d.ts, which src/api.ts maps request paths to, so the
 // browser modules that read a response are checked against what the handler below produces.
@@ -53,8 +53,6 @@ import type {
 } from './src/contract.d.ts';
 import type { ActivityPage as ActivityResponse } from './src/activity.ts';
 
-export type Store = ReturnType<typeof createStore>;
-
 /** Live mode passes the Azure client; demo mode passes demoProvider, which answers only the routes demo serves. */
 export type AppProvider = AzureProvider | typeof demoProvider;
 
@@ -68,7 +66,7 @@ export type AppSync = {
   reset?: (clear: () => void) => Promise<void>;
   forget?: (repoId: string) => void;
 };
-export type RouteContext = { req: Request; res: Response; url: URL; params: string[] };
+export type RouteContext = { req: IncomingMessage; res: ServerResponse; url: URL; params: string[] };
 export type Route = { method: 'GET' | 'POST' | 'PATCH' | 'DELETE'; path: string | RegExp; handler: (context: RouteContext) => unknown };
 export type RequestError = Error & { status?: number; code?: string };
 export type AppOptions = {
@@ -114,7 +112,7 @@ function decodeParam(value: string | undefined) {
 /**
  * Parses a JSON object body. Its fields stay unknown until each route validates them.
  */
-async function body(req: Request): Promise<Record<string, unknown>> {
+async function body(req: IncomingMessage): Promise<Record<string, unknown>> {
   if (!req.headers['content-type']?.startsWith('application/json')) throw problem('Send application/json.', 415);
   const chunks = [];
   let size = 0;
@@ -132,7 +130,7 @@ async function body(req: Request): Promise<Record<string, unknown>> {
   }
 }
 
-function checkLocalRequest(req: Request) {
+function checkLocalRequest(req: IncomingMessage) {
   // Compare the actual bound port too: other localhost apps are different origins.
   const port = req.socket.localPort;
   const hosts = new Set([`localhost:${port}`, `127.0.0.1:${port}`, `[::1]:${port}`]);
@@ -146,7 +144,7 @@ function checkLocalRequest(req: Request) {
   if (req.headers['sec-fetch-site'] === 'cross-site' && !pageLoad) throw problem('Cross-site requests are not allowed.', 403);
 }
 
-async function staticFile(pathname: string, res: Response) {
+async function staticFile(pathname: string, res: ServerResponse) {
   const alias: Record<string, string> = {
     '/': 'web/index.html',
     '/app.css': 'web/app.css',
@@ -215,10 +213,10 @@ export function createApp({
     const given = Buffer.from(Array.isArray(value) ? value.join(',') : (value ?? ''));
     return given.length === expected.length && timingSafeEqual(given, expected);
   };
-  const hasAccessKey = (req: Request) => matches(req.headers['x-repo-pulse-key'], expectedKey);
+  const hasAccessKey = (req: IncomingMessage) => matches(req.headers['x-repo-pulse-key'], expectedKey);
   // The launch link carries this token instead of the key. It works once, so a copied or recorded link is spent.
   let launch = launchToken ? Buffer.from(launchToken) : null;
-  const json = (res: Response, status: number, data: unknown) =>
+  const json = (res: ServerResponse, status: number, data: unknown) =>
     res.writeHead(status, { 'content-type': 'application/json; charset=utf-8' }).end(JSON.stringify(data));
   const repoById = (id: unknown) => {
     const repo = store.listRepos().find(item => item.id === id);
@@ -713,7 +711,7 @@ export function createApp({
       },
     },
   ];
-  const handle = async (req: Request, res: Response) => {
+  const handle = async (req: IncomingMessage, res: ServerResponse) => {
     Object.entries(HEADERS).forEach(([key, value]) => res.setHeader(key, value));
     try {
       checkLocalRequest(req);

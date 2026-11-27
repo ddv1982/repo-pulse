@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { copyBeforeUpgrade, createStore } from '../server/store.ts';
+import { copyBeforeUpgrade, createStore, type Store } from '../server/store.ts';
 import { SEARCH_INDEX_VERSION } from '../src/activity-text.ts';
 import { DatabaseSync } from 'node:sqlite';
 import { spawn } from 'node:child_process';
@@ -12,7 +12,6 @@ import type { StreamState } from '../src/contract.d.ts';
 import { dataOf, fieldsOf, present } from './fixtures/typed.ts';
 import { historyJob, rewriteJob } from './fixtures/jobs.ts';
 
-type Store = ReturnType<typeof createStore>;
 const repo = {
   id: 'one',
   name: 'One',

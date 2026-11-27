@@ -2,11 +2,9 @@ import { createActivityData, activityEvents } from './activity-data.ts';
 import { isActivity } from './navigation.ts';
 import type { ActivityEvent, ActivityPage } from '../activity.ts';
 import type { ActivityView } from './activity-data.ts';
-import type { StateResponse, EventResponse as EventDetail } from '../contract.d.ts';
+import type { StateResponse, EventResponse } from '../contract.d.ts';
 
 export type View = ActivityView & { eventId: string | null; relatedCi?: boolean | undefined; generation: number };
-
-export type Request = typeof import('../api.ts').request;
 
 export type Repo = StateResponse['repos'][number];
 
@@ -68,7 +66,7 @@ export function createRefreshController({
   onUpdate,
   onError,
 }: {
-  request: Request;
+  request: typeof import('../api.ts').request;
   getView: () => View;
   reconcileRepositories: (repos: Repo[]) => void;
   onUpdate: (event: { metadata: string; force: boolean }) => void;
@@ -87,7 +85,7 @@ export function createRefreshController({
   };
   // Until the first state read lands, state.watched is a placeholder, not the watch list.
   let loaded = false;
-  let detailResult: EventDetail | null | undefined;
+  let detailResult: EventResponse | null | undefined;
   let detailRevision: string | undefined;
   let detailCi: boolean | undefined;
   let active: { view: View; promise: Promise<RefreshOutcome> } | null | undefined;

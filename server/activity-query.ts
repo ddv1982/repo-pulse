@@ -8,9 +8,8 @@ import { projectActivity } from '../src/activity.ts';
 import { treeBranchRefs, treePullRequestSource } from '../src/activity-tree.ts';
 import { activityFilterLabel, labels, parseActivityFilter } from '../src/activity-text.ts';
 import type { SQLInputValue as SqlValue } from 'node:sqlite';
+import type { SqlRow } from './store-records.ts';
 import type { ActivityEvent, ActivityItem, ActivityRequest, ActivityPage } from '../src/activity.ts';
-
-export type SqlRow = Record<string, import('node:sqlite').SQLOutputValue>;
 
 export type Group = { key: string; time: number; observed: number; representative: string };
 export type FilterRow = { kind: string; status: string; evidence: string };

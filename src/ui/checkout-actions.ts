@@ -1,6 +1,6 @@
 import type { CheckoutSnapshot, CheckoutOperation } from './checkout.ts';
 
-export type Action = (element: HTMLElement) => Promise<void> | void;
+import type { Action } from './dom.ts';
 export type ActivityCheckout = { repoId: string; localPath: string; eventId: string; branch: string; isCurrent: () => boolean };
 
 export function createCheckoutActions({

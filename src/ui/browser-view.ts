@@ -84,8 +84,6 @@ export type RenderOptions = {
   checkoutFocus?: string | null | undefined;
   isCurrent: () => boolean;
 };
-/** web/theme.ts publishes this before the modules load. */
-export type ThemedWindow = Window & { repoPulseTheme?: { apply: () => void } };
 
 /**
  * `syncLive` sits outside the header so re-rendering the header never replaces it.
@@ -201,7 +199,7 @@ export function createBrowserView({
     // needs a replacement.
     if (focusId && (document.activeElement !== focused || !focused?.checkVisibility())) restoreFocus(focusId, neighbours);
     // web/theme.ts defines repoPulseTheme on window before the modules load; the optional call covers its absence.
-    (window as ThemedWindow).repoPulseTheme?.apply();
+    window.repoPulseTheme?.apply();
     if (checkoutFocus) {
       requestAnimationFrame(() => {
         if (!isCurrent()) return;
@@ -255,7 +253,7 @@ export function createBrowserView({
       if (syncLive.textContent !== sentence) syncLive.textContent = sentence;
       if (menuOpen) required('.header-overflow', HTMLDetailsElement, header).open = true;
       // As in renderPage: theme.ts runs first, and the optional call covers its absence.
-      (window as ThemedWindow).repoPulseTheme?.apply();
+      window.repoPulseTheme?.apply();
       renderPage(state, ui, options);
       setHtml(
         demo,

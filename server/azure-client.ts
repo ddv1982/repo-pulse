@@ -13,7 +13,6 @@ import type {
   ConnectionStatus,
   PullRequestReview,
 } from '../src/contract.d.ts';
-import type { UnreadableCheckoutPull } from './checkout-advice.ts';
 
 /**
  * `restarted` marks a first page read in place of the saved cursor's page. `unreadable` counts the records left out
@@ -38,10 +37,12 @@ export type CheckoutPull = {
   sourceId: string;
   targetId: string;
   head?: string;
-  result?: string;
+  result?: string | undefined;
   strategy?: string;
   url: string;
 };
+/** A completed PR from the source branch whose fields checkout uses cannot be read, named by the first such field. */
+export type UnreadableCheckoutPull = { unreadable: string };
 
 export type ResolvedRepository = {
   id: string;

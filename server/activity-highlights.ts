@@ -1,5 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite';
-import type { SqlRow } from './activity-query.ts';
+import type { SqlRow } from './store-records.ts';
 import type { ActivityEvent, ActivityItem, HighlightReason } from '../src/activity.ts';
 import { activeCi, applyCiSummary, ciAttempt, type CiAttempt } from './activity-ci-summary.ts';
 

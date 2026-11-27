@@ -1,8 +1,5 @@
 import { html } from './format.ts';
 
-/** theme.ts defines this before any module loads. */
-export type ThemedWindow = Window & { repoPulseTheme?: { get: () => string } };
-
 const svg = (content: import('./format.ts').SafeHtml) =>
   html`<svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">${content}</svg>`;
 export const tagGlyph = html`<path d="M3 4h8l10 10-7 7L3 10zM7 8h.1"/>`;
@@ -24,6 +21,6 @@ export const icons = {
 
 export function themeSwitch() {
   // web/theme.ts defines repoPulseTheme on window before the modules load; the optional call covers its absence.
-  const selected = (window as ThemedWindow).repoPulseTheme?.get() || 'system';
+  const selected = window.repoPulseTheme?.get() || 'system';
   return html`<div class="seg theme" role="group" aria-label="Theme">${(['system', 'light', 'dark'] as const).map(value => html`<button type="button" data-theme="${value}" aria-label="${value.charAt(0).toUpperCase() + value.slice(1)}" title="${value.charAt(0).toUpperCase() + value.slice(1)}" aria-pressed="${value === selected}">${icons[value]}</button>`)}</div>`;
 }
