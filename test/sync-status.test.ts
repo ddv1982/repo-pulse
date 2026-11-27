@@ -234,6 +234,11 @@ test('first sync reports completed checks before ongoing live checks switch to t
   assert.deepEqual(first.repos.a, { state: 'syncing', firstSync: { completed: 4, total: 6 } });
   assert.deepEqual(first.overall, { state: 'syncing', repoId: 'a', firstSync: { completed: 4, total: 6 } });
   assert.deepEqual(status({ repos: [{ id: 'a' }], streams: [] }).repos.a, { state: 'syncing', firstSync: { completed: 0, total: 6 } });
+  const staggered = status({
+    a: { refs: { initialized: false, lastSuccess: undefined } },
+    b: { refs: { initialized: false, lastSuccess: undefined }, prs: { initialized: false, lastSuccess: undefined } },
+  });
+  assert.deepEqual(staggered.overall, { state: 'syncing', repoId: 'b', firstSync: { completed: 4, total: 6 } });
   assert.equal(status().repos.a?.firstSync, undefined);
 });
 

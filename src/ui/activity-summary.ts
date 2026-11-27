@@ -84,7 +84,7 @@ export function renderSummary(
       ? 'Activity could not load'
       : newItems
         ? `${partial ? 'At least ' : ''}${newItems} new item${newItems === 1 ? '' : 's'}`
-        : firstSync
+        : firstSync && (records.length || !scoped)
           ? records.length
             ? 'Recent activity available'
             : 'Reading recent activity…'
@@ -96,9 +96,9 @@ export function renderSummary(
   const filteredToFailures = canonicalActivityFilter(ui.kind ?? '') === 'status:failed';
   const shown = records.reduce((total, record) => total + 1 + (record.foldedCi ?? 0), 0);
   const legend = loaded
-    ? [firstSync, shown < (state.activity.total ?? 0) ? `Showing ${shown} of ${state.activity.total} items` : ''].filter(Boolean)
+    ? [shown < (state.activity.total ?? 0) ? `Showing ${shown} of ${state.activity.total} items` : ''].filter(Boolean)
     : [];
-  return html`<section class="card summary mb" aria-label="Activity summary"><div class="top"><div class="headline"><p><b class="${newItems ? '' : 'zero'}">${headline}</b>${newItems && updates > newItems ? ` · ${updates} updates` : ''}</p>${legend.length ? html`<ul class="legend">${legend.map(line => html`<li>${line}</li>`)}</ul>` : emptyHtml}</div><div class="summary-chips" aria-label="Activity counts">${counts
+  return html`<section class="card summary mb" aria-label="Activity summary"><div class="top"><div class="headline"><p><b class="${newItems ? '' : 'zero'}">${headline}</b>${newItems && updates > newItems ? ` · ${updates} updates` : ''}</p>${loaded && firstSync ? html`<span class="summary-sync-progress">${firstSync}</span>` : emptyHtml}${legend.length ? html`<ul class="legend">${legend.map(line => html`<li>${line}</li>`)}</ul>` : emptyHtml}</div><div class="summary-chips" aria-label="Activity counts">${counts
     .filter(cell => cell.count || (cell.build && filteredToFailures && loaded))
     .map(cell => {
       if (cell.build && filteredToFailures) {

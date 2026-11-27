@@ -78,6 +78,7 @@ export function syncSentence(status: AnySyncStatus, repoName: string = '') {
  */
 export function syncAnnouncement(status: AnySyncStatus, repoName: string = '') {
   if (status.state === 'synced') return 'Synced';
+  if (status.state === 'syncing' && status.firstSync) return repoName ? `First sync in ${repoName}` : 'First sync';
   if (status.state === 'delayed') return `Delayed${repoName ? ` in ${repoName}` : ''}`;
   return syncSentence(status, repoName);
 }

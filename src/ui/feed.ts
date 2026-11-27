@@ -474,7 +474,7 @@ export function renderFeed(state: PageState, ui: FeedView & { savedFilterId: str
   // With one repository in view every row would repeat its name, so rows name it only when several are shown.
   const showRepo = shown.length > 1;
   const { content, legend } = historyGroups(records, state, hasQuery, showRepo, feedCommits);
-  const emptyMessage = firstSync ? 'No activity loaded yet' : emptyActivityMessage(ui, partial);
+  const emptyMessage = emptyActivityMessage(ui, partial);
   const emptyHint =
     state.activity.error ||
     (state.activity.loading

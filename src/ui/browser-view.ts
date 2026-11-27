@@ -97,11 +97,46 @@ export function createBrowserView({
   picker: { mount: (element: HTMLElement | null) => void };
   toolbarMenus: Record<string, { mount: (element: HTMLElement | null) => void }>;
 }) {
+  const importedGroup = 'details[data-group="Imported history"]';
+  const importedHistoryKey = 'repo-pulse:imported-history-open';
+  let importedHistoryOpen: boolean | undefined;
+  try {
+    const saved = sessionStorage.getItem(importedHistoryKey);
+    if (saved === 'open' || saved === 'closed') importedHistoryOpen = saved === 'open';
+  } catch {
+    // The current page can still remember the choice when storage is unavailable.
+  }
+  page.addEventListener('click', event => {
+    if (!(event.target instanceof Element)) return;
+    const summary = event.target.closest(`${importedGroup} > summary`);
+    const group = summary?.parentElement;
+    if (!(group instanceof HTMLDetailsElement)) return;
+    event.preventDefault();
+    importedHistoryOpen = !group.open;
+    group.open = importedHistoryOpen;
+    try {
+      sessionStorage.setItem(importedHistoryKey, group.open ? 'open' : 'closed');
+    } catch {
+      // Keep the in-memory choice for subsequent renders.
+    }
+  });
+
   const groupElements = () => [...page.querySelectorAll('details[data-group]')].filter(element => element instanceof HTMLDetailsElement);
 
   function captureGroups(): [string, boolean][] {
     // The selector guarantees data-group, so the fallback never applies.
     return groupElements().map(element => [element.dataset.group ?? '', element.open]);
+  }
+
+  function restoreGroups(groups: [string, boolean][]) {
+    for (const [name, open] of groups) {
+      groupElements()
+        .find(element => element.dataset.group === name)
+        ?.toggleAttribute('open', open);
+    }
+    if (importedHistoryOpen !== undefined) {
+      page.querySelector(importedGroup)?.toggleAttribute('open', importedHistoryOpen);
+    }
   }
 
   function renderPage(
@@ -153,11 +188,7 @@ export function createBrowserView({
       const host = page.querySelector(selector);
       menu.mount(host instanceof HTMLElement ? host : null);
     }
-    for (const [name, open] of groups) {
-      groupElements()
-        .find(element => element.dataset.group === name)
-        ?.toggleAttribute('open', open);
-    }
+    restoreGroups(groups);
     // A control that survived the render keeps focus; one that left, or that the render hid (a closed menu's option),
     // needs a replacement.
     if (focusId && (document.activeElement !== focused || !focused?.checkVisibility())) restoreFocus(focusId, neighbours);

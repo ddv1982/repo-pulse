@@ -117,6 +117,7 @@ test('first sync shows imported activity while other checks continue and preserv
   await page.goto(`http://127.0.0.1:${portOf(app)}/#activity`);
   const status = page.locator('#header .header-tools > .sync-pill');
   await expect(status).toHaveText('First sync · 0 of 6');
+  await expect(page.locator('#sync-live')).toHaveText('First sync in First repo');
   await expect(page.getByText('Reading recent activity…')).toBeVisible();
   const started = performance.now();
   await sync.tick();
@@ -126,6 +127,7 @@ test('first sync shows imported activity while other checks continue and preserv
   t.diagnostic(`First imported row visible after ${Math.round(performance.now() - started)} ms with a synthetic provider`);
   await expect(page.getByText('Recent activity available')).toBeVisible();
   await expect(status).toHaveText('First sync · 1 of 6');
+  await expect(page.locator('#sync-live')).toHaveText('First sync in First repo');
   await mkdir('test-results', { recursive: true });
   await page.screenshot({ path: 'test-results/first-sync-activity-light.png', animations: 'disabled' });
   await page.setViewportSize({ width: 375, height: 812 });
@@ -136,6 +138,16 @@ test('first sync shows imported activity while other checks continue and preserv
   await page.screenshot({ path: 'test-results/first-sync-activity-phone-dark.png', animations: 'disabled' });
 
   await imported.locator('summary').click();
+  await expect(row).toBeHidden();
+  await page.reload();
+  await expect(row).toHaveCount(1);
+  await expect(row).toBeHidden();
+  await page.setViewportSize({ width: 1280, height: 900 });
+  const search = page.getByRole('searchbox', { name: 'Search activity' });
+  await search.fill('never matches');
+  await expect(page.getByRole('region', { name: 'Repository activity' }).getByText('No activity matches these filters')).toBeVisible();
+  await search.clear();
+  await expect(row).toHaveCount(1);
   await expect(row).toBeHidden();
   for (let i = 0; i < 5; i++) await sync.tick();
   await expect(status).toHaveText(/^Synced/, { timeout: 8000 });
