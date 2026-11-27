@@ -5,6 +5,8 @@ import { fakeRequest, present } from './fixtures/typed.ts';
 import { layoutGitGraph } from '../src/git-graph.ts';
 import { createCheckoutGit } from '../server/checkout-git.ts';
 import { runGit } from '../server/git.ts';
+import { withCommitActivity } from '../server/git-history.ts';
+import type { ActivityEvent } from '../src/activity.ts';
 import { createGitGraph, createGraphController } from '../src/ui/git-graph.ts';
 import type { GitHistoryPage, Repository } from '../src/contract.ts';
 import { stub } from './fixtures/typed.ts';
@@ -149,4 +151,27 @@ test('rendering Git Graph starts no request; entering it and a state answer that
   assert.deepEqual(requested, ['/api/repos/orders/graph'], 'a render with another repository first loads nothing');
   graph.sync();
   assert.deepEqual(requested, ['/api/repos/orders/graph', '/api/repos/billing/graph']);
+});
+
+test('graph enrichment sends a status ID for each commit, not its English label', () => {
+  const sha = 'b'.repeat(40);
+  const page = stub<GitHistoryPage>({ commits: [{ id: sha, parents: [], author: 'Ann', subject: 'Release', refs: [], activity: [] }] });
+  const event = (id: string, kind: ActivityEvent['kind'], data: ActivityEvent['data']) =>
+    stub<ActivityEvent>({ id, kind, time: '2026-11-27T10:00:00.000Z', title: id, data });
+  withCommitActivity(page, [
+    { sha, event: event('merged', 'pr', { status: 'completed' }) },
+    { sha, event: event('abandoned', 'pr', { status: 'abandoned' }) },
+    { sha, event: event('partial', 'build', { status: 'completed', result: 'succeededWithIssues' }) },
+    { sha, event: event('queued', 'build', { status: 'notStarted' }) },
+    { sha, event: event('push', 'push', {}) },
+  ]);
+  assert.deepEqual(
+    page.commits[0]?.activity.map(item => [item.id, item.status]),
+    [
+      ['merged', 'merged'],
+      ['abandoned', 'pr-abandoned'],
+      ['partial', 'partially-succeeded'],
+      ['queued', 'queued'],
+    ],
+  );
 });

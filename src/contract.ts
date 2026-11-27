@@ -4,6 +4,7 @@
 // constant lists that a union is derived from, so the server and the browser can both import it.
 
 import type { ActivityEvent, ActivityPage, EventData } from './activity.ts';
+import type { ActivityStatusId } from './activity-text.ts';
 
 // Azure
 
@@ -467,7 +468,8 @@ export type GitHistoryActivity = {
   kind: 'build' | 'pr';
   time: ActivityEvent['time'];
   title: string;
-  status: string;
+  /** The browser names and colours it from src/activity-text.ts. */
+  status: ActivityStatusId;
 };
 
 export type GitHistorySnapshot = { snapshot: string };

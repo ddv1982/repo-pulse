@@ -9,9 +9,10 @@ import { forkText, treeLegend } from '../../src/ui/activity-tree.ts';
 import type { TreeFork } from '../../src/activity-tree.ts';
 import { createStore } from '../../server/store.ts';
 import type { ActivityEvent } from '../../src/activity.ts';
-import type { Repository, StreamError, StreamState } from '../../src/contract.ts';
+import type { GitHistoryActivity, GitHistoryPage, Repository, StreamError, StreamState } from '../../src/contract.ts';
 import type { CheckoutSnapshot } from '../../src/ui/checkout.ts';
 import type { PageState } from '../../src/ui/refresh.ts';
+import { renderGitGraph } from '../../src/ui/git-graph.ts';
 import { parse, one, all, row, text, textIncludingHidden, type DomElement, type DomRoot } from '../fixtures/dom.ts';
 import { present, stub } from '../../test/fixtures/typed.ts';
 
@@ -777,5 +778,53 @@ test('the failed CI summary offers all CI runs even when no failures are unread'
       assert.equal(await text(one(layout, 'button[data-kind="build"]')), 'Show all CI runs');
     }
     assert.equal(await one(page, '#kind-toggle').getAttribute('data-active'), 'true');
+  }
+});
+
+test('Git Graph chips name each status from its ID and take the Activity tone', async t => {
+  const activity = (id: string, kind: GitHistoryActivity['kind'], status: GitHistoryActivity['status']): GitHistoryActivity => ({
+    id,
+    kind,
+    status,
+    title: id,
+    time: '2026-11-27T10:00:00.000Z',
+  });
+  const items = [
+    activity('merged-pr', 'pr', 'merged'),
+    activity('abandoned-pr', 'pr', 'pr-abandoned'),
+    activity('open-pr', 'pr', 'open-pr'),
+    activity('passed', 'build', 'succeeded'),
+    activity('failed', 'build', 'failed'),
+    activity('partial', 'build', 'partially-succeeded'),
+    activity('running', 'build', 'running'),
+    activity('skipped', 'build', 'skipped'),
+  ];
+  const repo = stub<Repository>({ id: 'orders', name: 'Orders', project: 'Demo', localPath: '/work/orders' });
+  const page = stub<GitHistoryPage>({
+    snapshot: 's',
+    head: 'a'.repeat(40),
+    branch: 'main',
+    upstream: null,
+    shallow: false,
+    nextCursor: null,
+    commits: [{ id: 'a'.repeat(40), parents: [], author: 'Ann', subject: 'Release', refs: [], activity: items }],
+  });
+  const doc = parse(t, renderGitGraph([repo], repo, { repoId: 'orders', path: '/work/orders', page, loading: false, error: '' }, '', ''));
+  const chip = (id: string) => one(doc, `.graph-link[href="#event/${id}"]`);
+  const expected: [string, string, string[]][] = [
+    ['merged-pr', 'PR · Merged', ['merged', 'ok']],
+    // Activity shows an abandoned pull request as a warning, so the graph does too.
+    ['abandoned-pr', 'PR · PR abandoned', ['warn']],
+    ['open-pr', 'PR · Open PR', ['info']],
+    ['passed', 'CI · Succeeded', ['ok']],
+    ['failed', 'CI · Failed', ['crit']],
+    ['partial', 'CI · Partially succeeded', ['warn']],
+    ['running', 'CI · Running', ['info']],
+    ['skipped', 'CI · Skipped', ['neutral']],
+  ];
+  for (const [id, label, tone] of expected) {
+    const shown = await text(chip(id));
+    assert.ok(shown === label || shown.startsWith(`${label} · `), `${id}: ${shown}`);
+    assert.deepEqual(await classes(chip(id)), ['chip', 'graph-link', 'status-chip', ...tone].sort(), id);
   }
 });

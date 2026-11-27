@@ -28,6 +28,35 @@ const statusLabels = {
   activity: 'Activity',
 } satisfies Record<string, string>;
 type StatusId = keyof typeof statusLabels;
+/** A stable status ID: what the server sends instead of a label, and what the browser names and colours. */
+export type ActivityStatusId = StatusId;
+/** The tone of each status: one palette for Activity rows, details, trails and the Git Graph. */
+const statusTones: Record<StatusId, ActivityTone> = {
+  'new-branch': 'info',
+  'branch-deleted': 'crit',
+  unlisted: 'warn',
+  'new-tag': 'info',
+  'tag-moved': 'warn',
+  'tag-deleted': 'warn',
+  push: 'info',
+  merged: 'ok',
+  'pr-abandoned': 'warn',
+  'draft-pr': 'neutral',
+  'open-pr': 'info',
+  'pr-updated': 'neutral',
+  queued: 'info',
+  running: 'info',
+  canceling: 'warn',
+  succeeded: 'ok',
+  failed: 'crit',
+  canceled: 'warn',
+  'partially-succeeded': 'warn',
+  skipped: 'neutral',
+  unknown: 'neutral',
+  activity: 'neutral',
+};
+export const statusLabel = (id: StatusId) => statusLabels[id];
+export const statusTone = (id: StatusId) => statusTones[id];
 /** The same table, for a status ID read from a filter, which may name no status. */
 const statusLabelsById: Record<string, string> = statusLabels;
 const evidenceLabels: Record<string, string> = { 'pr-linked': 'PR evidence' };
@@ -46,33 +75,32 @@ export const labels = {
   build: 'CI run',
 };
 
-const buildStates: Record<string, [StatusId, ActivityTone]> = {
-  notStarted: ['queued', 'info'],
-  postponed: ['queued', 'info'],
-  inProgress: ['running', 'info'],
-  cancelling: ['canceling', 'warn'],
-  succeeded: ['succeeded', 'ok'],
-  failed: ['failed', 'crit'],
-  canceled: ['canceled', 'warn'],
-  partiallySucceeded: ['partially-succeeded', 'warn'],
-  succeededWithIssues: ['partially-succeeded', 'warn'],
-  skipped: ['skipped', 'neutral'],
+const buildStates: Record<string, StatusId> = {
+  notStarted: 'queued',
+  postponed: 'queued',
+  inProgress: 'running',
+  cancelling: 'canceling',
+  succeeded: 'succeeded',
+  failed: 'failed',
+  canceled: 'canceled',
+  partiallySucceeded: 'partially-succeeded',
+  succeededWithIssues: 'partially-succeeded',
+  skipped: 'skipped',
 };
 
-function buildPresentation(event: Pick<ActivityEvent, 'data'>) {
+function buildStatusId(event: Pick<ActivityEvent, 'data'>): StatusId {
   const { status, result } = event.data || {};
   const key = status === 'completed' || !status ? result || status : status;
-  const state = key && Object.hasOwn(buildStates, key) ? buildStates[key] : undefined;
-  return state ?? (['unknown', 'neutral'] as const);
+  return (key && Object.hasOwn(buildStates, key) ? buildStates[key] : undefined) ?? 'unknown';
 }
 
 export function buildState(event: Pick<ActivityEvent, 'data'>) {
-  const [id, tone] = buildPresentation(event);
-  return { label: statusLabels[id], tone };
+  const id = buildStatusId(event);
+  return { label: statusLabels[id], tone: statusTones[id] };
 }
 
-export function activityStatusId(event: ActivityEvent) {
-  if (event.kind === 'build') return buildPresentation(event)[0];
+export function activityStatusId(event: ActivityEvent): StatusId {
+  if (event.kind === 'build') return buildStatusId(event);
   if (event.kind === 'branch-created') return 'new-branch';
   if (event.kind === 'branch-deleted') return ['snapshot', 'refs'].includes(event.data?.evidence ?? '') ? 'unlisted' : 'branch-deleted';
   if (event.kind === 'tag') {
@@ -91,18 +119,10 @@ export const activityLabel = (event: ActivityEvent) => statusLabels[activityStat
 
 /** One status palette for live rows, imported history, detail chips and update trails. */
 export function activityTone(event: ActivityEvent): ActivityTone {
-  if (event.kind === 'build') return buildState(event).tone;
-  if (event.kind === 'branch-created') return 'info';
-  if (event.kind === 'push') return 'info';
-  if (event.kind === 'branch-deleted') return ['snapshot', 'refs'].includes(event.data?.evidence ?? '') ? 'warn' : 'crit';
-  // Tags usually stay put, so a moved or deleted tag is worth a second look.
-  if (event.kind === 'tag') return event.data?.change === 'created' ? 'info' : 'warn';
-  if (event.kind === 'pr') {
-    if (event.data?.status === 'completed') return 'ok';
-    if (event.data?.status === 'abandoned') return 'warn';
-    return event.data?.status === 'active' && !event.data?.isDraft ? 'info' : 'neutral';
-  }
-  return 'neutral';
+  // Tags usually stay put, so a moved or deleted tag is worth a second look, and so is one whose change was not
+  // recorded, though it is labelled as new.
+  if (event.kind === 'tag' && event.data?.change !== 'created') return 'warn';
+  return statusTones[activityStatusId(event)];
 }
 
 export const azureDevOpsService = 'Microsoft.VisualStudio.Services.TFS';
