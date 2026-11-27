@@ -373,7 +373,7 @@ ol.rows {
   background-image: none;
 }
 :root:not(.dark) .feed .row.new:not(.crit, :hover, :focus-within) {
-  background-color: color-mix(in srgb, var(--primary) 4%, transparent);
+  background-color: color-mix(in srgb, var(--primary) 7%, transparent);
 }
 .row.new .title {
   font-weight: 600;
@@ -396,6 +396,16 @@ ol.rows {
 .kind-label {
   min-width: 0;
   overflow-wrap: anywhere;
+}
+/* Light mode carries status as a tinted pill, so the column reads at the strength dark mode gets from saturated text. */
+:root:not(.dark) .feed .kind-label {
+  padding: 0 8px;
+  border-radius: 10px;
+  font-weight: 600;
+  background: color-mix(in srgb, currentColor 12%, var(--card));
+}
+:root:not(.dark) .feed .row .title {
+  font-weight: 600;
 }
 .kind > .d,
 .kind > svg {
@@ -1046,7 +1056,7 @@ ol.rows {
 }
 @media (min-width: 1100px) {
   .row {
-    grid-template-columns: var(--kind-width, 8rem) minmax(0, 2fr) minmax(12rem, 1fr) 8.5rem;
+    grid-template-columns: var(--kind-width, 9.25rem) minmax(0, 2fr) minmax(12rem, 1fr) 8.5rem;
     padding-block: 10px;
   }
   .row > .kind {
@@ -1163,7 +1173,7 @@ ol.rows {
 @media (min-width: 1100px) {
   .rows.with-tree {
     --tree-label-y: 21px;
-    --kind-width: calc(8rem + var(--tree-width));
+    --kind-width: calc(9.25rem + var(--tree-width));
   }
   .with-tree .row {
     padding-inline-start: 12px;

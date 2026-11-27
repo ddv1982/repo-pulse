@@ -6,48 +6,48 @@
   --control-height-sm: 28px;
   --font-sans: -apple-system, BlinkMacSystemFont, 'Inter Variable', 'Segoe UI', system-ui, sans-serif;
   --font-mono: ui-monospace, 'SF Mono', 'SFMono-Regular', Menlo, Consolas, 'Liberation Mono', monospace;
-  --background: #f5f7f8;
-  --foreground: #241523;
+  --background: #dfe7f1;
+  --foreground: #0a1020;
   --card: #fff;
-  --muted: #edf2f6;
-  --table-head: #f4f7fa;
-  --muted-foreground: #5e5863;
+  --muted: #e9eef6;
+  --table-head: #eef2f9;
+  --muted-foreground: #47506a;
   /* Between foreground and muted: text that supports a title without competing with it. Resolves per theme. */
   --foreground-soft: color-mix(in oklab, var(--foreground) 80%, var(--muted-foreground));
-  --accent: #eaf2f8;
-  --border: #cdd4dc;
-  --input: #c0c9d4;
-  --primary: #1f6199;
+  --accent: #e4ecfb;
+  --border: #b8c3d6;
+  --input: #9eabc2;
+  --primary: #2447e0;
   --primary-foreground: #fff;
-  --critical: #b42318;
-  --warning: #825416;
-  --ok: #176044;
+  --critical: #c40f25;
+  --warning: #aa4309;
+  --ok: #06743d;
   --critical-solid: oklch(63.7% 0.237 25.331);
   --warning-solid: oklch(76.9% 0.188 70.08);
   --ok-solid: oklch(69.6% 0.17 162.48);
-  --critical-wash: color-mix(in oklab, var(--critical-solid) 7%, transparent);
-  --warning-wash: color-mix(in oklab, var(--warning-solid) 7%, transparent);
-  --ok-wash: color-mix(in oklab, var(--ok-solid) 7%, transparent);
-  /* Unseen updates and new branches use a subtle primary tint. */
-  --primary-wash: color-mix(in oklab, var(--primary) 7%, transparent);
+  --critical-wash: color-mix(in oklab, var(--critical-solid) 14%, transparent);
+  --warning-wash: color-mix(in oklab, var(--warning-solid) 16%, transparent);
+  --ok-wash: color-mix(in oklab, var(--ok-solid) 14%, transparent);
+  /* Unseen updates and new branches use a primary tint. */
+  --primary-wash: color-mix(in oklab, var(--primary) 11%, transparent);
   --shadow-sm: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);
   --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
   --sky:
-    radial-gradient(ellipse 65% 55% at 5% 0%, #77c9e373, transparent 92%),
-    radial-gradient(ellipse 70% 70% at 100% 1%, #5cc7be57, transparent 87%),
-    radial-gradient(ellipse 75% 52% at 80% 106%, #3384bd38, transparent 88%);
+    radial-gradient(ellipse 65% 55% at 5% 0%, #4aa8ffa6, transparent 92%),
+    radial-gradient(ellipse 70% 70% at 100% 1%, #7b6bff73, transparent 87%),
+    radial-gradient(ellipse 75% 52% at 80% 106%, #1fb8c966, transparent 88%);
   --stars: none;
   --info: var(--primary);
-  --merged: #0f7b5f;
-  --approved: #0a6c9c;
+  --merged: #06743d;
+  --approved: #0a6c7e;
   --neutral-solid: color-mix(in oklab, var(--muted-foreground) 60%, transparent);
   /* Branch lanes in the Activity tree. Each keeps at least 4.5:1 against the card in its theme. */
-  --lane-1: #1f6199;
-  --lane-2: #0f766e;
-  --lane-3: #a2476b;
-  --lane-4: #68479a;
-  --lane-5: #95481d;
-  --lane-6: #48723f;
+  --lane-1: #2447e0;
+  --lane-2: #0a7269;
+  --lane-3: #c2255c;
+  --lane-4: #7a34e0;
+  --lane-5: #b53a0a;
+  --lane-6: #26742a;
 }
 @media (max-width: 767px) {
   :root {
@@ -151,10 +151,10 @@ body::after {
 @supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
   :root:not(.dark) {
     --chrome-sheen: linear-gradient(132deg, #ffffffb3, transparent 66%);
-    --chrome-fill: #ffffff86;
+    --chrome-fill: #ffffffb8;
     --chrome-filter: blur(20px) saturate(1.35);
     --chrome-rim: #fff #ffffffb3 #ffffffb3;
-    --chrome-shadow: inset 0 1px 0 #ffffffcf, 0 5px 14px #3384bd38;
+    --chrome-shadow: inset 0 1px 0 #ffffffcf, 0 5px 14px #2447e02e;
     --active-filter-fill: color-mix(in srgb, var(--primary) 12%, var(--chrome-fill));
   }
   :root:not(.dark)
