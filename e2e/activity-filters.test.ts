@@ -602,3 +602,35 @@ test('a delayed Mark all seen lookup does not replace an open confirmation', asy
   await expect(page.getByRole('status').filter({ hasText: 'Saved filter deleted.' })).toBeVisible();
   assert.deepEqual(runtime.store.getSetting('savedActivityFilters'), []);
 });
+
+test('renaming a saved filter waits for an update of the same filter that is still running', async t => {
+  const { runtime, page } = await demo(t);
+  runtime.store.setSetting('savedActivityFilters', [
+    { id: 'keep', name: 'Keep me', filters: { search: '', people: '', kind: '', repoIds: null, view: 'all' } },
+  ]);
+  await page.goto(runtime.url + '/#activity');
+  await page.locator('#saved-filter-toggle').click();
+  await page.getByRole('option', { name: /Keep me/ }).click();
+  await page.getByRole('searchbox', { name: 'Search activity' }).fill('orders');
+  const patches: string[] = [];
+  const update = gate(t, 'filter update');
+  await page.route('**/api/activity-filters/keep', async route => {
+    patches.push(route.request().postData() ?? '');
+    if (patches.length === 1) await update.opened;
+    await route.continue();
+  });
+  await page.getByRole('button', { name: 'Update “Keep me”' }).click();
+  await expect.poll(() => patches.length).toBe(1);
+  await page.getByRole('button', { name: 'More saved filter actions' }).click();
+  await page.getByRole('menuitem', { name: 'Rename…' }).click();
+  const rename = page.getByRole('dialog', { name: 'Rename Activity filter' });
+  await rename.getByRole('textbox', { name: 'Filter name' }).fill('Renamed');
+  await rename.getByRole('button', { name: 'Save' }).click();
+  await expect(rename.getByRole('alert')).toContainText('still being saved');
+  assert.equal(patches.length, 1);
+  update.release();
+  await expect(page.getByRole('status').filter({ hasText: 'Saved filter updated.' })).toBeVisible();
+  await rename.getByRole('button', { name: 'Save' }).click();
+  await expect(rename).toBeHidden();
+  assert.equal(patches.length, 2);
+});

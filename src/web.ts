@@ -32,6 +32,7 @@ let dialogOpener: HTMLElement | SVGElement | null;
  * resource runs, so a pending refresh never blocks navigation or a detail view.
  */
 const pending = new Set<string>();
+const savedFiltersBusy = 'A saved filter change is still being saved. Try again when it finishes.';
 /** Commands that change the same local data share a resource; every other command is its own. */
 const actionResources: Record<string, string> = {
   'ack-item': 'activity',
@@ -478,6 +479,22 @@ async function withAction(resource: string, callback: () => unknown) {
   }
 }
 
+/**
+ * Runs a dialog's submission under a resource, so it cannot overlap a command on the same resource. A busy resource
+ * throws, and the dialog shows the message.
+ */
+function holding<T extends unknown[]>(resource: string, message: string, callback: (...args: T) => Promise<void>) {
+  return async (...args: T) => {
+    if (pending.has(resource)) throw new Error(message);
+    pending.add(resource);
+    try {
+      await callback(...args);
+    } finally {
+      pending.delete(resource);
+    }
+  };
+}
+
 /** The resource a named action changes; a confirmation runs under the resource of the command that asked for it. */
 function actionResource(name: string | undefined) {
   if (name === 'confirm-dialog') return pendingConfirmation?.resource ?? name;
@@ -668,7 +685,7 @@ const actions: Record<string, Action> = {
     filterName.show(
       selectedFilter() ? 'Save as new filter' : 'Save Activity filter',
       '',
-      async name => {
+      holding('saved-filters', savedFiltersBusy, async name => {
         const preset = await request('/api/activity-filters', { method: 'POST', body: { name, filters } });
         await load({ force: true });
         if (isActivity(ui.route) && refresh.state.savedFilters?.some(filter => filter.id === preset.id)) {
@@ -676,7 +693,7 @@ const actions: Record<string, Action> = {
           renderPage();
         }
         toast(`Filter “${preset.name}” saved.`);
-      },
+      }),
       `${summary}${ui.search ? ` · Search “${ui.search}”` : ''}`,
     );
   },
@@ -692,11 +709,15 @@ const actions: Record<string, Action> = {
   'rename-filter': () => {
     const preset = selectedFilter();
     if (!preset) return;
-    filterName.show('Rename Activity filter', preset.name, async name => {
-      await request(`/api/activity-filters/${preset.id}`, { method: 'PATCH', body: { name } });
-      await load({ force: true });
-      toast('Filter renamed.');
-    });
+    filterName.show(
+      'Rename Activity filter',
+      preset.name,
+      holding('saved-filters', savedFiltersBusy, async name => {
+        await request(`/api/activity-filters/${preset.id}`, { method: 'PATCH', body: { name } });
+        await load({ force: true });
+        toast('Filter renamed.');
+      }),
+    );
   },
   'update-filter': async () => {
     const preset = selectedFilter();
