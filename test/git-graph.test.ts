@@ -129,7 +129,7 @@ test('rendering Git Graph starts no request; entering it and a state answer that
       requested.push(path);
       return new Promise(() => {});
     }),
-    page: stub<HTMLElement>({}),
+    page: stub<HTMLElement>({ addEventListener: () => {} }),
     state: () => ({ repos, activityRevision: '1' }),
     scope: () => null,
     isActive: () => true,
@@ -137,6 +137,7 @@ test('rendering Git Graph starts no request; entering it and a state answer that
     checkout: () => undefined,
     readCheckout: () => {},
     currentView: () => () => true,
+    onRepositoryChoice: () => {},
   });
   graph.render();
   assert.deepEqual(requested, []);

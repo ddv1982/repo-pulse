@@ -6,7 +6,8 @@ import { ciTime, emptyHtml, fullDateTime, html } from './format.ts';
 import { renderCheckoutBar } from './checkout-render.ts';
 import type { CheckoutSnapshot } from './checkout.ts';
 import { renderSearchHelp, renderSearchInput } from './search-field.ts';
-import { all } from './dom.ts';
+import { all, checked } from './dom.ts';
+import type { Actions } from './actions.ts';
 import { action } from './actions.ts';
 
 type State = {
@@ -97,6 +98,7 @@ export function createGraphController({
   checkout,
   readCheckout,
   currentView,
+  onRepositoryChoice,
 }: {
   request: typeof import('../api.ts').request;
   page: HTMLElement;
@@ -109,6 +111,8 @@ export function createGraphController({
   /** Reads the shown checkout again after its history changed under the page. */
   readCheckout: () => void;
   currentView: () => () => boolean;
+  /** Runs before a repository the reader picked replaces the shown one. */
+  onRepositoryChoice: () => void;
 }) {
   const history = createGitGraph({
     read: (id, cursor) => request('GET /api/repos/:id/graph', { params: { id }, query: { cursor: cursor || undefined } }),
@@ -177,6 +181,54 @@ export function createGraphController({
     return searchMatches(history.state.page, query)?.ids ?? [];
   }
 
+  /** The reader picked a repository: show its history from the top. */
+  function selectRepository(id: string) {
+    back = undefined;
+    chosenId = id;
+    match = '';
+    sync();
+    render();
+  }
+
+  function search(value: string) {
+    query = value;
+    match = '';
+    render();
+  }
+
+  function moveMatch(step: 1 | -1) {
+    const ids = matchIds();
+    if (!ids.length) return;
+    const current = ids.indexOf(match);
+    const index = current < 0 ? (step === 1 ? 0 : ids.length - 1) : (current + step + ids.length) % ids.length;
+    const next = ids[index];
+    if (next === undefined) return;
+    match = next;
+    render();
+    document.getElementById(`commit-${next}`)?.scrollIntoView({ block: 'center', inline: 'nearest' });
+  }
+
+  /** Records the place a graph link leaves, before the detail it opens is shown. */
+  function followLink(link: HTMLAnchorElement) {
+    back = {
+      visit: ++visit,
+      repoId: history.state.repoId,
+      rowId: link.closest('.graph-commit')?.id ?? '',
+      href: link.hash,
+      y: window.scrollY,
+      x: page.querySelector('.graph-commits')?.scrollLeft ?? 0,
+      revision: state().activityRevision,
+    };
+    // Mark the history entry we left, so a fresh click on Git Graph still reads the checkout.
+    window.history.replaceState({ ...window.history.state, graphVisit: visit }, '');
+  }
+
+  // A plain click on a graph link opens its detail; Back from there returns to this place.
+  page.addEventListener('click', event => {
+    const link = event.target instanceof Element ? checked(event.target.closest('.graph-link'), HTMLAnchorElement, '.graph-link') : null;
+    if (isActive() && link && !event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey) followLink(link);
+  });
+
   return {
     selection,
     get state() {
@@ -229,12 +281,13 @@ export function createGraphController({
     get returnsHere() {
       return Boolean(detailOrigin) && location.hash === detailOrigin;
     },
-    selectRepository(id: string) {
-      back = undefined;
-      chosenId = id;
-      match = '';
-      sync();
-      render();
+
+    selectRepository,
+    /** `/` on the graph focuses its search box, when the graph shows one. */
+    focusSearch() {
+      const search = document.getElementById('graph-search');
+      search?.focus();
+      return Boolean(search);
     },
     /** A state answer arrived: the shown repository can change with it. */
     sync,
@@ -247,41 +300,36 @@ export function createGraphController({
       back = undefined;
       history.reset();
     },
-    /** Records the place a graph link leaves, before the detail it opens is shown. */
-    followLink(link: HTMLAnchorElement) {
-      back = {
-        visit: ++visit,
-        repoId: history.state.repoId,
-        rowId: link.closest('.graph-commit')?.id ?? '',
-        href: link.hash,
-        y: window.scrollY,
-        x: page.querySelector('.graph-commits')?.scrollLeft ?? 0,
-        revision: state().activityRevision,
-      };
-      // Mark the history entry we left, so a fresh click on Git Graph still reads the checkout.
-      window.history.replaceState({ ...window.history.state, graphVisit: visit }, '');
-    },
-    search(value: string) {
-      query = value;
-      match = '';
-      render();
-    },
-    moveMatch(step: 1 | -1) {
-      const ids = matchIds();
-      if (!ids.length) return;
-      const current = ids.indexOf(match);
-      const index = current < 0 ? (step === 1 ? 0 : ids.length - 1) : (current + step + ids.length) % ids.length;
-      const next = ids[index];
-      if (next === undefined) return;
-      match = next;
-      render();
-      document.getElementById(`commit-${next}`)?.scrollIntoView({ block: 'center', inline: 'nearest' });
-    },
-    reload() {
-      match = '';
-      return history.reload();
-    },
-    more: () => history.more(),
+    actions: {
+      'reload-graph': () => {
+        readCheckout();
+        match = '';
+        void history.reload();
+      },
+      'more-graph': () => {
+        void history.more();
+      },
+      'clear-graph-search': () => search(''),
+      'previous-graph-match': () => moveMatch(-1),
+      'next-graph-match': () => moveMatch(1),
+      'search-graph': element => {
+        if (element instanceof HTMLInputElement) search(element.value);
+      },
+      'choose-graph-repo': element => {
+        if (!(element instanceof HTMLSelectElement)) return;
+        onRepositoryChoice();
+        selectRepository(element.value);
+        readCheckout();
+      },
+    } satisfies Actions<
+      | 'reload-graph'
+      | 'more-graph'
+      | 'clear-graph-search'
+      | 'previous-graph-match'
+      | 'next-graph-match'
+      | 'search-graph'
+      | 'choose-graph-repo'
+    >,
   };
 }
 

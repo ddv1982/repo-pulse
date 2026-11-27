@@ -178,6 +178,16 @@ export function createNavigation({
     invalidate,
     reconcileRepositories,
     remember,
+    /**
+     * A check that the page shown now is still the one shown when it was made: the same address and view, and the same
+     * `subject`, such as the repository a page shows, when the page had one.
+     */
+    currentView(this: void, subject: () => string | undefined = () => undefined) {
+      const made = generation;
+      const hash = location.hash;
+      const shown = subject();
+      return () => location.hash === hash && generation === made && (shown === undefined || subject() === shown);
+    },
     takeCheckoutFocus(repos: ScopeRepo[]) {
       if (ui.route !== 'repositories' || !repos.some(repo => repo.id === checkoutRepoId && !repo.disabled)) return null;
       const id = checkoutRepoId;

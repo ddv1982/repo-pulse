@@ -50,7 +50,8 @@ export function createCheckoutPanel({
   page,
   request,
   isVisible,
-  onChange,
+  shown,
+  onShownChange,
   onMutation,
   groups,
 }: {
@@ -58,8 +59,12 @@ export function createCheckoutPanel({
   /** Which disclosures the reader opened, such as Update options. */
   groups: import('./groups.ts').Groups;
   request: typeof import('../api.ts').request;
+  /** Whether Repositories lists the checkouts, so a poll updates their parts in place. */
   isVisible: () => boolean;
-  onChange: (before: Record<string, CheckoutSnapshot>) => void;
+  /** The one checkout Git Graph or an Activity detail shows, if any. */
+  shown: () => string | undefined;
+  /** Its snapshot changed, so the page renders again. */
+  onShownChange: () => void;
   onMutation: (id: string) => void;
 }) {
   let snapshots: Record<string, CheckoutSnapshot> = {};
@@ -90,7 +95,8 @@ export function createCheckoutPanel({
   function publish(next: Record<string, CheckoutSnapshot>) {
     const before = snapshots;
     snapshots = next;
-    onChange(before);
+    const id = shown();
+    if (id && JSON.stringify(before[id]) !== JSON.stringify(next[id])) onShownChange();
     if (!isVisible()) return;
     for (const target of page.querySelectorAll('[data-checkout-part]')) {
       if (!(target instanceof HTMLElement)) continue;
@@ -115,7 +121,29 @@ export function createCheckoutPanel({
     }
   }
 
+  /** Reads one checkout's status; `fresh` asks Git instead of the short status cache. A newer read of it wins. */
+  async function read(id: string, fresh = false): Promise<CheckoutSnapshot> {
+    const issued = generation;
+    refreshGeneration++;
+    const token = Symbol(id);
+    singleReads.set(id, token);
+    const checkout = await request('GET /api/repos/:id/checkout/status', {
+      params: { id },
+      query: { fresh: fresh ? '1' : undefined },
+    }).catch(() => ({ state: 'unavailable' as const }));
+    if (singleReads.get(id) === token) {
+      singleReads.delete(id);
+      if (!mutating && issued === generation) publish({ ...snapshots, [id]: retainLocalState(id, checkout) });
+    }
+    return checkout;
+  }
+
   return {
+    /** Reads the shown checkout again; `fresh` asks Git instead of the short status cache. */
+    readShown(fresh = false) {
+      const id = shown();
+      if (id) void read(id, fresh);
+    },
     actions: {
       // Ticked review commits live on the snapshot, so a render after a poll keeps them.
       'choose-carry-commit'(input) {
@@ -131,21 +159,7 @@ export function createCheckoutPanel({
     get snapshots() {
       return snapshots;
     },
-    async read(id: string, fresh = false): Promise<CheckoutSnapshot> {
-      const issued = generation;
-      refreshGeneration++;
-      const read = Symbol(id);
-      singleReads.set(id, read);
-      const checkout = await request('GET /api/repos/:id/checkout/status', {
-        params: { id },
-        query: { fresh: fresh ? '1' : undefined },
-      }).catch(() => ({ state: 'unavailable' as const }));
-      if (singleReads.get(id) === read) {
-        singleReads.delete(id);
-        if (!mutating && issued === generation) publish({ ...snapshots, [id]: retainLocalState(id, checkout) });
-      }
-      return checkout;
-    },
+    read,
     async refresh() {
       if (!isVisible() || reading || mutating) return;
       const issued = generation;

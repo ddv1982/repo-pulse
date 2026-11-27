@@ -1,4 +1,5 @@
 import { dateTime, emptyHtml, html } from './format.ts';
+import { setHtml } from './dom.ts';
 import type { ConnectionResponse as ConnectionStatus } from '../contract.ts';
 import { action } from './actions.ts';
 
@@ -18,6 +19,17 @@ export function connectionResult(connection: ConnectionStatus | undefined) {
     ${connection.account?.name ? html`<span class="help" title="Azure CLI account context">${connection.account.name}</span>` : emptyHtml}
     <button class="ghost sm" type="button" id="check-picker-connection" ${action('check-connection')}>Check again</button></div>
     ${connection.available ? emptyHtml : html`<p class="help">${connection.message}</p>`}`;
+}
+
+/**
+ * The CLI check under the Repositories picker, rendered again when a check answers. Focus stays on its button.
+ */
+export function renderConnectionStatus(connection: ConnectionState) {
+  const status = document.querySelector('#connection-status');
+  if (!status) return;
+  const focused = status.contains(document.activeElement);
+  setHtml(status, connectionResult(connection.results.get('')));
+  if (focused) status.querySelector('button')?.focus({ preventScroll: true });
 }
 
 export function connectionStatus(state: ConnectionPage, connection: ConnectionState, repoId: string) {

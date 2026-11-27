@@ -81,6 +81,23 @@ export type BrowserUi = NavigationState & {
   /** Which disclosures are open, by stable ID; `createGroupState` keeps it. */
   groups: Groups;
 };
+/** The page's state before the address is read: Activity, all repositories, no filters, no menu open. */
+export function createBrowserUi(connection: BrowserUi['connection'], groups: Groups): BrowserUi {
+  return {
+    route: 'activity',
+    eventId: null,
+    repoIds: null,
+    search: '',
+    savedFilterId: '',
+    kind: '',
+    filtersOpen: undefined,
+    openMenu: '',
+    unreadOnly: false,
+    connection,
+    groups,
+  };
+}
+
 type RenderOptions = {
   restored: ResultsContext | null;
   returnUnreadOnly: boolean;

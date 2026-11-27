@@ -1,4 +1,5 @@
 import { emptyHtml, html } from './format.ts';
+import type { Actions } from './actions.ts';
 
 /** The open state of each disclosure on the page, by its stable `data-group` ID. */
 export type Groups = ReadonlyMap<string, boolean>;
@@ -36,19 +37,20 @@ export function createGroupState() {
   } catch {
     // The current page can still remember the choice when storage is unavailable.
   }
+  /** The reader opened or closed a disclosure. */
+  function toggle(id: string, value: boolean) {
+    open.set(id, value);
+    if (id !== IMPORTED_GROUP) return;
+    importedChoice = true;
+    try {
+      sessionStorage.setItem(IMPORTED_KEY, value ? 'open' : 'closed');
+    } catch {
+      // Keep the in-memory choice for subsequent renders.
+    }
+  }
   return {
     open: open as Groups,
-    /** The reader opened or closed a disclosure. */
-    toggle(id: string, value: boolean) {
-      open.set(id, value);
-      if (id !== IMPORTED_GROUP) return;
-      importedChoice = true;
-      try {
-        sessionStorage.setItem(IMPORTED_KEY, value ? 'open' : 'closed');
-      } catch {
-        // Keep the in-memory choice for subsequent renders.
-      }
-    },
+    toggle,
     /** After a render: keep the state each shown disclosure rendered with, and forget those that left the page. */
     settle(shown: Iterable<[string, boolean]>) {
       const present = new Map(shown);
@@ -59,6 +61,15 @@ export function createGroupState() {
     snapshot(this: void): [string, boolean][] {
       return [...open];
     },
+    actions: {
+      'toggle-group': element => {
+        // A disclosure opens and closes from its state: the summary records the reader's choice, and the element shows it.
+        const group = element.parentElement;
+        if (!(group instanceof HTMLDetailsElement) || group.dataset.group === undefined) return;
+        toggle(group.dataset.group, !group.open);
+        group.open = !group.open;
+      },
+    } satisfies Actions<'toggle-group'>,
     /** Puts back a stored snapshot. The reader's session choice for Imported history wins over it. */
     restore(entries: [string, boolean][]) {
       for (const [stored, value] of entries) {

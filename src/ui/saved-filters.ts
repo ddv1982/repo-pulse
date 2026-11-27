@@ -1,5 +1,7 @@
 import { required } from './dom.ts';
 import { createDialog } from './dialog.ts';
+import { createToolbarMenu } from './toolbar-menu.ts';
+import type { MenuManager } from './menus.ts';
 import { canonicalActivityFilter } from '../activity-text.ts';
 import { splitActivitySearch } from './activity-search.ts';
 import { emptyHtml, html } from './format.ts';
@@ -76,6 +78,26 @@ export function renderSavedFilters(filters: SavedActivityFilter[], selectedId: s
 
 function filterAction(name: ActionName, label: string) {
   return html`<button class="type-option" role="menuitem" type="button" ${action(name)} tabindex="-1">${label}</button>`;
+}
+
+/** The saved filter list, a listbox, and the selected filter's command menu. */
+export function createSavedFilterMenus(menus: MenuManager) {
+  return {
+    list: createToolbarMenu({
+      menus,
+      toggleId: 'saved-filter-toggle',
+      panelId: 'saved-filter-panel',
+      itemSelector: '[data-preset]',
+      choosing: 'one',
+    }),
+    commands: createToolbarMenu({
+      menus,
+      toggleId: 'saved-filter-actions-toggle',
+      panelId: 'saved-filter-actions-panel',
+      itemSelector: '[role="menuitem"]',
+      choosing: 'one',
+    }),
+  };
 }
 
 export function createFilterNameDialog(dialog: HTMLDialogElement) {
