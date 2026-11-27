@@ -1,6 +1,7 @@
 import { emptyHtml, html, dateTime } from './format.ts';
 import { required } from './dom.ts';
 import { createDialog } from './dialog.ts';
+import { action } from './actions.ts';
 
 /** /api/state lists backfill jobs; these are the fields the Repositories page shows. */
 export type HistoryJob = Pick<import('../contract.ts').HistoryJob, 'status' | 'error' | 'pages' | 'lastProgressAt' | 'warnings'>;
@@ -15,7 +16,7 @@ function statusFor(job: HistoryJob): [string, string] {
 
 export function renderHistoryButton(repo: Pick<HistoryRepo, 'id'>, job: HistoryJob | null | undefined) {
   const busy = job && job.status !== 'completed';
-  return html`<button class="btn sm" type="button" id="import-${repo.id}" data-action="open-history-import" data-id="${repo.id}" ${busy ? html`disabled` : emptyHtml}>Sync older activity…</button>`;
+  return html`<button class="btn sm" type="button" id="import-${repo.id}" ${action('open-history-import')} data-id="${repo.id}" ${busy ? html`disabled` : emptyHtml}>Sync older activity…</button>`;
 }
 
 /** The chip names the records the import skipped, since the warnings that explain them show only in Details. */

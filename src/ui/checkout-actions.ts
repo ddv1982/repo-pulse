@@ -1,7 +1,7 @@
 import type { CheckoutSnapshot } from './checkout.ts';
 import type { BranchAction } from '../contract.ts';
 
-import type { Action } from './dom.ts';
+import type { Actions } from './actions.ts';
 export type ActivityCheckout = { repoId: string; localPath: string; eventId: string; branch: string; isCurrent: () => boolean };
 
 export function createCheckoutActions({
@@ -24,7 +24,16 @@ export function createCheckoutActions({
   toast: (message: string) => void;
   closeBranchPicker: () => void;
   currentView: () => () => boolean;
-}): Record<string, Action> {
+}): Actions<
+  | 'switch-activity-branch'
+  | 'switch-checkout-branch'
+  | 'check-checkout'
+  | 'pull-checkout'
+  | 'switch-checkout-target'
+  | 'review-checkout-branch'
+  | 'remove-checkout-branch'
+  | 'carry-checkout-branch'
+> {
   /** A check, a pull or a branch follow-up action on the checkout the page shows. */
   async function updateCheckout(id: string, command: { operation: 'check' | 'pull' } | BranchAction, checkout: CheckoutSnapshot) {
     const { branch, head, upstream, identity } = checkout;

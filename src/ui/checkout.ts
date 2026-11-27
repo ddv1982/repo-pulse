@@ -1,5 +1,6 @@
 import { checkAge, renderCheckout } from './checkout-render.ts';
 import { setHtml } from './dom.ts';
+import type { Actions } from './actions.ts';
 import type {
   CheckoutStatus,
   BlockedCheckout,
@@ -114,19 +115,19 @@ export function createCheckoutPanel({
     }
   }
 
-  // Ticked review commits live on the snapshot, so a render after a poll keeps them.
-  page.addEventListener('change', event => {
-    const input = event.target;
-    if (!(input instanceof HTMLInputElement) || input.name !== 'checkout-commit') return;
-    const checkout = snapshots[input.dataset.id ?? ''];
-    if (!checkout?.review) return;
-    const carry = new Set(checkout.carry);
-    if (input.checked) carry.add(input.value);
-    else carry.delete(input.value);
-    checkout.carry = [...carry];
-  });
-
   return {
+    actions: {
+      // Ticked review commits live on the snapshot, so a render after a poll keeps them.
+      'choose-carry-commit'(input) {
+        if (!(input instanceof HTMLInputElement)) return;
+        const checkout = snapshots[input.dataset.id ?? ''];
+        if (!checkout?.review) return;
+        const carry = new Set(checkout.carry);
+        if (input.checked) carry.add(input.value);
+        else carry.delete(input.value);
+        checkout.carry = [...carry];
+      },
+    } satisfies Actions<'choose-carry-commit'>,
     get snapshots() {
       return snapshots;
     },

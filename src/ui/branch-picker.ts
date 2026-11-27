@@ -2,6 +2,7 @@ import { emptyHtml, html } from './format.ts';
 import { required, setHtml } from './dom.ts';
 import { createDialog } from './dialog.ts';
 import type { CheckoutBranchesResponse } from '../contract.ts';
+import { action } from './actions.ts';
 
 type CheckoutBranch = CheckoutBranchesResponse['branches'][number];
 type PickerRepo = { id: string; name: string; localPath?: string | undefined };
@@ -36,7 +37,7 @@ export function createBranchPicker(dialog: HTMLDialogElement, { load }: { load: 
         const here = branch.name === current;
         const label = here ? 'Checked out' : branch.local ? 'Local' : 'Remote only';
         const attributes = html`data-id="${repo?.id ?? ''}" data-path="${repo?.localPath ?? ''}" data-branch="${branch.name}"`;
-        return html`<li><button type="button" class="branch-option" data-action="switch-checkout-branch" ${attributes} ${here ? html`disabled aria-current="true"` : emptyHtml}><code>${branch.name}</code> <span class="chip ${here ? 'status-chip ok' : ''}">${label}</span></button></li>`;
+        return html`<li><button type="button" class="branch-option" ${action('switch-checkout-branch')} ${attributes} ${here ? html`disabled aria-current="true"` : emptyHtml}><code>${branch.name}</code> <span class="chip ${here ? 'status-chip ok' : ''}">${label}</span></button></li>`;
       })}`,
     );
     status.textContent = loading

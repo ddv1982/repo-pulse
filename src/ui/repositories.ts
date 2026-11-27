@@ -8,6 +8,7 @@ import { displayLocalPath } from './repository-picker.ts';
 import type { PageState, Repo } from './refresh.ts';
 import type { CheckoutSnapshot } from './checkout.ts';
 import type { HistoryJob } from './history-import.ts';
+import { action } from './actions.ts';
 
 type RepositoriesView = Pick<import('./connection.ts').ConnectionState, 'results'>;
 
@@ -23,7 +24,7 @@ export function renderRepositories(
     <h1 class="sr">Repositories</h1>
     <div class="section-heading"><span class="dim">${state.watched.length} watched${disabled ? ` · ${disabled} disabled` : ''}</span></div>
     <details class="repo-add" ${disclosure(groups, 'add-repositories', !state.watched.length)}>
-      <summary class="btn sm" id="add-repositories" aria-label="Add repositories">Add repositories</summary>
+      <summary ${action('toggle-group')} class="btn sm" id="add-repositories" aria-label="Add repositories">Add repositories</summary>
       <div class="card repo-add-body">
         <div id="repository-picker" class="card-pad" data-owned></div>
         <div id="connection-status" class="card-pad">${connectionResult(ui.connection?.results.get(''))}</div>
@@ -53,7 +54,7 @@ export function renderRepositories(
 }
 
 function repoSwitch(repo: Repo) {
-  return html`<input class="setting-switch" type="checkbox" role="switch" id="enable-${repo.id}" data-repo-toggle data-id="${repo.id}"
+  return html`<input class="setting-switch" type="checkbox" role="switch" id="enable-${repo.id}" ${action('toggle-repo')} data-id="${repo.id}"
     aria-label="Watch ${repo.name}" title="${repo.disabled ? 'Disabled: no checks and hidden from Activity' : 'Enabled: checked and shown in Activity'}" ${repo.disabled ? emptyHtml : html`checked`}>`;
 }
 
@@ -65,7 +66,7 @@ function renderDisabledRepo(repo: Repo) {
       <span class="chip name">Disabled</span>
     </div>
     <div class="repo-disabled-actions">
-      <button class="ghost sm" type="button" id="remove-${repo.id}" data-action="remove-repo" data-id="${repo.id}">Remove watch</button>
+      <button class="ghost sm" type="button" id="remove-${repo.id}" ${action('remove-repo')} data-id="${repo.id}">Remove watch</button>
     </div>
   </article>`;
 }
@@ -97,7 +98,7 @@ function renderRepo(
     <div class="checkout-guidance" id="checkout-guidance-${repo.id}" data-checkout-part="guidance" data-checkout-id="${repo.id}" tabindex="-1" aria-live="polite">${renderCheckout(repo.id, gitStatus, 'guidance', groups)}</div>
     ${renderHistoryProgress(repo, job)}
     <details class="streams repo-details" ${disclosure(groups, `repo-${repo.id}`)}>
-      <summary class="ghost sm" id="repo-details-${repo.id}" aria-label="Details for ${repo.name}">Details</summary>
+      <summary ${action('toggle-group')} class="ghost sm" id="repo-details-${repo.id}" aria-label="Details for ${repo.name}">Details</summary>
       <div class="repo-details-content">
         <p class="help">${repo.project}${checked.length ? `${repo.project ? ' · ' : ''}Last successful Azure check ${dateTime(Math.max(...checked))}` : ''}</p>
         <p class="help checkout-last-check" data-checkout-part="last-check" data-checkout-id="${repo.id}">${renderCheckout(repo.id, gitStatus, 'last-check')}</p>
@@ -114,7 +115,7 @@ function renderRepo(
         <div class="actions">
           ${demo ? emptyHtml : renderHistoryButton(repo, job)}
           ${azureLink(repo.webUrl)}
-          <button class="ghost sm" type="button" id="remove-${repo.id}" data-action="remove-repo" data-id="${repo.id}">Remove watch</button>
+          <button class="ghost sm" type="button" id="remove-${repo.id}" ${action('remove-repo')} data-id="${repo.id}">Remove watch</button>
         </div>
       </div>
     </details>

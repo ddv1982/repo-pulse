@@ -10,6 +10,7 @@ import { emptyHtml, html, type SafeHtml } from './format.ts';
 import type { PageState } from './refresh.ts';
 import type { ResultsContext, NavigationState } from './navigation.ts';
 import type { GroupState, Groups } from './groups.ts';
+import { action } from './actions.ts';
 
 /**
  * The control that takes focus when the focused control `id` left the page or the render hid it: the same control
@@ -114,17 +115,6 @@ export function createBrowserView({
   toolbarMenus: Record<string, { mount: (element: HTMLElement | null) => void }>;
   groups: GroupState;
 }) {
-  // A disclosure opens and closes from its state: the summary records the reader's choice, and the element shows it.
-  page.addEventListener('click', event => {
-    if (!(event.target instanceof Element)) return;
-    const group = event.target.closest('details[data-group] > summary')?.parentElement;
-    if (!(group instanceof HTMLDetailsElement)) return;
-    event.preventDefault();
-    // The selector guarantees data-group, so the fallback never applies.
-    groups.toggle(group.dataset.group ?? '', !group.open);
-    group.open = !group.open;
-  });
-
   /** The disclosures a render left on the page, with the state each rendered in. */
   const shownGroups = () =>
     [...page.querySelectorAll('details[data-group]')]
@@ -247,7 +237,7 @@ export function createBrowserView({
       setHtml(
         demo,
         state.demo
-          ? html`<div class="banner info notice"><div><strong>Demo mode · fictional repositories and people</strong>No Azure requests are made. This uses an isolated local database. <button class="btn sm" type="button" data-action="demo-event">Simulate incoming hotfix</button></div></div>`
+          ? html`<div class="banner info notice"><div><strong>Demo mode · fictional repositories and people</strong>No Azure requests are made. This uses an isolated local database. <button class="btn sm" type="button" ${action('demo-event')}>Simulate incoming hotfix</button></div></div>`
           : emptyHtml,
       );
     },

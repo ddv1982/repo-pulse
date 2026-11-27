@@ -3,6 +3,7 @@ import { repositoryHref } from './navigation.ts';
 import { disclosure, type Groups } from './groups.ts';
 import type { CheckoutSnapshot } from './checkout.ts';
 import type { CheckoutDiagnostic } from '../contract.ts';
+import { action } from './actions.ts';
 
 const statusLabels: Record<string, string | undefined> = {
   'not-linked': 'No local checkout linked',
@@ -88,7 +89,7 @@ function diagnosticMarkup(id: string, diagnostic: CheckoutDiagnostic | undefined
     ${
       comparison
         ? html`<details ${disclosure(groups, `checkout-compare-${id}`)}>
-      <summary id="checkout-compare-${id}">Compare fetched history</summary>
+      <summary ${action('toggle-group')} id="checkout-compare-${id}">Compare fetched history</summary>
       <p>Previous <code title="${comparison.previous}">${comparison.previous.slice(0, 12)}</code> ·
         New <code title="${comparison.tip}">${comparison.tip.slice(0, 12)}</code></p>
       ${
@@ -106,7 +107,7 @@ function diagnosticMarkup(id: string, diagnostic: CheckoutDiagnostic | undefined
     ${
       canSwitch && advice
         ? html`<button type="button" class="btn primary sm" id="checkout-switch-target-${id}"
-      data-action="switch-checkout-target" data-id="${id}">Switch to ${advice.branch} and update</button>`
+      ${action('switch-checkout-target')} data-id="${id}">Switch to ${advice.branch} and update</button>`
         : emptyHtml
     }
   </div>`;
@@ -123,15 +124,15 @@ const reviewMessages = {
 function reviewMarkup(id: string, checkout: CheckoutSnapshot) {
   const { followup, review } = checkout;
   if (!followup) return emptyHtml;
-  const action = (
+  const branchButton = (
     name: 'review' | 'carry' | 'remove',
     label: string,
   ) => html`<button class="btn sm" type="button" id="checkout-${name}-${id}"
-    data-action="${name}-checkout-branch" data-id="${id}">${label}</button>`;
+    ${action(`${name}-checkout-branch`)} data-id="${id}">${label}</button>`;
   const workspace = followup.workspace
     ? html`<p class="checkout-diagnostic help">Follow-up worktree <code>${followup.workspace}</code></p>`
     : emptyHtml;
-  if (!review) return html`${workspace}${action('review', 'Review old branch')}`;
+  if (!review) return html`${workspace}${branchButton('review', 'Review old branch')}`;
   return html`${workspace}<div class="checkout-diagnostic help" data-checkout-review>
     <p><code>${followup.source}</code> · ${reviewMessages[review.kind]}</p>
     ${
@@ -140,21 +141,21 @@ function reviewMarkup(id: string, checkout: CheckoutSnapshot) {
       <legend>Commits to carry onto a new branch</legend>
       ${review.commits.map(
         commit =>
-          html`<label><input type="checkbox" name="checkout-commit" data-id="${id}" value="${commit.id}" ${checkout.carry?.includes(commit.id) ? html`checked` : emptyHtml}>
+          html`<label><input type="checkbox" name="checkout-commit" ${action('choose-carry-commit')} data-id="${id}" value="${commit.id}" ${checkout.carry?.includes(commit.id) ? html`checked` : emptyHtml}>
         <code>${commit.id.slice(0, 8)}</code> ${commit.subject}</label>`,
       )}
-      ${action('carry', 'Carry selected commits')}
+      ${branchButton('carry', 'Carry selected commits')}
     </fieldset>`
         : emptyHtml
     }
-    ${review.canRemove ? action('remove', 'Remove old local branch…') : emptyHtml}
+    ${review.canRemove ? branchButton('remove', 'Remove old local branch…') : emptyHtml}
   </div>`;
 }
 
 function updateOptions(id: string, checkout: CheckoutSnapshot | undefined, groups: Groups) {
   if (!checkout?.canPull || !checkout.dirty) return emptyHtml;
   return html`<details class="checkout-update-options help" ${disclosure(groups, `checkout-update-${id}`)}>
-    <summary id="checkout-update-${id}" aria-label="Update options" aria-describedby="checkout-update-reason-${id}">
+    <summary ${action('toggle-group')} id="checkout-update-${id}" aria-label="Update options" aria-describedby="checkout-update-reason-${id}">
       <span id="checkout-update-reason-${id}">Git will check that Pull can keep your local changes.</span>
       <span class="btn sm" aria-hidden="true">Update options</span>
     </summary>
@@ -218,10 +219,10 @@ function statusMarkup(id: string, checkout: CheckoutSnapshot | undefined, activi
     ${checkout?.dirty ? html`<span class="chip status-chip neutral">Local changes</span>` : emptyHtml}
     ${checkTimeMarkup(checkout)}
     </div>
-    ${onActivityBranch && checkout?.canCheck ? html`<button type="button" class="ghost sm" id="checkout-check-${id}" data-action="check-checkout" data-id="${id}" title="Fetch ${checkout.upstream} and compare it with your current branch">Check for updates</button>` : emptyHtml}
-    ${onActivityBranch && checkout?.canPull ? html`<button type="button" class="btn primary sm" id="checkout-pull-${id}" data-action="pull-checkout" data-id="${id}">Pull</button>` : emptyHtml}
-    ${canSwitch(checkout) && !activityBranch ? html`<button type="button" class="ghost sm" id="checkout-switch-${id}" data-action="open-branch-picker" data-id="${id}">Switch branch…</button>` : emptyHtml}
-    ${canSwitch(checkout) && !onActivityBranch ? html`<button type="button" class="ghost sm" id="activity-branch-action" data-action="switch-activity-branch">Switch to ${activityBranch}…</button>` : emptyHtml}`;
+    ${onActivityBranch && checkout?.canCheck ? html`<button type="button" class="ghost sm" id="checkout-check-${id}" ${action('check-checkout')} data-id="${id}" title="Fetch ${checkout.upstream} and compare it with your current branch">Check for updates</button>` : emptyHtml}
+    ${onActivityBranch && checkout?.canPull ? html`<button type="button" class="btn primary sm" id="checkout-pull-${id}" ${action('pull-checkout')} data-id="${id}">Pull</button>` : emptyHtml}
+    ${canSwitch(checkout) && !activityBranch ? html`<button type="button" class="ghost sm" id="checkout-switch-${id}" ${action('open-branch-picker')} data-id="${id}">Switch branch…</button>` : emptyHtml}
+    ${canSwitch(checkout) && !onActivityBranch ? html`<button type="button" class="ghost sm" id="activity-branch-action" ${action('switch-activity-branch')}>Switch to ${activityBranch}…</button>` : emptyHtml}`;
 }
 
 export function renderCheckoutBar(id: string, checkout: CheckoutSnapshot | undefined, activityBranch?: string) {

@@ -2,6 +2,19 @@ import { emptyHtml, html } from './format.ts';
 import { required, setHtml } from './dom.ts';
 import type { FoldersResponse, Repository, DiscoveredRemote } from '../contract.ts';
 import type { MenuManager } from './menus.ts';
+import { action, type Actions } from './actions.ts';
+
+type PickerAction =
+  | 'picker-add'
+  | 'picker-browse'
+  | 'picker-cancel'
+  | 'picker-navigate'
+  | 'picker-option'
+  | 'picker-remove'
+  | 'picker-rescan'
+  | 'picker-toggle'
+  | 'picker-use'
+  | 'search-checkouts';
 
 /** A subfolder row, or the row that leads up to the parent folder. */
 type FolderOption = FoldersResponse['folders'][number] & { up?: boolean };
@@ -16,8 +29,6 @@ interface PickerHost {
   getRepos: () => Repository[];
   /** Called after at least one repository was added. */
   onAdded: (count: number) => unknown;
-  /** Reports broken picker markup, such as an option without an index or a button naming no action. */
-  onError: (error: Error) => void;
 }
 
 const KEY = 'repo-pulse-picker-folder';
@@ -45,7 +56,7 @@ function highlight(text: string, query: string) {
 const messageOf = (cause: unknown) => (cause instanceof Error ? cause.message : String(cause));
 
 /** Self-contained local picker: no Azure reads until the explicit commit action. */
-export function createRepositoryPicker({ menus, request, getRepos, onAdded, onError }: PickerHost) {
+export function createRepositoryPicker({ menus, request, getRepos, onAdded }: PickerHost) {
   let host: HTMLElement | undefined;
   let boundHost: HTMLElement | undefined;
   /** The folder whose checkouts are listed, or the one being browsed. */
@@ -154,11 +165,11 @@ export function createRepositoryPicker({ menus, request, getRepos, onAdded, onEr
     const crumbs = breadcrumbs();
     return html`${crumbs.map((crumb, index) => {
       const previous = crumbs[index - 1];
-      return html`${previous && !/^(?:\/|[A-Za-z]:[\\/])$/.test(previous.path) ? html`<span aria-hidden="true">/</span>` : emptyHtml}${index === crumbs.length - 1 ? html`<span aria-current="location" title="${crumb.path}">${crumb.name}</span>` : html`<button class="ghost sm" type="button" data-picker="navigate" data-path="${crumb.path}" title="${crumb.path}">${crumb.name}</button>`}`;
+      return html`${previous && !/^(?:\/|[A-Za-z]:[\\/])$/.test(previous.path) ? html`<span aria-hidden="true">/</span>` : emptyHtml}${index === crumbs.length - 1 ? html`<span aria-current="location" title="${crumb.path}">${crumb.name}</span>` : html`<button class="ghost sm" type="button" ${action('picker-navigate')} data-path="${crumb.path}" title="${crumb.path}">${crumb.name}</button>`}`;
     })}`;
   }
   function folderOption(item: FolderOption, index: number) {
-    return html`<li id="checkout-option-${index}" role="option" aria-selected="false" data-picker-option="${index}" class="picker-option ${index === active ? 'active' : ''}"><span aria-hidden="true">${item.up ? '↑' : '▸'}</span><span><b>${highlight(item.name, query)}</b><small title="${item.path}">${displayLocalPath(item.path, data?.path)}</small></span>${data?.repositories.some(repo => repo.localPath === item.path) ? html`<span class="chip">Git</span>` : emptyHtml}</li>`;
+    return html`<li id="checkout-option-${index}" role="option" aria-selected="false" ${action('picker-option')} data-picker-option="${index}" class="picker-option ${index === active ? 'active' : ''}"><span aria-hidden="true">${item.up ? '↑' : '▸'}</span><span><b>${highlight(item.name, query)}</b><small title="${item.path}">${displayLocalPath(item.path, data?.path)}</small></span>${data?.repositories.some(repo => repo.localPath === item.path) ? html`<span class="chip">Git</span>` : emptyHtml}</li>`;
   }
   function checkoutOption(item: CheckoutItem, index: number, mixed: Mixed) {
     const disabled = watched(item),
@@ -169,7 +180,7 @@ export function createRepositoryPicker({ menus, request, getRepos, onAdded, onEr
     ]
       .filter(Boolean)
       .join(' · ');
-    return html`<li id="checkout-option-${index}" role="option" aria-selected="${checked}" aria-disabled="${disabled || adding}" data-picker-option="${index}" title="${`${item.localPath} · ${item.remote.project} · ${item.remote.organization}`}" class="picker-option ${index === active ? 'active' : ''}"><span class="picker-check" aria-hidden="true">${disabled || checked ? '☑' : '☐'}</span><span><b>${highlight(item.remote.repoName, query)}</b><small title="${item.localPath}">${highlight(displayLocalPath(item.localPath, data?.path), query)}</small>${context ? html`<small>${context}</small>` : emptyHtml}</span><span class="picker-badges">${item.multiple ? html`<span class="chip">${item.remote.name}</span>` : emptyHtml}${disabled ? html`<span class="chip">Watched</span>` : emptyHtml}</span></li>`;
+    return html`<li id="checkout-option-${index}" role="option" aria-selected="${checked}" aria-disabled="${disabled || adding}" ${action('picker-option')} data-picker-option="${index}" title="${`${item.localPath} · ${item.remote.project} · ${item.remote.organization}`}" class="picker-option ${index === active ? 'active' : ''}"><span class="picker-check" aria-hidden="true">${disabled || checked ? '☑' : '☐'}</span><span><b>${highlight(item.remote.repoName, query)}</b><small title="${item.localPath}">${highlight(displayLocalPath(item.localPath, data?.path), query)}</small>${context ? html`<small>${context}</small>` : emptyHtml}</span><span class="picker-badges">${item.multiple ? html`<span class="chip">${item.remote.name}</span>` : emptyHtml}${disabled ? html`<span class="chip">Watched</span>` : emptyHtml}</span></li>`;
   }
   /** @param list The rows options() returned for the current mode. */
   function optionsMarkup(list: FolderOption[] | CheckoutItem[]) {
@@ -193,8 +204,8 @@ export function createRepositoryPicker({ menus, request, getRepos, onAdded, onEr
   }
   function footerMarkup() {
     if (mode === 'folders')
-      return html`<div class="actions picker-footer"><button class="btn primary sm" type="button" data-picker="use" ${!data || loading ? html`disabled` : emptyHtml}>Use this folder</button><button class="ghost sm" type="button" data-picker="cancel">Cancel</button></div>`;
-    return html`<div class="picker-chips">${[...selected].map(([key, item]) => html`<span class="chip">${item.remote.repoName}${item.multiple ? ` · ${item.remote.name}` : ''}<button type="button" data-picker="remove" data-key="${key}" aria-label="Remove ${item.remote.repoName} ${item.remote.name}" ${adding ? html`disabled` : emptyHtml}>×</button></span>`)}</div><div class="actions picker-footer"><button class="btn primary" type="button" data-picker="add" ${!selected.size || adding ? html`disabled` : emptyHtml}>${adding ? 'Watching selected…' : `Watch ${selected.size} selected`}</button><span class="help">Nothing is added until you press Watch selected.</span></div>`;
+      return html`<div class="actions picker-footer"><button class="btn primary sm" type="button" ${action('picker-use')} ${!data || loading ? html`disabled` : emptyHtml}>Use this folder</button><button class="ghost sm" type="button" ${action('picker-cancel')}>Cancel</button></div>`;
+    return html`<div class="picker-chips">${[...selected].map(([key, item]) => html`<span class="chip">${item.remote.repoName}${item.multiple ? ` · ${item.remote.name}` : ''}<button type="button" ${action('picker-remove')} data-key="${key}" aria-label="Remove ${item.remote.repoName} ${item.remote.name}" ${adding ? html`disabled` : emptyHtml}>×</button></span>`)}</div><div class="actions picker-footer"><button class="btn primary" type="button" ${action('picker-add')} ${!selected.size || adding ? html`disabled` : emptyHtml}>${adding ? 'Watching selected…' : `Watch ${selected.size} selected`}</button><span class="help">Nothing is added until you press Watch selected.</span></div>`;
   }
   function render() {
     if (!host?.isConnected) return;
@@ -203,8 +214,8 @@ export function createRepositoryPicker({ menus, request, getRepos, onAdded, onEr
     const label = mode === 'folders' ? 'Find a folder' : 'Search local repositories';
     setHtml(
       host,
-      html`<div class="picker-root-row"><nav class="picker-crumbs" aria-label="Local folder">${crumbsMarkup()}</nav><div class="actions"><button class="btn sm" type="button" data-picker="browse" ${adding ? html`disabled` : emptyHtml}>Change folder</button><button class="ghost sm" type="button" data-picker="rescan" aria-label="Rescan folder" title="Rescan local folder" ${loading || adding ? html`disabled` : emptyHtml}>↻</button></div></div>
-      <label for="checkout-search" class="picker-label">${label}</label><div class="picker-input"><input id="checkout-search" class="search" role="combobox" autocomplete="off" aria-expanded="${isOpen()}" aria-controls="checkout-options" aria-autocomplete="list" ${isOpen() && list.length && !loading ? html`aria-activedescendant="checkout-option-${active}"` : emptyHtml} placeholder="${mode === 'folders' ? 'Folder name or /path/to/folder' : 'Search repository or folder name…'}" value="${query}" ${adding ? html`readonly` : emptyHtml}><button class="ghost" type="button" data-picker="toggle" aria-label="${isOpen() ? 'Close' : 'Open'} repository picker" ${adding ? html`disabled` : emptyHtml}>▾</button></div>
+      html`<div class="picker-root-row"><nav class="picker-crumbs" aria-label="Local folder">${crumbsMarkup()}</nav><div class="actions"><button class="btn sm" type="button" ${action('picker-browse')} ${adding ? html`disabled` : emptyHtml}>Change folder</button><button class="ghost sm" type="button" ${action('picker-rescan')} aria-label="Rescan folder" title="Rescan local folder" ${loading || adding ? html`disabled` : emptyHtml}>↻</button></div></div>
+      <label for="checkout-search" class="picker-label">${label}</label><div class="picker-input"><input id="checkout-search" class="search" ${action('search-checkouts')} role="combobox" autocomplete="off" aria-expanded="${isOpen()}" aria-controls="checkout-options" aria-autocomplete="list" ${isOpen() && list.length && !loading ? html`aria-activedescendant="checkout-option-${active}"` : emptyHtml} placeholder="${mode === 'folders' ? 'Folder name or /path/to/folder' : 'Search repository or folder name…'}" value="${query}" ${adding ? html`readonly` : emptyHtml}><button class="ghost" type="button" ${action('picker-toggle')} aria-label="${isOpen() ? 'Close' : 'Open'} repository picker" ${adding ? html`disabled` : emptyHtml}>▾</button></div>
       <div class="picker-results" ${isOpen() ? emptyHtml : html`hidden`}><ul id="checkout-options" role="listbox" aria-label="${label}" ${mode === 'checkouts' ? html`aria-multiselectable="true"` : emptyHtml} ${loading ? html`aria-busy="true"` : emptyHtml}>${optionsMarkup(list)}</ul><p class="help picker-count">${loading ? 'Only local disk is read.' : `${list.length} ${mode === 'folders' ? 'folders' : 'checkout remotes'} shown · no Azure requests`}</p></div>
       ${error ? html`<div class="banner warn" role="alert"><div>${error}</div></div>` : emptyHtml}${(data?.warnings || []).map(warning => html`<p class="help">${warning}</p>`)}
       ${footerMarkup()}
@@ -274,14 +285,17 @@ export function createRepositoryPicker({ menus, request, getRepos, onAdded, onEr
     error = '';
     render();
   }
-  /** The buttons' data-picker actions. */
-  const actions: Record<string, (button: HTMLButtonElement) => unknown> = {
-    toggle() {
+  /**
+   * The picker's controls. Each starts its work and returns at once, so the dispatcher never holds a second click back:
+   * a later folder read supersedes an earlier one, and Watch selected guards itself while it adds.
+   */
+  const actions: Actions<PickerAction> = {
+    'picker-toggle'() {
       setOpen(!isOpen());
       render();
       if (isOpen() && !data && !loading) void readFolder(remembered);
     },
-    browse() {
+    'picker-browse'() {
       if (mode !== 'folders') beforeBrowse = data;
       mode = 'folders';
       setOpen(true);
@@ -290,24 +304,40 @@ export function createRepositoryPicker({ menus, request, getRepos, onAdded, onEr
       if (!data && !loading) void readFolder(remembered);
       required('#checkout-search', HTMLInputElement, host).focus();
     },
-    navigate(element) {
+    'picker-navigate'(element) {
       setOpen(true);
       query = '';
-      return readFolder(element.dataset.path);
+      void readFolder(element.dataset.path);
     },
-    rescan() {
+    'picker-rescan'() {
       setOpen(true);
-      return readFolder(data?.path || remembered);
+      void readFolder(data?.path || remembered);
     },
-    use: useFolder,
-    cancel,
-    remove(element) {
+    'picker-use': useFolder,
+    'picker-cancel': cancel,
+    'picker-remove'(element) {
       selected.delete(element.dataset.key ?? '');
       render();
     },
-    add,
+    'picker-add'() {
+      void add();
+    },
+    'picker-option'(element) {
+      const index = element.dataset.pickerOption ?? '';
+      if (!/^\d+$/.test(index))
+        throw new Error(`Repo Pulse: a picker option has data-picker-option ${JSON.stringify(index)}, expected an index`);
+      void choose(Number(index));
+    },
+    'search-checkouts'(element) {
+      if (!(element instanceof HTMLInputElement)) return;
+      query = element.value;
+      setOpen(true);
+      active = 0;
+      render();
+    },
   };
   return {
+    actions,
     active: () => adding || isOpen(),
     mount(element: HTMLElement | null) {
       host = element ?? undefined;
@@ -315,24 +345,7 @@ export function createRepositoryPicker({ menus, request, getRepos, onAdded, onEr
       render();
       if (boundHost === host) return;
       boundHost = host;
-      host.onclick = event => {
-        if (!(event.target instanceof Element)) return;
-        const option = event.target.closest('[data-picker-option]');
-        if (option instanceof HTMLElement) {
-          const index = option.dataset.pickerOption ?? '';
-          if (/^\d+$/.test(index)) void choose(Number(index));
-          else onError(new Error(`Repo Pulse: a picker option has data-picker-option ${JSON.stringify(index)}, expected an index`));
-          return;
-        }
-        const button = event.target.closest('[data-picker]');
-        if (button instanceof HTMLButtonElement && !button.disabled) {
-          event.preventDefault();
-          const name = button.dataset.picker ?? '';
-          const action = Object.hasOwn(actions, name) ? actions[name] : undefined;
-          if (action) void action(button);
-          else onError(new Error(`Repo Pulse: unknown picker action ${JSON.stringify(name)}`));
-        }
-      };
+      // Choosing an option keeps focus in the search box.
       host.onmousedown = event => {
         if (event.target instanceof Element && event.target.closest('[data-picker-option]')) event.preventDefault();
       };
@@ -343,14 +356,6 @@ export function createRepositoryPicker({ menus, request, getRepos, onAdded, onEr
           if (!data && !loading) void readFolder(remembered);
         }
       });
-      host.oninput = event => {
-        if (event.target instanceof HTMLInputElement && event.target.id === 'checkout-search') {
-          query = event.target.value;
-          setOpen(true);
-          active = 0;
-          render();
-        }
-      };
       host.onkeydown = event => {
         if (!(event.target instanceof Element) || event.target.id !== 'checkout-search' || adding) return;
         const list = options();

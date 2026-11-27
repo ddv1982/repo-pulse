@@ -64,7 +64,7 @@ test('a disabled repository row offers only enabling or removing it', async t =>
   const articles = await all(doc, 'article');
   const enabled = present(articles[0]);
   const disabled = present(articles[1]);
-  const toggle = (article: DomRoot) => one(article, 'input[role="switch"][data-repo-toggle]');
+  const toggle = (article: DomRoot) => one(article, 'input[role="switch"][data-action="toggle-repo"]');
   assert.equal(await toggle(enabled).getAttribute('data-id'), 'on');
   assert.ok(await toggle(enabled).hasAttribute('checked'));
   assert.equal(await one(enabled, 'summary').getAttribute('aria-label'), 'Details for Orders');
@@ -76,7 +76,7 @@ test('a disabled repository row offers only enabling or removing it', async t =>
   assert.deepEqual(
     await Promise.all(
       (await all(disabled, 'button, input, select, summary, a, details')).map(
-        async control => (await control.getAttribute('data-action')) ?? (await control.getAttribute('role')),
+        async control => (await control.getAttribute('role')) ?? (await control.getAttribute('data-action')),
       ),
     ),
     ['switch', 'remove-repo'],

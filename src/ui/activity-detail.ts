@@ -25,6 +25,7 @@ import { activityHref } from './navigation.ts';
 import type { ActivityEvent, ActivityItem, EventData } from '../activity.ts';
 import type { HtmlValue } from './format.ts';
 import type { StateResponse, PushCommitsResponse, PrReviewResponse, EventResponse } from '../contract.ts';
+import { action } from './actions.ts';
 
 export type Repo = StateResponse['repos'][number];
 type PushId = number | string | undefined;
@@ -69,7 +70,7 @@ export function detailView(
 }
 
 function commit(value: string) {
-  return html`<code title="${value}">${value.slice(0, 8)}</code> <button class="ghost sm detail-copy" type="button" data-action="copy-commit" data-value="${value}" aria-label="Copy full commit ID">Copy</button>`;
+  return html`<code title="${value}">${value.slice(0, 8)}</code> <button class="ghost sm detail-copy" type="button" ${action('copy-commit')} data-value="${value}" aria-label="Copy full commit ID">Copy</button>`;
 }
 
 const mergeStrategies: Record<string, string | undefined> = {
@@ -155,7 +156,7 @@ function detailHead(record: ActivityItem, repo: Repo | undefined, title: string,
   const ids = (unseen.length ? unseen : matching.filter(event => !event.imported)).map(event => event.id);
   const ack = !ids.length
     ? emptyHtml
-    : html`<button class="btn" data-action="ack-item" data-mark-seen="${Boolean(unseen.length)}" data-id="${record.id}" data-event-ids="${JSON.stringify(ids)}">Mark ${unseen.length ? 'seen' : 'unseen'}</button>`;
+    : html`<button class="btn" ${action('ack-item')} data-mark-seen="${Boolean(unseen.length)}" data-id="${record.id}" data-event-ids="${JSON.stringify(ids)}">Mark ${unseen.length ? 'seen' : 'unseen'}</button>`;
   return html`<header class="dhead"><div class="detail-heading">${detailStatus(record, activityTone(record), matching)}<h1>${title}</h1><div class="meta">${record.kind.startsWith('branch-') ? 'Branch' : labels[record.kind]} · ${repo?.name} · ${branchName(record.branch)}</div></div><div class="actions">${azureLink(record.url, 'Open in Azure DevOps', 'btn')}${ack}</div></header>`;
 }
 
@@ -172,7 +173,7 @@ function detailStatus(record: ActivityItem, tone: string, matching: ActivityEven
 
 function pushCommits(record: ActivityItem, repo: Repo | undefined, pushId: PushId, commits: CommitsView | undefined) {
   if (record.kind !== 'push' || !pushId) return emptyHtml;
-  return html`<button class="btn" data-action="load-commits" data-repo-id="${record.repoId}" data-push-id="${pushId}">${commits ? 'Reload commits' : 'Load push commits'}</button><p class="help">Loads on request within the shared budget.</p>${commits ? renderCommits(commits) : emptyHtml}`;
+  return html`<button class="btn" ${action('load-commits')} data-repo-id="${record.repoId}" data-push-id="${pushId}">${commits ? 'Reload commits' : 'Load push commits'}</button><p class="help">Loads on request within the shared budget.</p>${commits ? renderCommits(commits) : emptyHtml}`;
 }
 
 /** Azure policy status labels and tones. Unknown policy statuses stay neutral. */
@@ -201,7 +202,7 @@ function renderReview(review: ReviewView) {
 
 function prReview(record: ActivityItem, data: EventData, review: ReviewView | undefined) {
   if (record.kind !== 'pr' || !data.pullRequestId) return emptyHtml;
-  return html`<section class="detail-section"><div class="detail-section-head"><h2>Discussion and policies</h2><button class="btn sm" data-action="load-review" data-repo-id="${record.repoId}" data-pr-id="${data.pullRequestId}">${review ? 'Reload discussion and policies' : 'Load discussion and policies'}</button></div><p class="help">Loads the current state on request within the shared budget.</p>${review ? renderReview(review) : emptyHtml}</section>`;
+  return html`<section class="detail-section"><div class="detail-section-head"><h2>Discussion and policies</h2><button class="btn sm" ${action('load-review')} data-repo-id="${record.repoId}" data-pr-id="${data.pullRequestId}">${review ? 'Reload discussion and policies' : 'Load discussion and policies'}</button></div><p class="help">Loads the current state on request within the shared budget.</p>${review ? renderReview(review) : emptyHtml}</section>`;
 }
 
 function detailData(
@@ -245,7 +246,7 @@ function relatedActivity(record: ActivityItem, events: ActivityEvent[], showRela
     if (group) group.push(event);
     else days.set(day, [event]);
   }
-  return html`<details class="detail-section detail-related" ${disclosure(groups, `related-${record.id}`, showRelated)}><summary>${showRelated ? 'Related CI runs' : 'Related activity'} · ${events.length}</summary>
+  return html`<details class="detail-section detail-related" ${disclosure(groups, `related-${record.id}`, showRelated)}><summary ${action('toggle-group')}>${showRelated ? 'Related CI runs' : 'Related activity'} · ${events.length}</summary>
     ${[...days].map(
       ([day, entries]) =>
         html`<h3>${day}</h3><ul class="detail-list">${entries.map(event => {
@@ -292,8 +293,8 @@ export function renderDetail(
   } = {},
 ) {
   const back = returnToGraph
-    ? html`<a class="ghost sm back" data-action="back-to-graph" href="#graph">← Back to Git Graph</a>`
-    : html`<a class="ghost sm back" data-action="back-to-results" href="${activityHref(returnUnreadOnly)}">← Back to Activity</a>`;
+    ? html`<a class="ghost sm back" ${action('back-to-graph')} href="#graph">← Back to Git Graph</a>`
+    : html`<a class="ghost sm back" ${action('back-to-results')} href="${activityHref(returnUnreadOnly)}">← Back to Activity</a>`;
   if (!view) return html`${back}<div class="card empty"><h1>Activity not found</h1></div>`;
   const { event, record, related } = view;
   const repo = state.repos.find(item => item.id === record.repoId);

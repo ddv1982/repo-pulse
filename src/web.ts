@@ -25,7 +25,7 @@ import { createConfirmation } from './ui/confirm.ts';
 import { anyDialogOpen } from './ui/dialog.ts';
 import { checked, required, setHtml } from './ui/dom.ts';
 import type { PageState } from './ui/refresh.ts';
-import type { Action } from './ui/dom.ts';
+import { action, createDispatcher, type ActionName, type Actions, type ClickAction } from './ui/actions.ts';
 
 const page = required('#page');
 const header = required('#header');
@@ -37,7 +37,7 @@ const confirmation = createConfirmation(required('#confirm-dialog', HTMLDialogEl
 const pending = new Set<string>();
 const savedFiltersBusy = 'A saved filter change is still being saved. Try again when it finishes.';
 /** Commands that change the same local data share a resource; every other command is its own. */
-const actionResources: Record<string, string> = {
+const actionResources: Partial<Record<ClickAction, string>> = {
   'ack-item': 'activity',
   'undo-ack': 'activity',
   'ack-matching': 'activity',
@@ -94,36 +94,26 @@ const picker = createRepositoryPicker({
   menus,
   request,
   getRepos: () => refresh.state.watched,
-  onError: reportError,
   onAdded: async count => {
     await load({ force: true });
     toast(`${count} repositories watched.`);
   },
 });
-const typeFilter = createTypeFilter({
-  menus,
-  onChange: setActivityType,
-});
+const typeFilter = createTypeFilter(menus);
 const repositoryScope = createRepositoryScope(menus);
 const savedFilterPicker = createToolbarMenu({
   menus,
   toggleId: 'saved-filter-toggle',
   panelId: 'saved-filter-panel',
   itemSelector: '[data-preset]',
-  onSelect: option => {
-    const preset = refresh.state.savedFilters.find(filter => filter.id === option.dataset.preset);
-    if (preset) applySavedFilter(preset);
-    else renderPage();
-  },
+  choosing: 'one',
 });
 const savedFilterActions = createToolbarMenu({
   menus,
   toggleId: 'saved-filter-actions-toggle',
   panelId: 'saved-filter-actions-panel',
-  itemSelector: '[data-filter-action]',
-  onSelect: option => {
-    void withAction(actionResource(option.dataset.filterAction), () => dispatch(option.dataset.filterAction, option));
-  },
+  itemSelector: '[role="menuitem"]',
+  choosing: 'one',
 });
 const filterName = createFilterNameDialog(required('#filter-name-dialog', HTMLDialogElement));
 const branchPicker = createBranchPicker(required('#branch-dialog', HTMLDialogElement), {
@@ -327,7 +317,7 @@ function showError(message: string, network = false) {
   const notice = required('#notice');
   setHtml(
     notice,
-    html`<div class="banner crit" role="alert"><span class="ic">!</span><div><strong>Something needs attention</strong><span class="error-message">${message}</span> <button class="ghost sm" type="button" data-action="dismiss-error">Dismiss</button></div></div>`,
+    html`<div class="banner crit" role="alert"><span class="ic">!</span><div><strong>Something needs attention</strong><span class="error-message">${message}</span> <button class="ghost sm" type="button" ${action('dismiss-error')}>Dismiss</button></div></div>`,
   );
   if (network) notice.dataset.networkError = 'true';
   else delete notice.dataset.networkError;
@@ -362,7 +352,7 @@ function seenToast(message: string, { undo = false } = {}) {
   const element = required('#undo-toast');
   hideUndo();
   if (!undo) return toast(message);
-  setHtml(element, html`${message}<button type="button" data-action="undo-ack">Undo</button>`);
+  setHtml(element, html`${message}<button type="button" ${action('undo-ack')}>Undo</button>`);
   element.hidden = false;
   undoTimer = setTimeout(() => {
     element.hidden = true;
@@ -404,16 +394,9 @@ function holding<T extends unknown[]>(resource: string, message: string, callbac
 }
 
 /** The resource a named action changes; a confirmation runs under the resource of the command that asked for it. */
-function actionResource(name: string | undefined) {
+function actionResource(name: ClickAction) {
   if (name === 'confirm-dialog') return confirmation.resource ?? name;
-  return (name && Object.hasOwn(actionResources, name) ? actionResources[name] : undefined) ?? name ?? '';
-}
-
-/** Runs the named action. A name without one is broken markup, reported instead of ignored. */
-function dispatch(name: string | undefined, element: HTMLElement) {
-  const action = name && Object.hasOwn(actions, name) ? actions[name] : undefined;
-  if (!action) throw new Error(`Repo Pulse: unknown action ${JSON.stringify(name ?? '')}`);
-  return action(element);
+  return actionResources[name] ?? name;
 }
 
 function setRefreshPending(pending: boolean) {
@@ -453,7 +436,7 @@ function applySavedFilter({ id, name, filters }: import('./contract.ts').SavedAc
   toast(`Applied “${name}”.${scopeMessage}`);
 }
 
-const actions: Record<string, Action> = {
+const actions: Actions<ActionName> = {
   'reload-graph': () => {
     refreshViewCheckout(true);
     void graph.reload();
@@ -731,57 +714,45 @@ const actions: Record<string, Action> = {
     }
     if ((inlineId && isActivity(ui.route)) || (ui.route === 'event' && ui.eventId === eventId)) renderPage();
   },
-};
-
-function setHeaderMenu(open: boolean) {
-  ui.headerMenuOpen = open;
-  view.renderHeader(refresh.state, ui);
-}
-
-document.addEventListener('click', event => {
-  const target = event.target;
-  if (!(target instanceof Element)) return;
-  // The phone header's check menu opens from its summary and closes on a click anywhere outside it.
-  if (target.closest('.header-overflow > summary')) {
-    event.preventDefault();
-    setHeaderMenu(!ui.headerMenuOpen);
-  } else if (ui.headerMenuOpen && !target.closest('.header-overflow')) setHeaderMenu(false);
-  const theme = target.closest('[data-theme]');
-  if (theme instanceof HTMLElement) {
+  'choose-activity-type': element => setActivityType(element.dataset.kind),
+  'apply-saved-filter': element => {
+    const preset = refresh.state.savedFilters.find(filter => filter.id === element.dataset.preset);
+    if (preset) applySavedFilter(preset);
+    else renderPage();
+  },
+  'set-theme': element => {
     // web/theme.ts defines repoPulseTheme on window before this module loads; the optional call covers its absence.
-    window.repoPulseTheme?.set(theme.dataset.theme ?? '');
-    return;
-  }
-  const graphLink = checked(target.closest('.graph-link'), HTMLAnchorElement, '.graph-link');
-  if (ui.route === 'graph' && graphLink && !event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey)
-    graph.followLink(graphLink);
-  const element = target.closest('[data-action]');
-  if (element instanceof HTMLElement) {
-    event.preventDefault();
-    void withAction(actionResource(element.dataset.action), () => dispatch(element.dataset.action, element));
-  }
-});
-
-document.addEventListener('input', event => {
-  const target = event.target;
-  if (!(target instanceof HTMLInputElement)) return;
-  if (target.id === 'feed-search') {
-    ui.search = target.value;
+    window.repoPulseTheme?.set(element.dataset.theme ?? '');
+  },
+  'toggle-group': element => {
+    // A disclosure opens and closes from its state: the summary records the reader's choice, and the element shows it.
+    const group = element.parentElement;
+    if (!(group instanceof HTMLDetailsElement) || group.dataset.group === undefined) return;
+    groups.toggle(group.dataset.group, !group.open);
+    group.open = !group.open;
+  },
+  'toggle-header-menu': () => setHeaderMenu(!ui.headerMenuOpen),
+  'search-activity': element => {
+    if (!(element instanceof HTMLInputElement)) return;
+    ui.search = element.value;
     activityChanged({ debounce: true });
-  } else if (target.id === 'graph-search') graph.search(target.value);
-});
-
-document.addEventListener('change', event => {
-  const target = event.target;
-  if (!(target instanceof HTMLInputElement || target instanceof HTMLSelectElement)) return;
-  if (target.id === 'graph-repo') {
+  },
+  'search-graph': element => {
+    if (element instanceof HTMLInputElement) graph.search(element.value);
+  },
+  'choose-graph-repo': element => {
+    if (!(element instanceof HTMLSelectElement)) return;
     branchPicker.close();
     navigation.invalidate();
-    graph.selectRepository(target.value);
+    graph.selectRepository(element.value);
     refreshViewCheckout(true);
-    return;
-  }
-  if (target.matches('[data-scope-repo]')) {
+  },
+  'choose-connection-repo': element => {
+    if (!(element instanceof HTMLSelectElement)) return;
+    connection.select(element.value);
+    renderPage();
+  },
+  'scope-repo': () => {
     // Disabled repositories have no checkbox; keep their place in the scope for when they are enabled.
     const disabled = refresh.state.watched.filter(repo => repo.disabled && (ui.repoIds === null || ui.repoIds.includes(repo.id)));
     ui.repoIds = [...document.querySelectorAll('[data-scope-repo]:checked')]
@@ -790,13 +761,9 @@ document.addEventListener('change', event => {
       .map(input => input.dataset.scopeRepo ?? '')
       .concat(disabled.map(repo => repo.id));
     activityChanged();
-  }
-  if (target.id === 'connection-repo') {
-    connection.select(target.value);
-    renderPage();
-  }
-  if (target instanceof HTMLInputElement && target.matches('[data-repo-toggle]')) {
-    const control = target;
+  },
+  'toggle-repo': control => {
+    if (!(control instanceof HTMLInputElement)) return;
     const repo = refresh.state.watched.find(item => item.id === control.dataset.id);
     if (pending.has('repos') || !repo) {
       control.checked = !repo?.disabled;
@@ -813,11 +780,12 @@ document.addEventListener('change', event => {
         if (control.isConnected) control.checked = !current?.disabled;
       }
     });
-  }
-  if (target instanceof HTMLInputElement && target.matches('[data-auto-toggle]')) {
-    const checked = target.checked;
+  },
+  'toggle-automatic-checks': control => {
+    if (!(control instanceof HTMLInputElement)) return;
+    const checked = control.checked;
     if (pending.has('settings')) {
-      target.checked = refresh.state.settings.refreshEnabled;
+      control.checked = refresh.state.settings.refreshEnabled;
       return;
     }
     void withAction('settings', async () => {
@@ -825,12 +793,31 @@ document.addEventListener('change', event => {
         await request('PATCH /api/settings', { body: { refreshEnabled: checked } });
         await load({ force: true });
       } finally {
-        for (const control of document.querySelectorAll('[data-auto-toggle]')) {
-          if (control instanceof HTMLInputElement) control.checked = refresh.state.settings.refreshEnabled;
+        for (const toggle of document.querySelectorAll('[data-action="toggle-automatic-checks"]')) {
+          if (toggle instanceof HTMLInputElement) toggle.checked = refresh.state.settings.refreshEnabled;
         }
       }
     });
-  }
+  },
+  ...picker.actions,
+  ...checkoutPanel.actions,
+};
+
+function setHeaderMenu(open: boolean) {
+  ui.headerMenuOpen = open;
+  view.renderHeader(refresh.state, ui);
+}
+
+createDispatcher({ actions, run: (name, callback) => void withAction(actionResource(name), callback), report: reportError });
+
+// The phone header's check menu closes on a click anywhere outside it.
+document.addEventListener('click', event => {
+  if (ui.headerMenuOpen && event.target instanceof Element && !event.target.closest('.header-overflow')) setHeaderMenu(false);
+});
+// A graph link records where it left the graph, so Back from the detail it opens returns there.
+document.addEventListener('click', event => {
+  const link = event.target instanceof Element ? checked(event.target.closest('.graph-link'), HTMLAnchorElement, '.graph-link') : null;
+  if (ui.route === 'graph' && link && !event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey) graph.followLink(link);
 });
 
 document.addEventListener('keydown', event => {

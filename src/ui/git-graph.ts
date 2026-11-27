@@ -7,6 +7,7 @@ import { renderCheckoutBar } from './checkout-render.ts';
 import type { CheckoutSnapshot } from './checkout.ts';
 import { renderSearchHelp, renderSearchInput } from './search-field.ts';
 import { all } from './dom.ts';
+import { action } from './actions.ts';
 
 type State = {
   repoId: string;
@@ -342,15 +343,15 @@ function graphSearch(page: GitHistoryPage | null, query: string, matches: Return
   const position = matches?.ids.indexOf(current) ?? -1;
   return html`<div class="graph-search">
     <div class="toolbar">
-      ${renderSearchInput('graph-search', 'Search commits', 'Search commit, ref or author…', query)}
+      ${renderSearchInput('graph-search', 'Search commits', 'Search commit, ref or author…', query, 'search-graph')}
       ${
         query
           ? html`<div class="filter-actions">
-        <button type="button" class="btn" id="graph-clear-search" data-action="clear-graph-search">Clear search</button>
+        <button type="button" class="btn" id="graph-clear-search" ${action('clear-graph-search')}>Clear search</button>
         ${
           count
-            ? html`<button type="button" class="btn" id="graph-previous-match" data-action="previous-graph-match">Previous match</button>
-          <button type="button" class="btn" id="graph-next-match" data-action="next-graph-match">Next match</button>`
+            ? html`<button type="button" class="btn" id="graph-previous-match" ${action('previous-graph-match')}>Previous match</button>
+          <button type="button" class="btn" id="graph-next-match" ${action('next-graph-match')}>Next match</button>`
             : emptyHtml
         }
       </div>`
@@ -409,8 +410,8 @@ export function renderGitGraph(
   return html`<section class="card git-graph" aria-label="Git Graph">
     <header class="graph-toolbar">
       <div class="graph-heading"><h1>Git Graph</h1>${page && (changed || !checkout || checkout.branch !== page.branch || checkout.head !== page.head || page.shallow) ? html`<p class="graph-scope"><span class="graph-branch">${page.branch ?? (page.head ? 'Detached HEAD' : 'No commits yet')}</span>${page.upstream ? html` · <code>${page.upstream}</code>` : emptyHtml}${page.shallow ? ' · Shallow checkout' : ''}</p>` : emptyHtml}</div>
-      ${repos.length ? html`<label class="graph-repo" for="graph-repo"><span>Repository</span><select class="control" id="graph-repo">${repos.map(item => html`<option value="${item.id}" ${item.id === repo?.id ? html`selected` : emptyHtml}>${item.name} · ${item.project}</option>`)}</select></label>` : emptyHtml}
-      ${repo?.localPath ? html`<button type="button" id="graph-reload" class="btn" data-action="reload-graph" ${loading ? html`disabled` : emptyHtml}>Reload graph</button>` : emptyHtml}
+      ${repos.length ? html`<label class="graph-repo" for="graph-repo"><span>Repository</span><select class="control" id="graph-repo" ${action('choose-graph-repo')}>${repos.map(item => html`<option value="${item.id}" ${item.id === repo?.id ? html`selected` : emptyHtml}>${item.name} · ${item.project}</option>`)}</select></label>` : emptyHtml}
+      ${repo?.localPath ? html`<button type="button" id="graph-reload" class="btn" ${action('reload-graph')} ${loading ? html`disabled` : emptyHtml}>Reload graph</button>` : emptyHtml}
     </header>
     ${repo?.localPath ? renderCheckoutBar(repo.id, checkout) : emptyHtml}
     ${changed ? html`<p class="graph-status" role="status">Checkout changed. Reload the graph to see the current history.</p>` : emptyHtml}
@@ -420,7 +421,7 @@ export function renderGitGraph(
         ${page?.commits.length ? historyRows(page, new Set(matches?.ids), currentMatch) : emptyHtml}
         ${loading ? html`<p class="graph-status" role="status">Loading Git history…</p>` : emptyHtml}
         ${error ? html`<p class="graph-status" role="alert">${error}</p>` : emptyHtml}
-        ${page?.nextCursor ? html`<div class="foot"><button type="button" id="graph-more" class="btn" data-action="more-graph" ${loading || error || changed ? html`disabled` : emptyHtml}>Load more commits</button></div>` : emptyHtml}`
+        ${page?.nextCursor ? html`<div class="foot"><button type="button" id="graph-more" class="btn" ${action('more-graph')} ${loading || error || changed ? html`disabled` : emptyHtml}>Load more commits</button></div>` : emptyHtml}`
         : html`<p class="graph-status">Link a local checkout in <a href="#repositories">Repositories</a> to view its commit history.</p>`
     }
   </section>`;

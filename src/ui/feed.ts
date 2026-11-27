@@ -34,6 +34,7 @@ import { linkedTagBuilds } from './linked-tag-builds.ts';
 import type { PageState } from './refresh.ts';
 import type { ActivityItem } from '../activity.ts';
 import { renderCommits, type CommitsView } from './activity-detail.ts';
+import { action } from './actions.ts';
 export { renderDetail } from './activity-detail.ts';
 
 /** `openMenu` is the panel ID of the open toolbar menu, if any; `groups` holds which disclosures are open. */
@@ -52,16 +53,16 @@ function filterControls(ui: FeedView & { savedFilterId: string }, state: PageSta
   const saved = presets.find(filter => filter.id === ui.savedFilterId);
   const modified = Boolean(saved && isSavedFilterModified(saved.filters, currentActivityFilters(ui), state.watched));
   return html`<div class="activity-filter-bar">
-    <button class="btn filters-toggle" id="activity-filters-toggle" data-action="toggle-activity-filters" type="button"
+    <button class="btn filters-toggle" id="activity-filters-toggle" ${action('toggle-activity-filters')} type="button"
       aria-expanded="${open}" aria-controls="activity-filters">Filters${count ? ` · ${count}` : ''}</button>
     ${renderSavedFilters(presets, ui.savedFilterId, modified, ui.openMenu)}
     <div class="filters-box" id="activity-filters" ${open ? emptyHtml : html`hidden`}>
-      <div class="toolbar">${renderSearchInput('feed-search', 'Search activity', 'Search branch, commit, person or repository…', ui.search)}
+      <div class="toolbar">${renderSearchInput('feed-search', 'Search activity', 'Search branch, commit, person or repository…', ui.search, 'search-activity')}
         <div class="filter-actions">
           ${renderTypeFilter(ui.kind, state.activity.filterOptions, state.activity.loading, ui.openMenu === 'kind-panel')}
           ${renderRepositoryScope(state, ui)}
-          <button class="btn" id="unread-only" type="button" data-action="toggle-unread" aria-pressed="${ui.unreadOnly}">Unread only</button>
-          ${active ? html`<button class="btn" id="clear-filters" type="button" data-action="clear-filters">Clear filter</button>` : emptyHtml}
+          <button class="btn" id="unread-only" type="button" ${action('toggle-unread')} aria-pressed="${ui.unreadOnly}">Unread only</button>
+          ${active ? html`<button class="btn" id="clear-filters" type="button" ${action('clear-filters')}>Clear filter</button>` : emptyHtml}
         </div>
       </div>${renderSearchHelp('feed-search', 'names only')}
     </div>
@@ -90,13 +91,13 @@ function inlineCommits(record: ActivityItem, commits: CommitsView | undefined, g
   const pushId = record.kind === 'push' ? (record.data?.pushId ?? record.data?.push?.pushId) : undefined;
   return pushId === undefined
     ? emptyHtml
-    : html`<button class="ghost sm" type="button" id="commits-${record.id}" data-action="load-commits" data-inline-id="${record.id}" data-repo-id="${record.repoId}" data-push-id="${pushId}">${commits && 'error' in commits ? 'Retry loading commits' : commits ? 'Reload commits' : 'Load commits'}</button>
-    ${commits && 'items' in commits ? html`<details class="linked-event" ${disclosure(groups, `push-commits-${record.groupKey}`, true)}><summary>Push commits</summary>${renderCommits(commits)}</details>` : commits ? renderCommits(commits) : emptyHtml}`;
+    : html`<button class="ghost sm" type="button" id="commits-${record.id}" ${action('load-commits')} data-inline-id="${record.id}" data-repo-id="${record.repoId}" data-push-id="${pushId}">${commits && 'error' in commits ? 'Retry loading commits' : commits ? 'Reload commits' : 'Load commits'}</button>
+    ${commits && 'items' in commits ? html`<details class="linked-event" ${disclosure(groups, `push-commits-${record.groupKey}`, true)}><summary ${action('toggle-group')}>Push commits</summary>${renderCommits(commits)}</details>` : commits ? renderCommits(commits) : emptyHtml}`;
 }
 
 function ciRunButton(run: import('../activity.ts').RelatedCi, tone: string, named = false, note?: string) {
   const phase = run.validation ? 'PR validation' : run.postMerge ? 'Post-merge CI' : 'Branch CI';
-  return html`<button type="button" class="ghost sm ci-run status-text ${tone}" data-action="detail" data-id="${run.id}" title="${run.title} · ${fullDateTime(run.time)}"><span>${phase} ${run.outcome}${run.stale ? ' on earlier revision' : ''}${named && run.title !== 'CI run' ? ` · ${run.title}` : ''}${note ? ` · ${note}` : ''}</span> ${ciTime(run.time, true)}</button>`;
+  return html`<button type="button" class="ghost sm ci-run status-text ${tone}" ${action('detail')} data-id="${run.id}" title="${run.title} · ${fullDateTime(run.time)}"><span>${phase} ${run.outcome}${run.stale ? ' on earlier revision' : ''}${named && run.title !== 'CI run' ? ` · ${run.title}` : ''}${note ? ` · ${note}` : ''}</span> ${ciTime(run.time, true)}</button>`;
 }
 
 function renderRelatedCi(record: ActivityItem, groups: Groups) {
@@ -105,9 +106,9 @@ function renderRelatedCi(record: ActivityItem, groups: Groups) {
   const history = record.relatedCi?.filter(run => !currentIds.has(run.id)) ?? [];
   const content = results.length
     ? html`<div class="ci-rollup">${results.map(({ run, tone, note }) => ciRunButton(run, tone, results.length > 1 || tone === 'crit' || tone === 'warn', note))}</div>
-      ${historyCount ? html`<details class="linked-event ci-history" ${disclosure(groups, `ci-${record.groupKey}`)}><summary>Run history · ${historyCount} ${historyCount === 1 ? 'run' : 'runs'}</summary><div class="ci-rollup">${history.map(run => ciRunButton(run.outcome === 'passing again' ? { ...run, outcome: 'passed' } : run, 'neutral'))}${historyCount > history.length ? html`<button type="button" class="ghost sm" data-action="detail" data-id="${record.id}" data-related>View all CI runs</button>` : emptyHtml}</div></details>` : emptyHtml}`
+      ${historyCount ? html`<details class="linked-event ci-history" ${disclosure(groups, `ci-${record.groupKey}`)}><summary ${action('toggle-group')}>Run history · ${historyCount} ${historyCount === 1 ? 'run' : 'runs'}</summary><div class="ci-rollup">${history.map(run => ciRunButton(run.outcome === 'passing again' ? { ...run, outcome: 'passed' } : run, 'neutral'))}${historyCount > history.length ? html`<button type="button" class="ghost sm" ${action('detail')} data-id="${record.id}" data-related>View all CI runs</button>` : emptyHtml}</div></details>` : emptyHtml}`
     : record.ciHost
-      ? html`<button type="button" class="ghost sm" data-action="detail" data-id="${record.ciHost}">${record.highlight ? 'View pull request' : 'View tested change'}</button>`
+      ? html`<button type="button" class="ghost sm" ${action('detail')} data-id="${record.ciHost}">${record.highlight ? 'View pull request' : 'View tested change'}</button>`
       : emptyHtml;
   return content === emptyHtml ? emptyHtml : html`<div class="event-ci">${content}</div>`;
 }
@@ -157,11 +158,11 @@ function renderEvent(
     ? html`<details class="linked-event" ${disclosure(groups, `linked-${related.kind}-${record.groupKey}`)}>
         ${
           related.kind === 'build'
-            ? html`<summary>CI succeeded ${ciTime(related.time, true)}</summary>
-              <button class="ghost sm" type="button" data-action="detail" data-id="${related.id}">${activityTitle(related)}</button>
+            ? html`<summary ${action('toggle-group')}>CI succeeded ${ciTime(related.time, true)}</summary>
+              <button class="ghost sm" type="button" ${action('detail')} data-id="${related.id}">${activityTitle(related)}</button>
               ${renderMeta(related)}${azureLink(related.url, 'Build in Azure ↗')}`
-            : html`<summary>Linked push${related.unseen ? ' · unread' : ''}</summary>
-              <button class="ghost sm" type="button" data-action="detail" data-id="${related.id}">View push to ${activityRef(related).branch}</button>`
+            : html`<summary ${action('toggle-group')}>Linked push${related.unseen ? ' · unread' : ''}</summary>
+              <button class="ghost sm" type="button" ${action('detail')} data-id="${related.id}">View push to ${activityRef(related).branch}</button>`
         }
       </details>`
     : emptyHtml;
@@ -358,9 +359,9 @@ function row(
   const prDestination = record.kind === 'pr' && record.data?.status === 'active' ? branchName(record.data.targetRefName) : '';
   return html`<li class="${['row', failed ? 'crit' : '', record.unseen ? 'new' : '', `tone-${tone}`].filter(Boolean).join(' ')}" id="row-${record.groupKey}" data-event-id="${record.id}" data-event-ids="${ids}" data-group-key="${record.groupKey}" data-unseen-ids="${unreadIds}">${tree ? renderTreeCell(tree, tone) : emptyHtml}
     ${renderKind(record, tone)}
-    <div class="subject"><button class="feed-title" type="button" data-action="detail" data-id="${record.id}"><span class="title">${renderTitle(record, title)}${unread.length > 1 ? html` <span class="pill u new-count">${unread.length} new</span>` : emptyHtml}</span>${renderRefLine(record, title, showRepo ? repo?.name || 'Unknown repository' : '', prDestination)}</button></div>
+    <div class="subject"><button class="feed-title" type="button" ${action('detail')} data-id="${record.id}"><span class="title">${renderTitle(record, title)}${unread.length > 1 ? html` <span class="pill u new-count">${unread.length} new</span>` : emptyHtml}</span>${renderRefLine(record, title, showRepo ? repo?.name || 'Unknown repository' : '', prDestination)}</button></div>
     ${renderEvent(record, origin, Boolean(prDestination), groups, related, commits)}
-    <div class="rowact">${azureLink(record.url)}${record.imported ? emptyHtml : html`<button class="ghost sm seen-toggle" type="button" id="seen-${record.groupKey}" data-action="ack-item" data-id="${record.id}" data-mark-seen="${record.unseen}" data-event-ids="${ackIds}" aria-pressed="${!record.unseen}" aria-label="Seen: ${fullTitle}${ackLinkedPush ? ' and linked push' : ''}">${icons.seenBox}Seen</button>`}</div></li>`;
+    <div class="rowact">${azureLink(record.url)}${record.imported ? emptyHtml : html`<button class="ghost sm seen-toggle" type="button" id="seen-${record.groupKey}" ${action('ack-item')} data-id="${record.id}" data-mark-seen="${record.unseen}" data-event-ids="${ackIds}" aria-pressed="${!record.unseen}" aria-label="Seen: ${fullTitle}${ackLinkedPush ? ' and linked push' : ''}">${icons.seenBox}Seen</button>`}</div></li>`;
 }
 
 function group(
@@ -387,7 +388,7 @@ function group(
   },
 ) {
   if (!records.length) return emptyHtml;
-  return html`<section class="group"><details ${disclosure(groups, id, open)}><summary class="ghead">${title} <span class="pill u">${records.length + linked.size + records.reduce((total, record) => total + (record.foldedCi ?? 0), 0)}</span><span class="note">${description}</span></summary><ul class="rows${tree ? ' with-tree' : ''}" ${tree ? html`data-tree-lanes="${tree.width}"` : emptyHtml}>${records.map((record, index) => row(record, state, tree?.rows[index], showRepo, groups, linked.get(record.id), feedCommits?.get(record.id)))}</ul></details></section>`;
+  return html`<section class="group"><details ${disclosure(groups, id, open)}><summary ${action('toggle-group')} class="ghead">${title} <span class="pill u">${records.length + linked.size + records.reduce((total, record) => total + (record.foldedCi ?? 0), 0)}</span><span class="note">${description}</span></summary><ul class="rows${tree ? ' with-tree' : ''}" ${tree ? html`data-tree-lanes="${tree.width}"` : emptyHtml}>${records.map((record, index) => row(record, state, tree?.rows[index], showRepo, groups, linked.get(record.id), feedCommits?.get(record.id)))}</ul></details></section>`;
 }
 
 const hasTreeLegend = (tree: ActivityTree) =>
@@ -441,8 +442,8 @@ function statusBanner(state: PageState, status: (import('../contract.ts').SyncSt
   if (status.state === 'problem' && status.signInRequired)
     return html`<div class="banner crit azure-sign-in"><div>
       <strong>Azure sign-in required</strong>
-      Run <span class="azure-sign-in-command"><code>az login</code><button class="ghost sm" type="button" id="copy-azure-login" data-action="copy-azure-login" aria-label="Copy az login" title="Copy az login">${icons.copy}</button></span> in your terminal to reconnect${name ? ` ${name}` : ''}.
-      <button class="ghost sm" type="button" id="retry-sign-in" data-action="refresh" data-retry-sign-in>Retry after signing in</button>
+      Run <span class="azure-sign-in-command"><code>az login</code><button class="ghost sm" type="button" id="copy-azure-login" ${action('copy-azure-login')} aria-label="Copy az login" title="Copy az login">${icons.copy}</button></span> in your terminal to reconnect${name ? ` ${name}` : ''}.
+      <button class="ghost sm" type="button" id="retry-sign-in" ${action('refresh')} data-retry-sign-in>Retry after signing in</button>
     </div></div>`;
   if (status.state === 'problem')
     return html`<div class="banner crit"><div><strong>Problem</strong>${where}${status.reason} <a href="#repositories">See Repositories</a></div></div>`;
@@ -462,7 +463,7 @@ function matchingAction(state: PageState, ui: FeedView, repoIds: string[]) {
   const search = ui.search.trim();
   const scope = `${scopeName(state, ui)} · ${activityFilterLabel(ui.kind)}${search ? ` · Search “${search}”` : ''}`;
   const label = ui.search || ui.kind || ui.repoIds !== null ? 'Mark all matching seen' : 'Mark all seen';
-  return html`<button class="btn sm" type="button" data-action="ack-matching" data-query="${query.toString()}" data-scope="${scope}">${label} (${total})</button>`;
+  return html`<button class="btn sm" type="button" ${action('ack-matching')} data-query="${query.toString()}" data-scope="${scope}">${label} (${total})</button>`;
 }
 
 export function renderFeed(state: PageState, ui: FeedView & { savedFilterId: string }, feedCommits?: ReadonlyMap<string, CommitsView>) {
@@ -507,5 +508,5 @@ export function renderFeed(state: PageState, ui: FeedView & { savedFilterId: str
     shown.map(repo => repo.id),
   );
   return html`<h1 class="sr">Activity</h1>${renderSummary(records, state, ui, partial, firstSync)}${statusBanner(state, attention)}${filterControls(ui, state)}
-    <section class="card feed" aria-label="Repository activity">${bulk === emptyHtml ? emptyHtml : html`<div class="foot feed-actions">${bulk}</div>`}${legend ? treeLegend(ui.groups) : emptyHtml}${records.length ? content : html`<div class="empty"><p class="big">${state.activity.loading ? 'Loading activity…' : state.activity.error ? 'Activity could not load' : emptyMessage}</p>${emptyHint ? html`<p class="dim">${emptyHint}</p>` : emptyHtml}${state.activity.error ? html`<button class="btn sm" type="button" data-action="retry-activity">Try again</button>` : emptyHtml}</div>`}${state.activity.nextCursor ? html`<div class="foot"><button class="btn" type="button" data-action="load-more-activity">Load more</button><span>Showing ${records.reduce((total, record) => total + 1 + (record.foldedCi ?? 0), 0)} of ${state.activity.total} recorded items.</span></div>` : emptyHtml}</section>`;
+    <section class="card feed" aria-label="Repository activity">${bulk === emptyHtml ? emptyHtml : html`<div class="foot feed-actions">${bulk}</div>`}${legend ? treeLegend(ui.groups) : emptyHtml}${records.length ? content : html`<div class="empty"><p class="big">${state.activity.loading ? 'Loading activity…' : state.activity.error ? 'Activity could not load' : emptyMessage}</p>${emptyHint ? html`<p class="dim">${emptyHint}</p>` : emptyHtml}${state.activity.error ? html`<button class="btn sm" type="button" ${action('retry-activity')}>Try again</button>` : emptyHtml}</div>`}${state.activity.nextCursor ? html`<div class="foot"><button class="btn" type="button" ${action('load-more-activity')}>Load more</button><span>Showing ${records.reduce((total, record) => total + 1 + (record.foldedCi ?? 0), 0)} of ${state.activity.total} recorded items.</span></div>` : emptyHtml}</section>`;
 }

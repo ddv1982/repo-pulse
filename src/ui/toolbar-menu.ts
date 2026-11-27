@@ -3,24 +3,24 @@ import type { MenuManager } from './menus.ts';
 
 /**
  * A toolbar menu. The menu manager keeps the open menu in `openMenu` (its panel ID), so a render draws it open and
- * incoming activity can render while a person is choosing.
+ * incoming activity can render while a person is choosing. Each item names its own action, which the dispatcher runs.
  *
- * With `onSelect` the items are options or commands: choosing one closes the menu and returns focus to its toggle, and
- * Tab closes it. Without `onSelect` the items are checkboxes a person ticks several of: a tick keeps the menu open, Tab
- * moves through its controls, and the menu closes once focus leaves it.
+ * When a person chooses `one` item, an option or a command, choosing closes the menu and returns focus to its toggle
+ * before the item's action runs, and Tab closes it. When they choose `many`, the items are checkboxes: a tick keeps
+ * the menu open, Tab moves through its controls, and the menu closes once focus leaves it.
  */
 export function createToolbarMenu({
   menus,
   toggleId,
   panelId,
   itemSelector,
-  onSelect,
+  choosing,
 }: {
   menus: MenuManager;
   toggleId: string;
   panelId: string;
   itemSelector: string;
-  onSelect?: (item: HTMLElement) => void;
+  choosing: 'one' | 'many';
 }) {
   let root: HTMLElement | null | undefined;
   function menu() {
@@ -77,15 +77,11 @@ export function createToolbarMenu({
           else close(true);
           return;
         }
-        const option = target.closest(itemSelector);
-        if (onSelect && option instanceof HTMLElement) {
-          close(true);
-          onSelect(option);
-        }
+        if (choosing === 'one' && target.closest(itemSelector)) close(true);
       };
       root.onkeydown = event => {
         if (event.key === 'Tab') {
-          if (onSelect) close();
+          if (choosing === 'one') close();
           return;
         }
         if (event.key === 'Escape' && !menu()?.panel.hidden) {

@@ -1,7 +1,8 @@
 import { html } from './format.ts';
+import { action, type ActionName } from './actions.ts';
 
-export function renderSearchInput(id: string, label: string, placeholder: string, value: string) {
-  return html`<input id="${id}" class="search" type="search" aria-label="${label}" aria-describedby="${id}-help" placeholder="${placeholder}" value="${value}">`;
+export function renderSearchInput(id: string, label: string, placeholder: string, value: string, name: ActionName) {
+  return html`<input id="${id}" class="search" type="search" ${action(name)} aria-label="${label}" aria-describedby="${id}-help" placeholder="${placeholder}" value="${value}">`;
 }
 
 export function renderSearchHelp(id: string, peopleScope: string) {

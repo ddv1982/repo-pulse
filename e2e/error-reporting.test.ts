@@ -50,7 +50,7 @@ test('a saved filter menu item with an unknown action reports it instead of doin
   await page.getByRole('option', { name: /Orders team/ }).click();
   await page.locator('#saved-filter-actions-toggle').click();
   const rename = page.getByRole('menuitem', { name: 'Rename…' });
-  await rename.evaluate(element => element.setAttribute('data-filter-action', 'no-such-action'));
+  await rename.evaluate(element => element.setAttribute('data-action', 'no-such-action'));
   const sent = writes(page);
   await rename.click();
   await expect(page.locator('#notice .error-message')).toHaveText(/unknown action "no-such-action"/);
@@ -75,9 +75,9 @@ test('a picker button with an unknown action reports it instead of doing nothing
   const { page } = await setupPicker(t);
   const toggle = page.getByRole('button', { name: /repository picker/ });
   const expanded = await page.getByRole('combobox', { name: 'Search local repositories' }).getAttribute('aria-expanded');
-  await toggle.evaluate(element => element.setAttribute('data-picker', 'no-such-action'));
+  await toggle.evaluate(element => element.setAttribute('data-action', 'no-such-action'));
   await toggle.click();
-  await expect(page.locator('#notice .error-message')).toHaveText(/unknown picker action "no-such-action"/);
+  await expect(page.locator('#notice .error-message')).toHaveText(/unknown action "no-such-action"/);
   await expect(page.getByRole('combobox', { name: 'Search local repositories' })).toHaveAttribute('aria-expanded', present(expanded));
 });
 
