@@ -1,16 +1,14 @@
 import test from 'node:test';
 import type { TestContext } from 'node:test';
 import assert from 'node:assert/strict';
-import { browserPath } from './fixtures/browser.ts';
-import { mkdtemp, rm, mkdir } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { capture, cleanupStack, defer, refreshNow, gate, listen, openPage, startTestApp } from './fixtures/app.ts';
+import { rm } from 'node:fs/promises';
 import { join } from 'node:path';
-import { chromium, expect } from '@playwright/test';
-import type { Response } from '@playwright/test';
-import { startApp, createApp } from '../server.ts';
+import { expect } from '@playwright/test';
+import { createApp } from '../server.ts';
 import { createStore } from '../server/store.ts';
 import { createSync } from '../server/sync.ts';
-import { TEST_KEY, rememberKey, portOf } from '../test/fixtures/access.ts';
+import { TEST_KEY } from '../test/fixtures/access.ts';
 import type { AppSync } from '../server.ts';
 import type { AzureProvider } from '../server/azure-client.ts';
 import { present, stub } from '../test/fixtures/typed.ts';
@@ -21,26 +19,14 @@ type Store = ReturnType<typeof createStore>;
 
 // These history fixtures exercise recorded groups independently of the Activity highlight policy.
 async function demo(t: TestContext) {
-  const directory = await mkdtemp(join(tmpdir(), 'repo-pulse-history-ui-'));
-  const runtime = await startApp({ demo: true, highlights: false, port: 0, dataDir: directory });
-  const browser = await chromium.launch({ executablePath: await browserPath(), headless: true });
-  const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
-  const page = await context.newPage();
-  let stopping: Promise<void> | undefined;
-  const stop = () => (stopping ??= runtime.close());
-  const errors: string[] = [];
-  page.on('pageerror', error => errors.push(error.message));
-  t.after(async () => {
-    await browser.close();
-    await stop();
-    await rm(directory, { recursive: true, force: true });
-    assert.deepEqual(errors, []);
-  });
+  const app = await startTestApp(t);
+  const page = await openPage(t);
+  const { runtime } = app;
   // Open the launch link once on a page that shows no activity; later visits to this origin reuse the stored key.
   await page.goto(runtime.launchUrl);
   await page.goto(`${runtime.url}/#settings`);
   await expect(page.getByRole('heading', { name: 'Settings', exact: true })).toBeVisible();
-  return { runtime, page, directory, stop };
+  return { runtime, page, restart: () => app.restart() };
 }
 
 /** Whether a stored event is marked seen; fails when the event is not stored. */
@@ -81,6 +67,7 @@ function seedHistory(store: Store) {
 
 test('first sync shows imported activity while other checks continue and preserves the open state', async t => {
   const store = createStore();
+  defer(t, () => store.close());
   const repo = stub<Repository>({ id: 'first-repo', azureId: 'first-repo', name: 'First repo', defaultBranch: 'refs/heads/main' });
   store.saveRepo(repo);
   const now = Date.now();
@@ -105,16 +92,9 @@ test('first sync shows imported activity while other checks continue and preserv
   const sync = createSync({ store, provider });
   sync.refresh();
   const app = createApp({ accessKey: TEST_KEY, store, provider, sync });
-  await new Promise<void>(resolve => app.listen(0, '127.0.0.1', resolve));
-  const browser = await chromium.launch({ executablePath: await browserPath(), headless: true });
-  t.after(async () => {
-    await browser.close();
-    await new Promise(resolve => app.close(resolve));
-    store.close();
-  });
-  const page = await browser.newPage({ viewport: { width: 1280, height: 900 }, colorScheme: 'light' });
-  await rememberKey(page);
-  await page.goto(`http://127.0.0.1:${portOf(app)}/#activity`);
+  const url = await listen(t, app);
+  const page = await openPage(t, { colorScheme: 'light', key: TEST_KEY });
+  await page.goto(`${url}/#activity`);
   const status = page.locator('#header .header-tools > .sync-pill');
   await expect(status).toHaveText('First sync · 0 of 6');
   await expect(page.locator('#sync-live')).toHaveText('First sync in First repo');
@@ -128,14 +108,13 @@ test('first sync shows imported activity while other checks continue and preserv
   await expect(page.getByText('Recent activity available')).toBeVisible();
   await expect(status).toHaveText('First sync · 1 of 6');
   await expect(page.locator('#sync-live')).toHaveText('First sync in First repo');
-  await mkdir('test-results', { recursive: true });
-  await page.screenshot({ path: 'test-results/first-sync-activity-light.png', animations: 'disabled' });
+  await capture(page, 'first-sync-activity-light.png');
   await page.setViewportSize({ width: 375, height: 812 });
   await page.emulateMedia({ colorScheme: 'dark' });
   await expect(row).toBeVisible();
   await expect(page.getByRole('region', { name: 'Activity summary' }).getByText('1 of 6 checks complete')).toBeVisible();
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
-  await page.screenshot({ path: 'test-results/first-sync-activity-phone-dark.png', animations: 'disabled' });
+  await capture(page, 'first-sync-activity-phone-dark.png');
 
   await imported.locator('summary').click();
   await expect(row).toBeHidden();
@@ -403,6 +382,7 @@ test('repository history import keeps the accepted request visible even if its f
     ['billing', 'Billing'],
   ] satisfies [string, string][])
     store.saveRepo(stub<Repository>({ id, name }));
+  defer(t, () => store.close());
   const calls: { repoId: string; days: HistoryJob['days'] | undefined }[] = [];
   let failOnce = true;
   const app = createApp({
@@ -423,16 +403,8 @@ test('repository history import keeps the accepted request visible even if its f
       },
     },
   });
-  await new Promise<void>(resolve => app.listen(0, '127.0.0.1', resolve));
-  const browser = await chromium.launch({ executablePath: await browserPath(), headless: true });
-  const page = await browser.newPage({ viewport: { width: 375, height: 812 }, colorScheme: 'dark' });
-  await rememberKey(page);
-  t.after(async () => {
-    await browser.close();
-    await new Promise(resolve => app.close(resolve));
-    store.close();
-  });
-  const base = `http://127.0.0.1:${portOf(app)}`;
+  const base = await listen(t, app);
+  const page = await openPage(t, { viewport: { width: 375, height: 812 }, colorScheme: 'dark', key: TEST_KEY });
   await page.goto(base + '/#settings');
   await expect(page.getByRole('button', { name: 'Sync older activity…' })).toHaveCount(0);
   await page.getByRole('link', { name: 'Repositories', exact: true }).click();
@@ -445,8 +417,7 @@ test('repository history import keeps the accepted request visible even if its f
   await expect(dialog.getByText('Orders', { exact: true })).toBeVisible();
   await expect(dialog.getByRole('radio', { name: '30 days', exact: true })).toBeChecked();
   assert.equal(await dialog.evaluate(element => element.scrollWidth > element.clientWidth), false);
-  await mkdir('test-results', { recursive: true });
-  await page.screenshot({ path: 'test-results/repo-history-import-dark.png', animations: 'disabled' });
+  await capture(page, 'repo-history-import-dark.png');
   await page.keyboard.press('Escape');
   await expect(dialog).not.toBeVisible();
   await expect(trigger).toBeFocused();
@@ -501,7 +472,6 @@ test('compact Settings keeps diagnostics closed until needed and copies the diag
   const { runtime, page } = await demo(t);
   await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
   await page.goto(runtime.url + '/#settings');
-  await mkdir('test-results', { recursive: true });
   for (const [colorScheme, width] of [
     ['light', 1280],
     ['dark', 375],
@@ -512,7 +482,7 @@ test('compact Settings keeps diagnostics closed until needed and copies the diag
     await expect(page.getByText('Troubleshooting', { exact: true })).toBeInViewport();
     await expect(page.getByRole('button', { name: 'Copy diagnostics' })).not.toBeVisible();
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
-    await page.screenshot({ path: `test-results/settings-redesign-${colorScheme}.png`, animations: 'disabled' });
+    await capture(page, `settings-redesign-${colorScheme}.png`);
   }
   await page.getByText('Troubleshooting', { exact: true }).click();
   await expect(page.locator('.sync-sentence')).toHaveText(/^Synced, last check /);
@@ -531,23 +501,21 @@ test('idle Activity polling skips history queries at one page and after loading 
   page.on('request', request => {
     if (new URL(request.url()).pathname === '/api/activity') reads++;
   });
-  const metadata = (response: Response) => new URL(response.url()).pathname === '/api/state';
-  async function readsBetweenPolls() {
-    // Sample between metadata responses so the previous poll's Activity work has settled.
-    await page.waitForResponse(metadata);
-    await page.waitForResponse(metadata);
-    return reads;
+  // A refresh runs the same load as the five second poll. The second one starts only after the first has finished.
+  async function readsDuringRefresh() {
+    const before = reads;
+    await refreshNow(page);
+    await refreshNow(page);
+    return reads - before;
   }
   await page.goto(runtime.url + '/#activity');
   await expect(page.locator('li.row')).toHaveCount(50);
-  const initial = reads;
-  const one = (await readsBetweenPolls()) - initial;
+  const one = await readsDuringRefresh();
   for (let count = 100; count <= 250; count += 50) {
     await page.getByRole('button', { name: 'Load more', exact: true }).click();
     await expect(page.locator('li.row')).toHaveCount(count);
   }
-  const loaded = reads;
-  const several = (await readsBetweenPolls()) - loaded;
+  const several = await readsDuringRefresh();
   assert.deepEqual({ one, several }, { one: 0, several: 0 });
 });
 
@@ -769,11 +737,11 @@ test('a successful tag build folds only for the exact tag revision in the mixed 
 
 test('opening Activity before the first state load arrives stays on Activity', async t => {
   const { runtime, page } = await demo(t);
-  const release = Promise.withResolvers<void>();
+  const release = gate(t, 'first state read');
   const held = Promise.withResolvers<void>();
   await page.route('**/api/state', async route => {
     held.resolve();
-    await release.promise;
+    await release.opened;
     await route.continue();
   });
   await page.reload();
@@ -782,7 +750,7 @@ test('opening Activity before the first state load arrives stays on Activity', a
   await page.goto(runtime.url + '/#activity/unread');
   // Activity has rendered from the hash change while the first state read is still held.
   await expect(page.getByRole('region', { name: 'Repository activity' }).getByText('Loading activity…')).toBeVisible();
-  release.resolve();
+  release.release();
   await expect(page.getByRole('button', { name: /^Mark all seen/ })).toBeVisible();
   assert.match(page.url(), /#activity\/unread$/);
 });
@@ -793,14 +761,14 @@ test('seen feedback waits for its refresh when a background poll is in flight', 
   // Hold the poll only once the page shows what it will mark.
   await expect(page.getByRole('button', { name: /^Mark all seen/ })).toBeVisible();
   const started = Promise.withResolvers<void>();
-  const release = Promise.withResolvers<void>();
+  const release = gate(t, 'background poll');
   let holdFirst = true;
   await page.route('**/api/state', async route => {
     const response = await route.fetch();
     if (holdFirst) {
       holdFirst = false;
       started.resolve();
-      await release.promise;
+      await release.opened;
     }
     await route.fulfill({ response });
   });
@@ -814,7 +782,7 @@ test('seen feedback waits for its refresh when a background poll is in flight', 
     await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
     await expect(page.locator('#toast')).not.toBeVisible({ timeout: 500 });
   } finally {
-    release.resolve();
+    release.release();
   }
   await expect(page.locator('#toast')).toContainText('marked seen');
   await expect(page.locator('.feed-actions button')).toHaveCount(0);
@@ -822,8 +790,9 @@ test('seen feedback waits for its refresh when a background poll is in flight', 
 
 test('Repositories shows the checkout, checks on demand, and pulls only after confirmation', async t => {
   const { checkoutFixture, git } = await import('../test/fixtures/checkout.ts');
-  const fixture = checkoutFixture(t);
+  const fixture = checkoutFixture(cleanupStack(t));
   const store = createStore();
+  defer(t, () => store.close());
   store.saveRepo(stub<Repository>(fixture.repo));
   store.setSetting('refreshEnabled', false);
   store.saveStream({
@@ -840,19 +809,8 @@ test('Repositories shows the checkout, checks on demand, and pulls only after co
     provider: stub<AzureProvider>({ checkConnection: async () => stub<ConnectionStatus>({ available: true }) }),
     sync: stub<AppSync>({ status: () => stub<DemoSyncStatus>({}) }),
   });
-  await new Promise<void>(resolve => app.listen(0, '127.0.0.1', resolve));
-  const browser = await chromium.launch({ executablePath: await browserPath(), headless: true });
-  const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
-  await rememberKey(page);
-  const pageErrors: string[] = [];
-  page.on('pageerror', error => pageErrors.push(error.message));
-  t.after(async () => {
-    await browser.close();
-    await new Promise(resolve => app.close(resolve));
-    store.close();
-    assert.deepEqual(pageErrors, []);
-  });
-  const base = `http://127.0.0.1:${portOf(app)}`;
+  const base = await listen(t, app);
+  const page = await openPage(t, { key: TEST_KEY });
   const updatePath = base + '/api/repos/repo/checkout';
   const payload = { operation: 'pull', expected: { branch: 'main', upstream: 'origin/main', head: fixture.original } };
   assert.equal(
@@ -874,8 +832,7 @@ test('Repositories shows the checkout, checks on demand, and pulls only after co
   await check.click();
   await expect(row.getByText('Up to date', { exact: true })).toBeVisible();
   await expect(row.getByText('Checked just now')).toBeVisible();
-  await mkdir('test-results', { recursive: true });
-  await page.screenshot({ path: 'test-results/repository-branch-up-to-date-light.png', animations: 'disabled' });
+  await capture(page, 'repository-branch-up-to-date-light.png');
   const lastGitCheck = row.locator('.checkout-last-check time');
   const firstCheckTime = await lastGitCheck.getAttribute('datetime');
   assert.ok(Number.isFinite(Date.parse(firstCheckTime ?? '')));
@@ -898,7 +855,7 @@ test('Repositories shows the checkout, checks on demand, and pulls only after co
   await page.setViewportSize({ width: 375, height: 812 });
   await page.emulateMedia({ colorScheme: 'dark' });
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
-  await page.screenshot({ path: 'test-results/repository-update-options-dark.png', animations: 'disabled' });
+  await capture(page, 'repository-update-options-dark.png');
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.emulateMedia({ colorScheme: 'light' });
   const beforeRecheck = await lastGitCheck.getAttribute('datetime');
@@ -908,11 +865,10 @@ test('Repositories shows the checkout, checks on demand, and pulls only after co
   await expect(row.getByText(/Try Pull first/)).toBeVisible();
   assert.equal(git(fixture.local, 'rev-parse', 'HEAD'), fixture.original);
   await row.getByLabel('Details for Orders').click();
-  await mkdir('test-results', { recursive: true });
-  await page.screenshot({ path: 'test-results/repository-checkout-light.png', animations: 'disabled' });
+  await capture(page, 'repository-checkout-light.png');
   await page.setViewportSize({ width: 375, height: 812 });
   await page.emulateMedia({ colorScheme: 'dark' });
-  await page.screenshot({ path: 'test-results/repository-checkout-dark.png', animations: 'disabled' });
+  await capture(page, 'repository-checkout-dark.png');
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
   await row.getByRole('button', { name: 'Pull', exact: true }).click();
   const confirmation = page.getByRole('dialog', { name: 'Update main?' });
@@ -937,7 +893,7 @@ test('Repositories shows the checkout, checks on demand, and pulls only after co
   await check.click();
   await expect(page.getByText('main is up to date.', { exact: true })).toBeVisible();
   await rm(join(fixture.local, 'notes.txt'));
-  await page.screenshot({ path: 'test-results/repository-branch-up-to-date-dark.png', animations: 'disabled' });
+  await capture(page, 'repository-branch-up-to-date-dark.png');
   await expect(row.getByRole('button', { name: 'Pull', exact: true })).toHaveCount(0);
   assert.equal(git(fixture.local, 'rev-parse', 'HEAD'), tip);
   git(fixture.remote, 'update-ref', 'refs/heads/main', fixture.original);
@@ -1041,13 +997,14 @@ test('Unread only filters a grouped run by the status it shows and acknowledges 
 
 test('verified PR follow-up switches, reviews and removes the old branch from Repositories', async t => {
   const { squashFixture, git } = await import('../test/fixtures/checkout.ts');
-  const { repo, pr, local, remote } = squashFixture(t);
+  const { repo, pr, local, remote } = squashFixture(cleanupStack(t));
   const { createCheckoutGit } = await import('../server/checkout-git.ts');
   const oldBranch = 'feature/poc_while_rewriting_delphi_sql_and_testing_the_updated_checkout';
   git(local, 'branch', '-m', oldBranch);
   git(local, 'fetch', 'origin', 'release');
   git(local, 'branch', '--track', 'release', 'origin/release');
   const store = createStore();
+  defer(t, () => store.close());
   store.saveRepo(stub<Repository>(repo));
   store.setSetting('refreshEnabled', false);
   let clock = Date.now();
@@ -1059,32 +1016,22 @@ test('verified PR follow-up switches, reviews and removes the old branch from Re
     provider: stub<AzureProvider>({ checkConnection: async () => stub<ConnectionStatus>({ available: true }) }),
     sync: stub<AppSync>({ status: () => stub<DemoSyncStatus>({}) }),
   });
-  await new Promise<void>(resolve => app.listen(0, '127.0.0.1', resolve));
-  const browser = await chromium.launch({ executablePath: await browserPath(), headless: true });
-  const page = await browser.newPage({ viewport: { width: 375, height: 812 }, colorScheme: 'dark' });
-  await rememberKey(page);
-  const errors: string[] = [];
-  page.on('pageerror', error => errors.push(error.message));
-  t.after(async () => {
-    await browser.close();
-    await new Promise(resolve => app.close(resolve));
-    store.close();
-    assert.deepEqual(errors, []);
-  });
-  await page.goto(`http://127.0.0.1:${portOf(app)}/#repositories`);
+  const url = await listen(t, app);
+  const page = await openPage(t, { viewport: { width: 375, height: 812 }, colorScheme: 'dark', key: TEST_KEY });
+  await page.goto(`${url}/#repositories`);
   const row = page.getByRole('article');
   await expect(row.locator('code').first()).toHaveText(oldBranch);
   await row.locator('summary').click();
   await row.getByRole('button', { name: 'Check for updates' }).click();
   const switchButton = row.getByRole('button', { name: 'Switch to release and update' });
   await expect(switchButton).toBeVisible();
-  await page.screenshot({ path: 'test-results/repo-checkout-follow-up-phone-dark.png', animations: 'disabled' });
+  await capture(page, 'repo-checkout-follow-up-phone-dark.png');
   await page.setViewportSize({ width: 1280, height: 850 });
   await page.emulateMedia({ colorScheme: 'light' });
   const layout = await row.locator('.checkout-guidance').boundingBox();
   assert.ok(layout);
   assert.ok(layout.width > 1000);
-  await page.screenshot({ path: 'test-results/repo-checkout-follow-up-desktop-light.png', animations: 'disabled' });
+  await capture(page, 'repo-checkout-follow-up-desktop-light.png');
   await switchButton.click();
   await page.getByRole('dialog').getByRole('button', { name: 'Cancel' }).click();
   assert.equal(git(local, 'branch', '--show-current'), oldBranch);
@@ -1108,7 +1055,7 @@ test('verified PR follow-up switches, reviews and removes the old branch from Re
     await expect.poll(() => removal.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
     await expect(removal.getByRole('button', { name: 'Cancel' })).toBeInViewport();
     await expect(removal.getByRole('button', { name: 'Remove local branch' })).toBeInViewport();
-    await page.screenshot({ path: `test-results/confirm-remove-branch-${colorScheme}.png`, animations: 'disabled' });
+    await capture(page, `confirm-remove-branch-${colorScheme}.png`);
   }
   await removal.getByRole('button', { name: 'Remove local branch' }).click();
   await expect(page.getByText(`Removed local branch ${oldBranch}.`, { exact: true })).toBeVisible();
@@ -1126,6 +1073,7 @@ test('verified PR follow-up switches, reviews and removes the old branch from Re
 test('Settings shows scoped CLI access and header switches share the automatic check preference', async t => {
   const store = createStore();
   for (const id of ['orders', 'billing']) store.saveRepo(stub<Repository>({ id, name: id, project: 'QA' }));
+  defer(t, () => store.close());
   store.saveStream({
     repoId: 'orders',
     stream: 'pushes',
@@ -1163,16 +1111,9 @@ test('Settings shows scoped CLI access and header switches share the automatic c
       }) as AppSync['refresh'],
     }),
   });
-  await new Promise<void>(resolve => app.listen(0, '127.0.0.1', resolve));
-  const browser = await chromium.launch({ executablePath: await browserPath(), headless: true });
-  const page = await browser.newPage({ viewport: { width: 1280, height: 850 } });
-  await rememberKey(page);
-  t.after(async () => {
-    await browser.close();
-    await new Promise(resolve => app.close(resolve));
-    store.close();
-  });
-  await page.goto(`http://127.0.0.1:${portOf(app)}/#settings`);
+  const url = await listen(t, app);
+  const page = await openPage(t, { viewport: { width: 1280, height: 850 }, key: TEST_KEY });
+  await page.goto(`${url}/#settings`);
   const header = page.locator('#header');
   const settings = page.locator('#page');
   const headerToggle = header.getByRole('switch', { name: 'Automatic checks' });
@@ -1208,7 +1149,7 @@ test('Settings shows scoped CLI access and header switches share the automatic c
   await header.getByRole('button', { name: /^Refresh activity/ }).click();
   await expect.poll(() => manual).toBe(2);
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
-  await page.screenshot({ path: 'test-results/settings-connection-phone-dark.png', animations: 'disabled' });
+  await capture(page, 'settings-connection-phone-dark.png');
   for (let id = 1; id <= 10; id++) store.saveRepo(stub<Repository>({ id: `extra-${id}`, name: `Extra ${id}` }));
   await page.setViewportSize({ width: 320, height: 812 });
   await page.reload();
@@ -1223,7 +1164,7 @@ test('Settings shows scoped CLI access and header switches share the automatic c
 });
 
 test('People and named filters restore a scoped Activity search after app restart', async t => {
-  const { runtime, page, directory, stop } = await demo(t);
+  const { runtime, page, restart } = await demo(t);
   runtime.store.insertEvents([
     {
       id: 'alice-person',
@@ -1289,60 +1230,55 @@ test('People and named filters restore a scoped Activity search after app restar
   await expect(page.locator('li[data-event-id="alice-person"]')).toBeVisible();
   await expect(page.locator('li[data-event-id="bob-person"]')).toBeVisible();
 
-  await stop();
-  const restarted = await startApp({ demo: true, highlights: false, port: 0, dataDir: directory });
-  try {
-    assert.notEqual(restarted.url, runtime.url);
-    await Promise.all([
-      page.waitForResponse(response => response.url() === restarted.url + '/api/state' && response.ok()),
-      page.goto(restarted.launchUrl),
-    ]);
-    await page.goto(restarted.url + '/#activity/unread');
-    await choosePreset('My team');
-    await expect(page).toHaveURL(/#activity$/);
-    await expect(presets).toBeFocused();
-    await expect(people).toHaveValue('people:Ali Ex, Bo');
-    await expect(page.locator('li[data-event-id="bob-person"]')).toBeVisible();
-    await expect(page.locator('li[data-event-id="text-only"]')).toHaveCount(0);
-    await people.fill('people:' + Array.from({ length: 13 }, (_, index) => `Person ${index}`).join(','));
-    await expect(page.getByRole('region', { name: 'Repository activity' }).getByText('Activity could not load')).toBeVisible();
-    await more('Rename…');
-    await page.getByRole('textbox', { name: 'Filter name' }).fill('Testing team');
-    await page.getByRole('dialog').getByRole('button', { name: 'Save', exact: true }).click();
-    await expect(presets).toHaveAccessibleName('Saved filter: Testing team, modified');
-    await people.fill('people:Alice Example');
-    await page.getByRole('button', { name: 'Update “Testing team”' }).click();
-    await expect(page.getByRole('status').filter({ hasText: 'Saved filter updated.' })).toBeVisible();
-    await expect(presets).toHaveAccessibleName('Saved filter: Testing team');
-    await expect(page.locator('li[data-event-id="bob-person"]')).toHaveCount(0);
-    const repo = restarted.store.listRepos().find(item => item.id === 'demo-orders');
-    assert.ok(repo);
-    restarted.store.saveRepo({ ...repo, disabled: true });
-    const billing = restarted.store.listRepos().find(item => item.id === 'demo-billing');
-    assert.ok(billing);
-    restarted.store.insertEvents([
-      {
-        id: 'other-repo-alice',
-        repoId: billing.id,
-        kind: 'push',
-        title: 'Other Alice push',
-        actor: 'Alice Example',
-        time: new Date().toISOString(),
-      },
-    ]);
-    await page.reload();
-    await choosePreset('Testing team');
-    await expect(page.getByText(/saved repositories are unavailable/)).toBeVisible();
-    await expect(page.getByRole('region', { name: 'Repository activity' }).getByText('No activity matches these filters')).toBeVisible();
-    await expect(page.locator('li[data-event-id="other-repo-alice"]')).toHaveCount(0);
-    await more('Delete…');
-    await page.getByRole('button', { name: 'Delete filter', exact: true }).click();
-    await expect(presets).toHaveCount(0);
-    await expect(page.getByRole('button', { name: 'Save filter…' })).toBeFocused();
-    await expect(people).toHaveValue('people:Alice Example');
-  } finally {
-    await restarted.close();
-  }
+  const restarted = await restart();
+  assert.notEqual(restarted.url, runtime.url);
+  await Promise.all([
+    page.waitForResponse(response => response.url() === restarted.url + '/api/state' && response.ok()),
+    page.goto(restarted.launchUrl),
+  ]);
+  await page.goto(restarted.url + '/#activity/unread');
+  await choosePreset('My team');
+  await expect(page).toHaveURL(/#activity$/);
+  await expect(presets).toBeFocused();
+  await expect(people).toHaveValue('people:Ali Ex, Bo');
+  await expect(page.locator('li[data-event-id="bob-person"]')).toBeVisible();
+  await expect(page.locator('li[data-event-id="text-only"]')).toHaveCount(0);
+  await people.fill('people:' + Array.from({ length: 13 }, (_, index) => `Person ${index}`).join(','));
+  await expect(page.getByRole('region', { name: 'Repository activity' }).getByText('Activity could not load')).toBeVisible();
+  await more('Rename…');
+  await page.getByRole('textbox', { name: 'Filter name' }).fill('Testing team');
+  await page.getByRole('dialog').getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(presets).toHaveAccessibleName('Saved filter: Testing team, modified');
+  await people.fill('people:Alice Example');
+  await page.getByRole('button', { name: 'Update “Testing team”' }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'Saved filter updated.' })).toBeVisible();
+  await expect(presets).toHaveAccessibleName('Saved filter: Testing team');
+  await expect(page.locator('li[data-event-id="bob-person"]')).toHaveCount(0);
+  const repo = restarted.store.listRepos().find(item => item.id === 'demo-orders');
+  assert.ok(repo);
+  restarted.store.saveRepo({ ...repo, disabled: true });
+  const billing = restarted.store.listRepos().find(item => item.id === 'demo-billing');
+  assert.ok(billing);
+  restarted.store.insertEvents([
+    {
+      id: 'other-repo-alice',
+      repoId: billing.id,
+      kind: 'push',
+      title: 'Other Alice push',
+      actor: 'Alice Example',
+      time: new Date().toISOString(),
+    },
+  ]);
+  await page.reload();
+  await choosePreset('Testing team');
+  await expect(page.getByText(/saved repositories are unavailable/)).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Repository activity' }).getByText('No activity matches these filters')).toBeVisible();
+  await expect(page.locator('li[data-event-id="other-repo-alice"]')).toHaveCount(0);
+  await more('Delete…');
+  await page.getByRole('button', { name: 'Delete filter', exact: true }).click();
+  await expect(presets).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Save filter…' })).toBeFocused();
+  await expect(people).toHaveValue('people:Alice Example');
 });
 
 test('saved filters stay available on mobile, apply on keyboard selection, and save variations explicitly', async t => {
@@ -1436,13 +1372,13 @@ test('saving selects the new filter after an older state response arrives', asyn
   const dialog = page.getByRole('dialog', { name: 'Save Activity filter' });
   await dialog.getByRole('textbox', { name: 'Filter name' }).fill('Fresh preset');
   const captured = Promise.withResolvers<void>();
-  const release = Promise.withResolvers<void>();
+  const release = gate(t, 'older state response');
   await page.route(
     '**/api/state',
     async route => {
       const response = await route.fetch();
       captured.resolve();
-      await release.promise;
+      await release.opened;
       await route.fulfill({ response });
     },
     { times: 1 },
@@ -1456,11 +1392,11 @@ test('saving selects the new filter after an older state response arrives', asyn
     await dialog.getByRole('button', { name: 'Save', exact: true }).click();
     assert.ok((await saved).ok());
     await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
-    release.resolve();
+    release.release();
     await expect(page.locator('#saved-filter-toggle')).toHaveAccessibleName('Saved filter: Fresh preset');
     await expect(page.getByRole('button', { name: 'More saved filter actions' })).toBeVisible();
   } finally {
-    release.resolve();
+    release.release();
   }
 });
 
@@ -1483,13 +1419,13 @@ test('an Activity response renders while a saved-filter menu stays open, and del
   const search = page.getByRole('searchbox', { name: 'Search activity' });
   const activity = page.getByRole('region', { name: 'Repository activity' });
   await expect(toggle).toBeVisible();
-  let delayed: { term: string; release: PromiseWithResolvers<void> } | undefined;
+  let delayed: { term: string; release: ReturnType<typeof gate> } | undefined;
   await page.route(/\/api\/activity\?/, async route => {
-    if (new URL(route.request().url()).searchParams.get('search') === delayed?.term) await delayed.release.promise;
+    if (new URL(route.request().url()).searchParams.get('search') === delayed?.term) await delayed.release.opened;
     await route.continue();
   });
   async function respondWithMenuOpen(term: string, menu = toggle) {
-    const release = Promise.withResolvers<void>();
+    const release = gate(t, `activity response for ${term}`);
     delayed = { term, release };
     const matches = (url: string) => new URL(url).searchParams.get('search') === term;
     try {
@@ -1498,7 +1434,7 @@ test('an Activity response renders while a saved-filter menu stays open, and del
       await started;
       await menu.press('ArrowDown');
       const completed = page.waitForResponse(response => matches(response.url()), { timeout: 5000 });
-      release.resolve();
+      release.release();
       await completed;
       // The response renders at once; the menu stays open with focus inside it.
       await expect(emptyFeed).toBeVisible();
@@ -1506,7 +1442,7 @@ test('an Activity response renders while a saved-filter menu stays open, and del
       await expect(page.locator(`#${await menu.getAttribute('aria-controls')}`)).toBeVisible();
       assert.equal(await menu.evaluate(element => element.closest('.menu')?.contains(document.activeElement)), true);
     } finally {
-      release.resolve();
+      release.release();
       delayed = undefined;
     }
   }
@@ -1555,9 +1491,9 @@ test('an Activity response renders while a saved-filter menu stays open, and del
     else await deleteDialog.getByRole('button', { name: 'Cancel' }).click();
     await expect(more).toBeFocused();
   }
-  const finishDelete = Promise.withResolvers<void>();
+  const finishDelete = gate(t, 'filter delete');
   await page.route('**/api/activity-filters/first', async route => {
-    await finishDelete.promise;
+    await finishDelete.opened;
     await route.continue();
   });
   try {
@@ -1568,12 +1504,12 @@ test('an Activity response renders while a saved-filter menu stays open, and del
     await deleting;
     await toggle.click();
     await page.getByRole('option', { name: /Second preset/ }).click();
-    finishDelete.resolve();
+    finishDelete.release();
     await expect(page.getByRole('status').filter({ hasText: 'Saved filter deleted.' })).toBeVisible();
     await expect(toggle).toHaveAccessibleName('Saved filter: Second preset');
     await expect(search).toHaveValue('second');
   } finally {
-    finishDelete.resolve();
+    finishDelete.release();
   }
 });
 
@@ -1639,12 +1575,18 @@ test('after the newest rows are marked seen, one catch-up action clears the olde
   const older = Array.from({ length: 235 }, (_, i) => push(`older-${i}`, 60 + i));
   runtime.store.insertEvents([...newer, ...older]);
   runtime.store.acknowledge(newer.map(event => event.id));
-  // Freeze the 5 second poll so the page keeps the snapshot it was read at.
+  // The poll's interval is created at page load, so the clock goes in before a fresh load of Activity and is paused
+  // once the page has read its snapshot. The page then keeps that snapshot until the test acts.
   await page.clock.install();
+  // A page left paused takes seconds to close.
+  defer(t, () => page.clock.resume());
   await page.goto(runtime.url + '/#activity');
+  await page.reload();
   const headline = page.getByRole('region', { name: 'Activity summary' }).locator('.headline b');
   const catchUp = page.getByRole('button', { name: 'Mark all seen (235)', exact: true });
   await expect(headline).toHaveText('235 new items');
+  // The clock keeps flowing until the pause, so the target leaves room; a poll the jump fires reads the same snapshot.
+  await page.clock.pauseAt(await page.evaluate(() => Date.now() + 5000));
   await expect(catchUp).toBeVisible();
   await expect(page.getByRole('button', { name: /^Mark shown seen/ })).toHaveCount(0);
   await page.getByRole('button', { name: 'Load more', exact: true }).click();
@@ -1680,12 +1622,12 @@ test('Unread only offers one bulk action that clears a fully shown list without 
   await expect(bar).toHaveCount(1);
   await expect(bar).toHaveText(`Mark all seen (${total})`);
   // The saved-filter picker defers redraws while open; the write's refresh must still land.
-  const release = Promise.withResolvers<void>();
+  const release = gate(t, 'seen write');
   await page.route(
     '**/api/ack',
     async route => {
       const response = await route.fetch();
-      await release.promise;
+      await release.opened;
       await route.fulfill({ response });
     },
     { times: 1 },
@@ -1693,7 +1635,7 @@ test('Unread only offers one bulk action that clears a fully shown list without 
   await bar.click();
   await page.getByRole('button', { name: 'Saved filters', exact: true }).click();
   await expect(page.getByRole('listbox', { name: 'Saved filters' })).toBeVisible();
-  release.resolve();
+  release.release();
   await expect(page.getByText(`${total} updates marked seen.`)).toBeVisible();
   await expect(page.getByRole('dialog')).not.toBeVisible();
   await expect(page.locator('li[data-event-id]')).toHaveCount(0);

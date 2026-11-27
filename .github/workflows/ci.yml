@@ -23,9 +23,17 @@ jobs:
       - run: npm run check:types
       - run: npm run lint
       - run: npm run build:web
-      - run: npm test
+      # The build above serves every suite, so the per-suite pre-scripts that rebuild it are skipped.
+      - run: npm test --ignore-scripts
       - run: npx playwright install --with-deps chromium
-      - run: npm run test:ui
+      - run: npm run test:ui --ignore-scripts
+      - if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: test-results-linux
+          path: test-results/
+          if-no-files-found: ignore
+          retention-days: 7
 
   checks-windows:
     runs-on: windows-latest
@@ -41,6 +49,13 @@ jobs:
       - run: npm run check:types
       - run: npm run lint
       - run: npm run build:web
-      - run: npm test
+      - run: npm test --ignore-scripts
       - run: npx playwright install chromium
-      - run: npm run test:dom
+      - run: npm run test:dom --ignore-scripts
+      - if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: test-results-windows
+          path: test-results/
+          if-no-files-found: ignore
+          retention-days: 7

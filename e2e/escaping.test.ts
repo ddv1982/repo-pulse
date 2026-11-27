@@ -5,15 +5,12 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { browserPath } from './fixtures/browser.ts';
-import { mkdtemp, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { chromium, expect } from '@playwright/test';
-import { startApp, createApp } from '../server.ts';
+import { defer, listen, openPage, startTestApp } from './fixtures/app.ts';
+import { expect } from '@playwright/test';
+import { createApp } from '../server.ts';
 import { createStore } from '../server/store.ts';
 import { createSync } from '../server/sync.ts';
-import { TEST_KEY, rememberKey, portOf } from '../test/fixtures/access.ts';
+import { TEST_KEY } from '../test/fixtures/access.ts';
 import { present, stub } from '../test/fixtures/typed.ts';
 import type { FoldersResponse, DiscoverResponse } from '../server.ts';
 import type { DiscoveredRemote } from '../server/repositories.ts';
@@ -27,21 +24,6 @@ export type { FoldersResponse, DiscoverResponse, DiscoveredRemote, Page, AzurePr
  * Two tags, so a value the picker splits around a search match still has markup on both sides of the match.
  */
 const probe = (field: string) => `<x-probe a="${field}"><x-probe a="${field}">`;
-
-/** @param [key] stored before the page loads */
-async function openPage(t: import('node:test').TestContext, url: string, key?: string) {
-  const browser = await chromium.launch({ executablePath: await browserPath(), headless: true });
-  const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
-  const errors: string[] = [];
-  page.on('pageerror', error => errors.push(error.message));
-  t.after(async () => {
-    await browser.close();
-    assert.deepEqual(errors, []);
-  });
-  if (key) await rememberKey(page, key);
-  await page.goto(url);
-  return page;
-}
 
 /** The fields whose markup reached the page unescaped, named by the probe elements it created. */
 const rawProbes = (page: Page) =>
@@ -110,6 +92,7 @@ test('the repository picker shows folder, checkout and remote names as text', as
   const multi = present(discovery.repositories[0]);
   const single = present(discovery.repositories[1]);
   const store = createStore();
+  defer(t, () => store.close());
   const provider = stub<AzureProvider>({
     async checkConnection() {
       return stub<ConnectionStatus>({
@@ -128,12 +111,9 @@ test('the repository picker shows folder, checkout and remote names as text', as
     browse: async () => folder,
     discover: async () => discovery,
   });
-  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
-  t.after(async () => {
-    await new Promise(resolve => server.close(resolve));
-    store.close();
-  });
-  const page = await openPage(t, `http://127.0.0.1:${portOf(server)}/#repositories`, TEST_KEY);
+  const url = await listen(t, server);
+  const page = await openPage(t, { key: TEST_KEY });
+  await page.goto(`${url}/#repositories`);
 
   const search = page.getByRole('combobox', { name: 'Search local repositories' });
   await search.focus();
@@ -186,15 +166,11 @@ test('the repository picker shows folder, checkout and remote names as text', as
 });
 
 test('toasts and the error banner show repository names and API messages as text', async t => {
-  const directory = await mkdtemp(join(tmpdir(), 'repo-pulse-escaping-'));
-  const runtime = await startApp({ demo: true, port: 0, dataDir: directory });
-  t.after(async () => {
-    await runtime.close();
-    await rm(directory, { recursive: true, force: true });
-  });
+  const { runtime } = await startTestApp(t, { highlights: true });
   const name = probe('repo.name');
   runtime.store.saveRepo({ ...runtime.store.getRepo('demo-billing'), name });
-  const page = await openPage(t, runtime.launchUrl);
+  const page = await openPage(t);
+  await page.goto(runtime.launchUrl);
   await page.goto(`${runtime.url}/#repositories`);
 
   const toggle = page.locator('[data-repo-toggle][data-id="demo-billing"]');

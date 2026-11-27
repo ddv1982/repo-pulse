@@ -1,14 +1,13 @@
 import test from 'node:test';
 import type { TestContext } from 'node:test';
 import assert from 'node:assert/strict';
-import { browserPath } from './fixtures/browser.ts';
-import { mkdtemp, mkdir, rm, readFile, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { capture, cleanupStack, refreshNow, defer, gate, listen, openContext, openPage, startTestApp } from './fixtures/app.ts';
+import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { chromium, expect } from '@playwright/test';
-import type { Browser, Page } from '@playwright/test';
-import { startApp, createApp } from '../server.ts';
-import { TEST_KEY, fetchWithKey, rememberKey, rememberRuntime, portOf } from '../test/fixtures/access.ts';
+import { expect } from '@playwright/test';
+import type { Page } from '@playwright/test';
+import { createApp } from '../server.ts';
+import { TEST_KEY, fetchWithKey, rememberKey } from '../test/fixtures/access.ts';
 import { checkoutFixture, git } from '../test/fixtures/checkout.ts';
 
 const fetch = fetchWithKey;
@@ -23,7 +22,7 @@ import type { ActivityKind } from '../src/activity.ts';
 import type { ActivityEvent, ConnectionStatus, EventData, Repository, SyncEngineStatus, SyncStatus } from '../src/contract.d.ts';
 import { present, stub } from '../test/fixtures/typed.ts';
 
-type Runtime = Awaited<ReturnType<typeof startApp>>;
+type Runtime = Awaited<ReturnType<typeof startTestApp>>['runtime'];
 /** An element a test tags in the page, to tell afterwards whether a render kept the same node. */
 type Marked = HTMLElement & { marker?: string };
 
@@ -40,34 +39,18 @@ async function selectActivityType(page: Page, label: string) {
 }
 
 async function setup(t: TestContext, demo = true, { highlights = false, ...options }: { hasTouch?: boolean; highlights?: boolean } = {}) {
-  const directory = await mkdtemp(join(tmpdir(), 'repo-pulse-ui-'));
-  let runtime: Runtime = rememberRuntime(await startApp({ demo, highlights, port: 0, dataDir: directory }));
-  const browser = await chromium.launch({ executablePath: await browserPath(), headless: true });
-  const page = await browser.newPage({ viewport: { width: 1280, height: 900 }, colorScheme: 'light', ...options });
-  const errors: string[] = [];
-  page.on('pageerror', error => errors.push(error.message));
-  page.on('console', message => {
-    if (message.type() === 'error') errors.push(message.text());
-  });
-  t.after(async () => {
-    await browser.close();
-    await runtime.close();
-    await rm(directory, { recursive: true, force: true });
-    assert.deepEqual(errors, []);
-  });
-  await page.goto(runtime.launchUrl);
+  const app = await startTestApp(t, { demo, highlights });
+  const page = await openPage(t, { colorScheme: 'light', consoleErrors: true, ...options });
+  await page.goto(app.runtime.launchUrl);
   await expect(page.getByRole('link', { name: 'Repo Pulse', exact: true })).toBeVisible();
-  await mkdir('test-results', { recursive: true });
   return {
     page,
     get runtime() {
-      return runtime;
+      return app.runtime;
     },
     async restart() {
-      await runtime.close();
-      runtime = rememberRuntime(await startApp({ demo, highlights, port: 0, dataDir: directory }));
       // A new port is a new origin, so the browser needs the launch link again.
-      await page.goto(runtime.launchUrl);
+      await page.goto((await app.restart()).launchUrl);
     },
   };
 }
@@ -129,12 +112,12 @@ test('approved light/dark/System UI and responsive routes work without remote tr
     if (/\/api\/(refresh|connection|repos)(\?|$)/.test(request.url())) remoteReads.push(request.url());
   });
   await page.getByRole('button', { name: 'Light', exact: true }).click();
-  await page.screenshot({ path: 'test-results/app-light.png', fullPage: true });
+  await capture(page, 'app-light.png', { fullPage: true });
   await page.getByRole('button', { name: 'Dark', exact: true }).click();
   await expect(page.locator('html')).toHaveClass(/dark/);
   await page.reload();
   await expect(page.getByRole('button', { name: 'Dark', exact: true })).toHaveAttribute('aria-pressed', 'true');
-  await page.screenshot({ path: 'test-results/app-dark.png', fullPage: true });
+  await capture(page, 'app-dark.png', { fullPage: true });
   await page.getByRole('button', { name: 'System', exact: true }).click();
   await page.emulateMedia({ colorScheme: 'light' });
   await expect(page.locator('html')).not.toHaveClass(/dark/);
@@ -151,9 +134,9 @@ test('approved light/dark/System UI and responsive routes work without remote tr
   }
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto(`${page.url().split('#')[0]}#activity/unread`);
-  await page.screenshot({ path: 'test-results/app-phone-dark.png', fullPage: true });
+  await capture(page, 'app-phone-dark.png', { fullPage: true });
   await page.getByRole('button', { name: 'Light', exact: true }).click();
-  await page.screenshot({ path: 'test-results/app-phone-light.png', fullPage: true });
+  await capture(page, 'app-phone-light.png', { fullPage: true });
 });
 
 test('Light uses the vivid palette with glass chrome, status pills and an opaque Activity feed', async t => {
@@ -346,6 +329,7 @@ test('disabling a repository hides it everywhere except Repositories until it is
 
 test('empty live startup detects existing CLI locally and prompts only local repo selection', async t => {
   const store = createStore();
+  defer(t, () => store.close());
   const commands: string[] = [];
   const cli = createAzureCli({
     executor: async args => {
@@ -356,29 +340,14 @@ test('empty live startup detects existing CLI locally and prompts only local rep
       throw new Error(`Unexpected Azure CLI call: ${args.join(' ')}`);
     },
   });
+  defer(t, () => cli.close());
   const provider = createAzureClient({ cli });
   const sync = createSync({ store, provider });
+  defer(t, () => sync.stop());
   const server = createApp({ store, provider, sync, cli, accessKey: TEST_KEY });
-  let browser: Browser | undefined;
-  const errors: string[] = [];
-  t.after(async () => {
-    await browser?.close().catch(() => {});
-    await sync.stop();
-    if (server.listening) await new Promise(resolve => server.close(resolve));
-    cli.close();
-    store.close();
-    assert.deepEqual(errors, []);
-  });
-  await new Promise<void>((resolve, reject) => {
-    server.once('error', reject);
-    server.listen(0, '127.0.0.1', resolve);
-  });
+  const url = await listen(t, server);
   sync.start();
-  browser = await chromium.launch({ executablePath: await browserPath(), headless: true });
-  const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
-  page.on('pageerror', error => errors.push(error.message));
-  await rememberKey(page);
-  const url = `http://127.0.0.1:${portOf(server)}`;
+  const page = await openPage(t, { key: TEST_KEY });
   await page.goto(url);
   await expect(page.getByRole('heading', { name: 'Repositories', exact: true })).toBeVisible();
   await expect(page.getByText('No repositories watched yet.')).toBeVisible();
@@ -409,7 +378,8 @@ test('focused search keeps its value and selection while incoming matching activ
       body: '{}',
     })
   ).json();
-  await expect(page.locator(`[data-event-id="${incoming.id}"]`)).toBeVisible({ timeout: 12000 });
+  await refreshNow(page);
+  await expect(page.locator(`[data-event-id="${incoming.id}"]`)).toBeVisible();
   await expect(search).toBeFocused();
   await expect(search).toHaveValue('hotfix/');
   assert.deepEqual(await search.evaluate((input: HTMLInputElement) => [input.selectionStart, input.selectionEnd]), [2, 5]);
@@ -434,7 +404,8 @@ for (const [name, selector] of [
     const id = await row.getAttribute('data-event-id');
     await row.locator(selector).focus();
     const incoming = await postDemoEvent(runtime);
-    await expect(page.locator(`[data-event-id="${incoming.id}"]`)).toBeVisible({ timeout: 12000 });
+    await refreshNow(page);
+    await expect(page.locator(`[data-event-id="${incoming.id}"]`)).toBeVisible();
     await expect(page.locator(`li[data-event-id="${id}"] ${selector}`)).toBeFocused();
   });
 }
@@ -450,7 +421,8 @@ test('incoming activity updates the feed in place: the search box and an existin
     Object.assign(row, { marker: 'row' });
   }, id);
   const incoming = await postDemoEvent(runtime);
-  await expect(page.locator(`[data-event-id="${incoming.id}"]`)).toBeVisible({ timeout: 12000 });
+  await refreshNow(page);
+  await expect(page.locator(`[data-event-id="${incoming.id}"]`)).toBeVisible();
   assert.deepEqual(
     await page.evaluate(
       id => [document.querySelector<Marked>('#feed-search')?.marker, document.querySelector<Marked>(`li[data-event-id="${id}"]`)?.marker],
@@ -466,7 +438,8 @@ test('a header control keeps keyboard focus while incoming activity renders the 
   await refresh.focus();
   await refresh.evaluate((element: Marked) => (element.marker = 'header'));
   const incoming = await postDemoEvent(runtime);
-  await expect(page.locator(`[data-event-id="${incoming.id}"]`)).toBeVisible({ timeout: 12000 });
+  await refreshNow(page);
+  await expect(page.locator(`[data-event-id="${incoming.id}"]`)).toBeVisible();
   await expect(refresh).toBeFocused();
   assert.equal(await refresh.evaluate((element: Marked) => element.marker), 'header');
 });
@@ -479,7 +452,8 @@ test('incoming activity renders while the Activity type menu is open, and the me
   const all = panel.getByRole('option', { name: 'All types', exact: true });
   await expect(all).toBeFocused();
   const incoming = await postDemoEvent(runtime);
-  await expect(page.locator(`[data-event-id="${incoming.id}"]`)).toBeVisible({ timeout: 12000 });
+  await refreshNow(page);
+  await expect(page.locator(`[data-event-id="${incoming.id}"]`)).toBeVisible();
   await expect(panel).toBeVisible();
   await expect(toggle).toHaveAttribute('aria-expanded', 'true');
   await expect(all).toBeFocused();
@@ -497,7 +471,8 @@ test('incoming activity renders while the repository scope panel is open, and th
   const orders = page.locator('[data-scope-repo="demo-orders"]');
   await orders.focus();
   const incoming = await postDemoEvent(runtime);
-  await expect(page.locator(`[data-event-id="${incoming.id}"]`)).toBeVisible({ timeout: 12000 });
+  await refreshNow(page);
+  await expect(page.locator(`[data-event-id="${incoming.id}"]`)).toBeVisible();
   await expect(panel).toBeVisible();
   await expect(toggle).toHaveAttribute('aria-expanded', 'true');
   await expect(orders).toBeFocused();
@@ -507,11 +482,7 @@ test('incoming activity renders while the repository scope panel is open, and th
 });
 
 // A background render keeps focus on the same item, never on a neighbour that took its place in the markup.
-async function renderInBackground(page: Page) {
-  const polled = page.waitForResponse(response => response.url().includes('/api/state') && response.ok());
-  await page.evaluate(() => window.dispatchEvent(new Event('focus')));
-  await polled;
-}
+const renderInBackground = refreshNow;
 
 test('a focused saved-filter option keeps focus while incoming activity renders', async t => {
   const { page, runtime } = await setup(t);
@@ -532,7 +503,8 @@ test('a focused saved-filter option keeps focus while incoming activity renders'
   const second = page.getByRole('option', { name: /Second preset/ });
   await expect(second).toBeFocused();
   const incoming = await postDemoEvent(runtime);
-  await expect(page.locator(`[data-event-id="${incoming.id}"]`)).toBeVisible({ timeout: 12000 });
+  await refreshNow(page);
+  await expect(page.locator(`[data-event-id="${incoming.id}"]`)).toBeVisible();
   await expect(second).toBeFocused();
 });
 
@@ -717,7 +689,8 @@ test('a backward selection in the focused search box survives incoming activity'
   await search.fill('hotfix/');
   await search.evaluate((input: HTMLInputElement) => input.setSelectionRange(2, 5, 'backward'));
   const incoming = await postDemoEvent(runtime);
-  await expect(page.locator(`[data-event-id="${incoming.id}"]`)).toBeVisible({ timeout: 12000 });
+  await refreshNow(page);
+  await expect(page.locator(`[data-event-id="${incoming.id}"]`)).toBeVisible();
   await expect(search).toBeFocused();
   await expect(search).toHaveValue('hotfix/');
   assert.deepEqual(
@@ -740,12 +713,14 @@ test('text selected inside a row stays selected while incoming activity renders'
   });
   assert.ok(selected.length > 0);
   const incoming = await postDemoEvent(runtime);
-  await expect(page.locator(`[data-event-id="${incoming.id}"]`)).toBeVisible({ timeout: 12000 });
+  await refreshNow(page);
+  await expect(page.locator(`[data-event-id="${incoming.id}"]`)).toBeVisible();
   assert.equal(await page.evaluate(() => getSelection()?.toString()), selected);
 });
 
 async function setupPicker(t: TestContext, { existing = true } = {}) {
   const store = createStore();
+  defer(t, () => store.close());
   const organization = 'https://dev.azure.com/example',
     project = 'Demo';
   if (existing)
@@ -808,24 +783,15 @@ async function setupPicker(t: TestContext, { existing = true } = {}) {
   });
   const sync = createSync({ store, provider });
   const server = createApp({ store, provider, sync, browse, discover: async () => ({ repositories, warnings: [] }), accessKey: TEST_KEY });
-  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
-  const browser = await chromium.launch({ executablePath: await browserPath(), headless: true });
-  const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
-  await rememberKey(page);
-  const errors: string[] = [];
-  page.on('pageerror', error => errors.push(error.message));
-  t.after(async () => {
-    if (!t.passed) {
-      const picker = page.locator('#repository-picker');
-      if (await picker.count()) t.diagnostic(await picker.innerText());
-      t.diagnostic(JSON.stringify(calls));
-    }
-    await browser.close();
-    await new Promise(resolve => server.close(resolve));
-    store.close();
-    assert.deepEqual(errors, []);
+  const url = await listen(t, server);
+  const page = await openPage(t, { key: TEST_KEY });
+  defer(t, async () => {
+    if (t.passed) return;
+    const picker = page.locator('#repository-picker');
+    if (await picker.count()) t.diagnostic(await picker.innerText());
+    t.diagnostic(JSON.stringify(calls));
   });
-  await page.goto(`http://127.0.0.1:${portOf(server)}/${existing ? '#repositories' : ''}`);
+  await page.goto(`${url}/${existing ? '#repositories' : ''}`);
   if (existing) await page.locator('#add-repositories').click();
   return { page, store, calls };
 }
@@ -854,7 +820,7 @@ test('a background render leaves the repository picker in place, so its focused 
 });
 
 test('a New branch detail reviews a rewritten tracking ref before switching, then pulls without leaving the detail', async t => {
-  const { source, local, repo, checkoutGit, commit, original } = checkoutFixture(t);
+  const { source, local, repo, checkoutGit, commit, original } = checkoutFixture(cleanupStack(t));
   const branch = 'feature/checkout-from-activity';
   git(source, 'switch', '-c', branch);
   const previousTip = commit(source, 'topic.txt', 'previous topic commit');
@@ -866,6 +832,7 @@ test('a New branch detail reviews a rewritten tracking ref before switching, the
   const localFile = join(local, 'feature.txt');
   await writeFile(localFile, 'uncommitted local edit');
   const store = createStore();
+  defer(t, () => store.close());
   store.saveRepo(stub<Repository>({ ...repo, id: 'other', name: 'Another watched repository', localPath: undefined }));
   store.saveRepo(stub<Repository>(repo));
   store.insertEvents([
@@ -885,19 +852,10 @@ test('a New branch detail reviews a rewritten tracking ref before switching, the
     status: () => stub<SyncEngineStatus & { repos: Record<string, never> }>({ running: false, repos: {} }),
   });
   const app = createApp({ store, provider, sync, checkoutGit, accessKey: TEST_KEY });
-  await new Promise<void>(resolve => app.listen(0, '127.0.0.1', resolve));
-  const browser = await chromium.launch({ executablePath: await browserPath(), headless: true });
-  t.after(async () => {
-    await browser.close();
-    await new Promise(resolve => app.close(resolve));
-    store.close();
-  });
-  const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+  const url = await listen(t, app);
+  const page = await openPage(t, { viewport: { width: 390, height: 844 }, key: TEST_KEY });
   page.setDefaultTimeout(5000);
-  const errors: string[] = [];
-  page.on('pageerror', error => errors.push(error.message));
-  await rememberKey(page);
-  await page.goto(`http://127.0.0.1:${portOf(app)}/#activity`);
+  await page.goto(`${url}/#activity`);
   await page.locator('#activity-filters-toggle').click();
   const search = page.getByRole('searchbox', { name: 'Search activity' });
   await search.fill('checkout-from-activity');
@@ -944,15 +902,15 @@ test('a New branch detail reviews a rewritten tracking ref before switching, the
   await expect(page.getByRole('button', { name: `Switch to ${branch}…` })).toBeVisible({ timeout: 12000 });
   await page.getByRole('link', { name: /Back to Activity/ }).click();
   await expect(page.locator('#feed-search')).toHaveValue('checkout-from-activity');
-  assert.deepEqual(errors, []);
 });
 
 test('Repositories switches between watched branches, and a merged pull request switches back to main', async t => {
-  const { source, local, repo, checkoutGit, commit, original } = checkoutFixture(t);
+  const { source, local, repo, checkoutGit, commit, original } = checkoutFixture(cleanupStack(t));
   git(source, 'switch', '-c', 'topic');
   commit(source, 'topic.txt', 'topic work');
   git(source, 'push', 'origin', 'topic');
   const store = createStore();
+  defer(t, () => store.close());
   store.saveRepo(stub<Repository>(repo));
   const ref = (name: string, lastPushId: number): import('../server/store.ts').Entity => ({
     type: 'ref',
@@ -977,19 +935,10 @@ test('Repositories switches between watched branches, and a merged pull request 
     status: () => stub<SyncEngineStatus & { repos: Record<string, never> }>({ running: false, repos: {} }),
   });
   const app = createApp({ store, provider, sync, checkoutGit, accessKey: TEST_KEY });
-  await new Promise<void>(resolve => app.listen(0, '127.0.0.1', resolve));
-  const browser = await chromium.launch({ executablePath: await browserPath(), headless: true });
-  t.after(async () => {
-    await browser.close();
-    await new Promise(resolve => app.close(resolve));
-    store.close();
-  });
-  const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+  const url = await listen(t, app);
+  const page = await openPage(t, { viewport: { width: 390, height: 844 }, key: TEST_KEY });
   page.setDefaultTimeout(5000);
-  const errors: string[] = [];
-  page.on('pageerror', error => errors.push(error.message));
-  await rememberKey(page);
-  await page.goto(`http://127.0.0.1:${portOf(app)}/#repositories`);
+  await page.goto(`${url}/#repositories`);
   const checkout = page.locator('#checkout-state-repo');
   const open = checkout.getByRole('button', { name: 'Switch branch…' });
   const picker = page.locator('#branch-dialog');
@@ -1048,14 +997,13 @@ test('Repositories switches between watched branches, and a merged pull request 
   await expect(checkout).toContainText('topic');
   assert.equal(git(local, 'rev-parse', 'HEAD'), localTip);
 
-  await page.goto(`http://127.0.0.1:${portOf(app)}/#event/merged-topic`);
+  await page.goto(`${url}/#event/merged-topic`);
   await page.getByRole('button', { name: 'Switch to main…' }).click();
   await confirmDialog.getByRole('button', { name: 'Switch branch', exact: true }).click();
   await expect(page).toHaveURL(/#event\/merged-topic$/);
   await expect(checkout.locator('.checkout-state > code').first()).toHaveText('main');
   assert.equal(git(local, 'branch', '--show-current'), 'main');
   assert.equal(git(local, 'rev-parse', 'HEAD'), original);
-  assert.deepEqual(errors, []);
 });
 
 test('first repository onboarding can reach Activity without a reload', async t => {
@@ -1110,10 +1058,10 @@ test('searchable picker selects multiple checkouts, disambiguates remotes and on
   for (const theme of ['Light', 'Dark']) {
     await page.getByRole('button', { name: theme, exact: true }).click();
     await search.fill('');
-    await page.screenshot({ path: `test-results/picker-${theme.toLowerCase()}.png`, fullPage: true });
+    await capture(page, `picker-${theme.toLowerCase()}.png`, { fullPage: true });
     await page.setViewportSize({ width: 360, height: 844 });
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
-    await page.screenshot({ path: `test-results/picker-phone-${theme.toLowerCase()}.png`, fullPage: true });
+    await capture(page, `picker-phone-${theme.toLowerCase()}.png`, { fullPage: true });
     await page.setViewportSize({ width: 1280, height: 900 });
   }
 });
@@ -1161,15 +1109,15 @@ test('the focused picker search shows the text the picker resets it to', async t
 
 test('picker keeps a search typed during initial loading and retains failed selections on partial add', async t => {
   const { page, store } = await setupPicker(t);
-  const { promise: reading, resolve: release } = Promise.withResolvers<void>();
+  const reading = gate(t, 'folder listing');
   await page.route('**/api/folders', async route => {
-    await reading;
+    await reading.opened;
     await route.continue();
   });
   const search = page.getByRole('combobox', { name: 'Search local repositories' });
   await search.focus();
   await search.fill('beta');
-  release();
+  reading.release();
   await expect(page.getByRole('option')).toHaveCount(1);
   await expect(search).toHaveValue('beta');
   await search.press('Enter');
@@ -1335,9 +1283,9 @@ test('healthy phone catch-up shows first activity and theme icons before the fol
       const box = await page.getByRole('button', { name, exact: true }).boundingBox();
       assert.ok(box && box.x >= 0 && box.x + box.width <= 375 && box.y + box.height < 120);
     }
-    await page.screenshot({ path: `test-results/improved-phone-${theme.toLowerCase()}.png`, fullPage: true });
+    await capture(page, `improved-phone-${theme.toLowerCase()}.png`, { fullPage: true });
     await page.setViewportSize({ width: 1280, height: 900 });
-    await page.screenshot({ path: `test-results/improved-desktop-${theme.toLowerCase()}.png`, fullPage: true });
+    await capture(page, `improved-desktop-${theme.toLowerCase()}.png`, { fullPage: true });
   }
 });
 
@@ -1379,7 +1327,7 @@ test('CI summary shortcuts filter the full activity scope on desktop and compact
   await allRuns.getByText('CI runs', { exact: true }).click();
   await expect(page.getByRole('button', { name: 'Activity type: CI runs', exact: true })).toBeFocused();
   await expect(summary).toContainText('Showing 50 of 54 items');
-  await page.screenshot({ path: 'test-results/activity-filter-desktop.png' });
+  await capture(page, 'activity-filter-desktop.png');
   await expect(page.locator('li[data-event-id="summary-push"]')).toHaveCount(0);
 
   await page.setViewportSize({ width: 375, height: 900 });
@@ -1403,7 +1351,7 @@ test('CI summary shortcuts filter the full activity scope on desktop and compact
   const showAll = summary.getByRole('button', { name: 'Show all CI runs', exact: true });
   await expect(showAll).toBeVisible();
   await expect(summary.getByRole('button', { name: 'CI runs, 1 unread' })).toHaveCount(0);
-  await page.screenshot({ path: 'test-results/activity-filter-compact.png' });
+  await capture(page, 'activity-filter-compact.png');
   await failedType.tap();
   await expect(page.getByRole('option', { name: 'Failed CI runs', exact: true })).toHaveAttribute('aria-selected', 'true');
   await expect(page.getByRole('option', { name: 'CI runs', exact: true })).toBeVisible();
@@ -1480,7 +1428,7 @@ test('activity hover uses color instead of underlining and retains keyboard focu
       await title.evaluate(element => ({ style: getComputedStyle(element).outlineStyle, width: getComputedStyle(element).outlineWidth })),
       { style: 'solid', width: '2px' },
     );
-    await page.screenshot({ path: `test-results/hover-${theme.toLowerCase()}.png`, fullPage: true });
+    await capture(page, `hover-${theme.toLowerCase()}.png`, { fullPage: true });
   }
 });
 
@@ -1712,7 +1660,7 @@ test('semantic status colors match rows, imported history, details and trails in
     if (!(await trail.evaluate((element: HTMLDetailsElement) => element.open))) await trail.locator('summary').click();
     await expect(trail.locator('.status-text.warn')).toHaveText('Canceled');
     await expect(trail.locator('.status-text.info')).toHaveCount(2);
-    await page.screenshot({ path: `test-results/status-colors-${theme.toLowerCase()}.png`, fullPage: true });
+    await capture(page, `status-colors-${theme.toLowerCase()}.png`, { fullPage: true });
   }
   await page.getByRole('button', { name: 'Light', exact: true }).click();
   await page.locator('[data-event-id="color-completed"] .feed-title').click();
@@ -1773,7 +1721,6 @@ test('the app-owned type dropdown is themed, keyboard accessible and stable duri
       }),
     );
     if (theme === 'Light') {
-      const polling = page.waitForResponse(response => new URL(response.url()).pathname === '/api/state', { timeout: 8000 });
       runtime.store.insertEvents([
         {
           id: 'type-incoming',
@@ -1785,10 +1732,11 @@ test('the app-owned type dropdown is themed, keyboard accessible and stable duri
           observedAt: new Date().toISOString(),
         },
       ]);
-      await polling;
+      await refreshNow(page);
+      await expect(page.locator('li[data-event-id="type-incoming"]')).toHaveCount(1);
       await expect(panel).toBeVisible();
     }
-    await page.screenshot({ path: `test-results/type-filter-${theme.toLowerCase()}.png` });
+    await capture(page, `type-filter-${theme.toLowerCase()}.png`);
     await page.keyboard.press('End');
     await expect(panel.getByRole('option').last()).toBeFocused();
     await panel.getByRole('option', { name: 'CI runs', exact: true }).focus();
@@ -1809,7 +1757,8 @@ test('the app-owned type dropdown is themed, keyboard accessible and stable duri
           data: { buildId: 700, status: 'completed', result: 'succeeded' },
         },
       ]);
-      await expect(page.locator('li.row .kind')).toHaveText('CI succeeded', { timeout: 8000 });
+      await refreshNow(page);
+      await expect(page.locator('li.row .kind')).toHaveText('CI succeeded');
       await expect(toggle).toBeFocused();
     }
     await toggle.press('ArrowDown');
@@ -1912,6 +1861,7 @@ test('the sync status pill reads Synced in the demo and follows a Problem or Del
 
 test('Activity shows a sign-in failure on return and retries the blocked live streams and history after sign-in', async t => {
   const store = createStore();
+  defer(t, () => store.close());
   const repo = stub<Repository>({ id: 'auth-repo', name: 'Orders' });
   store.saveRepo(repo);
   const at = Date.now();
@@ -1952,16 +1902,8 @@ test('Activity shows a sign-in failure on return and retries the blocked live st
       returning = false;
     },
   });
-  await new Promise<void>(resolve => app.listen(0, '127.0.0.1', resolve));
-  const browser = await chromium.launch({ executablePath: await browserPath(), headless: true });
-  t.after(async () => {
-    await browser.close();
-    await new Promise(resolve => app.close(resolve));
-    store.close();
-  });
-  const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
-  await rememberKey(page);
-  const url = `http://127.0.0.1:${portOf(app)}`;
+  const url = await listen(t, app);
+  const page = await openPage(t, { viewport: { width: 390, height: 844 }, key: TEST_KEY });
   const initial = page.waitForResponse('**/api/state');
   await page.goto(`${url}/#activity`);
   await initial;
@@ -2104,27 +2046,17 @@ test('one persistent live region outside the header announces only changed sync 
 });
 
 test('Escape before the first state load does not throw', async t => {
-  const directory = await mkdtemp(join(tmpdir(), 'repo-pulse-ui-'));
-  const runtime = await startApp({ demo: true, port: 0, dataDir: directory });
-  const browser = await chromium.launch({ executablePath: await browserPath(), headless: true });
-  t.after(async () => {
-    await browser.close();
-    await runtime.close();
-    await rm(directory, { recursive: true, force: true });
-  });
-  const page = await browser.newPage();
-  const errors: string[] = [];
-  page.on('pageerror', error => errors.push(error.message));
-  const { promise: stateHeld, resolve: releaseState } = Promise.withResolvers<void>();
+  const { runtime } = await startTestApp(t, { highlights: true });
+  const page = await openPage(t);
+  const stateHeld = gate(t, 'first state read');
   await page.route('**/api/state', async route => {
-    await stateHeld;
+    await stateHeld.opened;
     await route.continue();
   });
   await page.goto(runtime.launchUrl, { waitUntil: 'domcontentloaded' });
   await page.keyboard.press('Escape');
-  releaseState();
+  stateHeld.release();
   await expect(page.locator('#repo-toggle')).toBeVisible();
-  assert.deepEqual(errors, []);
 });
 
 test('tag activity has its own type filter and a detail that names the tag and what it points at', async t => {
@@ -2188,10 +2120,7 @@ test('the launch link works once, hides its token, and a stale or forged link ca
   assert.equal(new URL(page.url()).hash.includes('launch='), false);
   // A forged link in a fresh document tries the exchange, fails, and keeps the working key. A separate tab with this run's
   // key stored keeps its expected 401 responses out of the setup's console check.
-  const browser = page.context().browser();
-  assert.ok(browser);
-  const context = await browser.newContext();
-  t.after(() => context.close());
+  const context = await openContext(t);
   const tab = await context.newPage();
   await rememberKey(tab, runtime.accessKey);
   const forged = tab.waitForResponse(response => new URL(response.url()).pathname === '/api/session');
@@ -2207,8 +2136,7 @@ test('the launch link works once, hides its token, and a stale or forged link ca
   });
   assert.equal((await again).status(), 401);
   await expect(tab.getByRole('link', { name: 'Repo Pulse', exact: true })).toBeVisible();
-  const stranger = await browser.newPage();
-  t.after(() => stranger.close());
+  const stranger = await openPage(t);
   // The same launch link in a browser without the key is already spent.
   await stranger.goto(runtime.launchUrl);
   await expect(
@@ -2222,6 +2150,7 @@ test('the launch link works once, hides its token, and a stale or forged link ca
 
 test('Start from scratch in Settings confirms, empties the feed and shows Syncing until the import is back', async t => {
   const store = createStore();
+  defer(t, () => store.close());
   const repo = {
     id: 'one',
     name: 'orders-api',
@@ -2268,34 +2197,24 @@ test('Start from scratch in Settings confirms, empties the feed and shows Syncin
     },
   });
   const sync = createSync({ store, provider, pollMs: 20 });
+  defer(t, () => sync.stop());
   const server = createApp({ store, provider, sync, accessKey: TEST_KEY });
-  let browser: Browser | undefined;
-  const errors: string[] = [];
-  t.after(async () => {
+  const url = await listen(t, server);
+  defer(t, () => {
     gate.closed = false;
     gate.release();
-    await browser?.close().catch(() => {});
-    await sync.stop();
-    if (server.listening) await new Promise(resolve => server.close(resolve));
-    store.close();
-    assert.deepEqual(errors, []);
   });
-  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
   sync.start();
   sync.refresh();
   for (let i = 0; i < 200 && !store.listEvents().length; i++) await new Promise(resolve => setTimeout(resolve, 10));
-  browser = await chromium.launch({ executablePath: await browserPath(), headless: true });
-  const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
-  page.on('pageerror', error => errors.push(error.message));
-  await rememberKey(page);
-  const url = `http://127.0.0.1:${portOf(server)}`;
+  const page = await openPage(t, { key: TEST_KEY });
   await page.goto(`${url}/#activity`);
   await expect(page.locator('[data-event-id="one:push:1"]')).toHaveCount(1);
 
   await page.getByRole('link', { name: 'Settings', exact: true }).click();
   const row = page.locator('.settings-row', { hasText: 'Start from scratch' });
   await expect(row).toContainText('Deletes stored activity and imports the last seven days again. Your repositories and settings stay.');
-  await row.screenshot({ path: 'test-results/settings-start-from-scratch.png' });
+  await capture(row, 'settings-start-from-scratch.png');
   gate.closed = true;
   for (const state of store.getStreams()) store.saveStream({ ...state, nextAt: new Date(0).toISOString() });
   for (let i = 0; i < 200 && !gate.held; i++) await new Promise(resolve => setTimeout(resolve, 10));
@@ -2306,7 +2225,7 @@ test('Start from scratch in Settings confirms, empties the feed and shows Syncin
   await expect(dialog.locator('#confirm-title')).toHaveText('Start from scratch?');
   const confirmButton = dialog.getByRole('button', { name: 'Delete and import again' });
   await expect(confirmButton).toHaveClass(/danger/);
-  await page.screenshot({ path: 'test-results/settings-start-from-scratch-dialog.png' });
+  await capture(page, 'settings-start-from-scratch-dialog.png');
   await confirmButton.click();
   await expect(page.locator('#toast')).toHaveText(
     'Starting from scratch. Stored activity is being deleted, then the last seven days are imported.',
@@ -2465,12 +2384,12 @@ test('Activity gives wrapped titles room and keeps their event metadata together
       { message: 'PR chip right edge past the title column' },
     )
     .toBeLessThanOrEqual(0);
-  await page.screenshot({ path: 'test-results/open-pr-activity-desktop.png' });
+  await capture(page, 'open-pr-activity-desktop.png');
   // On a phone the type label shares its line with the taller Seen control, so it centres on it.
   await page.setViewportSize({ width: 390, height: 900 });
   await expect(prRow.locator('.kind > .d')).toBeVisible();
   await expect.poll(destinationFits).toBe(true);
-  await page.screenshot({ path: 'test-results/open-pr-activity-phone.png' });
+  await capture(page, 'open-pr-activity-phone.png');
   const centre = (box: { y: number; height: number }) => box.y + box.height / 2;
   const first = page.locator('.rows .row').first();
   await expect
@@ -2485,7 +2404,7 @@ test('Activity gives wrapped titles room and keeps their event metadata together
 });
 
 test('Git Graph shows a merged branch and exact CI links alongside the Activity feed', async t => {
-  const { source, local, repo, checkoutGit, commit } = checkoutFixture(t);
+  const { source, local, repo, checkoutGit, commit } = checkoutFixture(cleanupStack(t));
   git(local, 'switch', '-c', 'graph-topic');
   const topicSubject = 'Feature branch work · Andre\u0301 Lane';
   git(local, 'commit', '--allow-empty', '--author', 'José van Dijk <jose@example.test>', '-m', topicSubject);
@@ -2499,6 +2418,7 @@ test('Git Graph shows a merged branch and exact CI links alongside the Activity 
   const longRef = 'feature/long-reference-for-testing-that-must-not-push-linked-ci-and-pr-offscreen';
   git(local, 'branch', longRef);
   const store = createStore();
+  defer(t, () => store.close());
   store.saveRepo(repo);
   const time = new Date().toISOString();
   store.insertEvents([
@@ -2535,16 +2455,9 @@ test('Git Graph shows a merged branch and exact CI links alongside the Activity 
     sync: stub<AppSync>({ status: () => stub<SyncEngineStatus>({ running: false }) }),
     accessKey: TEST_KEY,
   });
-  await new Promise<void>(resolve => app.listen(0, '127.0.0.1', resolve));
-  const browser = await chromium.launch({ executablePath: await browserPath(), headless: true });
-  t.after(async () => {
-    await browser.close();
-    await new Promise(resolve => app.close(resolve));
-    store.close();
-  });
-  const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
-  await rememberKey(page);
-  await page.goto(`http://127.0.0.1:${portOf(app)}/#activity`);
+  const url = await listen(t, app);
+  const page = await openPage(t, { key: TEST_KEY });
+  await page.goto(`${url}/#activity`);
   await page.getByText('Activity lane key', { exact: true }).click();
   await expect(page.getByText(/Lines can pass rows of other branches/)).toBeVisible();
   await page.getByRole('link', { name: 'Open Git Graph', exact: true }).click();
@@ -2682,7 +2595,7 @@ test('Git Graph shows a merged branch and exact CI links alongside the Activity 
   await expect(page.getByRole('button', { name: 'Load more commits' })).toBeDisabled();
   await page.getByRole('button', { name: 'Reload graph' }).click();
   await expect(page.locator('.graph-subject').first()).toHaveText('Graph upstream update');
-  await page.screenshot({ path: 'test-results/git-graph-checkout-phone.png' });
+  await capture(page, 'git-graph-checkout-phone.png');
 
   git(local, 'switch', 'main');
   store.insertEvents([
@@ -2783,11 +2696,11 @@ test('Activity keeps the branch tree while exposing merge status, CI and push co
   await expect(push.getByRole('button', { name: 'Reload commits', exact: true })).toBeFocused();
   await expect(push.getByText('Cover export retry behavior', { exact: false })).toBeVisible();
   await expect(page).toHaveURL(/#activity$/);
-  await page.screenshot({ path: 'test-results/activity-tree-redesign-desktop.png' });
+  await capture(page, 'activity-tree-redesign-desktop.png');
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(failure.locator('.kind')).toHaveText('CI failed');
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
-  await page.screenshot({ path: 'test-results/activity-tree-redesign-mobile.png' });
+  await capture(page, 'activity-tree-redesign-mobile.png');
 });
 
 test('Activity shows only highlights and links a landing and quieter CI to its details', async t => {
@@ -2963,9 +2876,9 @@ test('Activity shows only highlights and links a landing and quieter CI to its d
   assert.equal(await sharesStatusColor(readyLabel), false);
   assert.equal(await sharesStatusColor(merge.locator('.kind')), false);
   await approved.scrollIntoViewIfNeeded();
-  await page.screenshot({ path: 'test-results/activity-highlights.png' });
+  await capture(page, 'activity-highlights.png');
   await merge.scrollIntoViewIfNeeded();
-  await merge.screenshot({ path: 'test-results/activity-dated-ci-dark.png' });
+  await capture(merge, 'activity-dated-ci-dark.png');
   await page.evaluate(() => {
     const rule = new CSSStyleSheet();
     rule.replaceSync(
@@ -2985,10 +2898,10 @@ test('Activity shows only highlights and links a landing and quieter CI to its d
   });
   await page.setViewportSize({ width: 390, height: 844 });
   await approved.scrollIntoViewIfNeeded();
-  await page.screenshot({ path: 'test-results/activity-highlights-phone.png' });
+  await capture(page, 'activity-highlights-phone.png');
   await page.emulateMedia({ colorScheme: 'light' });
   await expect(page.locator('html')).not.toHaveClass(/\bdark\b/);
-  await merge.screenshot({ path: 'test-results/activity-dated-ci-light-phone.png' });
+  await capture(merge, 'activity-dated-ci-light-phone.png');
   await merge.getByRole('button', { name: 'View all CI runs' }).click();
   await expect(page.locator('.detail-related')).toHaveAttribute('open', '');
   await expect(page.locator('.detail-related summary')).toHaveText('Related CI runs · 7');
