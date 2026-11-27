@@ -97,7 +97,7 @@ Optional audit ingestion adds repository/policy/security/administrative evidence
 
 ## Low-load contract
 
-- Keep one shared queue, duplicate coalescing and per-repo fairness. The budget is 60 calls/minute with four in flight since activity reads moved to REST (it was 12 CLI starts/minute and two processes before); change it only after measuring with `scripts/measure-budget.js`.
+- Keep one shared queue, duplicate coalescing and per-repo fairness. The budget is 60 calls/minute with four in flight since activity reads moved to REST (it was 12 CLI starts/minute and two processes before); change it only after measuring with `scripts/measure-budget.ts`.
 - Avoid optional PR labels/statuses/work items until a feature actually needs them; Microsoft explicitly warns that label enrichment adds resource use. [S6](https://learn.microsoft.com/en-us/azure/devops/release-notes/2025/repos/sprint-254-update)
 - Prioritize recent changes over backfill, bound per-job pages/time, and expose enrichment lag. Never silently drop a page because a work budget was exhausted.
 - Validate 1/5/20 watched repos, many refs, many commits and burst pushes, including SDK discovery overhead. Eventual coverage and detection latency are separate acceptance criteria.

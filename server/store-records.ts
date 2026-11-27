@@ -8,7 +8,7 @@
 // shows with a fallback reads whatever its value. Events and enrichment are the exception: their provider data and
 // display fields held whatever Azure sent before the Azure records were checked, so only the fields that identify an
 // event are checked, and `data` and the enrichment overlay are checked to be objects (see the EventData item in
-// docs/post-migration-plan.md).
+// docs/BACKLOG.md).
 import { fields, is, isRecord, list, type Check } from './azure-records.ts';
 
 import type { Repository, StoredEvent, StreamState, AzureStream, HistoryJob, SavedActivityFilter } from '../src/contract.d.ts';

@@ -138,6 +138,6 @@ export async function request<P extends string>(path: P, { method = 'GET', body 
     throw Object.assign(new Error(message), { code: body.code });
   }
   // The local server answers this path with ResponseFor<P> (server.ts checks each handler with `satisfies`); checking
-  // the body here waits for the shared route table the post-migration plan leaves for the next new route.
+  // the body here waits for the shared route table in docs/BACKLOG.md.
   return value as ResponseFor<P>;
 }

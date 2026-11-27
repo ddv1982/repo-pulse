@@ -1,5 +1,7 @@
 # Post-migration plan
 
+Archived on 2026-11-27. Its open items moved to the [backlog](../BACKLOG.md).
+
 Written 2026-11-24 from a council review by Claude Opus 5.5 (7.5/10), Gemini 4 Neon (8.0/10) and GPT-6.2 Sol
 (7.5/10) of `main` at `9ca407a`, after the [TypeScript migration](typescript-migration.md) finished. Each
 reviewer read the code independently and read-only. One line per verifiable unit; tick a box only after its

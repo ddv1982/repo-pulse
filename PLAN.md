@@ -32,6 +32,6 @@ Repo Pulse records tag changes, checks live branch moves for history rewrites, k
 - A successful build or merged PR does not establish deployment. Partial evidence should stay visible as partial evidence.
 - Service hooks, audit ingestion, notifications, and packaging can wait for a demonstrated need.
 
-See [Azure API research](docs/FULL-COVERAGE-RESEARCH.md) for endpoints, source references, and proof cases. See [maintainer notes](docs/MAINTAINING.md) for architecture, checks, and local measurements.
+See [Azure API research](docs/FULL-COVERAGE-RESEARCH.md) for endpoints, source references, and proof cases. See [maintainer notes](docs/MAINTAINING.md) for architecture, checks, and local measurements. Open engineering work is listed in the [backlog](docs/BACKLOG.md).
 
 The [completed phase checklist and validation notes](https://github.com/ddv1982/repo-pulse/blob/b8fb8561854d472bcc17543326df5c4644c53cd8/PLAN.md#repository-and-pr-coverage-item-1--complete) are available in Git history.
