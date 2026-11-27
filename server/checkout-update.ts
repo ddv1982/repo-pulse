@@ -4,6 +4,7 @@ import { readDirectCommit } from './checkout-switch-refs.ts';
 import type { GitRunner, ReadCheckoutStatus, Upstream } from './checkout-git.ts';
 import type { Observation } from './checkout-observations.ts';
 import type { ActiveCheckout, CheckoutReading, Repository as LinkedRepo } from '../src/contract.d.ts';
+import { conflict, isAppError, notFound } from './errors.ts';
 
 /**
  * Check, Pull and PR target updates share this workflow. The caller holds the checkout lock.
@@ -13,7 +14,6 @@ export function createCheckoutUpdater({
   hooks,
   now,
   observations,
-  problem,
   statusAt,
   validateUpstream,
   fetchUpstream,
@@ -29,7 +29,6 @@ export function createCheckoutUpdater({
   hooks: string;
   now: () => number;
   observations: import('./checkout-observations.ts').Observations;
-  problem: (message: string, status?: number) => Error & { status: number };
   statusAt: ReadCheckoutStatus;
   validateUpstream: (path: string, target: Upstream) => Promise<void>;
   fetchUpstream: (path: string, target: Upstream) => Promise<void>;
@@ -56,7 +55,7 @@ export function createCheckoutUpdater({
       (operation === 'pull' && !snapshot.canPull) ||
       (operation === 'update-target' && (snapshot.dirty || !['behind', 'current'].includes(snapshot.state)))
     ) {
-      throw problem('The checkout is no longer eligible. Review its Git status and try again.');
+      throw conflict('The checkout is no longer eligible. Review its Git status and try again.');
     }
     return target;
   }
@@ -77,7 +76,7 @@ export function createCheckoutUpdater({
         return ignored.some(local => local === incoming || local.startsWith(`${incoming}/`) || incoming.startsWith(`${local}/`));
       })
     )
-      throw problem('Incoming files overlap ignored local files. Move them before pulling.');
+      throw conflict('Incoming files overlap ignored local files. Move them before pulling.');
   }
 
   async function fastForward(path: string, branch: string, tip: string) {
@@ -113,7 +112,7 @@ export function createCheckoutUpdater({
         { guard: clearMergeOptions },
       );
     } catch {
-      throw problem(
+      throw conflict(
         'Pull stopped before the branch was updated. Git could not preserve the local checkout. Review overlapping changes in Git and try again.',
       );
     }
@@ -123,11 +122,11 @@ export function createCheckoutUpdater({
     // `unclear` tells callers not to describe this as a blocked update.
     if (current !== `refs/heads/${branch}`)
       throw Object.assign(
-        problem(`The checkout is no longer on ${branch}, so it is unclear which branch moved. Review the checkout in Git.`),
+        conflict(`The checkout is no longer on ${branch}, so it is unclear which branch moved. Review the checkout in Git.`),
         { unclear: true },
       );
     if ((await run(path, ['rev-parse', 'HEAD'])).trim() !== tip)
-      throw problem('Git did not move the branch to the upstream commit. Review the checkout in Git.');
+      throw conflict('Git did not move the branch to the upstream commit. Review the checkout in Git.');
   }
 
   /** Saves the pre-fetch tracking samples and returns what the later observation saves build on.
@@ -172,7 +171,7 @@ export function createCheckoutUpdater({
     const advice = reason === 'missing-ref' && operation !== 'update-target' ? await readMissing(path, repo, target, snapshot) : undefined;
     const { snapshot: current } = await statusAt(path, repo);
     if (!matchesIntent(snapshot, current) || snapshot.switchIdentity !== current.switchIdentity)
-      throw problem('The checkout changed during the check. Review the current branch and try again.');
+      throw conflict('The checkout changed during the check. Review the current branch and try again.');
     observations.save(repo.id, {
       ...baseline,
       rewrite: retainedRewrite,
@@ -198,7 +197,7 @@ export function createCheckoutUpdater({
     await verifyCheckoutDirectory(path, snapshot.switchIdentity);
     const fetchedAt = new Date(now()).toISOString();
     const tip = await readDirectCommit(run, path, target.tracking);
-    if (!tip) throw problem('The upstream commit is unavailable.');
+    if (!tip) throw conflict('The upstream commit is unavailable.');
     const { pending, rewrite: observed } = await observedRewrite(run, path, baselines, tip);
     const retained = retainedRewrite?.verified && (!canClearRewrite || pending.length) ? retainedRewrite : undefined;
     const rewrite = observed?.verified ? observed : (retained ?? observed);
@@ -208,7 +207,7 @@ export function createCheckoutUpdater({
     observations.save(repo.id, observedAfterFetch);
     const after = await statusAt(path, repo);
     if (!matchesIntent(snapshot, after.snapshot) || before.gitDirectory !== after.gitDirectory)
-      throw problem('The checkout or its upstream changed during the check. The branch was not updated.');
+      throw conflict('The checkout or its upstream changed during the check. The branch was not updated.');
     await verifyCheckoutDirectory(path, snapshot.switchIdentity);
     if (snapshot.branch && before.gitDirectory && before.gitDirectory === after.gitDirectory) {
       observations.save(repo.id, {
@@ -221,7 +220,7 @@ export function createCheckoutUpdater({
 
   async function verifyFetchedTip(path: string, target: Upstream, tip: string) {
     if ((await readDirectCommit(run, path, target.tracking)) !== tip)
-      throw problem('The checkout or its upstream changed during the check. The branch was not updated.');
+      throw conflict('The checkout or its upstream changed during the check. The branch was not updated.');
   }
 
   /** Decides from the post-fetch reading whether to fast-forward, and does so. */
@@ -236,13 +235,13 @@ export function createCheckoutUpdater({
   ) {
     if (operation === 'check' || after.state === 'upstream-rewritten') return { checkout: after, updated: false };
     if (!['behind', 'current'].includes(after.state) || (operation === 'update-target' && after.dirty)) {
-      throw problem('The checkout or its upstream changed during the check. The branch was not updated.');
+      throw conflict('The checkout or its upstream changed during the check. The branch was not updated.');
     }
     if (result && (await ancestry(run, path, result, tip)) !== true) {
-      throw problem('The latest upstream could not be verified to contain the PR result.');
+      throw conflict('The latest upstream could not be verified to contain the PR result.');
     }
     if (after.state === 'current') return { checkout: after, updated: false };
-    if (!after.canPull) throw problem('The checkout is no longer eligible.');
+    if (!after.canPull) throw conflict('The checkout is no longer eligible.');
     // Checked after identity and eligibility so a rewritten upstream or changed checkout is reported first.
     await refuseIgnoredOverlap(path, after.head, tip);
     await run(path, ['merge-base', '--is-ancestor', after.head, tip]);
@@ -253,10 +252,11 @@ export function createCheckoutUpdater({
       return { checkout: (await statusAt(path, repo)).snapshot, updated: true };
     } catch (caught) {
       // The branch already moved, so no failure here may read as if Pull did nothing. Unexpected errors keep their text local.
-      const error = caught as Error & { status?: number; diagnostic?: unknown };
-      const reason = error.status ? error.message : 'Review the checkout in Git.';
-      throw Object.assign(problem(`The branch was updated to the upstream commit. ${reason}`, error.status === 404 ? 404 : 409), {
-        diagnostic: error.diagnostic,
+      const known = isAppError(caught) ? caught : null;
+      const reason = known ? known.message : 'Review the checkout in Git.';
+      const message = `The branch was updated to the upstream commit. ${reason}`;
+      throw Object.assign(known?.kind === 'not-found' ? notFound(message) : conflict(message), {
+        diagnostic: (caught as { diagnostic?: unknown } | null)?.diagnostic,
       });
     }
   }
@@ -271,7 +271,7 @@ export function createCheckoutUpdater({
     try {
       const before = await statusAt(path, repo);
       const { snapshot } = before;
-      if (!expected || !matchesIntent(snapshot, expected)) throw problem('The checkout changed. Review the current branch and try again.');
+      if (!expected || !matchesIntent(snapshot, expected)) throw conflict('The checkout changed. Review the current branch and try again.');
       const target = eligibleTarget(before, operation);
       await validateUpstream(path, target);
       const recorded = await recordBaseline(path, repo, before, target);
@@ -284,8 +284,8 @@ export function createCheckoutUpdater({
       const { after, tip } = await recordFetch(path, repo, before, target, recorded);
       return await finishUpdate(path, repo, operation, after, target, tip, result);
     } catch (error) {
-      if (error instanceof Error && 'status' in error && (error.status === 404 || error.status === 409)) throw error;
-      throw problem(
+      if (isAppError(error, 'not-found') || isAppError(error, 'conflict')) throw error;
+      throw conflict(
         operation === 'check'
           ? 'Could not check the upstream. Check Git access and try again.'
           : 'Git could not finish the update. Review the checkout and try again.',

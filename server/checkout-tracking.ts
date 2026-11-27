@@ -1,4 +1,4 @@
-import { branchProblem } from './checkout-branches.ts';
+import { conflict } from './errors.ts';
 
 function matchRef(pattern: string, ref: string) {
   if (pattern === ref) return '';
@@ -49,6 +49,6 @@ export async function verifyTrackingMapping(
     !forwards.length ||
     forwards.some(({ source, destination }) => destination.replace('*', () => matchRef(source, target.source) ?? '') !== target.tracking)
   ) {
-    throw branchProblem('The Git fetch configuration does not map this branch to the watched remote. Review the remote in Git.');
+    throw conflict('The Git fetch configuration does not map this branch to the watched remote. Review the remote in Git.');
   }
 }

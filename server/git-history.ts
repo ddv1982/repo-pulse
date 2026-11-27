@@ -2,6 +2,7 @@ import { branchName } from '../src/events.ts';
 import { createHash } from 'node:crypto';
 import type { GitRunner } from './checkout-git.ts';
 import type { GitHistoryPage } from '../src/contract.d.ts';
+import { conflict, invalid } from './errors.ts';
 
 const fullId = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
 const pageSize = 50;
@@ -59,10 +60,10 @@ export async function readGitHistory(run: GitRunner, path: string, defaultBranch
   const [, offsetText, version] = cursor?.match(/^(\d{1,8})\.([0-9a-f]{64})$/) ?? [];
   const offset = Number(offsetText ?? 0);
   if (cursor !== null && (!version || offset === 0 || offset % pageSize !== 0)) {
-    throw Object.assign(new Error('Invalid Git history page.'), { status: 400 });
+    throw invalid('Invalid Git history page.');
   }
   if (version && version !== snapshot) {
-    throw Object.assign(new Error('Git references changed. Reload the graph to continue.'), { status: 409 });
+    throw conflict('Git references changed. Reload the graph to continue.');
   }
 
   const labels = new Map<string, string[]>();

@@ -3,13 +3,14 @@ import { applyCiSummary, ciAttempt, type CiAttempt } from './activity-ci-summary
 import { activityHighlights, attachHighlights } from './activity-highlights.ts';
 import { activityCi } from './activity-ci.ts';
 import { matchesPeople } from './activity-people.ts';
-import { foldSearchText, parsePeople, parseSearchTerms } from '../src/search-terms.ts';
+import { PEOPLE_LIMIT_MESSAGE, foldSearchText, parseSearchTerms, peopleNames } from '../src/search-terms.ts';
 import { projectActivity } from '../src/activity.ts';
 import { treeBranchRefs, treePullRequestSource } from '../src/activity-tree.ts';
 import { activityFilterLabel, labels, parseActivityFilter } from '../src/activity-text.ts';
 import type { SQLInputValue as SqlValue } from 'node:sqlite';
 import type { SqlRow } from './store-records.ts';
 import type { ActivityEvent, ActivityItem, ActivityRequest, ActivityPage } from '../src/activity.ts';
+import { conflict, invalid } from './errors.ts';
 
 type Group = { key: string; time: number; observed: number; representative: string };
 type FilterRow = { kind: string; status: string; evidence: string };
@@ -23,8 +24,6 @@ type CountRow = {
   failed: number;
 };
 type Position = { maxSequence: number; filterKey: string; revision?: string; after: Pick<Group, 'key' | 'time' | 'observed'> };
-
-const invalidFilter = () => Object.assign(new Error('Activity cursor does not match these filters.'), { code: 'BAD_REQUEST' });
 
 function decodeCursor(cursor: string | undefined, filterKey: string): Position | undefined {
   if (!cursor) return undefined;
@@ -42,7 +41,7 @@ function decodeCursor(cursor: string | undefined, filterKey: string): Position |
   } catch {
     /* Invalid or outdated cursor. */
   }
-  throw invalidFilter();
+  throw invalid('Activity cursor does not match these filters.', 'BAD_REQUEST');
 }
 
 function filterOptions(rows: FilterRow[]) {
@@ -467,16 +466,17 @@ export function createActivityQuery(
   );
   function readScope({ repoIds, kind = '', search = '', people = '' }: ActivityRequest) {
     if (typeof search !== 'string' || typeof people !== 'string' || typeof kind !== 'string') {
-      throw Object.assign(new Error('Invalid activity filter.'), { code: 'BAD_REQUEST' });
+      throw invalid('Invalid activity filter.', 'BAD_REQUEST');
     }
     if (search.length > 300) {
-      throw Object.assign(new Error('Enter up to 300 characters in Activity search.'), { code: 'BAD_REQUEST' });
+      throw invalid('Enter up to 300 characters in Activity search.', 'BAD_REQUEST');
     }
     const selected = repoIds ? [...new Set(repoIds)].sort() : undefined;
     selected?.forEach(requireRepo);
     const filter = parseActivityFilter(kind);
     const needles = parseSearchTerms(search);
-    const names = parsePeople(people);
+    const names = peopleNames(people);
+    if (!names) throw invalid(PEOPLE_LIMIT_MESSAGE, 'BAD_REQUEST');
     return { selected, filter, needles, names };
   }
 
@@ -545,7 +545,7 @@ export function createActivityQuery(
     limit = 50,
     cursor,
   }: ActivityRequest = {}): ActivityPage {
-    if (!['all', 'new'].includes(view)) throw Object.assign(new Error('Invalid activity view.'), { code: 'BAD_REQUEST' });
+    if (!['all', 'new'].includes(view)) throw invalid('Invalid activity view.', 'BAD_REQUEST');
     const pageSize = Math.max(1, Math.min(Number(limit) || 50, 200));
     const { selected, filter, needles, names } = readScope({ repoIds, kind, search, people });
     const foldCi = !highlightsOnly && !kind && !needles.length && !names.length && view === 'all';
@@ -556,10 +556,7 @@ export function createActivityQuery(
     const highlights = readHighlights(maxSequence, selected);
     const revision = pageRevision(highlights, view, Boolean(needles.length || names.length), kind, foldCi);
     if (position && revision !== undefined && position.revision !== revision) {
-      throw Object.assign(new Error('Activity changed while loading results. Try again.'), {
-        status: 409,
-        code: 'ACTIVITY_CHANGED',
-      });
+      throw conflict('Activity changed while loading results. Try again.', 'ACTIVITY_CHANGED');
     }
     const member = highlightScope(maxSequence, selected, needles, names, filter, highlights);
     const query = pageQuery(member, filter, view, position, pageSize, foldCi);

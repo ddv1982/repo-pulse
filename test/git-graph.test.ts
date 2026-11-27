@@ -103,7 +103,10 @@ test('the graph snapshot hides raw Git failures', async t => {
       return runGit(path, args, options);
     },
   });
-  await assert.rejects(checkoutGit.historySnapshot(repo), { message: 'Git could not read commit refs for this checkout.', status: 409 });
+  await assert.rejects(checkoutGit.historySnapshot(repo), {
+    message: 'Git could not read commit refs for this checkout.',
+    kind: 'conflict',
+  });
 });
 
 test('the graph takes a stored default branch as its base only when it is a full refs/heads/ name', async t => {

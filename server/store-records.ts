@@ -18,6 +18,7 @@ import type { ForkJob } from './fork-origin.ts';
 import type { Followup } from './checkout-branches.ts';
 import type { Observation } from './checkout-observations.ts';
 import type { EntityData, EntityType } from './normalize.ts';
+import { AppError, isAppError } from './errors.ts';
 
 /** A row as node:sqlite returns it. */
 export type SqlRow = Record<string, import('node:sqlite').SQLOutputValue>;
@@ -305,17 +306,15 @@ function settingCheck(key: SettingKey): Check {
 
 /** A stored row that cannot be read, by table, row and the first field that is missing or malformed. */
 export function corruptRow(table: string, id: string, field: string, reason = 'is missing or malformed') {
-  return Object.assign(new Error(`The stored ${table} row "${id}" cannot be read: ${field} ${reason}.`), {
-    code: 'CORRUPT_ROW',
-    status: 500,
+  return Object.assign(new AppError('corrupt', `The stored ${table} row "${id}" cannot be read: ${field} ${reason}.`, 'CORRUPT_ROW'), {
     table,
     id,
     field,
   });
 }
 
-export function isCorruptRow(error: unknown): error is Error & { code: 'CORRUPT_ROW' } {
-  return error instanceof Error && 'code' in error && error.code === 'CORRUPT_ROW';
+export function isCorruptRow(error: unknown): error is AppError {
+  return isAppError(error, 'corrupt');
 }
 
 /** The value of a JSON column, or a CORRUPT_ROW error when it is not text holding JSON. */

@@ -19,6 +19,7 @@ import type {
 } from '../src/contract.d.ts';
 import type { WatchedRepo, Entity, EntityData, EntityType, SyncBatch } from './normalize.ts';
 import type { Settings, SettingKey } from './store-records.ts';
+import { notFound } from './errors.ts';
 
 type UnreadableLookups = StreamState['unreadableLookups'];
 /** A stream while a read is in flight: the window and the refresh generation it answers are fixed. */
@@ -765,8 +766,7 @@ export function createSync({
     },
     refresh(repoIds?: string[], authOnly = false): RefreshStatus {
       const repos = store.listRepos();
-      if (repoIds && repoIds.some(id => !repos.some(repo => repo.id === id)))
-        throw Object.assign(new Error('Repository is not watched.'), { code: 'NOT_FOUND' });
+      if (repoIds && repoIds.some(id => !repos.some(repo => repo.id === id))) throw notFound('Repository is not watched.', 'NOT_FOUND');
       // Batch additions must register every repository even when refresh requests coalesce.
       ensureStreams();
       // Cooldown is per repository so a second added repository still gets its initial import.

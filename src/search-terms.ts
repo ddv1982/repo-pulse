@@ -6,11 +6,17 @@ export function foldSearchText(text: string) {
   );
 }
 
-export function parsePeople(value: string) {
+export const PEOPLE_LIMIT_MESSAGE = 'Enter up to 12 names and 300 characters in People.';
+
+/** The names in a People filter, or null when it has more than 12 names or 300 characters. */
+export function peopleNames(value: string): string[] | null {
   const names = parseSearchTerms(value);
-  if (value.length > 300 || names.length > 12) {
-    throw Object.assign(new Error('Enter up to 12 names and 300 characters in People.'), { code: 'BAD_REQUEST' });
-  }
+  return value.length > 300 || names.length > 12 ? null : names;
+}
+
+export function parsePeople(value: string) {
+  const names = peopleNames(value);
+  if (!names) throw new Error(PEOPLE_LIMIT_MESSAGE);
   return names;
 }
 

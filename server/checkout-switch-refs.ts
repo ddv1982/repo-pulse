@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { ancestry, isCommit } from './checkout-advice.ts';
-import { branchProblem, readRef } from './checkout-branches.ts';
+import { readRef } from './checkout-branches.ts';
+import { conflict } from './errors.ts';
 import { isSymbolicRef } from './checkout-delete-guard.cjs';
 import { compareUpstream } from './checkout-observations.ts';
 import type { GitRunner, Upstream } from './checkout-git.ts';
@@ -22,15 +23,15 @@ export async function readDirectCommit(run: GitRunner, path: string, ref: string
     .map(line => line.trimEnd().split('\0'))
     .find(([name]) => name === ref);
   if (!sample) {
-    if (await isSymbolicRef(run, path, ref)) throw branchProblem('The tracking ref is symbolic. Review it in Git.');
-    if (await readRef(run, path, ref)) throw branchProblem('The Git ref changed while it was being read. Try again.');
+    if (await isSymbolicRef(run, path, ref)) throw conflict('The tracking ref is symbolic. Review it in Git.');
+    if (await readRef(run, path, ref)) throw conflict('The Git ref changed while it was being read. Try again.');
     return null;
   }
   // isCommit refuses '' as it refuses a missing field.
   const [, oid = '', symbolic, type] = sample;
-  if (symbolic) throw branchProblem('The tracking ref is symbolic. Review it in Git.');
+  if (symbolic) throw conflict('The tracking ref is symbolic. Review it in Git.');
   if (!isCommit(oid) || type !== 'commit') {
-    throw branchProblem('The tracking ref does not point to a commit. Review it in Git.');
+    throw conflict('The tracking ref does not point to a commit. Review it in Git.');
   }
   return oid;
 }
@@ -60,14 +61,14 @@ async function writeRef(
         input: input.join('\n'),
         prepare: async () => {
           for (const name of [ref, ...archives.map(archive => archive.ref)]) {
-            if (await isSymbolicRef(run, path, name)) throw branchProblem('A Git ref became symbolic. Review it in Git.');
+            if (await isSymbolicRef(run, path, name)) throw conflict('A Git ref became symbolic. Review it in Git.');
           }
           await verify?.();
         },
       },
     );
   } catch {
-    throw branchProblem('Git could not verify and refresh the refs. The checkout was not switched. Review the refs and try again.');
+    throw conflict('Git could not verify and refresh the refs. The checkout was not switched. Review the refs and try again.');
   }
 }
 
@@ -91,7 +92,7 @@ export async function refreshSwitchTracking(
     const oid = rewrite.previous;
     const ref = `${archivePrefix(repo, target)}${rewrite.tip}/${oid}`;
     const existing = await readDirectCommit(run, path, ref);
-    if (existing && existing !== oid) throw branchProblem('The upstream recovery ref changed. Review it in Git.');
+    if (existing && existing !== oid) throw conflict('The upstream recovery ref changed. Review it in Git.');
     if (!existing) await writeRef(run, path, hooks, ref, null, oid, [], verify);
     archives.push({ ref, oid });
   }

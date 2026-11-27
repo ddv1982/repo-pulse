@@ -5,6 +5,7 @@ import type { AzureStreamRecord, HistoryStream, HistoryWindow, HistoryJob, Histo
 import type { AzurePage as SourcePage } from './azure-client.ts';
 import type { Entity, WatchedRepo } from './normalize.ts';
 import type { JobType, JobOf } from './store-records.ts';
+import { conflict, invalid, notFound } from './errors.ts';
 
 type HistoryBatch = { events?: ActivityEvent[]; entities?: Entity[] };
 type HistoryStore = {
@@ -19,7 +20,6 @@ const DAY = 86400000;
 const WINDOW = 30 * DAY;
 const EARLIEST = Date.parse('2010-01-01T00:00:00Z');
 const STREAMS: [HistoryStream, ...HistoryStream[]] = ['pushes', 'closedPrs', 'builds'];
-const failure = (message: string, status: number) => Object.assign(new Error(message), { status });
 /** The job's warnings with the records a page of `stream` skipped added to that stream's. */
 function withSkipped(warnings: HistoryWarning[], stream: HistoryStream, skipped: UnreadableRecords): HistoryWarning[] {
   const previous = warnings.find(warning => warning.stream === stream);
@@ -51,12 +51,12 @@ export function createBackfill({
   const jobs = () => store.listJobs({ type: 'backfill' });
   function start(repoId: string, days: number | 'all' = 30): HistoryJob {
     const repo = store.listRepos().find(item => item.id === repoId);
-    if (!repo) throw failure('Repository is not watched.', 404);
+    if (!repo) throw notFound('Repository is not watched.');
     const period = days === 'all' ? 'all' : Number(days);
-    if (![30, 90, 'all'].includes(period)) throw failure('Choose 30 days, 90 days or all available history.', 400);
+    if (![30, 90, 'all'].includes(period)) throw invalid('Choose 30 days, 90 days or all available history.');
     const previous = jobs().find(job => job.repoId === repoId);
     if (previous && previous.status !== 'completed') {
-      if (previous.days !== period) throw failure('A history import is already running for this repository.', 409);
+      if (previous.days !== period) throw conflict('A history import is already running for this repository.');
       return previous;
     }
     const requestedAt = now();

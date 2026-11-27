@@ -26,6 +26,7 @@ import { createCheckoutGit, isCheckoutIntent, isSwitchIntent } from './server/ch
 import { activityBranch } from './src/activity-branch.ts';
 import { browseFolders } from './server/folders.ts';
 import { canOpenBrowser, openBrowser } from './server/open-browser.ts';
+import { AppError, conflict, forbidden, invalid, notFound, type ErrorKind } from './server/errors.ts';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { AzureProvider } from './server/azure-client.ts';
 // The JSON each route answers with is defined in src/contract.d.ts, which src/api.ts maps request paths to, so the
@@ -69,7 +70,6 @@ export type AppSync = {
 };
 type RouteContext = { req: IncomingMessage; res: ServerResponse; url: URL; params: string[] };
 type Route = { method: 'GET' | 'POST' | 'PATCH' | 'DELETE'; path: string | RegExp; handler: (context: RouteContext) => unknown };
-type RequestError = Error & { status?: number; code?: string };
 export type AppOptions = {
   store: Store;
   provider: AppProvider;
@@ -96,17 +96,27 @@ const HEADERS = {
   'cache-control': 'no-store',
 };
 
-function problem(message: string, status = 400): RequestError {
-  return Object.assign(new Error(message), { status });
-}
+/** The HTTP status each kind of AppError answers with. Any other error is unexpected and answers 500. */
+const STATUS: Record<ErrorKind, number> = {
+  invalid: 400,
+  unauthorized: 401,
+  forbidden: 403,
+  'not-found': 404,
+  'method-not-allowed': 405,
+  conflict: 409,
+  'too-large': 413,
+  'unsupported-media': 415,
+  corrupt: 500,
+  upstream: 502,
+};
 
 /** Every route group is required, so a matched route always supplies its parameters. */
 function decodeParam(value: string | undefined) {
-  if (value === undefined) throw problem('Invalid request path.', 400);
+  if (value === undefined) throw invalid('Invalid request path.');
   try {
     return decodeURIComponent(value);
   } catch {
-    throw problem('Invalid request path.', 400);
+    throw invalid('Invalid request path.');
   }
 }
 
@@ -114,12 +124,12 @@ function decodeParam(value: string | undefined) {
  * Parses a JSON object body. Its fields stay unknown until each route validates them.
  */
 async function body(req: IncomingMessage): Promise<Record<string, unknown>> {
-  if (!req.headers['content-type']?.startsWith('application/json')) throw problem('Send application/json.', 415);
+  if (!req.headers['content-type']?.startsWith('application/json')) throw new AppError('unsupported-media', 'Send application/json.');
   const chunks = [];
   let size = 0;
   for await (const chunk of req) {
     size += chunk.length;
-    if (size > 64 * 1024) throw problem('Request is too large.', 413);
+    if (size > 64 * 1024) throw new AppError('too-large', 'Request is too large.');
     chunks.push(chunk);
   }
   try {
@@ -127,7 +137,7 @@ async function body(req: IncomingMessage): Promise<Record<string, unknown>> {
     if (!value || Array.isArray(value) || typeof value !== 'object') throw new Error();
     return value;
   } catch {
-    throw problem('Expected a JSON object.');
+    throw invalid('Expected a JSON object.');
   }
 }
 
@@ -136,13 +146,13 @@ function checkLocalRequest(req: IncomingMessage) {
   const port = req.socket.localPort;
   const hosts = new Set([`localhost:${port}`, `127.0.0.1:${port}`, `[::1]:${port}`]);
   const host = req.headers.host;
-  if (!host || !hosts.has(host)) throw problem('Open Repo Pulse through its localhost address.', 403);
-  if (req.headers.origin && req.headers.origin !== `http://${host}`) throw problem('Origin is not allowed.', 403);
+  if (!host || !hosts.has(host)) throw forbidden('Open Repo Pulse through its localhost address.');
+  if (req.headers.origin && req.headers.origin !== `http://${host}`) throw forbidden('Origin is not allowed.');
   // A top-level load of the app page from elsewhere, such as the launch page the browser opens from a file, is allowed;
   // nothing can frame or read it, and every API request still has to be same-site and carry the key.
   const pageLoad =
     req.method === 'GET' && req.headers['sec-fetch-mode'] === 'navigate' && new URL(String(req.url), 'http://local').pathname === '/';
-  if (req.headers['sec-fetch-site'] === 'cross-site' && !pageLoad) throw problem('Cross-site requests are not allowed.', 403);
+  if (req.headers['sec-fetch-site'] === 'cross-site' && !pageLoad) throw forbidden('Cross-site requests are not allowed.');
 }
 
 async function staticFile(pathname: string, res: ServerResponse) {
@@ -221,12 +231,12 @@ export function createApp({
     res.writeHead(status, { 'content-type': 'application/json; charset=utf-8' }).end(JSON.stringify(data));
   const repoById = (id: unknown) => {
     const repo = store.listRepos().find(item => item.id === id);
-    if (!repo) throw problem('Repository is not watched.', 404);
+    if (!repo) throw notFound('Repository is not watched.');
     return repo;
   };
   const enabledRepoById = (id: unknown) => {
     const repo = repoById(id);
-    if (repo.disabled) throw problem('Repository is disabled. Enable it on Repositories first.', 409);
+    if (repo.disabled) throw conflict('Repository is disabled. Enable it on Repositories first.');
     return repo;
   };
   const isStringList = (value: unknown): value is string[] => Array.isArray(value) && value.every(item => typeof item === 'string');
@@ -314,9 +324,9 @@ export function createApp({
         const query = url.searchParams;
         const cursor = query.get('cursor') || undefined;
         const view = query.get('view') || 'all';
-        if (view !== 'new' && view !== 'all') throw problem('Invalid activity view.');
+        if (view !== 'new' && view !== 'all') throw invalid('Invalid activity view.');
         const limit = Number(query.get('limit') || 50);
-        if (!Number.isInteger(limit) || limit < 1 || limit > 200) throw problem('Choose a page size from 1 to 200.');
+        if (!Number.isInteger(limit) || limit < 1 || limit > 200) throw invalid('Choose a page size from 1 to 200.');
         const result = store.queryActivity({
           ...activityScope(query),
           view,
@@ -333,7 +343,7 @@ export function createApp({
         const raw = url.searchParams.get('through');
         const through = raw === null ? undefined : Number(raw);
         if (through !== undefined && !(Number.isSafeInteger(through) && through >= 0))
-          throw Object.assign(new Error('Invalid activity snapshot.'), { code: 'BAD_REQUEST' });
+          throw invalid('Invalid activity snapshot.', 'BAD_REQUEST');
         json(res, 200, { ids: store.queryActivity.unseenIds({ ...activityScope(url.searchParams), through }) });
       },
     },
@@ -361,7 +371,7 @@ export function createApp({
       handler: ({ res, url, params: [rawId] }) => {
         const id = decodeParam(rawId);
         const event = store.getEvent(id);
-        if (!event || !enabledRepoIds().includes(event.repoId)) throw problem('Activity not found.', 404);
+        if (!event || !enabledRepoIds().includes(event.repoId)) throw notFound('Activity not found.');
         return json(res, 200, {
           event,
           events: store.getEventGroup(id),
@@ -373,13 +383,13 @@ export function createApp({
       method: 'POST',
       path: '/api/backfill',
       handler: async ({ req, res }) => {
-        if (demo || !backfill) throw problem('Historical import is available in live mode.');
+        if (demo || !backfill) throw invalid('Historical import is available in live mode.');
         const input = await body(req);
         const repo = repoById(input.repoId);
         const days = input.days;
-        if (days !== 30 && days !== 90 && days !== 'all') throw problem('Choose 30 days, 90 days or all available history.');
+        if (days !== 30 && days !== 90 && days !== 'all') throw invalid('Choose 30 days, 90 days or all available history.');
         // Checked after the body arrives: the reset would delete the job this request creates.
-        if (resetting) throw problem('Starting from scratch is in progress. Try again in a moment.', 409);
+        if (resetting) throw conflict('Starting from scratch is in progress. Try again in a moment.');
         return json(res, 202, backfill.start(repo.id, days) satisfies BackfillResponse);
       },
     },
@@ -389,7 +399,7 @@ export function createApp({
       handler: async ({ res, url }) => {
         const org = url.searchParams.get('organization') || undefined;
         if (org && !/^https:\/\/dev\.azure\.com\/[A-Za-z0-9_.-]+\/?$/.test(org))
-          throw problem('Use https://dev.azure.com/your-organization.');
+          throw invalid('Use https://dev.azure.com/your-organization.');
         const repoId = url.searchParams.get('repoId');
         const connection = await provider.checkConnection(org, repoId === null ? undefined : enabledRepoById(repoId));
         return json(res, 200, connection satisfies ConnectionResponse);
@@ -400,7 +410,7 @@ export function createApp({
       path: '/api/discover',
       handler: async ({ req, res }) => {
         const input = await body(req);
-        if (typeof input.path !== 'string' || !input.path.trim()) throw problem('Enter a local folder path.');
+        if (typeof input.path !== 'string' || !input.path.trim()) throw invalid('Enter a local folder path.');
         return json(res, 200, (await discover(input.path)) satisfies DiscoverResponse);
       },
     },
@@ -418,7 +428,7 @@ export function createApp({
       handler: async ({ req, res }) => {
         // Only the live Azure client resolves repositories; demoProvider has no lookup.
         if (demo || !('resolveRepository' in provider))
-          throw problem('Demo repositories are fictional. Start live mode to add your repositories.');
+          throw invalid('Demo repositories are fictional. Start live mode to add your repositories.');
         const input = await body(req);
         let remote: import('./src/contract.d.ts').DiscoveredRemote & { localPath?: string };
         if (typeof input.url === 'string' && input.url.trim()) remote = parseRemote(input.url.trim());
@@ -426,12 +436,12 @@ export function createApp({
           const result = await discover(input.path);
           const enteredPath = input.path.startsWith('~/') ? resolve(homedir(), input.path.slice(2)) : resolve(input.path);
           const checkout = result.repositories.find(repo => resolve(repo.localPath) === enteredPath);
-          if (!checkout) throw problem('This folder is not an Azure Git checkout. Choose a repository folder.');
+          if (!checkout) throw invalid('This folder is not an Azure Git checkout. Choose a repository folder.');
           const remotes = input.remote ? checkout.remotes.filter(item => item.name === input.remote) : checkout.remotes;
           const [only] = remotes;
-          if (!only || remotes.length !== 1) throw problem('Choose the remote explicitly for a checkout with multiple Azure remotes.');
+          if (!only || remotes.length !== 1) throw invalid('Choose the remote explicitly for a checkout with multiple Azure remotes.');
           remote = { ...parseRemote(only.url), localPath: checkout.localPath };
-        } else throw problem('Enter an Azure repository URL or local checkout path.');
+        } else throw invalid('Enter an Azure repository URL or local checkout path.');
         const repo: import('./src/contract.d.ts').Repository = await provider.resolveRepository(remote);
         if (remote.localPath) repo.localPath = remote.localPath;
         const existing = store.listRepos().find(item => item.id === repo.id);
@@ -464,7 +474,7 @@ export function createApp({
       path: /^\/api\/repos\/([^/]+)\/graph\/snapshot$/,
       handler: async ({ res, params: [rawId] }) => {
         const repo = enabledRepoById(decodeParam(rawId));
-        if (demo) throw problem('Demo repositories have no local Git history.', 404);
+        if (demo) throw notFound('Demo repositories have no local Git history.');
         return json(res, 200, await checkoutGit.historySnapshot(repo));
       },
     },
@@ -473,7 +483,7 @@ export function createApp({
       path: /^\/api\/repos\/([^/]+)\/graph$/,
       handler: async ({ res, url, params: [rawId] }) => {
         const repo = enabledRepoById(decodeParam(rawId));
-        if (demo) throw problem('Demo repositories have no local Git history.', 404);
+        if (demo) throw notFound('Demo repositories have no local Git history.');
         const page = await checkoutGit.history(repo, url.searchParams.get('cursor'));
         const commits = new Map(page.commits.map(commit => [commit.id, commit]));
         for (const { sha, event } of store.commitActivity(repo.id, [...commits.keys()])) {
@@ -494,7 +504,7 @@ export function createApp({
       method: 'GET',
       path: /^\/api\/repos\/([^/]+)\/checkout\/branches$/,
       handler: async ({ res, params: [rawId] }) => {
-        if (demo) throw problem('Demo checkouts have no local branches.', 403);
+        if (demo) throw forbidden('Demo checkouts have no local branches.');
         const repo = enabledRepoById(decodeParam(rawId));
         const local = new Set(await checkoutGit.localBranches(repo));
         const pinned = [branchName(repo.defaultBranch), 'main', 'master'];
@@ -517,7 +527,7 @@ export function createApp({
       method: 'GET',
       path: /^\/api\/repos\/([^/]+)\/checkout\/status$/,
       handler: async ({ res, url, params: [rawId] }) => {
-        if (demo) throw problem('Demo checkouts have no local status.', 403);
+        if (demo) throw forbidden('Demo checkouts have no local status.');
         const repo = enabledRepoById(decodeParam(rawId));
         return json(
           res,
@@ -530,15 +540,15 @@ export function createApp({
       method: 'POST',
       path: /^\/api\/repos\/([^/]+)\/checkout$/,
       handler: async ({ req, res, params: [rawId] }) => {
-        if (demo) throw problem('Demo checkouts cannot be updated.', 403);
+        if (demo) throw forbidden('Demo checkouts cannot be updated.');
         const repo = enabledRepoById(decodeParam(rawId));
         const input = (await body(req)) || {};
         const { operation, expected } = input;
         if (operation === 'switch-activity' && isSwitchIntent(expected) && typeof input.eventId === 'string') {
           const event = store.getEvent(input.eventId);
-          if (event?.repoId !== repo.id) throw problem('Activity not found for this repository.', 404);
+          if (event?.repoId !== repo.id) throw notFound('Activity not found for this repository.');
           const branch = activityBranch(event);
-          if (!branch) throw problem('This activity does not identify one branch to switch to.');
+          if (!branch) throw invalid('This activity does not identify one branch to switch to.');
           return json(
             res,
             200,
@@ -551,7 +561,7 @@ export function createApp({
         if (operation === 'switch-branch' && isSwitchIntent(expected) && typeof input.branch === 'string') {
           // Only a branch the watched repository still lists, like an event, may name the switch target.
           const ref = store.getEntity(repo.id, 'ref', `refs/heads/${input.branch}`);
-          if (!ref || ref.active === false) throw problem('The repository no longer lists this branch.');
+          if (!ref || ref.active === false) throw invalid('The repository no longer lists this branch.');
           return json(
             res,
             200,
@@ -564,7 +574,7 @@ export function createApp({
           return json(res, 200, (await checkoutGit.branchAction(repo, input, expected)) satisfies CheckoutUpdateResponse);
         }
         if ((operation !== 'check' && operation !== 'pull') || !isCheckoutIntent(expected)) {
-          throw problem('Choose a checkout and Git action.');
+          throw invalid('Choose a checkout and Git action.');
         }
         return json(res, 200, (await checkoutGit.update(repo, operation, expected)) satisfies CheckoutUpdateResponse);
       },
@@ -576,7 +586,7 @@ export function createApp({
         const id = decodeParam(rawId);
         const repo = repoById(id);
         const input = await body(req);
-        if (typeof input.disabled !== 'boolean') throw problem('disabled must be true or false.');
+        if (typeof input.disabled !== 'boolean') throw invalid('disabled must be true or false.');
         store.saveRepo({ ...repo, disabled: input.disabled });
         if (!input.disabled) sync.refresh([id]);
         return json(res, 200, { ok: true } satisfies OkResponse);
@@ -599,8 +609,8 @@ export function createApp({
       handler: async ({ req, res }) => {
         const input = await body(req);
         const { repoIds, retrySignIn } = input;
-        if (repoIds !== undefined && !isStringList(repoIds)) throw problem('repoIds must be a list.');
-        if (retrySignIn !== undefined && typeof retrySignIn !== 'boolean') throw problem('retrySignIn must be a boolean.');
+        if (repoIds !== undefined && !isStringList(repoIds)) throw invalid('repoIds must be a list.');
+        if (retrySignIn !== undefined && typeof retrySignIn !== 'boolean') throw invalid('retrySignIn must be a boolean.');
         repoIds?.forEach(repoById);
         const status = retrySignIn ? sync.refresh(repoIds, true) : sync.refresh(repoIds);
         const history = retrySignIn
@@ -624,7 +634,7 @@ export function createApp({
       path: '/api/reset',
       handler: async ({ req, res }) => {
         await body(req);
-        if (demo || !sync.reset) throw problem('Demo data cannot be cleared. Start live mode to start from scratch.', 403);
+        if (demo || !sync.reset) throw forbidden('Demo data cannot be cleared. Start live mode to start from scratch.');
         // The reset waits for the turn in flight, which can sit behind Azure's Retry-After for minutes, so it runs unawaited.
         if (!resetting) resetFailed = false;
         resetting ??= sync
@@ -648,8 +658,8 @@ export function createApp({
       handler: async ({ req, res }) => {
         const input = await body(req);
         const { ids, seen } = input;
-        if (!Array.isArray(ids) || ids.length > 1000 || !isStringList(ids)) throw problem('Send up to 1000 explicit event IDs.');
-        if (seen !== undefined && typeof seen !== 'boolean') throw problem('seen must be true or false.');
+        if (!Array.isArray(ids) || ids.length > 1000 || !isStringList(ids)) throw invalid('Send up to 1000 explicit event IDs.');
+        if (seen !== undefined && typeof seen !== 'boolean') throw invalid('seen must be true or false.');
         const changedIds = store.acknowledge(ids, seen !== false);
         return json(res, 200, { ok: true, changedIds });
       },
@@ -659,7 +669,7 @@ export function createApp({
       path: '/api/settings',
       handler: async ({ req, res }) => {
         const input = await body(req);
-        if (typeof input.refreshEnabled !== 'boolean') throw problem('refreshEnabled must be true or false.');
+        if (typeof input.refreshEnabled !== 'boolean') throw invalid('refreshEnabled must be true or false.');
         if (input.refreshEnabled && !refreshEnabled(store)) {
           store.setSetting('refreshResumedAt', Date.now());
         }
@@ -692,7 +702,7 @@ export function createApp({
             message: 'Open Azure DevOps for commit details.',
           } satisfies PushCommitsResponse);
         const skip = Number(url.searchParams.get('skip') || 0);
-        if (!Number.isSafeInteger(skip) || skip < 0) throw problem('Invalid page offset.');
+        if (!Number.isSafeInteger(skip) || skip < 0) throw invalid('Invalid page offset.');
         const page = await provider.pushCommits(repo, Number(pushId), { skip });
         // The browser shows only these two fields; raw Azure commit objects stay behind this boundary.
         const items = page.items.map(item => ({
@@ -722,22 +732,22 @@ export function createApp({
       if (!path.startsWith('/api/')) return json(res, 404, { message: 'Not found.' } satisfies ErrorResponse);
       if (path === '/api/session' && req.method === 'POST') {
         if (!launch || !matches(req.headers['x-repo-pulse-launch'], launch))
-          throw Object.assign(problem('This launch link was already used. Open the newest link printed in the terminal.', 401), {
-            code: 'LAUNCH_USED',
-          });
+          throw new AppError(
+            'unauthorized',
+            'This launch link was already used. Open the newest link printed in the terminal.',
+            'LAUNCH_USED',
+          );
         launch = null;
         return json(res, 200, { key: accessKey } satisfies SessionResponse);
       }
       // Every API request, reads included, carries the key. A browser on another origin cannot add the header.
       if (!hasAccessKey(req))
-        throw Object.assign(
-          problem(
-            'Open the newest link printed in the terminal where Repo Pulse runs. Each link works once; restart Repo Pulse for a new one.',
-            401,
-          ),
-          { code: 'ACCESS_KEY' },
+        throw new AppError(
+          'unauthorized',
+          'Open the newest link printed in the terminal where Repo Pulse runs. Each link works once; restart Repo Pulse for a new one.',
+          'ACCESS_KEY',
         );
-      if (!['GET', 'POST', 'PATCH', 'DELETE'].includes(req.method ?? '')) throw problem('Method not allowed.', 405);
+      if (!['GET', 'POST', 'PATCH', 'DELETE'].includes(req.method ?? '')) throw new AppError('method-not-allowed', 'Method not allowed.');
       for (const route of routes) {
         if (route.method !== req.method) continue;
         const match = typeof route.path === 'string' ? route.path === path && [path] : route.path.exec(path);
@@ -745,21 +755,13 @@ export function createApp({
       }
       return json(res, 404, { message: 'Not found.' } satisfies ErrorResponse);
     } catch (caught) {
-      const error = caught as RequestError;
-      // Adapter errors carry already-redacted, actionable text; unexpected errors stay local.
-      const status =
-        error.status ||
-        (error.code === 'NOT_FOUND'
-          ? 404
-          : error.code === 'BAD_REQUEST' || error.code === 'INVALID_REPOSITORY'
-            ? 400
-            : error.code
-              ? 502
-              : 500);
-      if (status === 500) console.error('Request failed:', error.name);
+      // An AppError carries already-redacted, actionable text; unexpected errors stay local.
+      const known = caught instanceof AppError ? caught : null;
+      const status = known ? STATUS[known.kind] : 500;
+      if (status === 500) console.error('Request failed:', (caught as Error | null)?.name);
       return json(res, status, {
-        message: status === 500 && !isCorruptRow(error) ? 'Something went wrong. Try again; cached data is kept.' : error.message,
-        code: error.code,
+        message: known?.message ?? 'Something went wrong. Try again; cached data is kept.',
+        code: known?.code,
       } satisfies ErrorResponse);
     }
   };

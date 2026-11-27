@@ -5,20 +5,21 @@ import { stat, readdir, realpath } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { homedir } from 'node:os';
 import type { DiscoveredRemote as ParsedRemote, DiscoveredRemote, Discovery } from '../src/contract.d.ts';
+import { invalid } from './errors.ts';
 
 const exec = promisify(execFile);
-const invalid = () => Object.assign(new Error('Use an Azure DevOps Services HTTPS or SSH repository URL.'), { code: 'INVALID_REPOSITORY' });
+const invalidUrl = () => invalid('Use an Azure DevOps Services HTTPS or SSH repository URL.', 'INVALID_REPOSITORY');
 const component = (value: string | undefined) => {
-  if (value === undefined) throw invalid();
+  if (value === undefined) throw invalidUrl();
   let decoded;
   try {
     decoded = decodeURIComponent(value);
   } catch {
-    throw invalid();
+    throw invalidUrl();
   }
   // These bytes are forbidden within decoded repository URL segments.
   // oxlint-disable-next-line no-control-regex
-  if (!decoded || /[\x00-\x1f/\\?#]/.test(decoded) || decoded === '.' || decoded === '..' || /^[-@]/.test(decoded)) throw invalid();
+  if (!decoded || /[\x00-\x1f/\\?#]/.test(decoded) || decoded === '.' || decoded === '..' || /^[-@]/.test(decoded)) throw invalidUrl();
   return decoded;
 };
 
@@ -28,16 +29,16 @@ export function normalizeOrganization(value: unknown) {
   try {
     url = new URL(String(value));
   } catch {
-    throw invalid();
+    throw invalidUrl();
   }
   const parts = url.pathname.split('/').filter(Boolean);
-  if (url.protocol !== 'https:' || url.port || url.search || url.hash || url.username || url.password) throw invalid();
+  if (url.protocol !== 'https:' || url.port || url.search || url.hash || url.username || url.password) throw invalidUrl();
   if (url.hostname.toLowerCase() === 'dev.azure.com' && parts.length === 1)
     return `https://dev.azure.com/${encodeURIComponent(component(parts[0]).toLowerCase())}`;
   const [, account] = url.hostname.match(/^([a-z0-9][a-z0-9-]*)\.visualstudio\.com$/i) ?? [];
   if (account !== undefined && (!parts.length || (parts.length === 1 && parts[0]?.toLowerCase() === 'defaultcollection')))
     return `https://dev.azure.com/${account.toLowerCase()}`;
-  throw invalid();
+  throw invalidUrl();
 }
 
 /**
@@ -51,19 +52,17 @@ function refuseCredentials(url: URL, organization: string) {
     user = decodeURIComponent(url.username);
     org = decodeURIComponent(organization);
   } catch {
-    throw invalid();
+    throw invalidUrl();
   }
-  if (url.protocol === 'ssh:' && user.startsWith('-')) throw invalid();
+  if (url.protocol === 'ssh:' && user.startsWith('-')) throw invalidUrl();
   if (url.password || (url.protocol === 'https:' && user && user.toLowerCase() !== org.toLowerCase()))
-    throw Object.assign(new Error('Remove the credentials from this remote URL and let a Git credential helper sign in.'), {
-      code: 'REMOTE_PASSWORD',
-    });
+    throw invalid('Remove the credentials from this remote URL and let a Git credential helper sign in.', 'REMOTE_PASSWORD');
 }
 
 export function parseRemote(value: unknown): ParsedRemote {
   // Reject control characters before the URL parser can trim them.
   // oxlint-disable-next-line no-control-regex
-  if (typeof value !== 'string' || value.length > 4096 || /[\x00-\x1f]/.test(value)) throw invalid();
+  if (typeof value !== 'string' || value.length > 4096 || /[\x00-\x1f]/.test(value)) throw invalidUrl();
   let organization, project, name;
   const ssh = value.match(/^(?:[^-@/:][^@/:]*@)?(?:ssh\.dev\.azure\.com|vs-ssh\.visualstudio\.com):v3\/([^/]+)\/([^/]+)\/([^/]+)\/?$/i);
   if (ssh) [, organization, project, name] = ssh;
@@ -72,9 +71,9 @@ export function parseRemote(value: unknown): ParsedRemote {
     try {
       url = new URL(value);
     } catch {
-      throw invalid();
+      throw invalidUrl();
     }
-    if (!['https:', 'ssh:'].includes(url.protocol) || url.port || url.search || url.hash) throw invalid();
+    if (!['https:', 'ssh:'].includes(url.protocol) || url.port || url.search || url.hash) throw invalidUrl();
     const parts = url.pathname.split('/').filter(Boolean);
     const host = url.hostname.toLowerCase();
     if (
@@ -88,14 +87,14 @@ export function parseRemote(value: unknown): ParsedRemote {
       [organization, project, , name] = parts;
     else {
       const [, account] = host.match(/^([a-z0-9][a-z0-9-]*)\.visualstudio\.com$/i) ?? [];
-      if (account === undefined || url.protocol !== 'https:') throw invalid();
+      if (account === undefined || url.protocol !== 'https:') throw invalidUrl();
       organization = account;
       if (parts[0]?.toLowerCase() === 'defaultcollection') parts.shift();
-      if (parts.length !== 3 || parts[1] !== '_git') throw invalid();
+      if (parts.length !== 3 || parts[1] !== '_git') throw invalidUrl();
       [project, , name] = parts;
     }
     // Each branch above checked the part count, so this never refuses a parsed URL.
-    if (organization === undefined) throw invalid();
+    if (organization === undefined) throw invalidUrl();
     refuseCredentials(url, organization);
   }
   organization = `https://dev.azure.com/${encodeURIComponent(component(organization).toLowerCase())}`;

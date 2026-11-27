@@ -3,8 +3,7 @@ import { promisify } from 'node:util';
 import { stat } from 'node:fs/promises';
 import { win32 } from 'node:path';
 import type { CliLastError as LastError } from '../src/contract.d.ts';
-
-type CliError = Error & { code: string };
+import { AppError } from './errors.ts';
 
 export type ExecFailure = { code?: string; name?: string; stderr?: unknown; killed?: boolean; message?: string };
 
@@ -25,8 +24,9 @@ const RESOURCES: Record<string, Set<string>> = {
   location: new Set(['connectiondata']),
 };
 
-export function cliError(code: string, message: string): CliError {
-  return Object.assign(new Error(message), { code });
+/** An Azure failure. The HTTP layer answers a missing resource with 404 and any other Azure failure with 502. */
+export function cliError(code: string, message: string) {
+  return new AppError(code === 'NOT_FOUND' ? 'not-found' : 'upstream', message, code);
 }
 
 export function classifyCliError(error: ExecFailure | null | undefined) {

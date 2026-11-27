@@ -6,6 +6,7 @@ import { ancestry, isCommit } from './checkout-advice.ts';
 import { isSymbolicRef, worktreeUsesBranch } from './checkout-delete-guard.cjs';
 import type { GitRunner, Upstream } from './checkout-git.ts';
 import type { FollowupSummary, Review, PullAdvice, Repository as LinkedRepo, ActiveCheckout } from '../src/contract.d.ts';
+import { conflict, isAppError } from './errors.ts';
 
 export type Reading = { snapshot: ActiveCheckout; target: Upstream | null };
 
@@ -23,8 +24,6 @@ export type BranchAction =
   | { operation: 'switch-update'; prId: number; result: string }
   | { operation: 'review' | 'remove'; planId: string }
   | { operation: 'carry'; planId: string; commits: string[] };
-
-export const branchProblem = (message: string) => Object.assign(new Error(message), { status: 409 });
 
 export function memoryFollowups(): Followups {
   const values: Map<string, Followup> = new Map();
@@ -71,7 +70,7 @@ export async function readRef(run: GitRunner, path: string, ref: string) {
       }
     }
   }
-  throw branchProblem('Git could not verify the local branch or its recovery reference.');
+  throw conflict('Git could not verify the local branch or its recovery reference.');
 }
 
 export async function switchLocalBranch(run: GitRunner, path: string, hooks: string, name: string, start?: string) {
@@ -86,7 +85,7 @@ export async function switchLocalBranch(run: GitRunner, path: string, hooks: str
       ...(start ? ['--no-track', '-c', name, '--', start] : ['--', name]),
     ]);
   } catch {
-    throw branchProblem(
+    throw conflict(
       `Git could not switch to ${name}. Check for an occupied worktree, conflicting files, or an unsupported tracking configuration.`,
     );
   }
@@ -141,7 +140,7 @@ export function branchFollowups({
   async function unchangedClean(repo: LinkedRepo, path: string, expected: ActiveCheckout) {
     const { snapshot, target } = await statusAt(path, repo);
     if (!matchesIntent(snapshot, expected) || snapshot.dirty || snapshot.state === 'in-progress' || !target)
-      throw branchProblem('The checkout changed or has local work. Review it in Git and try again.');
+      throw conflict('The checkout changed or has local work. Review it in Git and try again.');
     return { snapshot, target };
   }
 
@@ -152,12 +151,12 @@ export function branchFollowups({
     action: Extract<BranchAction, { operation: 'switch-update' }>,
   ) {
     if (snapshot.state !== 'upstream-missing' || !snapshot.branch || !snapshot.head || snapshot.dirty || !target) {
-      throw branchProblem('Switching requires a clean checkout with a missing upstream.');
+      throw conflict('Switching requires a clean checkout with a missing upstream.');
     }
     const advice = await readMissing(path, repo, target, snapshot);
     const receipt = advice?.receipt;
     if (!receipt || advice.id !== action.prId || receipt.result !== action.result || advice.destination !== 'local') {
-      throw branchProblem('The PR target or its local checkout changed. Check for updates again.');
+      throw conflict('The PR target or its local checkout changed. Check for updates again.');
     }
     const { branch, head } = snapshot;
     await unchangedClean(repo, path, snapshot);
@@ -185,7 +184,7 @@ export function branchFollowups({
       if (result.checkout.state !== 'current') return { message: partial };
       return { message: result.updated ? `Switched to ${name} and updated it.` : `Switched to ${name}. It already matches upstream.` };
     } catch (error) {
-      const reason = error instanceof Error && 'status' in error && error.status === 409 ? ` ${error.message}` : '';
+      const reason = isAppError(error, 'conflict') ? ` ${error.message}` : '';
       if (reason && error instanceof Error && 'unclear' in error) return { message: `Switched to ${name}.${reason}` };
       return { message: partial + reason };
     }
@@ -238,7 +237,7 @@ export function branchFollowups({
         guard: { REPO_PULSE_DELETE_REF: ref, REPO_PULSE_DELETE_ARCHIVE: plan.archive },
       });
     } catch {
-      throw branchProblem('Git could not remove the branch. Check whether its tip, worktree, or recovery reference changed.');
+      throw conflict('Git could not remove the branch. Check whether its tip, worktree, or recovery reference changed.');
     } finally {
       await rm(folder, { recursive: true, force: true }).catch(() => {});
     }
@@ -248,18 +247,18 @@ export function branchFollowups({
     if (action.operation === 'switch-update') return switchAndUpdate(repo, path, current, action);
     const { snapshot } = current;
     const plan = eligiblePlan(repo, path, snapshot);
-    if (!plan || plan.id !== action.planId) throw branchProblem('The branch review changed. Open it again.');
+    if (!plan || plan.id !== action.planId) throw conflict('The branch review changed. Open it again.');
     const details = await review(path, plan, snapshot);
     if (action.operation === 'review') return { review: details };
     const ref = `refs/heads/${plan.source}`;
     const currentTarget = await unchangedClean(repo, path, snapshot);
 
     if (action.operation === 'remove') {
-      if (!details.canRemove) throw branchProblem('The old branch cannot be removed from this checkout. Review it in Git.');
+      if (!details.canRemove) throw conflict('The old branch cannot be removed from this checkout. Review it in Git.');
       const archive = plan.archive ?? `refs/repo-pulse/archive/${plan.id}`;
-      if (await isSymbolicRef(run, path, archive)) throw branchProblem('The recovery reference is symbolic. Review it in Git.');
+      if (await isSymbolicRef(run, path, archive)) throw conflict('The recovery reference is symbolic. Review it in Git.');
       const saved = await readRef(run, path, archive);
-      if (saved && saved !== plan.sourceHead) throw branchProblem('The recovery reference changed. Review the local branches in Git.');
+      if (saved && saved !== plan.sourceHead) throw conflict('The recovery reference changed. Review the local branches in Git.');
       if (!saved)
         await run(path, [
           '-c',
@@ -280,7 +279,7 @@ export function branchFollowups({
     }
 
     if (action.operation !== 'carry' || !details.branch || currentTarget.snapshot.state !== 'current' || !snapshot.head) {
-      throw branchProblem('Check that the target is up to date and review the available commits first.');
+      throw conflict('Check that the target is up to date and review the available commits first.');
     }
     const selected = new Set(action.commits);
     const commits = details.commits?.filter(commit => selected.has(commit.id)) ?? [];
@@ -290,7 +289,7 @@ export function branchFollowups({
       !commits.length ||
       (await readRef(run, path, ref)) !== plan.sourceHead
     )
-      throw branchProblem('The selected commits or old branch changed. Review the branch again.');
+      throw conflict('The selected commits or old branch changed. Review the branch again.');
     const branch = details.branch;
     const workspace = await mkdtemp(join(dirname(path), '.repo-pulse-follow-up-'));
     try {
@@ -309,7 +308,7 @@ export function branchFollowups({
       ]);
     } catch {
       await rmdir(workspace).catch(() => {});
-      throw branchProblem('Git could not create the follow-up worktree. Check the checkout and branch name in Git.');
+      throw conflict('Git could not create the follow-up worktree. Check the checkout and branch name in Git.');
     }
     followups.save(repo.id, { ...plan, workspace });
     try {

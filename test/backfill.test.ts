@@ -319,10 +319,10 @@ test('transaction failure keeps the page resumable and validation rejects ambigu
       now: () => time,
     },
   );
-  assert.throws(() => backfill.start('missing'), { status: 404 });
-  assert.throws(() => backfill.start(repo.id, 60), { status: 400 });
+  assert.throws(() => backfill.start('missing'), { kind: 'not-found' });
+  assert.throws(() => backfill.start(repo.id, 60), { kind: 'invalid' });
   backfill.start(repo.id);
-  assert.throws(() => backfill.start(repo.id, 90), { status: 409 });
+  assert.throws(() => backfill.start(repo.id, 90), { kind: 'conflict' });
   // Fail inside the actual transaction after its event inserts, before the job checkpoint.
   const original = store.commitPage;
   store.commitPage = page => {
