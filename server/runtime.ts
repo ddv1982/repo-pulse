@@ -11,7 +11,7 @@ import { createRestExecutor, useSystemNetworkSettings } from './azure-rest.ts';
 import { createAzureClient } from './azure-client.ts';
 import { discoverRepositories } from './repositories.ts';
 import { seedDemo, demoProvider, demoSync, NOT_IN_DEMO } from './demo.ts';
-import { notInDemo } from './errors.ts';
+import { notFound, notInDemo } from './errors.ts';
 import { createBackfill } from './backfill.ts';
 import { createRewriteCheck } from './rewrite-check.ts';
 import { createForkOriginCheck } from './fork-origin.ts';
@@ -26,7 +26,7 @@ import { repositoryRoutes } from './routes/repositories.ts';
 import { checkoutRoutes } from './routes/checkout.ts';
 import { historyRoutes } from './routes/history.ts';
 import { stateRoutes } from './routes/state.ts';
-import type { FoldersResponse } from '../src/contract.ts';
+import type { FoldersResponse, RouteKey } from '../src/contract.ts';
 
 export type AppOptions = {
   store: Store;
@@ -66,17 +66,13 @@ function storeCheckoutGit(store: Store, provider: AppProvider) {
   });
 }
 
-/** The handlers with each route demo mode cannot serve answering notInDemo instead. */
-function refuseInDemo(handlers: Handlers): Handlers {
-  const refusals = Object.fromEntries(
-    Object.entries(NOT_IN_DEMO).map(([key, message]) => [
-      key,
-      () => {
-        throw notInDemo(message);
-      },
-    ]),
-  );
-  return { ...handlers, ...refusals };
+/** Refuses each route demo mode cannot serve, and the demo-only route in live mode. */
+function refuseFor(demo: boolean) {
+  return (key: RouteKey) => {
+    if (demo && Object.hasOwn(NOT_IN_DEMO, key)) throw notInDemo(NOT_IN_DEMO[key as keyof typeof NOT_IN_DEMO]);
+    // Live mode answers 404, as for a path no route matches.
+    if (!demo && key === 'POST /api/demo/event') throw notFound('Demo activity can be added only in demo mode.');
+  };
 }
 
 /** The loopback app: every route group on one store, behind the HTTP boundary in server/http.ts. */
@@ -118,7 +114,8 @@ export function createApp({
     ...historyRoutes(app),
   };
   return createHttpServer({
-    handlers: demo ? refuseInDemo(handlers) : handlers,
+    handlers,
+    refuse: refuseFor(demo),
     accessKey,
     launchToken,
   });

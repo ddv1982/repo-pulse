@@ -163,8 +163,26 @@ test('demo mode refuses every route it cannot serve with 403', async t => {
     assert.equal(response.status, 403, `${method} ${path}`);
     assert.equal((await response.json()).code, 'NOT_IN_DEMO', `${method} ${path}`);
   }
+  // Refused before the body is read, so a request without one still learns why.
+  for (const [method, path] of refused.filter(([method]) => method === 'POST')) {
+    const response = await send(method, path);
+    assert.equal(response.status, 403, `${method} ${path} without a body`);
+    assert.equal((await response.json()).code, 'NOT_IN_DEMO', `${method} ${path} without a body`);
+  }
   assert.equal((await send('GET', '/api/state')).status, 200);
   assert.equal((await send('POST', '/api/demo/event', {})).status, 201);
+});
+
+test('live mode answers 404 for the demo-only route, with or without a body', async t => {
+  const { send } = await app(t);
+  assert.equal((await send('POST', '/api/demo/event', {})).status, 404);
+  assert.equal((await send('POST', '/api/demo/event')).status, 404);
+});
+
+test('a sync without reset refuses Start from scratch instead of reporting it started', async t => {
+  const { send } = await app(t);
+  const response = await send('POST', '/api/reset', {});
+  assert.equal(response.status, 403);
 });
 
 test('a checkout command is read at the route into one operation, and its answer names that operation', async t => {

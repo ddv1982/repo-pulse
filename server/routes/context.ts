@@ -1,3 +1,4 @@
+import { forbidden } from '../errors.ts';
 import type { Store } from '../store.ts';
 import type { AzureProvider } from '../azure-client.ts';
 import type { createAzureCli } from '../azure-cli.ts';
@@ -56,7 +57,7 @@ export function createReset(store: Store, sync: AppSync): Reset {
       return failed;
     },
     start() {
-      if (!sync.reset) return;
+      if (!sync.reset) throw forbidden('Demo data cannot be cleared. Start live mode to start from scratch.');
       // The reset waits for the turn in flight, which can sit behind Azure's Retry-After for minutes, so it runs unawaited.
       if (!running) failed = false;
       running ??= sync

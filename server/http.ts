@@ -70,7 +70,7 @@ async function readBody(req: IncomingMessage): Promise<Record<string, unknown>> 
 }
 
 /** One route compiled from its key: the method, a pattern for the path, and how to run its handler. */
-function compile<K extends RouteKey>(key: K, handler: Handler<K>) {
+function compile<K extends RouteKey>(key: K, handler: Handler<K>, refuse: (key: RouteKey) => void) {
   const [method = '', path = ''] = key.split(' ');
   const names: string[] = [];
   const pattern = new RegExp(
@@ -82,6 +82,8 @@ function compile<K extends RouteKey>(key: K, handler: Handler<K>) {
   const run = async (match: RegExpExecArray, req: IncomingMessage, query: URLSearchParams) => {
     // Every parameter is decoded before the body is read, so a malformed path is refused first.
     const params = Object.fromEntries(names.map((name, index) => [name, decodeParam(match[index + 1])])) as RouteParams<K>;
+    // A route this mode cannot serve is refused before the body is read, so a missing body does not hide the reason.
+    refuse(key);
     const body = method === 'POST' || method === 'PATCH' ? await readBody(req) : {};
     return handler({ params, query, body });
   };
@@ -92,7 +94,7 @@ function compile<K extends RouteKey>(key: K, handler: Handler<K>) {
  * Matches a request to its route. The handlers must cover the route map exactly. Literal paths are tried before paths
  * with parameters, so GET /api/activity/unseen is not read as an activity ID.
  */
-export function createRouter(handlers: Handlers) {
+export function createRouter(handlers: Handlers, refuse: (key: RouteKey) => void = () => {}) {
   const keys = Object.keys(ROUTES) as RouteKey[];
   const missing = keys.filter(key => typeof handlers[key] !== 'function');
   const extra = Object.keys(handlers).filter(key => !Object.hasOwn(ROUTES, key));
@@ -101,7 +103,9 @@ export function createRouter(handlers: Handlers) {
       `The route handlers do not match the route map. Missing: ${missing.join(', ') || 'none'}. Not in the map: ${extra.join(', ') || 'none'}.`,
     );
   // Each key is compiled with its own handler; the mapped type pairs them, which a loop over the union cannot show.
-  const routes = keys.map(key => compile(key, handlers[key] as Handler<typeof key>)).sort((a, b) => Number(b.literal) - Number(a.literal));
+  const routes = keys
+    .map(key => compile(key, handlers[key] as Handler<typeof key>, refuse))
+    .sort((a, b) => Number(b.literal) - Number(a.literal));
   return (method: string, path: string) => {
     for (const route of routes) {
       if (route.method !== method) continue;
@@ -158,16 +162,19 @@ async function staticFile(pathname: string, res: ServerResponse) {
  */
 export function createHttpServer({
   handlers,
+  refuse,
   accessKey,
   launchToken,
 }: {
   handlers: Handlers;
+  /** Throws for a route this mode cannot serve. */
+  refuse?: (key: RouteKey) => void;
   accessKey: string;
   launchToken?: string | undefined;
 }) {
   if (typeof accessKey !== 'string' || accessKey.length < 32) throw new Error('createApp needs an access key of at least 32 characters.');
   const expectedKey = Buffer.from(accessKey);
-  const router = createRouter(handlers);
+  const router = createRouter(handlers, refuse);
   const matches = (value: string | string[] | undefined, expected: Buffer) => {
     const given = Buffer.from(Array.isArray(value) ? value.join(',') : (value ?? ''));
     return given.length === expected.length && timingSafeEqual(given, expected);
