@@ -327,8 +327,7 @@ test('a state answer that disables the shown repository moves a focused graph to
   const first = checkoutFixture(cleanupStack(t));
   const subjectA = first.commit(first.local, 'a.txt', 'Only in repository A');
   const repoA = { ...first.repo, id: 'repo-a', azureId: 'repo-a', name: 'Alpha' };
-  const { localPath: _unlinked, ...unlinked } = first.repo;
-  const repoB = { ...unlinked, id: 'repo-b', azureId: 'repo-b', name: 'Beta' };
+  const repoB = { ...first.repo, id: 'repo-b', azureId: 'repo-b', name: 'Beta', localPath: undefined };
   const store = createStore();
   defer(t, () => store.close());
   store.saveRepo(repoA);
@@ -351,5 +350,6 @@ test('a state answer that disables the shown repository moves a focused graph to
   await refreshNow(page);
   await expect(select).toHaveValue('repo-b');
   await expect(page.locator(`#commit-${subjectA}`)).toHaveCount(0);
-  await expect(page.getByRole('button', { name: 'Reload graph' })).toHaveCount(0);  await expect(select).toBeFocused();
+  await expect(page.getByRole('button', { name: 'Reload graph' })).toHaveCount(0);
+  await expect(select).toBeFocused();
 });
