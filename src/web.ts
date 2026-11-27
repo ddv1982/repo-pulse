@@ -143,6 +143,8 @@ const checkoutPanel = createCheckoutPanel({
 const navigation = createNavigation({ ui, captureGroups: view.captureGroups, activityCapacity: () => refresh.capacity() });
 
 let graphRepoId = '';
+let graphQuery = '';
+let graphMatch = '';
 let graphVisit = 0;
 let graphReturn: { visit: number; y: number; x: number; revision: PageState['activityRevision'] } | undefined;
 const graph = createGitGraph({
@@ -210,7 +212,25 @@ function showScopePanel(open: boolean) {
 function renderGraph() {
   const { repos, repo } = graphSelection();
   graph.select(repo);
-  return renderGitGraph(repos, repo, graph.state);
+  return renderGitGraph(repos, repo, graph.state, graphQuery, graphMatch);
+}
+
+function setGraphSearch(query: string) {
+  graphQuery = query;
+  graphMatch = '';
+  renderPage();
+}
+
+function moveGraphMatch(step: 1 | -1) {
+  const matches = [...page.querySelectorAll<HTMLElement>('.graph-match')];
+  if (!matches.length) return;
+  const current = matches.findIndex(row => row.id === `commit-${graphMatch}`);
+  const index = current < 0 ? (step === 1 ? 0 : matches.length - 1) : (current + step + matches.length) % matches.length;
+  const row = matches[index];
+  if (!row) return;
+  graphMatch = row.id.slice('commit-'.length);
+  renderPage();
+  document.getElementById(row.id)?.scrollIntoView({ block: 'center', inline: 'nearest' });
 }
 
 function renderPage() {
@@ -398,11 +418,15 @@ function applySavedFilter({ id, name, filters }: import('./ui/saved-filters.ts')
 
 const actions: Record<string, Action> = {
   'reload-graph': () => {
+    graphMatch = '';
     void graph.reload();
   },
   'more-graph': () => {
     void graph.more();
   },
+  'clear-graph-search': () => setGraphSearch(''),
+  'previous-graph-match': () => moveGraphMatch(-1),
+  'next-graph-match': () => moveGraphMatch(1),
   ...createCheckoutActions({
     checkoutPanel,
     getActivityCheckout,
@@ -708,7 +732,7 @@ document.addEventListener('input', event => {
   if (target.id === 'feed-search') {
     ui.search = target.value;
     activityChanged({ debounce: true });
-  }
+  } else if (target.id === 'graph-search') setGraphSearch(target.value);
 });
 
 document.addEventListener('change', event => {
@@ -716,6 +740,7 @@ document.addEventListener('change', event => {
   if (!(target instanceof HTMLInputElement || target instanceof HTMLSelectElement)) return;
   if (target.id === 'graph-repo') {
     graphRepoId = target.value;
+    graphMatch = '';
     renderPage();
     return;
   }
@@ -797,6 +822,14 @@ document.addEventListener('keydown', event => {
     !savedFilterActions.expanded &&
     !['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement?.tagName ?? '')
   ) {
+    if (ui.route === 'graph') {
+      const search = document.getElementById('graph-search');
+      if (search) {
+        event.preventDefault();
+        search.focus();
+      }
+      return;
+    }
     event.preventDefault();
     const controls = document.getElementById('activity-filters');
     if (controls?.hidden) {
@@ -827,6 +860,7 @@ function route() {
   else if (destination === 'event') refresh.prepareDetail(ui.eventId);
   else if (destination === 'graph' && !restoreGraph) {
     graphReturn = undefined;
+    graphMatch = '';
     graph.reset();
   }
   render();

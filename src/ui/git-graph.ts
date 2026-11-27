@@ -1,6 +1,9 @@
 import type { GitHistoryActivity, GitHistoryPage, Repository } from '../contract.d.ts';
 import { layoutGitGraph } from '../git-graph.ts';
+import { foldSearchText, matchesPersonName, parsePeople, parseSearchTerms } from '../search-terms.ts';
+import { splitActivitySearch } from './activity-search.ts';
 import { emptyHtml, html } from './format.ts';
+import { renderSearchHelp, renderSearchInput } from './search-field.ts';
 
 type State = {
   repoId: string;
@@ -85,7 +88,62 @@ function graphActivity(item: GitHistoryActivity) {
   return html`<a class="graph-link chip status-chip ${tone}" href="#event/${encodeURIComponent(item.id)}" title="${item.title}">${item.kind === 'build' ? 'CI' : 'PR'} · ${item.status}</a>`;
 }
 
-function historyRows(page: GitHistoryPage) {
+function searchMatches(page: GitHistoryPage | null, query: string) {
+  const { search, people } = splitActivitySearch(query);
+  const terms = parseSearchTerms(search);
+  const foldedTerms = terms.map(foldSearchText);
+  let names: string[];
+  try {
+    names = parsePeople(people);
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : String(error), ids: [] };
+  }
+  if (!terms.length && !names.length) return null;
+  const ids = (page?.commits ?? [])
+    .filter(commit => {
+      if (names.length && !matchesPersonName(commit.author, names)) return false;
+      if (!terms.length) return true;
+      const fields = [commit.subject, commit.author, ...commit.refs, ...(commit.id === page?.head ? ['HEAD'] : [])].map(field =>
+        field.toLowerCase(),
+      );
+      if (terms.some(term => commit.id.startsWith(term) || fields.some(field => field.includes(term)))) return true;
+      return fields.map(foldSearchText).some(field => foldedTerms.some(term => field.includes(term)));
+    })
+    .map(commit => commit.id);
+  return { error: '', ids };
+}
+
+function graphSearch(page: GitHistoryPage | null, query: string, matches: ReturnType<typeof searchMatches>, current: string) {
+  const count = matches?.ids.length ?? 0;
+  const position = matches?.ids.indexOf(current) ?? -1;
+  return html`<div class="graph-search">
+    <div class="toolbar">
+      ${renderSearchInput('graph-search', 'Search commits', 'Search commit, ref or author…', query)}
+      ${
+        query
+          ? html`<div class="filter-actions">
+        <button type="button" class="btn" id="graph-clear-search" data-action="clear-graph-search">Clear search</button>
+        ${
+          count
+            ? html`<button type="button" class="btn" id="graph-previous-match" data-action="previous-graph-match">Previous match</button>
+          <button type="button" class="btn" id="graph-next-match" data-action="next-graph-match">Next match</button>`
+            : emptyHtml
+        }
+      </div>`
+          : emptyHtml
+      }
+    </div>
+    ${renderSearchHelp('graph-search', 'commit authors only')}
+    <div role="status" class="help graph-match-status">${
+      matches?.error ||
+      (matches && page
+        ? html`${position >= 0 ? `Match ${position + 1} of ${count} · ` : ''}${count} ${count === 1 ? 'match' : 'matches'} in ${page.commits.length} loaded commit${page.commits.length === 1 ? '' : 's'}${page.nextCursor ? ' · Load more to search older commits' : ''}`
+        : emptyHtml)
+    }</div>
+  </div>`;
+}
+
+function historyRows(page: GitHistoryPage, matches: Set<string>, currentMatch: string) {
   const graph = layoutGitGraph(page.commits);
   const width = laneX(graph.width);
   return html`<div class="graph-columns" aria-hidden="true"><span>Commit history</span><span>Refs and activity</span></div>
@@ -94,7 +152,8 @@ function historyRows(page: GitHistoryPage) {
       if (!row) return emptyHtml;
       const current = commit.id === page.head;
       const merge = commit.parents.length > 1;
-      return html`<li class="graph-commit ${laneClass(row.color)}${merge ? ' graph-merge' : ''}" id="commit-${commit.id}" ${current ? html`aria-current="true"` : emptyHtml}>
+      const match = matches.has(commit.id);
+      return html`<li class="graph-commit ${laneClass(row.color)}${merge ? ' graph-merge' : ''}${match ? ' graph-match' : ''}${match && currentMatch === commit.id ? ' graph-match-current' : ''}" id="commit-${commit.id}" ${current ? html`aria-current="true"` : emptyHtml}>
       <span class="graph-rail" aria-hidden="true">
         <svg class="graph-edges" width="${width}" height="36" viewBox="0 0 ${width} 36" preserveAspectRatio="none">
           ${row.through.map(edge => path(edge, 0, 36))}
@@ -104,6 +163,7 @@ function historyRows(page: GitHistoryPage) {
         <svg class="graph-node" width="${width}" height="14"><circle class="${laneClass(row.color)} ${current || merge ? 'graph-ring' : ''}" cx="${laneX(row.slot)}" cy="7" r="${current ? 5 : 4}"/></svg>
       </span>
       <div class="graph-entry">
+        ${match ? html`<span class="sr">Search match: </span>` : emptyHtml}
         <code class="graph-sha" title="${commit.id}">${commit.id.slice(0, 9)}</code>
         <span class="graph-subject" title="${commit.subject}">${commit.subject || '(No commit message)'}</span>
         <span class="graph-author" title="${commit.author}">${commit.author}</span>
@@ -112,8 +172,9 @@ function historyRows(page: GitHistoryPage) {
     </li>`;
     })}</ol>`;
 }
-export function renderGitGraph(repos: Repository[], repo: Repository | undefined, state: State) {
+export function renderGitGraph(repos: Repository[], repo: Repository | undefined, state: State, query: string, currentMatch: string) {
   const { page, loading, error } = state;
+  const matches = searchMatches(page, query);
   return html`<section class="card git-graph" aria-label="Git Graph">
     <header class="graph-toolbar">
       <div class="graph-heading"><h1>Git Graph</h1>${page ? html`<p class="graph-scope"><span class="graph-branch">${page.branch ?? (page.head ? 'Detached HEAD' : 'No commits yet')}</span>${page.upstream ? html` · <code>${page.upstream}</code>` : emptyHtml}${page.shallow ? ' · Shallow checkout' : ''}</p>` : emptyHtml}</div>
@@ -122,7 +183,8 @@ export function renderGitGraph(repos: Repository[], repo: Repository | undefined
     </header>
     ${
       repo?.localPath
-        ? html`${page?.commits.length ? historyRows(page) : emptyHtml}
+        ? html`${graphSearch(page, query, matches, currentMatch)}
+        ${page?.commits.length ? historyRows(page, new Set(matches?.ids), currentMatch) : emptyHtml}
         ${loading ? html`<p class="graph-status" role="status">Loading Git history…</p>` : emptyHtml}
         ${error ? html`<p class="graph-status" role="alert">${error}</p>` : emptyHtml}
         ${page?.nextCursor ? html`<div class="foot"><button type="button" id="graph-more" class="btn" data-action="more-graph" ${loading || error ? html`disabled` : emptyHtml}>Load more commits</button></div>` : emptyHtml}`

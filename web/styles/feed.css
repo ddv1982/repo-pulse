@@ -152,7 +152,7 @@
 :root:not(.dark) .toolbar .search:not(:focus) {
   border-color: #7c5ea0;
 }
-:root:not(.dark) #feed-search-help {
+:root:not(.dark) .search-help {
   color: var(--foreground-soft);
 }
 .search:focus {

@@ -17,6 +17,7 @@ import { worstStatus } from '../sync-worst.ts';
 import { emptyActivityMessage, renderSummary } from './activity-summary.ts';
 import { icons } from './icons.ts';
 import { renderTrail } from './activity-trail.ts';
+import { renderSearchInput, renderSearchHelp } from './search-field.ts';
 import { renderTypeFilter } from './type-filter.ts';
 import { activityScopeQuery } from './activity-data.ts';
 import { activityFilterLabel, activityRef, prForkSource, prTarget, prVoteChanges } from '../activity-text.ts';
@@ -52,13 +53,13 @@ export function filterControls(ui: FeedView & { savedFilterId: string }, state: 
       aria-expanded="${open}" aria-controls="activity-filters">Filters${active ? ` · ${active}` : ''}</button>
     ${renderSavedFilters(presets, ui.savedFilterId, modified, ui.openMenu)}
     <div class="filters-box" id="activity-filters" ${open ? emptyHtml : html`hidden`}>
-      <div class="toolbar"><input id="feed-search" class="search" type="search" aria-label="Search activity" aria-describedby="feed-search-help" placeholder="Search branch, commit, person or repository…" value="${ui.search}">
+      <div class="toolbar">${renderSearchInput('feed-search', 'Search activity', 'Search branch, commit, person or repository…', ui.search)}
         <div class="filter-actions">
           ${renderTypeFilter(ui.kind, state.activity.filterOptions, state.activity.loading, ui.openMenu === 'kind-panel')}
           <button class="btn" id="unread-only" type="button" data-action="toggle-unread" aria-pressed="${ui.unreadOnly}">Unread only</button>
           ${active ? html`<button class="btn" id="clear-filters" type="button" data-action="clear-filters">Clear filter</button>` : emptyHtml}
         </div>
-      </div><p class="help" id="feed-search-help">Commas match any term · <code>people:Ali, Jo</code> searches names only</p>
+      </div>${renderSearchHelp('feed-search', 'names only')}
     </div>
   </div>`;
 }
