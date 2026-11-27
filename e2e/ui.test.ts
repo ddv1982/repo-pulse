@@ -2475,9 +2475,11 @@ test('Activity gives wrapped titles room and keeps their event metadata together
 });
 
 test('Git Graph shows a merged branch and exact CI links alongside the Activity feed', async t => {
-  const { local, repo, checkoutGit, commit } = checkoutFixture(t);
+  const { local, repo, checkoutGit } = checkoutFixture(t);
   git(local, 'switch', '-c', 'graph-topic');
-  const topic = commit(local, 'topic.txt', 'Feature branch work');
+  const topicSubject = 'Feature branch work · Andre\u0301 Lane';
+  git(local, 'commit', '--allow-empty', '--author', 'José van Dijk <jose@example.test>', '-m', topicSubject);
+  const topic = git(local, 'rev-parse', 'HEAD');
   git(local, 'switch', 'main');
   git(local, 'merge', '--no-ff', 'graph-topic', '-m', 'Merge graph topic');
   const head = git(local, 'rev-parse', 'HEAD');
@@ -2542,6 +2544,39 @@ test('Git Graph shows a merged branch and exact CI links alongside the Activity 
   await expect(page.getByRole('link', { name: 'PR · Merged' })).toHaveAttribute('href', '#event/finished-pr');
   await expect(page.getByRole('link', { name: 'CI · Failed' })).toHaveCount(0);
   await expect(page.locator(`#commit-${head} .graph-ref[title="${longRef}"]`)).toBeVisible();
+  const search = page.getByRole('searchbox', { name: 'Search commits' });
+  await page.keyboard.press('/');
+  await expect(search).toBeFocused();
+  const mergeEdges = page.locator(`#commit-${head} .graph-rail path`);
+  const paths = await mergeEdges.evaluateAll(edges => edges.map(edge => edge.getAttribute('d')));
+  await search.fill('Feature | people:Jo Dij');
+  await expect(page.locator('.graph-match')).toHaveCount(1);
+  await expect(page.locator('.graph-match')).toHaveAttribute('id', `commit-${topic}`);
+  await expect(search).toBeFocused();
+  assert.deepEqual(await mergeEdges.evaluateAll(edges => edges.map(edge => edge.getAttribute('d'))), paths);
+  for (const query of [topic.slice(0, 9), '\u0301 Lane']) {
+    await search.fill(query);
+    await expect(page.locator('.graph-match')).toHaveAttribute('id', `commit-${topic}`);
+  }
+  await search.fill(topic.slice(-12));
+  await expect(page.locator('.graph-match')).toHaveCount(0);
+  for (const query of [longRef, 'HEAD']) {
+    await search.fill(query);
+    await expect(page.locator('.graph-match')).toHaveAttribute('id', `commit-${head}`);
+  }
+  await search.fill(`people:${Array.from({ length: 13 }, (_, i) => `Person ${i}`).join(', ')}`);
+  await expect(page.getByText('Enter up to 12 names and 300 characters in People.')).toBeVisible();
+  await expect(page.locator('.graph-commit')).toHaveCount(3);
+  await search.fill('Merge graph topic, Feature branch work');
+  await page.getByRole('button', { name: 'Next match' }).click();
+  await expect(page.getByText('Match 1 of 2', { exact: false })).toBeVisible();
+  await page.getByRole('button', { name: 'Next match' }).click();
+  await expect(page.getByText('Match 2 of 2', { exact: false })).toBeVisible();
+  await page.getByRole('button', { name: 'Previous match' }).click();
+  await expect(page.getByText('Match 1 of 2', { exact: false })).toBeVisible();
+  await page.getByRole('button', { name: 'Clear search' }).click();
+  await expect(search).toBeFocused();
+  await expect(search).toHaveValue('');
   for (const width of [390, 1280]) {
     await page.setViewportSize({ width, height: 844 });
     const graph = page.locator('.graph-commits');
@@ -2553,8 +2588,11 @@ test('Git Graph shows a merged branch and exact CI links alongside the Activity 
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
 
   for (let i = 0; i < 50; i++) git(local, 'commit', '--allow-empty', '-m', `Later commit ${i}`);
+  await search.fill('people:Jo Dij');
   await page.getByRole('button', { name: 'Reload graph' }).click();
+  await expect(page.getByText('0 matches in 50 loaded commits', { exact: false })).toBeVisible();
   await page.getByRole('button', { name: 'Load more commits' }).click();
+  await expect(page.getByText('1 match in 53 loaded commits')).toBeVisible();
   const build = page.getByRole('link', { name: 'CI · Succeeded' });
   await build.evaluate(link => link.scrollIntoView({ block: 'center' }));
   const scrollY = await page.evaluate(() => window.scrollY);
@@ -2563,6 +2601,7 @@ test('Git Graph shows a merged branch and exact CI links alongside the Activity 
   await expect(page.locator('#page .status-chip').first()).toHaveText('Succeeded');
   await page.goBack();
   await expect(page.locator('.graph-commit')).toHaveCount(53);
+  await expect(search).toHaveValue('people:Jo Dij');
   await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(scrollY);
   await build.click();
   await expect(page.locator('#page .status-chip').first()).toHaveText('Succeeded');
@@ -2572,13 +2611,18 @@ test('Git Graph shows a merged branch and exact CI links alongside the Activity 
 
   await page.getByRole('link', { name: 'Activity', exact: true }).click();
   await expect(page.getByRole('button', { name: /^Preview pipeline/ })).toBeVisible();
+  const activitySearch = page.getByRole('searchbox', { name: 'Search activity' });
+  if (!(await activitySearch.isVisible())) await page.getByRole('button', { name: 'Filters', exact: true }).click();
+  await expect(activitySearch).toHaveValue('');
+  await activitySearch.fill('Preview pipeline');
 
   await page.getByRole('link', { name: 'Repositories', exact: true }).click();
   git(local, 'switch', 'graph-topic');
   store.resetActivity();
   await page.getByRole('link', { name: 'Git Graph', exact: true }).click();
-  await expect(page.locator('.graph-subject').first()).toHaveText('Feature branch work');
+  await expect(page.locator('.graph-subject').first()).toHaveText(topicSubject);
   await expect(page.locator('.graph-scope')).toHaveText('graph-topic');
+  await expect(search).toHaveValue('people:Jo Dij');
   await expect(page.locator('.graph-link')).toHaveCount(0);
 
   git(local, 'config', 'core.sshCommand', 'unused');
@@ -2588,7 +2632,7 @@ test('Git Graph shows a merged branch and exact CI links alongside the Activity 
   git(local, 'config', '--unset', 'core.sshCommand');
   await page.getByRole('link', { name: 'Activity', exact: true }).click();
   await page.getByRole('link', { name: 'Git Graph', exact: true }).click();
-  await expect(page.locator('.graph-subject').first()).toHaveText('Feature branch work');
+  await expect(page.locator('.graph-subject').first()).toHaveText(topicSubject);
 });
 
 test('Activity keeps the branch tree while exposing merge status, CI and push commits inline', async t => {

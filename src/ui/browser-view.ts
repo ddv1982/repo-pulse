@@ -16,6 +16,7 @@ export function replacementFocus(id: string) {
   // A control the render hid, such as an option of a menu that closed, cannot take focus back.
   if (current?.checkVisibility()) return current;
   if (id === 'clear-filters') return document.getElementById('feed-search');
+  if (id === 'graph-clear-search') return document.getElementById('graph-search');
   if (id.startsWith('kind-option-') || id.startsWith('summary-ci-')) return document.getElementById('kind-toggle');
   if (id.startsWith('saved-filter-option-'))
     return document.getElementById('saved-filter-toggle') ?? document.getElementById('save-filter');
@@ -174,6 +175,7 @@ export function createBrowserView({
     const focused = document.activeElement;
     const refreshable =
       focused?.id === 'feed-search' ||
+      focused?.id === 'graph-search' ||
       focused?.matches('[data-scope-repo]') ||
       (focused?.id && focused.matches('.settings-card *, .repo-entry *'));
     // Ticked commits are not in the markup, so a render would clear them before they are carried.

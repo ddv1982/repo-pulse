@@ -219,12 +219,34 @@
   .graph-badges:empty {
     display: none;
   }
-  .graph-toolbar {
-    border-bottom: 1px solid var(--border);
+  .graph-commits {
+    border-top: 1px solid var(--border);
   }
 }
 @media (max-width: 479px) {
   .graph-heading {
     flex-basis: 100%;
   }
+}
+
+.graph-search {
+  padding: 8px 16px 12px;
+}
+.graph-search .toolbar {
+  margin-bottom: 0;
+}
+.graph-match-status:not(:empty) {
+  color: var(--foreground-soft);
+}
+.graph-match-status:empty {
+  margin-top: 0;
+}
+.graph-commit.graph-match:not(:hover, :focus-within) {
+  background: var(--warning-wash);
+}
+.graph-match .graph-subject {
+  font-weight: 700;
+}
+.graph-commit.graph-match-current {
+  box-shadow: inset 3px 0 var(--warning-solid);
 }

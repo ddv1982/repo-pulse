@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { canonicalActivityFilter } from '../src/activity-text.ts';
-import { parsePeople } from './activity-people.ts';
+import { parsePeople } from '../src/search-terms.ts';
 import type { ActivityFilters, SavedActivityFilter } from '../src/contract.d.ts';
 
 export type { ActivityFilters, SavedActivityFilter };

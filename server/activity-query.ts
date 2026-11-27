@@ -1,7 +1,8 @@
 import { createHash } from 'node:crypto';
 import { activityHighlights, attachHighlights } from './activity-highlights.ts';
 import { activityCi } from './activity-ci.ts';
-import { foldSearchText, matchesPeople, parsePeople } from './activity-people.ts';
+import { matchesPeople } from './activity-people.ts';
+import { foldSearchText, parsePeople, parseSearchTerms } from '../src/search-terms.ts';
 import { projectActivity } from '../src/activity.ts';
 import { treeBranchRefs, treePullRequestSource } from '../src/activity-tree.ts';
 import { activityFilterLabel, labels, parseActivityFilter } from '../src/activity-text.ts';
@@ -456,14 +457,7 @@ export function createActivityQuery(
     const selected = repoIds ? [...new Set(repoIds)].sort() : undefined;
     selected?.forEach(requireRepo);
     const filter = parseActivityFilter(kind);
-    const needles = [
-      ...new Set(
-        search
-          .split(',')
-          .map(term => term.trim().toLowerCase())
-          .filter(Boolean),
-      ),
-    ].sort();
+    const needles = parseSearchTerms(search);
     const names = parsePeople(people);
     return { selected, filter, needles, names };
   }
