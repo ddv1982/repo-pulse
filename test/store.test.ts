@@ -11,7 +11,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { spawn } from 'node:child_process';
 import type { ActivityEvent, EventData } from '../src/activity.ts';
 import type { StreamState } from '../src/contract.ts';
-import { dataOf, fieldsOf, present } from './fixtures/typed.ts';
+import { dataOf, fieldsOf, present, stub } from './fixtures/typed.ts';
 import { historyJob, rewriteJob } from './fixtures/jobs.ts';
 
 const repo = {
@@ -123,6 +123,32 @@ test('removing a repository deletes every settings key a per-repository key buil
     keysOf('two').filter(key => !keys.includes(key)),
     [],
   );
+});
+
+test('removing a repository keeps the baseline and follow-up of a repository whose ID starts with the same text', () => {
+  const store = createStore(':memory:');
+  store.saveRepo(repo);
+  store.saveRepo({ ...repo, id: 'one:two' });
+  store.setBaseline('one:two', '2026-11-01T00:00:00.000Z');
+  store.saveCheckoutFollowup('one:two', { id: 'f', source: 's', path: 'p', sourceHead: 'h', targetRef: 'refs/heads/main', result: 'r' });
+  store.removeRepo('one');
+  assert.equal(store.getBaseline('one:two'), '2026-11-01T00:00:00.000Z');
+  assert.ok(store.getCheckoutFollowup('one:two'));
+  store.close();
+});
+
+test('a checkout Check or sync that finishes after its repository was removed leaves no settings key behind', () => {
+  const store = createStore(':memory:');
+  store.saveRepo(repo);
+  store.removeRepo('one');
+  store.setBaseline('one', '2026-11-01T00:00:00.000Z');
+  store.saveCheckoutObservation('one', stub<Parameters<typeof store.saveCheckoutObservation>[1]>({ identity: 'i' }));
+  store.saveCheckoutFollowup('one', { id: 'f', source: 's', path: 'p', sourceHead: 'h', targetRef: 'refs/heads/main', result: 'r' });
+  store.saveRepo(repo);
+  assert.equal(store.getBaseline('one'), undefined);
+  assert.equal(store.getCheckoutObservation('one', 'i'), undefined);
+  assert.equal(store.getCheckoutFollowup('one'), undefined);
+  store.close();
 });
 
 const tip = 'd'.repeat(40);

@@ -135,6 +135,7 @@ test('Check and Pull detect a rewritten upstream and keep comparison across adap
   const { repo, local, original, source, remote, advance, commit } = checkoutFixture(t);
   const previous = advance();
   const store = createStore();
+  store.saveRepo(repo);
   t.after(() => store.close());
   const options: CheckoutGitOptions = {
     matchesRemote: url => url === remote,

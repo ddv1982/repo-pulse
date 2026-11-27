@@ -70,8 +70,15 @@ export function createStoreState({ q }: StoreDb) {
   }
   const setSetting = <K extends AppSettingKey>(key: K, value: Settings[K]) => writeKey(key, value);
 
+  /**
+   * Writes a per-repository key only while the repository is watched. A sync page or checkout Check that finishes after
+   * the repository was removed would otherwise leave a key behind that a re-added repository could read.
+   */
+  function writeRepoKey<K extends SettingKey>(repoId: string, key: K, value: Settings[K]) {
+    if (q('SELECT 1 FROM repositories WHERE id=?').get(repoId)) writeKey(key, value);
+  }
   const getBaseline = (repoId: string) => readKey(repoSettingKeys.baseline(repoId));
-  const setBaseline = (repoId: string, at: string) => writeKey(repoSettingKeys.baseline(repoId), at);
+  const setBaseline = (repoId: string, at: string) => writeRepoKey(repoId, repoSettingKeys.baseline(repoId), at);
   /** Deletes the baseline of every repository. */
   const clearBaselines = () => q("DELETE FROM settings WHERE key LIKE 'baseline:%'").run();
   /** The observation saved for this checkout identity, also from the key older versions used. */
@@ -80,17 +87,17 @@ export function createStoreState({ q }: StoreDb) {
     return saved?.identity === identity ? saved : undefined;
   }
   const saveCheckoutObservation = (repoId: string, observation: Observation) =>
-    writeKey(repoSettingKeys.checkout(repoId, observation.identity), observation);
+    writeRepoKey(repoId, repoSettingKeys.checkout(repoId, observation.identity), observation);
   const getCheckoutFollowup = (repoId: string) => readKey(repoSettingKeys.followup(repoId));
-  const saveCheckoutFollowup = (repoId: string, followup: Followup) => writeKey(repoSettingKeys.followup(repoId), followup);
+  const saveCheckoutFollowup = (repoId: string, followup: Followup) => writeRepoKey(repoId, repoSettingKeys.followup(repoId), followup);
   /** Deletes every settings key the repository owns. */
   function deleteRepoSettings(repoId: string) {
     const exact = q('DELETE FROM settings WHERE key=?');
     const parts = q('DELETE FROM settings WHERE substr(key,1,length(?))=?');
-    for (const prefix of REPO_SETTING_PREFIXES) {
-      exact.run(`${prefix}:${repoId}`);
-      parts.run(`${prefix}:${repoId}:`, `${prefix}:${repoId}:`);
-    }
+    for (const prefix of REPO_SETTING_PREFIXES) exact.run(`${prefix}:${repoId}`);
+    // Only checkout observations carry a suffix (the checkout identity). Baseline and follow-up keys are exact, so
+    // removing `one` keeps the keys of a repository with the ID `one:two`.
+    parts.run(`checkout:${repoId}:`, `checkout:${repoId}:`);
   }
   const compactPending = () => Boolean(q("SELECT 1 FROM settings WHERE key='compactPending'").get());
   const requestCompact = () => q("INSERT OR REPLACE INTO settings(key,data) VALUES('compactPending','true')").run();
