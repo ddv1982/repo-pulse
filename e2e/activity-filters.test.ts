@@ -634,3 +634,16 @@ test('renaming a saved filter waits for an update of the same filter that is sti
   await expect(rename).toBeHidden();
   assert.equal(patches.length, 2);
 });
+
+test('the / key is left to the browser on a page without a search field', async t => {
+  const { page, runtime } = await setup(t);
+  await page.goto(`${runtime.url}/#settings`);
+  await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible();
+  await page.evaluate(() => {
+    window.addEventListener('keydown', event => {
+      if (event.key === '/') document.body.dataset.slashPrevented = String(event.defaultPrevented);
+    });
+  });
+  await page.keyboard.press('/');
+  assert.equal(await page.evaluate(() => document.body.dataset.slashPrevented), 'false');
+});

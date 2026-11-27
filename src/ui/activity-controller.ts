@@ -78,7 +78,8 @@ export function createActivityController(
         renderPage();
       }
       const search = document.querySelector('#feed-search');
-      if (search instanceof HTMLElement) search.focus();
+      if (!(search instanceof HTMLElement)) return false;
+      search.focus();
       return true;
     },
     actions: {
