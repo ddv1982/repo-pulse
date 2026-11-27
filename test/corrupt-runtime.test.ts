@@ -19,15 +19,8 @@ import type { StateResponse } from '../src/contract.ts';
 import { keyedFetch, portOf, TEST_KEY } from './fixtures/access.ts';
 import { historyImportJob, rewriteJob } from './fixtures/jobs.ts';
 import { present, watchedIdOf } from './fixtures/typed.ts';
+import { repo } from './fixtures/repository.ts';
 
-const repo = {
-  id: 'one',
-  name: 'One',
-  azureId: 'a',
-  organization: 'https://dev.azure.com/org',
-  project: 'P',
-  webUrl: 'https://dev.azure.com/org/P/_git/One',
-};
 const now = Date.parse('2026-11-17T10:00:00Z');
 const streamError = {
   code: 'CORRUPT_ROW',

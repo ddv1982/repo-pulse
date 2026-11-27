@@ -16,17 +16,10 @@ import type { AzurePage, AzureProvider } from '../server/azure-client.ts';
 import type { AzureStreamRecord } from '../src/contract.ts';
 import type { ActivityEvent, RewriteResult } from '../src/activity.ts';
 import { present, stub } from './fixtures/typed.ts';
+import { repo } from './fixtures/repository.ts';
 
 const mergeEvidenceBadge = (...args: Parameters<typeof mergeEvidenceBadgeHtml>) => String(mergeEvidenceBadgeHtml(...args));
 
-const repo = {
-  id: 'one',
-  name: 'One',
-  azureId: 'a',
-  organization: 'https://dev.azure.com/org',
-  project: 'P',
-  webUrl: 'https://dev.azure.com/org/P/_git/One',
-};
 const BASE = Date.parse('2026-11-17T10:00:00Z');
 const LIVE = '2026-11-17T10:00:01Z';
 const sha = (char: string) => char.repeat(40);

@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createStore } from '../server/store.ts';
 import type { ActivityEvent, EventData } from '../src/activity.ts';
+import { repo as watchedRepo } from './fixtures/repository.ts';
 
 const main = 'refs/heads/main';
 const feature = 'refs/heads/feature';
@@ -14,15 +15,7 @@ const event = (id: string, minute: number, kind: ActivityEvent['kind'], data: Ev
   kind,
   data,
 });
-const repo = {
-  id: 'one',
-  name: 'One',
-  azureId: 'a',
-  organization: 'https://dev.azure.com/org',
-  project: 'P',
-  webUrl: 'https://dev.azure.com/org/P/_git/One',
-  defaultBranch: main,
-};
+const repo = { ...watchedRepo, defaultBranch: main };
 const pr = (id: string, minute: number, fields: EventData = {}) =>
   event(id, minute, 'pr', { pullRequestId: 1, status: 'active', sourceRefName: feature, targetRefName: main, ...fields });
 const push = (id: string, minute: number, ref: string, tip: string) =>

@@ -12,16 +12,9 @@ import type { AzureProvider } from '../server/azure-client.ts';
 import type { AzureStreamRecord, StateResponse } from '../src/contract.ts';
 import { TEST_KEY, keyedFetch, portOf } from './fixtures/access.ts';
 import { stub } from './fixtures/typed.ts';
+import { repo } from './fixtures/repository.ts';
 
 const fetch = keyedFetch();
-const repo = {
-  id: 'one',
-  name: 'One',
-  azureId: 'a',
-  organization: 'https://dev.azure.com/org',
-  project: 'P',
-  webUrl: 'https://dev.azure.com/org/P/_git/One',
-};
 const push = (id: number) => ({
   pushId: id,
   date: '2026-11-18T10:00:00Z',

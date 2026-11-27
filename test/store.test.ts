@@ -13,15 +13,8 @@ import type { ActivityEvent, EventData } from '../src/activity.ts';
 import type { StreamState } from '../src/contract.ts';
 import { dataOf, fieldsOf, present, stub } from './fixtures/typed.ts';
 import { historyImportJob, rewriteJob } from './fixtures/jobs.ts';
+import { repo } from './fixtures/repository.ts';
 
-const repo = {
-  id: 'one',
-  name: 'One',
-  azureId: 'a',
-  organization: 'https://dev.azure.com/org',
-  project: 'P',
-  webUrl: 'https://dev.azure.com/org/P/_git/One',
-};
 const event = (id: string, extra: Partial<ActivityEvent> = {}): ActivityEvent => ({
   id,
   repoId: 'one',
