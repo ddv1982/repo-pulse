@@ -101,7 +101,7 @@ function renderRelatedCi(record: ActivityItem) {
   const currentIds = new Set(results.map(({ run }) => run.id));
   const history = record.relatedCi?.filter(run => !currentIds.has(run.id)) ?? [];
   const content = results.length
-    ? html`<div class="ci-rollup">${results.map(({ run, tone, note }) => ciRunButton(run, tone, tone === 'crit' || tone === 'warn', note))}</div>
+    ? html`<div class="ci-rollup">${results.map(({ run, tone, note }) => ciRunButton(run, tone, results.length > 1 || tone === 'crit' || tone === 'warn', note))}</div>
       ${historyCount ? html`<details class="linked-event ci-history" data-group="ci-${record.groupKey}"><summary>Run history · ${historyCount} ${historyCount === 1 ? 'run' : 'runs'}</summary><div class="ci-rollup">${history.map(run => ciRunButton(run.outcome === 'passing again' ? { ...run, outcome: 'passed' } : run, 'neutral'))}${historyCount > history.length ? html`<button type="button" class="ghost sm" data-action="detail" data-id="${record.id}" data-related>View all CI runs</button>` : emptyHtml}</div></details>` : emptyHtml}`
     : record.ciHost
       ? html`<button type="button" class="ghost sm" data-action="detail" data-id="${record.ciHost}">${record.highlight ? 'View pull request' : 'View tested change'}</button>`

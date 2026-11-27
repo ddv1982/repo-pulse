@@ -650,6 +650,21 @@ test('Activity resolves CI across pages and keeps failures and filtered runs vis
   store.acknowledge(['passing'], false);
   assert.throws(() => store.queryActivity({ limit: 1, cursor: present(first.nextCursor) }), { code: 'ACTIVITY_CHANGED' });
   assert.ok(store.queryActivity().items.some(item => item.id === 'passing'));
+
+  const retry = run('retry', 10, main, '');
+  store.insertEvents([{ ...retry, data: { ...retry.data, status: 'inProgress' } }]);
+  const withRetry = store.queryActivity().items;
+  const merge = withRetry.find(item => item.id === 'merge');
+  assert.deepEqual(
+    merge?.ciSummary?.results.map(result => [result.run.id, result.run.outcome]),
+    [
+      ['failed', 'failed'],
+      ['retry', 'running'],
+    ],
+  );
+  assert.equal(merge?.foldedCi, undefined);
+  assert.deepEqual(merge?.eventIds, ['merge']);
+  assert.equal(withRetry.find(item => item.id === 'retry')?.ciHost, undefined);
 });
 
 test('related CI keeps legacy numeric run times and orders them with ISO timestamps', t => {

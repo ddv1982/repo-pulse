@@ -165,6 +165,18 @@ test('a manual run alone cannot hide validation failure, but a verified landing 
   store.insertEvents([run('4', 6, 2, 'succeeded', 'landed', { ...landing, reason: 'manual' })]);
   assert.equal(result()?.run.id, '4');
   assert.equal(result()?.tone, 'ok');
+  store.insertEvents([run('5', 7, 3, 'failed', 'landed', { ...landing, reason: 'manual' })]);
+  assert.equal(result()?.run.id, '5');
+  store.insertEvents([run('6', 8, 3, 'succeeded', 'landed', { ...landing, reason: 'manual' })]);
+  assert.equal(result()?.run.id, '4');
+
+  store.insertEvents([
+    pr('another-merge', 9, { pullRequestId: 2, status: 'completed', mergeCommit: 'another' }),
+    run('7', 10, 3, 'succeeded', 'another', { ...landing, reason: 'manual' }),
+  ]);
+  const manualOnly = store.queryActivity().items.find(item => item.id === 'another-merge')?.ciSummary?.results[0];
+  assert.equal(manualOnly?.note, 'trigger unverified');
+  assert.equal(manualOnly?.tone, 'neutral');
   store.close();
 });
 
@@ -189,7 +201,10 @@ test('CI heads by revision and start evidence, and a pending retry keeps the las
       ['4', 'neutral'],
     ],
   );
-  store.insertEvents([run('5', 17, 1, 'succeeded', 'preview', { buildStartedAt: '' })]);
+  store.insertEvents([
+    pr('reviewers-updated', 16, { previewCommit: 'preview', reviewers: [{ name: 'Pat', vote: 5 }] }),
+    run('5', 17, 1, 'succeeded', 'preview', { buildStartedAt: '' }),
+  ]);
   assert.equal(summary()?.[0]?.note, 'retry order unknown');
   store.insertEvents([
     pr('new-preview', 22, { previewCommit: 'updated' }),
@@ -205,6 +220,9 @@ test('CI heads by revision and start evidence, and a pending retry keeps the las
     summary()?.map(result => [result.run.id, result.tone]),
     [['8', 'ok']],
   );
+  store.insertEvents([run('9', 25, 1, 'failed', 'unrecorded', { buildStartedAt: time(24) })]);
+  assert.equal(summary()?.[0]?.note, 'revision unknown');
+  assert.equal(summary()?.[0]?.tone, 'warn');
   store.close();
 });
 

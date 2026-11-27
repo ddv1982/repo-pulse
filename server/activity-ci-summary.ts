@@ -34,9 +34,15 @@ function publicRun({ id, time, title, validation, postMerge, stale, outcome }: C
   return { id, time, title, validation, postMerge, ...(stale ? { stale } : {}), outcome };
 }
 
+function resultRun(run: CiAttempt): RelatedCi {
+  return publicRun(run.outcome === 'passing again' ? { ...run, outcome: 'passed' } : run);
+}
+
 function currentAttempts(runs: CiAttempt[]) {
   const latestRevision = runs.reduce((latest, run) => Math.max(latest, run.revision ?? -1), -1);
-  const comparable = runs.filter(run => run.revision == null || run.revision < 0 || run.revision === latestRevision);
+  // PR snapshots can change without a new commit. Same-SHA retries still need start-time evidence.
+  const latestShas = new Set(runs.filter(run => run.revision === latestRevision).map(run => run.sha));
+  const comparable = runs.filter(run => run.revision == null || run.revision < 0 || (run.sha && latestShas.has(run.sha)));
   const latestStart = new Map<string, number>();
   for (const run of comparable) {
     const started = start(run);
@@ -53,7 +59,7 @@ function pipelineResults(runs: CiAttempt[], verified: (run: CiAttempt) => boolea
   const problem = confirmedFailure ?? direct.find(run => run.outcome === 'failed') ?? direct[0];
   const results: CiResult[] = [];
   if (problem) {
-    const competingPass = successful && (!confirmedFailure || !successful.revisionUnverified);
+    const competingPass = successful && (problem.revisionUnverified || !successful.revisionUnverified);
     const uncertain =
       problem.revisionUnverified || (competingPass && (problem.sha !== successful.sha || !problem.sha))
         ? 'revision unknown'
@@ -68,8 +74,7 @@ function pipelineResults(runs: CiAttempt[], verified: (run: CiAttempt) => boolea
   } else if (successful) {
     const note =
       successful.postMerge && !verified(successful) ? 'trigger unverified' : successful.revisionUnverified ? 'revision unknown' : undefined;
-    const run = publicRun(successful);
-    if (run.outcome === 'passing again') run.outcome = 'passed';
+    const run = resultRun(successful);
     results.push(note ? { run, tone: 'neutral', note } : { run, tone: 'ok' });
   }
 
@@ -88,8 +93,11 @@ export function applyCiSummary(item: ActivityItem, attempts: CiAttempt[], limit 
   const earliestTrigger = new Map<string, number>();
   for (const run of eligible) {
     const started = start(run);
-    if (run.pipeline && Number.isFinite(started)) {
-      earliestTrigger.set(run.pipeline, Math.min(earliestTrigger.get(run.pipeline) ?? Infinity, started));
+    if (run.pipeline != null) {
+      earliestTrigger.set(
+        run.pipeline,
+        Math.min(earliestTrigger.get(run.pipeline) ?? Infinity, Number.isFinite(started) ? started : Infinity),
+      );
     }
   }
   const verified = (run: CiAttempt) =>
@@ -102,19 +110,21 @@ export function applyCiSummary(item: ActivityItem, attempts: CiAttempt[], limit 
   for (const run of ordered) {
     if (item.data?.status === 'abandoned' || run.stale || run.beforeLanding || (postMerge && run.validation)) continue;
     // An unrelated pass on the landed commit cannot replace a verified pipeline result.
-    if (run.postMerge && passed(run) && !verified(run) && (postMerge || hasValidation)) continue;
+    if (run.postMerge && passed(run) && !verified(run) && run.pipeline != null && earliestTrigger.has(run.pipeline)) continue;
     const key = track(run);
     const list = byPipeline.get(key);
     if (list) list.push(run);
     else byPipeline.set(key, [run]);
   }
   const severity = { crit: 3, warn: 2, ok: 1, neutral: 0 };
-  const results = [...byPipeline.values()].flatMap(runs => pipelineResults(runs, verified));
+  const results = [...byPipeline.values()]
+    .flatMap(runs => pipelineResults(runs, verified))
+    .filter(result => result.note !== 'trigger unverified' || !(postMerge || hasValidation));
   results.sort((a, b) => severity[b.tone] - severity[a.tone] || newest(a.run, b.run));
   // Give one passing result the headline. Other passes are available with the attempts.
   const problems = results.filter(result => result.tone === 'crit' || result.tone === 'warn' || activeCi(result.run));
   const headline = problems.length ? problems : results.slice(0, 1);
-  if (!headline.length && ordered[0]) headline.push({ run: publicRun(ordered[0]), tone: 'neutral' });
+  if (!headline.length && ordered[0]) headline.push({ run: resultRun(ordered[0]), tone: 'neutral' });
   item.ciSummary = { results: headline, historyCount: ordered.length - headline.length };
   item.relatedCi = ordered.slice(0, limit).map(publicRun);
 }
