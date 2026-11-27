@@ -8,7 +8,7 @@ import { createStore } from '../server/store.ts';
 import { createSync } from '../server/sync.ts';
 import { createAzureCli } from '../server/azure-cli.ts';
 import { createAzureClient } from '../server/azure-client.ts';
-import type { Repository, ConnectionStatus, DemoSyncStatus } from '../src/contract.d.ts';
+import type { Repository, ConnectionStatus, DemoSyncStatus } from '../src/contract.ts';
 import { fetch, setup, setupPicker } from './fixtures/ui-app.ts';
 import type { AppSync } from '../server.ts';
 import type { AzureProvider } from '../server/azure-client.ts';

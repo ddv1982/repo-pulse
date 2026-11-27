@@ -12,7 +12,7 @@ import type {
   PageCursor,
   ConnectionStatus,
   PullRequestReview,
-} from '../src/contract.d.ts';
+} from '../src/contract.ts';
 
 /**
  * `restarted` marks a first page read in place of the saved cursor's page. `unreadable` counts the records left out

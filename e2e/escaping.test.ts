@@ -14,7 +14,7 @@ import { TEST_KEY } from '../test/fixtures/access.ts';
 import { present, stub } from '../test/fixtures/typed.ts';
 import type { Page } from '@playwright/test';
 import type { AzureProvider } from '../server/azure-client.ts';
-import type { ConnectionStatus, DiscoveredRemote, FoldersResponse, DiscoverResponse } from '../src/contract.d.ts';
+import type { ConnectionStatus, DiscoveredRemote, FoldersResponse, DiscoverResponse } from '../src/contract.ts';
 
 /**
  * Two tags, so a value the picker splits around a search match still has markup on both sides of the match.

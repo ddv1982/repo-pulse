@@ -10,7 +10,7 @@ import { checkoutFixture, git } from '../test/fixtures/checkout.ts';
 import { createStore } from '../server/store.ts';
 import type { AppSync } from '../server.ts';
 import type { AzureProvider } from '../server/azure-client.ts';
-import type { ConnectionStatus, Repository, SyncEngineStatus, DemoSyncStatus, Repository as LinkedRepo } from '../src/contract.d.ts';
+import type { ConnectionStatus, Repository, SyncEngineStatus, DemoSyncStatus, Repository as LinkedRepo } from '../src/contract.ts';
 import { stub } from '../test/fixtures/typed.ts';
 
 test('a New branch detail reviews a rewritten tracking ref before switching, then pulls without leaving the detail', async t => {

@@ -16,7 +16,7 @@ import type {
   UnreadableIds,
   AzureStream as StreamName,
   AzureRepo,
-} from '../src/contract.d.ts';
+} from '../src/contract.ts';
 import type { RewriteJob } from './rewrite-check.ts';
 import type { ForkJob } from './fork-origin.ts';
 

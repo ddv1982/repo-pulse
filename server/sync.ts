@@ -1,7 +1,8 @@
 import { FIRST_SYNC_MS, iso } from './time.ts';
 import { createNormalizer } from './normalize.ts';
 import { isRecord, recordId, recordsOf, unreadableField } from './azure-records.ts';
-import { READS, SYNC_STREAMS } from './sync-status.ts';
+import { READS } from './sync-status.ts';
+import { AZURE_STREAMS } from '../src/contract.ts';
 import { isCorruptRow, refreshEnabled } from './store-records.ts';
 import type { AzureProvider, AzurePage } from './azure-client.ts';
 import type {
@@ -16,7 +17,7 @@ import type {
   AzureStream as StreamName,
   PageCursor,
   AzureStreamRecord,
-} from '../src/contract.d.ts';
+} from '../src/contract.ts';
 import type { WatchedRepo, Entity, EntityData, EntityType, SyncBatch } from './normalize.ts';
 import type { Settings, SettingKey } from './store-records.ts';
 import { notFound } from './errors.ts';
@@ -353,7 +354,7 @@ export function createSync({
     for (const turns of [prTurns, buildTurns]) for (const repoId of turns.keys()) if (!watched.has(repoId)) turns.delete(repoId);
     for (const repo of repos) {
       if (store.getSetting(`baseline:${repo.id}`, null) === null) store.setSetting(`baseline:${repo.id}`, iso(now()));
-      for (const stream of SYNC_STREAMS) {
+      for (const stream of AZURE_STREAMS) {
         if (!current.some(state => state.repoId === repo.id && state.stream === stream)) {
           store.saveStream({ repoId: repo.id, stream, initialized: false, nextAt: iso(now()), error: null });
         }
@@ -760,9 +761,9 @@ export function createSync({
       signInRetriedAt.delete(repoId);
       prTurns.delete(repoId);
       buildTurns.delete(repoId);
-      for (const stream of SYNC_STREAMS) continuingSnapshots.delete(`${repoId}:${stream}`);
+      for (const stream of AZURE_STREAMS) continuingSnapshots.delete(`${repoId}:${stream}`);
       for (const [key, entry] of requested) if (entry.repoId === repoId) requested.delete(key);
-      if (SYNC_STREAMS.some(stream => lastKey === `${repoId}:${stream}`)) lastKey = undefined;
+      if (AZURE_STREAMS.some(stream => lastKey === `${repoId}:${stream}`)) lastKey = undefined;
     },
     refresh(repoIds?: string[], authOnly = false): RefreshStatus {
       const repos = store.listRepos();

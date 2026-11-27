@@ -16,7 +16,7 @@ import type { TestContext } from 'node:test';
 import { createAzureClient, type AzureProvider, type ResolvedRepository } from '../server/azure-client.ts';
 import type { createCheckoutGit } from '../server/checkout-git.ts';
 import type { AppOptions } from '../server.ts';
-import type { CheckoutStatus, ConnectionStatus, PushCommitsResponse, StateResponse, SyncEngineStatus } from '../src/contract.d.ts';
+import type { CheckoutStatus, ConnectionStatus, PushCommitsResponse, StateResponse, SyncEngineStatus } from '../src/contract.ts';
 import type { ActivityEvent, ActivityPage as ActivityResponse } from '../src/activity.ts';
 import { TEST_KEY, keyedFetch, portOf } from './fixtures/access.ts';
 import { fieldsOf, present, stub, watchedIdOf, type Thrown } from './fixtures/typed.ts';

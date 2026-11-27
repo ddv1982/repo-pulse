@@ -8,7 +8,7 @@ import { createSync } from '../server/sync.ts';
 import { createBackfill } from '../server/backfill.ts';
 import type { AzurePage, AzureProvider, ReadOptions } from '../server/azure-client.ts';
 import type { ActivityEvent } from '../src/activity.ts';
-import type { AzureStream, Repository } from '../src/contract.d.ts';
+import type { AzureStream, Repository } from '../src/contract.ts';
 import { fieldsOf, present, stub } from './fixtures/typed.ts';
 
 type Provider = Pick<AzureProvider, 'read'>;

@@ -8,7 +8,7 @@ import { checkoutFixture, git } from '../test/fixtures/checkout.ts';
 import { createStore } from '../server/store.ts';
 import type { AppSync } from '../server.ts';
 import type { AzureProvider } from '../server/azure-client.ts';
-import type { ConnectionStatus, SyncEngineStatus } from '../src/contract.d.ts';
+import type { ConnectionStatus, SyncEngineStatus } from '../src/contract.ts';
 import { present, stub } from '../test/fixtures/typed.ts';
 import { setup } from './fixtures/ui-app.ts';
 

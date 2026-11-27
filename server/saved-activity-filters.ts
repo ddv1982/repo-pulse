@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { canonicalActivityFilter } from '../src/activity-text.ts';
 import { PEOPLE_LIMIT_MESSAGE, peopleNames } from '../src/search-terms.ts';
-import type { ActivityFilters, SavedActivityFilter } from '../src/contract.d.ts';
+import type { ActivityFilters, SavedActivityFilter } from '../src/contract.ts';
 import { invalid, notFound } from './errors.ts';
 
 const setting = 'savedActivityFilters';

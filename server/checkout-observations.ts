@@ -1,6 +1,6 @@
 import { ancestry } from './checkout-advice.ts';
 import type { GitRunner } from './checkout-git.ts';
-import type { Rewrite, CheckoutDiagnostic, PullAdvice } from '../src/contract.d.ts';
+import type { Rewrite, CheckoutDiagnostic, PullAdvice } from '../src/contract.ts';
 
 export type Observation = {
   identity: string;
@@ -63,7 +63,7 @@ export async function observedRewrite(run: GitRunner, path: string, baselines: s
 
 export function checkoutDiagnostic(
   state: string,
-  status: import('../src/contract.d.ts').GitStatus,
+  status: import('../src/contract.ts').GitStatus,
   observed: Observation | undefined,
   operation: string | undefined,
   rewrite: Rewrite | undefined,

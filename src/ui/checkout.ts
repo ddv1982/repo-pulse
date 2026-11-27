@@ -1,6 +1,6 @@
 import { checkAge, renderCheckout } from './checkout-render.ts';
 import { setHtml } from './dom.ts';
-import type { CheckoutStatus, BlockedCheckout, Review, FollowupSummary } from '../contract.d.ts';
+import type { CheckoutStatus, BlockedCheckout, Review, FollowupSummary } from '../contract.ts';
 
 /**
  * One repository's checkout as this page reads it. Every /api/checkouts entry fits: the server adds `followup`
@@ -20,7 +20,7 @@ export type CheckoutUpdate = {
   updated?: boolean;
   message?: string | undefined;
   notice?: string | undefined;
-  switchReview?: import('../contract.d.ts').ActivitySwitchReview | undefined;
+  switchReview?: import('../contract.ts').ActivitySwitchReview | undefined;
   review?: Review | undefined;
   nextStep?: string | undefined;
 };

@@ -545,7 +545,7 @@ function reconcileSavedFilter() {
   if (ui.savedFilterId && refresh.state.savedFilters && !selectedFilter()) ui.savedFilterId = '';
 }
 
-function applySavedFilter({ id, name, filters }: import('./contract.d.ts').SavedActivityFilter) {
+function applySavedFilter({ id, name, filters }: import('./contract.ts').SavedActivityFilter) {
   const { search, people, kind, repoIds, view } = filters;
   const watched = refresh.state.watched;
   const available = new Set(refresh.state.repos.map(repo => repo.id));

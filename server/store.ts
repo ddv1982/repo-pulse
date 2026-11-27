@@ -27,7 +27,7 @@ import {
   readStream,
 } from './store-records.ts';
 import type { ActivityEvent } from '../src/activity.ts';
-import type { StoredEvent, HydratedEvent, Repository, StreamState, AzureStream as StreamName } from '../src/contract.d.ts';
+import type { StoredEvent, HydratedEvent, Repository, StreamState, AzureStream as StreamName } from '../src/contract.ts';
 import type { Job, JobType, JobOf, Settings, SettingKey, SqlRow } from './store-records.ts';
 import type { Entity, EntityData, EntityType } from './normalize.ts';
 import { invalid, notFound } from './errors.ts';

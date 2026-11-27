@@ -21,7 +21,7 @@ import type { PageState, Repo } from '../src/ui/refresh.ts';
 import type { CheckoutSnapshot } from '../src/ui/checkout.ts';
 import type { ConnectionState } from '../src/ui/connection.ts';
 import type { CommitsView } from '../src/ui/activity-detail.ts';
-import type { ConnectionResponse as ConnectionStatus } from '../src/contract.d.ts';
+import type { ConnectionResponse as ConnectionStatus } from '../src/contract.ts';
 
 /** A transformed value and the exact escaped markup expected where it is rendered. */
 type Sink = { field: string; html: string };
@@ -200,7 +200,7 @@ function pageState(activity: PageState['activity']): PageState {
         pages: 2,
         lastProgressAt: time,
         error: { code: 'FAILED', message: probe('job.error.message') },
-      } as import('../src/contract.d.ts').HistoryJob,
+      } as import('../src/contract.ts').HistoryJob,
     ],
     syncStatus: {
       overall: { state: 'problem', reason: probe('syncStatus.overall.reason'), stream: 'pushes', repoId: repo.id },
@@ -230,7 +230,7 @@ const delayed: PageState = {
   },
 };
 
-const advice = (field: string, branch: string): import('../src/contract.d.ts').PullAdvice => ({
+const advice = (field: string, branch: string): import('../src/contract.ts').PullAdvice => ({
   branch,
   id: 12,
   url: url(`${field}.url`),

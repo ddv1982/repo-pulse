@@ -9,7 +9,7 @@ import type {
   OkResponse,
   DiscoverResponse,
   FoldersResponse,
-} from './contract.d.ts';
+} from './contract.ts';
 import type { ActivityPage as ActivityResponse } from './activity.ts';
 
 /**
@@ -22,26 +22,26 @@ type ResponseFor<P extends string> = P extends '/api/state'
     : P extends `/api/activity/unseen?${string}`
       ? { ids: string[] }
       : P extends '/api/activity-filters'
-        ? import('./contract.d.ts').SavedActivityFilter
+        ? import('./contract.ts').SavedActivityFilter
         : P extends `/api/activity-filters/${string}`
-          ? import('./contract.d.ts').SavedActivityFilter | OkResponse
+          ? import('./contract.ts').SavedActivityFilter | OkResponse
           : P extends `/api/events/${string}`
             ? EventResponse
             : P extends '/api/checkouts'
               ? CheckoutsResponse
               : P extends `/api/repos/${string}/checkout/branches`
-                ? import('./contract.d.ts').CheckoutBranchesResponse
+                ? import('./contract.ts').CheckoutBranchesResponse
                 : P extends `/api/repos/${string}/checkout/status` | `/api/repos/${string}/checkout/status?${string}`
-                  ? import('./contract.d.ts').CheckoutStatusResponse
+                  ? import('./contract.ts').CheckoutStatusResponse
                   : P extends `/api/repos/${string}/checkout`
                     ? CheckoutUpdateResponse
                     : P extends '/api/repos'
-                      ? import('./contract.d.ts').Repository
+                      ? import('./contract.ts').Repository
                       : P extends `/api/repos/${string}`
                         ? P extends `/api/repos/${string}/graph/snapshot`
-                          ? import('./contract.d.ts').GitHistorySnapshot
+                          ? import('./contract.ts').GitHistorySnapshot
                           : P extends `/api/repos/${string}/graph` | `/api/repos/${string}/graph?${string}`
-                            ? import('./contract.d.ts').GitHistoryPage
+                            ? import('./contract.ts').GitHistoryPage
                             : OkResponse
                         : P extends '/api/connection' | `/api/connection?${string}`
                           ? ConnectionResponse
@@ -50,17 +50,17 @@ type ResponseFor<P extends string> = P extends '/api/state'
                             : P extends `/api/pr/${string}/${string}/review`
                               ? PrReviewResponse
                               : P extends '/api/backfill'
-                                ? import('./contract.d.ts').BackfillResponse
+                                ? import('./contract.ts').BackfillResponse
                                 : P extends '/api/refresh'
-                                  ? import('./contract.d.ts').RefreshResponse
+                                  ? import('./contract.ts').RefreshResponse
                                   : P extends '/api/reset'
-                                    ? import('./contract.d.ts').ResetResponse
+                                    ? import('./contract.ts').ResetResponse
                                     : P extends '/api/discover'
                                       ? DiscoverResponse
                                       : P extends '/api/folders'
                                         ? FoldersResponse
                                         : P extends '/api/demo/event'
-                                          ? import('./contract.d.ts').DemoEventResponse
+                                          ? import('./contract.ts').DemoEventResponse
                                           : P extends '/api/ack'
                                             ? OkResponse & { changedIds: string[] }
                                             : P extends '/api/settings'

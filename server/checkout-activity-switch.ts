@@ -14,7 +14,7 @@ import type {
   DecoratedCheckout,
   Repository as LinkedRepo,
   SwitchIntent,
-} from '../src/contract.d.ts';
+} from '../src/contract.ts';
 import { conflict, isAppError } from './errors.ts';
 
 /**

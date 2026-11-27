@@ -4,7 +4,7 @@ import { promisify } from 'node:util';
 import { stat, readdir, realpath } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { homedir } from 'node:os';
-import type { DiscoveredRemote as ParsedRemote, DiscoveredRemote, Discovery } from '../src/contract.d.ts';
+import type { DiscoveredRemote as ParsedRemote, DiscoveredRemote, Discovery } from '../src/contract.ts';
 import { invalid } from './errors.ts';
 
 const exec = promisify(execFile);

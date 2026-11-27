@@ -1,11 +1,12 @@
 import { worstStatus } from '../src/sync-worst.ts';
-import type { SyncStatus, OverallSyncStatus, StreamState } from '../src/contract.d.ts';
+import { AZURE_STREAMS } from '../src/contract.ts';
+import type { SyncStatus, OverallSyncStatus, StreamState } from '../src/contract.ts';
 
 export type SyncStatusInput = {
   repos: { id: string; disabled?: boolean }[];
   streams: StreamState[];
-  jobs: (Pick<import('../src/contract.d.ts').HistoryJob, 'repoId' | 'status'> &
-    Partial<Pick<import('../src/contract.d.ts').HistoryJob, 'failures' | 'error' | 'stream'>>)[];
+  jobs: (Pick<import('../src/contract.ts').HistoryJob, 'repoId' | 'status'> &
+    Partial<Pick<import('../src/contract.ts').HistoryJob, 'failures' | 'error' | 'stream'>>)[];
   inProgress: { repoId: string; stream: string }[];
   settings: { refreshEnabled: boolean; refreshResumedAt: number | null };
   startedAt: number;
@@ -16,8 +17,6 @@ export type SyncStatusInput = {
   resetFailed?: boolean;
   backgroundProblem?: string | undefined;
 };
-
-export const SYNC_STREAMS: StreamState['stream'][] = ['pushes', 'refs', 'prs', 'closedPrs', 'builds', 'activeBuilds'];
 
 const MINUTE = 60000;
 const HOUR = 60 * MINUTE;
@@ -80,7 +79,7 @@ export function syncStatus({
   resetting = false,
   resetFailed = false,
   backgroundProblem,
-}: SyncStatusInput): import('../src/contract.d.ts').SyncStatusReport {
+}: SyncStatusInput): import('../src/contract.ts').SyncStatusReport {
   const automatic = settings.refreshEnabled !== false;
   const ranSince = Math.max(startedAt, settings.refreshResumedAt ?? 0);
   const stale = (stream: StreamState) => automatic && now - time(stream.lastSuccess) > overdueAfter(stream);
@@ -146,7 +145,7 @@ export function syncStatus({
     if (!own.length || own.some(stream => !stream.initialized))
       return {
         state: 'syncing',
-        firstSync: { completed: own.filter(stream => stream.initialized).length, total: SYNC_STREAMS.length },
+        firstSync: { completed: own.filter(stream => stream.initialized).length, total: AZURE_STREAMS.length },
         ...since,
       };
     const working = own.some(stream => stream.pending || stream.cursor || stream.manual || stale(stream));

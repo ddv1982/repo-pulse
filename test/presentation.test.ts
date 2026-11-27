@@ -14,7 +14,7 @@ import { renderRepositories as renderRepositoriesHtml } from '../src/ui/reposito
 import { scopeName } from '../src/ui/repository-scope.ts';
 import { createStore } from '../server/store.ts';
 import type { ActivityEvent, ActivityKind, EventData, EvidencePr } from '../src/activity.ts';
-import type { Repository, StreamError, StreamState } from '../src/contract.d.ts';
+import type { Repository, StreamError, StreamState } from '../src/contract.ts';
 import type { PageState } from '../src/ui/refresh.ts';
 import { present, stub } from './fixtures/typed.ts';
 

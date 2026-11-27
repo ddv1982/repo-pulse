@@ -110,7 +110,7 @@ export function createForkOriginCheck({
     return check;
   }
 
-  async function step(job: ForkJob, repo: import('../src/contract.d.ts').AzureRepo): Promise<ForkJob | ForkOrigin> {
+  async function step(job: ForkJob, repo: import('../src/contract.ts').AzureRepo): Promise<ForkJob | ForkOrigin> {
     if (!job.base) {
       const commit = await provider.commit(repo, job.at);
       // The first commit an earlier push brought is where the branch started. Without a push order there is no base.

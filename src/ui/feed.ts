@@ -420,7 +420,7 @@ function historyRows(records: ActivityItem[], hasQuery: boolean) {
 /**
  * One banner when the shown repositories need the reader's attention. Plain text: #sync-live already announces sync changes.
  */
-function statusBanner(state: PageState, status: (import('../contract.d.ts').SyncStatus & { repoId: string }) | undefined) {
+function statusBanner(state: PageState, status: (import('../contract.ts').SyncStatus & { repoId: string }) | undefined) {
   if (!status) return emptyHtml;
   const name = syncRepoName(state.repos, status);
   const where = name ? `${name}: ` : '';

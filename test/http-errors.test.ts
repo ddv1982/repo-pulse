@@ -9,7 +9,7 @@ import { createApp, type AppOptions } from '../server.ts';
 import { seedDemo } from '../server/demo.ts';
 import { cliError } from '../server/azure-cli.ts';
 import type { AzureProvider } from '../server/azure-client.ts';
-import type { SyncEngineStatus } from '../src/contract.d.ts';
+import type { SyncEngineStatus } from '../src/contract.ts';
 import { TEST_KEY, keyedFetch, portOf } from './fixtures/access.ts';
 import { stub } from './fixtures/typed.ts';
 

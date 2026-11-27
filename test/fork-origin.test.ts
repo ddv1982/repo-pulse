@@ -5,7 +5,7 @@ import { createSync } from '../server/sync.ts';
 import { createBackfill } from '../server/backfill.ts';
 import { createForkOriginCheck, MAX_READS } from '../server/fork-origin.ts';
 import type { AzureProvider } from '../server/azure-client.ts';
-import type { AzureStreamRecord } from '../src/contract.d.ts';
+import type { AzureStreamRecord } from '../src/contract.ts';
 import { present, stub } from './fixtures/typed.ts';
 
 /** What a commit read answers: the commit's parents and the push that brought it. */

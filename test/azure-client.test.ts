@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { createAzureClient, reviewOf } from '../server/azure-client.ts';
 import { createNormalizer } from '../server/normalize.ts';
 import { createStore } from '../server/store.ts';
-import type { AzureStream, Repository } from '../src/contract.d.ts';
+import type { AzureStream, Repository } from '../src/contract.ts';
 import { present, stub } from './fixtures/typed.ts';
 const repo = stub<Repository>({
   id: 'local1',

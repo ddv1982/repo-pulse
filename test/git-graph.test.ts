@@ -5,7 +5,7 @@ import { present } from './fixtures/typed.ts';
 import { layoutGitGraph } from '../src/git-graph.ts';
 import { createCheckoutGit, runGit } from '../server/checkout-git.ts';
 import { createGitGraph } from '../src/ui/git-graph.ts';
-import type { GitHistoryPage } from '../src/contract.d.ts';
+import type { GitHistoryPage } from '../src/contract.ts';
 import { stub } from './fixtures/typed.ts';
 
 test('checkout history preserves Git order and all parents across pages', async t => {

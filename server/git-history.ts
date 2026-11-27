@@ -1,7 +1,7 @@
 import { branchName } from '../src/events.ts';
 import { createHash } from 'node:crypto';
 import type { GitRunner } from './checkout-git.ts';
-import type { GitHistoryPage } from '../src/contract.d.ts';
+import type { GitHistoryPage } from '../src/contract.ts';
 import { conflict, invalid } from './errors.ts';
 
 const fullId = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;

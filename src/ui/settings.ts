@@ -3,7 +3,7 @@ import { emptyHtml, html } from './format.ts';
 import { syncRepoName, syncSentence } from './health.ts';
 import type { PageState } from './refresh.ts';
 import type { ConnectionState } from './connection.ts';
-import type { ConnectionResponse as ConnectionStatus } from '../contract.d.ts';
+import type { ConnectionResponse as ConnectionStatus } from '../contract.ts';
 
 function repositorySelect(repos: PageState['repos'], repoId: string) {
   if (!repos.length) return emptyHtml;

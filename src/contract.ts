@@ -1,6 +1,7 @@
 // The JSON the server sends and the browser reads. Nothing here imports server code, so browser modules can type
 // their responses without pulling Node modules into their program. Server modules alias these types, and the
-// handlers in server.ts check each response against its type with `satisfies`.
+// handlers in server.ts check each response against its type with `satisfies`. Besides types, this module holds only
+// constant lists that a union is derived from, so the server and the browser can both import it.
 
 import type { ActivityEvent, EventData } from './activity.ts';
 
@@ -15,7 +16,9 @@ export type AzureRepo = {
   webUrl: string;
   defaultBranch?: string | null;
 };
-export type AzureStream = 'pushes' | 'refs' | 'prs' | 'closedPrs' | 'builds' | 'activeBuilds';
+/** Every stream sync reads for a watched repository. */
+export const AZURE_STREAMS = ['pushes', 'refs', 'prs', 'closedPrs', 'builds', 'activeBuilds'] as const;
+export type AzureStream = (typeof AZURE_STREAMS)[number];
 
 // Azure DevOps records as Repo Pulse reads them. Each type names only the fields the code reads; the checks in
 // server/azure-records.ts check those fields when a page is read. A display field the code shows with a fallback is
@@ -226,7 +229,9 @@ export type SyncStatusReport = { overall: OverallSyncStatus; repos: Record<strin
 
 // History import
 
-export type HistoryStream = 'pushes' | 'closedPrs' | 'builds';
+/** The streams a history import reads, in the order it reads them. */
+export const HISTORY_STREAMS = ['pushes', 'closedPrs', 'builds'] as const;
+export type HistoryStream = (typeof HISTORY_STREAMS)[number];
 export type HistoryWindow = { since: string; until: string };
 export type JobError = { code: string; message: string };
 /** The records of one stream that a history import skipped because Azure returned them unreadable, summed across its pages. */
@@ -405,7 +410,7 @@ export type CheckoutUpdateResponse = CheckoutUpdateResult | BranchActionResult |
 export type ConnectionResponse = ConnectionStatus;
 export type PushCommit = { commitId: string; comment?: string };
 /** GET /api/push/:repo/:id/commits. */
-export type PushCommitsResponse = { items: PushCommit[]; nextCursor: unknown; message?: string };
+export type PushCommitsResponse = { items: PushCommit[]; nextCursor: PageCursor | null; message?: string };
 /** GET /api/pr/:repo/:id/review. */
 export type PrReviewResponse = PullRequestReview & { message?: string };
 /** POST /api/backfill. */

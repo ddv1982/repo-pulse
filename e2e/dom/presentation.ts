@@ -8,7 +8,7 @@ import { forkText, treeLegend } from '../../src/ui/activity-tree.ts';
 import type { TreeFork } from '../../src/activity-tree.ts';
 import { createStore } from '../../server/store.ts';
 import type { ActivityEvent } from '../../src/activity.ts';
-import type { Repository, StreamError, StreamState } from '../../src/contract.d.ts';
+import type { Repository, StreamError, StreamState } from '../../src/contract.ts';
 import type { CheckoutSnapshot } from '../../src/ui/checkout.ts';
 import type { PageState } from '../../src/ui/refresh.ts';
 import { parse, one, all, row, text, textIncludingHidden, type DomElement, type DomRoot } from '../fixtures/dom.ts';

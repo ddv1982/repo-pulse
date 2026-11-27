@@ -23,7 +23,7 @@ import type {
   ActiveCheckout,
   CheckoutStatus,
   Repository as LinkedRepo,
-} from '../src/contract.d.ts';
+} from '../src/contract.ts';
 import { conflict, isAppError, notFound } from './errors.ts';
 
 export type Upstream = { remote: string; source: string; tracking: string; url: string };
@@ -541,7 +541,7 @@ export function createCheckoutGit({
     if (!fresh && previous?.path === repo.localPath && previous.until > now()) return previous.value;
     const value = checkoutPath(repo).then(
       path => inspect(path, repo, { configChecked: true }),
-      (error: { diagnostic?: import('../src/contract.d.ts').CheckoutDiagnostic }): CheckoutStatus =>
+      (error: { diagnostic?: import('../src/contract.ts').CheckoutDiagnostic }): CheckoutStatus =>
         error.diagnostic ? { state: 'unavailable', diagnostic: error.diagnostic } : { state: 'unavailable' },
     );
     readings.set(repo.id, { path: repo.localPath, until: now() + 5000, value });
@@ -630,7 +630,7 @@ export function createCheckoutGit({
     repo: LinkedRepo,
     operation: 'check' | 'pull',
     expected: CheckoutIntent,
-  ): Promise<import('../src/contract.d.ts').CheckoutUpdateResult> {
+  ): Promise<import('../src/contract.ts').CheckoutUpdateResult> {
     return exclusively(repo, async path => {
       const result = await updateAt(path, repo, operation, expected);
       return { ...result, checkout: await inspect(path, repo) };
@@ -641,7 +641,7 @@ export function createCheckoutGit({
     repo: LinkedRepo,
     action: import('./checkout-branches.ts').BranchAction,
     expected: CheckoutIntent,
-  ): Promise<import('../src/contract.d.ts').BranchActionResult> {
+  ): Promise<import('../src/contract.ts').BranchActionResult> {
     return exclusively(repo, async path => {
       const current = await statusAt(path, repo);
       if (!matchesIntent(current.snapshot, expected)) {
@@ -662,7 +662,7 @@ export function createCheckoutGit({
     name: string,
     expected: SwitchIntent,
     { eventId, confirmation }: { eventId?: string | undefined; confirmation?: string | undefined } = {},
-  ): Promise<import('../src/contract.d.ts').ActivitySwitchResult> {
+  ): Promise<import('../src/contract.ts').ActivitySwitchResult> {
     return exclusively(repo, path => switchAt(path, repo, name, expected, { eventId, confirmation }));
   }
 

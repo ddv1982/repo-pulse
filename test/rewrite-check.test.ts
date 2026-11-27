@@ -11,7 +11,7 @@ import { createRewriteCheck, type RewriteJob } from '../server/rewrite-check.ts'
 import { mergeEvidenceBadge as mergeEvidenceBadgeHtml } from '../src/ui/merge-evidence.ts';
 import { activityTitle } from '../src/activity-text.ts';
 import type { AzurePage, AzureProvider } from '../server/azure-client.ts';
-import type { AzureStreamRecord } from '../src/contract.d.ts';
+import type { AzureStreamRecord } from '../src/contract.ts';
 import type { ActivityEvent, RewriteResult } from '../src/activity.ts';
 import { present, stub } from './fixtures/typed.ts';
 

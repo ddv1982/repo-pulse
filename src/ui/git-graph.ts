@@ -1,4 +1,4 @@
-import type { GitHistoryActivity, GitHistoryPage, Repository } from '../contract.d.ts';
+import type { GitHistoryActivity, GitHistoryPage, Repository } from '../contract.ts';
 import { layoutGitGraph } from '../git-graph.ts';
 import { foldSearchText, matchesPersonName, parsePeople, parseSearchTerms } from '../search-terms.ts';
 import { splitActivitySearch } from './activity-search.ts';

@@ -5,7 +5,7 @@ import { conflict } from './errors.ts';
 import { isSymbolicRef } from './checkout-delete-guard.cjs';
 import { compareUpstream } from './checkout-observations.ts';
 import type { GitRunner, Upstream } from './checkout-git.ts';
-import type { Repository as LinkedRepo } from '../src/contract.d.ts';
+import type { Repository as LinkedRepo } from '../src/contract.ts';
 
 function archivePrefix(repo: LinkedRepo, target: Upstream) {
   const upstream = createHash('sha256')

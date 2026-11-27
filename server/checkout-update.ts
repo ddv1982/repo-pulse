@@ -3,7 +3,7 @@ import { observedRewrite } from './checkout-observations.ts';
 import { readDirectCommit } from './checkout-switch-refs.ts';
 import type { GitRunner, ReadCheckoutStatus, Upstream } from './checkout-git.ts';
 import type { Observation } from './checkout-observations.ts';
-import type { ActiveCheckout, CheckoutReading, Repository as LinkedRepo } from '../src/contract.d.ts';
+import type { ActiveCheckout, CheckoutReading, Repository as LinkedRepo } from '../src/contract.ts';
 import { conflict, isAppError, notFound } from './errors.ts';
 
 /**
@@ -41,7 +41,7 @@ export function createCheckoutUpdater({
     repo: LinkedRepo,
     target: Upstream,
     snapshot: ActiveCheckout,
-  ) => Promise<import('../src/contract.d.ts').PullAdvice | undefined>;
+  ) => Promise<import('../src/contract.ts').PullAdvice | undefined>;
   matchesIntent: (snapshot: CheckoutReading, expected: Pick<CheckoutReading, 'branch' | 'head' | 'upstream' | 'identity'>) => boolean;
   verifyCheckoutDirectory: (path: string, expected: string | null) => Promise<void>;
 }) {

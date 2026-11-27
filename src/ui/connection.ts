@@ -1,5 +1,5 @@
 import { dateTime, emptyHtml, html } from './format.ts';
-import type { ConnectionResponse as ConnectionStatus } from '../contract.d.ts';
+import type { ConnectionResponse as ConnectionStatus } from '../contract.ts';
 
 export type ConnectionState = {
   /** Check answers by repository id; a failed request is recorded as an unavailable status. */

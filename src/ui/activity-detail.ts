@@ -23,7 +23,7 @@ import { renderCheckoutBar } from './checkout-render.ts';
 import { activityHref } from './navigation.ts';
 import type { ActivityEvent, ActivityItem, EventData } from '../activity.ts';
 import type { HtmlValue } from './format.ts';
-import type { StateResponse, PushCommitsResponse, PrReviewResponse } from '../contract.d.ts';
+import type { StateResponse, PushCommitsResponse, PrReviewResponse } from '../contract.ts';
 
 export type Repo = StateResponse['repos'][number];
 type PushId = number | string | undefined;

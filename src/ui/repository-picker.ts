@@ -1,6 +1,6 @@
 import { emptyHtml, html } from './format.ts';
 import { required, setHtml } from './dom.ts';
-import type { FoldersResponse, Repository, DiscoveredRemote } from '../contract.d.ts';
+import type { FoldersResponse, Repository, DiscoveredRemote } from '../contract.ts';
 
 /** A subfolder row, or the row that leads up to the parent folder. */
 type FolderOption = FoldersResponse['folders'][number] & { up?: boolean };

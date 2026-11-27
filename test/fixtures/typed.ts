@@ -3,7 +3,7 @@
 // the real signature, while the members left out need no placeholder.
 import assert from 'node:assert/strict';
 import type { request } from '../../src/api.ts';
-import type { AzureRepo, Repository } from '../../src/contract.d.ts';
+import type { AzureRepo, Repository } from '../../src/contract.ts';
 
 /**
  * A T built from the members a test supplies, like the object literal it replaces. Calling a member left out throws;

@@ -1,7 +1,8 @@
 import { iso } from './time.ts';
 import { addUnreadable, warningOf } from './sync.ts';
 import type { ActivityEvent } from '../src/activity.ts';
-import type { AzureStreamRecord, HistoryStream, HistoryWindow, HistoryJob, HistoryWarning, UnreadableRecords } from '../src/contract.d.ts';
+import { HISTORY_STREAMS } from '../src/contract.ts';
+import type { AzureStreamRecord, HistoryStream, HistoryWindow, HistoryJob, HistoryWarning, UnreadableRecords } from '../src/contract.ts';
 import type { AzurePage as SourcePage } from './azure-client.ts';
 import type { Entity, WatchedRepo } from './normalize.ts';
 import type { JobType, JobOf } from './store-records.ts';
@@ -19,7 +20,6 @@ type HistoryStore = {
 const DAY = 86400000;
 const WINDOW = 30 * DAY;
 const EARLIEST = Date.parse('2010-01-01T00:00:00Z');
-const STREAMS: [HistoryStream, ...HistoryStream[]] = ['pushes', 'closedPrs', 'builds'];
 /** The job's warnings with the records a page of `stream` skipped added to that stream's. */
 function withSkipped(warnings: HistoryWarning[], stream: HistoryStream, skipped: UnreadableRecords): HistoryWarning[] {
   const previous = warnings.find(warning => warning.stream === stream);
@@ -75,7 +75,7 @@ export function createBackfill({
       nextAt: iso(requestedAt),
       rangeStart: iso(since),
       rangeEnd: iso(until),
-      stream: STREAMS[0],
+      stream: HISTORY_STREAMS[0],
       cursor: null,
       window: complete ? null : { since: iso(Math.max(since, until - WINDOW)), until: iso(until) },
       pages: 0,
@@ -108,13 +108,14 @@ export function createBackfill({
     };
     if (page.nextCursor) return { ...next, cursor: page.nextCursor };
     next.cursor = null;
-    const following = STREAMS[STREAMS.indexOf(job.stream) + 1];
+    const following = HISTORY_STREAMS[HISTORY_STREAMS.indexOf(job.stream) + 1];
     if (following) return { ...next, stream: following };
     next.windowsCompleted++;
     next.coverageStart = window.since;
     const until = Date.parse(window.since),
       lower = Date.parse(job.rangeStart);
-    if (until > lower) return { ...next, stream: STREAMS[0], window: { since: iso(Math.max(lower, until - WINDOW)), until: iso(until) } };
+    if (until > lower)
+      return { ...next, stream: HISTORY_STREAMS[0], window: { since: iso(Math.max(lower, until - WINDOW)), until: iso(until) } };
     return { ...next, status: 'completed', completedAt: iso(now()), window: null };
   }
   async function runPage() {

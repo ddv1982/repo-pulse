@@ -7,7 +7,7 @@ import { TEST_KEY, fetchWithKey } from '../../test/fixtures/access.ts';
 import { createStore } from '../../server/store.ts';
 import { createSync } from '../../server/sync.ts';
 import type { AzureProvider, RepositoryInput, ResolvedRepository } from '../../server/azure-client.ts';
-import type { ConnectionStatus, Repository } from '../../src/contract.d.ts';
+import type { ConnectionStatus, Repository } from '../../src/contract.ts';
 import { stub } from '../../test/fixtures/typed.ts';
 import type { ActivityEvent } from '../../src/activity.ts';
 

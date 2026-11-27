@@ -9,7 +9,7 @@ import {
   renderHistoryProgress as renderHistoryProgressHtml,
 } from '../../src/ui/history-import.ts';
 import type { ActivityEvent, EventData, MergeEvidenceData } from '../../src/activity.ts';
-import type { HistoryJob, JobError } from '../../src/contract.d.ts';
+import type { HistoryJob, JobError } from '../../src/contract.ts';
 import { parse, one, all, text } from '../fixtures/dom.ts';
 import { stub } from '../../test/fixtures/typed.ts';
 

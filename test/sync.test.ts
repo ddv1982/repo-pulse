@@ -8,7 +8,7 @@ import { activityMergeBadge } from '../src/activity-text.ts';
 import type { SyncProvider } from '../server/sync.ts';
 import { createAzureClient } from '../server/azure-client.ts';
 import type { AzureProvider, AzurePage, ReadOptions } from '../server/azure-client.ts';
-import type { AzureStreamRecord, Repository } from '../src/contract.d.ts';
+import type { AzureStreamRecord, Repository } from '../src/contract.ts';
 import { dataOf, fieldsOf, present, stub, watchedIdOf } from './fixtures/typed.ts';
 const repo = {
   id: 'one',
