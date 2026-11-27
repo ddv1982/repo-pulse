@@ -1,9 +1,10 @@
 import type { DatabaseSync } from 'node:sqlite';
 import type { SqlRow } from './activity-query.ts';
-import type { ActivityEvent, ActivityItem, HighlightReason, RelatedCi } from '../src/activity.ts';
+import type { ActivityEvent, ActivityItem, HighlightReason } from '../src/activity.ts';
+import { activeCi, applyCiSummary, ciAttempt, type CiAttempt } from './activity-ci-summary.ts';
 
 type Entry = { event: ActivityEvent; key: string; sequence: number; status: string; time: number; observed: number; defaultRef: string };
-type Highlight = { reason: HighlightReason; ci?: RelatedCi[]; host?: string; mergeCommit?: string };
+type Highlight = { reason: HighlightReason; ci?: CiAttempt[]; host?: string; mergeCommit?: string };
 const keyOf = (...parts: unknown[]) => JSON.stringify(parts);
 const prNumber = (event: ActivityEvent) => /^refs\/pull\/(\d+)\/merge$/.exec(event.data?.sourceBranch ?? '')?.[1];
 const pipeline = (event: ActivityEvent) => (event.data?.definition?.id == null ? undefined : String(event.data.definition.id));
@@ -28,21 +29,15 @@ function prReason(event: ActivityEvent, before?: ActivityEvent): HighlightReason
   if (data.voteChanges?.some(change => change.vote >= 5) && approved(event) && !approved(before)) return 'review-approved';
 }
 
-function ciLink(entry: Entry, validation: boolean, postMerge: boolean, recovery = false, stale = false): RelatedCi {
+function ciLink(entry: Entry, validation: boolean, postMerge: boolean, revision = -1, stale = false): CiAttempt {
+  const { event, status } = entry;
   return {
-    id: entry.event.id,
-    time: entry.event.time,
-    title: entry.event.title ?? 'CI run',
-    validation,
-    postMerge,
-    stale,
-    outcome: recovery
-      ? 'passing again'
-      : entry.status === 'succeeded'
-        ? 'passed'
-        : entry.status === 'failed'
-          ? 'failed'
-          : 'partially succeeded',
+    ...ciAttempt({ id: event.id, time: event.time, title: event.title ?? 'CI run', validation, postMerge, stale }, status),
+    pipeline: pipeline(event),
+    sha: sha(event.data?.sourceVersion),
+    startedAt: event.data?.buildStartedAt,
+    reason: event.data?.reason,
+    revision,
   };
 }
 
@@ -243,14 +238,14 @@ function projectCi(
 ) {
   builds.sort((a, b) => started(a) - started(b) || a.time - b.time || a.sequence - b.sequence);
   const failures = new Map<string, Map<string, number>>();
-  const attach = (host: Entry | undefined, link: RelatedCi) => {
+  const attach = (host: Entry | undefined, link: CiAttempt) => {
     const highlight = host && highlights.get(host.event.id);
     if (highlight) (highlight.ci ??= []).push(link);
   };
   for (const entry of builds) {
     const { event, status, defaultRef } = entry;
-    if (!['succeeded', 'failed', 'partially-succeeded'].includes(status)) continue;
-    const bad = status !== 'succeeded';
+    if (!['succeeded', 'failed', 'partially-succeeded', 'queued', 'running', 'canceling'].includes(status)) continue;
+    const bad = status === 'failed' || status === 'partially-succeeded';
     const data = event.data;
     const ref = data?.sourceBranch;
     const number = prNumber(event);
@@ -260,24 +255,32 @@ function projectCi(
     const failed: Highlight = { reason: 'ci-failed', ...(host ? { host: host.event.id } : {}) };
     if (!number) {
       const landing = ref && tested ? landings.get(landingKey(event.repoId, ref, tested)) : undefined;
-      if (landing) attach(landing, ciLink(entry, false, true));
+      if (landing && !['schedule', 'scheduleForced'].includes(data?.reason ?? '')) {
+        attach(landing, { ...ciLink(entry, false, true), beforeLanding: started(entry) < landing.time });
+      }
       if (bad && (ref === defaultRef || ref?.startsWith('refs/tags/') || !ref))
         highlights.set(event.id, landing ? { ...failed, host: landing.event.id } : failed);
+      continue;
+    }
+    const history = pullRequests.get(pr) ?? [];
+    const evidence = validationRevision(entry, history);
+    const latest = history.findLast(item => !item.event.imported) ?? history.at(-1);
+    const link = validationLink(entry, latest, evidence);
+    if (activeCi(link)) {
+      attach(host, link);
       continue;
     }
     const track = keyOf(event.repoId, number, pipeline(event) ?? event.id, event.imported);
     const state = failures.get(track) ?? new Map<string, number>();
     if (!failures.has(track)) failures.set(track, state);
-    const decision = validationDecision(entry, pullRequests.get(pr) ?? [], state);
-    attach(host, ciLink(entry, true, false, decision.recovered, decision.stale));
+    const decision = validationDecision(entry, latest, evidence, state);
+    attach(host, decision.recovered ? { ...link, outcome: 'passing again' } : link);
     if (decision.highlight) highlights.set(event.id, failed);
   }
 }
 
-function validationDecision(entry: Entry, history: Entry[], unresolved: Map<string, number>) {
-  const { event, status } = entry;
-  const tested = sha(event.data?.sourceVersion);
-  const latest = history.findLast(item => !item.event.imported) ?? history.at(-1);
+function validationRevision(entry: Entry, history: Entry[]) {
+  const tested = sha(entry.event.data?.sourceVersion);
   const matchesPreview = (item: Entry) => Boolean(tested && sha(item.event.data?.previewCommit) === tested);
   const knownAtStart = history.findLastIndex(item => item.time <= started(entry) && matchesPreview(item));
   const revision = knownAtStart >= 0 ? knownAtStart : history.findIndex(matchesPreview);
@@ -289,6 +292,27 @@ function validationDecision(entry: Entry, history: Entry[], unresolved: Map<stri
         item.time <= started(entry) &&
         Boolean(item.event.data?.previewCommit && sha(item.event.data.previewCommit) !== tested),
     );
+  return { revision, stale };
+}
+
+function validationLink(entry: Entry, latest: Entry | undefined, { revision, stale }: ReturnType<typeof validationRevision>) {
+  const link = ciLink(entry, true, false, revision, stale);
+  const preview = latest?.event.data?.status === 'active' ? sha(latest.event.data.previewCommit) : undefined;
+  if (preview && link.sha !== preview) {
+    if (revision >= 0) link.stale = true;
+    else link.revisionUnverified = true;
+  }
+  return link;
+}
+
+function validationDecision(
+  entry: Entry,
+  latest: Entry | undefined,
+  { revision, stale }: ReturnType<typeof validationRevision>,
+  unresolved: Map<string, number>,
+) {
+  const { event, status } = entry;
+  const tested = sha(event.data?.sourceVersion);
   const closed = latest && ['completed', 'abandoned'].includes(latest.event.data?.status ?? '') && latest.time <= started(entry);
   const open = unresolved.size > 0;
   if (stale || closed) return { highlight: false, stale, recovered: false };
@@ -321,11 +345,6 @@ export function attachHighlights(items: ActivityItem[], highlights: Map<string, 
     if (item.kind === 'push' && item.data?.refUpdates?.length === 1 && item.data.mergeEvidence) {
       item.data = { ...item.data, mergeEvidence: { ...item.data.mergeEvidence, prs: [] } };
     }
-    if (highlight.ci) {
-      item.earlierCiCount = Math.max(0, highlight.ci.length - 6);
-      item.relatedCi = [...highlight.ci]
-        .sort((a, b) => (new Date(b.time).valueOf() || 0) - (new Date(a.time).valueOf() || 0) || b.id.localeCompare(a.id))
-        .slice(0, 6);
-    }
+    if (highlight.ci) applyCiSummary(item, highlight.ci, 6);
   }
 }

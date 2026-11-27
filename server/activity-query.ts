@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { applyCiSummary, ciAttempt, type CiAttempt } from './activity-ci-summary.ts';
 import { activityHighlights, attachHighlights } from './activity-highlights.ts';
 import { activityCi } from './activity-ci.ts';
 import { matchesPeople } from './activity-people.ts';
@@ -187,7 +188,8 @@ function pageQuery(
   params.push(pageSize + 1);
   const linkRows = foldCi
     ? `(SELECT json_group_array(json_object('run_key',run_key,'run_id',run_id,'title',title,'status',status,'time',run_time,
-        'host_key',host_key,'host_id',host_id,'host_kind',host_kind,'validation',validation,'folded',folded) ORDER BY run_ms DESC,run_id DESC)
+        'host_key',host_key,'host_id',host_id,'host_kind',host_kind,'validation',validation,'folded',folded,
+        'pipeline',pipeline,'sha',sha,'started_at',started_at,'reason',reason) ORDER BY run_ms DESC,run_id DESC)
       FROM ci_links WHERE host_key IN (SELECT key FROM selected_page) OR (NOT folded AND run_key IN (SELECT key FROM selected_page)))`
     : 'NULL';
   const sql = `${cte}${foldCi ? activityCi : ''},
@@ -251,20 +253,35 @@ type CiLink = {
   status: string;
   validation: number;
   folded: number;
+  pipeline: string | null;
+  sha: string;
+  started_at: string | null;
+  reason: string | null;
 };
 
 function attachCi(items: ActivityItem[], links: CiLink[], members: Map<string, ActivityEvent[]>) {
   const byKey = new Map(items.map(item => [item.groupKey, item]));
+  const attempts = new Map<ActivityItem, CiAttempt[]>();
   for (const link of links) {
     const host = byKey.get(link.host_key);
     if (host) {
-      (host.relatedCi ??= []).push({
-        id: link.run_id,
-        time: link.time,
-        title: link.title ?? 'CI run',
-        validation: Boolean(link.validation),
-        postMerge: !link.validation && link.host_kind === 'pr',
-        outcome: link.status === 'succeeded' ? 'passed' : link.status === 'failed' ? 'failed' : 'partially succeeded',
+      let runs = attempts.get(host);
+      if (!runs) attempts.set(host, (runs = []));
+      runs.push({
+        ...ciAttempt(
+          {
+            id: link.run_id,
+            time: link.time,
+            title: link.title ?? 'CI run',
+            validation: Boolean(link.validation),
+            postMerge: !link.validation && link.host_kind === 'pr',
+          },
+          link.status,
+        ),
+        pipeline: link.pipeline ?? undefined,
+        sha: link.sha,
+        startedAt: link.started_at,
+        reason: link.reason,
       });
       if (link.folded) {
         for (const member of members.get(link.run_key) ?? []) {
@@ -274,8 +291,9 @@ function attachCi(items: ActivityItem[], links: CiLink[], members: Map<string, A
       }
     }
     const run = byKey.get(link.run_key);
-    if (run && link.status !== 'succeeded') run.ciHost = link.host_id;
+    if (run && ['failed', 'partially-succeeded'].includes(link.status)) run.ciHost = link.host_id;
   }
+  for (const [host, runs] of attempts) applyCiSummary(host, runs);
 }
 
 function markLatestPrMilestones(db: import('node:sqlite').DatabaseSync, items: ActivityItem[], through: number) {

@@ -630,6 +630,10 @@ test('Activity resolves CI across pages and keeps failures and filtered runs vis
       ['passing', 'passed', true, new Date(stamp(4)).toISOString()],
     ],
   );
+  assert.deepEqual(
+    all.find(item => item.id === 'merge')?.ciSummary?.results.map(result => [result.run.id, result.tone]),
+    [['failed', 'crit']],
+  );
   assert.ok(all.find(item => item.id === 'merge')?.eventIds.includes('passing'));
   assert.deepEqual(all.find(item => item.id === 'merge')?.unseenIds, []);
   assert.equal(all.find(item => item.id === 'failed')?.ciHost, 'merge');

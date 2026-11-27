@@ -91,29 +91,21 @@ function inlineCommits(record: ActivityItem, commits: CommitsView | undefined) {
     ${commits && 'items' in commits ? html`<details class="linked-event" data-group="push-commits-${record.groupKey}" open><summary>Push commits</summary>${renderCommits(commits)}</details>` : commits ? renderCommits(commits) : emptyHtml}`;
 }
 
+function ciRunButton(run: import('../activity.ts').RelatedCi, tone: string, named = false, note?: string) {
+  const phase = run.validation ? 'PR validation' : run.postMerge ? 'Post-merge CI' : 'Branch CI';
+  return html`<button type="button" class="ghost sm ci-run status-text ${tone}" data-action="detail" data-id="${run.id}" title="${run.title} · ${fullDateTime(run.time)}"><span>${phase} ${run.outcome}${run.stale ? ' on earlier revision' : ''}${named && run.title !== 'CI run' ? ` · ${run.title}` : ''}${note ? ` · ${note}` : ''}</span> ${ciTime(run.time, true)}</button>`;
+}
+
 function renderRelatedCi(record: ActivityItem) {
-  const runs = record.relatedCi ?? [];
-  const multiple = runs.length > 1;
-  const ciButtons = html`${runs.map(run => html`<button type="button" class="ghost sm ci-run status-text ${run.outcome === 'passed' || run.outcome === 'passing again' ? 'ok' : run.outcome === 'failed' ? 'crit' : 'warn'}" data-action="detail" data-id="${run.id}" title="${run.title} · ${fullDateTime(run.time)}"><span>${run.validation ? 'PR validation' : run.postMerge ? 'Post-merge CI' : 'Branch CI'} ${run.outcome}${run.stale ? ' on earlier revision' : ''}</span> ${ciTime(run.time, true)}</button>`)}`;
-  const failed = runs.filter(run => run.outcome === 'failed').length;
-  const partial = runs.filter(run => run.outcome === 'partially succeeded').length;
-  const passed = runs.filter(run => run.outcome === 'passed').length;
-  const counts = [
-    failed ? html`<span class="status-text crit">${failed} failed</span>` : emptyHtml,
-    partial ? html`<span class="status-text warn">${partial} partially succeeded</span>` : emptyHtml,
-    runs.some(run => run.outcome === 'passing again') ? html`<span class="status-text ok">passing again</span>` : emptyHtml,
-    passed ? html`<span>${passed} passed</span>` : emptyHtml,
-  ].filter(count => count !== emptyHtml);
-  const earlier = record.earlierCiCount ?? 0;
-  const summary = multiple
-    ? html`<details class="linked-event" data-group="ci-${record.groupKey}"><summary>CI · ${earlier ? `latest ${runs.length} · ` : ''}${joinHtml(counts, html` · `)}</summary><div class="ci-rollup">${ciButtons}${earlier ? html`<button type="button" class="ghost sm" data-action="detail" data-id="${record.id}" data-related>View ${earlier} earlier run${earlier === 1 ? '' : 's'}</button>` : emptyHtml}</div></details>`
-    : runs.length
-      ? html`<div class="ci-rollup">${ciButtons}</div>`
+  const { results, historyCount } = record.ciSummary ?? { results: [], historyCount: 0 };
+  const currentIds = new Set(results.map(({ run }) => run.id));
+  const history = record.relatedCi?.filter(run => !currentIds.has(run.id)) ?? [];
+  const content = results.length
+    ? html`<div class="ci-rollup">${results.map(({ run, tone, note }) => ciRunButton(run, tone, tone === 'crit' || tone === 'warn', note))}</div>
+      ${historyCount ? html`<details class="linked-event ci-history" data-group="ci-${record.groupKey}"><summary>Run history · ${historyCount} ${historyCount === 1 ? 'run' : 'runs'}</summary><div class="ci-rollup">${history.map(run => ciRunButton(run.outcome === 'passing again' ? { ...run, outcome: 'passed' } : run, 'neutral'))}${historyCount > history.length ? html`<button type="button" class="ghost sm" data-action="detail" data-id="${record.id}" data-related>View all CI runs</button>` : emptyHtml}</div></details>` : emptyHtml}`
+    : record.ciHost
+      ? html`<button type="button" class="ghost sm" data-action="detail" data-id="${record.ciHost}">${record.highlight ? 'View pull request' : 'View tested change'}</button>`
       : emptyHtml;
-  const host = record.ciHost
-    ? html`<button type="button" class="ghost sm" data-action="detail" data-id="${record.ciHost}">${record.highlight ? 'View pull request' : 'View tested change'}</button>`
-    : emptyHtml;
-  const content = summary === emptyHtml ? host : summary;
   return content === emptyHtml ? emptyHtml : html`<div class="event-ci">${content}</div>`;
 }
 

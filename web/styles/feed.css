@@ -645,6 +645,14 @@ ol.rows {
 .ci-rollup {
   display: grid;
 }
+.ci-history {
+  width: 100%;
+}
+.ci-history > .ci-rollup {
+  margin-inline-start: 4px;
+  padding-inline-start: 4px;
+  border-inline-start: 1px solid var(--border);
+}
 .ci-rollup > [data-related] {
   justify-self: start;
 }

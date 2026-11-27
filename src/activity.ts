@@ -133,7 +133,12 @@ export type RelatedCi = {
   validation: boolean;
   postMerge: boolean;
   stale?: boolean;
-  outcome: 'passed' | 'failed' | 'partially succeeded' | 'passing again';
+  outcome: 'passed' | 'failed' | 'partially succeeded' | 'passing again' | 'queued' | 'running' | 'canceling';
+};
+export type CiResult = {
+  run: RelatedCi;
+  tone: 'ok' | 'warn' | 'crit' | 'neutral';
+  note?: 'revision unknown' | 'retry order unknown' | 'trigger unverified';
 };
 export type HighlightReason =
   | 'review-ready'
@@ -160,7 +165,7 @@ export type ActivityItem = ActivityEvent & {
   prSourceLifetime?: string;
   latestPrMilestone?: boolean;
   relatedCi?: RelatedCi[];
-  earlierCiCount?: number;
+  ciSummary?: { results: CiResult[]; historyCount: number };
   highlight?: HighlightReason;
   ciHost?: string;
   foldedCi?: number;
