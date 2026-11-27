@@ -19,15 +19,15 @@ import { createToolbarMenu } from './ui/toolbar-menu.ts';
 import { createRepositoryScope, scopeName } from './ui/repository-scope.ts';
 import { createHistoryImport } from './ui/history-import.ts';
 import { createBranchPicker } from './ui/branch-picker.ts';
+import { createConfirmation } from './ui/confirm.ts';
+import { anyDialogOpen } from './ui/dialog.ts';
 import { checked, required, setHtml } from './ui/dom.ts';
 import type { PageState } from './ui/refresh.ts';
 import type { Action } from './ui/dom.ts';
 
 const page = required('#page');
 const header = required('#header');
-const dialog = required('#confirm-dialog', HTMLDialogElement);
-let pendingConfirmation: { callback: () => Promise<void>; resource: string } | null;
-let dialogOpener: HTMLElement | SVGElement | null;
+const confirmation = createConfirmation(required('#confirm-dialog', HTMLDialogElement), { replacement: replacementFocus });
 /**
  * Commands in flight, by the resource they change. A command is held back only while another command on the same
  * resource runs, so a pending refresh never blocks navigation or a detail view.
@@ -264,15 +264,7 @@ function render() {
 }
 
 function refreshTarget(force: boolean) {
-  return view.refreshTarget(
-    force,
-    pending.size > 0 ||
-      dialog.open ||
-      historyImport.open ||
-      filterName.open ||
-      branchPicker.open ||
-      (ui.route === 'repositories' && picker.active()),
-  );
+  return view.refreshTarget(force, pending.size > 0 || anyDialogOpen() || (ui.route === 'repositories' && picker.active()));
 }
 
 function setActivityType(kind: string | undefined) {
@@ -369,36 +361,7 @@ function seenToast(message: string, { undo = false } = {}) {
   }, 20000);
 }
 
-function confirm(
-  title: string,
-  description: string,
-  callback: () => Promise<void>,
-  label = 'Confirm',
-  { subject = '', destructive = false, resource = 'confirm-dialog' } = {},
-) {
-  // One confirmation at a time: a command that asks while another waits for an answer is refused, never swapped in.
-  if (dialog.open) throw new Error('Finish the open confirmation before starting another action.');
-  pendingConfirmation = { callback, resource };
-  const opener = document.activeElement;
-  dialogOpener = opener instanceof HTMLElement || opener instanceof SVGElement ? opener : null;
-  required('#confirm-title').textContent = title;
-  const subjectLine = required('#confirm-subject');
-  subjectLine.textContent = subject;
-  subjectLine.hidden = !subject;
-  required('#confirm-description').textContent = description;
-  const button = required('#confirm-button', HTMLButtonElement);
-  button.textContent = label;
-  button.classList.toggle('danger', destructive);
-  dialog.showModal();
-}
-
-function closeDialog() {
-  dialog.close();
-  pendingConfirmation = null;
-  const opener = dialogOpener?.isConnected ? dialogOpener : replacementFocus(dialogOpener?.id ?? '');
-  dialogOpener = null;
-  opener?.focus({ preventScroll: true });
-}
+const confirm = confirmation.ask;
 
 function reportError(error: unknown) {
   showError(error instanceof Error ? error.message : String(error));
@@ -434,7 +397,7 @@ function holding<T extends unknown[]>(resource: string, message: string, callbac
 
 /** The resource a named action changes; a confirmation runs under the resource of the command that asked for it. */
 function actionResource(name: string | undefined) {
-  if (name === 'confirm-dialog') return pendingConfirmation?.resource ?? name;
+  if (name === 'confirm-dialog') return confirmation.resource ?? name;
   return (name && Object.hasOwn(actionResources, name) ? actionResources[name] : undefined) ?? name ?? '';
 }
 
@@ -505,7 +468,7 @@ const actions: Record<string, Action> = {
   'open-branch-picker': element => {
     const repo = refresh.state.repos.find(item => item.id === element.dataset.id);
     const branch = checkoutPanel.snapshots[element.dataset.id ?? '']?.branch;
-    if (repo && branch && !refresh.state.demo) void branchPicker.show(repo, branch, element.id);
+    if (repo && branch && !refresh.state.demo) void branchPicker.show(repo, branch);
   },
   'load-more-activity': async () => {
     await load({ force: true, more: true });
@@ -604,12 +567,7 @@ const actions: Record<string, Action> = {
       { subject: scope, resource: 'activity' },
     );
   },
-  'cancel-dialog': closeDialog,
-  'confirm-dialog': async () => {
-    const callback = pendingConfirmation?.callback;
-    closeDialog();
-    if (callback) await callback();
-  },
+  'confirm-dialog': () => confirmation.accept(),
   'save-filter': () => {
     const filters = currentActivityFilters(ui);
     const summary = `Includes ${filters.view === 'all' ? 'All activity' : 'Unread only'} · ${scopeName(refresh.state, filters)} · ${activityFilterLabel(filters.kind)}`;
@@ -859,10 +817,6 @@ document.addEventListener('change', event => {
   }
 });
 
-dialog.addEventListener('cancel', event => {
-  event.preventDefault();
-  closeDialog();
-});
 document.addEventListener('keydown', event => {
   const monitoring = header.querySelector('.header-overflow[open]');
   if (event.key === 'Escape' && monitoring instanceof HTMLDetailsElement && monitoring.contains(document.activeElement)) {
@@ -872,10 +826,7 @@ document.addEventListener('keydown', event => {
   }
   if (
     event.key === '/' &&
-    !dialog.open &&
-    !historyImport.open &&
-    !filterName.open &&
-    !branchPicker.open &&
+    !anyDialogOpen() &&
     !savedFilterPicker.expanded &&
     !savedFilterActions.expanded &&
     !['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement?.tagName ?? '')

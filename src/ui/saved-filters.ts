@@ -1,4 +1,5 @@
 import { required } from './dom.ts';
+import { createDialog } from './dialog.ts';
 import { canonicalActivityFilter } from '../activity-text.ts';
 import { splitActivitySearch } from './activity-search.ts';
 import { emptyHtml, html } from './format.ts';
@@ -81,51 +82,33 @@ export function createFilterNameDialog(dialog: HTMLDialogElement) {
   const title = required('#filter-name-title', HTMLElement, dialog);
   const input = required('#filter-name', HTMLInputElement, dialog);
   const scope = required('#filter-name-scope', HTMLElement, dialog);
-  const error = required('[role="alert"]', HTMLElement, dialog);
   const submit = required('button[type="submit"]', HTMLButtonElement, dialog);
   let save: ((name: string) => Promise<void>) | undefined;
-  let openerId = '';
-  dialog.addEventListener('close', () => {
-    save = undefined;
-    (document.getElementById(openerId) ?? document.getElementById('saved-filter-toggle'))?.focus({ preventScroll: true });
-  });
-  required('[data-cancel]', HTMLButtonElement, dialog).addEventListener('click', () => {
-    if (!submit.disabled) dialog.close();
-  });
-  dialog.addEventListener('cancel', event => {
-    if (submit.disabled) event.preventDefault();
+  // The name stays editable while it saves; only Save waits.
+  const modal = createDialog(dialog, {
+    busy: () => [submit],
+    replacement: id => document.getElementById(id) ?? document.getElementById('saved-filter-toggle'),
+    onClose: () => {
+      save = undefined;
+    },
   });
   const submitName = async (event: SubmitEvent) => {
     event.preventDefault();
-    if (submit.disabled || !save) return;
-    submit.disabled = true;
-    error.hidden = true;
-    try {
-      await save(input.value);
-      dialog.close();
-    } catch (failure) {
-      error.textContent = failure instanceof Error ? failure.message : String(failure);
-      error.hidden = false;
-    } finally {
-      submit.disabled = false;
-    }
+    const callback = save;
+    if (!callback) return;
+    if (await modal.submit(() => callback(input.value))) modal.close();
   };
-  // A failed save is caught above and shown in the dialog's alert, so this promise does not reject.
+  // A failed save shows in the dialog's alert, so this promise does not reject.
   form.addEventListener('submit', event => void submitName(event));
 
   return {
-    get open() {
-      return dialog.open;
-    },
     show(heading: string, name: string, callback: (name: string) => Promise<void>, summary: string = '') {
-      openerId = document.activeElement?.id || '';
       title.textContent = heading;
       scope.hidden = !summary;
       scope.textContent = summary;
       input.value = name;
-      error.hidden = true;
       save = callback;
-      dialog.showModal();
+      modal.show();
       input.select();
     },
   };
