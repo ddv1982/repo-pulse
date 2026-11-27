@@ -4,8 +4,8 @@ import type { ActivityEvent } from '../src/activity.ts';
 import { HISTORY_STREAMS } from '../src/contract.ts';
 import type { AzureStreamRecord, HistoryStream, HistoryWindow, HistoryJob, HistoryWarning, UnreadableRecords } from '../src/contract.ts';
 import type { AzurePage as SourcePage } from './azure-client.ts';
-import type { Entity, WatchedRepo } from './normalize.ts';
-import type { JobType, JobOf } from './store-records.ts';
+import type { WatchedRepo } from './normalize.ts';
+import type { Entity, JobType, JobOf } from './store-records.ts';
 import { conflict } from './errors.ts';
 
 /** How far back a history import reads. */

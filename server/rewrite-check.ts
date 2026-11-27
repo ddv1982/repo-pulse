@@ -2,19 +2,6 @@ import { iso } from './time.ts';
 import type { AzureProvider } from './azure-client.ts';
 import type { RewriteResult } from '../src/activity.ts';
 
-/** One moved branch of a live push, checked once for commits the new tip no longer reaches. */
-export type RewriteJob = {
-  id: string;
-  type: 'rewrite';
-  repoId: string;
-  eventId: string;
-  ref: string;
-  oldObjectId: string;
-  newObjectId: string;
-  attempts: number;
-  nextAt: string;
-};
-
 type RewriteStore = Pick<
   ReturnType<typeof import('./store.ts').createStore>,
   'listRepos' | 'listJobs' | 'saveJob' | 'getEvent' | 'saveRewriteResult'

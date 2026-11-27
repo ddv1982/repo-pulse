@@ -334,7 +334,7 @@ test('transaction failure keeps the page resumable and validation rejects ambigu
       newObjectId: 'b'.repeat(40),
       attempts: 0,
       nextAt: iso(BASE),
-    } satisfies import('../server/rewrite-check.ts').RewriteJob;
+    } satisfies import('../server/jobs.ts').RewriteJob;
     original({ ...page, jobs: [...present(page.jobs), invalid] });
   };
   await backfill.tick();

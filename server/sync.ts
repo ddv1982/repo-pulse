@@ -18,8 +18,8 @@ import type {
   PageCursor,
   AzureStreamRecord,
 } from '../src/contract.ts';
-import type { WatchedRepo, Entity, EntityData, EntityType, SyncBatch } from './normalize.ts';
-import type { Settings, SettingKey } from './store-records.ts';
+import type { WatchedRepo, SyncBatch } from './normalize.ts';
+import type { Entity, EntityData, EntityType, Settings, SettingKey } from './store-records.ts';
 import { notFound } from './errors.ts';
 
 type UnreadableLookups = StreamState['unreadableLookups'];
