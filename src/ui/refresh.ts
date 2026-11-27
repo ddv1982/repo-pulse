@@ -1,10 +1,8 @@
 import { createActivityData, activityEvents } from './activity-data.ts';
 import { isActivity } from './navigation.ts';
 import type { ActivityEvent, ActivityPage } from '../activity.ts';
-import type { EventDetail, ActivityView } from './activity-data.ts';
-import type { StateResponse } from '../api.ts';
-
-export type { ActivityEvent, ActivityPage, EventDetail, StateResponse };
+import type { ActivityView } from './activity-data.ts';
+import type { StateResponse, EventResponse as EventDetail } from '../contract.d.ts';
 
 export type View = ActivityView & { eventId: string | null; relatedCi?: boolean | undefined; generation: number };
 

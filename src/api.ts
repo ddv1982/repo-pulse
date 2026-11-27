@@ -1,32 +1,16 @@
 import type {
   StateResponse,
-  ActivityResponse,
   EventResponse,
   CheckoutsResponse,
   CheckoutUpdateResponse,
   ConnectionResponse,
   PushCommitsResponse,
   PrReviewResponse,
-  ErrorResponse,
   OkResponse,
   DiscoverResponse,
   FoldersResponse,
 } from './contract.d.ts';
-
-export type {
-  StateResponse,
-  ActivityResponse,
-  EventResponse,
-  CheckoutsResponse,
-  CheckoutUpdateResponse,
-  ConnectionResponse,
-  PushCommitsResponse,
-  PrReviewResponse,
-  ErrorResponse,
-  OkResponse,
-  DiscoverResponse,
-  FoldersResponse,
-};
+import type { ActivityPage as ActivityResponse } from './activity.ts';
 
 /**
  * The response body for a request path, matched on the path's shape. More specific shapes come first.

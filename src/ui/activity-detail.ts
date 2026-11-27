@@ -22,10 +22,8 @@ import { renderTrail } from './activity-trail.ts';
 import { renderCheckoutBar } from './checkout-render.ts';
 import { activityHref } from './navigation.ts';
 import type { ActivityEvent, ActivityItem, EventData } from '../activity.ts';
-import type { StateResponse, PushCommitsResponse, PrReviewResponse } from '../api.ts';
 import type { HtmlValue } from './format.ts';
-
-export type { ActivityEvent, ActivityItem, EventData, HtmlValue };
+import type { StateResponse, PushCommitsResponse, PrReviewResponse } from '../contract.d.ts';
 
 export type Repo = StateResponse['repos'][number];
 export type PushId = number | string | undefined;

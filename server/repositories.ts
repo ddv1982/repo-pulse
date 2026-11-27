@@ -6,10 +6,6 @@ import { resolve } from 'node:path';
 import { homedir } from 'node:os';
 import type { DiscoveredRemote as ParsedRemote, DiscoveredRemote, Discovery } from '../src/contract.d.ts';
 
-export type { ParsedRemote, DiscoveredRemote, Discovery };
-
-export type { DiscoveredCheckout } from '../src/contract.d.ts';
-
 const exec = promisify(execFile);
 const invalid = () => Object.assign(new Error('Use an Azure DevOps Services HTTPS or SSH repository URL.'), { code: 'INVALID_REPOSITORY' });
 const component = (value: string | undefined) => {

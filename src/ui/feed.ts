@@ -35,8 +35,6 @@ import type { ActivityItem } from '../activity.ts';
 import { renderCommits, type CommitsView } from './activity-detail.ts';
 export { renderDetail } from './activity-detail.ts';
 
-export type { PageState, ActivityItem };
-
 /** `openMenu` is the panel ID of the open toolbar menu, if any. */
 export type FeedView = Pick<import('./navigation.ts').NavigationState, 'unreadOnly' | 'repoIds' | 'search' | 'kind' | 'filtersOpen'> & {
   openMenu?: string;
@@ -422,7 +420,7 @@ function historyRows(records: ActivityItem[], hasQuery: boolean) {
 /**
  * One banner when the shown repositories need the reader's attention. Plain text: #sync-live already announces sync changes.
  */
-function statusBanner(state: PageState, status: (import('./health.ts').SyncStatus & { repoId: string }) | undefined) {
+function statusBanner(state: PageState, status: (import('../contract.d.ts').SyncStatus & { repoId: string }) | undefined) {
   if (!status) return emptyHtml;
   const name = syncRepoName(state.repos, status);
   const where = name ? `${name}: ` : '';

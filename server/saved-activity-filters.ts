@@ -3,8 +3,6 @@ import { canonicalActivityFilter } from '../src/activity-text.ts';
 import { parsePeople } from '../src/search-terms.ts';
 import type { ActivityFilters, SavedActivityFilter } from '../src/contract.d.ts';
 
-export type { ActivityFilters, SavedActivityFilter };
-
 const setting = 'savedActivityFilters';
 const problem = (message: string, status: number = 400) => Object.assign(new Error(message), { status });
 

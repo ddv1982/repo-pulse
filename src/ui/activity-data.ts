@@ -1,9 +1,6 @@
 import { splitActivitySearch } from './activity-search.ts';
 import type { ActivityItem, ActivityPage } from '../activity.ts';
-import type { EventResponse as EventDetail } from '../api.ts';
-
-export type { ActivityEvent } from '../activity.ts';
-export type { ActivityItem, ActivityPage, EventDetail };
+import type { EventResponse as EventDetail } from '../contract.d.ts';
 
 export type Request = typeof import('../api.ts').request;
 export type ActivityView = { route: string; unreadOnly?: boolean; repoIds: string[] | null; kind?: string; search?: string };

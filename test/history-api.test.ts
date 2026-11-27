@@ -2,9 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createStore } from '../server/store.ts';
 import { createApp, type AppProvider, type AppSync } from '../server.ts';
-import type { SyncStatus } from '../server/sync.ts';
 import type { ActivityEvent } from '../src/activity.ts';
-import type { HistoryJob, Repository } from '../src/contract.d.ts';
+import type { HistoryJob, Repository, SyncEngineStatus as SyncStatus } from '../src/contract.d.ts';
 import { TEST_KEY, keyedFetch, portOf } from './fixtures/access.ts';
 import { stub } from './fixtures/typed.ts';
 

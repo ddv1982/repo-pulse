@@ -22,8 +22,6 @@ import { all, checked, required, setHtml } from './ui/dom.ts';
 import type { PageState } from './ui/refresh.ts';
 import type { Action } from './ui/checkout-actions.ts';
 
-export type { PageState, Action };
-
 /** web/theme.ts publishes this before the modules load. */
 export type ThemedWindow = Window & { repoPulseTheme?: { set: (value: string) => void } };
 
@@ -513,7 +511,7 @@ function reconcileSavedFilter() {
   if (ui.savedFilterId && refresh.state.savedFilters && !selectedFilter()) ui.savedFilterId = '';
 }
 
-function applySavedFilter({ id, name, filters }: import('./ui/saved-filters.ts').SavedActivityFilter) {
+function applySavedFilter({ id, name, filters }: import('./contract.d.ts').SavedActivityFilter) {
   const { search, people, kind, repoIds, view } = filters;
   const watched = refresh.state.watched;
   const available = new Set(refresh.state.repos.map(repo => repo.id));

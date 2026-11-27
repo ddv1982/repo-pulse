@@ -2,8 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { capture } from './fixtures/app.ts';
 import { expect } from '@playwright/test';
-import type { ActivityEvent } from '../src/contract.d.ts';
 import { setup } from './fixtures/ui-app.ts';
+import type { ActivityEvent } from '../src/activity.ts';
 
 test('the branch tree works with the unread filter and keeps status markers on narrow screens', async t => {
   const { page } = await setup(t);

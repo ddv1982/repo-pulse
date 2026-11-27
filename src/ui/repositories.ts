@@ -8,8 +8,6 @@ import type { PageState, Repo } from './refresh.ts';
 import type { CheckoutSnapshot } from './checkout.ts';
 import type { HistoryJob } from './history-import.ts';
 
-export type { PageState, Repo, CheckoutSnapshot, HistoryJob };
-
 export type RepositoriesView = Pick<import('./connection.ts').ConnectionState, 'results'>;
 
 export function renderRepositories(
@@ -71,7 +69,7 @@ function renderDisabledRepo(repo: Repo) {
 
 function renderRepo(
   repo: Repo,
-  status: import('./health.ts').SyncStatus | undefined,
+  status: import('../contract.d.ts').SyncStatus | undefined,
   streams: PageState['streams'],
   job: HistoryJob | null | undefined,
   checkout: CheckoutSnapshot | undefined,

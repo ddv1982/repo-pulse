@@ -2,9 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { capture, refreshNow, gate } from './fixtures/app.ts';
 import { expect } from '@playwright/test';
-import type { ActivityEvent, SavedActivityFilter } from '../src/contract.d.ts';
+import type { SavedActivityFilter } from '../src/contract.d.ts';
 import { selectActivityType, setup, groupedFixture } from './fixtures/ui-app.ts';
 import { demo } from './fixtures/history-app.ts';
+import type { ActivityEvent } from '../src/activity.ts';
 
 test('CI summary shortcuts filter the full activity scope on desktop and compact layouts', async t => {
   const { page, runtime } = await setup(t, true, { hasTouch: true });

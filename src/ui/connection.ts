@@ -1,9 +1,8 @@
 import { dateTime, emptyHtml, html } from './format.ts';
-import type { ConnectionResponse as ConnectionStatus } from '../api.ts';
+import type { ConnectionResponse as ConnectionStatus } from '../contract.d.ts';
 
-/** A connection check's answer; a failed request is recorded as an unavailable status. */
-export type { ConnectionStatus };
 export type ConnectionState = {
+  /** Check answers by repository id; a failed request is recorded as an unavailable status. */
   results: Map<string, ConnectionStatus>;
   local: ConnectionStatus | null;
   pending: string | null;

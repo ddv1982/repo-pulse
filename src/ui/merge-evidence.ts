@@ -2,8 +2,6 @@ import { activityMergeBadge, matchesPushResult, matchingPushResults, singleNamed
 import { emptyHtml, html, dateTime, branchName, azureLink } from './format.ts';
 import type { EventData, EvidencePr } from '../activity.ts';
 
-export type { EventData, EvidencePr };
-
 /** Evidence is supplemental metadata, never an inferred actor or merge operation.  */
 export function renderMergeEvidence(data: EventData = {}) {
   const evidence = data.mergeEvidence;

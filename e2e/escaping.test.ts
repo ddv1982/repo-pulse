@@ -12,13 +12,9 @@ import { createStore } from '../server/store.ts';
 import { createSync } from '../server/sync.ts';
 import { TEST_KEY } from '../test/fixtures/access.ts';
 import { present, stub } from '../test/fixtures/typed.ts';
-import type { FoldersResponse, DiscoverResponse } from '../server.ts';
-import type { DiscoveredRemote } from '../server/repositories.ts';
 import type { Page } from '@playwright/test';
 import type { AzureProvider } from '../server/azure-client.ts';
-import type { ConnectionStatus } from '../src/contract.d.ts';
-
-export type { FoldersResponse, DiscoverResponse, DiscoveredRemote, Page, AzureProvider, ConnectionStatus };
+import type { ConnectionStatus, DiscoveredRemote, FoldersResponse, DiscoverResponse } from '../src/contract.d.ts';
 
 /**
  * Two tags, so a value the picker splits around a search match still has markup on both sides of the match.

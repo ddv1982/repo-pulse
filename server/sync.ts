@@ -2,7 +2,7 @@ import { createNormalizer } from './normalize.ts';
 import { isRecord, recordId, recordsOf, unreadableField } from './azure-records.ts';
 import { READS, SYNC_STREAMS } from './sync-status.ts';
 import { isCorruptRow } from './store-records.ts';
-import type { AzureStream as StreamName, AzureProvider, PageCursor, AzureStreamRecord, AzurePage } from './azure-client.ts';
+import type { AzureProvider, AzurePage } from './azure-client.ts';
 import type {
   AzureRef,
   UnreadableRecords,
@@ -12,34 +12,12 @@ import type {
   StreamState,
   SyncEngineStatus as SyncStatus,
   RefreshStatus,
+  AzureStream as StreamName,
+  PageCursor,
+  AzureStreamRecord,
 } from '../src/contract.d.ts';
 import type { WatchedRepo, Entity, EntityData, EntityType, SyncBatch } from './normalize.ts';
 import type { Settings, SettingKey } from './store-records.ts';
-
-export type { ActivityKind, NormalizeState, SyncEvent, EventDetail, RewriteJob } from './normalize.ts';
-export type {
-  StreamName,
-  AzureProvider,
-  PageCursor,
-  AzureStreamRecord,
-  AzurePage,
-  AzureRef,
-  UnreadableRecords,
-  UnreadableIds,
-  StreamWarning,
-  WatchedRepo,
-  Entity,
-  EntityData,
-  EntityType,
-  Settings,
-  SettingKey,
-  SyncBatch,
-  StreamState,
-  RefreshStatus,
-};
-
-/** The time range one read covers. It stays fixed across the pages of that read. */
-export type { StreamWindow };
 
 type UnreadableLookups = StreamState['unreadableLookups'];
 /** A stream while a read is in flight: the window and the refresh generation it answers are fixed. */
@@ -54,9 +32,6 @@ export type SyncStore = {
   listEntities: <T extends EntityType>(repoId: string, type: T) => { id: string; data: EntityData[T] }[];
   commitPage: (page: SyncBatch & { repoId: string; stream: StreamName; state: StreamState }) => void;
 };
-/** GET /api/state reports this as `diagnostics.sync`. */
-export type { SyncStatus };
-
 /** Sync needs `read`; the active-build and PR follow-ups run only when the provider offers them. */
 export type SyncProvider = { read: import('./azure-client.ts').StreamRead } & Partial<Pick<AzureProvider, 'buildsById' | 'pullRequest'>>;
 export type BackgroundKind = 'rewrite' | 'history';

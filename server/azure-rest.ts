@@ -5,8 +5,6 @@ import { cliError } from './azure-cli.ts';
 import { isRecord } from './azure-records.ts';
 import type { Executor, ExecutorOptions } from './azure-cli.ts';
 
-export type { Executor, ExecutorOptions };
-
 export type RestRequest = { url: URL };
 
 export type CachedToken = { value: string; expiresAt: number };

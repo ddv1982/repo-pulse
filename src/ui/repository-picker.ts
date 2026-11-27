@@ -2,8 +2,6 @@ import { emptyHtml, html } from './format.ts';
 import { required, setHtml } from './dom.ts';
 import type { FoldersResponse, Repository, DiscoveredRemote } from '../contract.d.ts';
 
-export type { FoldersResponse, Repository, DiscoveredRemote };
-
 /** A subfolder row, or the row that leads up to the parent folder. */
 export type FolderOption = FoldersResponse['folders'][number] & { up?: boolean };
 /** One remote of a local checkout: a checkout with several remotes gets one row per remote. */

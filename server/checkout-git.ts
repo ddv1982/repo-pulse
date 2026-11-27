@@ -12,7 +12,6 @@ import { gitHistorySnapshot, readGitHistory } from './git-history.ts';
 import { createActivitySwitch } from './checkout-activity-switch.ts';
 import { createCheckoutUpdater } from './checkout-update.ts';
 import { archivedSwitchRewrite, readDirectCommit } from './checkout-switch-refs.ts';
-import type { Repository as LinkedRepo } from './store.ts';
 import type {
   GitStatus,
   CheckoutSelection,
@@ -22,18 +21,10 @@ import type {
   BlockedState,
   ActiveCheckout,
   CheckoutStatus,
+  Repository as LinkedRepo,
 } from '../src/contract.d.ts';
 
-/**
- * Checkouts belong to watched repositories, so their Azure identity is always present.
- */
-export type { LinkedRepo };
-
-export type { GitStatus, CheckoutSelection, SwitchIntent, CheckoutIntent, CheckoutReading, BlockedState, ActiveCheckout, CheckoutStatus };
-
 export type Upstream = { remote: string; source: string; tracking: string; url: string };
-
-export type { ActivitySwitchReview, DecoratedCheckout } from '../src/contract.d.ts';
 
 export type ReadCheckoutStatus = (
   path: string,
@@ -550,7 +541,7 @@ export function createCheckoutGit({
     if (!fresh && previous?.path === repo.localPath && previous.until > now()) return previous.value;
     const value = checkoutPath(repo).then(
       path => inspect(path, repo, { configChecked: true }),
-      (error: { diagnostic?: import('./checkout-observations.ts').CheckoutDiagnostic }): CheckoutStatus =>
+      (error: { diagnostic?: import('../src/contract.d.ts').CheckoutDiagnostic }): CheckoutStatus =>
         error.diagnostic ? { state: 'unavailable', diagnostic: error.diagnostic } : { state: 'unavailable' },
     );
     readings.set(repo.id, { path: repo.localPath, until: now() + 5000, value });

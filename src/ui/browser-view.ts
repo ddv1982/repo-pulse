@@ -65,8 +65,6 @@ function focusedControlId(element: Element) {
   return element.id || element.closest('.saved-filter-menu, .saved-filter-actions')?.querySelector('[aria-expanded]')?.id || '';
 }
 
-export type { PageState, ResultsContext };
-
 /** web.ts owns this object: navigation state plus the connection panel state and the refresh flag the header reads. */
 export type BrowserUi = NavigationState & {
   connection: import('./connection.ts').ConnectionState;

@@ -1,10 +1,9 @@
 import { ancestry } from './checkout-advice.ts';
 import { observedRewrite } from './checkout-observations.ts';
 import { readDirectCommit } from './checkout-switch-refs.ts';
-import type { ActiveCheckout, CheckoutReading, GitRunner, LinkedRepo, ReadCheckoutStatus, Upstream } from './checkout-git.ts';
+import type { GitRunner, ReadCheckoutStatus, Upstream } from './checkout-git.ts';
 import type { Observation } from './checkout-observations.ts';
-
-export type { ActiveCheckout, CheckoutReading, GitRunner, LinkedRepo, ReadCheckoutStatus, Upstream, Observation };
+import type { ActiveCheckout, CheckoutReading, Repository as LinkedRepo } from '../src/contract.d.ts';
 
 /**
  * Check, Pull and PR target updates share this workflow. The caller holds the checkout lock.
@@ -43,7 +42,7 @@ export function createCheckoutUpdater({
     repo: LinkedRepo,
     target: Upstream,
     snapshot: ActiveCheckout,
-  ) => Promise<import('./checkout-advice.ts').PullAdvice | undefined>;
+  ) => Promise<import('../src/contract.d.ts').PullAdvice | undefined>;
   matchesIntent: (snapshot: CheckoutReading, expected: Pick<CheckoutReading, 'branch' | 'head' | 'upstream' | 'identity'>) => boolean;
   verifyCheckoutDirectory: (path: string, expected: string | null) => Promise<void>;
 }) {

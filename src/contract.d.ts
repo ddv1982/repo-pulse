@@ -4,8 +4,6 @@
 
 import type { ActivityEvent, EventData } from './activity.ts';
 
-export type { ActivityEvent, EventData };
-
 // Azure
 
 /** The repository fields the client reads. Watched repositories carry more. */
@@ -147,6 +145,7 @@ export type Repository = AzureRepo & { id: string; name: string; disabled?: bool
 
 // Sync
 
+/** The time range one read covers. It stays fixed across the pages of that read. */
 export type StreamWindow = { since: string; until: string };
 export type StreamError = { code: string; message: string };
 /**
@@ -196,7 +195,8 @@ export type StreamState = {
   unreadableLookups?: { id: string; field: string }[] | undefined;
 };
 /**
- * The sync loop's counters, read for Copy diagnostics. `lastTurn` holds when each kind of turn last ran.
+ * The sync loop's counters, read for Copy diagnostics. `lastTurn` holds when each kind of turn last ran. GET /api/state
+ * reports this as `diagnostics.sync`.
  */
 export type SyncEngineStatus = {
   running: boolean;
@@ -394,8 +394,6 @@ export type StateResponse = {
   syncStatus: SyncStatusReport;
   demo: boolean;
 };
-/** GET /api/activity, built by server/activity-query.ts. */
-export type { ActivityPage as ActivityResponse } from './activity.ts';
 /** GET /api/events/:id: the event and every event grouped with it. */
 export type EventResponse = { event: HydratedEvent; events: HydratedEvent[]; related?: HydratedEvent[] };
 /** GET /api/checkouts: status per enabled repository id, empty in demo mode. */
@@ -406,7 +404,7 @@ export type CheckoutStatusResponse = CheckoutStatus;
 export type CheckoutBranchesResponse = { branches: { name: string; local: boolean }[] };
 /** POST /api/repos/:id/checkout. */
 export type CheckoutUpdateResponse = CheckoutUpdateResult | BranchActionResult | ActivitySwitchResult;
-/** GET /api/connection. */
+/** GET /api/connection: a connection check's answer. */
 export type ConnectionResponse = ConnectionStatus;
 export type PushCommit = { commitId: string; comment?: string };
 /** GET /api/push/:repo/:id/commits. */

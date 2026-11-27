@@ -2,9 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { refreshNow, startTestApp } from './fixtures/app.ts';
 import { expect } from '@playwright/test';
-import type { ActivityEvent } from '../src/contract.d.ts';
 import { present } from '../test/fixtures/typed.ts';
 import { fetch, setup, renderInBackground, setupPicker } from './fixtures/ui-app.ts';
+import type { ActivityEvent } from '../src/activity.ts';
 
 type Runtime = Awaited<ReturnType<typeof startTestApp>>['runtime'];
 

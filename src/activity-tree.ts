@@ -1,7 +1,6 @@
 import { branchName } from './events.ts';
 import type { ActivityEvent, ActivityItem } from './activity.ts';
 
-export type { ActivityEvent };
 /**
  * How a fork origin is known. Unchecked, from the rows on the page: `pr`, a pull request from the branch names a target, which is an assumption.
  * Checked by server/fork-origin.ts, from the commit the branch started at (`base`): `recorded`, the base was the

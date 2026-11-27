@@ -1,8 +1,6 @@
 import { branchName, safeAzureUrl } from '../src/events.ts';
-import type { LinkedRepo, GitRunner } from './checkout-git.ts';
-import type { PullAdvice } from '../src/contract.d.ts';
-
-export type { LinkedRepo, GitRunner, PullAdvice };
+import type { GitRunner } from './checkout-git.ts';
+import type { PullAdvice, Repository as LinkedRepo } from '../src/contract.d.ts';
 
 export type CheckoutPull = {
   id: number;

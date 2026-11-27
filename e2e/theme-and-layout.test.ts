@@ -2,8 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { capture } from './fixtures/app.ts';
 import { expect } from '@playwright/test';
-import type { ActivityKind } from '../src/activity.ts';
-import type { EventData } from '../src/contract.d.ts';
+import type { ActivityKind, EventData } from '../src/activity.ts';
 import { setup, groupedFixture } from './fixtures/ui-app.ts';
 
 test('approved light/dark/System UI and responsive routes work without remote traffic', async t => {

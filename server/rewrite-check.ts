@@ -1,7 +1,6 @@
 import type { AzureProvider } from './azure-client.ts';
 import type { RewriteResult } from '../src/activity.ts';
 
-export type { AzureProvider, RewriteResult };
 /** One moved branch of a live push, checked once for commits the new tip no longer reaches. */
 export type RewriteJob = {
   id: string;

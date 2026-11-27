@@ -3,8 +3,6 @@ import { repositoryHref } from './navigation.ts';
 import type { CheckoutSnapshot } from './checkout.ts';
 import type { CheckoutDiagnostic } from '../contract.d.ts';
 
-export type { CheckoutSnapshot, CheckoutDiagnostic };
-
 const statusLabels: Record<string, string | undefined> = {
   'not-linked': 'No local checkout linked',
   unavailable: 'Checkout unavailable',

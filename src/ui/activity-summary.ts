@@ -4,8 +4,6 @@ import type { HtmlValue } from './format.ts';
 import type { ActivityItem, ActivityPage } from '../activity.ts';
 import type { PageState } from './refresh.ts';
 
-export type { PageState };
-
 export function emptyActivityMessage(
   ui: { repoIds: string[] | null; unreadOnly?: boolean; search?: string; kind?: string },
   partial: boolean,

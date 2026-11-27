@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import { expect } from '@playwright/test';
 import { fetch, setup, groupedFixture } from './fixtures/ui-app.ts';
 import { defer, gate } from './fixtures/app.ts';
-import type { ActivityEvent } from '../src/contract.d.ts';
 import { demo, isSeen } from './fixtures/history-app.ts';
+import type { ActivityEvent } from '../src/activity.ts';
 
 test('the row Seen toggle keeps keyboard focus and shows state without a status column', async t => {
   const { page, runtime } = await setup(t);

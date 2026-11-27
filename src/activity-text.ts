@@ -1,7 +1,6 @@
 import { branchName } from './events.ts';
 import type { ActivityEvent } from './activity.ts';
 
-export type { ActivityEvent };
 export type ActivityTone = 'info' | 'ok' | 'crit' | 'warn' | 'neutral';
 
 const statusLabels = {

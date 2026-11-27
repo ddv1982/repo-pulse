@@ -1,15 +1,11 @@
 import { worstStatus } from '../src/sync-worst.ts';
-import type { StreamState } from './sync.ts';
-import type { SyncStatus, OverallSyncStatus } from '../src/contract.d.ts';
-
-export type { StreamState, SyncStatus, OverallSyncStatus };
-export type { SyncState } from '../src/contract.d.ts';
+import type { SyncStatus, OverallSyncStatus, StreamState } from '../src/contract.d.ts';
 
 export type SyncStatusInput = {
   repos: { id: string; disabled?: boolean }[];
   streams: StreamState[];
-  jobs: (Pick<import('./backfill.ts').HistoryJob, 'repoId' | 'status'> &
-    Partial<Pick<import('./backfill.ts').HistoryJob, 'failures' | 'error' | 'stream'>>)[];
+  jobs: (Pick<import('../src/contract.d.ts').HistoryJob, 'repoId' | 'status'> &
+    Partial<Pick<import('../src/contract.d.ts').HistoryJob, 'failures' | 'error' | 'stream'>>)[];
   inProgress: { repoId: string; stream: string }[];
   settings: { refreshEnabled: boolean; refreshResumedAt: number | null };
   startedAt: number;

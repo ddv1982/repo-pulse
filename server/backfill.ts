@@ -1,23 +1,17 @@
 import { addUnreadable, warningOf } from './sync.ts';
 import type { ActivityEvent } from '../src/activity.ts';
-import type { AzureStreamRecord, HistoryStream, HistoryWindow, HistoryJob, HistoryWarning, UnreadableRecords } from '../src/contract.d.ts';
-import type { AzureRepo, AzurePage as SourcePage } from './azure-client.ts';
-import type { Entity } from './normalize.ts';
-import type { JobType, JobOf } from './store-records.ts';
-
-export type {
-  ActivityEvent,
+import type {
   AzureStreamRecord,
   HistoryStream,
   HistoryWindow,
-  SourcePage,
   HistoryJob,
   HistoryWarning,
   UnreadableRecords,
-  Entity,
-  JobType,
-  JobOf,
-};
+  AzureRepo,
+} from '../src/contract.d.ts';
+import type { AzurePage as SourcePage } from './azure-client.ts';
+import type { Entity } from './normalize.ts';
+import type { JobType, JobOf } from './store-records.ts';
 
 export type WatchedRepo = AzureRepo & { id: string; disabled?: boolean };
 

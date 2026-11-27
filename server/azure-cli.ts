@@ -16,8 +16,6 @@ export type AzCommand = { file: string; prefix: string[]; env: Record<string, st
 
 export type QueueJob = { args: string[]; key: string; resolve: (value: unknown) => void; reject: (reason: unknown) => void };
 
-export type { LastError };
-
 const exec = promisify(execFile);
 const MAX_RETRY_AFTER_MS = 10 * 60000;
 const RESOURCES: Record<string, Set<string>> = {

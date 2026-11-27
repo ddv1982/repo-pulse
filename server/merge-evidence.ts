@@ -1,6 +1,5 @@
 import type { RefUpdate } from '../src/activity.ts';
 
-export type { RefUpdate };
 export type PushEvent = { data?: { refUpdates?: RefUpdate[] } };
 /** A branch update that moved an existing branch to another existing object. */
 export type MergeUpdate = RefUpdate & { name: string; oldObjectId: string; newObjectId: string };

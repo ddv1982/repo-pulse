@@ -36,7 +36,6 @@ import type {
   ErrorResponse,
   OkResponse,
   StateResponse,
-  ActivityResponse,
   EventResponse,
   CheckoutsResponse,
   CheckoutStatusResponse,
@@ -52,33 +51,7 @@ import type {
   FoldersResponse,
   DemoEventResponse,
 } from './src/contract.d.ts';
-
-export type {
-  Request,
-  Response,
-  AzureProvider,
-  DemoSyncStatus,
-  Repository,
-  SessionResponse,
-  ErrorResponse,
-  OkResponse,
-  StateResponse,
-  ActivityResponse,
-  EventResponse,
-  CheckoutsResponse,
-  CheckoutStatusResponse,
-  CheckoutBranchesResponse,
-  CheckoutUpdateResponse,
-  ConnectionResponse,
-  PushCommitsResponse,
-  PrReviewResponse,
-  BackfillResponse,
-  RefreshResponse,
-  ResetResponse,
-  DiscoverResponse,
-  FoldersResponse,
-  DemoEventResponse,
-};
+import type { ActivityPage as ActivityResponse } from './src/activity.ts';
 
 export type Store = ReturnType<typeof createStore>;
 
@@ -90,8 +63,8 @@ export type AppProvider = AzureProvider | typeof demoProvider;
  * in live mode.
  */
 export type AppSync = {
-  status: () => import('./server/sync.ts').SyncStatus | DemoSyncStatus;
-  refresh: (repoIds?: string[], authOnly?: boolean) => import('./server/sync.ts').RefreshStatus | { demo: true };
+  status: () => import('./src/contract.d.ts').SyncEngineStatus | DemoSyncStatus;
+  refresh: (repoIds?: string[], authOnly?: boolean) => import('./src/contract.d.ts').RefreshStatus | { demo: true };
   reset?: (clear: () => void) => Promise<void>;
   forget?: (repoId: string) => void;
 };
@@ -448,7 +421,7 @@ export function createApp({
         if (demo || !('resolveRepository' in provider))
           throw problem('Demo repositories are fictional. Start live mode to add your repositories.');
         const input = await body(req);
-        let remote: import('./server/repositories.ts').ParsedRemote & { localPath?: string };
+        let remote: import('./src/contract.d.ts').DiscoveredRemote & { localPath?: string };
         if (typeof input.url === 'string' && input.url.trim()) remote = parseRemote(input.url.trim());
         else if (typeof input.path === 'string' && input.path.trim()) {
           const result = await discover(input.path);
@@ -460,7 +433,7 @@ export function createApp({
           if (!only || remotes.length !== 1) throw problem('Choose the remote explicitly for a checkout with multiple Azure remotes.');
           remote = { ...parseRemote(only.url), localPath: checkout.localPath };
         } else throw problem('Enter an Azure repository URL or local checkout path.');
-        const repo: import('./server/store.ts').Repository = await provider.resolveRepository(remote);
+        const repo: import('./src/contract.d.ts').Repository = await provider.resolveRepository(remote);
         if (remote.localPath) repo.localPath = remote.localPath;
         const existing = store.listRepos().find(item => item.id === repo.id);
         store.saveRepo({ ...repo, disabled: existing?.disabled || false });
@@ -473,16 +446,14 @@ export function createApp({
       path: '/api/checkouts',
       handler: async ({ res }) => {
         const repos = store.listRepos().filter(repo => !repo.disabled);
-        const results: [string, import('./server/checkout-git.ts').CheckoutStatus][] = [];
+        const results: [string, import('./src/contract.d.ts').CheckoutStatus][] = [];
         if (!demo)
           for (let i = 0; i < repos.length; i += 2) {
             results.push(
               ...(await Promise.all(
                 repos
                   .slice(i, i + 2)
-                  .map(
-                    async repo => [repo.id, await checkoutGit.status(repo)] as [string, import('./server/checkout-git.ts').CheckoutStatus],
-                  ),
+                  .map(async repo => [repo.id, await checkoutGit.status(repo)] as [string, import('./src/contract.d.ts').CheckoutStatus]),
               )),
             );
           }

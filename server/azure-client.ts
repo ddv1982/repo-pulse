@@ -15,19 +15,6 @@ import type {
 } from '../src/contract.d.ts';
 import type { UnreadableCheckoutPull } from './checkout-advice.ts';
 
-export type {
-  AzureRepo,
-  AzureStream,
-  AzureStreamRecord,
-  AzureBuild,
-  AzurePullRequest,
-  UnreadableRecords,
-  PageCursor,
-  UnreadableCheckoutPull,
-  ConnectionStatus,
-  PullRequestReview,
-};
-
 /**
  * `restarted` marks a first page read in place of the saved cursor's page. `unreadable` counts the records left out
  * of `items` because a field they need is missing or malformed; it is absent when there were none. `unreadableIds`
@@ -55,8 +42,6 @@ export type CheckoutPull = {
   strategy?: string;
   url: string;
 };
-
-export type { AccessCheck } from '../src/contract.d.ts';
 
 export type ResolvedRepository = {
   id: string;

@@ -180,6 +180,7 @@ export type ActivityRequest = {
   limit?: number;
   cursor?: string | undefined;
 };
+/** GET /api/activity, built by server/activity-query.ts. */
 export type ActivityPage = {
   items: ActivityItem[];
   nextCursor: string | null;

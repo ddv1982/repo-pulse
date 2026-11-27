@@ -1,8 +1,6 @@
 import type { AzureProvider } from './azure-client.ts';
 import type { ForkOrigin } from '../src/activity.ts';
 
-export type { AzureProvider, ForkOrigin };
-
 /**
  * One live branch creation, checked for the commit it started from and the branch that held it. Until `base` is known,
  * `at` is the commit to read next and `reads` counts the commit reads so far. `checks` are the candidate branches
@@ -112,7 +110,7 @@ export function createForkOriginCheck({
     return check;
   }
 
-  async function step(job: ForkJob, repo: import('./azure-client.ts').AzureRepo): Promise<ForkJob | ForkOrigin> {
+  async function step(job: ForkJob, repo: import('../src/contract.d.ts').AzureRepo): Promise<ForkJob | ForkOrigin> {
     if (!job.base) {
       const commit = await provider.commit(repo, job.at);
       // The first commit an earlier push brought is where the branch started. Without a push order there is no base.

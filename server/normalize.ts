@@ -4,7 +4,6 @@ import { mergeUpdates } from './merge-evidence.ts';
 import { forkJob } from './fork-origin.ts';
 import { isRecord, recordsOf } from './azure-records.ts';
 import type { ActivityKind } from '../src/activity.ts';
-import type { AzureStream as StreamName, AzureRepo } from './azure-client.ts';
 import type {
   AzureStreamRecords,
   AzureStreamRecord,
@@ -14,24 +13,11 @@ import type {
   AzurePullRequest,
   AzureBuild,
   UnreadableIds,
+  AzureStream as StreamName,
+  AzureRepo,
 } from '../src/contract.d.ts';
 import type { RewriteJob } from './rewrite-check.ts';
 import type { ForkJob } from './fork-origin.ts';
-
-export type {
-  ActivityKind,
-  StreamName,
-  AzureStreamRecords,
-  AzureStreamRecord,
-  AzurePush,
-  AzureRefUpdate,
-  AzureRef,
-  AzurePullRequest,
-  AzureBuild,
-  UnreadableIds,
-  RewriteJob,
-  ForkJob,
-};
 
 export type WatchedRepo = AzureRepo & { id: string; disabled?: boolean };
 /** What `normalize` reads from a stream state; backfill passes `historical: true`. */

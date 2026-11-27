@@ -2,8 +2,6 @@ import { checkAge, renderCheckout } from './checkout-render.ts';
 import { setHtml } from './dom.ts';
 import type { CheckoutStatus, BlockedCheckout, Review, FollowupSummary } from '../contract.d.ts';
 
-export type { CheckoutStatus, BlockedCheckout, Review, FollowupSummary };
-
 /**
  * One repository's checkout as this page reads it. Every /api/checkouts entry fits: the server adds `followup`
  * when a branch follow-up is open, and the page keeps the `review` and `nextStep` a branch action returned, and the
