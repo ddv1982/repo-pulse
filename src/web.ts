@@ -55,10 +55,11 @@ const refresh = createRefreshController({
   },
   onUpdate({ metadata, force }) {
     const { activity, detail } = refresh.state;
+    // The answer can change which repository the graph shows; its history loads before any render, checkout read or
+    // probe, even when a focused control holds off the full render.
+    if (ui.route === 'graph') graph.sync();
     if (force || metadata !== lastRendered.metadata || activity !== lastRendered.activity || detail !== lastRendered.detail) {
       if (refreshTarget(force) === 'full') {
-        // The answer can change which repository the graph shows; its history loads before the page renders.
-        if (ui.route === 'graph') graph.sync();
         render();
         lastRendered = { metadata, activity, detail };
       }

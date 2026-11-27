@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { capture, cleanupStack, defer, listen, openPage } from './fixtures/app.ts';
+import { capture, cleanupStack, defer, listen, openPage, refreshNow } from './fixtures/app.ts';
+import { createCheckoutGit } from '../server/checkout-git.ts';
 import { expect } from '@playwright/test';
 import { createApp } from '../server/runtime.ts';
 import { TEST_KEY } from '../test/fixtures/access.ts';
@@ -278,4 +279,46 @@ test('a long repository name wraps inside the picker on a narrow screen', async 
   const box = present(await option.boundingBox());
   assert.ok(box.x >= 0 && box.x + box.width <= 320, `the option spans ${box.x} to ${box.x + box.width} on a 320px screen`);
   await expect(option).toContainText('Regulatory Reporting Platform');
+});
+
+test('a state answer that disables the shown repository moves the graph to the next one while its selector has focus', async t => {
+  const cleanup = cleanupStack(t);
+  const first = checkoutFixture(cleanup);
+  const second = checkoutFixture(cleanup);
+  const subjectA = first.commit(first.local, 'a.txt', 'Only in repository A');
+  const subjectB = second.commit(second.local, 'b.txt', 'Only in repository B');
+  const repoA = { ...first.repo, id: 'repo-a', azureId: 'repo-a', name: 'Alpha' };
+  const repoB = { ...second.repo, id: 'repo-b', azureId: 'repo-b', name: 'Beta' };
+  const store = createStore();
+  defer(t, () => store.close());
+  store.saveRepo(repoA);
+  store.saveRepo(repoB);
+  const app = createApp({
+    store,
+    checkoutGit: createCheckoutGit({ matchesRemote: url => url === first.remote || url === second.remote }),
+    provider: stub<AzureProvider>({ checkConnection: async () => stub<ConnectionStatus>({ available: true }) }),
+    sync: stub<AppSync>({ status: () => idleSyncStatus() }),
+    accessKey: TEST_KEY,
+  });
+  const url = await listen(t, app);
+  const page = await openPage(t, { key: TEST_KEY });
+  const graphReads: string[] = [];
+  page.on('request', request => {
+    const match = /\/api\/repos\/([^/]+)\/graph/.exec(new URL(request.url()).pathname);
+    if (match?.[1]) graphReads.push(match[1]);
+  });
+  await page.goto(`${url}/#graph`);
+  const select = page.locator('#graph-repo');
+  await expect(select).toHaveValue('repo-a');
+  await expect(page.locator(`#commit-${subjectA}`)).toBeVisible();
+  await select.focus();
+  store.saveRepo({ ...repoA, disabled: true });
+  await refreshNow(page);
+  await expect(select).toHaveValue('repo-b');
+  await expect(page.locator(`#commit-${subjectB}`)).toBeVisible();
+  await expect(page.locator(`#commit-${subjectA}`)).toHaveCount(0);
+  graphReads.length = 0;
+  await page.getByRole('button', { name: 'Reload graph' }).click();
+  await expect(page.locator(`#commit-${subjectB}`)).toBeVisible();
+  assert.deepEqual([...new Set(graphReads)], ['repo-b']);
 });
