@@ -16,6 +16,7 @@ import { createSeenActions, eventIds } from './ui/seen-actions.ts';
 import { detailView } from './ui/activity-detail.ts';
 import { createFilterNameDialog, currentActivityFilters, isSavedFilterModified, savedRepositoryScope } from './ui/saved-filters.ts';
 import { createToolbarMenu } from './ui/toolbar-menu.ts';
+import { createMenuManager } from './ui/menus.ts';
 import { createRepositoryScope, scopeName } from './ui/repository-scope.ts';
 import { createHistoryImport } from './ui/history-import.ts';
 import { createBranchPicker } from './ui/branch-picker.ts';
@@ -85,7 +86,9 @@ const ui: import('./ui/browser-view.ts').BrowserUi = {
 /** Data each detail page loaded on request, by event. */
 const commitResults: Map<string | null, import('./ui/activity-detail.ts').LoadedView> = new Map();
 const feedCommits = new Map<string, import('./ui/activity-detail.ts').CommitsView>();
+const menus = createMenuManager(ui);
 const picker = createRepositoryPicker({
+  menus,
   request,
   getRepos: () => refresh.state.watched,
   onError: reportError,
@@ -95,15 +98,15 @@ const picker = createRepositoryPicker({
   },
 });
 const typeFilter = createTypeFilter({
-  state: ui,
+  menus,
   onChange: setActivityType,
 });
-const repositoryScope = createRepositoryScope(ui);
+const repositoryScope = createRepositoryScope(menus);
 const savedFilterPicker = createToolbarMenu({
+  menus,
   toggleId: 'saved-filter-toggle',
   panelId: 'saved-filter-panel',
   itemSelector: '[data-preset]',
-  state: ui,
   onSelect: option => {
     const preset = refresh.state.savedFilters.find(filter => filter.id === option.dataset.preset);
     if (preset) applySavedFilter(preset);
@@ -111,10 +114,10 @@ const savedFilterPicker = createToolbarMenu({
   },
 });
 const savedFilterActions = createToolbarMenu({
+  menus,
   toggleId: 'saved-filter-actions-toggle',
   panelId: 'saved-filter-actions-panel',
   itemSelector: '[data-filter-action]',
-  state: ui,
   onSelect: option => {
     void withAction(actionResource(option.dataset.filterAction), () => dispatch(option.dataset.filterAction, option));
   },

@@ -383,3 +383,27 @@ test('Settings shows scoped CLI access and header switches share the automatic c
   await page.keyboard.press('Escape');
   await expect(header.getByRole('switch', { name: 'Automatic checks' })).toHaveCount(0);
 });
+
+test('the repository picker list closes when a pointer goes down or focus moves outside it, and stays open while choosing', async t => {
+  const { page } = await setupPicker(t);
+  const search = page.getByRole('combobox', { name: 'Search local repositories' });
+  const list = page.getByRole('listbox', { name: 'Search local repositories' });
+  await search.focus();
+  await expect(list).toBeVisible();
+  await expect(search).toHaveAttribute('aria-expanded', 'true');
+  // A pointer going down outside closes it at once, before any click.
+  await page.mouse.move(5, 5);
+  await page.mouse.down();
+  await expect(list).toBeHidden();
+  await expect(search).toHaveAttribute('aria-expanded', 'false');
+  await page.mouse.up();
+  await search.focus();
+  await expect(list).toBeVisible();
+  // So does focus moving to another control by keyboard.
+  await page.getByRole('link', { name: 'Settings', exact: true }).focus();
+  await expect(list).toBeHidden();
+  // Choosing in the list keeps it open.
+  await search.focus();
+  await page.getByRole('option').first().click();
+  await expect(list).toBeVisible();
+});

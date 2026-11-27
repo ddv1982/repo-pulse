@@ -1,6 +1,7 @@
 import { emptyHtml, html } from './format.ts';
 import { required, setHtml } from './dom.ts';
 import type { FoldersResponse, Repository, DiscoveredRemote } from '../contract.ts';
+import type { MenuManager } from './menus.ts';
 
 /** A subfolder row, or the row that leads up to the parent folder. */
 type FolderOption = FoldersResponse['folders'][number] & { up?: boolean };
@@ -9,6 +10,7 @@ type CheckoutItem = { localPath: string; remote: DiscoveredRemote; multiple: boo
 /** Whether the listed checkouts span several organizations or projects, so rows must name them. */
 type Mixed = { organizations: boolean; projects: boolean };
 interface PickerHost {
+  menus: MenuManager;
   request: typeof import('../api.ts').request;
   /** The watched repositories; their checkouts are shown as already watched. */
   getRepos: () => Repository[];
@@ -19,6 +21,8 @@ interface PickerHost {
 }
 
 const KEY = 'repo-pulse-picker-folder';
+/** The listbox's ID, which names it to the menu manager while it is open. */
+const LISTBOX = 'checkout-options';
 const keyOf = (item: CheckoutItem) => JSON.stringify([item.localPath, item.remote.name]);
 const lower = (value: string | null | undefined) => String(value || '').toLowerCase();
 const homePrefix = (path?: string) =>
@@ -41,7 +45,7 @@ function highlight(text: string, query: string) {
 const messageOf = (cause: unknown) => (cause instanceof Error ? cause.message : String(cause));
 
 /** Self-contained local picker: no Azure reads until the explicit commit action. */
-export function createRepositoryPicker({ request, getRepos, onAdded, onError }: PickerHost) {
+export function createRepositoryPicker({ menus, request, getRepos, onAdded, onError }: PickerHost) {
   let host: HTMLElement | undefined;
   let boundHost: HTMLElement | undefined;
   /** The folder whose checkouts are listed, or the one being browsed. */
@@ -50,7 +54,6 @@ export function createRepositoryPicker({ request, getRepos, onAdded, onError }: 
   let beforeBrowse: FoldersResponse | undefined;
   let mode: 'checkouts' | 'folders' = 'checkouts';
   let query = '',
-    open = false,
     active = 0;
   let loading = false,
     adding = false,
@@ -76,15 +79,21 @@ export function createRepositoryPicker({ request, getRepos, onAdded, onError }: 
         lower(repo.project) === lower(item.remote.project) &&
         lower(repo.name) === lower(item.remote.repoName),
     );
-  function closeOutside(event: Event) {
-    const target = event.target;
-    if (!open || adding || !host?.isConnected || !(target instanceof Node) || !target.isConnected || host.contains(target)) return;
-    open = false;
-    render();
+  // The listbox is open while the menu manager names it, so another menu opening closes it.
+  const isOpen = () => menus.isOpen(LISTBOX);
+  function setOpen(value: boolean) {
+    if (value) menus.open(LISTBOX);
+    else menus.closed(LISTBOX);
   }
-  // One listener per picker instance, not one per mount/re-render.
-  document.addEventListener('pointerdown', closeOutside);
-  document.addEventListener('focusin', closeOutside);
+  menus.register(LISTBOX, {
+    root: () => host,
+    close: () => {
+      setOpen(false);
+      render();
+    },
+    outside: { pointer: 'pointerdown', focus: 'any' },
+    holds: () => adding,
+  });
   function options(): FolderOption[] | CheckoutItem[] {
     return mode === 'folders' ? folderOptions() : checkoutOptions();
   }
@@ -195,11 +204,11 @@ export function createRepositoryPicker({ request, getRepos, onAdded, onError }: 
     setHtml(
       host,
       html`<div class="picker-root-row"><nav class="picker-crumbs" aria-label="Local folder">${crumbsMarkup()}</nav><div class="actions"><button class="btn sm" type="button" data-picker="browse" ${adding ? html`disabled` : emptyHtml}>Change folder</button><button class="ghost sm" type="button" data-picker="rescan" aria-label="Rescan folder" title="Rescan local folder" ${loading || adding ? html`disabled` : emptyHtml}>↻</button></div></div>
-      <label for="checkout-search" class="picker-label">${label}</label><div class="picker-input"><input id="checkout-search" class="search" role="combobox" autocomplete="off" aria-expanded="${open}" aria-controls="checkout-options" aria-autocomplete="list" ${open && list.length && !loading ? html`aria-activedescendant="checkout-option-${active}"` : emptyHtml} placeholder="${mode === 'folders' ? 'Folder name or /path/to/folder' : 'Search repository or folder name…'}" value="${query}" ${adding ? html`readonly` : emptyHtml}><button class="ghost" type="button" data-picker="toggle" aria-label="${open ? 'Close' : 'Open'} repository picker" ${adding ? html`disabled` : emptyHtml}>▾</button></div>
-      <div class="picker-results" ${open ? emptyHtml : html`hidden`}><ul id="checkout-options" role="listbox" aria-label="${label}" ${mode === 'checkouts' ? html`aria-multiselectable="true"` : emptyHtml} ${loading ? html`aria-busy="true"` : emptyHtml}>${optionsMarkup(list)}</ul><p class="help picker-count">${loading ? 'Only local disk is read.' : `${list.length} ${mode === 'folders' ? 'folders' : 'checkout remotes'} shown · no Azure requests`}</p></div>
+      <label for="checkout-search" class="picker-label">${label}</label><div class="picker-input"><input id="checkout-search" class="search" role="combobox" autocomplete="off" aria-expanded="${isOpen()}" aria-controls="checkout-options" aria-autocomplete="list" ${isOpen() && list.length && !loading ? html`aria-activedescendant="checkout-option-${active}"` : emptyHtml} placeholder="${mode === 'folders' ? 'Folder name or /path/to/folder' : 'Search repository or folder name…'}" value="${query}" ${adding ? html`readonly` : emptyHtml}><button class="ghost" type="button" data-picker="toggle" aria-label="${isOpen() ? 'Close' : 'Open'} repository picker" ${adding ? html`disabled` : emptyHtml}>▾</button></div>
+      <div class="picker-results" ${isOpen() ? emptyHtml : html`hidden`}><ul id="checkout-options" role="listbox" aria-label="${label}" ${mode === 'checkouts' ? html`aria-multiselectable="true"` : emptyHtml} ${loading ? html`aria-busy="true"` : emptyHtml}>${optionsMarkup(list)}</ul><p class="help picker-count">${loading ? 'Only local disk is read.' : `${list.length} ${mode === 'folders' ? 'folders' : 'checkout remotes'} shown · no Azure requests`}</p></div>
       ${error ? html`<div class="banner warn" role="alert"><div>${error}</div></div>` : emptyHtml}${(data?.warnings || []).map(warning => html`<p class="help">${warning}</p>`)}
       ${footerMarkup()}
-      <p class="help" role="status" aria-live="polite">${message || (!loading && open ? `${list.length} matches. ${selected.size} selected.` : '')}</p>`,
+      <p class="help" role="status" aria-live="polite">${message || (!loading && isOpen() ? `${list.length} matches. ${selected.size} selected.` : '')}</p>`,
     );
   }
   async function choose(index: number) {
@@ -268,26 +277,26 @@ export function createRepositoryPicker({ request, getRepos, onAdded, onError }: 
   /** The buttons' data-picker actions. */
   const actions: Record<string, (button: HTMLButtonElement) => unknown> = {
     toggle() {
-      open = !open;
+      setOpen(!isOpen());
       render();
-      if (open && !data && !loading) void readFolder(remembered);
+      if (isOpen() && !data && !loading) void readFolder(remembered);
     },
     browse() {
       if (mode !== 'folders') beforeBrowse = data;
       mode = 'folders';
-      open = true;
+      setOpen(true);
       query = '';
       render();
       if (!data && !loading) void readFolder(remembered);
       required('#checkout-search', HTMLInputElement, host).focus();
     },
     navigate(element) {
-      open = true;
+      setOpen(true);
       query = '';
       return readFolder(element.dataset.path);
     },
     rescan() {
-      open = true;
+      setOpen(true);
       return readFolder(data?.path || remembered);
     },
     use: useFolder,
@@ -299,7 +308,7 @@ export function createRepositoryPicker({ request, getRepos, onAdded, onError }: 
     add,
   };
   return {
-    active: () => adding || open,
+    active: () => adding || isOpen(),
     mount(element: HTMLElement | null) {
       host = element ?? undefined;
       if (!host) return;
@@ -328,8 +337,8 @@ export function createRepositoryPicker({ request, getRepos, onAdded, onError }: 
         if (event.target instanceof Element && event.target.closest('[data-picker-option]')) event.preventDefault();
       };
       host.addEventListener('focusin', event => {
-        if (event.target instanceof Element && event.target.id === 'checkout-search' && !open) {
-          open = true;
+        if (event.target instanceof Element && event.target.id === 'checkout-search' && !isOpen()) {
+          setOpen(true);
           render();
           if (!data && !loading) void readFolder(remembered);
         }
@@ -337,7 +346,7 @@ export function createRepositoryPicker({ request, getRepos, onAdded, onError }: 
       host.oninput = event => {
         if (event.target instanceof HTMLInputElement && event.target.id === 'checkout-search') {
           query = event.target.value;
-          open = true;
+          setOpen(true);
           active = 0;
           render();
         }
@@ -349,8 +358,8 @@ export function createRepositoryPicker({ request, getRepos, onAdded, onError }: 
           event.preventDefault();
           if (mode === 'folders') cancel();
           else {
-            if (!open) query = '';
-            open = false;
+            if (!isOpen()) query = '';
+            setOpen(false);
             render();
           }
         } else if (event.key === 'Enter') {
@@ -359,13 +368,13 @@ export function createRepositoryPicker({ request, getRepos, onAdded, onError }: 
             if (mode === 'folders') useFolder();
             else void add();
           } else if (mode === 'folders' && /^[~/]/.test(query)) void readFolder(query);
-          else if (!open) {
-            open = true;
+          else if (!isOpen()) {
+            setOpen(true);
             render();
           } else void choose(active);
         } else if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) {
           event.preventDefault();
-          open = true;
+          setOpen(true);
           active =
             event.key === 'Home'
               ? 0
