@@ -4,7 +4,7 @@ import { renderFeed, renderDetail } from './feed.ts';
 import { renderRepositories } from './repositories.ts';
 import { renderSettings } from './settings.ts';
 import { eventIds } from './seen-actions.ts';
-import { required, setHtml } from './dom.ts';
+import { all, checked, required, setHtml } from './dom.ts';
 import { emptyHtml, html, type SafeHtml } from './format.ts';
 import type { PageState } from './refresh.ts';
 import type { ResultsContext, NavigationState } from './navigation.ts';
@@ -18,7 +18,7 @@ export function replacementFocus(id: string) {
   if (id === 'clear-filters') return document.getElementById('feed-search');
   const checkoutAction = /^checkout-(?:switch-target|check|pull|switch)-(.+)$/.exec(id);
   if (checkoutAction) return document.getElementById(`checkout-state-${checkoutAction[1]}`);
-  if (id === 'activity-branch-action') return document.querySelector<HTMLElement>('.checkout-bar');
+  if (id === 'activity-branch-action') return checked(document.querySelector('.checkout-bar'), HTMLElement, '.checkout-bar');
   if (id === 'graph-clear-search') return document.getElementById('graph-search');
   if (id.startsWith('kind-option-') || id.startsWith('summary-ci-')) return document.getElementById('kind-toggle');
   if (id.startsWith('saved-filter-option-'))
@@ -208,7 +208,7 @@ export function createBrowserView({
         const row = [...page.querySelectorAll('li[data-event-id]')].find(
           element => element instanceof HTMLElement && restored.eventId != null && eventIds(element).includes(restored.eventId),
         );
-        const detail = [...(row?.querySelectorAll<HTMLButtonElement>('[data-action="detail"]') ?? [])].find(
+        const detail = (row ? all('[data-action="detail"]', HTMLButtonElement, row) : []).find(
           element => element.dataset.id === restored.eventId && element.checkVisibility(),
         );
         const title = detail ?? row?.querySelector('.feed-title');

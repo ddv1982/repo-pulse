@@ -7,7 +7,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, sep } from 'node:path';
 import { groupActivity } from '../src/activity.ts';
 import { SafeHtml, html as safeHtml, joinHtml } from '../src/ui/format.ts';
 import { present, stub } from './fixtures/typed.ts';
@@ -657,16 +657,15 @@ test('html auto-escapes plain values and composes only branded SafeHtml', () => 
 });
 
 test('setHtml in src/ui/dom.ts is the only innerHTML sink across browser source files', () => {
-  const dirs = ['src', join('src', 'ui'), 'web'];
-  const offenders = [];
-  for (const dir of dirs) {
-    for (const file of readdirSync(dir)) {
-      if (!/\.[jt]s$/.test(file)) continue;
-      const rel = join(dir, file);
-      if (rel.replace(/\.[jt]s$/, '') === join('src', 'ui', 'dom')) continue;
-      if (/\.innerHTML\b/.test(readFileSync(rel, 'utf8'))) offenders.push(rel);
-    }
-  }
+  // web/vendor holds third-party code (Idiomorph) that writes innerHTML itself.
+  const files = ['src', 'web'].flatMap(dir => readdirSync(dir, { recursive: true, encoding: 'utf8' }).map(file => join(dir, file)));
+  const offenders = files.filter(
+    file =>
+      /\.[jt]s$/.test(file) &&
+      !file.startsWith(join('web', 'vendor') + sep) &&
+      file.replace(/\.[jt]s$/, '') !== join('src', 'ui', 'dom') &&
+      /\.innerHTML\b/.test(readFileSync(file, 'utf8')),
+  );
   assert.deepEqual(offenders, []);
 });
 

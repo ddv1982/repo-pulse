@@ -1,21 +1,33 @@
 import { Idiomorph } from '../../web/vendor/idiomorph.esm.js';
 import { SafeHtml } from './format.ts';
 
+type ElementType<T extends Element> = new (...args: never[]) => T;
+
+function ofType<T extends Element>(element: Element, Type: ElementType<T>, selector: string, role: string) {
+  if (element instanceof Type) return element;
+  throw new Error(`Repo Pulse: ${role} ${selector} is a <${element.localName}>, expected ${Type.name}`);
+}
+
 /**
  * Look up an element the UI cannot work without. A missing or mistyped element is a broken page, so fail with the
  * selector in the message instead of a later "cannot read properties of null". Without a Type it must be an HTMLElement.
  */
 export function required(selector: string): HTMLElement;
-export function required<T extends Element>(selector: string, Type: new (...args: never[]) => T, root?: ParentNode): T;
-export function required<T extends Element>(
-  selector: string,
-  Type?: new (...args: never[]) => T,
-  root: ParentNode = document,
-): T | HTMLElement {
+export function required<T extends Element>(selector: string, Type: ElementType<T>, root?: ParentNode): T;
+export function required(selector: string, Type: ElementType<Element> = HTMLElement, root: ParentNode = document) {
   const element = root.querySelector(selector);
-  if (Type && element instanceof Type) return element;
-  if (!Type && element instanceof HTMLElement) return element;
-  throw new Error(`Repo Pulse: missing required element ${selector}`);
+  if (!element) throw new Error(`Repo Pulse: missing required element ${selector}`);
+  return ofType(element, Type, selector, 'required element');
+}
+
+/** The result of an optional lookup (querySelector, closest) as the type the caller reads. Absent stays null; another type throws. */
+export function checked<T extends Element>(element: Element | null, Type: ElementType<T>, selector: string): T | null {
+  return element && ofType(element, Type, selector, 'element');
+}
+
+/** Every element under root that matches, each of which must be a Type. */
+export function all<T extends Element>(selector: string, Type: ElementType<T>, root: ParentNode = document): T[] {
+  return [...root.querySelectorAll(selector)].map(element => ofType(element, Type, selector, 'element'));
 }
 
 /**

@@ -18,7 +18,7 @@ import { createToolbarMenu } from './ui/toolbar-menu.ts';
 import { scopeName } from './ui/header.ts';
 import { createHistoryImport } from './ui/history-import.ts';
 import { createBranchPicker } from './ui/branch-picker.ts';
-import { required, setHtml } from './ui/dom.ts';
+import { all, checked, required, setHtml } from './ui/dom.ts';
 import type { PageState } from './ui/refresh.ts';
 import type { Action } from './ui/checkout-actions.ts';
 
@@ -67,6 +67,7 @@ const feedCommits = new Map<string, import('./ui/activity-detail.ts').CommitsVie
 const picker = createRepositoryPicker({
   request,
   getRepos: () => refresh.state.watched,
+  onError: reportError,
   onAdded: async count => {
     await load({ force: true });
     toast(`${count} repositories watched.`);
@@ -93,7 +94,7 @@ const savedFilterActions = createToolbarMenu({
   itemSelector: '[data-filter-action]',
   state: ui,
   onSelect: option => {
-    void withAction(() => actions[option.dataset.filterAction ?? '']?.(option));
+    void withAction(() => dispatch(option.dataset.filterAction, option));
   },
 });
 const filterName = createFilterNameDialog(required('#filter-name-dialog', HTMLDialogElement));
@@ -299,7 +300,7 @@ function setGraphSearch(query: string) {
 }
 
 function moveGraphMatch(step: 1 | -1) {
-  const matches = [...page.querySelectorAll<HTMLElement>('.graph-match')];
+  const matches = all('.graph-match', HTMLElement, page);
   if (!matches.length) return;
   const current = matches.findIndex(row => row.id === `commit-${graphMatch}`);
   const index = current < 0 ? (step === 1 ? 0 : matches.length - 1) : (current + step + matches.length) % matches.length;
@@ -312,7 +313,7 @@ function moveGraphMatch(step: 1 | -1) {
 
 function revealRelatedCi() {
   if (!focusRelatedCi || ui.route !== 'event') return;
-  const summary = page.querySelector<HTMLElement>('.detail-related > summary');
+  const summary = checked(page.querySelector('.detail-related > summary'), HTMLElement, '.detail-related > summary');
   if (!summary) return;
   focusRelatedCi = false;
   summary.scrollIntoView({ block: 'start' });
@@ -441,16 +442,27 @@ function closeDialog() {
   opener?.focus({ preventScroll: true });
 }
 
+function reportError(error: unknown) {
+  showError(error instanceof Error ? error.message : String(error));
+}
+
 async function withAction(callback: () => unknown) {
   if (busy) return;
   busy = true;
   try {
     await callback();
   } catch (error) {
-    showError(error instanceof Error ? error.message : String(error));
+    reportError(error);
   } finally {
     busy = false;
   }
+}
+
+/** Runs the named action. A name without one is broken markup, reported instead of ignored. */
+function dispatch(name: string | undefined, element: HTMLElement) {
+  const action = name && Object.hasOwn(actions, name) ? actions[name] : undefined;
+  if (!action) throw new Error(`Repo Pulse: unknown action ${JSON.stringify(name ?? '')}`);
+  return action(element);
 }
 
 function setRefreshPending(pending: boolean) {
@@ -788,7 +800,7 @@ document.addEventListener('click', event => {
     return;
   }
   if (document.querySelector('#repo-panel:not([hidden])') && !target.closest('#repo-panel')) showScopePanel(false);
-  const graphLink = target.closest<HTMLAnchorElement>('.graph-link');
+  const graphLink = checked(target.closest('.graph-link'), HTMLAnchorElement, '.graph-link');
   if (ui.route === 'graph' && graphLink && !event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey) {
     graphReturn = {
       visit: ++graphVisit,
@@ -803,10 +815,9 @@ document.addEventListener('click', event => {
     history.replaceState({ ...history.state, graphVisit }, '');
   }
   const element = target.closest('[data-action]');
-  const action = element instanceof HTMLElement ? element.dataset.action : undefined;
-  if (element instanceof HTMLElement && action && actions[action]) {
+  if (element instanceof HTMLElement) {
     event.preventDefault();
-    void withAction(() => actions[action]?.(element));
+    void withAction(() => dispatch(element.dataset.action, element));
   }
 });
 
@@ -964,7 +975,7 @@ function route() {
     requestAnimationFrame(() => {
       if (!isCurrent()) return;
       const row = document.getElementById(restoreGraph.rowId);
-      const link = [...(row?.querySelectorAll<HTMLAnchorElement>('.graph-link') ?? [])].find(link => link.hash === restoreGraph.href);
+      const link = (row ? all('.graph-link', HTMLAnchorElement, row) : []).find(link => link.hash === restoreGraph.href);
       (link ?? document.getElementById('graph-search'))?.focus({ preventScroll: true });
       page.querySelector('.graph-commits')?.scrollTo({ left: restoreGraph.x, behavior: 'instant' });
       window.scrollTo({ top: restoreGraph.y, behavior: 'instant' });

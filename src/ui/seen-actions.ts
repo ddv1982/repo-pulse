@@ -16,6 +16,13 @@ export function eventIds(element: HTMLElement) {
   );
 }
 
+/** The state a Seen control sets. Anything but "true" or "false" is broken markup, so nothing is sent. */
+function markSeen(element: HTMLElement) {
+  const value = element.dataset.markSeen;
+  if (value === 'true' || value === 'false') return value === 'true';
+  throw new Error(`Repo Pulse: a Seen control has data-mark-seen ${JSON.stringify(value ?? null)}, expected "true" or "false"`);
+}
+
 function shownUnseenIds(page: HTMLElement) {
   const ids = [...page.querySelectorAll('li[data-event-id]')]
     .filter(element => element instanceof HTMLLIElement)
@@ -88,8 +95,9 @@ export function createSeenActions({
     shownUnseenIds: () => shownUnseenIds(page),
     actions: {
       'ack-item': element => {
+        const seen = markSeen(element);
         const ids = eventIds(element);
-        if (ids.length) return acknowledge(ids, element.dataset.markSeen === 'true');
+        if (ids.length) return acknowledge(ids, seen);
       },
       'undo-ack': async () => {
         if (undoIds.length) await acknowledge(undoIds, false, { undo: true });
