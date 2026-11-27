@@ -23,9 +23,8 @@ From the [improvement plan](archive/IMPROVEMENT-PLAN.md#phase-3-working-agreemen
 
 ## Architecture refactor
 
-Approved on 2026-11-27 after a council review at `a0c73ea`. Phases 0 and 1 (user-visible bug fixes and mechanical hygiene) came first. Each later phase is one PR, merged before the next starts, and its pull request lists the items and their checks.
+Approved on 2026-11-27 after a council review at `a0c73ea`. Phases 0 and 1 (user-visible bug fixes and mechanical hygiene) and phase 2 (server boundary and one contract) are done. Each later phase is one PR, merged before the next starts, and its pull request lists the items and their checks.
 
-- Phase 2, server boundary and one contract: one error type with one HTTP mapping, `src/contract.ts` with derived unions, one method-keyed route map shared by the server and `request()`, `server.ts` split into HTTP, routes and runtime, request validation at the route, demo mode as a full runtime, and discriminated checkout commands.
 - Phase 3, browser shell: a graph controller, page state in `ui` (header overflow, group open state, commit selection), one action dispatcher, one menu manager, a dialog helper, `src/web.ts` split into controllers, the Activity detail rendered from the group the server returned, and typed navigation state.
 - Phase 4, server internals: `createStore` split, `server/git.ts` with one checkout context, typed Azure reads, PR and build reconciliation moved out of `server/sync.ts`, and per-repository settings keys owned by the store. Moving `GitRunner`, `Upstream` and the job and entity types here also removes the two type-import cycles phase 1 left (the checkout modules, and normalize, store, store-records, rewrite-check and fork-origin).
 - Phase 5, presentation, naming and tests: stylesheets split with shared tokens and documented breakpoints, stable graph status IDs, identifier renames, and a split sync test with shared fixtures.
@@ -35,9 +34,9 @@ Approved on 2026-11-27 after a council review at `a0c73ea`. Phases 0 and 1 (user
 From the [post-migration plan](archive/post-migration-plan.md#when-the-code-is-next-touched). Do each one as part of a change that already touches the code, not on its own.
 
 - `EventData` as a union on `kind` instead of optional fields (`src/activity.ts`). Stored rows from older versions still need lenient reads. About 2 to 3 days.
-- One route table shared by `server.ts` and `src/api.ts`, keyed by method and path, covering request bodies and validating the response body before `request()` returns. Planned as refactor phase 2.
+- `request()` in `src/api.ts` trusts the response body to match the route map; validating it before returning is still open.
 - A smaller `/api/state` response that leaves out stored stream internals.
-- Split `createApp` (`server.ts`) into route groups and `createStore` (`server/store.ts`) into query modules. Planned as refactor phases 2 and 4.
+- Split `createStore` (`server/store.ts`) into query modules. Planned as refactor phase 4.
 - New tests use narrow typed fakes instead of `stub<T>()`, which asserts a partial object as a complete one (`test/fixtures/typed.ts`).
 - Ticked follow-up commits now live on the checkout snapshot and survive polls, but `refreshTarget` in `src/ui/browser-view.ts` still skips background renders while one is ticked. Moving the selection into `ui` lets that guard go. Planned as refactor phase 3.
 - `activityTitle` (`src/activity-text.ts`) renders the raw stored build `definition.name`, so a value that cannot be converted to text can break the page.
