@@ -92,6 +92,10 @@ export function createSeenActions({
 
   return {
     acknowledge,
+    /** Forget the updates Undo would restore, for when they no longer exist. */
+    forgetUndo() {
+      undoIds = [];
+    },
     shownUnseenIds: () => shownUnseenIds(page),
     actions: {
       'ack-item': element => {

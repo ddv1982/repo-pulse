@@ -593,3 +593,28 @@ test('a refresh started while Undo shows reports its outcome and keeps Undo', as
   await expect(page.getByText('Activity refresh queued.')).toBeInViewport();
   await capture(page, 'undo-and-message-390.png');
 });
+
+test('a message that appears while the pointer is on Undo does not move it', async t => {
+  const { page } = await setup(t);
+  await page.locator('li[data-event-id] .seen-toggle[aria-pressed="false"]').first().click();
+  const undo = page.getByRole('button', { name: 'Undo', exact: true });
+  await expect(undo).toBeVisible();
+  const before = await undo.boundingBox();
+  await page.getByRole('button', { name: 'Refresh activity', exact: true }).first().click();
+  await expect(page.getByText('Activity refresh queued.')).toBeVisible();
+  assert.deepEqual(await undo.boundingBox(), before);
+});
+
+test('Start from scratch withdraws the Undo offer for the activity it deletes', async t => {
+  const { page } = await groupedFixture(t);
+  // The test server runs in demo mode, which refuses a reset; answer as a live server that accepted it.
+  await page.route('**/api/reset', route => route.fulfill({ status: 202, json: { started: true } }));
+  await page.locator('li[data-event-id] [data-action="ack-item"]').first().click();
+  const undo = page.getByRole('button', { name: 'Undo', exact: true });
+  await expect(undo).toBeVisible();
+  await page.getByRole('link', { name: 'Settings', exact: true }).click();
+  await page.getByRole('button', { name: 'Start from scratch' }).click();
+  await page.getByRole('button', { name: 'Delete and import again' }).click();
+  await expect(page.getByText(/^Starting from scratch\./)).toBeVisible();
+  await expect(undo).toBeHidden();
+});

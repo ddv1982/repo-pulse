@@ -86,8 +86,9 @@
       </form>
     </dialog>
     <div class="toast-stack">
-      <div id="undo-toast" class="toast" role="status" hidden></div>
       <div id="toast" class="toast" role="status" hidden></div>
+      <!-- Last, so a message appearing above never moves Undo under the pointer. -->
+      <div id="undo-toast" class="toast" role="status" hidden></div>
     </div>
   </body>
 </html>

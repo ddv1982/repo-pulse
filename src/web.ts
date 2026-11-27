@@ -430,14 +430,18 @@ function toast(message: string) {
   }, 6000);
 }
 
+function hideUndo() {
+  clearTimeout(undoTimer);
+  required('#undo-toast').hidden = true;
+}
+
 /**
- * Seen feedback. An Undo offer has its own slot and timer above the message toast, so other messages show beside it
- * and never remove it; the next seen result replaces it.
+ * Seen feedback. An Undo offer has its own slot and timer below the message toast, so other messages show above it
+ * and never remove or move it; the next seen result replaces it.
  */
 function seenToast(message: string, { undo = false } = {}) {
   const element = required('#undo-toast');
-  clearTimeout(undoTimer);
-  element.hidden = true;
+  hideUndo();
   if (!undo) return toast(message);
   setHtml(element, html`${message}<button type="button" data-action="undo-ack">Undo</button>`);
   element.hidden = false;
@@ -791,6 +795,9 @@ const actions: Record<string, Action> = {
       'This deletes all stored activity, seen marks and imported history on this computer, then imports the last seven days from Azure DevOps again. Older history can be imported from Repositories. Your repositories, linked checkouts and settings stay.',
       async () => {
         await request('/api/reset', { method: 'POST', body: {} });
+        // The activity Undo would restore is being deleted.
+        seen.forgetUndo();
+        hideUndo();
         feedCommits.clear();
         await load({ force: true });
         toast('Starting from scratch. Stored activity is being deleted, then the last seven days are imported.');
