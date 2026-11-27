@@ -1,72 +1,10 @@
-import type {
-  StateResponse,
-  EventResponse,
-  CheckoutsResponse,
-  CheckoutUpdateResponse,
-  ConnectionResponse,
-  PushCommitsResponse,
-  PrReviewResponse,
-  OkResponse,
-  DiscoverResponse,
-  FoldersResponse,
-} from './contract.ts';
-import type { ActivityPage as ActivityResponse } from './activity.ts';
+import { routeUrl, type RouteTarget } from './route-url.ts';
+import type { RouteBody, RouteKey, RouteParams, RouteQuery, RouteResponse } from './contract.ts';
 
-/**
- * The response body for a request path, matched on the path's shape. More specific shapes come first.
- */
-type ResponseFor<P extends string> = P extends '/api/state'
-  ? StateResponse
-  : P extends '/api/activity' | `/api/activity?${string}`
-    ? ActivityResponse
-    : P extends `/api/activity/unseen?${string}`
-      ? { ids: string[] }
-      : P extends '/api/activity-filters'
-        ? import('./contract.ts').SavedActivityFilter
-        : P extends `/api/activity-filters/${string}`
-          ? import('./contract.ts').SavedActivityFilter | OkResponse
-          : P extends `/api/events/${string}`
-            ? EventResponse
-            : P extends '/api/checkouts'
-              ? CheckoutsResponse
-              : P extends `/api/repos/${string}/checkout/branches`
-                ? import('./contract.ts').CheckoutBranchesResponse
-                : P extends `/api/repos/${string}/checkout/status` | `/api/repos/${string}/checkout/status?${string}`
-                  ? import('./contract.ts').CheckoutStatusResponse
-                  : P extends `/api/repos/${string}/checkout`
-                    ? CheckoutUpdateResponse
-                    : P extends '/api/repos'
-                      ? import('./contract.ts').Repository
-                      : P extends `/api/repos/${string}`
-                        ? P extends `/api/repos/${string}/graph/snapshot`
-                          ? import('./contract.ts').GitHistorySnapshot
-                          : P extends `/api/repos/${string}/graph` | `/api/repos/${string}/graph?${string}`
-                            ? import('./contract.ts').GitHistoryPage
-                            : OkResponse
-                        : P extends '/api/connection' | `/api/connection?${string}`
-                          ? ConnectionResponse
-                          : P extends `/api/push/${string}/${string}/commits` | `/api/push/${string}/${string}/commits?${string}`
-                            ? PushCommitsResponse
-                            : P extends `/api/pr/${string}/${string}/review`
-                              ? PrReviewResponse
-                              : P extends '/api/backfill'
-                                ? import('./contract.ts').BackfillResponse
-                                : P extends '/api/refresh'
-                                  ? import('./contract.ts').RefreshResponse
-                                  : P extends '/api/reset'
-                                    ? import('./contract.ts').ResetResponse
-                                    : P extends '/api/discover'
-                                      ? DiscoverResponse
-                                      : P extends '/api/folders'
-                                        ? FoldersResponse
-                                        : P extends '/api/demo/event'
-                                          ? import('./contract.ts').DemoEventResponse
-                                          : P extends '/api/ack'
-                                            ? OkResponse & { changedIds: string[] }
-                                            : P extends '/api/settings'
-                                              ? OkResponse
-                                              : unknown;
-type RequestOptions = { method?: 'GET' | 'POST' | 'PATCH' | 'DELETE'; body?: Record<string, unknown> };
+/** A route's path parameters, query and body, each required only when the route has them. */
+type RequestInput<K extends RouteKey> = ([keyof RouteParams<K>] extends [never] ? {} : { params: RouteParams<K> }) &
+  ([keyof RouteQuery<K>] extends [never] ? {} : { query?: RouteQuery<K> | URLSearchParams }) &
+  (RouteBody<K> extends undefined ? {} : { body: RouteBody<K> });
 
 const KEY_STORAGE = 'repo-pulse-access-key';
 
@@ -115,8 +53,14 @@ window.addEventListener('hashchange', event => {
   location.reload();
 });
 
-export async function request<P extends string>(path: P, { method = 'GET', body }: RequestOptions = {}): Promise<ResponseFor<P>> {
-  const response = await fetch(path, {
+export async function request<K extends RouteKey>(
+  route: K,
+  ...[input]: {} extends RequestInput<K> ? [input?: RequestInput<K>] : [input: RequestInput<K>]
+): Promise<RouteResponse<K>> {
+  const given: RouteTarget & { body?: unknown } = input ?? {};
+  const { method, url } = routeUrl(route, given);
+  const body = given.body;
+  const response = await fetch(url, {
     method,
     headers: {
       ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
@@ -125,7 +69,7 @@ export async function request<P extends string>(path: P, { method = 'GET', body 
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     signal: AbortSignal.timeout(45000),
   });
-  // The body is the route's JSON; ResponseFor names its type, and an error status carries an ErrorResponse.
+  // The body is the route's JSON, typed by the route map in src/contract.ts; an error status carries an ErrorResponse.
   let value: unknown;
   try {
     value = await response.json();
@@ -137,7 +81,7 @@ export async function request<P extends string>(path: P, { method = 'GET', body 
     const message = typeof body.message === 'string' && body.message ? body.message : `Request failed (${response.status}).`;
     throw Object.assign(new Error(message), { code: body.code });
   }
-  // The local server answers this path with ResponseFor<P> (server.ts checks each handler with `satisfies`); checking
-  // the body here waits for the shared route table in docs/BACKLOG.md.
-  return value as ResponseFor<P>;
+  // The server registers each route from the same map and checks each handler's return type against it; validating
+  // the body at runtime is not done.
+  return value as RouteResponse<K>;
 }

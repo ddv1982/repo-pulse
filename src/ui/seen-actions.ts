@@ -56,7 +56,7 @@ export function createSeenActions({
     for (let offset = 0; offset < ids.length; offset += 250) {
       const batch = ids.slice(offset, offset + 250);
       try {
-        const { changedIds } = await request('/api/ack', { method: 'POST', body: { ids: batch, seen } });
+        const { changedIds } = await request('POST /api/ack', { body: { ids: batch, seen } });
         completed.push(...changedIds);
         processed += batch.length;
       } catch (error) {

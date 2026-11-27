@@ -50,7 +50,7 @@ test('paged history and deep links reach old unseen activity beyond latest 1000'
     cursor = page.nextCursor;
   } while (cursor);
   assert.equal(count, 1101);
-  const detail = await (await fetch(base + '/api/events/event0')).json();
+  const detail = await (await fetch(base + '/api/activity/event0')).json();
   assert.equal(detail.event.id, 'event0');
   assert.equal(detail.events.length, 1);
   assert.equal((await fetch(base + '/api/activity?limit=10000')).status, 400);
@@ -78,8 +78,8 @@ test('historical import endpoint validates repository, range and access key', as
     store.close();
   });
   const base = `http://127.0.0.1:${portOf(app)}`;
-  const post = (body: unknown, key = TEST_KEY) =>
-    globalThis.fetch(base + '/api/backfill', {
+  const post = ({ repoId, ...body }: { repoId: string; days: unknown }, key = TEST_KEY) =>
+    globalThis.fetch(`${base}/api/repos/${repoId}/backfill`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', 'x-repo-pulse-key': key },
       body: JSON.stringify(body),

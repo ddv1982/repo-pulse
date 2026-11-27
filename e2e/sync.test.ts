@@ -13,6 +13,7 @@ import { present, stub } from '../test/fixtures/typed.ts';
 import { setup, renderInBackground } from './fixtures/ui-app.ts';
 import type { AppSync } from '../server.ts';
 import { historyJob } from '../test/fixtures/jobs.ts';
+import { conflict } from '../server/errors.ts';
 
 declare global {
   interface Window {
@@ -402,7 +403,7 @@ test('repository history import keeps the accepted request visible even if its f
         calls.push({ repoId, days });
         if (failOnce) {
           failOnce = false;
-          throw Object.assign(new Error('Try this date range again.'), { status: 409 });
+          throw conflict('Try this date range again.');
         }
         const job = historyJob(repoId, { days: days ?? 30 });
         store.saveJob(job);

@@ -96,7 +96,7 @@ export function createRefreshController({
     if (!isCurrent(view)) return { type: 'superseded' };
     let savedFilters;
     try {
-      const payload = await request('/api/state');
+      const payload = await request('GET /api/state');
       if (!isCurrent(view)) return { type: 'superseded' };
       const next: PageState = { ...readMetadata(payload), activity: state.activity, events: state.events };
       savedFilters = next.savedFilters;

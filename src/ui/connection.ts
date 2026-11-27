@@ -48,7 +48,9 @@ export function createConnectionController({ request, render }: { request: typeo
       state.pending = repoId;
       if (force) render();
       try {
-        const result = repoId ? await request(`/api/connection?repoId=${encodeURIComponent(repoId)}`) : await request('/api/connection');
+        const result = repoId
+          ? await request('GET /api/repos/:id/connection', { params: { id: repoId } })
+          : await request('GET /api/connection');
         results.set(repoId, result);
         if (result.version || !repoId) state.local = result;
       } catch (error) {

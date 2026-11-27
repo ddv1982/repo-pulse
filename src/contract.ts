@@ -3,7 +3,7 @@
 // handlers in server.ts check each response against its type with `satisfies`. Besides types, this module holds only
 // constant lists that a union is derived from, so the server and the browser can both import it.
 
-import type { ActivityEvent, EventData } from './activity.ts';
+import type { ActivityEvent, ActivityPage, EventData } from './activity.ts';
 
 // Azure
 
@@ -383,7 +383,7 @@ export type OkResponse = { ok: true };
 /** POST /api/session: the key, given once for the launch token. */
 export type SessionResponse = { key: string };
 /**
- * GET /api/state. The settings are only ever written by POST /api/settings.
+ * GET /api/state. The settings are only ever written by PATCH /api/settings.
  */
 export type StateResponse = {
   repos: Repository[];
@@ -396,7 +396,7 @@ export type StateResponse = {
   syncStatus: SyncStatusReport;
   demo: boolean;
 };
-/** GET /api/events/:id: the event and every event grouped with it. */
+/** GET /api/activity/:id: the event and every event grouped with it. */
 export type EventResponse = { event: HydratedEvent; events: HydratedEvent[]; related?: HydratedEvent[] };
 /** GET /api/checkouts: status per enabled repository id, empty in demo mode. */
 export type CheckoutsResponse = Record<string, CheckoutStatus>;
@@ -406,14 +406,14 @@ export type CheckoutStatusResponse = CheckoutStatus;
 export type CheckoutBranchesResponse = { branches: { name: string; local: boolean }[] };
 /** POST /api/repos/:id/checkout. */
 export type CheckoutUpdateResponse = CheckoutUpdateResult | BranchActionResult | ActivitySwitchResult;
-/** GET /api/connection: a connection check's answer. */
+/** GET /api/connection and GET /api/repos/:id/connection: a connection check's answer. */
 export type ConnectionResponse = ConnectionStatus;
 export type PushCommit = { commitId: string; comment?: string };
-/** GET /api/push/:repo/:id/commits. */
+/** GET /api/repos/:id/pushes/:pushId/commits. */
 export type PushCommitsResponse = { items: PushCommit[]; nextCursor: PageCursor | null; message?: string };
-/** GET /api/pr/:repo/:id/review. */
+/** GET /api/repos/:id/prs/:prId/review. */
 export type PrReviewResponse = PullRequestReview & { message?: string };
-/** POST /api/backfill. */
+/** POST /api/repos/:id/backfill. */
 export type BackfillResponse = HistoryJob;
 /** POST /api/refresh. */
 export type RefreshResponse = { ok: true; status: RefreshStatus | { demo: true } };
@@ -460,3 +460,92 @@ export type GitHistoryPage = GitHistorySnapshot & {
   }[];
   nextCursor: string | null;
 };
+
+// Routes
+
+/**
+ * Every API route by method and path, with the status a success answers with. `:name` marks a path parameter.
+ * The server registers exactly these keys (server.ts) and the browser requests them through `request()` in
+ * src/api.ts. POST /api/session is answered before the access key check and is not part of this map.
+ */
+export const ROUTES = {
+  'GET /api/state': { status: 200 },
+  'GET /api/activity': { status: 200 },
+  'GET /api/activity/unseen': { status: 200 },
+  'GET /api/activity/:id': { status: 200 },
+  'POST /api/activity-filters': { status: 201 },
+  'PATCH /api/activity-filters/:id': { status: 200 },
+  'DELETE /api/activity-filters/:id': { status: 200 },
+  'POST /api/ack': { status: 200 },
+  'POST /api/refresh': { status: 202 },
+  'POST /api/reset': { status: 202 },
+  'PATCH /api/settings': { status: 200 },
+  'GET /api/connection': { status: 200 },
+  'POST /api/discover': { status: 200 },
+  'POST /api/folders': { status: 200 },
+  'GET /api/checkouts': { status: 200 },
+  'POST /api/repos': { status: 201 },
+  'PATCH /api/repos/:id': { status: 200 },
+  'DELETE /api/repos/:id': { status: 200 },
+  'GET /api/repos/:id/connection': { status: 200 },
+  'POST /api/repos/:id/backfill': { status: 202 },
+  'GET /api/repos/:id/checkout/status': { status: 200 },
+  'GET /api/repos/:id/checkout/branches': { status: 200 },
+  'POST /api/repos/:id/checkout': { status: 200 },
+  'GET /api/repos/:id/graph': { status: 200 },
+  'GET /api/repos/:id/graph/snapshot': { status: 200 },
+  'GET /api/repos/:id/pushes/:pushId/commits': { status: 200 },
+  'GET /api/repos/:id/prs/:prId/review': { status: 200 },
+  'POST /api/demo/event': { status: 201 },
+} as const;
+export type RouteKey = keyof typeof ROUTES;
+
+/** The query parameters the Activity page and its unread lookup share. */
+type ActivityScopeQuery = 'repoIds' | 'kind' | 'search' | 'people';
+
+/**
+ * What each route takes and answers. `query` names the parameters it reads, all optional text; `body` is the JSON
+ * object a POST or PATCH sends.
+ */
+type Route<Response, Body = undefined, Query extends string = never> = { response: Response; body: Body; query: Query };
+type RouteTypes = {
+  'GET /api/state': Route<StateResponse>;
+  'GET /api/activity': Route<ActivityPage, undefined, ActivityScopeQuery | 'view' | 'limit' | 'cursor'>;
+  'GET /api/activity/unseen': Route<{ ids: string[] }, undefined, ActivityScopeQuery | 'through'>;
+  'GET /api/activity/:id': Route<EventResponse, undefined, 'ci'>;
+  'POST /api/activity-filters': Route<SavedActivityFilter, { name: string; filters: ActivityFilters }>;
+  'PATCH /api/activity-filters/:id': Route<SavedActivityFilter, { name: string } | { filters: ActivityFilters }>;
+  'DELETE /api/activity-filters/:id': Route<OkResponse>;
+  'POST /api/ack': Route<OkResponse & { changedIds: string[] }, { ids: string[]; seen?: boolean }>;
+  'POST /api/refresh': Route<RefreshResponse, { repoIds?: string[]; retrySignIn?: boolean }>;
+  'POST /api/reset': Route<ResetResponse, Record<string, never>>;
+  'PATCH /api/settings': Route<OkResponse, { refreshEnabled: boolean }>;
+  'GET /api/connection': Route<ConnectionResponse, undefined, 'organization'>;
+  'POST /api/discover': Route<DiscoverResponse, { path: string }>;
+  'POST /api/folders': Route<FoldersResponse, { path?: string }>;
+  'GET /api/checkouts': Route<CheckoutsResponse>;
+  'POST /api/repos': Route<Repository, { url: string } | { path: string; remote?: string }>;
+  'PATCH /api/repos/:id': Route<OkResponse, { disabled: boolean }>;
+  'DELETE /api/repos/:id': Route<OkResponse>;
+  'GET /api/repos/:id/connection': Route<ConnectionResponse>;
+  'POST /api/repos/:id/backfill': Route<BackfillResponse, { days: HistoryJob['days'] }>;
+  'GET /api/repos/:id/checkout/status': Route<CheckoutStatusResponse, undefined, 'fresh'>;
+  'GET /api/repos/:id/checkout/branches': Route<CheckoutBranchesResponse>;
+  'POST /api/repos/:id/checkout': Route<CheckoutUpdateResponse, Record<string, unknown>>;
+  'GET /api/repos/:id/graph': Route<GitHistoryPage, undefined, 'cursor'>;
+  'GET /api/repos/:id/graph/snapshot': Route<GitHistorySnapshot>;
+  'GET /api/repos/:id/pushes/:pushId/commits': Route<PushCommitsResponse, undefined, 'skip'>;
+  'GET /api/repos/:id/prs/:prId/review': Route<PrReviewResponse>;
+  'POST /api/demo/event': Route<DemoEventResponse, Record<string, never>>;
+};
+
+/** The names of a path's `:name` parameters. */
+type ParamNames<Path extends string> = Path extends `${string}:${infer Name}/${infer Rest}`
+  ? Name | ParamNames<Rest>
+  : Path extends `${string}:${infer Name}`
+    ? Name
+    : never;
+export type RouteParams<K extends RouteKey> = { [Name in ParamNames<K>]: string };
+export type RouteQuery<K extends RouteKey> = { [Name in RouteTypes[K]['query']]?: string | undefined };
+export type RouteBody<K extends RouteKey> = RouteTypes[K]['body'];
+export type RouteResponse<K extends RouteKey> = RouteTypes[K]['response'];

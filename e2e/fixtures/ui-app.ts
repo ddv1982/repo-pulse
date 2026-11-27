@@ -10,6 +10,7 @@ import type { AzureProvider, RepositoryInput, ResolvedRepository } from '../../s
 import type { ConnectionStatus, Repository } from '../../src/contract.ts';
 import { stub } from '../../test/fixtures/typed.ts';
 import type { ActivityEvent } from '../../src/activity.ts';
+import { invalid } from '../../server/errors.ts';
 
 export const fetch = fetchWithKey;
 
@@ -76,7 +77,7 @@ export async function setupPicker(t: TestContext, { existing = true } = {}) {
     const path = input || '/workspace/projects';
     // The handler passes the request's path through; anything but a string is a regression this fake must not hide.
     if (typeof path !== 'string') throw new TypeError('browse expects a folder path string');
-    if (path === '/missing') throw Object.assign(new Error('This folder cannot be opened. Choose another local folder.'), { status: 400 });
+    if (path === '/missing') throw invalid('This folder cannot be opened. Choose another local folder.');
     return {
       path,
       parent: path === '/workspace' ? '/' : '/workspace',

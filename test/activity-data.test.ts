@@ -75,7 +75,7 @@ test('deep-link retrieval and constituent flattening preserve exact acknowledgem
   const newer = { ...old, id: 'latest-run-update', seen: true };
   const client = createActivityData(
     fakeRequest(async path => {
-      assert.equal(path, '/api/events/older-than-window');
+      assert.equal(path, '/api/activity/older-than-window');
       return { event: old, events: [newer, old] };
     }),
   );

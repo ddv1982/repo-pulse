@@ -59,10 +59,10 @@ async function live(t: TestContext, { pollMs }: { pollMs?: number } = {}) {
   const reset = (send = fetch) => send(url + '/api/reset', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
   const state = async (): Promise<StateResponse> => (await fetch(url + '/api/state')).json();
   const importHistory = () =>
-    fetch(url + '/api/backfill', {
+    fetch(url + '/api/repos/one/backfill', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ repoId: 'one', days: 30 }),
+      body: JSON.stringify({ days: 30 }),
     });
   async function drain() {
     for (let i = 0; i < 6; i++) await sync.tick();
@@ -91,8 +91,8 @@ async function live(t: TestContext, { pollMs }: { pollMs?: number } = {}) {
   }
   /** Sends the headers of a history import now and its body only when `send` is called. */
   function slowImportHistory() {
-    const payload = JSON.stringify({ repoId: 'one', days: 30 });
-    const req = request(url + '/api/backfill', {
+    const payload = JSON.stringify({ days: 30 });
+    const req = request(url + '/api/repos/one/backfill', {
       method: 'POST',
       headers: { 'content-type': 'application/json', 'content-length': Buffer.byteLength(payload), 'x-repo-pulse-key': TEST_KEY },
     });

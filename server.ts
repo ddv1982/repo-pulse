@@ -29,31 +29,19 @@ import { canOpenBrowser, openBrowser } from './server/open-browser.ts';
 import { AppError, conflict, forbidden, invalid, notFound, type ErrorKind } from './server/errors.ts';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { AzureProvider } from './server/azure-client.ts';
-// The JSON each route answers with is defined in src/contract.ts, which src/api.ts maps request paths to, so the
-// browser modules that read a response are checked against what the handler below produces.
+// The JSON each route answers with is named by the route map in src/contract.ts, which the browser's request() reads
+// too, so a handler below and the browser module that reads its answer are checked against the same type.
+import { ROUTES } from './src/contract.ts';
 import type {
   DemoSyncStatus,
-  Repository,
-  SessionResponse,
   ErrorResponse,
-  OkResponse,
-  StateResponse,
-  EventResponse,
-  CheckoutsResponse,
-  CheckoutStatusResponse,
-  CheckoutBranchesResponse,
-  CheckoutUpdateResponse,
-  ConnectionResponse,
-  PushCommitsResponse,
-  PrReviewResponse,
-  BackfillResponse,
-  RefreshResponse,
-  ResetResponse,
-  DiscoverResponse,
   FoldersResponse,
-  DemoEventResponse,
+  RouteKey,
+  RouteParams,
+  RouteResponse,
+  SessionResponse,
+  StateResponse,
 } from './src/contract.ts';
-import type { ActivityPage as ActivityResponse } from './src/activity.ts';
 
 /** Live mode passes the Azure client; demo mode passes demoProvider, which answers only the routes demo serves. */
 export type AppProvider = AzureProvider | typeof demoProvider;
@@ -68,8 +56,11 @@ export type AppSync = {
   reset?: (clear: () => void) => Promise<void>;
   forget?: (repoId: string) => void;
 };
-type RouteContext = { req: IncomingMessage; res: ServerResponse; url: URL; params: string[] };
-type Route = { method: 'GET' | 'POST' | 'PATCH' | 'DELETE'; path: string | RegExp; handler: (context: RouteContext) => unknown };
+/** A matched request: its decoded path parameters, its query, and for POST and PATCH its JSON object body. */
+type RouteRequest<K extends RouteKey> = { params: RouteParams<K>; query: URLSearchParams; body: Record<string, unknown> };
+/** Each handler returns the response the route map names, so a handler and the browser read the same type. */
+type Handler<K extends RouteKey> = (request: RouteRequest<K>) => RouteResponse<K> | Promise<RouteResponse<K>>;
+export type Handlers = { [K in RouteKey]: Handler<K> };
 export type AppOptions = {
   store: Store;
   provider: AppProvider;
@@ -123,7 +114,7 @@ function decodeParam(value: string | undefined) {
 /**
  * Parses a JSON object body. Its fields stay unknown until each route validates them.
  */
-async function body(req: IncomingMessage): Promise<Record<string, unknown>> {
+async function readBody(req: IncomingMessage): Promise<Record<string, unknown>> {
   if (!req.headers['content-type']?.startsWith('application/json')) throw new AppError('unsupported-media', 'Send application/json.');
   const chunks = [];
   let size = 0;
@@ -139,6 +130,49 @@ async function body(req: IncomingMessage): Promise<Record<string, unknown>> {
   } catch {
     throw invalid('Expected a JSON object.');
   }
+}
+
+/** One route compiled from its key: the method, a pattern for the path, and how to run its handler. */
+function compile<K extends RouteKey>(key: K, handler: Handler<K>) {
+  const [method = '', path = ''] = key.split(' ');
+  const names: string[] = [];
+  const pattern = new RegExp(
+    `^${path.replace(/:([A-Za-z]+)/g, (_, name: string) => {
+      names.push(name);
+      return '([^/]+)';
+    })}$`,
+  );
+  const run = async (match: RegExpExecArray, req: IncomingMessage, query: URLSearchParams) => {
+    // Every parameter is decoded before the body is read, so a malformed path is refused first.
+    const params = Object.fromEntries(names.map((name, index) => [name, decodeParam(match[index + 1])])) as RouteParams<K>;
+    const body = method === 'POST' || method === 'PATCH' ? await readBody(req) : {};
+    return handler({ params, query, body });
+  };
+  return { key, method, pattern, literal: names.length === 0, run };
+}
+
+/**
+ * Matches a request to its route. The handlers must cover the route map exactly. Literal paths are tried before paths
+ * with parameters, so GET /api/activity/unseen is not read as an activity ID.
+ */
+export function createRouter(handlers: Handlers) {
+  const keys = Object.keys(ROUTES) as RouteKey[];
+  const missing = keys.filter(key => typeof handlers[key] !== 'function');
+  const extra = Object.keys(handlers).filter(key => !Object.hasOwn(ROUTES, key));
+  if (missing.length || extra.length)
+    throw new Error(
+      `The route handlers do not match the route map. Missing: ${missing.join(', ') || 'none'}. Not in the map: ${extra.join(', ') || 'none'}.`,
+    );
+  // Each key is compiled with its own handler; the mapped type pairs them, which a loop over the union cannot show.
+  const routes = keys.map(key => compile(key, handlers[key] as Handler<typeof key>)).sort((a, b) => Number(b.literal) - Number(a.literal));
+  return (method: string, path: string) => {
+    for (const route of routes) {
+      if (route.method !== method) continue;
+      const match = route.pattern.exec(path);
+      if (match) return { key: route.key, run: (req: IncomingMessage, query: URLSearchParams) => route.run(match, req, query) };
+    }
+    return undefined;
+  };
 }
 
 function checkLocalRequest(req: IncomingMessage) {
@@ -259,469 +293,317 @@ export function createApp({
     };
   }
   // First match wins, in table order. Route params arrive undecoded so each handler keeps its own check order.
-  const routes: Route[] = [
-    {
-      method: 'GET',
-      path: '/api/state',
-      handler: ({ res }) => {
-        onStateRead();
-        const status = sync.status();
-        const inProgress = 'inProgress' in status ? status.inProgress : [];
-        const repos = store.listRepos();
-        const streams = store.getStreams();
-        const problems = 'backgroundProblems' in status ? status.backgroundProblems : undefined;
-        let backgroundProblem = problems?.history ?? problems?.rewrite;
-        let jobs: StateResponse['jobs'] = [];
-        try {
-          jobs = store.listJobs({ type: 'backfill' });
-        } catch (error) {
-          if (!isCorruptRow(error)) throw error;
-          // Keep state readable so the Activity banner can explain why history progress is unavailable.
-          backgroundProblem = error.message;
-        }
-        const settings = {
-          refreshEnabled: refreshEnabled(store),
-          refreshResumedAt: store.getSetting('refreshResumedAt', null),
-        };
-        const diagnostics = { ...(cli?.diagnostics() || {}), sync: status };
-        return json(res, 200, {
+  const handlers: Handlers = {
+    'GET /api/state': () => {
+      onStateRead();
+      const status = sync.status();
+      const inProgress = 'inProgress' in status ? status.inProgress : [];
+      const repos = store.listRepos();
+      const streams = store.getStreams();
+      const problems = 'backgroundProblems' in status ? status.backgroundProblems : undefined;
+      let backgroundProblem = problems?.history ?? problems?.rewrite;
+      let jobs: StateResponse['jobs'] = [];
+      try {
+        jobs = store.listJobs({ type: 'backfill' });
+      } catch (error) {
+        if (!isCorruptRow(error)) throw error;
+        // Keep state readable so the Activity banner can explain why history progress is unavailable.
+        backgroundProblem = error.message;
+      }
+      const settings = {
+        refreshEnabled: refreshEnabled(store),
+        refreshResumedAt: store.getSetting('refreshResumedAt', null),
+      };
+      const diagnostics = { ...(cli?.diagnostics() || {}), sync: status };
+      return {
+        repos,
+        streams: streams.map(({ repoId, stream, initialized, lastSuccess, error, warning }) => ({
+          repoId,
+          stream,
+          initialized,
+          lastSuccess,
+          ...(error === undefined ? {} : { error }),
+          warning,
+        })),
+        diagnostics,
+        jobs,
+        activityRevision: store.activityRevision(),
+        savedFilters: savedFilters.list(),
+        settings,
+        syncStatus: syncStatus({
           repos,
-          streams: streams.map(({ repoId, stream, initialized, lastSuccess, error, warning }) => ({
-            repoId,
-            stream,
-            initialized,
-            lastSuccess,
-            ...(error === undefined ? {} : { error }),
-            warning,
-          })),
-          diagnostics,
+          streams,
           jobs,
-          activityRevision: store.activityRevision(),
-          savedFilters: savedFilters.list(),
+          inProgress,
           settings,
-          syncStatus: syncStatus({
-            repos,
-            streams,
-            jobs,
-            inProgress,
-            settings,
-            startedAt,
-            now: Date.now(),
-            demo,
-            throttledUntil: diagnostics.throttledUntil,
-            resetting: Boolean(resetting),
-            resetFailed,
-            backgroundProblem,
-          }),
+          startedAt,
+          now: Date.now(),
           demo,
-        } satisfies StateResponse);
-      },
+          throttledUntil: diagnostics.throttledUntil,
+          resetting: Boolean(resetting),
+          resetFailed,
+          backgroundProblem,
+        }),
+        demo,
+      };
     },
-    {
-      method: 'GET',
-      path: '/api/activity',
-      handler: ({ res, url }) => {
-        const query = url.searchParams;
-        const cursor = query.get('cursor') || undefined;
-        const view = query.get('view') || 'all';
-        if (view !== 'new' && view !== 'all') throw invalid('Invalid activity view.');
-        const limit = Number(query.get('limit') || 50);
-        if (!Number.isInteger(limit) || limit < 1 || limit > 200) throw invalid('Choose a page size from 1 to 200.');
-        const result = store.queryActivity({
-          ...activityScope(query),
-          view,
-          limit,
-          cursor,
-        });
-        return json(res, 200, result satisfies ActivityResponse);
-      },
+    'GET /api/activity': ({ query }) => {
+      const cursor = query.get('cursor') || undefined;
+      const view = query.get('view') || 'all';
+      if (view !== 'new' && view !== 'all') throw invalid('Invalid activity view.');
+      const limit = Number(query.get('limit') || 50);
+      if (!Number.isInteger(limit) || limit < 1 || limit > 200) throw invalid('Choose a page size from 1 to 200.');
+      return store.queryActivity({ ...activityScope(query), view, limit, cursor });
     },
-    {
-      method: 'GET',
-      path: '/api/activity/unseen',
-      handler: ({ res, url }) => {
-        const raw = url.searchParams.get('through');
-        const through = raw === null ? undefined : Number(raw);
-        if (through !== undefined && !(Number.isSafeInteger(through) && through >= 0))
-          throw invalid('Invalid activity snapshot.', 'BAD_REQUEST');
-        json(res, 200, { ids: store.queryActivity.unseenIds({ ...activityScope(url.searchParams), through }) });
-      },
+    'GET /api/activity/unseen': ({ query }) => {
+      const raw = query.get('through');
+      const through = raw === null ? undefined : Number(raw);
+      if (through !== undefined && !(Number.isSafeInteger(through) && through >= 0))
+        throw invalid('Invalid activity snapshot.', 'BAD_REQUEST');
+      return { ids: store.queryActivity.unseenIds({ ...activityScope(query), through }) };
     },
-    {
-      method: 'POST',
-      path: '/api/activity-filters',
-      handler: async ({ req, res }) => json(res, 201, savedFilters.create(await body(req))),
+    'GET /api/activity/:id': ({ params: { id }, query }) => {
+      const event = store.getEvent(id);
+      if (!event || !enabledRepoIds().includes(event.repoId)) throw notFound('Activity not found.');
+      return {
+        event,
+        events: store.getEventGroup(id),
+        related: store.relatedActivity(event, { ciOnly: query.get('ci') === '1' }),
+      };
     },
-    {
-      method: 'PATCH',
-      path: /^\/api\/activity-filters\/([^/]+)$/,
-      handler: async ({ req, res, params: [rawId] }) => json(res, 200, savedFilters.update(decodeParam(rawId), await body(req))),
+    'POST /api/activity-filters': ({ body }) => savedFilters.create(body),
+    'PATCH /api/activity-filters/:id': ({ params: { id }, body }) => savedFilters.update(id, body),
+    'DELETE /api/activity-filters/:id': ({ params: { id } }) => {
+      savedFilters.remove(id);
+      return { ok: true };
     },
-    {
-      method: 'DELETE',
-      path: /^\/api\/activity-filters\/([^/]+)$/,
-      handler: ({ res, params: [rawId] }) => {
-        savedFilters.remove(decodeParam(rawId));
-        return json(res, 200, { ok: true } satisfies OkResponse);
-      },
+    'POST /api/repos/:id/backfill': ({ params: { id }, body }) => {
+      if (demo || !backfill) throw invalid('Historical import is available in live mode.');
+      const repo = repoById(id);
+      const days = body.days;
+      if (days !== 30 && days !== 90 && days !== 'all') throw invalid('Choose 30 days, 90 days or all available history.');
+      // Checked after the body arrives: the reset would delete the job this request creates.
+      if (resetting) throw conflict('Starting from scratch is in progress. Try again in a moment.');
+      return backfill.start(repo.id, days);
     },
-    {
-      method: 'GET',
-      path: /^\/api\/events\/(.+)$/,
-      handler: ({ res, url, params: [rawId] }) => {
-        const id = decodeParam(rawId);
-        const event = store.getEvent(id);
-        if (!event || !enabledRepoIds().includes(event.repoId)) throw notFound('Activity not found.');
-        return json(res, 200, {
-          event,
-          events: store.getEventGroup(id),
-          related: store.relatedActivity(event, { ciOnly: url.searchParams.get('ci') === '1' }),
-        } satisfies EventResponse);
-      },
+    'GET /api/connection': ({ query }) => {
+      const org = query.get('organization') || undefined;
+      if (org && !/^https:\/\/dev\.azure\.com\/[A-Za-z0-9_.-]+\/?$/.test(org))
+        throw invalid('Use https://dev.azure.com/your-organization.');
+      return provider.checkConnection(org, undefined);
     },
-    {
-      method: 'POST',
-      path: '/api/backfill',
-      handler: async ({ req, res }) => {
-        if (demo || !backfill) throw invalid('Historical import is available in live mode.');
-        const input = await body(req);
-        const repo = repoById(input.repoId);
-        const days = input.days;
-        if (days !== 30 && days !== 90 && days !== 'all') throw invalid('Choose 30 days, 90 days or all available history.');
-        // Checked after the body arrives: the reset would delete the job this request creates.
-        if (resetting) throw conflict('Starting from scratch is in progress. Try again in a moment.');
-        return json(res, 202, backfill.start(repo.id, days) satisfies BackfillResponse);
-      },
+    'GET /api/repos/:id/connection': ({ params: { id } }) => provider.checkConnection(undefined, enabledRepoById(id)),
+    'POST /api/discover': async ({ body }) => {
+      if (typeof body.path !== 'string' || !body.path.trim()) throw invalid('Enter a local folder path.');
+      return await discover(body.path);
     },
-    {
-      method: 'GET',
-      path: '/api/connection',
-      handler: async ({ res, url }) => {
-        const org = url.searchParams.get('organization') || undefined;
-        if (org && !/^https:\/\/dev\.azure\.com\/[A-Za-z0-9_.-]+\/?$/.test(org))
-          throw invalid('Use https://dev.azure.com/your-organization.');
-        const repoId = url.searchParams.get('repoId');
-        const connection = await provider.checkConnection(org, repoId === null ? undefined : enabledRepoById(repoId));
-        return json(res, 200, connection satisfies ConnectionResponse);
-      },
+    'POST /api/folders': ({ body }) => browse(body.path),
+    'POST /api/repos': async ({ body: input }) => {
+      // Only the live Azure client resolves repositories; demoProvider has no lookup.
+      if (demo || !('resolveRepository' in provider))
+        throw invalid('Demo repositories are fictional. Start live mode to add your repositories.');
+      let remote: import('./src/contract.ts').DiscoveredRemote & { localPath?: string };
+      if (typeof input.url === 'string' && input.url.trim()) remote = parseRemote(input.url.trim());
+      else if (typeof input.path === 'string' && input.path.trim()) {
+        const result = await discover(input.path);
+        const enteredPath = input.path.startsWith('~/') ? resolve(homedir(), input.path.slice(2)) : resolve(input.path);
+        const checkout = result.repositories.find(repo => resolve(repo.localPath) === enteredPath);
+        if (!checkout) throw invalid('This folder is not an Azure Git checkout. Choose a repository folder.');
+        const remotes = input.remote ? checkout.remotes.filter(item => item.name === input.remote) : checkout.remotes;
+        const [only] = remotes;
+        if (!only || remotes.length !== 1) throw invalid('Choose the remote explicitly for a checkout with multiple Azure remotes.');
+        remote = { ...parseRemote(only.url), localPath: checkout.localPath };
+      } else throw invalid('Enter an Azure repository URL or local checkout path.');
+      const repo: import('./src/contract.ts').Repository = await provider.resolveRepository(remote);
+      if (remote.localPath) repo.localPath = remote.localPath;
+      const existing = store.listRepos().find(item => item.id === repo.id);
+      store.saveRepo({ ...repo, disabled: existing?.disabled || false });
+      sync.refresh([repo.id]);
+      return repo;
     },
-    {
-      method: 'POST',
-      path: '/api/discover',
-      handler: async ({ req, res }) => {
-        const input = await body(req);
-        if (typeof input.path !== 'string' || !input.path.trim()) throw invalid('Enter a local folder path.');
-        return json(res, 200, (await discover(input.path)) satisfies DiscoverResponse);
-      },
-    },
-    {
-      method: 'POST',
-      path: '/api/folders',
-      handler: async ({ req, res }) => {
-        const input = await body(req);
-        return json(res, 200, (await browse(input.path)) satisfies FoldersResponse);
-      },
-    },
-    {
-      method: 'POST',
-      path: '/api/repos',
-      handler: async ({ req, res }) => {
-        // Only the live Azure client resolves repositories; demoProvider has no lookup.
-        if (demo || !('resolveRepository' in provider))
-          throw invalid('Demo repositories are fictional. Start live mode to add your repositories.');
-        const input = await body(req);
-        let remote: import('./src/contract.ts').DiscoveredRemote & { localPath?: string };
-        if (typeof input.url === 'string' && input.url.trim()) remote = parseRemote(input.url.trim());
-        else if (typeof input.path === 'string' && input.path.trim()) {
-          const result = await discover(input.path);
-          const enteredPath = input.path.startsWith('~/') ? resolve(homedir(), input.path.slice(2)) : resolve(input.path);
-          const checkout = result.repositories.find(repo => resolve(repo.localPath) === enteredPath);
-          if (!checkout) throw invalid('This folder is not an Azure Git checkout. Choose a repository folder.');
-          const remotes = input.remote ? checkout.remotes.filter(item => item.name === input.remote) : checkout.remotes;
-          const [only] = remotes;
-          if (!only || remotes.length !== 1) throw invalid('Choose the remote explicitly for a checkout with multiple Azure remotes.');
-          remote = { ...parseRemote(only.url), localPath: checkout.localPath };
-        } else throw invalid('Enter an Azure repository URL or local checkout path.');
-        const repo: import('./src/contract.ts').Repository = await provider.resolveRepository(remote);
-        if (remote.localPath) repo.localPath = remote.localPath;
-        const existing = store.listRepos().find(item => item.id === repo.id);
-        store.saveRepo({ ...repo, disabled: existing?.disabled || false });
-        sync.refresh([repo.id]);
-        return json(res, 201, repo satisfies Repository);
-      },
-    },
-    {
-      method: 'GET',
-      path: '/api/checkouts',
-      handler: async ({ res }) => {
-        const repos = store.listRepos().filter(repo => !repo.disabled);
-        const results: [string, import('./src/contract.ts').CheckoutStatus][] = [];
-        if (!demo)
-          for (let i = 0; i < repos.length; i += 2) {
-            results.push(
-              ...(await Promise.all(
-                repos
-                  .slice(i, i + 2)
-                  .map(async repo => [repo.id, await checkoutGit.status(repo)] as [string, import('./src/contract.ts').CheckoutStatus]),
-              )),
-            );
-          }
-        return json(res, 200, Object.fromEntries(results) satisfies CheckoutsResponse);
-      },
-    },
-    {
-      method: 'GET',
-      path: /^\/api\/repos\/([^/]+)\/graph\/snapshot$/,
-      handler: async ({ res, params: [rawId] }) => {
-        const repo = enabledRepoById(decodeParam(rawId));
-        if (demo) throw notFound('Demo repositories have no local Git history.');
-        return json(res, 200, await checkoutGit.historySnapshot(repo));
-      },
-    },
-    {
-      method: 'GET',
-      path: /^\/api\/repos\/([^/]+)\/graph$/,
-      handler: async ({ res, url, params: [rawId] }) => {
-        const repo = enabledRepoById(decodeParam(rawId));
-        if (demo) throw notFound('Demo repositories have no local Git history.');
-        const page = await checkoutGit.history(repo, url.searchParams.get('cursor'));
-        const commits = new Map(page.commits.map(commit => [commit.id, commit]));
-        for (const { sha, event } of store.commitActivity(repo.id, [...commits.keys()])) {
-          if (event.kind === 'pr' || event.kind === 'build') {
-            commits.get(sha)?.activity.push({
-              id: event.id,
-              kind: event.kind,
-              time: event.time,
-              title: event.title ?? '',
-              status: activityLabel(event) ?? 'Updated',
-            });
-          }
-        }
-        return json(res, 200, page);
-      },
-    },
-    {
-      method: 'GET',
-      path: /^\/api\/repos\/([^/]+)\/checkout\/branches$/,
-      handler: async ({ res, params: [rawId] }) => {
-        if (demo) throw forbidden('Demo checkouts have no local branches.');
-        const repo = enabledRepoById(decodeParam(rawId));
-        const local = new Set(await checkoutGit.localBranches(repo));
-        const pinned = [branchName(repo.defaultBranch), 'main', 'master'];
-        const branches = store
-          .listEntities(repo.id, 'ref')
-          .filter(({ id, data }) => id.startsWith('refs/heads/') && id.length > 11 && data.active !== false)
-          .map(({ id, data }) => ({ name: branchName(id), pushId: Number(data.lastPushId) || 0 }))
-          .sort(
-            (a, b) =>
-              Number(pinned.includes(b.name)) - Number(pinned.includes(a.name)) ||
-              pinned.indexOf(a.name) - pinned.indexOf(b.name) ||
-              b.pushId - a.pushId ||
-              a.name.localeCompare(b.name),
-          )
-          .map(({ name }) => ({ name, local: local.has(name) }));
-        return json(res, 200, { branches } satisfies CheckoutBranchesResponse);
-      },
-    },
-    {
-      method: 'GET',
-      path: /^\/api\/repos\/([^/]+)\/checkout\/status$/,
-      handler: async ({ res, url, params: [rawId] }) => {
-        if (demo) throw forbidden('Demo checkouts have no local status.');
-        const repo = enabledRepoById(decodeParam(rawId));
-        return json(
-          res,
-          200,
-          (await checkoutGit.status(repo, { fresh: url.searchParams.get('fresh') === '1' })) satisfies CheckoutStatusResponse,
-        );
-      },
-    },
-    {
-      method: 'POST',
-      path: /^\/api\/repos\/([^/]+)\/checkout$/,
-      handler: async ({ req, res, params: [rawId] }) => {
-        if (demo) throw forbidden('Demo checkouts cannot be updated.');
-        const repo = enabledRepoById(decodeParam(rawId));
-        const input = (await body(req)) || {};
-        const { operation, expected } = input;
-        if (operation === 'switch-activity' && isSwitchIntent(expected) && typeof input.eventId === 'string') {
-          const event = store.getEvent(input.eventId);
-          if (event?.repoId !== repo.id) throw notFound('Activity not found for this repository.');
-          const branch = activityBranch(event);
-          if (!branch) throw invalid('This activity does not identify one branch to switch to.');
-          return json(
-            res,
-            200,
-            (await checkoutGit.switchToActivityBranch(repo, branch, expected, {
-              eventId: input.eventId,
-              confirmation: typeof input.confirmation === 'string' ? input.confirmation : undefined,
-            })) satisfies CheckoutUpdateResponse,
+    'GET /api/checkouts': async () => {
+      const repos = store.listRepos().filter(repo => !repo.disabled);
+      const results: [string, import('./src/contract.ts').CheckoutStatus][] = [];
+      if (!demo)
+        for (let i = 0; i < repos.length; i += 2) {
+          results.push(
+            ...(await Promise.all(
+              repos
+                .slice(i, i + 2)
+                .map(async repo => [repo.id, await checkoutGit.status(repo)] as [string, import('./src/contract.ts').CheckoutStatus]),
+            )),
           );
         }
-        if (operation === 'switch-branch' && isSwitchIntent(expected) && typeof input.branch === 'string') {
-          // Only a branch the watched repository still lists, like an event, may name the switch target.
-          const ref = store.getEntity(repo.id, 'ref', `refs/heads/${input.branch}`);
-          if (!ref || ref.active === false) throw invalid('The repository no longer lists this branch.');
-          return json(
-            res,
-            200,
-            (await checkoutGit.switchToActivityBranch(repo, input.branch, expected, {
-              confirmation: typeof input.confirmation === 'string' ? input.confirmation : undefined,
-            })) satisfies CheckoutUpdateResponse,
-          );
-        }
-        if (isBranchAction(input) && isCheckoutIntent(expected)) {
-          return json(res, 200, (await checkoutGit.branchAction(repo, input, expected)) satisfies CheckoutUpdateResponse);
-        }
-        if ((operation !== 'check' && operation !== 'pull') || !isCheckoutIntent(expected)) {
-          throw invalid('Choose a checkout and Git action.');
-        }
-        return json(res, 200, (await checkoutGit.update(repo, operation, expected)) satisfies CheckoutUpdateResponse);
-      },
+      return Object.fromEntries(results);
     },
-    {
-      method: 'PATCH',
-      path: /^\/api\/repos\/([^/]+)$/,
-      handler: async ({ req, res, params: [rawId] }) => {
-        const id = decodeParam(rawId);
-        const repo = repoById(id);
-        const input = await body(req);
-        if (typeof input.disabled !== 'boolean') throw invalid('disabled must be true or false.');
-        store.saveRepo({ ...repo, disabled: input.disabled });
-        if (!input.disabled) sync.refresh([id]);
-        return json(res, 200, { ok: true } satisfies OkResponse);
-      },
+    'GET /api/repos/:id/graph/snapshot': async ({ params: { id } }) => {
+      const repo = enabledRepoById(id);
+      if (demo) throw notFound('Demo repositories have no local Git history.');
+      return await checkoutGit.historySnapshot(repo);
     },
-    {
-      method: 'DELETE',
-      path: /^\/api\/repos\/([^/]+)$/,
-      handler: ({ res, params: [rawId] }) => {
-        const id = decodeParam(rawId);
-        repoById(id);
-        store.removeRepo(id);
-        sync.forget?.(id);
-        return json(res, 200, { ok: true } satisfies OkResponse);
-      },
-    },
-    {
-      method: 'POST',
-      path: '/api/refresh',
-      handler: async ({ req, res }) => {
-        const input = await body(req);
-        const { repoIds, retrySignIn } = input;
-        if (repoIds !== undefined && !isStringList(repoIds)) throw invalid('repoIds must be a list.');
-        if (retrySignIn !== undefined && typeof retrySignIn !== 'boolean') throw invalid('retrySignIn must be a boolean.');
-        repoIds?.forEach(repoById);
-        const status = retrySignIn ? sync.refresh(repoIds, true) : sync.refresh(repoIds);
-        const history = retrySignIn
-          ? backfill?.retrySignIn?.(
-              store
-                .listRepos()
-                .filter(repo => !repo.disabled && (!repoIds || repoIds.includes(repo.id)))
-                .map(repo => repo.id),
-            )
-          : undefined;
-        const combined = history?.scheduled
-          ? { scheduled: true }
-          : history?.cooldown && !('demo' in status) && !status.scheduled
-            ? { scheduled: false, cooldown: true }
-            : status;
-        return json(res, 202, { ok: true, status: combined } satisfies RefreshResponse);
-      },
-    },
-    {
-      method: 'POST',
-      path: '/api/reset',
-      handler: async ({ req, res }) => {
-        await body(req);
-        if (demo || !sync.reset) throw forbidden('Demo data cannot be cleared. Start live mode to start from scratch.');
-        // The reset waits for the turn in flight, which can sit behind Azure's Retry-After for minutes, so it runs unawaited.
-        if (!resetting) resetFailed = false;
-        resetting ??= sync
-          .reset(() => store.resetActivity())
-          .then(() => {
-            sync.refresh();
-          })
-          .catch(error => {
-            resetFailed = true;
-            console.error('Start from scratch failed:', error.name);
-          })
-          .finally(() => {
-            resetting = null;
+    'GET /api/repos/:id/graph': async ({ params: { id }, query }) => {
+      const repo = enabledRepoById(id);
+      if (demo) throw notFound('Demo repositories have no local Git history.');
+      const page = await checkoutGit.history(repo, query.get('cursor'));
+      const commits = new Map(page.commits.map(commit => [commit.id, commit]));
+      for (const { sha, event } of store.commitActivity(repo.id, [...commits.keys()])) {
+        if (event.kind === 'pr' || event.kind === 'build') {
+          commits.get(sha)?.activity.push({
+            id: event.id,
+            kind: event.kind,
+            time: event.time,
+            title: event.title ?? '',
+            status: activityLabel(event) ?? 'Updated',
           });
-        return json(res, 202, { started: true } satisfies ResetResponse);
-      },
-    },
-    {
-      method: 'POST',
-      path: '/api/ack',
-      handler: async ({ req, res }) => {
-        const input = await body(req);
-        const { ids, seen } = input;
-        if (!Array.isArray(ids) || ids.length > 1000 || !isStringList(ids)) throw invalid('Send up to 1000 explicit event IDs.');
-        if (seen !== undefined && typeof seen !== 'boolean') throw invalid('seen must be true or false.');
-        const changedIds = store.acknowledge(ids, seen !== false);
-        return json(res, 200, { ok: true, changedIds });
-      },
-    },
-    {
-      method: 'POST',
-      path: '/api/settings',
-      handler: async ({ req, res }) => {
-        const input = await body(req);
-        if (typeof input.refreshEnabled !== 'boolean') throw invalid('refreshEnabled must be true or false.');
-        if (input.refreshEnabled && !refreshEnabled(store)) {
-          store.setSetting('refreshResumedAt', Date.now());
         }
-        store.setSetting('refreshEnabled', input.refreshEnabled);
-        return json(res, 200, { ok: true } satisfies OkResponse);
-      },
+      }
+      return page;
     },
-    // Only demo mode has this route; in live mode the path is a plain 404.
-    ...(demo
-      ? ([
-          {
-            method: 'POST',
-            path: '/api/demo/event',
-            handler: async ({ req, res }) => {
-              await body(req);
-              return json(res, 201, addDemoEvent(store) satisfies DemoEventResponse);
-            },
-          },
-        ] as Route[])
-      : []),
-    {
-      method: 'GET',
-      path: /^\/api\/push\/([^/]+)\/(\d+)\/commits$/,
-      handler: async ({ res, url, params: [rawId, pushId] }) => {
-        const repo = enabledRepoById(decodeParam(rawId));
-        if (!provider.pushCommits)
-          return json(res, 200, {
-            items: [],
-            nextCursor: null,
-            message: 'Open Azure DevOps for commit details.',
-          } satisfies PushCommitsResponse);
-        const skip = Number(url.searchParams.get('skip') || 0);
-        if (!Number.isSafeInteger(skip) || skip < 0) throw invalid('Invalid page offset.');
-        const page = await provider.pushCommits(repo, Number(pushId), { skip });
-        // The browser shows only these two fields; raw Azure commit objects stay behind this boundary.
-        const items = page.items.map(item => ({
-          commitId: typeof item?.commitId === 'string' ? item.commitId : '',
-          ...(typeof item?.comment === 'string' ? { comment: item.comment } : {}),
-        }));
-        return json(res, 200, { items, nextCursor: page.nextCursor } satisfies PushCommitsResponse);
-      },
+    'GET /api/repos/:id/checkout/branches': async ({ params: { id } }) => {
+      if (demo) throw forbidden('Demo checkouts have no local branches.');
+      const repo = enabledRepoById(id);
+      const local = new Set(await checkoutGit.localBranches(repo));
+      const pinned = [branchName(repo.defaultBranch), 'main', 'master'];
+      const branches = store
+        .listEntities(repo.id, 'ref')
+        .filter(({ id, data }) => id.startsWith('refs/heads/') && id.length > 11 && data.active !== false)
+        .map(({ id, data }) => ({ name: branchName(id), pushId: Number(data.lastPushId) || 0 }))
+        .sort(
+          (a, b) =>
+            Number(pinned.includes(b.name)) - Number(pinned.includes(a.name)) ||
+            pinned.indexOf(a.name) - pinned.indexOf(b.name) ||
+            b.pushId - a.pushId ||
+            a.name.localeCompare(b.name),
+        )
+        .map(({ name }) => ({ name, local: local.has(name) }));
+      return { branches };
     },
-    {
-      method: 'GET',
-      path: /^\/api\/pr\/([^/]+)\/(\d+)\/review$/,
-      handler: async ({ res, params: [rawId, pullRequestId] }) => {
-        const repo = enabledRepoById(decodeParam(rawId));
-        // The ID is digits only, which decoding leaves unchanged.
-        return json(res, 200, (await provider.prReview(repo, decodeParam(pullRequestId))) satisfies PrReviewResponse);
-      },
+    'GET /api/repos/:id/checkout/status': async ({ params: { id }, query }) => {
+      if (demo) throw forbidden('Demo checkouts have no local status.');
+      const repo = enabledRepoById(id);
+      return await checkoutGit.status(repo, { fresh: query.get('fresh') === '1' });
     },
-  ];
+    'POST /api/repos/:id/checkout': async ({ params: { id }, body: input }) => {
+      if (demo) throw forbidden('Demo checkouts cannot be updated.');
+      const repo = enabledRepoById(id);
+      const { operation, expected } = input;
+      if (operation === 'switch-activity' && isSwitchIntent(expected) && typeof input.eventId === 'string') {
+        const event = store.getEvent(input.eventId);
+        if (event?.repoId !== repo.id) throw notFound('Activity not found for this repository.');
+        const branch = activityBranch(event);
+        if (!branch) throw invalid('This activity does not identify one branch to switch to.');
+        return await checkoutGit.switchToActivityBranch(repo, branch, expected, {
+          eventId: input.eventId,
+          confirmation: typeof input.confirmation === 'string' ? input.confirmation : undefined,
+        });
+      }
+      if (operation === 'switch-branch' && isSwitchIntent(expected) && typeof input.branch === 'string') {
+        // Only a branch the watched repository still lists, like an event, may name the switch target.
+        const ref = store.getEntity(repo.id, 'ref', `refs/heads/${input.branch}`);
+        if (!ref || ref.active === false) throw invalid('The repository no longer lists this branch.');
+        return await checkoutGit.switchToActivityBranch(repo, input.branch, expected, {
+          confirmation: typeof input.confirmation === 'string' ? input.confirmation : undefined,
+        });
+      }
+      if (isBranchAction(input) && isCheckoutIntent(expected)) return await checkoutGit.branchAction(repo, input, expected);
+      if ((operation !== 'check' && operation !== 'pull') || !isCheckoutIntent(expected)) {
+        throw invalid('Choose a checkout and Git action.');
+      }
+      return await checkoutGit.update(repo, operation, expected);
+    },
+    'PATCH /api/repos/:id': ({ params: { id }, body }) => {
+      const repo = repoById(id);
+      if (typeof body.disabled !== 'boolean') throw invalid('disabled must be true or false.');
+      store.saveRepo({ ...repo, disabled: body.disabled });
+      if (!body.disabled) sync.refresh([id]);
+      return { ok: true };
+    },
+    'DELETE /api/repos/:id': ({ params: { id } }) => {
+      repoById(id);
+      store.removeRepo(id);
+      sync.forget?.(id);
+      return { ok: true };
+    },
+    'POST /api/refresh': ({ body }) => {
+      const { repoIds, retrySignIn } = body;
+      if (repoIds !== undefined && !isStringList(repoIds)) throw invalid('repoIds must be a list.');
+      if (retrySignIn !== undefined && typeof retrySignIn !== 'boolean') throw invalid('retrySignIn must be a boolean.');
+      repoIds?.forEach(repoById);
+      const status = retrySignIn ? sync.refresh(repoIds, true) : sync.refresh(repoIds);
+      const history = retrySignIn
+        ? backfill?.retrySignIn?.(
+            store
+              .listRepos()
+              .filter(repo => !repo.disabled && (!repoIds || repoIds.includes(repo.id)))
+              .map(repo => repo.id),
+          )
+        : undefined;
+      const combined = history?.scheduled
+        ? { scheduled: true }
+        : history?.cooldown && !('demo' in status) && !status.scheduled
+          ? { scheduled: false, cooldown: true }
+          : status;
+      return { ok: true, status: combined };
+    },
+    'POST /api/reset': () => {
+      if (demo || !sync.reset) throw forbidden('Demo data cannot be cleared. Start live mode to start from scratch.');
+      // The reset waits for the turn in flight, which can sit behind Azure's Retry-After for minutes, so it runs unawaited.
+      if (!resetting) resetFailed = false;
+      resetting ??= sync
+        .reset(() => store.resetActivity())
+        .then(() => {
+          sync.refresh();
+        })
+        .catch(error => {
+          resetFailed = true;
+          console.error('Start from scratch failed:', error.name);
+        })
+        .finally(() => {
+          resetting = null;
+        });
+      return { started: true };
+    },
+    'POST /api/ack': ({ body }) => {
+      const { ids, seen } = body;
+      if (!Array.isArray(ids) || ids.length > 1000 || !isStringList(ids)) throw invalid('Send up to 1000 explicit event IDs.');
+      if (seen !== undefined && typeof seen !== 'boolean') throw invalid('seen must be true or false.');
+      const changedIds = store.acknowledge(ids, seen !== false);
+      return { ok: true, changedIds };
+    },
+    'PATCH /api/settings': ({ body }) => {
+      if (typeof body.refreshEnabled !== 'boolean') throw invalid('refreshEnabled must be true or false.');
+      if (body.refreshEnabled && !refreshEnabled(store)) {
+        store.setSetting('refreshResumedAt', Date.now());
+      }
+      store.setSetting('refreshEnabled', body.refreshEnabled);
+      return { ok: true };
+    },
+    'POST /api/demo/event': () => {
+      // Live mode keeps this a plain 404, as for a path no route matches.
+      if (!demo) throw notFound('Demo activity can be added only in demo mode.');
+      return addDemoEvent(store);
+    },
+    'GET /api/repos/:id/pushes/:pushId/commits': async ({ params: { id, pushId }, query }) => {
+      const repo = enabledRepoById(id);
+      if (!/^\d+$/.test(pushId)) throw invalid('Invalid push.');
+      if (!provider.pushCommits) return { items: [], nextCursor: null, message: 'Open Azure DevOps for commit details.' };
+      const skip = Number(query.get('skip') || 0);
+      if (!Number.isSafeInteger(skip) || skip < 0) throw invalid('Invalid page offset.');
+      const page = await provider.pushCommits(repo, Number(pushId), { skip });
+      // The browser shows only these two fields; raw Azure commit objects stay behind this boundary.
+      const items = page.items.map(item => ({
+        commitId: typeof item?.commitId === 'string' ? item.commitId : '',
+        ...(typeof item?.comment === 'string' ? { comment: item.comment } : {}),
+      }));
+      return { items, nextCursor: page.nextCursor };
+    },
+    'GET /api/repos/:id/prs/:prId/review': async ({ params: { id, prId } }) => {
+      const repo = enabledRepoById(id);
+      if (!/^\d+$/.test(prId)) throw invalid('Invalid pull request.');
+      return await provider.prReview(repo, prId);
+    },
+  };
+  const router = createRouter(handlers);
   const handle = async (req: IncomingMessage, res: ServerResponse) => {
     Object.entries(HEADERS).forEach(([key, value]) => res.setHeader(key, value));
     try {
@@ -748,12 +630,9 @@ export function createApp({
           'ACCESS_KEY',
         );
       if (!['GET', 'POST', 'PATCH', 'DELETE'].includes(req.method ?? '')) throw new AppError('method-not-allowed', 'Method not allowed.');
-      for (const route of routes) {
-        if (route.method !== req.method) continue;
-        const match = typeof route.path === 'string' ? route.path === path && [path] : route.path.exec(path);
-        if (match) return await route.handler({ req, res, url, params: match.slice(1) });
-      }
-      return json(res, 404, { message: 'Not found.' } satisfies ErrorResponse);
+      const route = router(req.method ?? '', path);
+      if (!route) return json(res, 404, { message: 'Not found.' } satisfies ErrorResponse);
+      return json(res, ROUTES[route.key].status, await route.run(req, url.searchParams));
     } catch (caught) {
       // An AppError carries already-redacted, actionable text; unexpected errors stay local.
       const known = caught instanceof AppError ? caught : null;

@@ -71,7 +71,7 @@ test('Azure failures keep their status: not found is 404, every other Azure fail
       },
     }),
   });
-  const review = () => fetch(`${url}/api/pr/demo-orders/1/review`);
+  const review = () => fetch(`${url}/api/repos/demo-orders/prs/1/review`);
   const missing = await review();
   assert.equal(missing.status, 404);
   assert.deepEqual(await missing.json(), { message: 'Not there.', code: 'NOT_FOUND' });
