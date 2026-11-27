@@ -1,12 +1,10 @@
 import { branchName, safeAzureUrl } from '../src/events.ts';
-import type { GitRunner } from './checkout-git.ts';
+import { ancestry, isCommit, type GitRunner } from './git.ts';
 import type { CheckoutPull, UnreadableCheckoutPull } from './azure-client.ts';
 import type { PullAdvice, Repository as LinkedRepo } from '../src/contract.ts';
 
 export type FindCheckoutPulls = (repo: LinkedRepo, source: string, head: string) => Promise<(CheckoutPull | UnreadableCheckoutPull)[]>;
 const readable = (pr: CheckoutPull | UnreadableCheckoutPull): pr is CheckoutPull => !('unreadable' in pr);
-export const isCommit = (value: unknown) =>
-  typeof value === 'string' && /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i.test(value) && !/^0+$/.test(value);
 
 function hasSameRepoResult(repo: LinkedRepo, pr: CheckoutPull) {
   return Boolean(
@@ -22,19 +20,6 @@ function hasSameRepoResult(repo: LinkedRepo, pr: CheckoutPull) {
 
 function isExactCheckoutPull(repo: LinkedRepo, pr: CheckoutPull, head: string) {
   return pr.head === head && hasSameRepoResult(repo, pr);
-}
-
-export async function ancestry(run: GitRunner, path: string, ancestor: string, tip: string) {
-  if (ancestor === tip) return true;
-  try {
-    await run(path, ['merge-base', '--is-ancestor', ancestor, tip]);
-    return true;
-  } catch (error) {
-    if (error instanceof Error && (('code' in error && error.code === 1) || ('status' in error && error.status === 1))) {
-      return (await run(path, ['rev-parse', '--is-shallow-repository']).catch(() => '')).trim() === 'false' ? false : null;
-    }
-    return null;
-  }
 }
 
 export async function adviseMissingUpstream({

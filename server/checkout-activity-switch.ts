@@ -1,62 +1,34 @@
 import { createHmac, randomBytes } from 'node:crypto';
-import { ancestry, isCommit } from './checkout-advice.ts';
-import { readRef, switchLocalBranch } from './checkout-branches.ts';
+import { ancestry, isCommit, readDirectCommit, readRef, switchLocalBranch, verifyTrackingMapping, type Upstream } from './git.ts';
 import { isSymbolicRef, worktreeUsesBranch } from './checkout-delete-guard.cjs';
-import { readDirectCommit, refreshSwitchTracking } from './checkout-switch-refs.ts';
-import { verifyTrackingMapping } from './checkout-tracking.ts';
-import type { GitRunner, ReadCheckoutStatus, Upstream } from './checkout-git.ts';
-import type { Observation } from './checkout-observations.ts';
-import type {
-  ActivitySwitchReview,
-  ActiveCheckout,
-  CheckoutReading,
-  CheckoutStatus,
-  DecoratedCheckout,
-  Repository as LinkedRepo,
-  SwitchIntent,
-} from '../src/contract.ts';
+import { refreshSwitchTracking } from './checkout-switch-refs.ts';
+import type { CheckoutContext } from './checkout-context.ts';
+import type { ActivitySwitchReview, ActiveCheckout, Repository as LinkedRepo, SwitchIntent } from '../src/contract.ts';
 import { conflict, isAppError } from './errors.ts';
 
 /**
  * The caller owns the checkout lock and supplies its existing Git runner and scope checks.
  */
-export function createActivitySwitch({
-  run,
-  hooks,
-  now,
-  observations,
-  statusAt,
-  inspect,
-  decorate,
-  remoteTarget,
-  upstreamFor,
-  validateUpstream,
-  fetchUpstream,
-  trackingTip,
-  fetchFailure,
-  observedAt,
-  upstreamIdentity,
-  matchesIntent,
-  verifyCheckoutDirectory,
-}: {
-  run: GitRunner;
-  hooks: string;
-  now: () => number;
-  observations: import('./checkout-observations.ts').Observations;
-  statusAt: ReadCheckoutStatus;
-  inspect: (path: string, repo: LinkedRepo) => Promise<CheckoutStatus>;
-  decorate: (repo: LinkedRepo, path: string, snapshot: ActiveCheckout) => Promise<DecoratedCheckout>;
-  remoteTarget: (path: string, repo: LinkedRepo, remote: string, source: string) => Promise<{ target: Upstream | null }>;
-  upstreamFor: (path: string, repo: LinkedRepo, branch: string | null) => Promise<{ target: Upstream | null }>;
-  validateUpstream: (path: string, target: Upstream) => Promise<void>;
-  fetchUpstream: (path: string, target: Upstream, destination?: string | null) => Promise<void>;
-  trackingTip: (path: string, tracking: string) => Promise<string | null>;
-  fetchFailure: (error: unknown) => 'missing-ref' | { title: string; suggestion: string };
-  observedAt: (repo: LinkedRepo, path: string, target: Upstream | null, gitDirectory: string | null) => Observation | undefined;
-  upstreamIdentity: (path: string, target: Upstream | null, gitDirectory?: string | null) => string;
-  matchesIntent: (snapshot: CheckoutReading, expected: Pick<CheckoutReading, 'branch' | 'head' | 'upstream' | 'identity'>) => boolean;
-  verifyCheckoutDirectory: (path: string, expected: string | null) => Promise<void>;
-}) {
+export function createActivitySwitch(context: CheckoutContext) {
+  const {
+    run,
+    hooks,
+    now,
+    observations,
+    statusAt,
+    inspect,
+    decorate,
+    remoteTarget,
+    upstreamFor,
+    validateUpstream,
+    fetchUpstream,
+    trackingTip,
+    fetchFailure,
+    observedAt,
+    upstreamIdentity,
+    matchesIntent,
+    verifyCheckoutDirectory,
+  } = context;
   const switchSecret = randomBytes(32);
 
   async function newBranchTarget(path: string, repo: LinkedRepo, source: string) {

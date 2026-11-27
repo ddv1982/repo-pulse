@@ -1,5 +1,4 @@
-import { ancestry } from './checkout-advice.ts';
-import type { GitRunner } from './checkout-git.ts';
+import { ancestry, compareUpstream, type GitRunner } from './git.ts';
 import type { Rewrite, CheckoutDiagnostic, PullAdvice } from '../src/contract.ts';
 
 export type Observation = {
@@ -24,29 +23,6 @@ export function memoryObservations(): Observations {
       values.set(JSON.stringify([id, value.identity]), value);
     },
   };
-}
-
-export async function compareUpstream(run: GitRunner, path: string, previous: string, tip: string, verified: boolean) {
-  const output = await run(path, [
-    'log',
-    '--no-show-signature',
-    '--left-right',
-    '--max-count=12',
-    '--format=%m%x00%h%x00%s',
-    '-z',
-    `${previous}...${tip}`,
-    '--',
-  ]).catch(() => '');
-  const parts = output.split('\0');
-  const commits: Rewrite['commits'] = [];
-  for (let i = 0; i + 2 < parts.length && commits.length < 12; i += 3) {
-    // The loop bound leaves three fields, so the defaults never apply.
-    const [side, id = '', subject = ''] = parts.slice(i, i + 3);
-    if ((side === '<' || side === '>') && /^[0-9a-f]{4,64}$/.test(id)) {
-      commits.push({ side: side === '<' ? 'old' : 'new', id, subject: subject.slice(0, 160) });
-    }
-  }
-  return { previous, tip, verified, commits };
 }
 
 export async function observedRewrite(run: GitRunner, path: string, baselines: string[], tip: string) {

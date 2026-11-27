@@ -1,6 +1,6 @@
 import { branchName } from '../src/events.ts';
 import { createHash } from 'node:crypto';
-import type { GitRunner } from './checkout-git.ts';
+import type { GitRunner } from './git.ts';
 import { activityLabel } from '../src/activity-text.ts';
 import type { GitHistoryPage } from '../src/contract.ts';
 import type { ActivityEvent } from '../src/activity.ts';

@@ -4,7 +4,8 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, renameSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { actions, checkoutFixture, comparisonOf, expectedOf, git, linked } from './fixtures/checkout.ts';
-import { createCheckoutGit, runGit } from '../server/checkout-git.ts';
+import { createCheckoutGit } from '../server/checkout-git.ts';
+import { runGit } from '../server/git.ts';
 import type { Observation } from '../server/checkout-observations.ts';
 import { present } from './fixtures/typed.ts';
 

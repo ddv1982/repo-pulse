@@ -1,10 +1,7 @@
 import { createHash } from 'node:crypto';
-import { ancestry, isCommit } from './checkout-advice.ts';
-import { readRef } from './checkout-branches.ts';
+import { ancestry, compareUpstream, isCommit, readDirectCommit, type GitRunner, type Upstream } from './git.ts';
 import { conflict } from './errors.ts';
 import { isSymbolicRef } from './checkout-delete-guard.cjs';
-import { compareUpstream } from './checkout-observations.ts';
-import type { GitRunner, Upstream } from './checkout-git.ts';
 import type { Repository as LinkedRepo } from '../src/contract.ts';
 
 function archivePrefix(repo: LinkedRepo, target: Upstream) {
@@ -14,26 +11,6 @@ function archivePrefix(repo: LinkedRepo, target: Upstream) {
     )
     .digest('hex');
   return `refs/repo-pulse/upstream-rewrites/${upstream}/`;
-}
-
-export async function readDirectCommit(run: GitRunner, path: string, ref: string) {
-  const output = await run(path, ['for-each-ref', '--format=%(refname)%00%(objectname)%00%(symref)%00%(objecttype)', '--', ref]);
-  const sample = output
-    .split('\n')
-    .map(line => line.trimEnd().split('\0'))
-    .find(([name]) => name === ref);
-  if (!sample) {
-    if (await isSymbolicRef(run, path, ref)) throw conflict('The tracking ref is symbolic. Review it in Git.');
-    if (await readRef(run, path, ref)) throw conflict('The Git ref changed while it was being read. Try again.');
-    return null;
-  }
-  // isCommit refuses '' as it refuses a missing field.
-  const [, oid = '', symbolic, type] = sample;
-  if (symbolic) throw conflict('The tracking ref is symbolic. Review it in Git.');
-  if (!isCommit(oid) || type !== 'commit') {
-    throw conflict('The tracking ref does not point to a commit. Review it in Git.');
-  }
-  return oid;
 }
 
 /**

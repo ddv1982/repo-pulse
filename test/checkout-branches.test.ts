@@ -6,7 +6,8 @@ import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import type { TestContext } from 'node:test';
-import { createCheckoutGit, runGit, type GitRunner } from '../server/checkout-git.ts';
+import { createCheckoutGit } from '../server/checkout-git.ts';
+import { runGit, type GitRunner } from '../server/git.ts';
 import type { Observation, Observations } from '../server/checkout-observations.ts';
 import type { BranchAction, CheckoutStatus } from '../src/contract.ts';
 import {
