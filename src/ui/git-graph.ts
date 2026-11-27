@@ -105,7 +105,7 @@ export function createGraphController({
 }: {
   request: typeof import('../api.ts').request;
   page: HTMLElement;
-  state: () => { repos: Repository[]; activityRevision: string };
+  state: () => { enabledRepos: Repository[]; activityRevision: string };
   /** The Activity repository scope: one repository in it is the graph's first choice. */
   scope: () => string[] | null;
   isActive: () => boolean;
@@ -134,7 +134,7 @@ export function createGraphController({
   let probing: { repoId: string; snapshot: string } | undefined;
 
   function selection() {
-    const { repos } = state();
+    const { enabledRepos: repos } = state();
     const ids = scope();
     const repo =
       repos.find(item => item.id === chosenId) ??

@@ -132,7 +132,7 @@ test('rendering Git Graph starts no request; entering it and a state answer that
       return new Promise(() => {});
     }),
     page: stub<HTMLElement>({ addEventListener: () => {} }),
-    state: () => ({ repos, activityRevision: '1' }),
+    state: () => ({ enabledRepos: repos, activityRevision: '1' }),
     scope: () => null,
     isActive: () => true,
     render: () => {},

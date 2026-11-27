@@ -223,7 +223,7 @@ export function createBrowserView({
 
   function renderHeaderPart(state: PageState, ui: BrowserUi) {
     setHtml(header, renderHeader(state, ui));
-    const sentence = syncAnnouncement(state.syncStatus.overall, syncRepoName(state.repos, state.syncStatus.overall));
+    const sentence = syncAnnouncement(state.syncStatus.overall, syncRepoName(state.enabledRepos, state.syncStatus.overall));
     // Writing the same text again would replace the text node and could repeat the announcement.
     if (syncLive.textContent !== sentence) syncLive.textContent = sentence;
     // As in renderPage: theme.ts runs first, and the optional call covers its absence.

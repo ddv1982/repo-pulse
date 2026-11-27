@@ -66,7 +66,7 @@ export function createSavedFilterActions(
       const preset = selected();
       if (!preset) return;
       const filters = currentActivityFilters(ui);
-      if (!isSavedFilterModified(preset.filters, filters, state().watched)) return;
+      if (!isSavedFilterModified(preset.filters, filters, state().allRepos)) return;
       await request('PATCH /api/activity-filters/:id', { params: { id: preset.id }, body: { filters } });
       await load({ force: true });
       feedback.toast('Saved filter updated.');

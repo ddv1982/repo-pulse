@@ -54,7 +54,7 @@ test('missing branch observations are never presented as confirmed deletions', (
 
 test('repository details keep failure text and one timestamp without routine source labels', () => {
   const state: State = {
-    watched: [stub<Repository>({ id: 'r', name: 'Orders' })],
+    allRepos: [stub<Repository>({ id: 'r', name: 'Orders' })],
     jobs: [],
     settings: { refreshEnabled: false, refreshResumedAt: null },
     syncStatus: { overall: { state: 'paused', repoId: 'r' }, repos: { r: { state: 'paused' } } },
@@ -241,7 +241,7 @@ test('push headlines name a single matching PR result without inferring the caus
 
 test('the scope reads 1 repository when only one exists, and All N repositories when there are more', () => {
   const repos = [stub<Repository>({ id: 'a' }), stub<Repository>({ id: 'b' })];
-  assert.equal(scopeName({ repos: repos.slice(0, 1) }, { repoIds: null }), '1 repository');
-  assert.equal(scopeName({ repos }, { repoIds: null }), 'All 2 repositories');
-  assert.equal(scopeName({ repos }, { repoIds: ['a'] }), '1 repository shown');
+  assert.equal(scopeName({ enabledRepos: repos.slice(0, 1) }, { repoIds: null }), '1 repository');
+  assert.equal(scopeName({ enabledRepos: repos }, { repoIds: null }), 'All 2 repositories');
+  assert.equal(scopeName({ enabledRepos: repos }, { repoIds: ['a'] }), '1 repository shown');
 });

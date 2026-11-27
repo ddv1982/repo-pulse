@@ -36,7 +36,7 @@ export type CommitsView = PushCommitsResponse | { error: string };
 type ReviewView = PrReviewResponse | { error: string };
 /** Data a detail page loaded on request: push commits for a push, review data for a PR. */
 export type LoadedView = CommitsView | ReviewView;
-type DetailState = { repos: Repo[]; demo?: boolean };
+type DetailState = { enabledRepos: Repo[]; demo?: boolean };
 
 /** What the detail page shows: the event the address names, the group it belongs to, and its related activity. */
 export type DetailView = { event: ActivityEvent; record: ActivityItem; related: ActivityEvent[] };
@@ -297,7 +297,7 @@ export function renderDetail(
     : html`<a class="ghost sm back" ${action('back-to-results')} href="${activityHref(returnUnseenOnly)}">← Back to Activity</a>`;
   if (!view) return html`${back}<div class="card empty"><h1>Activity not found</h1></div>`;
   const { event, record, related } = view;
-  const repo = state.repos.find(item => item.id === record.repoId);
+  const repo = state.enabledRepos.find(item => item.id === record.repoId);
   const data = record.data || {};
   const pushId = data.pushId || data.push?.pushId;
   const sha = data.sourceVersion || data.sourceCommit || data.commitId;

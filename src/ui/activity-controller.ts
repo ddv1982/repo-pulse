@@ -44,13 +44,13 @@ export function createActivityController(
 
   function applySavedFilter({ id, name, filters }: SavedActivityFilter) {
     const { search, people, kind, repoIds, view } = filters;
-    const available = new Set(state().repos.map(repo => repo.id));
+    const available = new Set(state().enabledRepos.map(repo => repo.id));
     const unavailable = (repoIds ?? []).filter(id => !available.has(id)).length;
     Object.assign(ui, {
       savedFilterId: id,
       search: joinActivitySearch(search, people),
       activityFilter: kind,
-      repoIds: savedRepositoryScope(repoIds, state().watched),
+      repoIds: savedRepositoryScope(repoIds, state().allRepos),
     });
     const unseenOnly = view === 'new';
     if (unseenOnly === ui.unseenOnly) activityChanged();
@@ -140,7 +140,7 @@ export function createActivityController(
       },
       'scope-repo': () => {
         // Disabled repositories have no checkbox; keep their place in the scope for when they are enabled.
-        const disabled = state().watched.filter(repo => repo.disabled && (ui.repoIds === null || ui.repoIds.includes(repo.id)));
+        const disabled = state().allRepos.filter(repo => repo.disabled && (ui.repoIds === null || ui.repoIds.includes(repo.id)));
         ui.repoIds = [...document.querySelectorAll('[data-scope-repo]:checked')]
           .filter(input => input instanceof HTMLInputElement)
           // The selector guarantees data-scope-repo, so the fallback never applies.

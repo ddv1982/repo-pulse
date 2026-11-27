@@ -179,8 +179,8 @@ const streams: PageState['streams'] = [
 
 function pageState(activity: PageState['activity']): PageState {
   return {
-    repos: [repo],
-    watched: [repo, disabledRepo],
+    enabledRepos: [repo],
+    allRepos: [repo, disabledRepo],
     streams,
     settings: { refreshEnabled: true, refreshResumedAt: null },
     diagnostics: {

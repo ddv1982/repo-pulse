@@ -59,8 +59,8 @@ async function banners(t: TestContext, markup: string) {
 const zero = (t: TestContext, markup: string) => text(one(parse(t, markup), 'b.zero'));
 const bigMessage = (t: TestContext, markup: string) => text(one(parse(t, markup), 'p.big'));
 const page = (overall: ShownSyncStatus, repos: Record<string, SyncStatus> = {}): PageState => ({
-  repos: [repo],
-  watched: [repo],
+  enabledRepos: [repo],
+  allRepos: [repo],
   streams: [
     stub<StreamState>({
       repoId: 'r',
@@ -196,8 +196,8 @@ test('the Activity banner and partial wording follow the repositories in the Act
   const synced: SyncStatus = { state: 'synced', since, lastCheck: since };
   const twoRepos = (repos: Record<string, SyncStatus>) => ({
     ...page({ ...problem, repoId: 'r' }, repos),
-    repos: [repo, other],
-    watched: [repo, other],
+    enabledRepos: [repo, other],
+    allRepos: [repo, other],
   });
 
   const syncedScope = renderFeed(twoRepos({ r: problem, s: synced }), { ...feedView, repoIds: ['s'] });
@@ -312,7 +312,7 @@ test('a failed filtered load reads as a load failure in the summary, as in the f
 test('a problem that belongs to no repository still shows the Activity banner', async t => {
   const failed: ShownSyncStatus = { state: 'problem', reason: 'Starting from scratch failed. Try again.' };
   const markup = renderFeed(
-    { ...page(failed, {}), repos: [], watched: [] },
+    { ...page(failed, {}), enabledRepos: [], allRepos: [] },
     { repoIds: null, unseenOnly: true, search: '', activityFilter: '' },
   );
   assert.deepEqual(

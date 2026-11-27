@@ -42,7 +42,7 @@ export function createDetailController(
     activityCheckout(this: void): ActivityCheckout | null {
       if (ui.route !== 'event' || state().demo) return null;
       const event = detailView(state(), ui.eventId)?.event;
-      const repo = event && state().repos.find(repo => repo.id === event.repoId);
+      const repo = event && state().enabledRepos.find(repo => repo.id === event.repoId);
       const branch = event && activityBranch(event);
       if (!event || !repo?.localPath || !branch) return null;
       return { repoId: repo.id, localPath: repo.localPath, eventId: event.id, branch, isCurrent: currentView() };

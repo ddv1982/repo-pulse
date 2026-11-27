@@ -4,7 +4,7 @@ import { icons, themeSwitch } from './icons.ts';
 import { activityHref, isActivity } from './navigation.ts';
 import { action } from './actions.ts';
 
-type HeaderState = Pick<import('./refresh.ts').PageState, 'repos' | 'settings' | 'syncStatus'>;
+type HeaderState = Pick<import('./refresh.ts').PageState, 'enabledRepos' | 'settings' | 'syncStatus'>;
 /** web.ts sets `refreshing` while a refresh runs; `headerMenuOpen` while the phone check menu is open. */
 type HeaderView = Pick<import('./navigation.ts').NavigationState, 'route' | 'unseenOnly'> & {
   refreshing?: boolean;
@@ -13,7 +13,7 @@ type HeaderView = Pick<import('./navigation.ts').NavigationState, 'route' | 'uns
 
 export function renderHeader(state: HeaderState, ui: HeaderView) {
   const automatic = state.settings.refreshEnabled;
-  const pill = syncPill(state.syncStatus.overall, syncRepoName(state.repos, state.syncStatus.overall));
+  const pill = syncPill(state.syncStatus.overall, syncRepoName(state.enabledRepos, state.syncStatus.overall));
   const switchInput = (
     suffix: 'desktop' | 'mobile',
   ) => html`<input class="setting-switch" type="checkbox" role="switch" id="header-auto-${suffix}" ${action('toggle-automatic-checks')}

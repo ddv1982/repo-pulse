@@ -55,7 +55,7 @@ function filterControls(ui: FeedView & { savedFilterId: string }, state: PageSta
   const open = desktop || ui.filtersOpen === true;
   const presets = state.savedFilters;
   const saved = presets.find(filter => filter.id === ui.savedFilterId);
-  const modified = Boolean(saved && isSavedFilterModified(saved.filters, currentActivityFilters(ui), state.watched));
+  const modified = Boolean(saved && isSavedFilterModified(saved.filters, currentActivityFilters(ui), state.allRepos));
   return html`<div class="activity-filter-bar">
     <button class="btn filters-toggle" id="activity-filters-toggle" ${action('toggle-activity-filters')} type="button"
       aria-expanded="${open}" aria-controls="activity-filters">Filters${count ? ` · ${count}` : ''}</button>
@@ -346,7 +346,7 @@ function row(
   related?: ActivityItem,
   commits?: CommitsView,
 ) {
-  const repo = state.repos.find(item => item.id === record.repoId);
+  const repo = state.enabledRepos.find(item => item.id === record.repoId);
   const tone = activityTone(record);
   const failed = record.kind === 'build' && buildState(record).tone === 'crit';
   const push = related?.kind === 'push' ? related : undefined;
@@ -417,7 +417,7 @@ function historyGroups(
     records.filter(record => record.imported),
     hasQuery,
   );
-  const defaultBranches = new Map(state.repos.flatMap(repo => (repo.defaultBranch ? [[repo.id, repo.defaultBranch]] : [])));
+  const defaultBranches = new Map(state.enabledRepos.flatMap(repo => (repo.defaultBranch ? [[repo.id, repo.defaultBranch]] : [])));
   const recordedTree = buildActivityTree(recorded.items, { defaultBranches });
   const importedTree = buildActivityTree(imported.items, { defaultBranches });
   const width = Math.max(recordedTree.width, importedTree.width);
@@ -441,7 +441,7 @@ function historyRows(records: ActivityItem[], hasQuery: boolean) {
  */
 function statusBanner(state: PageState, status: (import('../contract.ts').SyncStatus & { repoId: string }) | undefined) {
   if (!status) return emptyHtml;
-  const name = syncRepoName(state.repos, status);
+  const name = syncRepoName(state.enabledRepos, status);
   const where = name ? `${name}: ` : '';
   if (status.state === 'problem' && status.signInRequired)
     return html`<div class="banner crit azure-sign-in"><div>
@@ -473,7 +473,7 @@ function matchingAction(state: PageState, ui: FeedView, repoIds: string[]) {
 export function renderFeed(state: PageState, ui: FeedView & { savedFilterId: string }, feedCommits?: ReadonlyMap<string, CommitsView>) {
   const records = state.activity.items;
   const hasQuery = Boolean(ui.search || ui.activityFilter);
-  const shown = state.repos.filter(repo => ui.repoIds === null || ui.repoIds.includes(repo.id));
+  const shown = state.enabledRepos.filter(repo => ui.repoIds === null || ui.repoIds.includes(repo.id));
   // Until every shown repository is synced, an empty or short list does not prove that nothing changed.
   const partial = shown.some(repo => state.syncStatus.repos[repo.id]?.state !== 'synced');
   const overall = state.syncStatus.overall;
@@ -489,7 +489,7 @@ export function renderFeed(state: PageState, ui: FeedView & { savedFilterId: str
   const progress = attention?.state === 'syncing' ? attention.firstSync : undefined;
   const firstSync =
     attention && progress
-      ? `${shown.length > 1 ? `${syncRepoName(state.repos, attention)} · ` : ''}${progress.completed} of ${progress.total} checks complete`
+      ? `${shown.length > 1 ? `${syncRepoName(state.enabledRepos, attention)} · ` : ''}${progress.completed} of ${progress.total} checks complete`
       : undefined;
   // With one repository in view every row would repeat its name, so rows name it only when several are shown.
   const showRepo = shown.length > 1;

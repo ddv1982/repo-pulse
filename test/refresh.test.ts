@@ -130,7 +130,7 @@ test('disabled repositories stay watched but leave the shown repositories and th
         : page('orders'),
     ),
     getView: () => initialView,
-    reconcile: ({ watched }) => reconciled.push(watched.map(repo => repo.id)),
+    reconcile: ({ allRepos }) => reconciled.push(allRepos.map(repo => repo.id)),
     onUpdate: () => {},
     onError: error => {
       throw error;
@@ -138,11 +138,11 @@ test('disabled repositories stay watched but leave the shown repositories and th
   });
   await refresh.load();
   assert.deepEqual(
-    refresh.state.watched.map(repo => repo.id),
+    refresh.state.allRepos.map(repo => repo.id),
     ['orders', 'billing'],
   );
   assert.deepEqual(
-    refresh.state.repos.map(repo => repo.id),
+    refresh.state.enabledRepos.map(repo => repo.id),
     ['orders'],
   );
   assert.deepEqual(

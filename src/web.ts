@@ -51,7 +51,7 @@ const refresh = createRefreshController({
   request,
   getView: navigation.view,
   reconcile(next) {
-    navigation.reconcileRepositories(next.watched);
+    navigation.reconcileRepositories(next.allRepos);
     if (ui.savedFilterId && !next.savedFilters.some(filter => filter.id === ui.savedFilterId)) ui.savedFilterId = '';
   },
   onUpdate({ metadata, force }) {
@@ -95,7 +95,7 @@ const checkoutPanel = createCheckoutPanel({
   page,
   groups: ui.groups,
   request,
-  isVisible: () => ui.route === 'repositories' && !refresh.state.demo && refresh.state.repos.some(repo => repo.localPath),
+  isVisible: () => ui.route === 'repositories' && !refresh.state.demo && refresh.state.enabledRepos.some(repo => repo.localPath),
   shown() {
     if (ui.route !== 'graph' || refresh.state.demo) return detail.activityCheckout()?.repoId;
     const { repo } = graph.selection();
@@ -158,7 +158,7 @@ function renderOptions() {
     feedCommits: detail.feedCommits,
     ...(ui.route === 'graph' ? { graph: graph.render() } : {}),
     checkouts: checkoutPanel.snapshots,
-    checkoutFocus: navigation.takeCheckoutFocus(refresh.state.watched),
+    checkoutFocus: navigation.takeCheckoutFocus(refresh.state.allRepos),
     isCurrent: () => navigation.view().generation === generation,
   };
 }
@@ -223,7 +223,7 @@ function route() {
   // The branch picker belongs to the view that opened it.
   repositories.closeBranchPicker();
   const previous = ui.route;
-  const { destination, capacity, scrollToTop } = navigation.enter(refresh.loaded ? refresh.state.watched : null);
+  const { destination, capacity, scrollToTop } = navigation.enter(refresh.loaded ? refresh.state.allRepos : null);
   detail.enter(destination);
   let restoredGraph = false;
   if (destination === 'graph') restoredGraph = graph.enter(previous);

@@ -19,11 +19,11 @@ export function renderRepositories(
 ) {
   const groups = ui.groups ?? new Map<string, boolean>();
   const jobs = new Map(state.jobs.map(job => [job.repoId, job]));
-  const disabled = state.watched.filter(repo => repo.disabled).length;
+  const disabled = state.allRepos.filter(repo => repo.disabled).length;
   return html`<div class="repo-heading">
     <h1 class="sr">Repositories</h1>
-    <div class="section-heading"><span class="dim">${state.watched.length} watched${disabled ? ` · ${disabled} disabled` : ''}</span></div>
-    <details class="repo-add" ${disclosure(groups, 'add-repositories', !state.watched.length)}>
+    <div class="section-heading"><span class="dim">${state.allRepos.length} watched${disabled ? ` · ${disabled} disabled` : ''}</span></div>
+    <details class="repo-add" ${disclosure(groups, 'add-repositories', !state.allRepos.length)}>
       <summary ${action('toggle-group')} class="btn sm" id="add-repositories" aria-label="Add repositories">Add repositories</summary>
       <div class="card repo-add-body">
         <div id="repository-picker" class="card-pad" data-owned></div>
@@ -33,8 +33,8 @@ export function renderRepositories(
     </div>
     <section class="card block repo-list" aria-label="Watched repositories">
       ${
-        state.watched.length
-          ? state.watched.map(repo =>
+        state.allRepos.length
+          ? state.allRepos.map(repo =>
               repo.disabled
                 ? renderDisabledRepo(repo)
                 : renderRepo(

@@ -51,7 +51,7 @@ const renderDetail = (
 
 test('a disabled repository row offers only enabling or removing it', async t => {
   const state: State = {
-    watched: [
+    allRepos: [
       stub<Repository>({ id: 'on', name: 'Orders', project: 'Shop', localPath: '/src/orders' }),
       stub<Repository>({ id: 'off', name: 'Billing', project: 'Shop', localPath: '/src/billing', disabled: true }),
     ],
@@ -87,7 +87,7 @@ test('a disabled repository row offers only enabling or removing it', async t =>
 
 const view: Partial<FeedUi> = { repoIds: null, unseenOnly: true, activityFilter: '', search: '' };
 /** The page state the feed and detail tests build on: the watched repositories and their stored events. */
-type Fixture = State & { repos: Repository[]; events: ActivityEvent[] };
+type Fixture = State & { enabledRepos: Repository[]; events: ActivityEvent[] };
 function fixture(): Fixture {
   const event = {
     repoId: 'r',
@@ -100,7 +100,7 @@ function fixture(): Fixture {
     data: { buildId: 42, sourceVersion: 'abc123def456', reason: 'manual' },
   } satisfies Event;
   return {
-    repos: [stub<Repository>({ id: 'r', name: 'Orders' })],
+    enabledRepos: [stub<Repository>({ id: 'r', name: 'Orders' })],
     settings: { refreshEnabled: true, refreshResumedAt: null },
     syncStatus: { overall: { state: 'synced', repoId: 'r' }, repos: { r: { state: 'synced' } } },
     streams: [],
@@ -126,7 +126,7 @@ function fixture(): Fixture {
 function activityPage(state: Fixture, ui: Partial<FeedUi>) {
   const store = createStore();
   try {
-    for (const repo of state.repos) store.saveRepo(repo);
+    for (const repo of state.enabledRepos) store.saveRepo(repo);
     store.insertEvents(state.events);
     return store.queryActivity({
       view: ui.unseenOnly ? 'new' : 'all',
@@ -210,7 +210,7 @@ test('a completed pull request detail offers a switch to the branch it merged in
     data: { pullRequestId: 7, status: 'completed', sourceRefName: 'refs/heads/feature/topic', targetRefName: 'refs/heads/main' },
   };
   state.events = [pr];
-  state.repos = [stub<Repository>({ id: 'on', name: 'Orders', localPath: '/src/orders' })];
+  state.enabledRepos = [stub<Repository>({ id: 'on', name: 'Orders', localPath: '/src/orders' })];
   assert.equal(
     await text(
       one(
@@ -425,7 +425,7 @@ test('a row names its repository only when more than one repository is shown', a
   const state = fixture();
   const subref = (out: SafeHtml | string) => one(parse(t, out), '.feed-title .subref');
   assert.doesNotMatch(await textIncludingHidden(subref(renderFeed(state, view))), /Orders/);
-  state.repos.push(stub<Repository>({ id: 'other', name: 'Billing' }));
+  state.enabledRepos.push(stub<Repository>({ id: 'other', name: 'Billing' }));
   const repo = one(subref(renderFeed(state, view)), '.ref-repo');
   assert.equal(await text(repo), 'Orders');
   assert.equal(await textIncludingHidden(repo), '· repository Orders');
@@ -711,7 +711,7 @@ test('the summary counts every unread item in scope, not only the loaded rows', 
   ];
   const store = createStore();
   try {
-    for (const repo of state.repos) store.saveRepo(repo);
+    for (const repo of state.enabledRepos) store.saveRepo(repo);
     store.insertEvents([...state.events, ...extra]);
     const activity = store.queryActivity({ view: 'all', limit: 2 });
     const markup = renderPagedFeed({ ...state, events: [...state.events, ...extra], activity }, { ...view, unseenOnly: false });
