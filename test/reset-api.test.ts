@@ -3,11 +3,10 @@ import { request } from 'node:http';
 import assert from 'node:assert/strict';
 import { createStore } from '../server/store.ts';
 import { createSync } from '../server/sync.ts';
-import { seedDemo } from '../server/demo.ts';
+import { seedDemo, demoProvider, demoSync } from '../server/demo.ts';
 import { createBackfill } from '../server/backfill.ts';
 import type { TestContext } from 'node:test';
 import { createApp } from '../server/runtime.ts';
-import { type AppProvider, type AppSync } from '../server/routes/context.ts';
 import type { AzureProvider } from '../server/azure-client.ts';
 import type { AzureStreamRecord, StateResponse } from '../src/contract.ts';
 import { TEST_KEY, keyedFetch, portOf } from './fixtures/access.ts';
@@ -279,8 +278,7 @@ test('a running scheduler resumes after a reset and imports again without a manu
 test('demo mode refuses a reset and keeps its data', async t => {
   const store = createStore();
   seedDemo(store);
-  const sync: AppSync = { refresh: () => ({ demo: true }), status: () => ({ demo: true, running: false }) };
-  const app = createApp({ store, provider: stub<AppProvider>({}), sync, demo: true, accessKey: TEST_KEY });
+  const app = createApp({ store, provider: demoProvider, sync: demoSync, demo: true, accessKey: TEST_KEY });
   await new Promise<void>(resolve => app.listen(0, '127.0.0.1', resolve));
   t.after(async () => {
     await new Promise(resolve => app.close(resolve));
@@ -293,6 +291,9 @@ test('demo mode refuses a reset and keeps its data', async t => {
     body: '{}',
   });
   assert.equal(response.status, 403);
-  assert.deepEqual(await response.json(), { message: 'Demo data cannot be cleared. Start live mode to start from scratch.' });
+  assert.deepEqual(await response.json(), {
+    message: 'Demo data cannot be cleared. Start live mode to start from scratch.',
+    code: 'NOT_IN_DEMO',
+  });
   assert.equal(store.listEvents().length, before);
 });

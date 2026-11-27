@@ -4,19 +4,21 @@ import type { createAzureCli } from '../azure-cli.ts';
 import type { createBackfill } from '../backfill.ts';
 import type { createCheckoutGit } from '../checkout-git.ts';
 import type { createSavedActivityFilters } from '../saved-activity-filters.ts';
-import type { demoProvider } from '../demo.ts';
-import type { Discovery, DemoSyncStatus, FoldersResponse, RefreshStatus, SyncEngineStatus } from '../../src/contract.ts';
+import type { Discovery, FoldersResponse, RefreshStatus, SyncEngineStatus } from '../../src/contract.ts';
 
-/** Live mode passes the Azure client; demo mode passes demoProvider, which answers only the routes demo serves. */
-export type AppProvider = AzureProvider | typeof demoProvider;
+/** The Azure reads the routes make. Live mode passes the Azure client and demo mode passes demoProvider. */
+export type AppProvider = Pick<
+  AzureProvider,
+  'checkConnection' | 'prReview' | 'pushCommits' | 'resolveRepository' | 'completedCheckoutPulls'
+>;
 
 /**
- * Demo mode passes a stub, so the app relies only on the two calls both share with createSync, and reset and forget
- * in live mode.
+ * The sync calls the routes make. Live mode passes createSync with the background checks, and demo mode demoSync.
+ * Tests may leave out reset and forget.
  */
 export type AppSync = {
-  status: () => SyncEngineStatus | DemoSyncStatus;
-  refresh: (repoIds?: string[], authOnly?: boolean) => RefreshStatus | { demo: true };
+  status: () => SyncEngineStatus;
+  refresh: (repoIds?: string[], authOnly?: boolean) => RefreshStatus;
   reset?: (clear: () => void) => Promise<void>;
   forget?: (repoId: string) => void;
 };

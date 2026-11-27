@@ -10,14 +10,15 @@ import { createAzureCli, defaultExecutor } from './azure-cli.ts';
 import { createRestExecutor, useSystemNetworkSettings } from './azure-rest.ts';
 import { createAzureClient } from './azure-client.ts';
 import { discoverRepositories } from './repositories.ts';
-import { seedDemo, demoProvider } from './demo.ts';
+import { seedDemo, demoProvider, demoSync, NOT_IN_DEMO } from './demo.ts';
+import { notInDemo } from './errors.ts';
 import { createBackfill } from './backfill.ts';
 import { createRewriteCheck } from './rewrite-check.ts';
 import { createForkOriginCheck } from './fork-origin.ts';
 import { createCheckoutLookup } from './checkout-advice.ts';
 import { createCheckoutGit } from './checkout-git.ts';
 import { browseFolders } from './folders.ts';
-import { createHttpServer } from './http.ts';
+import { createHttpServer, type Handlers } from './http.ts';
 import { createReset, type AppContext, type AppProvider, type AppSync } from './routes/context.ts';
 import { activityRoutes } from './routes/activity.ts';
 import { filterRoutes } from './routes/filters.ts';
@@ -25,7 +26,7 @@ import { repositoryRoutes } from './routes/repositories.ts';
 import { checkoutRoutes } from './routes/checkout.ts';
 import { historyRoutes } from './routes/history.ts';
 import { stateRoutes } from './routes/state.ts';
-import type { DemoSyncStatus, FoldersResponse } from '../src/contract.ts';
+import type { FoldersResponse } from '../src/contract.ts';
 
 export type AppOptions = {
   store: Store;
@@ -49,7 +50,7 @@ function storeCheckoutGit(store: Store, provider: AppProvider) {
   return createCheckoutGit({
     findPulls: createCheckoutLookup({
       cached: store.completedCheckoutPulls,
-      lookup: 'completedCheckoutPulls' in provider ? provider.completedCheckoutPulls : undefined,
+      lookup: provider.completedCheckoutPulls,
     }),
     followups: {
       get: id => store.getSetting(`checkout-followup:${id}`),
@@ -63,6 +64,19 @@ function storeCheckoutGit(store: Store, provider: AppProvider) {
       save: (id, value) => store.setSetting(`checkout:${id}:${value.identity}`, value),
     },
   });
+}
+
+/** The handlers with each route demo mode cannot serve answering notInDemo instead. */
+function refuseInDemo(handlers: Handlers): Handlers {
+  const refusals = Object.fromEntries(
+    Object.entries(NOT_IN_DEMO).map(([key, message]) => [
+      key,
+      () => {
+        throw notInDemo(message);
+      },
+    ]),
+  );
+  return { ...handlers, ...refusals };
 }
 
 /** The loopback app: every route group on one store, behind the HTTP boundary in server/http.ts. */
@@ -95,15 +109,16 @@ export function createApp({
     startedAt: Date.now(),
     reset: createReset(store, sync),
   };
+  const handlers: Handlers = {
+    ...stateRoutes(app),
+    ...activityRoutes(app),
+    ...filterRoutes(app),
+    ...repositoryRoutes(app),
+    ...checkoutRoutes(app),
+    ...historyRoutes(app),
+  };
   return createHttpServer({
-    handlers: {
-      ...stateRoutes(app),
-      ...activityRoutes(app),
-      ...filterRoutes(app),
-      ...repositoryRoutes(app),
-      ...checkoutRoutes(app),
-      ...historyRoutes(app),
-    },
+    handlers: demo ? refuseInDemo(handlers) : handlers,
     accessKey,
     launchToken,
   });
@@ -184,31 +199,24 @@ async function startLocked(
         history: () => backfill?.tick(),
       },
     });
-  const sync = (liveSync && {
-    ...liveSync,
-    reset: (clear: () => void) =>
-      liveSync.reset(() => {
-        clear();
-        rewriteCheck?.reset();
-        forkCheck?.reset();
-        backfill?.reset();
-      }),
-    forget(repoId: string) {
-      liveSync.forget(repoId);
-      rewriteCheck?.forget(repoId);
-      forkCheck?.forget(repoId);
-      backfill?.forget(repoId);
-    },
-  }) || {
-    start() {},
-    stop() {},
-    refresh(): { demo: true } {
-      return { demo: true };
-    },
-    status(): DemoSyncStatus {
-      return { demo: true, running: false };
-    },
-  };
+  const sync =
+    (liveSync && {
+      ...liveSync,
+      reset: (clear: () => void) =>
+        liveSync.reset(() => {
+          clear();
+          rewriteCheck?.reset();
+          forkCheck?.reset();
+          backfill?.reset();
+        }),
+      forget(repoId: string) {
+        liveSync.forget(repoId);
+        rewriteCheck?.forget(repoId);
+        forkCheck?.forget(repoId);
+        backfill?.forget(repoId);
+      },
+    }) ||
+    demoSync;
   if (!azure || !liveSync) seedDemo(store);
   else {
     backfill = createBackfill({ store, provider: azure, normalize: liveSync.normalize });

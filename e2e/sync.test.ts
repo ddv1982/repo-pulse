@@ -8,12 +8,13 @@ import { createStore } from '../server/store.ts';
 import { createSync } from '../server/sync.ts';
 import { createBackfill } from '../server/backfill.ts';
 import type { AzureProvider } from '../server/azure-client.ts';
-import type { ConnectionStatus, Repository, SyncStatus, DemoSyncStatus, HistoryJob } from '../src/contract.ts';
+import type { ConnectionStatus, Repository, SyncStatus, HistoryJob } from '../src/contract.ts';
 import { present, stub } from '../test/fixtures/typed.ts';
 import { setup, renderInBackground } from './fixtures/ui-app.ts';
 import type { AppSync } from '../server/routes/context.ts';
 import { historyJob } from '../test/fixtures/jobs.ts';
 import { conflict } from '../server/errors.ts';
+import { idleSyncStatus } from '../server/demo.ts';
 
 declare global {
   interface Window {
@@ -397,7 +398,7 @@ test('repository history import keeps the accepted request visible even if its f
     accessKey: TEST_KEY,
     store,
     provider: stub<AzureProvider>({ checkConnection: async () => stub<ConnectionStatus>({ available: true }) }),
-    sync: stub<AppSync>({ status: () => stub<DemoSyncStatus>({}) }),
+    sync: stub<AppSync>({ status: () => idleSyncStatus() }),
     backfill: {
       start(repoId, days) {
         calls.push({ repoId, days });

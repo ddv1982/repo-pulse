@@ -627,7 +627,7 @@ const actions: Record<string, Action> = {
         body: { ...(ui.repoIds === null ? {} : { repoIds: ui.repoIds }), ...(retrySignIn ? { retrySignIn: true } : {}) },
       });
       toast(
-        'demo' in status || status.scheduled
+        status.scheduled
           ? 'Activity refresh queued.'
           : status.cooldown
             ? 'A refresh was requested recently. Try again shortly.'

@@ -5,13 +5,13 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { TestContext } from 'node:test';
 import { createStore } from '../server/store.ts';
-import { createApp, type AppOptions } from '../server/runtime.ts';
+import { createApp, startApp, type AppOptions } from '../server/runtime.ts';
 import { createRouter, type Handlers } from '../server/http.ts';
-import { seedDemo } from '../server/demo.ts';
+import { seedDemo, idleSyncStatus } from '../server/demo.ts';
 import type { AzureProvider } from '../server/azure-client.ts';
 import type { createCheckoutGit } from '../server/checkout-git.ts';
-import { ROUTES, type CheckoutStatus, type ConnectionStatus, type HistoryJob, type SyncEngineStatus } from '../src/contract.ts';
-import { TEST_KEY, keyedFetch, portOf } from './fixtures/access.ts';
+import { ROUTES, type CheckoutStatus, type ConnectionStatus, type HistoryJob } from '../src/contract.ts';
+import { TEST_KEY, fetchWithKey, keyedFetch, portOf, rememberRuntime } from './fixtures/access.ts';
 import { stub } from './fixtures/typed.ts';
 
 const fetch = keyedFetch();
@@ -33,7 +33,7 @@ async function app(t: TestContext, options: Partial<AppOptions> = {}) {
       pushCommits: async () => ({ items: [], nextCursor: null }),
       prReview: async () => ({ threads: { open: 0, resolved: 0 }, policies: [] }),
     }),
-    sync: { refresh: () => ({ scheduled: true }), status: () => stub<SyncEngineStatus>({ running: false }) },
+    sync: { refresh: () => ({ scheduled: true }), status: () => idleSyncStatus() },
     backfill: { start: () => stub<HistoryJob>({ id: 'job' }) },
     checkoutGit: stub<ReturnType<typeof createCheckoutGit>>({
       status: async () => stub<CheckoutStatus>({ state: 'not-linked' }),
@@ -133,4 +133,36 @@ test('request shapes are checked at the route: up to 1000 Seen IDs, a known Acti
   assert.equal((await view.json()).message, 'Invalid activity view.');
   assert.equal((await send('POST', '/api/repos/demo-orders/backfill', { days: 60 })).status, 400);
   assert.equal((await send('POST', '/api/repos/missing/backfill', { days: 30 })).status, 404);
+});
+
+test('demo mode refuses every route it cannot serve with 403', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'repo-pulse-demo-routes-'));
+  const runtime = rememberRuntime(await startApp({ demo: true, port: 0, dataDir: directory }));
+  t.after(async () => {
+    await runtime.close();
+    await rm(directory, { recursive: true, force: true });
+  });
+  const send = (method: string, path: string, body?: unknown) =>
+    fetchWithKey(runtime.url + path, {
+      method,
+      ...(body === undefined ? {} : { headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }),
+    });
+  const expected = { branch: 'main', head: 'a'.repeat(40), upstream: 'origin/main', identity: 'i', switchIdentity: 's' };
+  const refused: [string, string, unknown?][] = [
+    ['POST', '/api/repos', { url: 'https://dev.azure.com/org/project/_git/repo' }],
+    ['POST', '/api/repos/demo-orders/backfill', { days: 30 }],
+    ['POST', '/api/reset', {}],
+    ['GET', '/api/repos/demo-orders/graph'],
+    ['GET', '/api/repos/demo-orders/graph/snapshot'],
+    ['GET', '/api/repos/demo-orders/checkout/status'],
+    ['GET', '/api/repos/demo-orders/checkout/branches'],
+    ['POST', '/api/repos/demo-orders/checkout', { operation: 'check', expected }],
+  ];
+  for (const [method, path, body] of refused) {
+    const response = await send(method, path, body);
+    assert.equal(response.status, 403, `${method} ${path}`);
+    assert.equal((await response.json()).code, 'NOT_IN_DEMO', `${method} ${path}`);
+  }
+  assert.equal((await send('GET', '/api/state')).status, 200);
+  assert.equal((await send('POST', '/api/demo/event', {})).status, 201);
 });

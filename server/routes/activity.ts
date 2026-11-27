@@ -53,7 +53,6 @@ export function activityRoutes({ store, provider }: AppContext) {
     'GET /api/repos/:id/pushes/:pushId/commits': async ({ params: { id, pushId }, query }) => {
       const repo = store.getEnabledRepo(id);
       if (!/^\d+$/.test(pushId)) throw invalid('Invalid push.');
-      if (!provider.pushCommits) return { items: [], nextCursor: null, message: 'Open Azure DevOps for commit details.' };
       const skip = Number(query.get('skip') || 0);
       if (!Number.isSafeInteger(skip) || skip < 0) throw invalid('Invalid page offset.');
       const page = await provider.pushCommits(repo, Number(pushId), { skip });

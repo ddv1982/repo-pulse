@@ -8,12 +8,13 @@ import { createStore } from '../server/store.ts';
 import { createSync } from '../server/sync.ts';
 import { createAzureCli } from '../server/azure-cli.ts';
 import { createAzureClient } from '../server/azure-client.ts';
-import type { Repository, ConnectionStatus, DemoSyncStatus } from '../src/contract.ts';
+import type { Repository, ConnectionStatus } from '../src/contract.ts';
 import { fetch, setup, setupPicker } from './fixtures/ui-app.ts';
 import type { AppSync } from '../server/routes/context.ts';
 import type { AzureProvider } from '../server/azure-client.ts';
 import { stub } from '../test/fixtures/typed.ts';
 import { demo } from './fixtures/history-app.ts';
+import { idleSyncStatus } from '../server/demo.ts';
 
 test('all branches remain visible without rules, with working settings', async t => {
   const app = await setup(t);
@@ -285,7 +286,7 @@ test('compact Settings keeps diagnostics closed until needed and copies the diag
   await page.getByRole('button', { name: 'Copy diagnostics' }).click();
   await expect(page.getByRole('status').last()).toHaveText('Diagnostics copied.');
   const copied = JSON.parse(await page.evaluate(() => navigator.clipboard.readText()));
-  assert.deepEqual(copied, { sync: { demo: true, running: false } });
+  assert.deepEqual(copied, { sync: idleSyncStatus() });
   await page.getByText('What Repo Pulse tracks', { exact: true }).click();
   await expect(page.getByText('A successful build or merged pull request does not confirm deployment.')).toBeVisible();
 });
@@ -324,7 +325,7 @@ test('Settings shows scoped CLI access and header switches share the automatic c
       },
     }),
     sync: stub<AppSync>({
-      status: () => stub<DemoSyncStatus>({}),
+      status: () => idleSyncStatus(),
       // Returns no status, which the page does not read.
       refresh: (() => {
         manual++;

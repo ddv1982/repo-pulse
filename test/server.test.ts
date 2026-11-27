@@ -11,12 +11,12 @@ import { once } from 'node:events';
 import { createStore } from '../server/store.ts';
 import { createApp, startApp } from '../server/runtime.ts';
 import { createSync } from '../server/sync.ts';
-import { seedDemo } from '../server/demo.ts';
+import { seedDemo, idleSyncStatus } from '../server/demo.ts';
 import type { TestContext } from 'node:test';
 import { createAzureClient, type AzureProvider, type ResolvedRepository } from '../server/azure-client.ts';
 import type { createCheckoutGit } from '../server/checkout-git.ts';
 import type { AppOptions } from '../server/runtime.ts';
-import type { CheckoutStatus, ConnectionStatus, PushCommitsResponse, StateResponse, SyncEngineStatus } from '../src/contract.ts';
+import type { CheckoutStatus, ConnectionStatus, PushCommitsResponse, StateResponse } from '../src/contract.ts';
 import type { ActivityEvent, ActivityPage as ActivityResponse } from '../src/activity.ts';
 import { TEST_KEY, keyedFetch, portOf } from './fixtures/access.ts';
 import { fieldsOf, present, stub, watchedIdOf, type Thrown } from './fixtures/typed.ts';
@@ -37,7 +37,7 @@ async function fixture(t: TestContext, { demo = true, ...options }: Partial<AppO
       return { scheduled: true };
     },
     status() {
-      return stub<SyncEngineStatus>({ running: false });
+      return idleSyncStatus();
     },
   };
   const app = createApp({
@@ -250,7 +250,7 @@ test('refresh coalesces through sync interface, disabling persists and bad input
   assert.ok(resumed !== null && resumed > 0);
   assert.equal((await mutate('/api/settings', { refreshEnabled: true }, { method: 'PATCH' })).status, 200);
   assert.equal((await (await fetch(url + '/api/state')).json()).settings.refreshResumedAt, resumed);
-  assert.equal((await mutate('/api/repos', { url: 'https://dev.azure.com/example/Demo/_git/test' })).status, 400);
+  assert.equal((await mutate('/api/repos', { url: 'https://dev.azure.com/example/Demo/_git/test' })).status, 403);
 });
 
 test('a disabled repository disappears from activity and event details until enabled again', async t => {

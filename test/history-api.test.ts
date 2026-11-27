@@ -4,12 +4,13 @@ import { createStore } from '../server/store.ts';
 import { createApp } from '../server/runtime.ts';
 import { type AppProvider, type AppSync } from '../server/routes/context.ts';
 import type { ActivityEvent } from '../src/activity.ts';
-import type { HistoryJob, Repository, SyncEngineStatus } from '../src/contract.ts';
+import type { HistoryJob, Repository } from '../src/contract.ts';
 import { TEST_KEY, keyedFetch, portOf } from './fixtures/access.ts';
 import { stub } from './fixtures/typed.ts';
+import { idleSyncStatus } from '../server/demo.ts';
 
 const provider = stub<AppProvider>({});
-const sync = stub<AppSync>({ status: () => stub<SyncEngineStatus>({}) });
+const sync = stub<AppSync>({ status: () => idleSyncStatus() });
 
 const fetch = keyedFetch();
 

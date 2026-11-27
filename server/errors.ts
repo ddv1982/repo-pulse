@@ -33,3 +33,5 @@ export const invalid = (message: string, code?: string) => new AppError('invalid
 export const forbidden = (message: string, code?: string) => new AppError('forbidden', message, code);
 export const notFound = (message: string, code?: string) => new AppError('not-found', message, code);
 export const conflict = (message: string, code?: string) => new AppError('conflict', message, code);
+/** The one refusal for anything demo mode cannot do, with what the reader should know instead. */
+export const notInDemo = (message: string) => new AppError('forbidden', message, 'NOT_IN_DEMO');

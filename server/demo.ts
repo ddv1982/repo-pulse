@@ -1,6 +1,9 @@
 import type { ActivityEvent } from '../src/activity.ts';
 import { AZURE_STREAMS } from '../src/contract.ts';
 import type { Store } from './store.ts';
+import type { AppProvider } from './routes/context.ts';
+import type { ConnectionStatus, PullRequestReview, RefreshStatus, RouteKey, SyncEngineStatus } from '../src/contract.ts';
+import { notInDemo } from './errors.ts';
 
 /** Fixtures carry provider fields beyond EventData, as stored events do. */
 type DemoEvent = ActivityEvent & { data?: import('../src/activity.ts').EventData & Record<string, unknown> };
@@ -290,13 +293,51 @@ export function addDemoEvent(store: Store): ActivityEvent {
   return event;
 }
 
+/** Every route demo mode cannot serve, with the reason it gives. Each answers 403 through notInDemo. */
+export const NOT_IN_DEMO = {
+  'POST /api/repos': 'Demo repositories are fictional. Start live mode to add your repositories.',
+  'POST /api/repos/:id/backfill': 'Historical import is available in live mode.',
+  'POST /api/reset': 'Demo data cannot be cleared. Start live mode to start from scratch.',
+  'GET /api/repos/:id/graph': 'Demo repositories have no local Git history.',
+  'GET /api/repos/:id/graph/snapshot': 'Demo repositories have no local Git history.',
+  'GET /api/repos/:id/checkout/status': 'Demo checkouts have no local status.',
+  'GET /api/repos/:id/checkout/branches': 'Demo checkouts have no local branches.',
+  'POST /api/repos/:id/checkout': 'Demo checkouts cannot be updated.',
+} satisfies Partial<Record<RouteKey, string>>;
+
+/** A sync engine that has not run: what demo mode reports, since it never polls Azure. */
+export function idleSyncStatus(): SyncEngineStatus {
+  return {
+    running: false,
+    stopped: false,
+    pages: 0,
+    errors: 0,
+    streams: 0,
+    lastTurn: {},
+    backgroundProblems: {},
+    lag: { overdueStreams: 0, maxDelayMs: 0 },
+    inProgress: [],
+  };
+}
+
+/** Demo mode's sync: it never polls, so a refresh is accepted and changes nothing. */
+export const demoSync = {
+  start() {},
+  async stop() {},
+  status: idleSyncStatus,
+  refresh: (): RefreshStatus => ({ scheduled: true }),
+  reset: (): Promise<void> => Promise.reject(notInDemo(NOT_IN_DEMO['POST /api/reset'])),
+  forget() {},
+};
+
+/** Demo mode's Azure reads: fictional answers, and no Azure call. */
 export const demoProvider = {
   /** Like the live client, the check never claims an identity. */
-  async checkConnection(): Promise<import('../src/contract.ts').ConnectionStatus> {
+  async checkConnection(): Promise<ConnectionStatus> {
     return { available: true, message: 'Isolated demo mode. Azure CLI is never invoked.' };
   },
   /** Fictional review data for the demo PR; no Azure read. */
-  async prReview(): Promise<import('../src/contract.ts').PullRequestReview> {
+  async prReview(): Promise<PullRequestReview> {
     return {
       threads: { open: 2, resolved: 3 },
       policies: [
@@ -315,4 +356,11 @@ export const demoProvider = {
       nextCursor: null,
     };
   },
-};
+  async resolveRepository(): Promise<never> {
+    throw notInDemo(NOT_IN_DEMO['POST /api/repos']);
+  },
+  /** Demo checkouts are never linked, so no pull request is looked up for one. */
+  async completedCheckoutPulls(): Promise<never[]> {
+    return [];
+  },
+} satisfies AppProvider;

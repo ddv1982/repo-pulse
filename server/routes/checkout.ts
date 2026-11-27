@@ -1,5 +1,5 @@
 import { activityBranch } from '../../src/activity-branch.ts';
-import { forbidden, invalid, notFound } from '../errors.ts';
+import { invalid, notFound } from '../errors.ts';
 import { isBranchAction } from '../checkout-branches.ts';
 import { isCheckoutIntent, isSwitchIntent } from '../checkout-git.ts';
 import type { Handlers } from '../http.ts';
@@ -23,18 +23,15 @@ export function checkoutRoutes({ store, demo, checkoutGit }: AppContext) {
       return Object.fromEntries(results);
     },
     'GET /api/repos/:id/checkout/branches': async ({ params: { id } }) => {
-      if (demo) throw forbidden('Demo checkouts have no local branches.');
       const repo = store.getEnabledRepo(id);
       const local = new Set(await checkoutGit.localBranches(repo));
       return { branches: store.listBranches(repo).map(name => ({ name, local: local.has(name) })) };
     },
     'GET /api/repos/:id/checkout/status': async ({ params: { id }, query }) => {
-      if (demo) throw forbidden('Demo checkouts have no local status.');
       const repo = store.getEnabledRepo(id);
       return await checkoutGit.status(repo, { fresh: query.get('fresh') === '1' });
     },
     'POST /api/repos/:id/checkout': async ({ params: { id }, body: input }) => {
-      if (demo) throw forbidden('Demo checkouts cannot be updated.');
       const repo = store.getEnabledRepo(id);
       const { operation, expected } = input;
       if (operation === 'switch-activity' && isSwitchIntent(expected) && typeof input.eventId === 'string') {

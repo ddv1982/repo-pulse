@@ -6,10 +6,9 @@ import { join } from 'node:path';
 import type { TestContext } from 'node:test';
 import { createStore } from '../server/store.ts';
 import { createApp, type AppOptions } from '../server/runtime.ts';
-import { seedDemo } from '../server/demo.ts';
+import { seedDemo, idleSyncStatus } from '../server/demo.ts';
 import { cliError } from '../server/azure-cli.ts';
 import type { AzureProvider } from '../server/azure-client.ts';
-import type { SyncEngineStatus } from '../src/contract.ts';
 import { TEST_KEY, keyedFetch, portOf } from './fixtures/access.ts';
 import { stub } from './fixtures/typed.ts';
 
@@ -23,7 +22,7 @@ async function app(t: TestContext, options: Partial<AppOptions>) {
   const server = createApp({
     store,
     provider: stub<AzureProvider>({}),
-    sync: { refresh: () => ({ scheduled: true }), status: () => stub<SyncEngineStatus>({ running: false }) },
+    sync: { refresh: () => ({ scheduled: true }), status: () => idleSyncStatus() },
     demo: false,
     accessKey: TEST_KEY,
     ...options,

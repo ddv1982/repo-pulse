@@ -5,7 +5,7 @@ import type { AppContext } from './context.ts';
 import type { Repository } from '../../src/contract.ts';
 
 /** Watched repositories: adding, enabling and removing them, finding local checkouts, and connection checks. */
-export function repositoryRoutes({ store, provider, sync, demo, discover, browse }: AppContext) {
+export function repositoryRoutes({ store, provider, sync, discover, browse }: AppContext) {
   return {
     'GET /api/connection': ({ query }) => {
       const org = query.get('organization') || undefined;
@@ -20,9 +20,6 @@ export function repositoryRoutes({ store, provider, sync, demo, discover, browse
     },
     'POST /api/folders': ({ body }) => browse(body.path),
     'POST /api/repos': async ({ body }) => {
-      // Only the live Azure client resolves repositories; demoProvider has no lookup.
-      if (demo || !('resolveRepository' in provider))
-        throw invalid('Demo repositories are fictional. Start live mode to add your repositories.');
       const remote = await remoteToWatch(body, discover);
       const repo: Repository = await provider.resolveRepository(remote);
       if (remote.localPath) repo.localPath = remote.localPath;

@@ -1,10 +1,10 @@
 import { randomBytes } from 'node:crypto';
 import type { AddressInfo } from 'node:net';
 import { createApp } from '../server/runtime.ts';
-import { type AppProvider, type AppSync } from '../server/routes/context.ts';
 import { createStore } from '../server/store.ts';
 import type { ActivityEvent } from '../src/activity.ts';
 import type { Repository } from '../src/contract.ts';
+import { demoProvider, demoSync } from '../server/demo.ts';
 
 const samples = 20;
 const scenarios: { repositories: number; events: number; mixedRuns?: boolean }[] = [
@@ -36,8 +36,8 @@ async function measure(scenario: (typeof scenarios)[number]) {
   });
   store.insertEvents(events);
   const accessKey = randomBytes(32).toString('base64url');
-  // The measured routes never call the provider or refresh, and the state route reports an empty sync status.
-  const app = createApp({ store, provider: {} as AppProvider, sync: { status: () => ({}) } as AppSync, accessKey });
+  // The measured routes never call Azure or refresh, so demo mode's provider and idle sync stand in.
+  const app = createApp({ store, provider: demoProvider, sync: demoSync, accessKey });
   await new Promise<void>(resolve => app.listen(0, '127.0.0.1', resolve));
   const base = `http://127.0.0.1:${(app.address() as AddressInfo).port}`;
   const read = async (path: string) => {

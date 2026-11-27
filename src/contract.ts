@@ -209,7 +209,6 @@ export type SyncEngineStatus = {
   lag: { overdueStreams: number; maxDelayMs: number };
   inProgress: { repoId: string; stream: AzureStream }[];
 };
-export type DemoSyncStatus = { demo: true; running: false };
 export type RefreshStatus = { scheduled: boolean; cooldown?: boolean };
 export type SyncState = 'paused' | 'problem' | 'delayed' | 'syncing' | 'synced';
 /**
@@ -388,7 +387,7 @@ export type SessionResponse = { key: string };
 export type StateResponse = {
   repos: Repository[];
   streams: Pick<StreamState, 'repoId' | 'stream' | 'initialized' | 'lastSuccess' | 'error' | 'warning'>[];
-  diagnostics: Partial<CliDiagnostics> & { sync: SyncEngineStatus | DemoSyncStatus };
+  diagnostics: Partial<CliDiagnostics> & { sync: SyncEngineStatus };
   jobs: HistoryJob[];
   activityRevision: string;
   savedFilters: SavedActivityFilter[];
@@ -416,7 +415,7 @@ export type PrReviewResponse = PullRequestReview & { message?: string };
 /** POST /api/repos/:id/backfill. */
 export type BackfillResponse = HistoryJob;
 /** POST /api/refresh. */
-export type RefreshResponse = { ok: true; status: RefreshStatus | { demo: true } };
+export type RefreshResponse = { ok: true; status: RefreshStatus };
 /** POST /api/reset. */
 export type ResetResponse = { started: true };
 /** POST /api/discover. */

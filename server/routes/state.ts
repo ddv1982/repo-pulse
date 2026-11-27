@@ -1,4 +1,4 @@
-import { forbidden, invalid, notFound } from '../errors.ts';
+import { invalid, notFound } from '../errors.ts';
 import { isCorruptRow, refreshEnabled } from '../store-records.ts';
 import { syncStatus } from '../sync-status.ts';
 import { addDemoEvent } from '../demo.ts';
@@ -14,11 +14,9 @@ export function stateRoutes({ store, sync, cli, backfill, demo, savedFilters, on
     'GET /api/state': () => {
       onStateRead();
       const status = sync.status();
-      const inProgress = 'inProgress' in status ? status.inProgress : [];
       const repos = store.listRepos();
       const streams = store.getStreams();
-      const problems = 'backgroundProblems' in status ? status.backgroundProblems : undefined;
-      let backgroundProblem = problems?.history ?? problems?.rewrite;
+      let backgroundProblem = status.backgroundProblems.history ?? status.backgroundProblems.rewrite;
       let jobs: StateResponse['jobs'] = [];
       try {
         jobs = store.listJobs({ type: 'backfill' });
@@ -51,7 +49,7 @@ export function stateRoutes({ store, sync, cli, backfill, demo, savedFilters, on
           repos,
           streams,
           jobs,
-          inProgress,
+          inProgress: status.inProgress,
           settings,
           startedAt,
           now: Date.now(),
@@ -80,13 +78,12 @@ export function stateRoutes({ store, sync, cli, backfill, demo, savedFilters, on
         : undefined;
       const combined = history?.scheduled
         ? { scheduled: true }
-        : history?.cooldown && !('demo' in status) && !status.scheduled
+        : history?.cooldown && !status.scheduled
           ? { scheduled: false, cooldown: true }
           : status;
       return { ok: true, status: combined };
     },
     'POST /api/reset': () => {
-      if (demo || !sync.reset) throw forbidden('Demo data cannot be cleared. Start live mode to start from scratch.');
       reset.start();
       return { started: true };
     },
