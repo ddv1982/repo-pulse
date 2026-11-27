@@ -112,7 +112,7 @@ test('Light uses the vivid palette with glass chrome, status pills and an opaque
   await expect(summary.locator('.cells')).toBeHidden();
 
   // An unknown media feature is unmatched even when negated.
-  await page.route('**/web/styles/tokens.css', async route => {
+  await page.route('**/web/styles/glass.css', async route => {
     const response = await route.fetch();
     const body = (await response.text()).replaceAll('prefers-reduced-transparency', 'repo-pulse-unknown-preference');
     await route.fulfill({ response, body });

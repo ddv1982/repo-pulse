@@ -1,0 +1,191 @@
+/* Activity branch tree, drawn in the left padding of each row's type label. src/ui/activity-tree.ts draws one
+   cell per row, with y = 0 on the type label. Below 640px there is no tree, so rows keep their dot. */
+.tree,
+.activity-graph-guide {
+  display: none;
+}
+@media (min-width: 640px) {
+  .rows.with-tree {
+    --tree-lanes: 1;
+    --tree-width: calc(var(--tree-lanes) * 10px);
+    --tree-label-y: 23px;
+  }
+  .rows.with-tree[data-tree-lanes='0'] {
+    --tree-lanes: 0;
+  }
+  .rows.with-tree[data-tree-lanes='1'] {
+    --tree-lanes: 1;
+  }
+  .rows.with-tree[data-tree-lanes='2'] {
+    --tree-lanes: 2;
+  }
+  .rows.with-tree[data-tree-lanes='3'] {
+    --tree-lanes: 3;
+  }
+  .rows.with-tree[data-tree-lanes='4'] {
+    --tree-lanes: 4;
+  }
+  .rows.with-tree[data-tree-lanes='5'] {
+    --tree-lanes: 5;
+  }
+  .with-tree .row {
+    position: relative;
+    padding-inline-start: calc(16px + var(--tree-width));
+  }
+  .with-tree .kind > .d,
+  .with-tree .kind > svg {
+    display: none;
+  }
+  .tree {
+    display: block;
+    position: absolute;
+    top: -1px;
+    left: 12px;
+    width: var(--tree-width);
+    height: calc(100% + 1px);
+    pointer-events: none;
+  }
+  .tree > g {
+    transform: translateY(var(--tree-label-y));
+  }
+  .activity-graph-guide {
+    display: flex;
+    align-items: flex-start;
+    border-bottom: 1px solid var(--border);
+  }
+  .tree-guide {
+    flex: 1;
+    min-width: 0;
+  }
+  .activity-graph-guide > a {
+    margin: 0;
+    padding: 5px 12px;
+    white-space: nowrap;
+  }
+  .tree-guide summary {
+    margin: 0;
+    width: fit-content;
+    cursor: pointer;
+    padding: 5px 12px;
+  }
+  .tree-legend {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px 16px;
+    margin: 0;
+    padding: 8px 12px;
+  }
+  .tree-key-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    white-space: nowrap;
+  }
+  .tree-key {
+    width: 22px;
+    height: 12px;
+  }
+  .tree-key.ring {
+    width: 14px;
+  }
+}
+@media (min-width: 1100px) {
+  .rows.with-tree {
+    --tree-label-y: 21px;
+    --kind-width: calc(9.25rem + var(--tree-width));
+  }
+  .with-tree .row {
+    padding-inline-start: 12px;
+  }
+  .with-tree .kind {
+    padding-inline-start: calc(4px + var(--tree-width));
+  }
+}
+.tree line,
+.tree path,
+.tree-key path {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.75;
+  stroke-linecap: round;
+}
+.tree line.default-lane {
+  stroke-width: 2.5;
+}
+:root:not(.dark) .tree :is(line:not(.default-lane), path:not(.tag-mark path)) {
+  stroke-width: 2;
+}
+.tree .ci-node,
+.tree-key .ci-node {
+  fill: currentColor;
+  stroke: var(--card);
+}
+.tree .draft-ring,
+.tree-key .draft-ring {
+  stroke-dasharray: 2 1;
+}
+.kind .ci-marker {
+  border-radius: 1px;
+}
+.kind .d.pr-marker {
+  background: transparent;
+  border: 1px solid currentColor;
+}
+.kind .d.draft-marker {
+  border-style: dashed;
+}
+.tree circle,
+.tree-key circle {
+  fill: currentColor;
+}
+.tree .dot,
+.tree-key .dot {
+  stroke: var(--card);
+  stroke-width: 1.5;
+}
+.tree .tag-mark path {
+  color: var(--muted-foreground);
+  stroke-width: 1.2;
+  vector-effect: non-scaling-stroke;
+}
+.tree .hole,
+.tree-key .hole {
+  fill: var(--card);
+  stroke: currentColor;
+  stroke-width: 1.75;
+}
+.tree .assumed,
+.tree-key .assumed {
+  stroke-dasharray: 1 4;
+}
+.tree .tail {
+  opacity: 0.45;
+}
+.lane-1 {
+  color: var(--lane-1);
+}
+.lane-2 {
+  color: var(--lane-2);
+}
+.lane-3 {
+  color: var(--lane-3);
+}
+.lane-4 {
+  color: var(--lane-4);
+}
+.lane-5 {
+  color: var(--lane-5);
+}
+.lane-6 {
+  color: var(--lane-6);
+}
+.lane-none {
+  color: var(--neutral-solid);
+}
+.tree-key .lane-none:not(.dot) {
+  color: var(--muted-foreground);
+}
+.lane-crit {
+  color: var(--critical);
+}

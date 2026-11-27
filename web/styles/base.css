@@ -453,71 +453,7 @@ p {
   flex: none;
 }
 
-/* Dialogs and toasts. */
-dialog {
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  background: var(--card);
-  color: var(--foreground);
-  padding: 0;
-  max-width: min(460px, calc(100% - 32px));
-  box-shadow: var(--shadow-lg);
-}
-dialog::backdrop {
-  background: oklch(0 0 0 / 0.35);
-}
-dialog .dbody {
-  padding: 16px;
-  display: grid;
-  gap: 10px;
-  font-size: 14px;
-}
-dialog .dfoot {
-  display: flex;
-  gap: 8px;
-  justify-content: flex-end;
-  padding: 12px 16px;
-  border-top: 1px solid var(--border);
-}
-#confirm-dialog {
-  width: min(460px, calc(100% - 32px));
-}
-#confirm-dialog .dbody {
-  grid-template-columns: minmax(0, 1fr);
-  overflow-wrap: anywhere;
-}
-#confirm-title {
-  font-size: 18px;
-  line-height: 1.35;
-}
-#confirm-description {
-  color: var(--muted-foreground);
-}
-#confirm-subject {
-  padding: 8px 10px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--muted);
-  line-height: 1.45;
-}
-#confirm-dialog .dfoot {
-  flex-wrap: wrap;
-}
-#confirm-dialog .dfoot .btn {
-  min-height: var(--control-height);
-  height: auto;
-  padding-block: 6px;
-  white-space: normal;
-  overflow-wrap: anywhere;
-}
-#confirm-button.danger {
-  background: var(--critical-wash);
-  color: var(--critical);
-  border-color: color-mix(in oklab, var(--critical) 38%, var(--border));
-}
-#confirm-button.danger:hover {
-  background: color-mix(in oklab, var(--critical) 14%, var(--card));
-}
+/* Toasts. */
 .toast-stack {
   position: fixed;
   left: 50%;

@@ -137,9 +137,14 @@ test('serves real UI and blocks other origins, DNS rebinding, and API requests w
   const imports = [...(await stylesheet.text()).matchAll(/@import\s+['"]([^'"]+)['"]\s*;/g)].map(match => match[1]);
   assert.deepEqual(imports, [
     '/web/styles/tokens.css',
+    '/web/styles/glass.css',
     '/web/styles/base.css',
+    '/web/styles/components.css',
     '/web/styles/layout.css',
+    '/web/styles/activity-toolbar.css',
     '/web/styles/feed.css',
+    '/web/styles/activity-detail.css',
+    '/web/styles/activity-tree.css',
     '/web/styles/repositories.css',
     '/web/styles/settings.css',
     '/web/styles/git-graph.css',
