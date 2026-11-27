@@ -23,7 +23,7 @@ import { renderCheckoutBar } from './checkout-render.ts';
 import { activityHref } from './navigation.ts';
 import type { ActivityEvent, ActivityItem, EventData } from '../activity.ts';
 import type { HtmlValue } from './format.ts';
-import type { StateResponse, PushCommitsResponse, PrReviewResponse } from '../contract.ts';
+import type { StateResponse, PushCommitsResponse, PrReviewResponse, EventResponse } from '../contract.ts';
 
 export type Repo = StateResponse['repos'][number];
 type PushId = number | string | undefined;
@@ -34,7 +34,38 @@ export type CommitsView = PushCommitsResponse | { error: string };
 type ReviewView = PrReviewResponse | { error: string };
 /** Data a detail page loaded on request: push commits for a push, review data for a PR. */
 export type LoadedView = CommitsView | ReviewView;
-type DetailState = { events: ActivityEvent[]; repos: Repo[]; demo?: boolean; detailRelated?: ActivityEvent[] | undefined };
+type DetailState = { repos: Repo[]; demo?: boolean };
+
+/** What the detail page shows: the event the address names, the group it belongs to, and its related activity. */
+export type DetailView = { event: ActivityEvent; record: ActivityItem; related: ActivityEvent[] };
+
+/** The group of `events` that holds `event`, or the event alone when it belongs to no group there. */
+function groupOf(events: ActivityEvent[], event: ActivityEvent) {
+  return groupActivity(events).find(item => item.eventIds.includes(event.id)) ?? groupActivity([event])[0];
+}
+
+/**
+ * The detail of event `id`: the group the server answered with (GET /api/activity/:id). Until that answer arrives, the
+ * Activity row that holds the event gives its group, so a detail opened from a row shows at once; related activity
+ * waits for the answer.
+ */
+export function detailView(
+  state: {
+    detail?: (Pick<EventResponse, 'related'> & { event: ActivityEvent; events: ActivityEvent[] }) | undefined;
+    activity: { items: ActivityItem[] };
+  },
+  id: string | null,
+): DetailView | undefined {
+  const answer = state.detail;
+  if (answer && answer.event.id === id) {
+    const record = groupOf(answer.events, answer.event);
+    return record && { event: answer.event, record, related: answer.related ?? [] };
+  }
+  const item = state.activity.items.find(row => id !== null && row.eventIds.includes(id));
+  const event = item?.events.find(member => member.id === id);
+  const record = item && event && groupOf(item.events, event);
+  return event && record && { event, record, related: [] };
+}
 
 function commit(value: string) {
   return html`<code title="${value}">${value.slice(0, 8)}</code> <button class="ghost sm detail-copy" type="button" data-action="copy-commit" data-value="${value}" aria-label="Copy full commit ID">Copy</button>`;
@@ -238,7 +269,7 @@ function relatedActivity(record: ActivityItem, events: ActivityEvent[], showRela
 }
 
 export function renderDetail(
-  event: ActivityEvent | undefined,
+  view: DetailView | undefined,
   state: DetailState,
   commits: LoadedView | undefined,
   {
@@ -258,10 +289,8 @@ export function renderDetail(
   const back = returnToGraph
     ? html`<a class="ghost sm back" data-action="back-to-graph" href="#graph">← Back to Git Graph</a>`
     : html`<a class="ghost sm back" data-action="back-to-results" href="${activityHref(returnUnreadOnly)}">← Back to Activity</a>`;
-  if (!event) return html`${back}<div class="card empty"><h1>Activity not found</h1></div>`;
-  const record = groupActivity(state.events).find(item => item.eventIds.includes(event.id)) || groupActivity([event])[0];
-  // Grouping one event always yields its group.
-  if (!record) return html`${back}<div class="card empty"><h1>Activity not found</h1></div>`;
+  if (!view) return html`${back}<div class="card empty"><h1>Activity not found</h1></div>`;
+  const { event, record, related } = view;
   const repo = state.repos.find(item => item.id === record.repoId);
   const data = record.data || {};
   const pushId = data.pushId || data.push?.pushId;
@@ -271,7 +300,7 @@ export function renderDetail(
   const branch = !state.demo && repo?.localPath ? activityBranch(event) : null;
   const checkoutBar = branch ? renderCheckoutBar(event.repoId, checkouts?.[event.repoId], branch) : emptyHtml;
   return html`<div class="crumb">${back}<span>${repo?.name}</span></div><section class="card">${detailHead(record, repo, activityTitle(record), matching)}${checkoutBar}
-    ${detailData(record, repo, data, fields, pushId, commits, state.detailRelated ?? [], showRelated)}</section>`;
+    ${detailData(record, repo, data, fields, pushId, commits, related, showRelated)}</section>`;
 }
 
 export function renderCommits(commits: CommitsView) {

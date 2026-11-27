@@ -1,4 +1,5 @@
 import { createActivityData, activityEvents } from './activity-data.ts';
+import { detailView } from './activity-detail.ts';
 import { isActivity } from './navigation.ts';
 import type { ActivityEvent, ActivityPage } from '../activity.ts';
 import type { ActivityView } from './activity-data.ts';
@@ -23,7 +24,8 @@ export type PageState = Omit<StateResponse, 'syncStatus' | 'diagnostics'> & {
   activity: DisplayActivity;
   events: ActivityEvent[];
   detailLoading?: boolean;
-  detailRelated?: ActivityEvent[] | undefined;
+  /** The server's answer for the detail shown, once it arrives: the event, its group and related activity. */
+  detail?: EventResponse | undefined;
 };
 
 type PageSyncStatus = { overall: import('./health.ts').ShownSyncStatus; repos: StateResponse['syncStatus']['repos'] };
@@ -143,8 +145,7 @@ export function createRefreshController({
         detailResult = detail;
         detailRevision = next.activityRevision;
         detailCi = view.relatedCi;
-        if (!cached) next.events = activityEvents(state.activity, detail);
-        next.detailRelated = detail.related;
+        next.detail = detail;
         next.detailLoading = false;
       }
 
@@ -191,7 +192,9 @@ export function createRefreshController({
       state = { ...state, activity: { items: [], loading: true }, events: [] };
     },
     prepareDetail(id: string | null) {
-      state = { ...state, detailRelated: undefined, detailLoading: !state.events.some(event => event.id === id) };
+      // The answer for another detail no longer applies; until this one's arrives, its Activity row stands in.
+      const cleared = { ...state, detail: undefined };
+      state = { ...cleared, detailLoading: !detailView(cleared, id) };
     },
     load(this: void, { force = false, more = false } = {}) {
       const view = getView();

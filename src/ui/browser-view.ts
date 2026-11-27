@@ -1,6 +1,7 @@
 import { renderHeader } from './header.ts';
 import { syncAnnouncement, syncRepoName } from './health.ts';
 import { renderFeed, renderDetail } from './feed.ts';
+import { detailView } from './activity-detail.ts';
 import { renderRepositories } from './repositories.ts';
 import { renderSettings } from './settings.ts';
 import { eventIds } from './seen-actions.ts';
@@ -176,20 +177,12 @@ export function createBrowserView({
       case 'settings':
         setHtml(page, renderSettings(state, ui.connection));
         break;
-      case 'event':
-        if (state.detailLoading && !state.events.some(event => event.id === ui.eventId))
-          setHtml(page, html`<div class="card loading" role="status">Loading activity details…</div>`);
-        else
-          setHtml(
-            page,
-            renderDetail(
-              state.events.find(event => event.id === ui.eventId),
-              state,
-              commits,
-              { returnUnreadOnly, returnToGraph, showRelated, matchingIds, checkouts },
-            ),
-          );
+      case 'event': {
+        const view = detailView(state, ui.eventId);
+        if (!view && state.detailLoading) setHtml(page, html`<div class="card loading" role="status">Loading activity details…</div>`);
+        else setHtml(page, renderDetail(view, state, commits, { returnUnreadOnly, returnToGraph, showRelated, matchingIds, checkouts }));
         break;
+      }
       case 'activity':
         setHtml(page, renderFeed(state, ui, feedCommits));
         break;

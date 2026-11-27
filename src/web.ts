@@ -13,6 +13,7 @@ import { createTypeFilter } from './ui/type-filter.ts';
 import { createRefreshController } from './ui/refresh.ts';
 import { createBrowserView, replacementFocus } from './ui/browser-view.ts';
 import { createSeenActions, eventIds } from './ui/seen-actions.ts';
+import { detailView } from './ui/activity-detail.ts';
 import { createFilterNameDialog, currentActivityFilters, isSavedFilterModified, savedRepositoryScope } from './ui/saved-filters.ts';
 import { createToolbarMenu } from './ui/toolbar-menu.ts';
 import { createRepositoryScope, scopeName } from './ui/repository-scope.ts';
@@ -52,7 +53,7 @@ const actionResources: Record<string, string> = {
   'delete-filter': 'saved-filters',
   'remove-repo': 'repos',
 };
-let lastRendered: { metadata?: string; activity?: PageState['activity']; events?: PageState['events'] } = {};
+let lastRendered: { metadata?: string; activity?: PageState['activity']; detail?: PageState['detail'] } = {};
 let toastTimer: ReturnType<typeof setTimeout> | undefined;
 let undoTimer: ReturnType<typeof setTimeout> | undefined;
 
@@ -222,7 +223,7 @@ function renderOptions() {
 
 function getActivityCheckout(): import('./ui/checkout-actions.ts').ActivityCheckout | null {
   if (ui.route !== 'event' || refresh.state.demo) return null;
-  const event = refresh.state.events.find(event => event.id === ui.eventId);
+  const event = detailView(refresh.state, ui.eventId)?.event;
   const repo = event && refresh.state.repos.find(repo => repo.id === event.repoId);
   const branch = event && activityBranch(event);
   if (!event || !repo?.localPath || !branch) return null;
@@ -299,14 +300,14 @@ const refresh = createRefreshController({
     if (ui.savedFilterId && !next.savedFilters.some(filter => filter.id === ui.savedFilterId)) ui.savedFilterId = '';
   },
   onUpdate({ metadata, force }) {
-    const { activity, events } = refresh.state;
-    if (force || metadata !== lastRendered.metadata || activity !== lastRendered.activity || events !== lastRendered.events) {
+    const { activity, detail } = refresh.state;
+    if (force || metadata !== lastRendered.metadata || activity !== lastRendered.activity || detail !== lastRendered.detail) {
       const target = refreshTarget(force);
       if (target === 'full') {
         // The answer can change which repository the graph shows; its history loads before the page renders.
         if (ui.route === 'graph') graph.sync();
         render();
-        lastRendered = { metadata, activity, events };
+        lastRendered = { metadata, activity, detail };
       }
     }
     if (required('#notice').dataset.networkError) clearNotice();
@@ -317,7 +318,7 @@ const refresh = createRefreshController({
   onError(error, force) {
     showError(`Cannot refresh local state: ${error.message} Last loaded events remain visible.`, true);
     if (isActivity(ui.route) && refreshTarget(force)) renderPage();
-    if (ui.route === 'event' && !refresh.state.events.some(event => event.id === ui.eventId)) renderPage();
+    if (ui.route === 'event' && !detailView(refresh.state, ui.eventId)) renderPage();
   },
 });
 const load = refresh.load;

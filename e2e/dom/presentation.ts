@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { activityTitle as activityTitleOf, activitySummary as activitySummaryOf, type SafeHtml } from '../../src/ui/format.ts';
 import { renderRepositories as renderRepositoriesHtml } from '../../src/ui/repositories.ts';
 import { renderFeed as renderPagedFeedHtml, renderDetail as renderDetailHtml } from '../../src/ui/feed.ts';
+import { detailView } from '../../src/ui/activity-detail.ts';
 import { forkText, treeLegend } from '../../src/ui/activity-tree.ts';
 import type { TreeFork } from '../../src/activity-tree.ts';
 import { createStore } from '../../server/store.ts';
@@ -38,7 +39,13 @@ const renderDetail = (
   options?: Partial<DetailOptions>,
 ) =>
   String(
-    renderDetailHtml(stub<ActivityEvent>(event), stub<PageState>(state), commits ?? undefined, options && stub<DetailOptions>(options)),
+    renderDetailHtml(
+      // The server answers a detail with the event's group; the test state's events stand for it.
+      detailView({ detail: { event: stub<ActivityEvent>(event), events: state.events ?? [] }, activity: { items: [] } }, event.id ?? null),
+      stub<PageState>(state),
+      commits ?? undefined,
+      options && stub<DetailOptions>(options),
+    ),
   );
 
 test('a disabled repository row offers only enabling or removing it', async t => {

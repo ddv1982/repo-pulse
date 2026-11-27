@@ -20,7 +20,7 @@ import type { ActivityEvent } from '../src/activity.ts';
 import type { PageState, Repo } from '../src/ui/refresh.ts';
 import type { CheckoutSnapshot } from '../src/ui/checkout.ts';
 import type { ConnectionState } from '../src/ui/connection.ts';
-import type { CommitsView } from '../src/ui/activity-detail.ts';
+import { detailView, type CommitsView } from '../src/ui/activity-detail.ts';
 import type { ConnectionResponse as ConnectionStatus } from '../src/contract.ts';
 
 /** A transformed value and the exact escaped markup expected where it is rendered. */
@@ -415,7 +415,13 @@ const views: Record<string, View> = {
     ],
   },
   detail: {
-    render: () => events.flatMap(event => [undefined, ...commitViews].map(commits => renderDetail(event, state, commits))),
+    // The server answers a detail with the event's group; this state's events stand for it.
+    render: () =>
+      events.flatMap(event =>
+        [undefined, ...commitViews].map(commits =>
+          renderDetail(detailView({ detail: { event, events: state.events }, activity: { items: [] } }, event.id), state, commits),
+        ),
+      ),
     shows: [
       'repo.name',
       'build.running.title',
