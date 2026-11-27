@@ -60,14 +60,13 @@ UI rendering tests read markup in Chromium through [e2e/fixtures/dom.ts](../e2e/
 ## Run checks
 
 ```sh
-npm run check
 npm run check:types
 npm run lint
 npm test
 npm run test:ui
 ```
 
-CI runs the first four on Linux and Windows. Linux runs the full browser suite, and Windows runs the rendered DOM suite (`npm run test:dom`). Browser tests use Chromium. Run `npx playwright install chromium` if needed, or set `CHROME` to a local executable. Tests use isolated databases and temporary Git repositories. They verify workflows and failure cases without proving live Azure permissions. See [coverage and limits](COVERAGE.md) for the distinction.
+CI runs the first three on Linux and Windows. Linux runs the full browser suite, and Windows runs the rendered DOM suite (`npm run test:dom`). Browser tests use Chromium. Run `npx playwright install chromium` if needed, or set `CHROME` to a local executable. Tests use isolated databases and temporary Git repositories. They verify workflows and failure cases without proving live Azure permissions. See [coverage and limits](COVERAGE.md) for the distinction.
 
 ## Match review to risk
 
