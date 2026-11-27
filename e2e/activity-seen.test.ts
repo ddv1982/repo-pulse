@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { expect } from '@playwright/test';
 import { fetch, setup, groupedFixture } from './fixtures/ui-app.ts';
-import { defer, gate } from './fixtures/app.ts';
+import { capture, defer, gate } from './fixtures/app.ts';
 import { demo, isSeen } from './fixtures/history-app.ts';
 import type { ActivityEvent } from '../src/activity.ts';
 
@@ -226,7 +226,7 @@ test('undo tracks the successful seen write even if the following refresh fails'
   await page.goto(runtime.url + '/#activity/unread');
   const rowAction = (id: string) => page.locator(`li[data-event-id="${id}"] [data-action="ack-item"]`);
   await rowAction('seen-earlier').click();
-  await expect(page.locator('#toast')).toContainText('1 update marked seen.');
+  await expect(page.locator('#undo-toast')).toContainText('1 update marked seen.');
   await page.route('**/api/state', route => route.fulfill({ status: 500, json: { message: 'Synthetic refresh failure' } }));
   await rowAction('seen-later').click();
   await expect(page.getByText(/Could not refresh seen status/)).toBeVisible();
@@ -271,9 +271,9 @@ for (const undo of [false, true]) {
     await expect(notice).toContainText('Synthetic batch failure');
     if (!undo) {
       await expect(notice).toContainText('Synthetic refresh failure');
-      await expect(page.locator('#toast')).toContainText('250 updates marked seen.');
+      await expect(page.locator('#undo-toast')).toContainText('250 updates marked seen.');
     } else {
-      await expect(page.locator('#toast')).toContainText('Retry Undo for 1 remaining update.');
+      await expect(page.locator('#undo-toast')).toContainText('Retry Undo for 1 remaining update.');
     }
     await page.unroute('**/api/ack');
     await page.unroute('**/api/state');
@@ -356,11 +356,11 @@ test('seen feedback waits for its refresh when a background poll is in flight', 
     await ack;
     await expect(page.getByRole('dialog')).not.toBeVisible();
     await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
-    await expect(page.locator('#toast')).not.toBeVisible({ timeout: 500 });
+    await expect(page.locator('#undo-toast')).not.toBeVisible({ timeout: 500 });
   } finally {
     release.release();
   }
-  await expect(page.locator('#toast')).toContainText('marked seen');
+  await expect(page.locator('#undo-toast')).toContainText('marked seen');
   await expect(page.locator('.feed-actions button')).toHaveCount(0);
 });
 
@@ -542,12 +542,54 @@ test('a refresh that answers late leaves the Undo toast of a Seen mark in place'
   const refreshed = page.waitForResponse('**/api/refresh');
   await page.getByRole('button', { name: 'Refresh activity', exact: true }).first().click();
   await page.locator('li[data-event-id] .seen-toggle[aria-pressed="false"]').first().click();
-  const toast = page.locator('#toast');
-  const undo = toast.getByRole('button', { name: 'Undo' });
+  const undo = page.locator('#undo-toast').getByRole('button', { name: 'Undo' });
   await expect(undo).toBeVisible();
   held.release();
   await refreshed;
-  await page.waitForTimeout(500);
+  await expect(page.locator('#toast')).toContainText('Activity refresh queued.');
   await expect(undo).toBeVisible();
-  await expect(toast).not.toContainText('Activity refresh queued.');
+});
+
+test('a saved filter rename that finishes after a Seen mark leaves its Undo in place', async t => {
+  const { runtime, page } = await demo(t);
+  runtime.store.setSetting('savedActivityFilters', [
+    { id: 'keep', name: 'Keep me', filters: { search: '', people: '', kind: '', repoIds: null, view: 'new' } },
+  ]);
+  await page.goto(runtime.url + '/#activity/unread');
+  await page.locator('#saved-filter-toggle').click();
+  await page.getByRole('option', { name: /Keep me/ }).click();
+  const renaming = gate(t, 'filter rename');
+  await page.route('**/api/activity-filters/keep', async route => {
+    await renaming.opened;
+    await route.continue();
+  });
+  await page.getByRole('button', { name: 'More saved filter actions' }).click();
+  await page.getByRole('menuitem', { name: 'Rename…' }).click();
+  const rename = page.getByRole('dialog', { name: 'Rename Activity filter' });
+  await rename.getByRole('textbox', { name: 'Filter name' }).fill('Renamed');
+  const sent = page.waitForRequest('**/api/activity-filters/keep');
+  await rename.getByRole('button', { name: 'Save' }).click();
+  await sent;
+  // The modal stays open while it saves, so mark the row the way a script or a second click on the page would.
+  await page.locator('li[data-event-id] [data-action="ack-item"]').first().dispatchEvent('click');
+  const undo = page.getByRole('button', { name: 'Undo', exact: true });
+  await expect(undo).toBeVisible();
+  renaming.release();
+  await expect(page.getByText('Filter renamed.')).toBeVisible();
+  await expect(undo).toBeVisible();
+});
+
+test('a refresh started while Undo shows reports its outcome and keeps Undo', async t => {
+  const { page } = await setup(t);
+  await page.locator('li[data-event-id] .seen-toggle[aria-pressed="false"]').first().click();
+  const undo = page.getByRole('button', { name: 'Undo', exact: true });
+  await expect(undo).toBeVisible();
+  await page.getByRole('button', { name: 'Refresh activity', exact: true }).first().click();
+  await expect(page.getByText('Activity refresh queued.')).toBeVisible();
+  await expect(undo).toBeVisible();
+  await capture(page, 'undo-and-message-desktop.png');
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(undo).toBeInViewport();
+  await expect(page.getByText('Activity refresh queued.')).toBeInViewport();
+  await capture(page, 'undo-and-message-390.png');
 });

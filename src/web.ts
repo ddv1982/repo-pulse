@@ -54,6 +54,7 @@ const actionResources: Record<string, string> = {
 };
 let lastRendered: { metadata?: string; activity?: PageState['activity']; events?: PageState['events'] } = {};
 let toastTimer: ReturnType<typeof setTimeout> | undefined;
+let undoTimer: ReturnType<typeof setTimeout> | undefined;
 
 let searchTimer: ReturnType<typeof setTimeout> | undefined;
 const connection = createConnectionController({
@@ -142,7 +143,7 @@ const historyImport = createHistoryImport(required('#history-dialog', HTMLDialog
 const seen = createSeenActions({
   page,
   request,
-  toast,
+  toast: seenToast,
   async reload() {
     const outcome = await load({ force: true });
     if (outcome.type === 'failed') throw new Error(`Could not refresh seen status. ${outcome.error.message}`);
@@ -419,19 +420,30 @@ function clearNotice() {
   delete notice.dataset.networkError;
 }
 
-/** `background` marks a message nobody waits for, such as a refresh result: it never replaces an Undo toast still showing. */
-function toast(message: string, { undo = false, background = false } = {}) {
+function toast(message: string) {
   const element = required('#toast');
-  if (background && !element.hidden && element.querySelector('[data-action="undo-ack"]')) return;
   clearTimeout(toastTimer);
-  setHtml(element, html`${message}${undo ? html`<button type="button" data-action="undo-ack">Undo</button>` : emptyHtml}`);
+  setHtml(element, html`${message}`);
   element.hidden = false;
-  toastTimer = setTimeout(
-    () => {
-      element.hidden = true;
-    },
-    undo ? 20000 : 6000,
-  );
+  toastTimer = setTimeout(() => {
+    element.hidden = true;
+  }, 6000);
+}
+
+/**
+ * Seen feedback. An Undo offer has its own slot and timer above the message toast, so other messages show beside it
+ * and never remove it; the next seen result replaces it.
+ */
+function seenToast(message: string, { undo = false } = {}) {
+  const element = required('#undo-toast');
+  clearTimeout(undoTimer);
+  element.hidden = true;
+  if (!undo) return toast(message);
+  setHtml(element, html`${message}<button type="button" data-action="undo-ack">Undo</button>`);
+  element.hidden = false;
+  undoTimer = setTimeout(() => {
+    element.hidden = true;
+  }, 20000);
 }
 
 function confirm(
@@ -622,7 +634,6 @@ const actions: Record<string, Action> = {
             : retrySignIn
               ? 'No sign-in checks need retrying.'
               : 'No enabled repositories are selected.',
-        { background: true },
       );
       await load({ force: true });
     } finally {
