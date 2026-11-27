@@ -1,12 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { checkoutFixture, git } from './fixtures/checkout.ts';
-import { present } from './fixtures/typed.ts';
+import { fakeRequest, present } from './fixtures/typed.ts';
 import { layoutGitGraph } from '../src/git-graph.ts';
 import { createCheckoutGit } from '../server/checkout-git.ts';
 import { runGit } from '../server/git.ts';
-import { createGitGraph } from '../src/ui/git-graph.ts';
-import type { GitHistoryPage } from '../src/contract.ts';
+import { createGitGraph, createGraphController } from '../src/ui/git-graph.ts';
+import type { GitHistoryPage, Repository } from '../src/contract.ts';
 import { stub } from './fixtures/typed.ts';
 
 test('checkout history preserves Git order and all parents across pages', async t => {
@@ -119,4 +119,33 @@ test('the graph takes a stored default branch as its base only when it is a full
   const ids = async (defaultBranch: string) => (await checkoutGit.history({ ...repo, defaultBranch }, null)).commits.map(row => row.id);
   assert.ok((await ids('refs/heads/main')).includes(remoteOnly));
   assert.ok(!(await ids('main')).includes(remoteOnly));
+});
+
+test('rendering Git Graph starts no request; entering it and a state answer that changes its repository do', () => {
+  const requested: string[] = [];
+  let repos = [stub<Repository>({ id: 'orders', name: 'orders', project: 'Shop', localPath: '/src/orders' })];
+  const graph = createGraphController({
+    request: fakeRequest(path => {
+      requested.push(path);
+      return new Promise(() => {});
+    }),
+    page: stub<HTMLElement>({}),
+    state: () => ({ repos, activityRevision: '1' }),
+    scope: () => null,
+    isActive: () => true,
+    render: () => {},
+    checkout: () => undefined,
+    readCheckout: () => {},
+    currentView: () => () => true,
+  });
+  graph.render();
+  assert.deepEqual(requested, []);
+  graph.enter('activity');
+  assert.deepEqual(requested, ['/api/repos/orders/graph']);
+  repos = [stub<Repository>({ id: 'billing', name: 'billing', project: 'Shop', localPath: '/src/billing' }), ...repos];
+  graph.render();
+  graph.render();
+  assert.deepEqual(requested, ['/api/repos/orders/graph'], 'a render with another repository first loads nothing');
+  graph.sync();
+  assert.deepEqual(requested, ['/api/repos/orders/graph', '/api/repos/billing/graph']);
 });

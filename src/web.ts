@@ -8,7 +8,7 @@ import { connectionResult, createConnectionController } from './ui/connection.ts
 import { emptyHtml, html } from './ui/format.ts';
 import { createRepositoryPicker } from './ui/repository-picker.ts';
 import { createNavigation, activityHref, isActivity } from './ui/navigation.ts';
-import { createGitGraph, renderGitGraph } from './ui/git-graph.ts';
+import { createGraphController } from './ui/git-graph.ts';
 import { createTypeFilter } from './ui/type-filter.ts';
 import { createRefreshController } from './ui/refresh.ts';
 import { createBrowserView, replacementFocus } from './ui/browser-view.ts';
@@ -18,7 +18,7 @@ import { createToolbarMenu } from './ui/toolbar-menu.ts';
 import { createRepositoryScope, scopeName } from './ui/repository-scope.ts';
 import { createHistoryImport } from './ui/history-import.ts';
 import { createBranchPicker } from './ui/branch-picker.ts';
-import { all, checked, required, setHtml } from './ui/dom.ts';
+import { checked, required, setHtml } from './ui/dom.ts';
 import type { PageState } from './ui/refresh.ts';
 import type { Action } from './ui/dom.ts';
 
@@ -171,55 +171,27 @@ const checkoutPanel = createCheckoutPanel({
     if (id && JSON.stringify(before[id]) !== JSON.stringify(checkoutPanel.snapshots[id])) renderPage();
   },
   onMutation(id) {
-    if (graph.state.repoId !== id) return;
-    if (ui.route !== 'graph') {
-      graphReturn = undefined;
-      graph.reset();
-      return;
-    }
-    void refreshGraphRefs(true);
+    graph.checkoutChanged(id);
   },
 });
 const navigation = createNavigation({ ui, captureGroups: view.captureGroups, activityCapacity: () => refresh.capacity() });
 
-let graphRepoId = '';
-let graphQuery = '';
-let graphMatch = '';
-let graphVisit = 0;
-let graphReturn:
-  | {
-      visit: number;
-      repoId: string;
-      rowId: string;
-      href: string;
-      y: number;
-      x: number;
-      revision: PageState['activityRevision'];
-    }
-  | undefined;
-let graphDetailOrigin = '';
-let probingSnapshot: { repoId: string; snapshot: string } | undefined;
 let focusRelatedCi = false;
-const graph = createGitGraph({
-  read: (id, cursor) => request('GET /api/repos/:id/graph', { params: { id }, query: { cursor: cursor || undefined } }),
-  render: () => {
-    if (ui.route === 'graph') renderPage();
-  },
+const graph = createGraphController({
+  request,
+  page,
+  state: () => refresh.state,
+  scope: () => ui.repoIds,
+  isActive: () => ui.route === 'graph',
+  render: renderPage,
+  checkout: id => checkoutPanel.snapshots[id],
+  readCheckout: () => refreshViewCheckout(true),
+  currentView,
 });
-
-function graphSelection() {
-  const { repos } = refresh.state;
-  const repo =
-    repos.find(item => item.id === graphRepoId) ??
-    repos.find(item => ui.repoIds?.length === 1 && item.id === ui.repoIds[0]) ??
-    repos.find(item => item.localPath) ??
-    repos[0];
-  return { repos, repo };
-}
 
 function visibleCheckout() {
   if (ui.route === 'graph' && !refresh.state.demo) {
-    const { repo } = graphSelection();
+    const { repo } = graph.selection();
     return repo?.localPath ? repo.id : undefined;
   }
   return getActivityCheckout()?.repoId;
@@ -230,48 +202,18 @@ function refreshViewCheckout(fresh = false) {
   if (id) void checkoutPanel.read(id, fresh);
 }
 
-async function refreshGraphRefs(mutated = false) {
-  const { repoId, page: history, changed } = graph.state;
-  if (!repoId || (!mutated && (!history || changed))) return;
-  if (mutated && !history) {
-    graphMatch = '';
-    void graph.reload();
-    return;
-  }
-  if (!history || (!mutated && probingSnapshot?.repoId === repoId && probingSnapshot.snapshot === history.snapshot)) return;
-  const probe = { repoId, snapshot: history.snapshot };
-  probingSnapshot = probe;
-  let matches = false;
-  try {
-    const { snapshot } = await request('GET /api/repos/:id/graph/snapshot', { params: { id: repoId } });
-    matches = snapshot === probe.snapshot;
-  } catch {
-    // A checkout can disappear or become unreadable after the history loaded.
-  }
-  if (probingSnapshot !== probe) return;
-  probingSnapshot = undefined;
-  if (matches || ui.route !== 'graph' || graph.state.repoId !== repoId || graph.state.page?.snapshot !== probe.snapshot) return;
-  if (mutated) {
-    graphMatch = '';
-    void graph.reload();
-  } else {
-    graph.markChanged(probe.snapshot);
-    refreshViewCheckout(true);
-  }
-}
-
 function renderOptions() {
   const restored = navigation.takeRestoration(refresh.state.activity.loading);
   const { generation } = navigation.view();
   return {
     restored,
     returnUnreadOnly: navigation.returnUnreadOnly,
-    returnToGraph: Boolean(graphDetailOrigin) && location.hash === graphDetailOrigin,
+    returnToGraph: graph.returnsHere,
     showRelated: Boolean(ui.relatedCi),
     matchingIds: navigation.matchingIds,
     commits: commitResults.get(ui.eventId),
     feedCommits,
-    ...(ui.route === 'graph' ? { graph: renderGraph() } : {}),
+    ...(ui.route === 'graph' ? { graph: graph.render() } : {}),
     checkouts: checkoutPanel.snapshots,
     checkoutFocus: navigation.takeCheckoutFocus(refresh.state.watched),
     isCurrent: () => navigation.view().generation === generation,
@@ -291,37 +233,13 @@ function getActivityCheckout(): import('./ui/checkout-actions.ts').ActivityCheck
 function currentView() {
   const { generation } = navigation.view();
   const hash = location.hash;
-  const repo = ui.route === 'graph' ? graphSelection().repo : undefined;
+  const repo = ui.route === 'graph' ? graph.selection().repo : undefined;
   return () => {
     if (location.hash !== hash || navigation.view().generation !== generation) return false;
     if (!repo) return true;
-    const selected = graphSelection().repo;
+    const selected = graph.selection().repo;
     return selected?.id === repo.id && selected.localPath === repo.localPath;
   };
-}
-
-function renderGraph() {
-  const { repos, repo } = graphSelection();
-  graph.select(repo);
-  return renderGitGraph(repos, repo, graph.state, graphQuery, graphMatch, repo ? checkoutPanel.snapshots[repo.id] : undefined);
-}
-
-function setGraphSearch(query: string) {
-  graphQuery = query;
-  graphMatch = '';
-  renderPage();
-}
-
-function moveGraphMatch(step: 1 | -1) {
-  const matches = all('.graph-match', HTMLElement, page);
-  if (!matches.length) return;
-  const current = matches.findIndex(row => row.id === `commit-${graphMatch}`);
-  const index = current < 0 ? (step === 1 ? 0 : matches.length - 1) : (current + step + matches.length) % matches.length;
-  const row = matches[index];
-  if (!row) return;
-  graphMatch = row.id.slice('commit-'.length);
-  renderPage();
-  document.getElementById(row.id)?.scrollIntoView({ block: 'center', inline: 'nearest' });
 }
 
 function revealRelatedCi() {
@@ -385,6 +303,8 @@ const refresh = createRefreshController({
     if (force || metadata !== lastRendered.metadata || activity !== lastRendered.activity || events !== lastRendered.events) {
       const target = refreshTarget(force);
       if (target === 'full') {
+        // The answer can change which repository the graph shows; its history loads before the page renders.
+        if (ui.route === 'graph') graph.sync();
         render();
         lastRendered = { metadata, activity, events };
       }
@@ -392,7 +312,7 @@ const refresh = createRefreshController({
     if (required('#notice').dataset.networkError) clearNotice();
     void checkoutPanel.refresh();
     refreshViewCheckout();
-    if (ui.route === 'graph') void refreshGraphRefs();
+    if (ui.route === 'graph') void graph.refresh();
   },
   onError(error, force) {
     showError(`Cannot refresh local state: ${error.message} Last loaded events remain visible.`, true);
@@ -563,16 +483,15 @@ function applySavedFilter({ id, name, filters }: import('./contract.ts').SavedAc
 
 const actions: Record<string, Action> = {
   'reload-graph': () => {
-    graphMatch = '';
     refreshViewCheckout(true);
     void graph.reload();
   },
   'more-graph': () => {
     void graph.more();
   },
-  'clear-graph-search': () => setGraphSearch(''),
-  'previous-graph-match': () => moveGraphMatch(-1),
-  'next-graph-match': () => moveGraphMatch(1),
+  'clear-graph-search': () => graph.search(''),
+  'previous-graph-match': () => graph.moveMatch(-1),
+  'next-graph-match': () => graph.moveMatch(1),
   ...createCheckoutActions({
     checkoutPanel,
     getActivityCheckout,
@@ -859,19 +778,8 @@ document.addEventListener('click', event => {
     return;
   }
   const graphLink = checked(target.closest('.graph-link'), HTMLAnchorElement, '.graph-link');
-  if (ui.route === 'graph' && graphLink && !event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey) {
-    graphReturn = {
-      visit: ++graphVisit,
-      repoId: graph.state.repoId,
-      rowId: graphLink.closest('.graph-commit')?.id ?? '',
-      href: graphLink.hash,
-      y: window.scrollY,
-      x: page.querySelector('.graph-commits')?.scrollLeft ?? 0,
-      revision: refresh.state.activityRevision,
-    };
-    // Mark the history entry we left, so a fresh click on Git Graph still reads the checkout.
-    history.replaceState({ ...history.state, graphVisit }, '');
-  }
+  if (ui.route === 'graph' && graphLink && !event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey)
+    graph.followLink(graphLink);
   const element = target.closest('[data-action]');
   if (element instanceof HTMLElement) {
     event.preventDefault();
@@ -885,7 +793,7 @@ document.addEventListener('input', event => {
   if (target.id === 'feed-search') {
     ui.search = target.value;
     activityChanged({ debounce: true });
-  } else if (target.id === 'graph-search') setGraphSearch(target.value);
+  } else if (target.id === 'graph-search') graph.search(target.value);
 });
 
 document.addEventListener('change', event => {
@@ -893,11 +801,8 @@ document.addEventListener('change', event => {
   if (!(target instanceof HTMLInputElement || target instanceof HTMLSelectElement)) return;
   if (target.id === 'graph-repo') {
     branchPicker.close();
-    graphReturn = undefined;
     navigation.invalidate();
-    graphRepoId = target.value;
-    graphMatch = '';
-    renderPage();
+    graph.selectRepository(target.value);
     refreshViewCheckout(true);
     return;
   }
@@ -1000,40 +905,16 @@ function route() {
   const previous = ui.route;
   const { destination, capacity, scrollToTop } = navigation.enter(refresh.loaded ? refresh.state.watched : null);
   focusRelatedCi = destination === 'event' && Boolean(ui.relatedCi);
-  graphDetailOrigin = previous === 'graph' && destination === 'event' && graphReturn ? location.hash : '';
-  const restoreGraph =
-    destination === 'graph' &&
-    previous === 'event' &&
-    graphReturn &&
-    graphReturn.visit === history.state?.graphVisit &&
-    graphReturn.repoId === graphSelection().repo?.id &&
-    graphReturn.revision === refresh.state.activityRevision &&
-    !graph.state.error
-      ? graphReturn
-      : undefined;
+  let restoredGraph = false;
+  if (destination === 'graph') restoredGraph = graph.enter(previous);
+  else graph.leave(previous, destination);
   if (isActivity(destination)) refresh.resetActivity(capacity);
   else if (destination === 'event') refresh.prepareDetail(ui.eventId);
-  else if (destination === 'graph' && !restoreGraph) {
-    graphReturn = undefined;
-    graphMatch = '';
-    graph.reset();
-  }
   render();
   const needsActivity = isActivity(destination) || destination === 'event';
   void load({ force: needsActivity });
   if (ui.route === 'graph' || ui.route === 'event') refreshViewCheckout(true);
-  if (restoreGraph) {
-    void refreshGraphRefs();
-    const isCurrent = currentView();
-    requestAnimationFrame(() => {
-      if (!isCurrent()) return;
-      const row = document.getElementById(restoreGraph.rowId);
-      const link = (row ? all('.graph-link', HTMLAnchorElement, row) : []).find(link => link.hash === restoreGraph.href);
-      (link ?? document.getElementById('graph-search'))?.focus({ preventScroll: true });
-      page.querySelector('.graph-commits')?.scrollTo({ left: restoreGraph.x, behavior: 'instant' });
-      window.scrollTo({ top: restoreGraph.y, behavior: 'instant' });
-    });
-  } else if (destination === 'graph' || (needsActivity && scrollToTop)) window.scrollTo({ top: 0, behavior: 'instant' });
+  if (!restoredGraph && (destination === 'graph' || (needsActivity && scrollToTop))) window.scrollTo({ top: 0, behavior: 'instant' });
 }
 
 window.addEventListener('hashchange', route);

@@ -6,6 +6,7 @@ import { ciTime, emptyHtml, fullDateTime, html } from './format.ts';
 import { renderCheckoutBar } from './checkout-render.ts';
 import type { CheckoutSnapshot } from './checkout.ts';
 import { renderSearchHelp, renderSearchInput } from './search-field.ts';
+import { all } from './dom.ts';
 
 type State = {
   repoId: string;
@@ -66,6 +67,220 @@ export function createGitGraph({ read, render }: Options) {
     more: () => {
       if (state.page?.nextCursor) return load(state.page.nextCursor);
     },
+  };
+}
+
+/** Where a click on a graph link left the page, so Back from the detail it opened can put the reader back there. */
+type GraphReturn = {
+  visit: number;
+  repoId: string;
+  rowId: string;
+  href: string;
+  y: number;
+  x: number;
+  revision: string;
+};
+
+/**
+ * The Git Graph page: which repository it shows, the history loaded for it, the search and its current match, and the
+ * place a graph link left. Rendering reads this state and starts no request; the history loads when the page is
+ * entered, when the reader picks a repository, and when a state answer changes which repository it shows.
+ */
+export function createGraphController({
+  request,
+  page,
+  state,
+  scope,
+  isActive,
+  render,
+  checkout,
+  readCheckout,
+  currentView,
+}: {
+  request: typeof import('../api.ts').request;
+  page: HTMLElement;
+  state: () => { repos: Repository[]; activityRevision: string };
+  /** The Activity repository scope: one repository in it is the graph's first choice. */
+  scope: () => string[] | null;
+  isActive: () => boolean;
+  render: () => void;
+  checkout: (repoId: string) => CheckoutSnapshot | undefined;
+  /** Reads the shown checkout again after its history changed under the page. */
+  readCheckout: () => void;
+  currentView: () => () => boolean;
+}) {
+  const history = createGitGraph({
+    read: (id, cursor) => request('GET /api/repos/:id/graph', { params: { id }, query: { cursor: cursor || undefined } }),
+    render: () => {
+      if (isActive()) render();
+    },
+  });
+  /** The repository the reader picked, if any. */
+  let chosenId = '';
+  let query = '';
+  let match = '';
+  let visit = 0;
+  let back: GraphReturn | undefined;
+  /** The detail a graph link opened, while it is shown. */
+  let detailOrigin = '';
+  let probing: { repoId: string; snapshot: string } | undefined;
+
+  function selection() {
+    const { repos } = state();
+    const ids = scope();
+    const repo =
+      repos.find(item => item.id === chosenId) ??
+      repos.find(item => ids?.length === 1 && item.id === ids[0]) ??
+      repos.find(item => item.localPath) ??
+      repos[0];
+    return { repos, repo };
+  }
+
+  /** Loads the history of the repository the page shows, when that is not the one loaded. */
+  function sync() {
+    history.select(selection().repo);
+  }
+
+  /** Checks whether the checkout moved under the loaded history; after a Git action, reloads it instead. */
+  async function probe(mutated = false) {
+    const { repoId, page: loaded, changed } = history.state;
+    if (!repoId || (!mutated && (!loaded || changed))) return;
+    if (mutated && !loaded) {
+      match = '';
+      void history.reload();
+      return;
+    }
+    if (!loaded || (!mutated && probing?.repoId === repoId && probing.snapshot === loaded.snapshot)) return;
+    const current = { repoId, snapshot: loaded.snapshot };
+    probing = current;
+    let matches = false;
+    try {
+      const { snapshot } = await request('GET /api/repos/:id/graph/snapshot', { params: { id: repoId } });
+      matches = snapshot === current.snapshot;
+    } catch {
+      // A checkout can disappear or become unreadable after the history loaded.
+    }
+    if (probing !== current) return;
+    probing = undefined;
+    if (matches || !isActive() || history.state.repoId !== repoId || history.state.page?.snapshot !== current.snapshot) return;
+    if (mutated) {
+      match = '';
+      void history.reload();
+    } else {
+      history.markChanged(current.snapshot);
+      readCheckout();
+    }
+  }
+
+  function matchIds() {
+    return searchMatches(history.state.page, query)?.ids ?? [];
+  }
+
+  return {
+    selection,
+    get state() {
+      return history.state;
+    },
+    render() {
+      const { repos, repo } = selection();
+      return renderGitGraph(repos, repo, history.state, query, match, repo ? checkout(repo.id) : undefined);
+    },
+    /**
+     * Shows the graph. Coming back from a detail a graph link opened, while the history and Activity are unchanged,
+     * keeps the history and puts focus and scrolling back where the link was; otherwise the history loads again.
+     * @returns whether the place was restored
+     */
+    enter(previous: import('./navigation.ts').Route) {
+      detailOrigin = '';
+      const restore =
+        previous === 'event' &&
+        back &&
+        back.visit === window.history.state?.graphVisit &&
+        back.repoId === selection().repo?.id &&
+        back.revision === state().activityRevision &&
+        !history.state.error
+          ? back
+          : undefined;
+      if (!restore) {
+        back = undefined;
+        match = '';
+        history.reset();
+      }
+      sync();
+      if (!restore) return false;
+      void probe();
+      const isCurrent = currentView();
+      requestAnimationFrame(() => {
+        if (!isCurrent()) return;
+        const row = document.getElementById(restore.rowId);
+        const link = (row ? all('.graph-link', HTMLAnchorElement, row) : []).find(link => link.hash === restore.href);
+        (link ?? document.getElementById('graph-search'))?.focus({ preventScroll: true });
+        page.querySelector('.graph-commits')?.scrollTo({ left: restore.x, behavior: 'instant' });
+        window.scrollTo({ top: restore.y, behavior: 'instant' });
+      });
+      return true;
+    },
+    /** A navigation to a page other than the graph. A detail opened from a graph link can go back to it. */
+    leave(previous: import('./navigation.ts').Route, destination: Exclude<import('./navigation.ts').Route, 'graph'>) {
+      detailOrigin = previous === 'graph' && destination === 'event' && back ? location.hash : '';
+    },
+    /** Whether Back on the shown detail returns to the graph that opened it. */
+    get returnsHere() {
+      return Boolean(detailOrigin) && location.hash === detailOrigin;
+    },
+    selectRepository(id: string) {
+      back = undefined;
+      chosenId = id;
+      match = '';
+      sync();
+      render();
+    },
+    /** A state answer arrived: the shown repository can change with it. */
+    sync,
+    /** Checks the shown checkout for changes that make the loaded history stale. */
+    refresh: () => probe(),
+    /** A Git action changed a checkout: reload its history if it is shown, or forget it. */
+    checkoutChanged(repoId: string) {
+      if (history.state.repoId !== repoId) return;
+      if (isActive()) return void probe(true);
+      back = undefined;
+      history.reset();
+    },
+    /** Records the place a graph link leaves, before the detail it opens is shown. */
+    followLink(link: HTMLAnchorElement) {
+      back = {
+        visit: ++visit,
+        repoId: history.state.repoId,
+        rowId: link.closest('.graph-commit')?.id ?? '',
+        href: link.hash,
+        y: window.scrollY,
+        x: page.querySelector('.graph-commits')?.scrollLeft ?? 0,
+        revision: state().activityRevision,
+      };
+      // Mark the history entry we left, so a fresh click on Git Graph still reads the checkout.
+      window.history.replaceState({ ...window.history.state, graphVisit: visit }, '');
+    },
+    search(value: string) {
+      query = value;
+      match = '';
+      render();
+    },
+    moveMatch(step: 1 | -1) {
+      const ids = matchIds();
+      if (!ids.length) return;
+      const current = ids.indexOf(match);
+      const index = current < 0 ? (step === 1 ? 0 : ids.length - 1) : (current + step + ids.length) % ids.length;
+      const next = ids[index];
+      if (next === undefined) return;
+      match = next;
+      render();
+      document.getElementById(`commit-${next}`)?.scrollIntoView({ block: 'center', inline: 'nearest' });
+    },
+    reload() {
+      match = '';
+      return history.reload();
+    },
+    more: () => history.more(),
   };
 }
 
