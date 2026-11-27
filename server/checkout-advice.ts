@@ -20,7 +20,7 @@ function hasSameRepoResult(repo: LinkedRepo, pr: CheckoutPull) {
   );
 }
 
-export function isExactCheckoutPull(repo: LinkedRepo, pr: CheckoutPull, head: string) {
+function isExactCheckoutPull(repo: LinkedRepo, pr: CheckoutPull, head: string) {
   return pr.head === head && hasSameRepoResult(repo, pr);
 }
 

@@ -3,7 +3,7 @@ import { required } from './dom.ts';
 
 /** /api/state lists backfill jobs; these are the fields the Repositories page shows. */
 export type HistoryJob = Pick<import('../contract.d.ts').HistoryJob, 'status' | 'error' | 'pages' | 'lastProgressAt' | 'warnings'>;
-export type HistoryRepo = Pick<import('./refresh.ts').Repo, 'id' | 'name'>;
+type HistoryRepo = Pick<import('./refresh.ts').Repo, 'id' | 'name'>;
 
 function statusFor(job: HistoryJob): [string, string] {
   if (job.status === 'completed') return ['History sync finished', job.warnings?.length ? 'warn' : 'ok'];

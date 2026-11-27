@@ -8,7 +8,7 @@ import type { PageState, Repo } from './refresh.ts';
 import type { CheckoutSnapshot } from './checkout.ts';
 import type { HistoryJob } from './history-import.ts';
 
-export type RepositoriesView = Pick<import('./connection.ts').ConnectionState, 'results'>;
+type RepositoriesView = Pick<import('./connection.ts').ConnectionState, 'results'>;
 
 export function renderRepositories(
   state: PageState,

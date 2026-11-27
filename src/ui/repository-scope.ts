@@ -1,9 +1,9 @@
 import { emptyHtml, html } from './format.ts';
 import { createToolbarMenu } from './toolbar-menu.ts';
 
-export type ScopeState = Pick<import('./refresh.ts').PageState, 'repos'>;
+type ScopeState = Pick<import('./refresh.ts').PageState, 'repos'>;
 /** `openMenu` is `repo-panel` while the scope panel is open. */
-export type ScopeView = Pick<import('./navigation.ts').NavigationState, 'repoIds'> & { openMenu?: string };
+type ScopeView = Pick<import('./navigation.ts').NavigationState, 'repoIds'> & { openMenu?: string };
 
 export function scopeName(state: ScopeState, ui: ScopeView) {
   const count = ui.repoIds === null ? state.repos.length : state.repos.filter(repo => ui.repoIds?.includes(repo.id)).length;

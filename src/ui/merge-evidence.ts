@@ -30,7 +30,7 @@ export function renderMergeEvidence(data: EventData = {}) {
 const droppedText = (update: { dropped?: number; more?: boolean }) =>
   `${update.dropped}${update.more ? '+' : ''} commit${update.dropped === 1 && !update.more ? '' : 's'} dropped`;
 
-export type CheckedUpdate = { name?: string | undefined; update: { status?: string; dropped?: number; more?: boolean } };
+type CheckedUpdate = { name?: string | undefined; update: { status?: string; dropped?: number; more?: boolean } };
 /**
  * Branch updates with a history check: saved as ref ranges by the earlier merge analysis, or by the rewrite check.
  */

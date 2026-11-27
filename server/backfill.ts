@@ -5,8 +5,8 @@ import type { AzurePage as SourcePage } from './azure-client.ts';
 import type { Entity, WatchedRepo } from './normalize.ts';
 import type { JobType, JobOf } from './store-records.ts';
 
-export type HistoryBatch = { events?: ActivityEvent[]; entities?: Entity[] };
-export type HistoryStore = {
+type HistoryBatch = { events?: ActivityEvent[]; entities?: Entity[] };
+type HistoryStore = {
   listRepos: () => WatchedRepo[];
   listJobs: <T extends JobType>(filter: { type: T }) => JobOf<T>[];
   getSetting: (key: `baseline:${string}`, fallback: string) => string;

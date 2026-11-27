@@ -40,7 +40,7 @@ export type FeedView = Pick<import('./navigation.ts').NavigationState, 'unreadOn
   openMenu?: string;
 };
 
-export function filterControls(ui: FeedView & { savedFilterId: string }, state: PageState) {
+function filterControls(ui: FeedView & { savedFilterId: string }, state: PageState) {
   const desktop = globalThis.matchMedia?.('(min-width: 640px)').matches ?? true;
   const active = Number(Boolean(ui.search)) + Number(Boolean(ui.kind)) + Number(ui.unreadOnly);
   // Clear filter leaves the repository scope alone, so only the Filters count includes it.

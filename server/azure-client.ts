@@ -57,7 +57,7 @@ export type ResolvedRepository = {
 };
 export type RepositoryInput = { organization: string; project: string; repoName?: string; name?: string };
 /** The Azure CLI queue the client reads through (see createAzureCli). */
-export type AzureClientCli = { run: (args: string[]) => Promise<unknown> };
+type AzureClientCli = { run: (args: string[]) => Promise<unknown> };
 /** The provider contract. Sync and backfill type their provider as the subset of it they call. */
 export type AzureProvider = ReturnType<typeof createAzureClient>;
 
@@ -249,8 +249,6 @@ export function createAzureClient({ cli, now = Date.now }: { cli?: AzureClientCl
           available: true,
           version: textOf(fieldOf(version, 'azure-cli')),
           extension: textOf(fieldOf(extension, 'version')),
-          identity: null,
-          identityVerified: false,
           signedIn: false,
           message:
             'Azure CLI and the DevOps extension are already installed. Existing CLI credentials will be used when you add a repository.',
@@ -315,7 +313,7 @@ export function createAzureClient({ cli, now = Date.now }: { cli?: AzureClientCl
         return result;
       } catch (caught) {
         const error = caught as { code?: string; message: string };
-        return { available: false, code: error.code || 'CLI_ERROR', message: error.message, identity: null, identityVerified: false };
+        return { available: false, code: error.code || 'CLI_ERROR', message: error.message };
       }
     },
     async resolveRepository(input: string | RepositoryInput): Promise<ResolvedRepository> {

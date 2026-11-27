@@ -23,7 +23,7 @@ export type ForkJob = {
   notOn?: string[];
   unanswered?: string[];
 };
-export type ForkStore = Pick<
+type ForkStore = Pick<
   ReturnType<typeof import('./store.ts').createStore>,
   'listRepos' | 'listJobs' | 'saveJob' | 'getEvent' | 'saveForkResult' | 'branchTipsBefore' | 'forkCandidates' | 'getStreams'
 >;
@@ -33,7 +33,7 @@ const RETRY_MS = 60000;
 /** Commit reads that may walk back through the commits the creating push brought. */
 export const MAX_READS = 8;
 /** Candidate branches tested for containing the base, one read each. */
-export const MAX_CHECKS = 3;
+const MAX_CHECKS = 3;
 const iso = (ms: number) => new Date(ms).toISOString();
 
 /**

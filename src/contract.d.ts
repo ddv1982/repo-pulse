@@ -99,8 +99,6 @@ export type PageCursor = { skip?: number; token?: string; from?: string; to?: st
 export type AccessCheck = { status: 'ok' | 'failed'; checkedAt: string; code?: string; message?: string };
 export type ConnectionStatus = {
   available: boolean;
-  identity: null;
-  identityVerified: boolean;
   message: string;
   code?: string;
   version?: string | undefined;
@@ -129,7 +127,6 @@ export type CliDiagnostics = {
   running: number;
   limitPerMinute: number;
   concurrency: number;
-  upstreamRequests: null;
   lastError: CliLastError | null;
   throttledUntil: string | null;
 };

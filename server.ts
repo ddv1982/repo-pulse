@@ -66,9 +66,9 @@ export type AppSync = {
   reset?: (clear: () => void) => Promise<void>;
   forget?: (repoId: string) => void;
 };
-export type RouteContext = { req: IncomingMessage; res: ServerResponse; url: URL; params: string[] };
-export type Route = { method: 'GET' | 'POST' | 'PATCH' | 'DELETE'; path: string | RegExp; handler: (context: RouteContext) => unknown };
-export type RequestError = Error & { status?: number; code?: string };
+type RouteContext = { req: IncomingMessage; res: ServerResponse; url: URL; params: string[] };
+type Route = { method: 'GET' | 'POST' | 'PATCH' | 'DELETE'; path: string | RegExp; handler: (context: RouteContext) => unknown };
+type RequestError = Error & { status?: number; code?: string };
 export type AppOptions = {
   store: Store;
   provider: AppProvider;

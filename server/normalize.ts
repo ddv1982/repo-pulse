@@ -21,10 +21,10 @@ import type { ForkJob } from './fork-origin.ts';
 
 export type WatchedRepo = AzureRepo & { id: string; disabled?: boolean };
 /** What `normalize` reads from a stream state; backfill passes `historical: true`. */
-export type NormalizeState = { initialized: boolean; historical?: boolean };
+type NormalizeState = { initialized: boolean; historical?: boolean };
 /** What `reconcileRefs` reads from a stream state. */
-export type RefReconcileState = { initialized: boolean; window: { until: string } };
-export type SyncEvent = {
+type RefReconcileState = { initialized: boolean; window: { until: string } };
+type SyncEvent = {
   id: string;
   repoId: string;
   kind: ActivityKind;
@@ -39,14 +39,14 @@ export type SyncEvent = {
   imported: boolean;
   seen: boolean;
 };
-export type EventDetail = Partial<Omit<SyncEvent, 'id' | 'repoId' | 'kind' | 'observedAt' | 'imported' | 'seen'>>;
+type EventDetail = Partial<Omit<SyncEvent, 'id' | 'repoId' | 'kind' | 'observedAt' | 'imported' | 'seen'>>;
 /** A push recorded so a later page or snapshot skips it. Its date is what Azure sent. */
-export type PushEntity = { date?: unknown };
+type PushEntity = { date?: unknown };
 /**
  * A branch or tag as the last push or refs snapshot left it. The object IDs are what Azure sent; a ref put away keeps
  * its last ones with `active: false`.
  */
-export type RefEntity = {
+type RefEntity = {
   name?: string;
   objectId?: unknown;
   peeledObjectId?: unknown;
@@ -61,13 +61,13 @@ type PrFingerprint = Record<string, unknown> & { votes?: ReviewerVote[] };
  * A PR or build snapshot: an event is made only when its fingerprint changes. A PR fingerprint saved before votes were
  * recorded has none. A snapshot without a fingerprint or revision reads as changed, at revision 0.
  */
-export type SnapshotEntity<Fingerprint = Record<string, unknown>> = {
+type SnapshotEntity<Fingerprint = Record<string, unknown>> = {
   fingerprint?: Fingerprint;
   status?: unknown;
   revision?: number;
 };
 /** A refs stream's tag baseline (`tags`), or the tags an incomplete snapshot could not rule out (`tags-uncertain`). */
-export type RefBaseline = { at: string; all?: boolean; names?: string[] };
+type RefBaseline = { at: string; all?: boolean; names?: string[] };
 /** Entity data by entity type. */
 export type EntityData = {
   push: PushEntity;
@@ -80,7 +80,7 @@ export type EntityType = keyof EntityData;
 export type Entity = { [T in EntityType]: { type: T; id: string; data: EntityData[T] } }[EntityType];
 
 export type SyncBatch = { events: SyncEvent[]; entities: Entity[]; jobs?: (RewriteJob | ForkJob)[] };
-export type NormalizeStore = {
+type NormalizeStore = {
   getSetting: (key: `baseline:${string}`, fallback: string) => string;
   getEntity: <T extends EntityType>(repoId: string, type: T, id: string) => EntityData[T] | undefined;
   listEntities: <T extends EntityType>(repoId: string, type: T) => { id: string; data: EntityData[T] }[];

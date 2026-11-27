@@ -71,7 +71,7 @@ export type BrowserUi = NavigationState & {
   refreshing?: boolean;
   openMenu?: string;
 };
-export type RenderOptions = {
+type RenderOptions = {
   restored: ResultsContext | null;
   returnUnreadOnly: boolean;
   returnToGraph?: boolean;

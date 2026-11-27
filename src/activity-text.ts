@@ -1,7 +1,7 @@
 import { branchName } from './events.ts';
 import type { ActivityEvent } from './activity.ts';
 
-export type ActivityTone = 'info' | 'ok' | 'crit' | 'warn' | 'neutral';
+type ActivityTone = 'info' | 'ok' | 'crit' | 'warn' | 'neutral';
 
 const statusLabels = {
   'new-branch': 'New branch',
@@ -225,7 +225,7 @@ export function activitySummary(event: ActivityEvent) {
   return refUpdateSummary(event);
 }
 
-export type EvidencedEvent = { kind?: string; data?: { mergeEvidence?: { prs?: unknown[] } } };
+type EvidencedEvent = { kind?: string; data?: { mergeEvidence?: { prs?: unknown[] } } };
 export function activityEvidenceId(event: EvidencedEvent) {
   if (event.kind !== 'push') return '';
   return event.data?.mergeEvidence?.prs?.length ? 'pr-linked' : '';

@@ -25,7 +25,7 @@ class DomNode<T extends Document | Element> {
 }
 
 /** A parsed document; the rendered markup is in its body. */
-export class DomDocument extends DomNode<Document> {}
+class DomDocument extends DomNode<Document> {}
 
 export class DomElement extends DomNode<Element> {
   async getAttribute(name: string) {

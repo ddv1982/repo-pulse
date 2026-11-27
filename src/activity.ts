@@ -14,11 +14,11 @@ export type EvidencePr = {
   mergeCommit?: string | undefined;
   relationship?: string;
 };
-export type EvidenceCommit = { commitId?: string; parents?: string[]; branches?: (string | undefined)[] };
+type EvidenceCommit = { commitId?: string; parents?: string[]; branches?: (string | undefined)[] };
 /**
  * A moved branch's range, saved by the earlier merge analysis.
  */
-export type EvidenceRange = {
+type EvidenceRange = {
   name?: string;
   oldObjectId?: string;
   newObjectId?: string;

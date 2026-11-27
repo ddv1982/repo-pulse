@@ -8,12 +8,12 @@ import type { ActivityEvent, ActivityItem } from './activity.ts';
  * outcomes with no parent draw nothing: `ambiguous` (several branches held the base), `refuted` (the PR target did
  * not hold it), `unplaced` (no recorded or checked branch held it), `orphan` and `merge`.
  */
-export type ForkEvidence = 'pr' | 'recorded' | 'contained' | 'ambiguous' | 'refuted' | 'unplaced' | 'orphan' | 'merge';
+type ForkEvidence = 'pr' | 'recorded' | 'contained' | 'ambiguous' | 'refuted' | 'unplaced' | 'orphan' | 'merge';
 /** A drawn lane. `color` indexes the lane palette; -1 is neutral. */
-export type TreeLane = { slot: number; color: number; isDefault?: boolean };
+type TreeLane = { slot: number; color: number; isDefault?: boolean };
 /** A lane in one row, and whether it runs on above and below. */
 export type TreeLine = TreeLane & { up: boolean; down: boolean };
-export type TreeNode = TreeLine & { shape: 'dot' | 'tag' | 'ring' | 'draft' | 'merge' | 'ci'; overflow: boolean };
+type TreeNode = TreeLine & { shape: 'dot' | 'tag' | 'ring' | 'draft' | 'merge' | 'ci'; overflow: boolean };
 /**
  * The origin of a new branch. Only a fork with a `parent` is drawn. `branches` names the branches of an ambiguous base.
  */
@@ -54,10 +54,10 @@ type Lane = {
   color: number;
 };
 
-export const MAX_LANES = 4;
-export const LANE_COLORS = 6;
+const MAX_LANES = 4;
+const LANE_COLORS = 6;
 /** Rows a branch may stay quiet before its lane ends. */
-export const MAX_GAP = 12;
+const MAX_GAP = 12;
 const PR_REF = /^refs\/pull\/(\d+)\//;
 const ZERO = /^0+$/;
 

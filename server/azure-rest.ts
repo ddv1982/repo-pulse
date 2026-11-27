@@ -5,9 +5,9 @@ import { cliError } from './azure-cli.ts';
 import { isRecord } from './azure-records.ts';
 import type { Executor, ExecutorOptions } from './azure-cli.ts';
 
-export type RestRequest = { url: URL };
+type RestRequest = { url: URL };
 
-export type CachedToken = { value: string; expiresAt: number };
+type CachedToken = { value: string; expiresAt: number };
 
 /** The Microsoft Entra application ID of Azure DevOps, the audience of its access tokens. */
 export const AZURE_DEVOPS_RESOURCE = '499b84ac-1321-427f-aa17-267ca6975798';

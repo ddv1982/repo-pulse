@@ -24,7 +24,7 @@ import type { CommitsView } from '../src/ui/activity-detail.ts';
 import type { ConnectionResponse as ConnectionStatus } from '../src/contract.d.ts';
 
 /** A transformed value and the exact escaped markup expected where it is rendered. */
-export type Sink = { field: string; html: string };
+type Sink = { field: string; html: string };
 export type View = { render: () => (string | SafeHtml)[]; shows: string[]; sinks: Sink[] };
 
 // themeSwitch() in the header reads the theme that web/theme.ts puts on window.
@@ -311,8 +311,6 @@ const connection = (name: string, unshown: string[] = []): ConnectionStatus => {
   const text = (field: string) => (unshown.includes(field) ? hidden : probe)(`${name}.${field}`);
   return {
     available: false,
-    identity: null,
-    identityVerified: false,
     message: text('message'),
     version: text('version'),
     extension: text('extension'),

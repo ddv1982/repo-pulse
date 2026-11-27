@@ -131,8 +131,6 @@ test('resolution strips credentials and connection check never claims CLI accoun
   assert.equal(calls.length, before);
   const connection = await client.checkConnection(repo.organization);
   assert.equal(connection.available, true);
-  assert.equal(connection.identityVerified, false);
-  assert.equal(connection.identity, null);
   assert(!calls.some(args => args.includes('get-access-token')));
 });
 
@@ -199,7 +197,6 @@ test('connection detection reuses local CLI sign-in without acquiring credential
   assert.equal(status.available, true);
   assert.equal(status.signedIn, true);
   assert.deepEqual(status.account, { name: 'existing@example.test' });
-  assert.equal(status.identityVerified, false);
   assert.equal(JSON.stringify(status).includes('must-not-return'), false);
   assert.deepEqual(
     calls.map(args => args.slice(0, 2).join(' ')),

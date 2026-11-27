@@ -14,7 +14,7 @@ export type RewriteJob = {
   nextAt: string;
 };
 
-export type RewriteStore = Pick<
+type RewriteStore = Pick<
   ReturnType<typeof import('./store.ts').createStore>,
   'listRepos' | 'listJobs' | 'saveJob' | 'getEvent' | 'saveRewriteResult'
 >;

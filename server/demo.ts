@@ -3,7 +3,7 @@ import type { AzureStream } from '../src/contract.d.ts';
 import type { Store } from './store.ts';
 
 /** Fixtures carry provider fields beyond EventData, as stored events do. */
-export type DemoEvent = ActivityEvent & { data?: import('../src/activity.ts').EventData & Record<string, unknown> };
+type DemoEvent = ActivityEvent & { data?: import('../src/activity.ts').EventData & Record<string, unknown> };
 
 const STREAMS: AzureStream[] = ['pushes', 'refs', 'prs', 'closedPrs', 'builds', 'activeBuilds'];
 const ago = (minutes: number) => new Date(Date.now() - minutes * 60_000).toISOString();
@@ -37,7 +37,7 @@ const shared = {
   defaultBranch: 'refs/heads/main',
   disabled: false,
 };
-export const demoRepos = [orders, billing, shared];
+const demoRepos = [orders, billing, shared];
 
 export function seedDemo(store: Store) {
   if (store.getSetting('demoSeeded', false)) return;
@@ -294,7 +294,7 @@ export function addDemoEvent(store: Store): ActivityEvent {
 export const demoProvider = {
   /** Like the live client, the check never claims an identity. */
   async checkConnection(): Promise<import('../src/contract.d.ts').ConnectionStatus> {
-    return { available: true, identity: null, identityVerified: false, message: 'Isolated demo mode. Azure CLI is never invoked.' };
+    return { available: true, message: 'Isolated demo mode. Azure CLI is never invoked.' };
   },
   /** Fictional review data for the demo PR; no Azure read. */
   async prReview(): Promise<import('../src/contract.d.ts').PullRequestReview> {

@@ -21,8 +21,8 @@ import type { Settings, SettingKey } from './store-records.ts';
 
 type UnreadableLookups = StreamState['unreadableLookups'];
 /** A stream while a read is in flight: the window and the refresh generation it answers are fixed. */
-export type StartedStream = StreamState & { window: StreamWindow; windowGeneration: number; lastAttempt: string; pending: true };
-export type SyncStore = {
+type StartedStream = StreamState & { window: StreamWindow; windowGeneration: number; lastAttempt: string; pending: true };
+type SyncStore = {
   listRepos: () => WatchedRepo[];
   getSetting: <K extends SettingKey, F>(key: K, fallback: F) => Settings[K] | F;
   setSetting: <K extends SettingKey>(key: K, value: Settings[K]) => void;
@@ -34,7 +34,7 @@ export type SyncStore = {
 };
 /** Sync needs `read`; the active-build and PR follow-ups run only when the provider offers them. */
 export type SyncProvider = { read: import('./azure-client.ts').StreamRead } & Partial<Pick<AzureProvider, 'buildsById' | 'pullRequest'>>;
-export type BackgroundKind = 'rewrite' | 'history';
+type BackgroundKind = 'rewrite' | 'history';
 
 const DAY = 86400000;
 const SNAPSHOT_TTL_MS = 2 * 60000;

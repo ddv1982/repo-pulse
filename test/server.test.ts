@@ -42,7 +42,7 @@ async function fixture(t: TestContext, { demo = true, ...options }: Partial<AppO
   };
   const app = createApp({
     store,
-    provider: stub<AzureProvider>({ checkConnection: async () => stub<ConnectionStatus>({ available: true, identity: null }) }),
+    provider: stub<AzureProvider>({ checkConnection: async () => stub<ConnectionStatus>({ available: true }) }),
     sync,
     demo,
     accessKey: TEST_KEY,

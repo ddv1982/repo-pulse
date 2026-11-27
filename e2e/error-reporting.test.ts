@@ -81,14 +81,9 @@ test('a picker button with an unknown action reports it instead of doing nothing
   await expect(page.getByRole('combobox', { name: 'Search local repositories' })).toHaveAttribute('aria-expanded', present(expanded));
 });
 
-test('a malformed API error message falls back to the nested message or HTTP status', async t => {
+test('a malformed API error message falls back to the HTTP status', async t => {
   const { page } = await demo(t);
-  let response: Record<string, unknown> = { message: {}, error: { message: 'Refresh is unavailable.' } };
-  await page.route('**/api/state', route => route.fulfill({ status: 500, json: response }));
+  await page.route('**/api/state', route => route.fulfill({ status: 500, json: { message: {} } }));
   await page.reload();
-  const notice = page.locator('#notice');
-  await expect(notice).toContainText('Refresh is unavailable.');
-  response = { message: {}, error: { message: {} } };
-  await page.reload();
-  await expect(notice).toContainText('Request failed (500).');
+  await expect(page.locator('#notice')).toContainText('Request failed (500).');
 });

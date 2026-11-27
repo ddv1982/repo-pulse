@@ -13,7 +13,7 @@ import { isRecord, recordsOf } from '../server/azure-records.ts';
 
 const run = promisify(execFile);
 
-export type Found = { prId?: number; sourceCommit?: string; targetCommit?: string; creations?: { pushId: number; tip: string }[] };
+type Found = { prId?: number; sourceCommit?: string; targetCommit?: string; creations?: { pushId: number; tip: string }[] };
 const SHA = /^[0-9a-f]{40}$/i;
 /** The value at a path of object fields, or undefined where one is missing or not an object. */
 const field = (value: unknown, ...path: string[]): unknown => path.reduce((at, key) => (isRecord(at) ? at[key] : undefined), value);
