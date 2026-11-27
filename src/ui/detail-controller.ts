@@ -61,7 +61,7 @@ export function createDetailController(
       },
       'back-to-graph': () => history.back(),
       'back-to-results': () => {
-        location.hash = activityHref(navigation.returnUnreadOnly);
+        location.hash = activityHref(navigation.returnUnseenOnly);
       },
       'copy-commit': async element => {
         try {

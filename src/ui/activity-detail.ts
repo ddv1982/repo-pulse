@@ -276,14 +276,14 @@ export function renderDetail(
   state: DetailState,
   commits: LoadedView | undefined,
   {
-    returnUnreadOnly = false,
+    returnUnseenOnly = false,
     returnToGraph = false,
     showRelated = false,
     matchingIds,
     checkouts,
     groups = new Map(),
   }: {
-    returnUnreadOnly?: boolean;
+    returnUnseenOnly?: boolean;
     returnToGraph?: boolean;
     showRelated?: boolean;
     matchingIds?: string[] | undefined;
@@ -294,7 +294,7 @@ export function renderDetail(
 ) {
   const back = returnToGraph
     ? html`<a class="ghost sm back" ${action('back-to-graph')} href="#graph">← Back to Git Graph</a>`
-    : html`<a class="ghost sm back" ${action('back-to-results')} href="${activityHref(returnUnreadOnly)}">← Back to Activity</a>`;
+    : html`<a class="ghost sm back" ${action('back-to-results')} href="${activityHref(returnUnseenOnly)}">← Back to Activity</a>`;
   if (!view) return html`${back}<div class="card empty"><h1>Activity not found</h1></div>`;
   const { event, record, related } = view;
   const repo = state.repos.find(item => item.id === record.repoId);

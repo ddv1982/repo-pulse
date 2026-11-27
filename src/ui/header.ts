@@ -6,7 +6,7 @@ import { action } from './actions.ts';
 
 type HeaderState = Pick<import('./refresh.ts').PageState, 'repos' | 'settings' | 'syncStatus'>;
 /** web.ts sets `refreshing` while a refresh runs; `headerMenuOpen` while the phone check menu is open. */
-type HeaderView = Pick<import('./navigation.ts').NavigationState, 'route' | 'unreadOnly'> & {
+type HeaderView = Pick<import('./navigation.ts').NavigationState, 'route' | 'unseenOnly'> & {
   refreshing?: boolean;
   headerMenuOpen?: boolean;
 };
@@ -29,7 +29,7 @@ export function renderHeader(state: HeaderState, ui: HeaderView) {
   const current = html`aria-current="page"`;
   return html`<div class="hg header-brand"><a class="brand" href="${activityHref(false)}">Repo Pulse</a></div>
     <nav class="seg tabs" aria-label="Main">
-      <a href="${activityHref(ui.unreadOnly)}" ${isActivity(ui.route) || ui.route === 'event' ? current : emptyHtml}>Activity</a>
+      <a href="${activityHref(ui.unseenOnly)}" ${isActivity(ui.route) || ui.route === 'event' ? current : emptyHtml}>Activity</a>
       <a href="#graph" ${ui.route === 'graph' ? current : emptyHtml}>Git Graph</a>
       <a href="#repositories" ${ui.route === 'repositories' ? current : emptyHtml}>Repositories</a>
       <a href="#settings" ${ui.route === 'settings' ? current : emptyHtml}>Settings</a>

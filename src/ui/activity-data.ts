@@ -3,7 +3,7 @@ import type { ActivityEvent, ActivityItem, ActivityPage } from '../activity.ts';
 
 export type ActivityView = {
   route: import('./navigation.ts').Route;
-  unreadOnly?: boolean;
+  unseenOnly?: boolean;
   repoIds: string[] | null;
   kind?: string;
   search?: string;
@@ -12,7 +12,7 @@ export type ActivityView = {
 const PAGE_SIZE = 50;
 const keyFor = (ui: ActivityView) =>
   JSON.stringify({
-    view: ui.unreadOnly ? 'new' : 'all',
+    view: ui.unseenOnly ? 'new' : 'all',
     repoIds: ui.repoIds === null ? null : [...ui.repoIds].sort(),
     kind: ui.kind || '',
     search: ui.search || '',
@@ -31,7 +31,7 @@ export function activityScopeQuery(ui: Pick<ActivityView, 'repoIds' | 'search' |
 
 function activityQuery(ui: ActivityView, limit: number, cursor?: string | null) {
   const query = activityScopeQuery(ui);
-  query.set('view', ui.unreadOnly ? 'new' : 'all');
+  query.set('view', ui.unseenOnly ? 'new' : 'all');
   query.set('limit', String(limit));
   if (cursor) query.set('cursor', cursor);
   return query;

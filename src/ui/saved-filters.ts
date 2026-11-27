@@ -18,14 +18,14 @@ export function currentActivityFilters({
   search,
   kind,
   repoIds,
-  unreadOnly,
+  unseenOnly,
 }: {
   search: string;
   kind: string;
   repoIds: string[] | null;
-  unreadOnly: boolean;
+  unseenOnly: boolean;
 }): ActivityFilters {
-  return { ...splitActivitySearch(search), kind, repoIds, view: unreadOnly ? 'new' : 'all' };
+  return { ...splitActivitySearch(search), kind, repoIds, view: unseenOnly ? 'new' : 'all' };
 }
 
 export function isSavedFilterModified(saved: ActivityFilters, current: ActivityFilters, watched: { id: string }[]) {

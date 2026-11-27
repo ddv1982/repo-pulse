@@ -150,7 +150,7 @@ function renderOptions() {
   const { generation } = navigation.view();
   return {
     restored,
-    returnUnreadOnly: navigation.returnUnreadOnly,
+    returnUnseenOnly: navigation.returnUnseenOnly,
     returnToGraph: graph.returnsHere,
     showRelated: Boolean(ui.relatedCi),
     matchingIds: navigation.matchingIds,

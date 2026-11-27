@@ -92,7 +92,7 @@ export function createBrowserUi(connection: BrowserUi['connection'], groups: Gro
     kind: '',
     filtersOpen: undefined,
     openMenu: '',
-    unreadOnly: false,
+    unseenOnly: false,
     connection,
     groups,
   };
@@ -100,7 +100,7 @@ export function createBrowserUi(connection: BrowserUi['connection'], groups: Gro
 
 type RenderOptions = {
   restored: ResultsContext | null;
-  returnUnreadOnly: boolean;
+  returnUnseenOnly: boolean;
   returnToGraph?: boolean;
   showRelated?: boolean;
   matchingIds?: string[] | undefined;
@@ -143,7 +143,7 @@ export function createBrowserView({
     ui: BrowserUi,
     {
       restored,
-      returnUnreadOnly,
+      returnUnseenOnly,
       returnToGraph = false,
       showRelated = false,
       matchingIds,
@@ -175,7 +175,7 @@ export function createBrowserView({
         else
           setHtml(
             page,
-            renderDetail(view, state, commits, { returnUnreadOnly, returnToGraph, showRelated, matchingIds, checkouts, groups: ui.groups }),
+            renderDetail(view, state, commits, { returnUnseenOnly, returnToGraph, showRelated, matchingIds, checkouts, groups: ui.groups }),
           );
         break;
       }

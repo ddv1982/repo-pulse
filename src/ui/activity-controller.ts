@@ -52,9 +52,9 @@ export function createActivityController(
       kind,
       repoIds: savedRepositoryScope(repoIds, state().watched),
     });
-    const unreadOnly = view === 'new';
-    if (unreadOnly === ui.unreadOnly) activityChanged();
-    else location.hash = activityHref(unreadOnly);
+    const unseenOnly = view === 'new';
+    if (unseenOnly === ui.unseenOnly) activityChanged();
+    else location.hash = activityHref(unseenOnly);
     const scopeMessage = unavailable
       ? unavailable === repoIds?.length
         ? ' All saved repositories are unavailable.'
@@ -115,11 +115,11 @@ export function createActivityController(
         ui.search = '';
         ui.kind = '';
         ui.savedFilterId = '';
-        if (ui.unreadOnly) location.hash = activityHref(false);
+        if (ui.unseenOnly) location.hash = activityHref(false);
         else activityChanged();
       },
-      'toggle-unread': () => {
-        location.hash = activityHref(!ui.unreadOnly);
+      'toggle-unseen-only': () => {
+        location.hash = activityHref(!ui.unseenOnly);
       },
       'filter-activity-type': element => {
         ui.filtersOpen = true;
@@ -159,7 +159,7 @@ export function createActivityController(
       | 'retry-activity'
       | 'ack-matching'
       | 'clear-filters'
-      | 'toggle-unread'
+      | 'toggle-unseen-only'
       | 'filter-activity-type'
       | 'choose-activity-type'
       | 'toggle-activity-filters'

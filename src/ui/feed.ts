@@ -39,14 +39,14 @@ import { WIDE_LAYOUT } from './breakpoints.ts';
 export { renderDetail } from './activity-detail.ts';
 
 /** `openMenu` is the panel ID of the open toolbar menu, if any; `groups` holds which disclosures are open. */
-export type FeedView = Pick<import('./navigation.ts').NavigationState, 'unreadOnly' | 'repoIds' | 'search' | 'kind' | 'filtersOpen'> & {
+export type FeedView = Pick<import('./navigation.ts').NavigationState, 'unseenOnly' | 'repoIds' | 'search' | 'kind' | 'filtersOpen'> & {
   openMenu?: string;
   groups: Groups;
 };
 
 function filterControls(ui: FeedView & { savedFilterId: string }, state: PageState) {
   const desktop = globalThis.matchMedia?.(WIDE_LAYOUT).matches ?? true;
-  const active = Number(Boolean(ui.search)) + Number(Boolean(ui.kind)) + Number(ui.unreadOnly);
+  const active = Number(Boolean(ui.search)) + Number(Boolean(ui.kind)) + Number(ui.unseenOnly);
   // Clear filter leaves the repository scope alone, so only the Filters count includes it.
   const count = active + Number(ui.repoIds !== null);
   const open = desktop || ui.filtersOpen === true;
@@ -62,7 +62,7 @@ function filterControls(ui: FeedView & { savedFilterId: string }, state: PageSta
         <div class="filter-actions">
           ${renderTypeFilter(ui.kind, state.activity.filterOptions, state.activity.loading, ui.openMenu === 'kind-panel')}
           ${renderRepositoryScope(state, ui)}
-          <button class="btn" id="unread-only" type="button" ${action('toggle-unread')} aria-pressed="${ui.unreadOnly}">Unread only</button>
+          <button class="btn" id="unread-only" type="button" ${action('toggle-unseen-only')} aria-pressed="${ui.unseenOnly}">Unread only</button>
           ${active ? html`<button class="btn" id="clear-filters" type="button" ${action('clear-filters')}>Clear filter</button>` : emptyHtml}
         </div>
       </div>${renderSearchHelp('feed-search', 'names only')}
@@ -348,19 +348,19 @@ function row(
   const failed = record.kind === 'build' && buildState(record).tone === 'crit';
   const push = related?.kind === 'push' ? related : undefined;
   const ids = JSON.stringify([...record.eventIds, ...(related?.eventIds ?? [])]);
-  const unread = [...record.unseenIds, ...(push?.unseenIds ?? [])];
-  const unreadIds = JSON.stringify(unread);
+  const unseen = [...record.unseenIds, ...(push?.unseenIds ?? [])];
+  const unseenIds = JSON.stringify(unseen);
   const ackIds = record.unseen
-    ? unreadIds
+    ? unseenIds
     : JSON.stringify([...record.events, ...(push?.events ?? [])].filter(event => !event.imported).map(event => event.id));
   const ackLinkedPush = push && (!record.unseen || push.unseen);
   const fullTitle = activityTitle(record);
   const title = rowTitle(record, fullTitle, commits);
   const origin = forkText(tree?.fork ?? null);
   const prDestination = record.kind === 'pr' && record.data?.status === 'active' ? branchName(record.data.targetRefName) : '';
-  return html`<li class="${['row', failed ? 'crit' : '', record.unseen ? 'new' : '', `tone-${tone}`].filter(Boolean).join(' ')}" id="row-${record.groupKey}" data-event-id="${record.id}" data-event-ids="${ids}" data-group-key="${record.groupKey}" data-unseen-ids="${unreadIds}">${tree ? renderTreeCell(tree, tone) : emptyHtml}
+  return html`<li class="${['row', failed ? 'crit' : '', record.unseen ? 'new' : '', `tone-${tone}`].filter(Boolean).join(' ')}" id="row-${record.groupKey}" data-event-id="${record.id}" data-event-ids="${ids}" data-group-key="${record.groupKey}" data-unseen-ids="${unseenIds}">${tree ? renderTreeCell(tree, tone) : emptyHtml}
     ${renderKind(record, tone)}
-    <div class="subject"><button class="feed-title" type="button" ${action('detail')} data-id="${record.id}"><span class="title">${renderTitle(record, title)}${unread.length > 1 ? html` <span class="pill u new-count">${unread.length} new</span>` : emptyHtml}</span>${renderRefLine(record, title, showRepo ? repo?.name || 'Unknown repository' : '', prDestination)}</button></div>
+    <div class="subject"><button class="feed-title" type="button" ${action('detail')} data-id="${record.id}"><span class="title">${renderTitle(record, title)}${unseen.length > 1 ? html` <span class="pill u new-count">${unseen.length} new</span>` : emptyHtml}</span>${renderRefLine(record, title, showRepo ? repo?.name || 'Unknown repository' : '', prDestination)}</button></div>
     ${renderEvent(record, origin, Boolean(prDestination), groups, related, commits)}
     <div class="rowact">${azureLink(record.url)}${record.imported ? emptyHtml : html`<button class="ghost sm seen-toggle" type="button" id="seen-${record.groupKey}" ${action('ack-item')} data-id="${record.id}" data-mark-seen="${record.unseen}" data-event-ids="${ackIds}" aria-pressed="${!record.unseen}" aria-label="Seen: ${fullTitle}${ackLinkedPush ? ' and linked push' : ''}">${icons.seenBox}Seen</button>`}</div></li>`;
 }
@@ -498,7 +498,7 @@ export function renderFeed(state: PageState, ui: FeedView & { savedFilterId: str
       ? 'Reading your locally stored history.'
       : partial
         ? 'This does not confirm that nothing changed. Check repository status.'
-        : ui.unreadOnly
+        : ui.unseenOnly
           ? 'Turn off Unread only to browse history.'
           : hasQuery || ui.repoIds !== null
             ? 'Adjust your filters to see more activity.'

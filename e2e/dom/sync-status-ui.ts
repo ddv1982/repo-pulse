@@ -86,7 +86,7 @@ const page = (overall: ShownSyncStatus, repos: Record<string, SyncStatus> = {}):
   savedFilters: [],
   demo: false,
 });
-const headerView = { route: 'activity' as const, unreadOnly: true };
+const headerView = { route: 'activity' as const, unseenOnly: true };
 
 test('the header shows one sync status pill per state in place of the last Azure check', async t => {
   for (const [status, label, tone] of states) {
@@ -144,7 +144,7 @@ test('the Details of a repository list a stream warning the way they list a fail
 });
 
 test('Activity shows at most one status banner, and only for Problem, Delayed or Paused', async t => {
-  const view = { unreadOnly: true, repoIds: null, search: '', kind: '', filtersOpen: false };
+  const view = { unseenOnly: true, repoIds: null, search: '', kind: '', filtersOpen: false };
   const expected: Record<string, [string, string]> = {
     problem: ['crit', 'Problem'],
     delayed: ['warn', 'Delayed'],
@@ -187,7 +187,7 @@ test('Settings states the sync status in one sentence without the Azure calls co
   assert.match(await text(one(synced, '.sync-sentence')), /^Synced, last check 12:08\b/);
 });
 
-const feedView: Partial<FeedUi> = { unreadOnly: true, repoIds: null, search: '', kind: '', filtersOpen: false };
+const feedView: Partial<FeedUi> = { unseenOnly: true, repoIds: null, search: '', kind: '', filtersOpen: false };
 
 test('the Activity banner and partial wording follow the repositories in the Activity scope, the header the overall status', async t => {
   const other = stub<Repository>({ id: 's', name: 'billing-web', project: 'Shop' });
@@ -311,7 +311,7 @@ test('a failed filtered load reads as a load failure in the summary, as in the f
 
 test('a problem that belongs to no repository still shows the Activity banner', async t => {
   const failed: ShownSyncStatus = { state: 'problem', reason: 'Starting from scratch failed. Try again.' };
-  const markup = renderFeed({ ...page(failed, {}), repos: [], watched: [] }, { repoIds: null, unreadOnly: true, search: '', kind: '' });
+  const markup = renderFeed({ ...page(failed, {}), repos: [], watched: [] }, { repoIds: null, unseenOnly: true, search: '', kind: '' });
   assert.deepEqual(
     (await banners(t, markup)).map(({ tone, title, text }) => [tone, title, text.startsWith('Starting from scratch failed. Try again.')]),
     [['crit', 'Problem', true]],
@@ -321,6 +321,6 @@ test('a problem that belongs to no repository still shows the Activity banner', 
 test('a sync-wide problem shows on Activity while repository checks continue', async t => {
   const reason = 'The stored jobs row "backfill:r" cannot be read: days is missing or malformed.';
   const state = page({ state: 'problem', reason }, { r: { state: 'synced' } });
-  const markup = renderFeed(state, { repoIds: null, unreadOnly: true, search: '', kind: '' });
+  const markup = renderFeed(state, { repoIds: null, unseenOnly: true, search: '', kind: '' });
   assert.match(present((await banners(t, markup))[0]).text, /The stored jobs row "backfill:r" cannot be read/);
 });

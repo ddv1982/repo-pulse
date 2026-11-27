@@ -85,7 +85,7 @@ test('a disabled repository row offers only enabling or removing it', async t =>
   assert.doesNotMatch(await disabled.outerHtml(), /Details for|checkout-state|Check for updates|Sync older/);
 });
 
-const view: Partial<FeedUi> = { repoIds: null, unreadOnly: true, kind: '', search: '' };
+const view: Partial<FeedUi> = { repoIds: null, unseenOnly: true, kind: '', search: '' };
 /** The page state the feed and detail tests build on: the watched repositories and their stored events. */
 type Fixture = State & { repos: Repository[]; events: ActivityEvent[] };
 function fixture(): Fixture {
@@ -129,7 +129,7 @@ function activityPage(state: Fixture, ui: Partial<FeedUi>) {
     for (const repo of state.repos) store.saveRepo(repo);
     store.insertEvents(state.events);
     return store.queryActivity({
-      view: ui.unreadOnly ? 'new' : 'all',
+      view: ui.unseenOnly ? 'new' : 'all',
       repoIds: ui.repoIds ?? undefined,
       kind: ui.kind,
       search: ui.search,
@@ -241,7 +241,7 @@ test('Activity shows ordinary pushes, hotfixes, and new branches in source-time 
     { ...event, id: 'branch', kind: 'branch-created', branch: 'feature/newest', title: 'New branch', time: '2026-11-17T10:00:00Z' },
   ];
   assert.deepEqual(await rowIds(t, renderFeed(state, view)), ['ordinary', 'priority', 'branch']);
-  assert.deepEqual(await rowIds(t, renderFeed(state, { ...view, unreadOnly: false })), ['ordinary', 'priority', 'branch']);
+  assert.deepEqual(await rowIds(t, renderFeed(state, { ...view, unseenOnly: false })), ['ordinary', 'priority', 'branch']);
   assert.doesNotMatch(await text(parse(t, renderFeed(state, view))), /Prioritized|Muted|Show muted/);
 });
 
@@ -343,7 +343,7 @@ test('both activity views draw a branch tree with the fork evidence in the row t
       data: { name: 'refs/heads/feature/a', evidence: 'refs' },
     },
   ];
-  const doc = parse(t, renderFeed(state, { ...view, unreadOnly: false }));
+  const doc = parse(t, renderFeed(state, { ...view, unseenOnly: false }));
   assert.equal(await one(doc, 'ul.rows.with-tree').getAttribute('data-tree-lanes'), '2');
   const cells = await all(doc, 'svg.tree');
   assert.equal(cells.length, 3);
@@ -714,7 +714,7 @@ test('the summary counts every unread item in scope, not only the loaded rows', 
     for (const repo of state.repos) store.saveRepo(repo);
     store.insertEvents([...state.events, ...extra]);
     const activity = store.queryActivity({ view: 'all', limit: 2 });
-    const markup = renderPagedFeed({ ...state, events: [...state.events, ...extra], activity }, { ...view, unreadOnly: false });
+    const markup = renderPagedFeed({ ...state, events: [...state.events, ...extra], activity }, { ...view, unseenOnly: false });
     const summary = one(parse(t, markup), '[aria-label="Activity summary"]');
     const headline = one(summary, '.headline b');
     assert.equal(await text(headline), '7 new items');
@@ -767,7 +767,7 @@ test('the failed CI summary offers all CI runs even when no failures are unread'
   };
   for (const seen of [false, true]) {
     state.events = [{ ...failure, seen }];
-    const page = parse(t, renderFeed(state, { ...view, unreadOnly: false, kind: 'status:failed' }));
+    const page = parse(t, renderFeed(state, { ...view, unseenOnly: false, kind: 'status:failed' }));
     const count = seen ? '0' : '1';
     const cell = one(page, '[data-summary-kind="CI runs"]');
     const chip = one(page, '.summary-chips .chip');
