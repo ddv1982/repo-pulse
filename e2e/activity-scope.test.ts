@@ -113,7 +113,11 @@ test('the scope panel closes when focus leaves it, and arrow keys move between r
   await page.keyboard.press('Tab');
   await expect(boxes.nth(1)).toBeFocused();
   await expect(panel).toBeVisible();
-  await page.getByRole('button', { name: 'None', exact: true }).focus();
+  const none = page.getByRole('button', { name: 'None', exact: true });
+  await none.focus();
+  await page.keyboard.press('ArrowUp');
+  await expect(boxes.last()).toBeFocused();
+  await none.focus();
   await page.keyboard.press('Tab');
   await expect(panel).toBeHidden();
   await expect(scope).toHaveAttribute('aria-expanded', 'false');

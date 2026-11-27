@@ -129,7 +129,7 @@ export function createToolbarMenu({
         const next =
           event.key === 'Home'
             ? 0
-            : event.key === 'End'
+            : event.key === 'End' || (event.key === 'ArrowUp' && index === -1)
               ? all.length - 1
               : (index + (event.key === 'ArrowDown' ? 1 : -1) + all.length) % all.length;
         focusOption(current.panel, all[next]);
