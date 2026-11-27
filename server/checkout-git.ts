@@ -696,7 +696,12 @@ export function createCheckoutGit({
   }
 
   async function historySnapshot(repo: LinkedRepo) {
-    return gitHistorySnapshot(run, await checkoutPath(repo), repo.defaultBranch);
+    const path = await checkoutPath(repo);
+    try {
+      return await gitHistorySnapshot(run, path, repo.defaultBranch);
+    } catch {
+      throw problem('Git could not read commit refs for this checkout.');
+    }
   }
 
   return { status, update, branchAction, switchToActivityBranch, localBranches, history, historySnapshot };

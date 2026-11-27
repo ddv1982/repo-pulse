@@ -1,4 +1,3 @@
-import { canSwitch } from './checkout-render.ts';
 import type { CheckoutSnapshot, CheckoutOperation } from './checkout.ts';
 
 export type { CheckoutSnapshot, CheckoutOperation };
@@ -110,7 +109,7 @@ export function createCheckoutActions({
     if (checkout.branch === branch) return done();
     if (checkout.state === 'unavailable' || checkout.state === 'not-linked')
       throw new Error(checkout.diagnostic?.title || 'The linked checkout is unavailable.');
-    if (!canSwitch(checkout)) throw new Error('An existing branch and an idle checkout are required to switch.');
+    if (checkout.state === 'in-progress') throw new Error('Finish the Git operation before switching branches.');
     const { branch: current, head, upstream, identity, switchIdentity } = checkout;
     if (!current || !head || !identity) throw new Error('Switching requires an existing branch checked out in Git.');
     if (!switchIdentity) throw new Error('Repo Pulse could not verify the local Git directory.');
@@ -192,7 +191,8 @@ export function createCheckoutActions({
       const checkout = await checkoutPanel.read(id, true);
       if (!isCurrent()) return;
       checkShownCheckout(shown, checkout);
-      if (checkout.canCheck) return updateCheckout(id, 'check', checkout);
+      if (!checkout.canCheck) throw new Error('This checkout can no longer check for updates. Review its Git status.');
+      return updateCheckout(id, 'check', checkout);
     },
     'pull-checkout': async element => {
       const id = element.dataset.id ?? '';
@@ -201,7 +201,7 @@ export function createCheckoutActions({
       const checkout = await checkoutPanel.read(id, true);
       if (!isCurrent()) return;
       checkShownCheckout(shown, checkout);
-      if (!checkout.canPull) return;
+      if (!checkout.canPull) throw new Error('This checkout can no longer pull. Review its Git status.');
       confirm(
         `Update ${checkout.branch}?`,
         `Pull the latest commits from ${checkout.upstream} into this local checkout. Git will only fast-forward the branch and will check that it can keep your local changes.`,

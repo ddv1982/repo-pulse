@@ -224,7 +224,7 @@ function statusMarkup(id: string, checkout: CheckoutSnapshot | undefined, activi
 }
 
 export function renderCheckoutBar(id: string, checkout: CheckoutSnapshot | undefined, activityBranch?: string) {
-  return html`<div class="checkout-bar" id="checkout-state-${id}" tabindex="-1" aria-label="Local checkout">
+  return html`<div class="checkout-bar" id="checkout-state-${id}" tabindex="-1" role="group" aria-label="Local checkout">
     <div class="checkout-bar-state" aria-live="polite">${statusMarkup(id, checkout, activityBranch, true)}</div>
     ${checkout && (activityBranch || checkout.diagnostic || checkout.followup || attention.has(checkout.state) || !canSwitch(checkout)) ? html`<a class="ghost sm" href="${repositoryHref(id)}">View in Repositories</a>` : emptyHtml}
   </div>`;

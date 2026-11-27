@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { checkoutFixture, git } from './fixtures/checkout.ts';
 import { present } from './fixtures/typed.ts';
 import { layoutGitGraph } from '../src/git-graph.ts';
+import { createCheckoutGit, runGit } from '../server/checkout-git.ts';
 import { createGitGraph } from '../src/ui/git-graph.ts';
 import type { GitHistoryPage } from '../src/contract.d.ts';
 import { stub } from './fixtures/typed.ts';
@@ -92,4 +93,15 @@ test('reloading Git Graph supersedes an in-flight older page', async t => {
   older.resolve(stub<GitHistoryPage>({ snapshot: 'before', nextCursor: null, commits: [] }));
   await pending;
   assert.equal(graph.state.page?.snapshot, 'after');
+});
+
+test('the graph snapshot hides raw Git failures', async t => {
+  const { repo } = checkoutFixture(t);
+  const checkoutGit = createCheckoutGit({
+    run: async (path, args, options) => {
+      if (args.includes('--is-shallow-repository')) throw Object.assign(new Error('private Git command output'), { code: 128 });
+      return runGit(path, args, options);
+    },
+  });
+  await assert.rejects(checkoutGit.historySnapshot(repo), { message: 'Git could not read commit refs for this checkout.', status: 409 });
 });

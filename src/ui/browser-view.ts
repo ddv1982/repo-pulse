@@ -18,6 +18,7 @@ export function replacementFocus(id: string) {
   if (id === 'clear-filters') return document.getElementById('feed-search');
   const checkoutAction = /^checkout-(?:switch-target|check|pull|switch)-(.+)$/.exec(id);
   if (checkoutAction) return document.getElementById(`checkout-state-${checkoutAction[1]}`);
+  if (id === 'activity-branch-action') return document.querySelector<HTMLElement>('.checkout-bar');
   if (id === 'graph-clear-search') return document.getElementById('graph-search');
   if (id.startsWith('kind-option-') || id.startsWith('summary-ci-')) return document.getElementById('kind-toggle');
   if (id.startsWith('saved-filter-option-'))

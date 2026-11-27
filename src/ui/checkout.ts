@@ -43,7 +43,8 @@ export function createCheckoutPanel({
   const singleReads = new Map<string, symbol>();
   let reading = false,
     mutating = false,
-    generation = 0;
+    generation = 0,
+    refreshGeneration = 0;
 
   function retainLocalState(id: string, checkout: CheckoutSnapshot) {
     const previous = snapshots[id];
@@ -99,6 +100,7 @@ export function createCheckoutPanel({
     },
     async read(id: string, fresh = false): Promise<CheckoutSnapshot> {
       const issued = generation;
+      refreshGeneration++;
       const read = Symbol(id);
       singleReads.set(id, read);
       const path = `/api/repos/${encodeURIComponent(id)}/checkout/status` as const;
@@ -112,15 +114,17 @@ export function createCheckoutPanel({
     async refresh() {
       if (!isVisible() || reading || mutating) return;
       const issued = generation;
+      const issuedRefresh = refreshGeneration;
+      const current = () => isVisible() && !mutating && issued === generation && issuedRefresh === refreshGeneration;
       reading = true;
       try {
         const next: Record<string, CheckoutSnapshot> = await request('/api/checkouts');
-        if (isVisible() && !mutating && issued === generation) {
+        if (current()) {
           for (const [id, checkout] of Object.entries(next)) retainLocalState(id, checkout);
           publish(next);
         }
       } catch {
-        if (isVisible() && !mutating && issued === generation)
+        if (current())
           publish(
             Object.fromEntries(
               [...page.querySelectorAll('[data-checkout-part="status"]')]

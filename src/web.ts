@@ -159,9 +159,20 @@ let graphRepoId = '';
 let graphQuery = '';
 let graphMatch = '';
 let graphVisit = 0;
-let graphReturn: { visit: number; repoId: string; y: number; x: number; revision: PageState['activityRevision'] } | undefined;
+let graphReturn:
+  | {
+      visit: number;
+      repoId: string;
+      rowId: string;
+      href: string;
+      y: number;
+      x: number;
+      revision: PageState['activityRevision'];
+    }
+  | undefined;
 let graphDetailOrigin = '';
-let probingSnapshot = '';
+let probingSnapshot: { repoId: string; snapshot: string } | undefined;
+let focusRelatedCi = false;
 const graph = createGitGraph({
   read: (id, cursor) => {
     const path = `/api/repos/${encodeURIComponent(id)}/graph` as const;
@@ -203,23 +214,24 @@ async function refreshGraphRefs(mutated = false) {
     void graph.reload();
     return;
   }
-  if (!history || (!mutated && probingSnapshot === history.snapshot)) return;
-  const probe = history.snapshot;
+  if (!history || (!mutated && probingSnapshot?.repoId === repoId && probingSnapshot.snapshot === history.snapshot)) return;
+  const probe = { repoId, snapshot: history.snapshot };
   probingSnapshot = probe;
+  let matches = false;
   try {
     const { snapshot } = await request(`/api/repos/${encodeURIComponent(repoId)}/graph/snapshot`);
-    if (snapshot === probe) return;
+    matches = snapshot === probe.snapshot;
   } catch {
     // A checkout can disappear or become unreadable after the history loaded.
-  } finally {
-    if (probingSnapshot === probe) probingSnapshot = '';
   }
-  if (ui.route !== 'graph' || graph.state.repoId !== repoId || graph.state.page?.snapshot !== probe) return;
+  if (probingSnapshot !== probe) return;
+  probingSnapshot = undefined;
+  if (matches || ui.route !== 'graph' || graph.state.repoId !== repoId || graph.state.page?.snapshot !== probe.snapshot) return;
   if (mutated) {
     graphMatch = '';
     void graph.reload();
   } else {
-    graph.markChanged(probe);
+    graph.markChanged(probe.snapshot);
     refreshViewCheckout(true);
   }
 }
@@ -230,7 +242,7 @@ function renderOptions() {
   return {
     restored,
     returnUnreadOnly: navigation.returnUnreadOnly,
-    returnToGraph: location.hash === graphDetailOrigin,
+    returnToGraph: Boolean(graphDetailOrigin) && location.hash === graphDetailOrigin,
     showRelated: Boolean(ui.relatedCi),
     matchingIds: navigation.matchingIds,
     commits: commitResults.get(ui.eventId),
@@ -298,12 +310,23 @@ function moveGraphMatch(step: 1 | -1) {
   document.getElementById(row.id)?.scrollIntoView({ block: 'center', inline: 'nearest' });
 }
 
+function revealRelatedCi() {
+  if (!focusRelatedCi || ui.route !== 'event') return;
+  const summary = page.querySelector<HTMLElement>('.detail-related > summary');
+  if (!summary) return;
+  focusRelatedCi = false;
+  summary.scrollIntoView({ block: 'start' });
+  summary.focus({ preventScroll: true });
+}
+
 function renderPage() {
   view.renderPage(refresh.state, ui, renderOptions());
+  revealRelatedCi();
 }
 
 function render() {
   view.render(refresh.state, ui, renderOptions());
+  revealRelatedCi();
   if (ui.route === 'repositories') void connection.check();
 }
 
@@ -474,6 +497,7 @@ function applySavedFilter({ id, name, filters }: import('./ui/saved-filters.ts')
 const actions: Record<string, Action> = {
   'reload-graph': () => {
     graphMatch = '';
+    refreshViewCheckout(true);
     void graph.reload();
   },
   'more-graph': () => {
@@ -764,10 +788,13 @@ document.addEventListener('click', event => {
     return;
   }
   if (document.querySelector('#repo-panel:not([hidden])') && !target.closest('#repo-panel')) showScopePanel(false);
-  if (ui.route === 'graph' && target.closest('.graph-link') && !event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey) {
+  const graphLink = target.closest<HTMLAnchorElement>('.graph-link');
+  if (ui.route === 'graph' && graphLink && !event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey) {
     graphReturn = {
       visit: ++graphVisit,
       repoId: graph.state.repoId,
+      rowId: graphLink.closest('.graph-commit')?.id ?? '',
+      href: graphLink.hash,
       y: window.scrollY,
       x: page.querySelector('.graph-commits')?.scrollLeft ?? 0,
       revision: refresh.state.activityRevision,
@@ -904,10 +931,11 @@ document.addEventListener('keydown', event => {
 
 function route() {
   clearTimeout(searchTimer);
-  // The branch picker belongs to the Repositories visit that opened it.
+  // The branch picker belongs to the view that opened it.
   branchPicker.close();
   const previous = ui.route;
   const { destination, capacity, scrollToTop } = navigation.enter(refresh.loaded ? refresh.state.watched : null);
+  focusRelatedCi = destination === 'event' && Boolean(ui.relatedCi);
   graphDetailOrigin = previous === 'graph' && destination === 'event' && graphReturn ? location.hash : '';
   const restoreGraph =
     destination === 'graph' &&
@@ -935,6 +963,9 @@ function route() {
     const isCurrent = currentView();
     requestAnimationFrame(() => {
       if (!isCurrent()) return;
+      const row = document.getElementById(restoreGraph.rowId);
+      const link = [...(row?.querySelectorAll<HTMLAnchorElement>('.graph-link') ?? [])].find(link => link.hash === restoreGraph.href);
+      (link ?? document.getElementById('graph-search'))?.focus({ preventScroll: true });
       page.querySelector('.graph-commits')?.scrollTo({ left: restoreGraph.x, behavior: 'instant' });
       window.scrollTo({ top: restoreGraph.y, behavior: 'instant' });
     });

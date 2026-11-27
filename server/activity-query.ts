@@ -187,7 +187,7 @@ function pageQuery(
   params.push(pageSize + 1);
   const linkRows = foldCi
     ? `(SELECT json_group_array(json_object('run_key',run_key,'run_id',run_id,'title',title,'status',status,'time',run_time,
-        'host_key',host_key,'host_id',host_id,'host_kind',host_kind,'validation',validation,'folded',folded) ORDER BY julianday(run_time) DESC,run_id DESC)
+        'host_key',host_key,'host_id',host_id,'host_kind',host_kind,'validation',validation,'folded',folded) ORDER BY run_ms DESC,run_id DESC)
       FROM ci_links WHERE host_key IN (SELECT key FROM selected_page) OR (NOT folded AND run_key IN (SELECT key FROM selected_page)))`
     : 'NULL';
   const sql = `${cte}${foldCi ? activityCi : ''},

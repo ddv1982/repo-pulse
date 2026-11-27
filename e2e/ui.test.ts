@@ -2615,6 +2615,7 @@ test('Git Graph shows a merged branch and exact CI links alongside the Activity 
   await expect(page.locator('#page .status-chip').first()).toHaveText('Succeeded');
   await page.getByRole('link', { name: /Back to Git Graph/ }).click();
   await expect(page.locator('.graph-commit')).toHaveCount(53);
+  await expect(build).toBeFocused();
   await expect(search).toHaveValue('people:Jo Dij');
   await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(scrollY);
   await build.click();
@@ -2893,7 +2894,7 @@ test('Activity shows only highlights and links a landing and quieter CI to its d
   const merge = page.locator('[data-event-id="highlight-pr"]');
   await expect(merge.locator('.kind')).toHaveText('PR merged');
   await expect(merge.getByText('Landed on main', { exact: false })).toBeVisible();
-  await merge.getByText('CI · 6 passed shown').click();
+  await merge.getByText('CI · latest 6 · 6 passed').click();
   await expect(merge.locator('.ci-run time')).toHaveCount(6);
   await expect(merge.getByRole('button', { name: 'Post-merge CI passed' }).locator('time')).toHaveAttribute('datetime', base.time);
   await expect(merge.getByRole('button', { name: 'View 1 earlier run' })).toBeVisible();
@@ -2983,6 +2984,8 @@ test('Activity shows only highlights and links a landing and quieter CI to its d
   await merge.getByRole('button', { name: 'View 1 earlier run' }).click();
   await expect(page.locator('.detail-related')).toHaveAttribute('open', '');
   await expect(page.locator('.detail-related summary')).toHaveText('Related CI runs · 7');
+  await expect(page.locator('.detail-related summary')).toBeFocused();
+  await expect(page.locator('.detail-related summary')).toBeInViewport();
   await expect(page.getByRole('link', { name: /Billing validation 5/ })).toBeVisible();
   await page.getByRole('link', { name: /Back to Activity/ }).click();
   await merge.locator('.feed-title').click();

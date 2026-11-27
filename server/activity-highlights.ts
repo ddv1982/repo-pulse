@@ -324,7 +324,7 @@ export function attachHighlights(items: ActivityItem[], highlights: Map<string, 
     if (highlight.ci) {
       item.earlierCiCount = Math.max(0, highlight.ci.length - 6);
       item.relatedCi = [...highlight.ci]
-        .sort((a, b) => new Date(b.time).valueOf() - new Date(a.time).valueOf() || b.id.localeCompare(a.id))
+        .sort((a, b) => (new Date(b.time).valueOf() || 0) - (new Date(a.time).valueOf() || 0) || b.id.localeCompare(a.id))
         .slice(0, 6);
     }
   }

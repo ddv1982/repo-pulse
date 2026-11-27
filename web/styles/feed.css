@@ -645,6 +645,9 @@ ol.rows {
 .ci-rollup {
   display: grid;
 }
+.ci-rollup > [data-related] {
+  justify-self: start;
+}
 .event-ci button.ci-run {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;

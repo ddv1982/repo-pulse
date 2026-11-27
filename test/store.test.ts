@@ -647,3 +647,33 @@ test('Activity resolves CI across pages and keeps failures and filtered runs vis
   assert.throws(() => store.queryActivity({ limit: 1, cursor: present(first.nextCursor) }), { code: 'ACTIVITY_CHANGED' });
   assert.ok(store.queryActivity().items.some(item => item.id === 'passing'));
 });
+
+test('related CI keeps legacy numeric run times and orders them with ISO timestamps', t => {
+  const store = createStore();
+  t.after(() => store.close());
+  store.saveRepo(repo);
+  const main = 'refs/heads/main';
+  const sha = 'a'.repeat(40);
+  const day = '2026-11-17T';
+  const legacyMillis = Date.parse(`${day}11:30:00Z`);
+  const run = (id: number, time: string | number) =>
+    event(`run-${id}`, {
+      kind: 'build',
+      time,
+      data: { buildId: id, status: 'completed', result: 'succeeded', reason: 'individualCI', sourceBranch: main, sourceVersion: sha },
+    });
+  store.insertEvents([
+    event('merge', {
+      kind: 'pr',
+      data: { status: 'completed', pullRequestId: 42, mergeCommit: sha, targetRefName: main },
+    }),
+    run(1, `${day}11:00:00Z`),
+    run(2, legacyMillis),
+    run(3, `${day}12:00:00Z`),
+  ]);
+  const merge = store.queryActivity().items.find(item => item.id === 'merge');
+  assert.deepEqual(
+    merge?.relatedCi?.map(({ time }) => time),
+    [`${day}12:00:00Z`, legacyMillis, `${day}11:00:00Z`],
+  );
+});
