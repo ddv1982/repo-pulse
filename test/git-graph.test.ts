@@ -105,3 +105,14 @@ test('the graph snapshot hides raw Git failures', async t => {
   });
   await assert.rejects(checkoutGit.historySnapshot(repo), { message: 'Git could not read commit refs for this checkout.', status: 409 });
 });
+
+test('the graph takes a stored default branch as its base only when it is a full refs/heads/ name', async t => {
+  const { local, repo, checkoutGit, advance } = checkoutFixture(t);
+  const remoteOnly = advance();
+  git(local, 'fetch', 'origin');
+  git(local, 'remote', 'set-head', 'origin', '-d');
+  git(local, 'switch', '-c', 'topic', '--no-track');
+  const ids = async (defaultBranch: string) => (await checkoutGit.history({ ...repo, defaultBranch }, null)).commits.map(row => row.id);
+  assert.ok((await ids('refs/heads/main')).includes(remoteOnly));
+  assert.ok(!(await ids('main')).includes(remoteOnly));
+});
