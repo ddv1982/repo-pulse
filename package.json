@@ -17,10 +17,10 @@
     "pretest": "npm run build:web",
     "test": "node --test \"test/*.test.ts\"",
     "pretest:dom": "npm run build:web",
-    "test:dom": "node --test e2e/dom.test.ts",
+    "test:dom": "node --test --test-timeout=60000 e2e/dom.test.ts",
     "check": "node scripts/check.ts",
     "pretest:ui": "npm run build:web",
-    "test:ui": "node --test \"e2e/*.test.ts\"",
+    "test:ui": "node --test --test-timeout=60000 \"e2e/*.test.ts\"",
     "check:types": "tsc",
     "lint": "oxlint --deny-warnings . && prettier --check .",
     "format": "prettier --write ."

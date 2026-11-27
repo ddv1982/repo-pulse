@@ -33,7 +33,8 @@ export function git(path: string, ...args: string[]) {
   return execFileSync('git', ['-C', path, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
 }
 
-export function checkoutFixture(t: TestContext) {
+/** @param t anything with an after hook; browser tests pass their cleanup stack so the checkout outlives the page. */
+export function checkoutFixture(t: Pick<TestContext, 'after'>) {
   // The app canonicalises checkout paths; on Windows that expands 8.3 short names in the temp folder.
   const root = realpathSync.native(mkdtempSync(join(tmpdir(), 'pulse-checkout-')));
   t.after(() => rmSync(root, { recursive: true, force: true }));
@@ -67,7 +68,7 @@ export function checkoutFixture(t: TestContext) {
   return { remote, source, local, original, advance, commit, repo, checkoutGit };
 }
 
-export function squashFixture(t: TestContext) {
+export function squashFixture(t: Pick<TestContext, 'after'>) {
   const fixture = checkoutFixture(t);
   const { source, remote, local, commit } = fixture;
   git(source, 'switch', '-c', 'topic');
