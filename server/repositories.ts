@@ -5,7 +5,7 @@ import { stat, readdir, realpath } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { homedir } from 'node:os';
 import type { DiscoveredRemote as ParsedRemote, DiscoveredRemote, Discovery } from '../src/contract.ts';
-import { invalid } from './errors.ts';
+import { AppError, invalid } from './errors.ts';
 
 const exec = promisify(execFile);
 const invalidUrl = () => invalid('Use an Azure DevOps Services HTTPS or SSH repository URL.', 'INVALID_REPOSITORY');
@@ -134,9 +134,13 @@ export function repositoryKey(organization: unknown, azureId: unknown) {
 /** Explicit bounded discovery; Git reads worktree/linked configs without fetching. */
 export async function discoverRepositories(inputPath: unknown): Promise<Discovery> {
   if (typeof inputPath !== 'string' || !inputPath.trim() || inputPath.includes('\0'))
-    throw new Error('Choose a local checkout or its parent folder.');
+    throw invalid('Choose a local checkout or its parent folder.');
   const path = resolve(inputPath.startsWith('~/') ? `${homedir()}/${inputPath.slice(2)}` : inputPath);
-  if (!(await stat(path)).isDirectory()) throw new Error('Choose a folder.');
+  const found = await stat(path).catch((error: NodeJS.ErrnoException) => {
+    if (error.code === 'ENOENT' || error.code === 'ENOTDIR') throw invalid('This folder does not exist. Choose another folder.');
+    throw error;
+  });
+  if (!found.isDirectory()) throw invalid('Choose a folder.');
   const result: Discovery = { repositories: [], warnings: [] };
   async function readCheckout(localPath: string) {
     try {
@@ -175,7 +179,7 @@ export async function discoverRepositories(inputPath: unknown): Promise<Discover
       if (remotes.length) result.repositories.push({ localPath, remotes });
       return true;
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') throw new Error('Git is not installed.');
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') throw new AppError('upstream', 'Git is not installed.');
       return false;
     }
   }
