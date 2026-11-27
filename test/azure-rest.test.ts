@@ -1,31 +1,19 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createAzureCli } from '../server/azure-cli.ts';
-import { createRestExecutor, AZURE_DEVOPS_RESOURCE } from '../server/azure-rest.ts';
+import { createRestReader, AZURE_DEVOPS_RESOURCE } from '../server/azure-rest.ts';
+import { azureRead, type AzureArea, type AzureResource } from '../server/azure-reads.ts';
 import { portOf } from './fixtures/access.ts';
 import { fakeTimer, present, stub, type Thrown } from './fixtures/typed.ts';
 
 const ORG = 'https://dev.azure.com/example';
 const TOKEN = 'secret-token-value';
-const invoke = (area: string, resource: string, route: string[], query: string[] = []) => [
-  'devops',
-  'invoke',
-  '--organization',
-  ORG,
-  '--detect',
-  'false',
-  '--area',
-  area,
-  '--resource',
-  resource,
-  '--api-version',
-  '7.1',
-  '--http-method',
-  'GET',
-  '--route-parameters',
-  ...route,
-  ...(query.length ? ['--query-parameters', ...query] : []),
-];
+/** `key=value` pairs as an object, split at the first `=`. */
+const pairs = (entries: string[]) =>
+  Object.fromEntries(entries.map(entry => [entry.slice(0, entry.indexOf('=')), entry.slice(entry.indexOf('=') + 1)]));
+/** A typed read of `resource` with its route and query given as `key=value` pairs. */
+const invoke = <A extends AzureArea>(area: A, resource: AzureResource<A>, route: string[], query: string[] = [], apiVersion = '7.1') =>
+  azureRead(area, resource, { organization: ORG, route: pairs(route), query: pairs(query), apiVersion });
 
 /** The request options the executor sends: its headers are a plain object. */
 type SentInit = RequestInit & { headers: Record<string, string> };
@@ -85,8 +73,14 @@ function harness({
     };
     return new Response(JSON.stringify(next.body ?? {}), responseInit);
   };
-  const executor = createRestExecutor({ cliExecutor, fetch, now: () => time });
-  const cli = createAzureCli({ executor, limitPerMinute: 1000, now: () => time, ...(setTimer && { setTimer, clearTimer: () => {} }) });
+  const reader = createRestReader({ cliExecutor, fetch, now: () => time });
+  const cli = createAzureCli({
+    executor: cliExecutor,
+    reader,
+    limitPerMinute: 1000,
+    now: () => time,
+    ...(setTimer && { setTimer, clearTimer: () => {} }),
+  });
   return {
     cli,
     requests,
@@ -103,7 +97,7 @@ test('invoke reads go to the matching REST URL with a bearer token and keep the 
       { status: 200, body: { count: 1, value: [{ name: 'refs/heads/main' }] }, headers: { 'x-ms-continuationtoken': 'next-page' } },
     ],
   });
-  const result = await cli.run(invoke('git', 'refs', ['project=Proj Id', 'repositoryId=repo-1'], ['filter=heads/', '$top=100']));
+  const result = await cli.read(invoke('git', 'refs', ['project=Proj Id', 'repositoryId=repo-1'], ['filter=heads/', '$top=100']));
   assert.deepEqual(result, { count: 1, value: [{ name: 'refs/heads/main' }], continuationToken: 'next-page' });
   const url = new URL(present(requests[0]).url);
   assert.equal(url.origin + url.pathname, `${ORG}/Proj%20Id/_apis/git/repositories/repo-1/refs`);
@@ -123,9 +117,9 @@ test('invoke reads go to the matching REST URL with a bearer token and keep the 
 
 test('commit, build and connection reads use their own routes', async () => {
   const { cli, requests } = harness();
-  await cli.run(invoke('git', 'commits', ['project=P', 'repositoryId=r', `commitId=${'a'.repeat(40)}`], ['changeCount=0']));
-  await cli.run(invoke('build', 'builds', ['project=P'], ['buildIds=1,2']));
-  await cli.run(invoke('location', 'connectionData', []));
+  await cli.read(invoke('git', 'commits', ['project=P', 'repositoryId=r', `commitId=${'a'.repeat(40)}`], ['changeCount=0']));
+  await cli.read(invoke('build', 'builds', ['project=P'], ['buildIds=1,2']));
+  await cli.read(invoke('location', 'connectiondata', []));
   assert.deepEqual(
     requests.map(request => new URL(request.url).pathname),
     [`/example/P/_apis/git/repositories/r/commits/${'a'.repeat(40)}`, '/example/P/_apis/build/builds', '/example/_apis/connectionData'],
@@ -137,7 +131,7 @@ test('the token is reused until shortly before it expires and replaced after a 4
   const { cli, requests, cliCalls, advance } = harness({
     responses: [{ status: 200 }, { status: 200 }, { status: 200 }, { status: 401 }, { status: 200 }],
   });
-  const read = () => cli.run(invoke('git', 'pushes', ['project=P', 'repositoryId=r'], [`$skip=${requests.length}`]));
+  const read = () => cli.read(invoke('git', 'pushes', ['project=P', 'repositoryId=r'], [`$skip=${requests.length}`]));
   await read();
   await read();
   assert.equal(cliCalls.length, 1, 'one token for both reads');
@@ -175,7 +169,7 @@ test('HTTP and network failures are classified without exposing the token', asyn
   ];
   for (const [response, code] of cases) {
     const { cli } = harness({ responses: [response] });
-    const error = await cli.run(invoke('git', 'pushes', ['project=P', 'repositoryId=r'])).then(
+    const error = await cli.read(invoke('git', 'pushes', ['project=P', 'repositoryId=r'])).then(
       () => null,
       failure => failure,
     );
@@ -187,23 +181,25 @@ test('HTTP and network failures are classified without exposing the token', asyn
 });
 
 test('a missing Azure CLI is reported as missing when the token is requested', async () => {
-  const executor = createRestExecutor({
+  const reader = createRestReader({
     cliExecutor: async () => {
       throw Object.assign(new Error('spawn az ENOENT'), { code: 'ENOENT' });
     },
     fetch: async () => assert.fail('no request without a token'),
   });
-  const cli = createAzureCli({ executor });
-  await assert.rejects(cli.run(invoke('git', 'pushes', ['project=P', 'repositoryId=r'])), { code: 'CLI_MISSING' });
+  const cli = createAzureCli({ reader });
+  await assert.rejects(cli.read(invoke('git', 'pushes', ['project=P', 'repositoryId=r'])), { code: 'CLI_MISSING' });
   cli.close();
 });
 
-test('duplicate flags and dot route segments are refused before any request', async () => {
+test('az invoke writes, unlisted reads and dot or missing route segments are refused before any request', async () => {
   const { cli, requests } = harness();
-  const write = [...invoke('git', 'refs', ['project=P', 'repositoryId=r']), '--http-method', 'POST'];
-  await assert.rejects(cli.run(write));
+  const write = ['devops', 'invoke', '--area', 'git', '--resource', 'refs', '--api-version', '7.1', '--http-method', 'POST'];
+  await assert.rejects(cli.run(write), { code: 'READ_ONLY' });
+  const unlisted = { ...invoke('git', 'refs', ['project=P', 'repositoryId=r']), resource: 'items' } as unknown as ReturnType<typeof invoke>;
+  await assert.rejects(cli.read(unlisted), { code: 'READ_ONLY' });
   for (const route of [['project=..', 'repositoryId=r'], ['project=P', 'repositoryId=.'], ['project=P']]) {
-    await assert.rejects(cli.run(invoke('git', 'refs', route)), JSON.stringify(route));
+    await assert.rejects(cli.read(invoke('git', 'refs', route)), { code: 'CLI_SETUP' }, JSON.stringify(route));
   }
   assert.equal(requests.length, 0);
   cli.close();
@@ -211,13 +207,13 @@ test('duplicate flags and dot route segments are refused before any request', as
 
 test('an unusable token response is not cached and does not leak into the error', async () => {
   const { cli, cliCalls } = harness({ tokenOutput: call => (call === 1 ? `{"accessToken":"${TOKEN}-broken"` : undefined) });
-  const error = await cli.run(invoke('git', 'pushes', ['project=P', 'repositoryId=r'])).then(
+  const error = await cli.read(invoke('git', 'pushes', ['project=P', 'repositoryId=r'])).then(
     () => null,
     failure => failure,
   );
   assert.equal(error?.code, 'AUTH_REQUIRED');
   assert.doesNotMatch(JSON.stringify({ message: error.message, ...error }), new RegExp(TOKEN));
-  await cli.run(invoke('git', 'pushes', ['project=P', 'repositoryId=r'], ['$skip=1']));
+  await cli.read(invoke('git', 'pushes', ['project=P', 'repositoryId=r'], ['$skip=1']));
   assert.equal(cliCalls.length, 2, 'the next read asks for a new token');
   cli.close();
 });
@@ -227,7 +223,7 @@ test('concurrent 401s for one token share a single renewal', async () => {
     tokenDelay: true,
     responses: init => (present(init.headers.authorization).endsWith('-1') ? { status: 401 } : { status: 200 }),
   });
-  await Promise.all([0, 1].map(skip => cli.run(invoke('git', 'pushes', ['project=P', 'repositoryId=r'], [`$skip=${skip}`]))));
+  await Promise.all([0, 1].map(skip => cli.read(invoke('git', 'pushes', ['project=P', 'repositoryId=r'], [`$skip=${skip}`]))));
   assert.equal(cliCalls.length, 2, 'one initial token and one shared renewal');
   cli.close();
 });
@@ -250,14 +246,14 @@ test('response body failures keep their timeout and invalid-response classificat
     ],
   ] satisfies [FakeResponse, string][]) {
     const { cli } = harness({ responses: [response] });
-    await assert.rejects(cli.run(invoke('git', 'pushes', ['project=P', 'repositoryId=r'])), { code });
+    await assert.rejects(cli.read(invoke('git', 'pushes', ['project=P', 'repositoryId=r'])), { code });
     cli.close();
   }
 });
 
 test('a token with an unusable expiry is reported as a sign-in problem', async () => {
   const { cli } = harness({ tokenOutput: () => JSON.stringify({ accessToken: TOKEN, expiresOn: { toString: null } }) });
-  await assert.rejects(cli.run(invoke('git', 'pushes', ['project=P', 'repositoryId=r'])), { code: 'AUTH_REQUIRED' });
+  await assert.rejects(cli.read(invoke('git', 'pushes', ['project=P', 'repositoryId=r'])), { code: 'AUTH_REQUIRED' });
   cli.close();
 });
 
@@ -265,9 +261,9 @@ test('a replacement token rejected on the retry is not sent again', async () => 
   const { cli, requests } = harness({
     responses: init => (present(init.headers.authorization).endsWith('-3') ? { status: 200 } : { status: 401 }),
   });
-  await assert.rejects(cli.run(invoke('git', 'pushes', ['project=P', 'repositoryId=r'])), { code: 'AUTH_REQUIRED' });
+  await assert.rejects(cli.read(invoke('git', 'pushes', ['project=P', 'repositoryId=r'])), { code: 'AUTH_REQUIRED' });
   const before = requests.length;
-  await cli.run(invoke('git', 'pushes', ['project=P', 'repositoryId=r'], ['$skip=1']));
+  await cli.read(invoke('git', 'pushes', ['project=P', 'repositoryId=r'], ['$skip=1']));
   assert.deepEqual(
     requests.slice(before).map(request => request.init.headers.authorization),
     [`Bearer ${TOKEN}-3`],
@@ -288,7 +284,7 @@ test('discarded error responses have their bodies cancelled', async () => {
     ),
   });
   const { cli } = harness({ responses: [failing(401), failing(503)] });
-  await assert.rejects(cli.run(invoke('git', 'pushes', ['project=P', 'repositoryId=r'])), { code: 'UNAVAILABLE' });
+  await assert.rejects(cli.read(invoke('git', 'pushes', ['project=P', 'repositoryId=r'])), { code: 'UNAVAILABLE' });
   assert.deepEqual(cancelled, [401, 503]);
   cli.close();
 });
@@ -331,16 +327,15 @@ for (const scheme of ['http://', ''])
 
 test('PR thread and policy evaluation reads use their own routes and the policy preview version', async () => {
   const { cli, requests } = harness();
-  await cli.run(invoke('git', 'pullRequestThreads', ['project=P', 'repositoryId=r', 'pullRequestId=12']));
-  const policy = invoke('policy', 'evaluations', ['project=P'], ['artifactId=vstfs:///CodeReview/CodeReviewId/p/12']);
-  policy[policy.indexOf('--api-version') + 1] = '7.1-preview.1';
-  await cli.run(policy);
+  await cli.read(invoke('git', 'pullrequestthreads', ['project=P', 'repositoryId=r', 'pullRequestId=12']));
+  const policy = invoke('policy', 'evaluations', ['project=P'], ['artifactId=vstfs:///CodeReview/CodeReviewId/p/12'], '7.1-preview.1');
+  await cli.read(policy);
   assert.deepEqual(
     requests.map(request => new URL(request.url).pathname),
     ['/example/P/_apis/git/repositories/r/pullRequests/12/threads', '/example/P/_apis/policy/evaluations'],
   );
   assert.equal(new URL(present(requests[1]).url).searchParams.get('api-version'), '7.1-preview.1');
-  await assert.rejects(cli.run(invoke('git', 'pullRequestThreads', ['project=P', 'repositoryId=r', 'pullRequestId=..'])));
+  await assert.rejects(cli.read(invoke('git', 'pullrequestthreads', ['project=P', 'repositoryId=r', 'pullRequestId=..'])));
   cli.close();
 });
 
@@ -364,9 +359,9 @@ const refs = (repo: string) => invoke('git', 'refs', ['project=P', `repositoryId
 test('a 200 with Retry-After returns its data and starts no other call until the wait has passed', async () => {
   const { cli, requests, timers, advance } = pausing([{ status: 200, body: { value: [1] }, headers: { 'retry-after': '30' } }]);
   const start = Date.parse('2026-11-18T10:00:00Z');
-  assert.deepEqual(await cli.run(refs('a')), { value: [1] });
+  assert.deepEqual(await cli.read(refs('a')), { value: [1] });
   assert.equal(cli.diagnostics().throttledUntil, new Date(start + 30000).toISOString());
-  const next = cli.run(refs('b'));
+  const next = cli.read(refs('b'));
   await flush();
   assert.equal(requests.length, 1);
   assert.equal(timers.at(-1)?.ms, 30000);
@@ -384,8 +379,8 @@ test('a 200 with Retry-After returns its data and starts no other call until the
 
 test('a 429 with Retry-After is a throttled read and pauses the queue the same way', async () => {
   const { cli, requests, timers } = pausing([{ status: 429, headers: { 'retry-after': '30' } }]);
-  await assert.rejects(cli.run(refs('a')), { code: 'THROTTLED' });
-  cli.run(refs('b')).catch(() => {});
+  await assert.rejects(cli.read(refs('a')), { code: 'THROTTLED' });
+  cli.read(refs('b')).catch(() => {});
   await flush();
   assert.equal(requests.length, 1);
   assert.equal(timers.at(-1)?.ms, 30000);
@@ -395,8 +390,8 @@ test('a 429 with Retry-After is a throttled read and pauses the queue the same w
 test('Retry-After as an HTTP date pauses until that moment', async () => {
   const start = Date.parse('2026-11-18T10:00:00Z');
   const { cli, timers } = pausing([{ status: 200, headers: { 'retry-after': new Date(start + 45000).toUTCString() } }]);
-  await cli.run(refs('a'));
-  cli.run(refs('b')).catch(() => {});
+  await cli.read(refs('a'));
+  cli.read(refs('b')).catch(() => {});
   await flush();
   assert.equal(timers.at(-1)?.ms, 45000);
   cli.close();
@@ -404,7 +399,7 @@ test('Retry-After as an HTTP date pauses until that moment', async () => {
 
 test('a 401 that arrives while a Retry-After pause is active is not retried until the pause ends', async () => {
   const { cli, requests } = pausing([{ status: 200, headers: { 'retry-after': '30' } }, { status: 401 }, { status: 200 }]);
-  const [first, second] = await Promise.allSettled([cli.run(refs('a')), cli.run(refs('b'))]);
+  const [first, second] = await Promise.allSettled([cli.read(refs('a')), cli.read(refs('b'))]);
   assert.equal(first.status, 'fulfilled');
   assert.equal(reasonOf(second)?.code, 'THROTTLED');
   assert.equal(requests.length, 2, 'no token-refresh retry is sent during the pause');
@@ -433,7 +428,7 @@ test('a pause that starts while a rejected token is renewed still stops the retr
             return JSON.stringify({ accessToken: `${TOKEN}-renewed`, expires_on: 4102444800, tokenType: 'Bearer' });
           })(),
   });
-  const [first, second] = await Promise.allSettled([h.cli.run(refs('a')), h.cli.run(refs('b'))]);
+  const [first, second] = await Promise.allSettled([h.cli.read(refs('a')), h.cli.read(refs('b'))]);
   assert.equal(first.status, 'fulfilled');
   assert.equal(reasonOf(second)?.code, 'THROTTLED');
   assert.equal(h.requests.length, 2, 'the retry is not sent once the pause has started');
@@ -460,10 +455,10 @@ test('a pause that starts while a first token is fetched stops the first send to
             return JSON.stringify({ accessToken: `${TOKEN}-fresh`, expires_on: 4102444800, tokenType: 'Bearer' });
           })(),
   });
-  const first = h.cli.run(refs('a'));
+  const first = h.cli.read(refs('a'));
   await flush();
   h.advance(5 * 60000);
-  const [a, b] = await Promise.allSettled([first, h.cli.run(refs('b'))]);
+  const [a, b] = await Promise.allSettled([first, h.cli.read(refs('b'))]);
   assert.equal(a.status, 'fulfilled');
   assert.equal(reasonOf(b)?.code, 'THROTTLED');
   assert.equal(h.requests.length, 1, 'the second read is not sent once the pause has started');
@@ -475,15 +470,15 @@ test('an HTTP-date Retry-After is measured from the response Date, so a fast loc
   const server = start - 120000;
   const headers = { date: new Date(server).toUTCString(), 'retry-after': new Date(server + 45000).toUTCString() };
   const { cli, timers } = pausing([{ status: 200, headers }]);
-  await cli.run(refs('a'));
-  cli.run(refs('b')).catch(() => {});
+  await cli.read(refs('a'));
+  cli.read(refs('b')).catch(() => {});
   await flush();
   assert.equal(timers.at(-1)?.ms, 45000);
   cli.close();
 
   const unreadable = pausing([{ status: 200, headers: { date: 'whenever', 'retry-after': new Date(start + 45000).toUTCString() } }]);
-  await unreadable.cli.run(refs('a'));
-  unreadable.cli.run(refs('b')).catch(() => {});
+  await unreadable.cli.read(refs('a'));
+  unreadable.cli.read(refs('b')).catch(() => {});
   await flush();
   assert.equal(unreadable.timers.at(-1)?.ms, 45000, 'an unreadable Date falls back to the local clock');
   unreadable.cli.close();
@@ -491,16 +486,16 @@ test('an HTTP-date Retry-After is measured from the response Date, so a fast loc
 
 test('an absurd Retry-After is capped at ten minutes and an unreadable one is ignored', async () => {
   const capped = pausing([{ status: 200, headers: { 'retry-after': '99999999' } }]);
-  await capped.cli.run(refs('a'));
-  capped.cli.run(refs('b')).catch(() => {});
+  await capped.cli.read(refs('a'));
+  capped.cli.read(refs('b')).catch(() => {});
   await flush();
   assert.equal(capped.timers.at(-1)?.ms, 10 * 60000);
   capped.cli.close();
 
   for (const value of ['soon', '-5', '1.5', '']) {
     const ignored = pausing([{ status: 200, headers: { 'retry-after': value } }]);
-    await ignored.cli.run(refs('a'));
-    await ignored.cli.run(refs('b'));
+    await ignored.cli.read(refs('a'));
+    await ignored.cli.read(refs('b'));
     assert.equal(ignored.requests.length, 2, `Retry-After ${JSON.stringify(value)} is ignored`);
     assert.equal(ignored.cli.diagnostics().throttledUntil, null);
     ignored.cli.close();
@@ -510,7 +505,7 @@ test('an absurd Retry-After is capped at ten minutes and an unreadable one is ig
 test('REST responses over 16 MiB are rejected by Content-Length and by streamed byte count, and a UTF-8 BOM still parses', async () => {
   const cliExecutor = async () => JSON.stringify({ accessToken: TOKEN, expires_on: 4102444800 });
   const read = (response: Response) =>
-    createRestExecutor({ cliExecutor, fetch: async () => response })(invoke('git', 'refs', ['project=P', 'repositoryId=r']), {
+    createRestReader({ cliExecutor, fetch: async () => response })(invoke('git', 'refs', ['project=P', 'repositoryId=r']), {
       signal: new AbortController().signal,
       timeoutMs: 5000,
     });

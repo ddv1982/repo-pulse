@@ -2,7 +2,8 @@ import { iso } from './time.ts';
 import { createHash } from 'node:crypto';
 import { actorName, branchName, safeAzureUrl, ZERO_ID } from '../src/events.ts';
 import { mergeUpdates } from './merge-evidence.ts';
-import { forkJob } from './fork-origin.ts';
+import { forkJob, type ForkJob, type RewriteJob } from './jobs.ts';
+import type { Entity, EntityData, EntityType } from './store-records.ts';
 import { isRecord, recordsOf } from './azure-records.ts';
 import type { ActivityKind } from '../src/activity.ts';
 import type {
@@ -17,8 +18,6 @@ import type {
   AzureStream as StreamName,
   AzureRepo,
 } from '../src/contract.ts';
-import type { RewriteJob } from './rewrite-check.ts';
-import type { ForkJob } from './fork-origin.ts';
 
 export type WatchedRepo = AzureRepo & { id: string; disabled?: boolean };
 /** What `normalize` reads from a stream state; backfill passes `historical: true`. */
@@ -41,48 +40,14 @@ type SyncEvent = {
   seen: boolean;
 };
 type EventDetail = Partial<Omit<SyncEvent, 'id' | 'repoId' | 'kind' | 'observedAt' | 'imported' | 'seen'>>;
-/** A push recorded so a later page or snapshot skips it. Its date is what Azure sent. */
-type PushEntity = { date?: unknown };
-/**
- * A branch or tag as the last push or refs snapshot left it. The object IDs are what Azure sent; a ref put away keeps
- * its last ones with `active: false`.
- */
-type RefEntity = {
-  name?: string;
-  objectId?: unknown;
-  peeledObjectId?: unknown;
-  active?: boolean;
-  evidence?: string;
-  lastPushId?: number | null | undefined;
-  lastPushObservedAt?: string | undefined;
-};
-type ReviewerVote = [string, number | null];
-type PrFingerprint = Record<string, unknown> & { votes?: ReviewerVote[] };
-/**
- * A PR or build snapshot: an event is made only when its fingerprint changes. A PR fingerprint saved before votes were
- * recorded has none. A snapshot without a fingerprint or revision reads as changed, at revision 0.
- */
-type SnapshotEntity<Fingerprint = Record<string, unknown>> = {
-  fingerprint?: Fingerprint;
-  status?: unknown;
-  revision?: number;
-};
-/** A refs stream's tag baseline (`tags`), or the tags an incomplete snapshot could not rule out (`tags-uncertain`). */
-type RefBaseline = { at: string; all?: boolean; names?: string[] };
-/** Entity data by entity type. */
-export type EntityData = {
-  push: PushEntity;
-  ref: RefEntity;
-  pr: SnapshotEntity<PrFingerprint>;
-  build: SnapshotEntity;
-  'ref-baseline': RefBaseline;
-};
-export type EntityType = keyof EntityData;
-export type Entity = { [T in EntityType]: { type: T; id: string; data: EntityData[T] } }[EntityType];
+type RefEntity = EntityData['ref'];
+type SnapshotEntity = EntityData['build'];
+type PrFingerprint = NonNullable<EntityData['pr']['fingerprint']>;
+type ReviewerVote = NonNullable<PrFingerprint['votes']>[number];
 
 export type SyncBatch = { events: SyncEvent[]; entities: Entity[]; jobs?: (RewriteJob | ForkJob)[] };
 type NormalizeStore = {
-  getSetting: (key: `baseline:${string}`, fallback: string) => string;
+  getBaseline: (repoId: string) => string | undefined;
   getEntity: <T extends EntityType>(repoId: string, type: T, id: string) => EntityData[T] | undefined;
   listEntities: <T extends EntityType>(repoId: string, type: T) => { id: string; data: EntityData[T] }[];
 };
@@ -404,7 +369,7 @@ export function createNormalizer({ store, now = Date.now }: { store: NormalizeSt
     const entities: Entity[] = [];
     const historical = Boolean(state.historical);
     const refs = stream === 'pushes' ? new Map(store.listEntities(repo.id, 'ref').map(entry => [entry.id, entry.data])) : null;
-    const baseline = store.getSetting(`baseline:${repo.id}`, iso(now()));
+    const baseline = store.getBaseline(repo.id) ?? iso(now());
     const add: NormalizeContext['add'] = (kind, sourceId, detail) => {
       const time = detail.time || iso(now());
       const imported = !state.initialized && Date.parse(time) <= Date.parse(baseline);
@@ -603,3 +568,5 @@ export function createNormalizer({ store, now = Date.now }: { store: NormalizeSt
 
   return { normalize, reconcileRefs };
 }
+
+export type Normalizer = ReturnType<typeof createNormalizer>;

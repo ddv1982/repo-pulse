@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createStore } from '../server/store.ts';
 import { createHash } from 'node:crypto';
+import { createNormalizer } from '../server/normalize.ts';
 import { createSync } from '../server/sync.ts';
 import { createBackfill } from '../server/backfill.ts';
 import { activityMergeBadge } from '../src/activity-text.ts';
@@ -10,6 +11,7 @@ import { createAzureClient } from '../server/azure-client.ts';
 import type { AzureProvider, AzurePage, ReadOptions } from '../server/azure-client.ts';
 import type { AzureStreamRecord, Repository } from '../src/contract.ts';
 import { dataOf, fieldsOf, present, stub, watchedIdOf } from './fixtures/typed.ts';
+import { fakeCli } from './fixtures/azure.ts';
 const repo = {
   id: 'one',
   name: 'One',
@@ -24,13 +26,15 @@ function setup(provider: SyncProvider, streams: string[] = ['pushes']) {
   const store = createStore();
   store.saveRepo(repo);
   let time = BASE;
-  const sync = createSync({ store, provider, now: () => time, intervalMs: 1000 });
+  const normalizer = createNormalizer({ store, now: () => time });
+  const sync = createSync({ store, provider, now: () => time, intervalMs: 1000, normalizer });
   sync.refresh();
   for (const state of store.getStreams())
     if (!streams.includes(state.stream)) store.saveStream({ ...state, nextAt: '2099-01-01T00:00:00Z' });
   return {
     store,
     sync,
+    normalizer,
     advance(this: void, ms = 2000) {
       time += ms;
     },
@@ -1036,11 +1040,11 @@ test('active preview and abandoned PRs never acquire actual merge-result fields'
 });
 
 test('ingestion stores pushes and leaves historical imports out of live ref state', async () => {
-  const { store, sync } = setup({ read: async () => ({ items: [push(333)], nextCursor: null }) });
+  const { store, sync, normalizer } = setup({ read: async () => ({ items: [push(333)], nextCursor: null }) });
   await sync.tick();
   assert.ok(store.getEvent('one:push:333'));
   const before = store.getEntity('one', 'ref', 'refs/heads/hotfix/example');
-  const historical = sync.normalize(repo, 'pushes', [push(1, '2020-01-01T00:00:00Z')], { historical: true, initialized: false });
+  const historical = normalizer.normalize(repo, 'pushes', [push(1, '2020-01-01T00:00:00Z')], { historical: true, initialized: false });
   assert.ok(historical.events.every(event => event.imported && event.seen));
   assert.equal(
     historical.entities.some(entity => entity.type === 'ref'),
@@ -1492,7 +1496,7 @@ test('first-sync history at the baseline instant is imported whatever its fracti
       return { items: [push(7, '2026-11-17T10:00:00Z')], nextCursor: null };
     },
   });
-  assert.equal(store.getSetting(`baseline:${repo.id}`), '2026-11-17T10:00:00.000Z');
+  assert.equal(store.getBaseline(repo.id), '2026-11-17T10:00:00.000Z');
   await sync.tick();
   const event = present(store.listEvents().find(item => item.kind === 'push'));
   assert.equal(event.imported, true, 'an event at the baseline instant is history, not a new update');
@@ -1776,7 +1780,7 @@ test('a reviewer vote is PR activity, and PRs saved before votes were recorded a
 test('a historical PR import keeps the event ID it had before votes were recorded', () => {
   const store = createStore();
   store.saveRepo(repo);
-  const sync = createSync({ store, provider: stub<SyncProvider>({}) });
+  const normalizer = createNormalizer({ store });
   const closed = {
     pullRequestId: 8,
     title: 'Fix',
@@ -1787,7 +1791,7 @@ test('a historical PR import keeps the event ID it had before votes were recorde
     repository: { id: 'a' },
     reviewers: [{ id: 'ana', displayName: 'Ana', vote: 10 }],
   };
-  const { events } = sync.normalize(repo, 'closedPrs', [closed], { historical: true, initialized: false });
+  const { events } = normalizer.normalize(repo, 'closedPrs', [closed], { historical: true, initialized: false });
   const before = { status: 'completed', isDraft: false, title: 'Fix', source: 'c'.repeat(40), target: 'refs/heads/main' };
   const hash = createHash('sha256').update(JSON.stringify(before)).digest('hex').slice(0, 24);
   assert.equal(present(events[0]).id, `one:pr:history:8:${hash}`);
@@ -1962,14 +1966,16 @@ test('a history import page makes only stream reads and queues no merge work', a
     pushes: [[push(5, new Date(BASE - day).toISOString()), push(6, new Date(BASE - 2 * day).toISOString())]],
   });
   let backfill: ReturnType<typeof createBackfill>;
+  const normalizer = createNormalizer({ store, now: () => time });
   const sync = createSync({
     store,
     provider,
     now: () => time,
+    normalizer,
     background: { history: () => backfill.tick() },
   });
-  backfill = createBackfill({ store, provider, normalize: sync.normalize, now: () => time });
-  store.setSetting(`baseline:${repo.id}`, new Date(BASE).toISOString());
+  backfill = createBackfill({ store, provider, normalize: normalizer.normalize, now: () => time });
+  store.setBaseline(repo.id, new Date(BASE).toISOString());
   backfill.start(repo.id, 30);
   // Automatic checks stay on, but no live stream is due.
   sync.refresh();
@@ -1989,7 +1995,7 @@ test('a history import page makes only stream reads and queues no merge work', a
 });
 
 /** The live client over a CLI that answers every read with these pushes, so the record guards run as in the app. */
-const clientReturning = (pushes: unknown[]) => createAzureClient({ cli: { run: async () => ({ value: pushes }) } });
+const clientReturning = (pushes: unknown[]) => createAzureClient({ cli: fakeCli(async () => ({ value: pushes })) });
 const pushesState = (store: ReturnType<typeof createStore>) => present(store.getStreams().find(state => state.stream === 'pushes'));
 
 test('a push Azure returns without a pushId is skipped with a warning instead of a clean success', async () => {
@@ -2041,7 +2047,7 @@ test('a push with a malformed web link still reports its tag deletion, without a
 
 test('a stream warning stands until a later read of that stream completes with no unreadable records', async () => {
   let pushes: unknown[] = [push(2), { ...push(1), pushId: 'one' }, { ...push(3), pushId: null }];
-  const client = createAzureClient({ cli: { run: async () => ({ value: pushes }) } });
+  const client = createAzureClient({ cli: fakeCli(async () => ({ value: pushes })) });
   const { store, sync, advance } = setup(client, ['pushes']);
   await sync.tick();
   assert.equal(pushesState(store).warning?.count, 2);
@@ -2057,14 +2063,13 @@ test('a stream warning stands until a later read of that stream completes with n
 test('a cached active PR that Azure returns unreadable when asked by ID is skipped with a warning, not a failed page', async () => {
   let listed = [cachedPr(1), cachedPr(2)];
   const client = createAzureClient({
-    cli: {
-      run: async args =>
-        args[0] === 'repos'
-          ? args.includes('1')
-            ? { ...cachedPr(1, 'completed'), repository: { id: 'a' }, reviewers: { id: 'r' } }
-            : { ...cachedPr(2, 'completed'), repository: { id: 'a' } }
-          : { value: listed },
-    },
+    cli: fakeCli(async args =>
+      args[0] === 'repos'
+        ? args.includes('1')
+          ? { ...cachedPr(1, 'completed'), repository: { id: 'a' }, reviewers: { id: 'r' } }
+          : { ...cachedPr(2, 'completed'), repository: { id: 'a' } }
+        : { value: listed },
+    ),
   });
   const { store, sync, advance } = setup(client, ['prs']);
   await sync.tick();
@@ -2093,15 +2098,13 @@ test('an active build Azure returns unreadable when asked by ID is reported and 
   let clientTime = 0;
   const client = createAzureClient({
     now: () => clientTime,
-    cli: {
-      run: async args => {
-        if (args.some(arg => arg.startsWith('buildIds='))) {
-          asked.push('42');
-          return { value: [{ ...build, status: 7 }] };
-        }
-        return { value: active ? [build] : [] };
-      },
-    },
+    cli: fakeCli(async args => {
+      if (args.some(arg => arg.startsWith('buildIds='))) {
+        asked.push('42');
+        return { value: [{ ...build, status: 7 }] };
+      }
+      return { value: active ? [build] : [] };
+    }),
   });
   const { store, sync, advance } = setup(client, ['activeBuilds']);
   await sync.tick();
@@ -2171,7 +2174,7 @@ test('a ref Azure returns unreadable is not reported as no longer listed, and ne
     { name: 'refs/heads/b', objectId: 'b' },
     { name: 'refs/heads/c', objectId: 'c' },
   ];
-  const { store, sync, advance } = setup(createAzureClient({ cli: { run: async () => ({ value: refs }) } }), ['refs']);
+  const { store, sync, advance } = setup(createAzureClient({ cli: fakeCli(async () => ({ value: refs })) }), ['refs']);
   await sync.tick();
   refs = [
     { name: 'refs/heads/a', objectId: 'a2' },
@@ -2316,15 +2319,13 @@ test('an active PR that the active list returns unreadable is counted once and n
   let listed: unknown[] = [{ ...cachedPr(1), repository: { id: 'a' } }];
   const lookups: string[] = [];
   const client = createAzureClient({
-    cli: {
-      run: async args => {
-        if (args[0] === 'repos') {
-          lookups.push(String(args[args.indexOf('--id') + 1]));
-          return { ...cachedPr(1), repository: { id: 'a' }, reviewers: { id: 'r' } };
-        }
-        return { value: listed };
-      },
-    },
+    cli: fakeCli(async args => {
+      if (args[0] === 'repos') {
+        lookups.push(String(args[args.indexOf('--id') + 1]));
+        return { ...cachedPr(1), repository: { id: 'a' }, reviewers: { id: 'r' } };
+      }
+      return { value: listed };
+    }),
   });
   const { store, sync, advance } = setup(client, ['prs']);
   await sync.tick();
@@ -2345,16 +2346,14 @@ test('an active build that the active list returns unreadable is counted once an
   let clientTime = 0;
   const client = createAzureClient({
     now: () => clientTime,
-    cli: {
-      run: async args => {
-        const ids = args.find(arg => arg.startsWith('buildIds='));
-        if (ids) {
-          lookups.push(ids);
-          return { value: [{ ...build, status: 7 }] };
-        }
-        return { value: listed };
-      },
-    },
+    cli: fakeCli(async args => {
+      const ids = args.find(arg => arg.startsWith('buildIds='));
+      if (ids) {
+        lookups.push(ids);
+        return { value: [{ ...build, status: 7 }] };
+      }
+      return { value: listed };
+    }),
   });
   const { store, sync, advance } = setup(client, ['activeBuilds']);
   await sync.tick();
@@ -2387,20 +2386,18 @@ async function leftActiveBuilds(ids: number[], answer: (id: number) => unknown) 
   let clientTime = 0;
   const client = createAzureClient({
     now: () => clientTime,
-    cli: {
-      run: async args => {
-        const query = args.find(arg => arg.startsWith('buildIds='));
-        if (!query) return { value: listed ? ids.map(inProgressBuild) : [] };
-        const wanted = query.slice('buildIds='.length).split(',').map(Number);
-        asked.push(wanted);
-        const value: unknown[] = [];
-        for (const id of wanted) {
-          const found = answer(id);
-          if (found !== undefined) value.push(found);
-        }
-        return { value };
-      },
-    },
+    cli: fakeCli(async args => {
+      const query = args.find(arg => arg.startsWith('buildIds='));
+      if (!query) return { value: listed ? ids.map(inProgressBuild) : [] };
+      const wanted = query.slice('buildIds='.length).split(',').map(Number);
+      asked.push(wanted);
+      const value: unknown[] = [];
+      for (const id of wanted) {
+        const found = answer(id);
+        if (found !== undefined) value.push(found);
+      }
+      return { value };
+    }),
   });
   const { store, sync, advance } = setup(client, ['activeBuilds']);
   await sync.tick();
@@ -2601,12 +2598,11 @@ test('a build whose lookup came back unreadable leaves the warning once it reads
     let clientTime = 0;
     const client = createAzureClient({
       now: () => clientTime,
-      cli: {
-        run: async args =>
-          args.some(arg => arg.startsWith('buildIds='))
-            ? { value: answer === undefined ? [] : [answer] }
-            : { value: listed ? [inProgressBuild(42)] : [] },
-      },
+      cli: fakeCli(async args =>
+        args.some(arg => arg.startsWith('buildIds='))
+          ? { value: answer === undefined ? [] : [answer] }
+          : { value: listed ? [inProgressBuild(42)] : [] },
+      ),
     });
     const { store, sync, advance } = setup(client, ['activeBuilds']);
     const turn = async () => {
@@ -2683,7 +2679,7 @@ test('an in-progress build without a readable ID in both the active list and its
   let clientTime = 0;
   const client = createAzureClient({
     now: () => clientTime,
-    cli: { run: async args => (args.some(arg => arg.startsWith('buildIds=')) ? { value: [withoutId] } : { value: listed }) },
+    cli: fakeCli(async args => (args.some(arg => arg.startsWith('buildIds=')) ? { value: [withoutId] } : { value: listed })),
   });
   const { store, sync, advance } = setup(client, ['activeBuilds']);
   await sync.tick();
@@ -2761,17 +2757,15 @@ test('an unreadable build without an ID that may be a remembered build adds its 
 test('a PR lookup that comes back without a pullRequestId is counted and does not stop a readable sibling', async () => {
   let listed: unknown[] = [cachedPr(1), cachedPr(2)];
   const client = createAzureClient({
-    cli: {
-      run: async args => {
-        if (args[0] !== 'repos') return { value: listed };
-        if (args.includes('1')) {
-          const withoutId: Record<string, unknown> = { ...cachedPr(1, 'completed'), repository: { id: 'a' } };
-          delete withoutId.pullRequestId;
-          return withoutId;
-        }
-        return { ...cachedPr(2, 'completed'), repository: { id: 'a' } };
-      },
-    },
+    cli: fakeCli(async args => {
+      if (args[0] !== 'repos') return { value: listed };
+      if (args.includes('1')) {
+        const withoutId: Record<string, unknown> = { ...cachedPr(1, 'completed'), repository: { id: 'a' } };
+        delete withoutId.pullRequestId;
+        return withoutId;
+      }
+      return { ...cachedPr(2, 'completed'), repository: { id: 'a' } };
+    }),
   });
   const { store, sync, advance } = setup(client, ['prs']);
   await sync.tick();
@@ -2791,16 +2785,14 @@ test('a PR lookup answer without a readable ID counts only in its own read and i
   let listed: unknown[] = [1, 2, 3, 4, 5, 6].map(id => cachedPr(id));
   const asked: string[] = [];
   const client = createAzureClient({
-    cli: {
-      run: async args => {
-        if (args[0] !== 'repos') return { value: listed };
-        const id = String(args[args.indexOf('--id') + 1]);
-        asked.push(id);
-        const answer: Record<string, unknown> = { ...cachedPr(Number(id), 'completed'), repository: { id: 'a' } };
-        if (id === '1') delete answer.pullRequestId;
-        return answer;
-      },
-    },
+    cli: fakeCli(async args => {
+      if (args[0] !== 'repos') return { value: listed };
+      const id = String(args[args.indexOf('--id') + 1]);
+      asked.push(id);
+      const answer: Record<string, unknown> = { ...cachedPr(Number(id), 'completed'), repository: { id: 'a' } };
+      if (id === '1') delete answer.pullRequestId;
+      return answer;
+    }),
   });
   const { store, sync, advance } = setup(client, ['prs']);
   const prs = () => present(store.getStreams().find(state => state.stream === 'prs'));
@@ -2828,7 +2820,7 @@ test('an active PR without a readable ID in both the list and its lookup counts 
     delete record.pullRequestId;
     return record;
   };
-  const client = createAzureClient({ cli: { run: async args => (args[0] !== 'repos' ? { value: listed } : withoutId('active')) } });
+  const client = createAzureClient({ cli: fakeCli(async args => (args[0] !== 'repos' ? { value: listed } : withoutId('active'))) });
   const { store, sync, advance } = setup(client, ['prs']);
   await sync.tick();
   listed = [withoutId('active')];
@@ -2904,17 +2896,15 @@ test("a build Azure returns without a repository.id is skipped with a warning, a
   const withoutRepository: Record<string, unknown> = build(2);
   delete withoutRepository.repository;
   const client = createAzureClient({
-    cli: {
-      run: async () => ({
-        value: [
-          { ...build(1), repository: null },
-          withoutRepository,
-          { ...build(3), repository: {} },
-          { ...build(4), repository: { id: 'other' } },
-          build(5),
-        ],
-      }),
-    },
+    cli: fakeCli(async () => ({
+      value: [
+        { ...build(1), repository: null },
+        withoutRepository,
+        { ...build(3), repository: {} },
+        { ...build(4), repository: { id: 'other' } },
+        build(5),
+      ],
+    })),
   });
   const { store, sync } = setup(client, ['builds']);
   await sync.tick();
@@ -2934,7 +2924,7 @@ test('a branch unreadable in the first refs snapshot is not announced as first s
     { name: 'refs/heads/main', objectId: 'a' },
     { name: 'refs/heads/b', objectId: 7 },
   ];
-  const { store, sync, advance } = setup(createAzureClient({ cli: { run: async () => ({ value: refs }) } }), ['refs']);
+  const { store, sync, advance } = setup(createAzureClient({ cli: fakeCli(async () => ({ value: refs })) }), ['refs']);
   const state = () => present(store.getStreams().find(entry => entry.stream === 'refs'));
   await sync.tick();
   assert.equal(state().initialized, false, 'an incomplete snapshot is no baseline');
@@ -2960,7 +2950,7 @@ test('a branch listed only by an incomplete first snapshot is not saved, and no 
     { name: 'refs/heads/gone', objectId: 'b' },
     { name: 'refs/heads/bad', objectId: 7 },
   ];
-  const { store, sync, advance } = setup(createAzureClient({ cli: { run: async () => ({ value: refs }) } }), ['refs']);
+  const { store, sync, advance } = setup(createAzureClient({ cli: fakeCli(async () => ({ value: refs })) }), ['refs']);
   await sync.tick();
   assert.equal(
     store.getEntity(repo.id, 'ref', 'refs/heads/gone'),
@@ -3199,7 +3189,7 @@ test('before the tag baseline, a tag that no unreadable ref of an incomplete sna
     { name: 'refs/heads/main', objectId: 'a' },
     { name: 'refs/heads/feature', objectId: 7 },
   ];
-  const client = createAzureClient({ cli: { run: async () => ({ value: refs }) } });
+  const client = createAzureClient({ cli: fakeCli(async () => ({ value: refs })) });
   const { store, sync, advance, titles } = await legacyRefsWithPushedTag(() => client.read(repo, 'refs'));
   advance(600001);
   await sync.tick();
@@ -3220,7 +3210,7 @@ for (const pushedBetween of [false, true])
       { name: 'refs/tags/v1', objectId: 'c'.repeat(40) },
       { name: 'refs/heads/feature', objectId: 7 },
     ];
-    const client = createAzureClient({ cli: { run: async () => ({ value: refs }) } });
+    const client = createAzureClient({ cli: fakeCli(async () => ({ value: refs })) });
     const { store, sync, advance, titles, pushTag } = await legacyRefsWithPushedTag(() => client.read(repo, 'refs'));
     advance(600001);
     await sync.tick();
@@ -3244,7 +3234,7 @@ test('before the tag baseline, a tag that an unreadable ref of any incomplete sn
     { name: 'refs/heads/main', objectId: 'a' },
     { name: 'refs/tags/v1', objectId: 7 },
   ];
-  const client = createAzureClient({ cli: { run: async () => ({ value: refs }) } });
+  const client = createAzureClient({ cli: fakeCli(async () => ({ value: refs })) });
   const { store, sync, advance, titles } = await legacyRefsWithPushedTag(() => client.read(repo, 'refs'));
   advance(600001);
   await sync.tick();
@@ -3269,7 +3259,7 @@ test('a tag unreadable in the first refs snapshot with tags is not announced as 
     { name: 'refs/tags/v0', objectId: 'b' },
     { name: 'refs/tags/v1', objectId: 7 },
   ];
-  const { store, sync, advance } = setup(createAzureClient({ cli: { run: async () => ({ value: refs }) } }), ['refs']);
+  const { store, sync, advance } = setup(createAzureClient({ cli: fakeCli(async () => ({ value: refs })) }), ['refs']);
   const state = () => present(store.getStreams().find(entry => entry.stream === 'refs'));
   // A stream initialized by a branch-only snapshot, before tags joined it, has no tag baseline yet.
   store.commitPage({

@@ -1,50 +1,29 @@
-import { ancestry } from './checkout-advice.ts';
+import { ancestry, readDirectCommit, type Upstream } from './git.ts';
 import { observedRewrite } from './checkout-observations.ts';
-import { readDirectCommit } from './checkout-switch-refs.ts';
-import type { GitRunner, ReadCheckoutStatus, Upstream } from './checkout-git.ts';
-import type { Observation } from './checkout-observations.ts';
+import type { CheckoutContext } from './checkout-context.ts';
 import type { ActiveCheckout, CheckoutReading, Repository as LinkedRepo } from '../src/contract.ts';
 import { conflict, isAppError, notFound } from './errors.ts';
 
 /**
  * Check, Pull and PR target updates share this workflow. The caller holds the checkout lock.
  */
-export function createCheckoutUpdater({
-  run,
-  hooks,
-  now,
-  observations,
-  statusAt,
-  validateUpstream,
-  fetchUpstream,
-  trackingTip,
-  fetchFailure,
-  observedAt,
-  upstreamIdentity,
-  readMissing,
-  matchesIntent,
-  verifyCheckoutDirectory,
-}: {
-  run: GitRunner;
-  hooks: string;
-  now: () => number;
-  observations: import('./checkout-observations.ts').Observations;
-  statusAt: ReadCheckoutStatus;
-  validateUpstream: (path: string, target: Upstream) => Promise<void>;
-  fetchUpstream: (path: string, target: Upstream) => Promise<void>;
-  trackingTip: (path: string, tracking: string, before?: boolean) => Promise<string | null>;
-  fetchFailure: (error: unknown) => 'missing-ref' | { title: string; suggestion: string };
-  observedAt: (repo: LinkedRepo, path: string, target: Upstream | null, gitDirectory: string | null) => Observation | undefined;
-  upstreamIdentity: (path: string, target: Upstream | null, gitDirectory?: string | null) => string;
-  readMissing: (
-    path: string,
-    repo: LinkedRepo,
-    target: Upstream,
-    snapshot: ActiveCheckout,
-  ) => Promise<import('../src/contract.ts').PullAdvice | undefined>;
-  matchesIntent: (snapshot: CheckoutReading, expected: Pick<CheckoutReading, 'branch' | 'head' | 'upstream' | 'identity'>) => boolean;
-  verifyCheckoutDirectory: (path: string, expected: string | null) => Promise<void>;
-}) {
+export function createCheckoutUpdater(context: CheckoutContext) {
+  const {
+    run,
+    hooks,
+    now,
+    observations,
+    statusAt,
+    validateUpstream,
+    fetchUpstream,
+    trackingTip,
+    fetchFailure,
+    observedAt,
+    upstreamIdentity,
+    readMissing,
+    matchesIntent,
+    verifyCheckoutDirectory,
+  } = context;
   function eligibleTarget(
     { snapshot, target }: { snapshot: ActiveCheckout; target: Upstream | null },
     operation: 'check' | 'pull' | 'update-target',

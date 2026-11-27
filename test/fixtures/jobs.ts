@@ -1,7 +1,7 @@
 // Complete jobs for store tests. The store reads a job back only in the shape its writer saves, so a test job carries
 // every field that writer sets.
 import type { HistoryJob } from '../../src/contract.ts';
-import type { RewriteJob } from '../../server/rewrite-check.ts';
+import type { RewriteJob } from '../../server/jobs.ts';
 
 /** A history import job as server/backfill.ts starts it. */
 export const historyJob = (repoId: string, extra: Partial<HistoryJob> = {}): HistoryJob => ({

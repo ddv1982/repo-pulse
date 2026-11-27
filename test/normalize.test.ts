@@ -21,7 +21,7 @@ const NEW = 'b'.repeat(40);
 function makeFixture() {
   const store = createStore();
   store.saveRepo(repo);
-  store.setSetting(`baseline:${repo.id}`, '2026-11-18T11:00:00.000Z');
+  store.setBaseline(repo.id, '2026-11-18T11:00:00.000Z');
   const normalizer = createNormalizer({ store, now: () => NOW });
   return { store, ...normalizer };
 }

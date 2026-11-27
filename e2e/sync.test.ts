@@ -5,6 +5,7 @@ import { expect } from '@playwright/test';
 import { createApp } from '../server/runtime.ts';
 import { TEST_KEY } from '../test/fixtures/access.ts';
 import { createStore } from '../server/store.ts';
+import { createNormalizer } from '../server/normalize.ts';
 import { createSync } from '../server/sync.ts';
 import { createBackfill } from '../server/backfill.ts';
 import type { AzureProvider } from '../server/azure-client.ts';
@@ -81,8 +82,9 @@ test('Activity shows a sign-in failure on return and retries the blocked live st
     },
   });
   let backfill: ReturnType<typeof createBackfill>;
-  const sync = createSync({ store, provider, now: () => at, background: { history: () => backfill.tick() } });
-  backfill = createBackfill({ store, provider, normalize: sync.normalize, now: () => at });
+  const normalizer = createNormalizer({ store, now: () => at });
+  const sync = createSync({ store, provider, now: () => at, normalizer, background: { history: () => backfill.tick() } });
+  backfill = createBackfill({ store, provider, normalize: normalizer.normalize, now: () => at });
   sync.refresh();
   for (const state of store.getStreams()) {
     store.saveStream({

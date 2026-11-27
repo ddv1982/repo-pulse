@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createStore, type Store } from '../server/store.ts';
+import { createNormalizer } from '../server/normalize.ts';
 import { createSync } from '../server/sync.ts';
 import { createBackfill } from '../server/backfill.ts';
 import { createForkOriginCheck, MAX_READS } from '../server/fork-origin.ts';
@@ -92,14 +93,16 @@ function setup({
   });
   const check = createForkOriginCheck({ store, provider, now: () => time });
   let backfill: ReturnType<typeof createBackfill> | undefined;
+  const normalizer = createNormalizer({ store, now: () => time });
   const sync = createSync({
     store,
     provider,
     now: () => time,
+    normalizer,
     intervalMs: 60000,
     background: { rewrite: () => check.tick(), history: () => backfill?.tick() },
   });
-  backfill = createBackfill({ store, provider, normalize: sync.normalize, now: () => time });
+  backfill = createBackfill({ store, provider, normalize: normalizer.normalize, now: () => time });
   sync.refresh();
   for (const state of store.getStreams())
     if (!['pushes', 'prs'].includes(state.stream)) store.saveStream({ ...state, nextAt: '2099-01-01T00:00:00Z' });

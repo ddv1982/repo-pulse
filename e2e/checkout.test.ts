@@ -107,7 +107,7 @@ test('Repositories switches between watched branches, and a merged pull request 
   const store = createStore();
   defer(t, () => store.close());
   store.saveRepo(stub<Repository>(repo));
-  const ref = (name: string, lastPushId: number): import('../server/normalize.ts').Entity => ({
+  const ref = (name: string, lastPushId: number): import('../server/store-records.ts').Entity => ({
     type: 'ref',
     id: `refs/heads/${name}`,
     data: { name: `refs/heads/${name}`, active: true, lastPushId },

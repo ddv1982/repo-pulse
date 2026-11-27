@@ -161,7 +161,7 @@ const cases: { name: string; plant: (db: DatabaseSync) => void; read: (store: St
   {
     name: 'a checkout observation without its identity',
     plant: db => db.prepare('INSERT INTO settings(key,data) VALUES(?,?)').run('checkout:one:x', '{"tracking":"main"}'),
-    read: store => store.getSetting('checkout:one:x'),
+    read: store => store.getCheckoutObservation('one', 'x'),
     error: corrupt('settings', 'checkout:one:x', 'identity'),
   },
   {
@@ -185,7 +185,7 @@ const cases: { name: string; plant: (db: DatabaseSync) => void; read: (store: St
           'checkout-followup:one',
           JSON.stringify({ id: 'plan', path: '/checkout', source: 'feature', targetRef: 'refs/heads/main', result: 'b' }),
         ),
-    read: store => store.getSetting('checkout-followup:one'),
+    read: store => store.getCheckoutFollowup('one'),
     error: corrupt('settings', 'checkout-followup:one', 'sourceHead'),
   },
 ];
@@ -263,6 +263,6 @@ test('SQLite reads retain checkout settings saved before per-identity keys', t =
     setting.run('checkout:one', JSON.stringify(observation));
     setting.run('checkout-followup:one', JSON.stringify(followup));
   });
-  assert.deepEqual(store.getSetting('checkout:one'), observation);
-  assert.deepEqual(store.getSetting('checkout-followup:one'), followup);
+  assert.deepEqual(store.getCheckoutObservation('one', 'checkout-identity'), observation);
+  assert.deepEqual(store.getCheckoutFollowup('one'), followup);
 });

@@ -6,6 +6,7 @@ import { createHash } from 'node:crypto';
 import { createStore } from '../server/store.ts';
 import { createSync } from '../server/sync.ts';
 import { createAzureClient } from '../server/azure-client.ts';
+import type { AzureRead } from '../server/azure-reads.ts';
 
 const option = <T>(name: string, fallback: T) => {
   const index = process.argv.indexOf(`--${name}`);
@@ -91,23 +92,13 @@ function simulate(repoTotal: number) {
     pushes.set(azureId, list);
   }
 
-  const pairs = (args: string[], flag: string) => {
-    const index = args.indexOf(flag);
-    const values: Record<string, string> = {};
-    if (index === -1) return values;
-    for (const entry of args.slice(index + 1)) {
-      if (entry.startsWith('--')) break;
-      const split = entry.indexOf('=');
-      values[entry.slice(0, split)] = entry.slice(split + 1);
-    }
-    return values;
-  };
   const cli = {
-    async run(args: string[]) {
+    async run() {
       charge();
-      const resource = args[args.indexOf('--resource') + 1]?.toLowerCase();
-      const query = pairs(args, '--query-parameters'),
-        route = pairs(args, '--route-parameters');
+      return { value: [] };
+    },
+    async read({ resource, query, route }: AzureRead) {
+      charge();
       const repoPushes = pushes.get(route.repositoryId ?? '') || [];
       if (resource === 'pushes') {
         // A missing date parses to NaN either way.

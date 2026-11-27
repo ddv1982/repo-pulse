@@ -14,11 +14,9 @@ import { fields, is, isRecord, list, type Check } from './azure-records.ts';
 import { AZURE_STREAMS, HISTORY_STREAMS } from '../src/contract.ts';
 import type { Repository, StoredEvent, StreamState, HistoryJob, SavedActivityFilter } from '../src/contract.ts';
 import { ACTIVITY_KINDS } from '../src/activity.ts';
-import type { RewriteJob } from './rewrite-check.ts';
-import type { ForkJob } from './fork-origin.ts';
+import type { ForkJob, RewriteJob } from './jobs.ts';
 import type { Followup } from './checkout-branches.ts';
 import type { Observation } from './checkout-observations.ts';
-import type { EntityData, EntityType } from './normalize.ts';
 import { AppError, isAppError } from './errors.ts';
 
 /** A row as node:sqlite returns it. */
@@ -45,6 +43,46 @@ export type Settings = {
   [key: `checkout:${string}`]: Observation;
 };
 export type SettingKey = keyof Settings;
+
+// Entities: what sync remembers about Azure records between pages (server/normalize.ts writes them).
+/** A push recorded so a later page or snapshot skips it. Its date is what Azure sent. */
+type PushEntity = { date?: unknown };
+/**
+ * A branch or tag as the last push or refs snapshot left it. The object IDs are what Azure sent; a ref put away keeps
+ * its last ones with `active: false`.
+ */
+type RefEntity = {
+  name?: string;
+  objectId?: unknown;
+  peeledObjectId?: unknown;
+  active?: boolean;
+  evidence?: string;
+  lastPushId?: number | null | undefined;
+  lastPushObservedAt?: string | undefined;
+};
+type ReviewerVote = [string, number | null];
+type PrFingerprint = Record<string, unknown> & { votes?: ReviewerVote[] };
+/**
+ * A PR or build snapshot: an event is made only when its fingerprint changes. A PR fingerprint saved before votes were
+ * recorded has none. A snapshot without a fingerprint or revision reads as changed, at revision 0.
+ */
+type SnapshotEntity<Fingerprint = Record<string, unknown>> = {
+  fingerprint?: Fingerprint;
+  status?: unknown;
+  revision?: number;
+};
+/** A refs stream's tag baseline (`tags`), or the tags an incomplete snapshot could not rule out (`tags-uncertain`). */
+type RefBaseline = { at: string; all?: boolean; names?: string[] };
+/** Entity data by entity type. */
+export type EntityData = {
+  push: PushEntity;
+  ref: RefEntity;
+  pr: SnapshotEntity<PrFingerprint>;
+  build: SnapshotEntity;
+  'ref-baseline': RefBaseline;
+};
+export type EntityType = keyof EntityData;
+export type Entity = { [T in EntityType]: { type: T; id: string; data: EntityData[T] } }[EntityType];
 
 type Guard<T> = (value: unknown) => value is T;
 const readsAs =
@@ -279,11 +317,12 @@ const savedFilter = fields({
   }),
 });
 /** Automatic checks run unless a person turned them off; a database without the setting has them on. */
-export function refreshEnabled(store: { getSetting: <K extends SettingKey, F>(key: K, fallback: F) => Settings[K] | F }) {
+export function refreshEnabled(store: { getSetting: <K extends AppSettingKey, F>(key: K, fallback: F) => Settings[K] | F }) {
   return store.getSetting('refreshEnabled', true) !== false;
 }
-type FixedSettingKey = Exclude<SettingKey, `${string}:${string}`>;
-const settingChecks: Record<FixedSettingKey, Check> = {
+/** The app settings, as opposed to the per-repository keys the store builds (server/store-state.ts). */
+export type AppSettingKey = Exclude<SettingKey, `${string}:${string}`>;
+const settingChecks: Record<AppSettingKey, Check> = {
   compactPending: boolean,
   refreshEnabled: boolean,
   refreshResumedAt: finite,
@@ -293,9 +332,9 @@ const settingChecks: Record<FixedSettingKey, Check> = {
   savedActivityFilters: list(savedFilter),
 };
 /** The check for a setting's value, by its key or the pattern its key matches. */
-const isFixedSettingKey = (key: string): key is FixedSettingKey => Object.hasOwn(settingChecks, key);
+const isAppSettingKey = (key: string): key is AppSettingKey => Object.hasOwn(settingChecks, key);
 function settingCheck(key: SettingKey): Check {
-  if (isFixedSettingKey(key)) return settingChecks[key];
+  if (isAppSettingKey(key)) return settingChecks[key];
   if (key.startsWith('baseline:')) return string;
   if (key.startsWith('checkout-followup:')) return followup;
   if (key.startsWith('checkout:')) return observation;

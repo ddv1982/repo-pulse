@@ -2,6 +2,7 @@ import test from 'node:test';
 import { request } from 'node:http';
 import assert from 'node:assert/strict';
 import { createStore } from '../server/store.ts';
+import { createNormalizer } from '../server/normalize.ts';
 import { createSync } from '../server/sync.ts';
 import { seedDemo, demoProvider, demoSync } from '../server/demo.ts';
 import { createBackfill } from '../server/backfill.ts';
@@ -32,7 +33,7 @@ const push = (id: number) => ({
 async function live(t: TestContext, { pollMs }: { pollMs?: number } = {}) {
   const store = createStore();
   store.saveRepo(repo);
-  store.setSetting('checkout:one', { identity: 'abc' });
+  store.saveCheckoutObservation('one', { identity: 'abc' });
   const reads: string[] = [];
   const offered: Record<string, AzureStreamRecord[]> = { pushes: [push(1)] };
   const control = { hold: false, release: () => {} };
@@ -44,8 +45,9 @@ async function live(t: TestContext, { pollMs }: { pollMs?: number } = {}) {
       return { items, nextCursor: null };
     },
   });
-  const sync = createSync({ store, provider, pollMs });
-  const backfill = createBackfill({ store, provider, normalize: sync.normalize });
+  const normalizer = createNormalizer({ store });
+  const sync = createSync({ store, provider, pollMs, normalizer });
+  const backfill = createBackfill({ store, provider, normalize: normalizer.normalize });
   const app = createApp({ store, provider, sync, backfill, accessKey: TEST_KEY });
   await new Promise<void>(resolve => app.listen(0, '127.0.0.1', resolve));
   t.after(async () => {
@@ -132,7 +134,7 @@ test('POST /api/reset needs the access key, clears activity and starts a first i
   await settled();
   assert.deepEqual(store.listEvents(), []);
   assert.deepEqual(store.listRepos(), [{ ...repo, disabled: false }]);
-  assert.deepEqual(store.getSetting('checkout:one'), { identity: 'abc' });
+  assert.deepEqual(store.getCheckoutObservation('one', 'abc'), { identity: 'abc' });
   const after = await state();
   assert.equal(after.syncStatus.overall.state, 'syncing');
   assert.ok(after.streams.length === 6 && after.streams.every(stream => !stream.initialized));

@@ -13,6 +13,7 @@ import { createBackfill } from '../server/backfill.ts';
 import { demoProvider } from '../server/demo.ts';
 import { createRewriteCheck } from '../server/rewrite-check.ts';
 import { createStore } from '../server/store.ts';
+import { createNormalizer } from '../server/normalize.ts';
 import { createSync } from '../server/sync.ts';
 import type { StateResponse } from '../src/contract.ts';
 import { keyedFetch, portOf, TEST_KEY } from './fixtures/access.ts';
@@ -89,16 +90,18 @@ for (const type of jobTypes) {
       otherTurns++;
       return false;
     };
+    const normalizer = createNormalizer({ store, now: clock });
     const sync = createSync({
       store,
       provider,
       now: clock,
+      normalizer,
       background: {
         rewrite: type === 'rewrite' ? rewrite.tick : other,
         history: type === 'backfill' ? () => backfill.tick() : other,
       },
     });
-    const backfill = createBackfill({ store, provider, normalize: sync.normalize, now: clock });
+    const backfill = createBackfill({ store, provider, normalize: normalizer.normalize, now: clock });
     const getState = await stateReader(t, store, sync, remove);
     const failedTicks: number[] = [];
     for (let tick = 1; tick <= 14; tick++) {

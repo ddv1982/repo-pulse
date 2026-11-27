@@ -2,10 +2,10 @@ import { randomUUID } from 'node:crypto';
 import { access, chmod, copyFile, mkdtemp, rm, rmdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { ancestry, isCommit } from './checkout-advice.ts';
+import { ancestry, isCommit, readRef, switchLocalBranch, type Upstream } from './git.ts';
 import { isSymbolicRef, worktreeUsesBranch } from './checkout-delete-guard.cjs';
-import type { GitRunner, Upstream } from './checkout-git.ts';
-import type { BranchAction, FollowupSummary, Review, PullAdvice, Repository as LinkedRepo, ActiveCheckout } from '../src/contract.ts';
+import type { CheckoutContext } from './checkout-context.ts';
+import type { BranchAction, FollowupSummary, Review, Repository as LinkedRepo, ActiveCheckout } from '../src/contract.ts';
 import { conflict, isAppError } from './errors.ts';
 
 export type Reading = { snapshot: ActiveCheckout; target: Upstream | null };
@@ -47,69 +47,22 @@ export function isBranchAction(input: unknown): input is BranchAction {
   return input.operation === 'review' || input.operation === 'remove';
 }
 
-export async function readRef(run: GitRunner, path: string, ref: string) {
-  try {
-    const tip = (await run(path, ['show-ref', '--hash', '--verify', '--', ref])).trim();
-    if (isCommit(tip)) return tip;
-  } catch (error) {
-    // Exit 1 from the quiet query distinguishes an absent ref from a failed read.
-    const code = error instanceof Error && ('code' in error ? error.code : 'status' in error ? error.status : null);
-    if (code === 1 || code === 128) {
-      try {
-        await run(path, ['show-ref', '--quiet', '--verify', '--', ref]);
-      } catch (quietError) {
-        if (
-          quietError instanceof Error &&
-          (('code' in quietError && quietError.code === 1) || ('status' in quietError && quietError.status === 1))
-        )
-          return null;
-      }
-    }
-  }
-  throw conflict('Git could not verify the local branch or its recovery reference.');
-}
-
-export async function switchLocalBranch(run: GitRunner, path: string, hooks: string, name: string, start?: string) {
-  try {
-    await run(path, [
-      '-c',
-      `core.hooksPath=${hooks}`,
-      'switch',
-      '--no-guess',
-      '--no-overwrite-ignore',
-      '--no-recurse-submodules',
-      ...(start ? ['--no-track', '-c', name, '--', start] : ['--', name]),
-    ]);
-  } catch {
-    throw conflict(
-      `Git could not switch to ${name}. Check for an occupied worktree, conflicting files, or an unsupported tracking configuration.`,
-    );
-  }
-}
-
-export function branchFollowups({
-  run,
-  hooks,
-  followups,
-  statusAt,
-  updateAt,
-  readMissing,
-  matchesIntent,
-}: {
-  run: GitRunner;
-  hooks: string;
-  followups: Followups;
-  statusAt: (path: string, repo: LinkedRepo) => Promise<Reading>;
-  updateAt: (
-    path: string,
-    repo: LinkedRepo,
-    op: 'update-target',
-    expected: ActiveCheckout,
-    result: string,
-  ) => Promise<{ checkout: ActiveCheckout; updated: boolean }>;
-  readMissing: (path: string, repo: LinkedRepo, target: Upstream, snapshot: ActiveCheckout) => Promise<PullAdvice | undefined>;
-  matchesIntent: (snapshot: ActiveCheckout, expected: ActiveCheckout) => boolean;
-}) {
+export function branchFollowups(
+  { run, hooks, statusAt, readMissing, matchesIntent }: CheckoutContext,
+  {
+    followups,
+    updateAt,
+  }: {
+    followups: Followups;
+    updateAt: (
+      path: string,
+      repo: LinkedRepo,
+      op: 'update-target',
+      expected: ActiveCheckout,
+      result: string,
+    ) => Promise<{ checkout: ActiveCheckout; updated: boolean }>;
+  },
+) {
   function eligiblePlan(repo: LinkedRepo, path: string, snapshot: ActiveCheckout) {
     const plan = followups.get(repo.id);
     return plan?.path === path && plan.targetRef === `refs/heads/${snapshot.branch}` && snapshot.identity === plan.targetIdentity

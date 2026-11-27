@@ -1,11 +1,11 @@
 import { iso } from './time.ts';
-import { addUnreadable, warningOf } from './sync.ts';
+import { addUnreadable, warningOf } from './read-warnings.ts';
 import type { ActivityEvent } from '../src/activity.ts';
 import { HISTORY_STREAMS } from '../src/contract.ts';
 import type { AzureStreamRecord, HistoryStream, HistoryWindow, HistoryJob, HistoryWarning, UnreadableRecords } from '../src/contract.ts';
 import type { AzurePage as SourcePage } from './azure-client.ts';
-import type { Entity, WatchedRepo } from './normalize.ts';
-import type { JobType, JobOf } from './store-records.ts';
+import type { WatchedRepo } from './normalize.ts';
+import type { Entity, JobType, JobOf } from './store-records.ts';
 import { conflict } from './errors.ts';
 
 /** How far back a history import reads. */
@@ -15,7 +15,7 @@ type HistoryBatch = { events?: ActivityEvent[]; entities?: Entity[] };
 type HistoryStore = {
   listRepos: () => WatchedRepo[];
   listJobs: <T extends JobType>(filter: { type: T }) => JobOf<T>[];
-  getSetting: (key: `baseline:${string}`, fallback: string) => string;
+  getBaseline: (repoId: string) => string | undefined;
   saveJob: (job: HistoryJob) => void;
   commitPage: (page: { repoId: string; events: ActivityEvent[]; entities: Entity[]; jobs: HistoryJob[] }) => void;
 };
@@ -60,7 +60,7 @@ export function createBackfill({
       return previous;
     }
     const requestedAt = now();
-    const baseline = Date.parse(store.getSetting(`baseline:${repoId}`, ''));
+    const baseline = Date.parse(store.getBaseline(repoId) ?? '');
     // Never acknowledge a live change merely because historical import reached the present.
     const until = Number.isFinite(baseline) ? Math.min(requestedAt, baseline) : requestedAt;
     const since = period === 'all' ? EARLIEST : requestedAt - period * DAY;

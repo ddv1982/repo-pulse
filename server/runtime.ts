@@ -6,8 +6,9 @@ import { createSavedActivityFilters } from './saved-activity-filters.ts';
 import { createStore, type Store } from './store.ts';
 import { lockDatabase } from './database-lock.ts';
 import { createSync } from './sync.ts';
+import { createNormalizer } from './normalize.ts';
 import { createAzureCli, defaultExecutor } from './azure-cli.ts';
-import { createRestExecutor, useSystemNetworkSettings } from './azure-rest.ts';
+import { createRestReader, useSystemNetworkSettings } from './azure-rest.ts';
 import { createAzureClient } from './azure-client.ts';
 import { discoverRepositories } from './repositories.ts';
 import { seedDemo, demoProvider, demoSync, NOT_IN_DEMO } from './demo.ts';
@@ -52,17 +53,8 @@ function storeCheckoutGit(store: Store, provider: AppProvider) {
       cached: store.completedCheckoutPulls,
       lookup: provider.completedCheckoutPulls,
     }),
-    followups: {
-      get: id => store.getSetting(`checkout-followup:${id}`),
-      save: (id, value) => store.setSetting(`checkout-followup:${id}`, value),
-    },
-    observations: {
-      get: (id, identity) => {
-        const saved = store.getSetting(`checkout:${id}:${identity}`) ?? store.getSetting(`checkout:${id}`);
-        return saved?.identity === identity ? saved : undefined;
-      },
-      save: (id, value) => store.setSetting(`checkout:${id}:${value.identity}`, value),
-    },
+    followups: { get: store.getCheckoutFollowup, save: store.saveCheckoutFollowup },
+    observations: { get: store.getCheckoutObservation, save: store.saveCheckoutObservation },
   });
 }
 
@@ -158,7 +150,12 @@ async function startLocked(
   if (!demo) useSystemNetworkSettings();
   const cli = demo
     ? null
-    : createAzureCli({ executor: createRestExecutor({ cliExecutor: defaultExecutor }), limitPerMinute: 60, concurrency: 4 });
+    : createAzureCli({
+        executor: defaultExecutor,
+        reader: createRestReader({ cliExecutor: defaultExecutor }),
+        limitPerMinute: 60,
+        concurrency: 4,
+      });
   // The live pieces are null in demo mode; keeping them separate lets each consumer see the concrete type.
   const azure = cli && createAzureClient({ cli });
   const provider = azure || demoProvider;
@@ -183,11 +180,14 @@ async function startLocked(
     }
     return true;
   }
+  // Sync and history import turn Azure records into events through the same normalizer.
+  const normalizer = createNormalizer({ store });
   const liveSync =
     azure &&
     createSync({
       store,
       provider: azure,
+      normalizer,
       isForeground: () => Date.now() - lastClientAt < 45_000,
       // Assigned below, before sync.start() can schedule any work.
       // Fork origin checks share the automatic-check turn and run when no rewrite check is due.
@@ -216,7 +216,7 @@ async function startLocked(
     demoSync;
   if (!azure || !liveSync) seedDemo(store);
   else {
-    backfill = createBackfill({ store, provider: azure, normalize: liveSync.normalize });
+    backfill = createBackfill({ store, provider: azure, normalize: normalizer.normalize });
   }
   const accessKey = randomBytes(32).toString('base64url');
   const launchToken = randomBytes(32).toString('base64url');

@@ -5,6 +5,7 @@ import { createNormalizer } from '../server/normalize.ts';
 import { createStore } from '../server/store.ts';
 import type { AzureStream, Repository } from '../src/contract.ts';
 import { present, stub } from './fixtures/typed.ts';
+import { fakeCli } from './fixtures/azure.ts';
 const repo = stub<Repository>({
   id: 'local1',
   organization: 'https://dev.azure.com/example',
@@ -17,12 +18,10 @@ const window = { since: '2026-11-10T11:12:13Z', until: '2026-11-17T11:12:13Z' };
 test('push pagination keeps fixed window and includes all refs without branch filtering', async () => {
   const calls: string[][] = [];
   const client = createAzureClient({
-    cli: {
-      run: async args => {
-        calls.push(args);
-        return { value: calls.length === 1 ? Array.from({ length: 100 }, (_, pushId) => ({ pushId })) : [{ pushId: 101 }] };
-      },
-    },
+    cli: fakeCli(async args => {
+      calls.push(args);
+      return { value: calls.length === 1 ? Array.from({ length: 100 }, (_, pushId) => ({ pushId })) : [{ pushId: 101 }] };
+    }),
   });
   const first = await client.read(repo, 'pushes', window);
   assert.deepEqual(first.nextCursor, { skip: 100 });
@@ -38,12 +37,10 @@ test('push pagination keeps fixed window and includes all refs without branch fi
 test('closed PR stream uses closed time and pagination instead of creation time', async () => {
   let args: string[] | undefined;
   const client = createAzureClient({
-    cli: {
-      run: async input => {
-        args = input;
-        return { value: [] };
-      },
-    },
+    cli: fakeCli(async input => {
+      args = input;
+      return { value: [] };
+    }),
   });
   await client.read(repo, 'closedPrs', window);
   assert(args?.includes('searchCriteria.repositoryId=repo1'));
@@ -55,12 +52,10 @@ test('closed PR stream uses closed time and pagination instead of creation time'
 test('refs use continuation token and build cache isolates repositories while coalescing matching reads', async () => {
   const calls: string[][] = [];
   const client = createAzureClient({
-    cli: {
-      run: async args => {
-        calls.push(args);
-        return { value: [{ id: 1, repository: { id: 'repo1' } }], continuation_token: 'page2' };
-      },
-    },
+    cli: fakeCli(async args => {
+      calls.push(args);
+      return { value: [{ id: 1, repository: { id: 'repo1' } }], continuation_token: 'page2' };
+    }),
   });
   const refs = await client.read(repo, 'refs', window);
   assert.deepEqual(refs.nextCursor, { token: 'page2', allRefs: true });
@@ -95,28 +90,26 @@ test('refs use continuation token and build cache isolates repositories while co
 });
 
 test('malformed responses fail rather than becoming healthy empty activity', async () => {
-  const client = createAzureClient({ cli: { run: async () => ({ error: 'bad' }) } });
+  const client = createAzureClient({ cli: fakeCli(async () => ({ error: 'bad' })) });
   await assert.rejects(client.read(repo, 'refs', window), { code: 'INVALID_RESPONSE' });
 });
 
 test('resolution strips credentials and connection check never claims CLI account is effective identity', async () => {
   const calls: string[][] = [];
   const client = createAzureClient({
-    cli: {
-      run: async args => {
-        calls.push(args);
-        if (args[0] === 'version') return { 'azure-cli': '2.93.0' };
-        if (args[0] === 'extension') return { version: '1.0.2' };
-        if (args[0] === 'devops') return { value: [] };
-        return {
-          id: 'abc',
-          name: 'Repo',
-          defaultBranch: 'refs/heads/develop',
-          project: { id: 'p', name: 'Project' },
-          remoteUrl: 'https://secret@dev.azure.com/example/Project/_git/Repo',
-        };
-      },
-    },
+    cli: fakeCli(async args => {
+      calls.push(args);
+      if (args[0] === 'version') return { 'azure-cli': '2.93.0' };
+      if (args[0] === 'extension') return { version: '1.0.2' };
+      if (args[0] === 'devops') return { value: [] };
+      return {
+        id: 'abc',
+        name: 'Repo',
+        defaultBranch: 'refs/heads/develop',
+        project: { id: 'p', name: 'Project' },
+        remoteUrl: 'https://secret@dev.azure.com/example/Project/_git/Repo',
+      };
+    }),
   });
   const resolved = await client.resolveRepository('https://example@dev.azure.com/example/Project/_git/Repo');
   assert.equal(resolved.webUrl, 'https://dev.azure.com/example/Project/_git/Repo');
@@ -137,27 +130,25 @@ test('resolution strips credentials and connection check never claims CLI accoun
 test('active PR reads are explicitly repo-scoped and exact PR reconciliation uses typed CLI', async () => {
   const calls: string[][] = [];
   const client = createAzureClient({
-    cli: {
-      run: async args => {
-        calls.push(args);
-        return args[0] === 'repos' ? { pullRequestId: 123, repository: { id: 'repo1' } } : { value: [] };
-      },
-    },
+    cli: fakeCli(async args => {
+      calls.push(args);
+      return args[0] === 'repos' ? { pullRequestId: 123, repository: { id: 'repo1' } } : { value: [] };
+    }),
   });
   await client.read(repo, 'prs', window);
   assert(present(calls[0]).includes('searchCriteria.repositoryId=repo1'));
   assert.equal((await client.pullRequest(repo, 123)).pullRequestId, 123);
   assert.deepEqual(present(calls[1]).slice(0, 3), ['repos', 'pr', 'show']);
-  const foreign = createAzureClient({ cli: { run: async () => ({ pullRequestId: 123, repository: { id: 'different' } }) } });
+  const foreign = createAzureClient({ cli: fakeCli(async () => ({ pullRequestId: 123, repository: { id: 'different' } })) });
   await assert.rejects(foreign.pullRequest(repo, 123), { code: 'WRONG_REPOSITORY' });
   // A readable identity that names another pull request is a wrong answer, not an unreadable record.
-  const otherId = createAzureClient({ cli: { run: async () => ({ pullRequestId: 124, repository: { id: 'repo1' } }) } });
+  const otherId = createAzureClient({ cli: fakeCli(async () => ({ pullRequestId: 124, repository: { id: 'repo1' } })) });
   await assert.rejects(otherId.pullRequest(repo, 123), { code: 'INVALID_RESPONSE' });
   // Azure GUIDs differ in case between APIs, as elsewhere in the app.
-  const upper = createAzureClient({ cli: { run: async () => ({ pullRequestId: 123, repository: { id: 'REPO1' } }) } });
+  const upper = createAzureClient({ cli: fakeCli(async () => ({ pullRequestId: 123, repository: { id: 'REPO1' } })) });
   assert.equal((await upper.pullRequest(repo, 123)).pullRequestId, 123);
   // A malformed display field does not make the pull request unreadable; it is passed on as Azure sent it.
-  const oddLink = createAzureClient({ cli: { run: async () => ({ pullRequestId: 123, repository: { id: 'repo1' }, _links: 'link' }) } });
+  const oddLink = createAzureClient({ cli: fakeCli(async () => ({ pullRequestId: 123, repository: { id: 'repo1' }, _links: 'link' })) });
   assert.deepEqual(await oddLink.pullRequest(repo, 123), { pullRequestId: 123, repository: { id: 'repo1' }, _links: 'link' });
   // An identity that cannot be read is skipped and counted like any unreadable record.
   for (const [payload, field] of [
@@ -170,12 +161,12 @@ test('active PR reads are explicitly repo-scoped and exact PR reconciliation use
     [{ pullRequestId: 123, repository: { id: { id: 'repo1' } } }, 'repository.id'],
     [{ pullRequestId: 123, repository: { id: '  ' } }, 'repository.id'],
   ] satisfies [object, string][]) {
-    const odd = createAzureClient({ cli: { run: async () => payload } });
+    const odd = createAzureClient({ cli: fakeCli(async () => payload) });
     await assert.rejects(odd.pullRequest(repo, 123), { code: 'UNREADABLE_RECORD', field }, JSON.stringify(payload));
   }
   // An answer that is not an object at all is not a pull request, so it is a wrong answer as well.
   for (const payload of [null, 'pull request 123', [{ pullRequestId: 123, repository: { id: 'repo1' } }], 123]) {
-    const notObject = createAzureClient({ cli: { run: async () => payload } });
+    const notObject = createAzureClient({ cli: fakeCli(async () => payload) });
     await assert.rejects(notObject.pullRequest(repo, 123), { code: 'INVALID_RESPONSE' }, JSON.stringify(payload));
   }
 });
@@ -183,15 +174,13 @@ test('active PR reads are explicitly repo-scoped and exact PR reconciliation use
 test('connection detection reuses local CLI sign-in without acquiring credentials or requiring setup', async () => {
   const calls: string[][] = [];
   const client = createAzureClient({
-    cli: {
-      async run(args) {
-        calls.push(args);
-        if (args[0] === 'version') return { 'azure-cli': '2.93.0' };
-        if (args[0] === 'extension') return { version: '1.0.2' };
-        if (args[0] === 'account') return { user: { name: 'existing@example.test' }, tenantId: 'tenant', accessToken: 'must-not-return' };
-        throw new Error('Unexpected remote operation');
-      },
-    },
+    cli: fakeCli(async args => {
+      calls.push(args);
+      if (args[0] === 'version') return { 'azure-cli': '2.93.0' };
+      if (args[0] === 'extension') return { version: '1.0.2' };
+      if (args[0] === 'account') return { user: { name: 'existing@example.test' }, tenantId: 'tenant', accessToken: 'must-not-return' };
+      throw new Error('Unexpected remote operation');
+    }),
   });
   const status = await client.checkConnection();
   assert.equal(status.available, true);
@@ -208,14 +197,12 @@ test('connection detection reuses local CLI sign-in without acquiring credential
 
 test('a missing account-show context does not reject existing DevOps CLI credentials', async () => {
   const client = createAzureClient({
-    cli: {
-      async run(args) {
-        if (args[0] === 'version') return { 'azure-cli': '2.93.0' };
-        if (args[0] === 'extension') return { version: '1.0.2' };
-        if (args[0] === 'account') throw Object.assign(new Error('No cached Entra account'), { code: 'AUTH_REQUIRED' });
-        return { value: [] };
-      },
-    },
+    cli: fakeCli(async args => {
+      if (args[0] === 'version') return { 'azure-cli': '2.93.0' };
+      if (args[0] === 'extension') return { version: '1.0.2' };
+      if (args[0] === 'account') throw Object.assign(new Error('No cached Entra account'), { code: 'AUTH_REQUIRED' });
+      return { value: [] };
+    }),
   });
   const status = await client.checkConnection(repo.organization);
   assert.equal(status.available, true);
@@ -229,12 +216,10 @@ test('dropped commits read one page from the old tip that the new tip does not r
     tip = 'b'.repeat(40),
     calls: string[][] = [];
   const client = createAzureClient({
-    cli: {
-      run: async args => {
-        calls.push(args);
-        return { value: Array.from({ length: 100 }, () => ({ commitId: old })) };
-      },
-    },
+    cli: fakeCli(async args => {
+      calls.push(args);
+      return { value: Array.from({ length: 100 }, () => ({ commitId: old })) };
+    }),
   });
   const page = await client.droppedCommits(repo, old, tip);
   assert.equal(page.items.length, 100);
@@ -255,12 +240,10 @@ test('ref creation/deletion/equal tips cannot scan historical ancestry and malfo
     zero = '0'.repeat(40);
   let calls = 0;
   const client = createAzureClient({
-    cli: {
-      run: async () => {
-        calls++;
-        return { value: [{ commitId: 'not-a-sha' }] };
-      },
-    },
+    cli: fakeCli(async () => {
+      calls++;
+      return { value: [{ commitId: 'not-a-sha' }] };
+    }),
   });
   for (const [from, to] of [
     [zero, tip],
@@ -287,19 +270,17 @@ test('checkout PR lookup is bounded and accepts completed PRs in the same source
     completionOptions: { mergeStrategy: 'rebase' },
   });
   const client = createAzureClient({
-    cli: {
-      run: async args => {
-        calls.push(args);
-        return {
-          value: [
-            pr(1),
-            { ...pr(2), forkSource: { repository: { id: 'fork' } } },
-            { ...pr(3), repository: { id: 'other' } },
-            { ...pr(4), status: 'active' },
-          ],
-        };
-      },
-    },
+    cli: fakeCli(async args => {
+      calls.push(args);
+      return {
+        value: [
+          pr(1),
+          { ...pr(2), forkSource: { repository: { id: 'fork' } } },
+          { ...pr(3), repository: { id: 'other' } },
+          { ...pr(4), status: 'active' },
+        ],
+      };
+    }),
   });
   const pull = present((await client.completedCheckoutPulls(repo, sourceRefName))[0]);
   assert.ok(!('unreadable' in pull));
@@ -317,15 +298,13 @@ test('repository connection check preserves local CLI state when the scoped read
   const calls: string[][] = [];
   const client = createAzureClient({
     now: () => 0,
-    cli: {
-      async run(args) {
-        calls.push(args);
-        if (args[0] === 'version') return { 'azure-cli': '2.93.0' };
-        if (args[0] === 'extension') return { version: '1.0.2' };
-        if (args[0] === 'account') return {};
-        throw Object.assign(new Error('Repository read refused'), { code: 'FORBIDDEN' });
-      },
-    },
+    cli: fakeCli(async args => {
+      calls.push(args);
+      if (args[0] === 'version') return { 'azure-cli': '2.93.0' };
+      if (args[0] === 'extension') return { version: '1.0.2' };
+      if (args[0] === 'account') return {};
+      throw Object.assign(new Error('Repository read refused'), { code: 'FORBIDDEN' });
+    }),
   });
   const status = await client.checkConnection(undefined, repo);
   assert.equal(status.available, true);
@@ -354,25 +333,20 @@ test('a repository connection check also proves the REST activity read', async (
   const calls: string[][] = [];
   const client = createAzureClient({
     now: () => 0,
-    cli: {
-      async run(args) {
-        calls.push(args);
-        if (args[0] === 'version') return { 'azure-cli': '2.93.0' };
-        if (args[0] === 'extension') return { version: '1.0.2' };
-        if (args[0] === 'account') return {};
-        if (args[0] === 'repos') return { id: repo.azureId };
-        throw Object.assign(new Error('Azure CLI sign-in is unavailable or expired.'), { code: 'AUTH_REQUIRED' });
-      },
-    },
+    cli: fakeCli(async args => {
+      calls.push(args);
+      if (args[0] === 'version') return { 'azure-cli': '2.93.0' };
+      if (args[0] === 'extension') return { version: '1.0.2' };
+      if (args[0] === 'account') return {};
+      if (args[0] === 'repos') return { id: repo.azureId };
+      throw Object.assign(new Error('Azure CLI sign-in is unavailable or expired.'), { code: 'AUTH_REQUIRED' });
+    }),
   });
   const status = await client.checkConnection(undefined, repo);
   assert.equal(status.access?.status, 'failed');
   assert.equal(status.access?.code, 'AUTH_REQUIRED');
-  const read = present(calls.at(-1));
-  assert.deepEqual(
-    [read[0], read[1], read[read.indexOf('--resource') + 1], read[read.indexOf('--http-method') + 1]],
-    ['devops', 'invoke', 'refs', 'GET'],
-  );
+  // Every typed read is a GET; the last call is the refs read through the REST path.
+  assert.deepEqual(present(calls.at(-1)).slice(0, 3), ['read', 'git', 'refs']);
 });
 
 test('PR review data counts people’s threads only and keeps each enabled policy result', () => {
@@ -405,12 +379,10 @@ test('PR review data counts people’s threads only and keeps each enabled polic
 test('refs restart a snapshot saved by the branch-only query and ask policies for not-applicable results', async () => {
   const calls: string[][] = [];
   const client = createAzureClient({
-    cli: {
-      run: async args => {
-        calls.push(args);
-        return { value: [] };
-      },
-    },
+    cli: fakeCli(async args => {
+      calls.push(args);
+      return { value: [] };
+    }),
   });
   const restarted = await client.read(repo, 'refs', { cursor: { token: 'from-heads-only' } });
   assert(!present(calls[0]).some(arg => arg.startsWith('continuationToken=')));
@@ -427,12 +399,10 @@ test('a single commit read returns its parents and the push that brought it, and
   const calls: string[][] = [];
   let body: object = { commitId: id, parents: [parent.toUpperCase()], push: { pushId: 41 }, comment: 'not kept' };
   const client = createAzureClient({
-    cli: {
-      run: async args => {
-        calls.push(args);
-        return body;
-      },
-    },
+    cli: fakeCli(async args => {
+      calls.push(args);
+      return body;
+    }),
   });
   assert.deepEqual(await client.commit(repo, id.toUpperCase()), { parents: [parent], pushId: 41 });
   assert(present(calls[0]).includes(`commitId=${id}`));
@@ -465,7 +435,7 @@ const malformed: [AzureStream, Record<string, unknown>, string][] = [
 ];
 for (const [stream, record, field] of malformed)
   test(`a ${stream} page keeps its readable records and counts one with a malformed ${field}`, async () => {
-    const client = createAzureClient({ cli: { run: async () => ({ value: [readable[stream], record] }) } });
+    const client = createAzureClient({ cli: fakeCli(async () => ({ value: [readable[stream], record] })) });
     const page = await client.read(repo, stream, window);
     assert.deepEqual(page.items, [readable[stream]]);
     assert.deepEqual(page.unreadable, { count: 1, fields: [field] });
@@ -534,7 +504,7 @@ const fieldRules: { stream: AzureStream; patch: Record<string, unknown>; shown?:
 for (const { stream, patch, shown, unreadable } of fieldRules)
   test(`a ${stream} record with ${JSON.stringify(patch, (_key, value: unknown) => (Number.isNaN(value) ? 'NaN' : value))} is ${shown ? 'kept and shown as on main' : `unreadable for ${unreadable}`}`, async () => {
     const record = { ...readable[stream], ...patch };
-    const page = await createAzureClient({ cli: { run: async () => ({ value: [record] }) } }).read(repo, stream, window);
+    const page = await createAzureClient({ cli: fakeCli(async () => ({ value: [record] })) }).read(repo, stream, window);
     if (!shown) {
       assert.deepEqual(page.items, []);
       assert.deepEqual(page.unreadable, { count: 1, fields: [unreadable] });
@@ -565,21 +535,21 @@ test('a ref with an empty name or objectId is unreadable', async () => {
     { name: '', objectId: 'b' },
     { name: 'refs/heads/b', objectId: ' ' },
   ];
-  const page = await createAzureClient({ cli: { run: async () => ({ value }) } }).read(repo, 'refs', window);
+  const page = await createAzureClient({ cli: fakeCli(async () => ({ value })) }).read(repo, 'refs', window);
   assert.deepEqual(page.items, [value[0]]);
   assert.deepEqual(page.unreadable, { count: 2, fields: ['name', 'objectId'] });
 });
 
 test('a skip-paged read with an unreadable record on a full page still pages on', async () => {
   const value = Array.from({ length: 100 }, (_, index) => ({ pushId: index }));
-  const page = await createAzureClient({ cli: { run: async () => ({ value }) } }).read(repo, 'pushes', window);
+  const page = await createAzureClient({ cli: fakeCli(async () => ({ value })) }).read(repo, 'pushes', window);
   assert.equal(page.items.length, 99);
   assert.deepEqual(page.unreadable, { count: 1, fields: ['pushId'] });
   assert.deepEqual(page.nextCursor, { skip: 100 });
 });
 
 test('a malformed Azure continuation token is reported instead of paging with object text', async () => {
-  const cli = { run: async () => ({ value: [], continuationToken: {} }) };
+  const cli = fakeCli(async () => ({ value: [], continuationToken: {} }));
   await assert.rejects(createAzureClient({ cli }).read(repo, 'refs', window), {
     code: 'INVALID_RESPONSE',
     message: 'Azure CLI returned an invalid continuation token.',
@@ -595,7 +565,7 @@ const objectDisplayCases = [
 
 for (const { stream, patch, field, expected } of objectDisplayCases) {
   test(`a plain Azure object in ${stream} falls back to readable ${field} text`, async t => {
-    const cli = { run: async () => ({ value: [{ ...readable[stream], ...patch }] }) };
+    const cli = fakeCli(async () => ({ value: [{ ...readable[stream], ...patch }] }));
     const page = await createAzureClient({ cli }).read(repo, stream, window);
     const store = createStore();
     t.after(() => store.close());
