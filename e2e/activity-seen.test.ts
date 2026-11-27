@@ -531,3 +531,23 @@ test('Unread only offers one bulk action that clears a fully shown list without 
   await expect(page.locator('.feed-actions')).toHaveCount(0);
   assert.equal(runtime.store.queryActivity({ view: 'new' }).newUpdates, 0);
 });
+
+test('a refresh that answers late leaves the Undo toast of a Seen mark in place', async t => {
+  const { page } = await setup(t);
+  const held = gate(t, 'refresh response');
+  await page.route('**/api/refresh', async route => {
+    await held.opened;
+    await route.continue();
+  });
+  const refreshed = page.waitForResponse('**/api/refresh');
+  await page.getByRole('button', { name: 'Refresh activity', exact: true }).first().click();
+  await page.locator('li[data-event-id] .seen-toggle[aria-pressed="false"]').first().click();
+  const toast = page.locator('#toast');
+  const undo = toast.getByRole('button', { name: 'Undo' });
+  await expect(undo).toBeVisible();
+  held.release();
+  await refreshed;
+  await page.waitForTimeout(500);
+  await expect(undo).toBeVisible();
+  await expect(toast).not.toContainText('Activity refresh queued.');
+});

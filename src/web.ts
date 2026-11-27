@@ -419,8 +419,10 @@ function clearNotice() {
   delete notice.dataset.networkError;
 }
 
-function toast(message: string, { undo = false } = {}) {
+/** `background` marks a message nobody waits for, such as a refresh result: it never replaces an Undo toast still showing. */
+function toast(message: string, { undo = false, background = false } = {}) {
   const element = required('#toast');
+  if (background && !element.hidden && element.querySelector('[data-action="undo-ack"]')) return;
   clearTimeout(toastTimer);
   setHtml(element, html`${message}${undo ? html`<button type="button" data-action="undo-ack">Undo</button>` : emptyHtml}`);
   element.hidden = false;
@@ -620,6 +622,7 @@ const actions: Record<string, Action> = {
             : retrySignIn
               ? 'No sign-in checks need retrying.'
               : 'No enabled repositories are selected.',
+        { background: true },
       );
       await load({ force: true });
     } finally {
