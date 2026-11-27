@@ -120,3 +120,17 @@ test('the server refuses route handlers that do not cover the route map exactly'
   const extra = { ...handlers, 'POST /api/settings': () => ({}) };
   assert.throws(() => createRouter(extra), /Missing: none\. Not in the map: POST \/api\/settings\./);
 });
+
+test('request shapes are checked at the route: up to 1000 Seen IDs, a known Activity view, a valid history period', async t => {
+  const { send } = await app(t);
+  const ids = (count: number) => Array.from({ length: count }, (_, index) => `id-${index}`);
+  assert.equal((await send('POST', '/api/ack', { ids: ids(1000) })).status, 200);
+  const tooMany = await send('POST', '/api/ack', { ids: ids(1001) });
+  assert.equal(tooMany.status, 400);
+  assert.equal((await tooMany.json()).message, 'Send up to 1000 explicit event IDs.');
+  const view = await send('GET', '/api/activity?view=everything');
+  assert.equal(view.status, 400);
+  assert.equal((await view.json()).message, 'Invalid activity view.');
+  assert.equal((await send('POST', '/api/repos/demo-orders/backfill', { days: 60 })).status, 400);
+  assert.equal((await send('POST', '/api/repos/missing/backfill', { days: 30 })).status, 404);
+});

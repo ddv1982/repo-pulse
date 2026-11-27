@@ -772,8 +772,8 @@ export function createStore(path = ':memory:', { highlights = false } = {}) {
     enrichEvent(id: string, data: unknown) {
       return transaction(() => enrichEvent(id, data));
     },
-    acknowledge(ids: unknown, seen: boolean = true) {
-      if (!Array.isArray(ids) || ids.length > 5000) throw invalid('An explicit list of up to 5000 event IDs is required.');
+    /** Marks these events seen or unseen; the route limits how many one request may name. */
+    acknowledge(ids: string[], seen: boolean = true) {
       return transaction(() => {
         const value = Number(Boolean(seen));
         const statement = q('UPDATE events SET seen=? WHERE id=? AND imported=0 AND seen<>?');

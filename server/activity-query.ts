@@ -545,7 +545,6 @@ export function createActivityQuery(
     limit = 50,
     cursor,
   }: ActivityRequest = {}): ActivityPage {
-    if (!['all', 'new'].includes(view)) throw invalid('Invalid activity view.', 'BAD_REQUEST');
     const pageSize = Math.max(1, Math.min(Number(limit) || 50, 200));
     const { selected, filter, needles, names } = readScope({ repoIds, kind, search, people });
     const foldCi = !highlightsOnly && !kind && !needles.length && !names.length && view === 'all';

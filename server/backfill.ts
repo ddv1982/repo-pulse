@@ -6,7 +6,10 @@ import type { AzureStreamRecord, HistoryStream, HistoryWindow, HistoryJob, Histo
 import type { AzurePage as SourcePage } from './azure-client.ts';
 import type { Entity, WatchedRepo } from './normalize.ts';
 import type { JobType, JobOf } from './store-records.ts';
-import { conflict, invalid, notFound } from './errors.ts';
+import { conflict } from './errors.ts';
+
+/** How far back a history import reads. */
+export type HistoryPeriod = 30 | 90 | 'all';
 
 type HistoryBatch = { events?: ActivityEvent[]; entities?: Entity[] };
 type HistoryStore = {
@@ -49,11 +52,8 @@ export function createBackfill({
   let lastId: string | undefined;
   const retriedAt = new Map<string, number>();
   const jobs = () => store.listJobs({ type: 'backfill' });
-  function start(repoId: string, days: number | 'all' = 30): HistoryJob {
-    const repo = store.listRepos().find(item => item.id === repoId);
-    if (!repo) throw notFound('Repository is not watched.');
-    const period = days === 'all' ? 'all' : Number(days);
-    if (![30, 90, 'all'].includes(period)) throw invalid('Choose 30 days, 90 days or all available history.');
+  /** Starts a history import for a watched repository; the route checks the repository and the period. */
+  function start(repoId: string, period: HistoryPeriod = 30): HistoryJob {
     const previous = jobs().find(job => job.repoId === repoId);
     if (previous && previous.status !== 'completed') {
       if (previous.days !== period) throw conflict('A history import is already running for this repository.');
