@@ -9,6 +9,7 @@ import { createAzureClient } from '../server/azure-client.ts';
 import type { CheckoutPull } from '../server/azure-client.ts';
 import type { Observation } from '../server/checkout-observations.ts';
 import type { Thrown } from './fixtures/typed.ts';
+import { fakeCli } from './fixtures/azure.ts';
 
 type CheckoutGitOptions = Parameters<typeof createCheckoutGit>[0];
 import { actions, adviceOf, checkoutFixture, comparisonOf, diagnosticOf, expectedOf, git, squashFixture } from './fixtures/checkout.ts';
@@ -81,7 +82,7 @@ test('completed PRs from one head into different targets keep the advice unverif
     ...fields,
   });
   const verifiedWith = async (second: Record<string, unknown>) => {
-    const client = createAzureClient({ cli: { run: async () => ({ value: [azurePr(101), second] }) } });
+    const client = createAzureClient({ cli: fakeCli(async () => ({ value: [azurePr(101), second] })) });
     const adapter = createCheckoutGit({
       matchesRemote: url => url === remote,
       findPulls: async (linked, source) => client.completedCheckoutPulls(linked, source),

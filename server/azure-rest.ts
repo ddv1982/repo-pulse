@@ -1,11 +1,9 @@
 import { setGlobalProxyFromEnv } from 'node:http';
 import tls from 'node:tls';
-import { normalizeOrganization } from './repositories.ts';
-import { cliError } from './azure-cli.ts';
+import { classifyCliError, cliError, failure, type FailureCode } from './azure-cli.ts';
+import { InvalidRoute, readUrl, type AzureRead } from './azure-reads.ts';
 import { isRecord } from './azure-records.ts';
-import type { Executor, ExecutorOptions } from './azure-cli.ts';
-
-type RestRequest = { url: URL };
+import type { Executor, ExecutorOptions, Reader } from './azure-cli.ts';
 
 type CachedToken = { value: string; expiresAt: number };
 
@@ -13,7 +11,6 @@ type CachedToken = { value: string; expiresAt: number };
 export const AZURE_DEVOPS_RESOURCE = '499b84ac-1321-427f-aa17-267ca6975798';
 const RENEW_BEFORE_MS = 5 * 60000;
 const MAX_RESPONSE_BYTES = 16 * 1024 * 1024;
-const refused = (message: string) => Object.assign(new Error(message), { stderr: 'not in the command group' });
 
 /**
  * Node's fetch ignores HTTP(S)_PROXY and the operating system's certificate store unless told otherwise,
@@ -30,58 +27,6 @@ export function useSystemNetworkSettings(env = process.env) {
   tls.setDefaultCACertificates([...new Set([...tls.getCACertificates('default'), ...tls.getCACertificates('system')])]);
 }
 
-/** Collects `--flag value...` groups. A repeated flag is refused, so this agrees with the allowlist, which reads the first one. */
-function flags(args: string[]) {
-  const values: Record<string, string[]> = {};
-  let current: string[] | undefined;
-  for (const arg of args) {
-    if (arg.startsWith('--')) {
-      if (Object.hasOwn(values, arg)) throw refused('Repeated Azure CLI flag.');
-      values[arg] = current = [];
-    } else if (current) current.push(arg);
-  }
-  return values;
-}
-
-const pairs = (entries: string[] = []) =>
-  Object.fromEntries(
-    entries.map(entry => {
-      const split = entry.indexOf('=');
-      return [entry.slice(0, split), entry.slice(split + 1)];
-    }),
-  );
-
-/** A route value must be one non-empty path segment; `.` and `..` would make URL parsing move up the path. */
-function segment(value: unknown) {
-  if (typeof value !== 'string' || !value || value === '.' || value === '..') throw refused('Invalid Azure DevOps route.');
-  return encodeURIComponent(value);
-}
-
-function requestFor(args: string[]): RestRequest {
-  const values = flags(args);
-  const organization = normalizeOrganization(values['--organization']?.[0]);
-  const area = values['--area']?.[0],
-    resource = values['--resource']?.[0]?.toLowerCase();
-  const route = pairs(values['--route-parameters']);
-  if (values['--http-method']?.[0] !== 'GET' || values['--in-file']) throw refused('Only Azure DevOps reads are allowed.');
-  let path;
-  if (area === 'git' && resource === 'pullrequestthreads') {
-    path = `${segment(route.project)}/_apis/git/repositories/${segment(route.repositoryId)}/pullRequests/${segment(route.pullRequestId)}/threads`;
-  } else if (area === 'git' && resource !== undefined && ['pushes', 'refs', 'pullrequests', 'commits'].includes(resource)) {
-    path = `${segment(route.project)}/_apis/git/repositories/${segment(route.repositoryId)}/${resource}${route.commitId !== undefined ? `/${segment(route.commitId)}` : ''}`;
-  } else if (area === 'build' && resource === 'builds') path = `${segment(route.project)}/_apis/build/builds`;
-  else if (area === 'policy' && resource === 'evaluations') path = `${segment(route.project)}/_apis/policy/evaluations`;
-  else if (area === 'location' && resource === 'connectiondata') path = '_apis/connectionData';
-  else throw refused('Unsupported Azure DevOps read.');
-  const url = new URL(`${organization}/${path}`);
-  for (const [key, value] of Object.entries(pairs(values['--query-parameters']))) url.searchParams.set(key, value);
-  // The allowlist requires --api-version; one with no value is refused rather than sent as "undefined".
-  const apiVersion = values['--api-version']?.[0];
-  if (apiVersion === undefined) throw refused('Unsupported Azure DevOps read.');
-  url.searchParams.set('api-version', apiVersion);
-  return { url };
-}
-
 /**
  * Retry-After in milliseconds from delta-seconds or an HTTP date; undefined when absent, unreadable or already past.
  */
@@ -91,15 +36,25 @@ function retryAfterMs(value: string | null, time: number) {
   return ms > 0 ? ms : undefined;
 }
 
+/** The failure an HTTP status reports, by number. */
+export function statusFailure(status: number): FailureCode {
+  if (status === 401) return 'AUTH_REQUIRED';
+  if (status === 403) return 'FORBIDDEN';
+  if (status === 404) return 'NOT_FOUND';
+  if (status === 429) return 'THROTTLED';
+  if (status >= 500 && status <= 599) return 'UNAVAILABLE';
+  return 'CLI_ERROR';
+}
+
 /**
- * Maps a failed request or body read onto the errors classifyCliError understands.
+ * The failure of a request or body read that got no HTTP answer: closed by the queue, timed out, or not reached.
  */
 function transportError(error: unknown) {
   // Whatever fetch or the body stream threw.
   const name = (error as { name?: unknown } | null | undefined)?.name;
-  if (name === 'AbortError') return error;
-  if (name === 'TimeoutError') return Object.assign(new Error('Azure DevOps timed out.'), { code: 'ETIMEDOUT' });
-  return Object.assign(new Error('Azure DevOps could not be reached.'), { stderr: 'connection failed' });
+  if (name === 'AbortError') return failure('CLOSED');
+  if (name === 'TimeoutError') return failure('TIMEOUT');
+  return failure('UNAVAILABLE');
 }
 
 /**
@@ -134,11 +89,12 @@ async function readJsonBody(response: Response, maxBytes: number) {
 }
 
 /**
- * Executor for createAzureCli that sends `devops invoke` reads over HTTPS with one Azure CLI token
- * instead of starting az for each read. Other commands still run through az. The token stays in this
- * closure: it is never returned, logged or put in an error, and run() still refuses to request one.
+ * Reader for createAzureCli that sends each typed Azure DevOps read over HTTPS with one Azure CLI token. The token
+ * stays in this closure: it is never returned, logged or put in an error, and run() still refuses to request one.
+ * Every failure leaves here already classified: an HTTP status by its number, a token az could not give by az's own
+ * output, and a request that got no answer as closed, timed out or unavailable.
  */
-export function createRestExecutor({
+export function createRestReader({
   cliExecutor,
   fetch = globalThis.fetch,
   now = Date.now,
@@ -146,12 +102,16 @@ export function createRestExecutor({
   cliExecutor: Executor;
   fetch?: typeof globalThis.fetch;
   now?: () => number;
-}) {
+}): Reader {
   let token: CachedToken | undefined, renewal: Promise<string> | undefined;
   function accessToken(options: ExecutorOptions) {
     if (token && token.expiresAt - RENEW_BEFORE_MS > now()) return Promise.resolve(token.value);
     renewal ||= Promise.resolve()
-      .then(() => cliExecutor(['account', 'get-access-token', '--resource', AZURE_DEVOPS_RESOURCE], options))
+      .then(() =>
+        cliExecutor(['account', 'get-access-token', '--resource', AZURE_DEVOPS_RESOURCE], options).catch((error: unknown) => {
+          throw classifyCliError(error as Parameters<typeof classifyCliError>[0]);
+        }),
+      )
       .then(stdout => {
         /** Untrusted CLI output; each field is checked below before use. */
         let parsed: unknown;
@@ -168,9 +128,7 @@ export function createRestExecutor({
             : typeof expiresOn === 'string'
               ? Date.parse(expiresOn)
               : NaN;
-        if (typeof accessToken !== 'string' || !accessToken || !Number.isFinite(expiresAt)) {
-          throw Object.assign(new Error('Azure CLI did not return a usable token.'), { stderr: 'authentication unavailable' });
-        }
+        if (typeof accessToken !== 'string' || !accessToken || !Number.isFinite(expiresAt)) throw failure('AUTH_REQUIRED');
         token = { value: accessToken, expiresAt };
         return token.value;
       })
@@ -179,11 +137,11 @@ export function createRestExecutor({
       });
     return renewal;
   }
-  async function send(request: RestRequest, options: ExecutorOptions, bearer: string) {
+  async function send(url: URL, options: ExecutorOptions, bearer: string) {
     const signal = AbortSignal.any([options.signal, AbortSignal.timeout(options.timeoutMs)].filter(Boolean));
     let response;
     try {
-      response = await fetch(request.url, {
+      response = await fetch(url, {
         method: 'GET',
         signal,
         redirect: 'error',
@@ -203,9 +161,14 @@ export function createRestExecutor({
     if (wait) options.retryAfter?.(wait);
     return response;
   }
-  return async function restExecutor(args: string[], options: ExecutorOptions): Promise<unknown> {
-    if (args[0] !== 'devops' || args[1] !== 'invoke') return cliExecutor(args, options);
-    const request = requestFor(args);
+  return async function restReader(read: AzureRead, options: ExecutorOptions): Promise<unknown> {
+    let url;
+    try {
+      url = readUrl(read);
+    } catch (error) {
+      // A route value that is not one path segment is refused as an unsupported read; any other URL failure is generic.
+      throw failure(error instanceof InvalidRoute ? 'CLI_SETUP' : 'CLI_ERROR');
+    }
     // Only the rejected token is dropped; a token another request already renewed stays in use.
     const rejected = (response: Response, bearer: string) => {
       if (response.status === 401 && token?.value === bearer) token = undefined;
@@ -214,23 +177,22 @@ export function createRestExecutor({
     // The queue only holds back calls it has not started; another response can start a Retry-After pause while this
     // call waits for a token, so every send checks it and the caller's back-off retries instead.
     const unlessPaused = () => {
-      if ((options.throttledUntil?.() ?? 0) > now())
-        throw Object.assign(new Error('Azure DevOps asked us to slow down.'), { stderr: 'HTTP 429' });
+      if ((options.throttledUntil?.() ?? 0) > now()) throw failure('THROTTLED');
     };
     let bearer = await accessToken(options);
     unlessPaused();
-    let response = await send(request, options, bearer);
+    let response = await send(url, options, bearer);
     if (rejected(response, bearer)) {
       await response.body?.cancel().catch(() => {});
       unlessPaused();
       bearer = await accessToken(options);
       unlessPaused();
-      response = await send(request, options, bearer);
+      response = await send(url, options, bearer);
       rejected(response, bearer);
     }
     if (!response.ok) {
       await response.body?.cancel().catch(() => {});
-      throw Object.assign(new Error(`Azure DevOps returned HTTP ${response.status}.`), { stderr: `HTTP ${response.status}` });
+      throw failure(statusFailure(response.status));
     }
     let data;
     try {

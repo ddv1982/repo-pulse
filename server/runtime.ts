@@ -7,7 +7,7 @@ import { createStore, type Store } from './store.ts';
 import { lockDatabase } from './database-lock.ts';
 import { createSync } from './sync.ts';
 import { createAzureCli, defaultExecutor } from './azure-cli.ts';
-import { createRestExecutor, useSystemNetworkSettings } from './azure-rest.ts';
+import { createRestReader, useSystemNetworkSettings } from './azure-rest.ts';
 import { createAzureClient } from './azure-client.ts';
 import { discoverRepositories } from './repositories.ts';
 import { seedDemo, demoProvider, demoSync, NOT_IN_DEMO } from './demo.ts';
@@ -149,7 +149,12 @@ async function startLocked(
   if (!demo) useSystemNetworkSettings();
   const cli = demo
     ? null
-    : createAzureCli({ executor: createRestExecutor({ cliExecutor: defaultExecutor }), limitPerMinute: 60, concurrency: 4 });
+    : createAzureCli({
+        executor: defaultExecutor,
+        reader: createRestReader({ cliExecutor: defaultExecutor }),
+        limitPerMinute: 60,
+        concurrency: 4,
+      });
   // The live pieces are null in demo mode; keeping them separate lets each consumer see the concrete type.
   const azure = cli && createAzureClient({ cli });
   const provider = azure || demoProvider;

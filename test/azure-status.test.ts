@@ -4,7 +4,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createAzureCli } from '../server/azure-cli.ts';
-import { createRestExecutor } from '../server/azure-rest.ts';
+import { createRestReader } from '../server/azure-rest.ts';
 import { createAzureClient } from '../server/azure-client.ts';
 import { syncStatus } from '../server/sync-status.ts';
 import type { AzureRepo, AzureStream, StreamState } from '../src/contract.ts';
@@ -53,7 +53,8 @@ function live({ answers = [], az = () => undefined }: { answers?: Answer[]; az?:
     });
   };
   const cli = createAzureCli({
-    executor: createRestExecutor({ cliExecutor, fetch, now: () => time }),
+    executor: cliExecutor,
+    reader: createRestReader({ cliExecutor, fetch, now: () => time }),
     limitPerMinute: 60,
     concurrency: 4,
     now: () => time,

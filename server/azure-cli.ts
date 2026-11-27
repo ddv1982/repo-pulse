@@ -2,57 +2,76 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { stat } from 'node:fs/promises';
 import { win32 } from 'node:path';
+import { isAllowedRead, type AzureRead } from './azure-reads.ts';
 import type { CliLastError as LastError } from '../src/contract.ts';
-import { AppError } from './errors.ts';
+import { AppError, isAppError } from './errors.ts';
 
 export type ExecFailure = { code?: string; name?: string; stderr?: unknown; killed?: boolean; message?: string };
 
 export type ExecutorOptions = { signal: AbortSignal; timeoutMs: number; retryAfter?: (ms: number) => void; throttledUntil?: () => number };
 
+/** Runs one az command. */
 export type Executor = (args: string[], options: ExecutorOptions) => Promise<unknown>;
+/** Makes one typed Azure DevOps read and fails only with an error from `failure` (server/azure-rest.ts). */
+export type Reader = (read: AzureRead, options: ExecutorOptions) => Promise<unknown>;
 
 export type AzCommand = { file: string; prefix: string[]; env: Record<string, string>; cwd?: string };
 
-type QueueJob = { args: string[]; key: string; resolve: (value: unknown) => void; reject: (reason: unknown) => void };
+type QueueJob = {
+  start: (options: ExecutorOptions) => Promise<unknown>;
+  /** The error a caller sees for what `start` threw. */
+  safe: (error: ExecFailure) => ExecFailure | AppError;
+  key: string;
+  resolve: (value: unknown) => void;
+  reject: (reason: unknown) => void;
+};
 
 const exec = promisify(execFile);
 const MAX_RETRY_AFTER_MS = 10 * 60000;
-const RESOURCES: Record<string, Set<string>> = {
-  git: new Set(['pushes', 'refs', 'pullrequests', 'pullrequestthreads', 'commits']),
-  build: new Set(['builds']),
-  policy: new Set(['evaluations']),
-  location: new Set(['connectiondata']),
-};
 
 /** An Azure failure. The HTTP layer answers a missing resource with 404 and any other Azure failure with 502. */
 export function cliError(code: string, message: string) {
   return new AppError(code === 'NOT_FOUND' ? 'not-found' : 'upstream', message, code);
 }
 
+/** What a person reads for each kind of Azure failure, whether az or a REST read reported it. */
+const FAILURES = {
+  CLI_MISSING: 'Azure CLI was not found. Install Azure CLI and its azure-devops extension.',
+  CLOSED: 'Azure CLI queue is closed.',
+  TIMEOUT: 'Azure CLI timed out. Cached activity is retained.',
+  THROTTLED: 'Azure DevOps asked us to slow down. Retrying later.',
+  FORBIDDEN: 'Azure DevOps refused this read. Check the CLI identity and repository permissions.',
+  AUTH_REQUIRED: 'Azure CLI sign-in is unavailable or expired. Reconnect in your terminal, then retry.',
+  NOT_FOUND: 'The requested Azure DevOps resource was not found or is not accessible.',
+  CLI_SETUP: 'Azure CLI or its azure-devops extension does not support this read. Check the installation.',
+  UNAVAILABLE: 'Azure DevOps could not be reached. Check your connection or VPN.',
+  CLI_ERROR: 'Azure CLI could not complete this read. Check access and try again.',
+} as const;
+export type FailureCode = keyof typeof FAILURES;
+export const failure = (code: FailureCode) => cliError(code, FAILURES[code]);
+
+/**
+ * What a failed az command means, from Azure's own output. Only real az commands come here: the local checks, the
+ * token request and the commands that stay az (repos show, repos pr show, devops project list). REST reads map their
+ * HTTP status instead (server/azure-rest.ts).
+ */
 export function classifyCliError(error: ExecFailure | null | undefined) {
   if (error?.code === 'CLOSED') return error;
   // execFile's message repeats the command line, whose arguments must not drive classification.
   const stderr = error?.stderr;
   const text = Buffer.isBuffer(stderr) ? stderr.toString() : typeof stderr === 'string' ? stderr : '';
-  if (error?.code === 'ENOENT')
-    return cliError('CLI_MISSING', 'Azure CLI was not found. Install Azure CLI and its azure-devops extension.');
+  if (error?.code === 'ENOENT') return failure('CLI_MISSING');
   // Reads are aborted only by close(); the timeout option kills the process instead.
-  if (error?.name === 'AbortError') return cliError('CLOSED', 'Azure CLI queue is closed.');
-  if (error?.killed || error?.code === 'ETIMEDOUT') return cliError('TIMEOUT', 'Azure CLI timed out. Cached activity is retained.');
+  if (error?.name === 'AbortError') return failure('CLOSED');
+  if (error?.killed || error?.code === 'ETIMEDOUT') return failure('TIMEOUT');
   // Status numbers match as whole words: Azure error numbers such as TF401180 contain 401 without being a status.
-  if (/\b429\b|too many requests|rate.limit|TF400733/i.test(text))
-    return cliError('THROTTLED', 'Azure DevOps asked us to slow down. Retrying later.');
-  if (/\b403\b|forbidden|TF401027|permission|not authorized/i.test(text))
-    return cliError('FORBIDDEN', 'Azure DevOps refused this read. Check the CLI identity and repository permissions.');
-  if (/\b401\b|az login|authentication|unauthorized|AADSTS|token.*expired|sign.in/i.test(text))
-    return cliError('AUTH_REQUIRED', 'Azure CLI sign-in is unavailable or expired. Reconnect in your terminal, then retry.');
-  if (/\b404\b|not found|TF401019|TF401180/i.test(text))
-    return cliError('NOT_FOUND', 'The requested Azure DevOps resource was not found or is not accessible.');
-  if (/extension|unrecognized arguments|not in the.*command group|misspelled/i.test(text))
-    return cliError('CLI_SETUP', 'Azure CLI or its azure-devops extension does not support this read. Check the installation.');
-  if (/\b5\d\d\b|connection|network|resolve|timeout|SSL|certificate|proxy|unreachable/i.test(text))
-    return cliError('UNAVAILABLE', 'Azure DevOps could not be reached. Check your connection or VPN.');
-  return cliError('CLI_ERROR', 'Azure CLI could not complete this read. Check access and try again.');
+  if (/\b429\b|too many requests|rate.limit|TF400733/i.test(text)) return failure('THROTTLED');
+  if (/\b403\b|forbidden|TF401027|permission|not authorized/i.test(text)) return failure('FORBIDDEN');
+  if (/\b401\b|az login|authentication|unauthorized|AADSTS|token.*expired|sign.in/i.test(text)) return failure('AUTH_REQUIRED');
+  if (/\b404\b|not found|TF401019|TF401180/i.test(text)) return failure('NOT_FOUND');
+  if (/extension|unrecognized arguments|not in the.*command group|misspelled/i.test(text)) return failure('CLI_SETUP');
+  if (/\b5\d\d\b|connection|network|resolve|timeout|SSL|certificate|proxy|unreachable/i.test(text)) return failure('UNAVAILABLE');
+  return failure('CLI_ERROR');
 }
 
 function allowed(args: unknown) {
@@ -63,11 +82,7 @@ function allowed(args: unknown) {
   if (command === 'extension show --name') return args[3] === 'azure-devops' && args.length === 4;
   if (args.slice(0, 2).join(' ') === 'account show') return args.length === 2;
   if (args.slice(0, 3).join(' ') === 'repos pr show' && args.includes('--id')) return true;
-  if (['repos show --repository', 'devops project list'].includes(command)) return true;
-  if (args.slice(0, 2).join(' ') !== 'devops invoke') return false;
-  const value = (flag: string) => args[args.indexOf(flag) + 1];
-  if (!args.includes('--http-method') || value('--http-method') !== 'GET') return false;
-  return RESOURCES[value('--area')]?.has(value('--resource')?.toLowerCase()) === true && args.includes('--api-version');
+  return ['repos show --repository', 'devops project list'].includes(command);
 }
 
 const isFile = (path: string) =>
@@ -139,14 +154,23 @@ export async function defaultExecutor(args: string[], { signal, timeoutMs }: Exe
   return stdout;
 }
 
+/** A reader for a queue that makes no REST reads: every read is refused as not allowed. */
+const noReads: Reader = () => Promise.reject(cliError('READ_ONLY', 'This Azure CLI operation is not allowed.'));
+/** A REST read reports its failure already classified; anything else it throws is an unexpected failure. */
+const readFailure = (error: ExecFailure) => (isAppError(error) ? error : failure('CLI_ERROR'));
+/** An az command's failure, classified from its output; a response that is not JSON keeps its own error. */
+const commandFailure = (error: ExecFailure) => (error?.code === 'INVALID_RESPONSE' ? error : classifyCliError(error));
+
 /**
- * One process-wide queue: callers cannot bypass rate or concurrency limits.
+ * One process-wide queue for az commands (`run`) and REST reads (`read`): callers cannot bypass rate or concurrency
+ * limits, and one Retry-After pause holds back both.
  */
 export function createAzureCli({
   limitPerMinute = 12,
   concurrency = 2,
   timeoutMs = 30_000,
   executor = defaultExecutor,
+  reader = noReads,
   now = Date.now,
   setTimer = setTimeout,
   clearTimer = clearTimeout,
@@ -155,6 +179,7 @@ export function createAzureCli({
   concurrency?: number;
   timeoutMs?: number;
   executor?: Executor;
+  reader?: Reader;
   now?: () => number;
   setTimer?: (callback: () => void, ms: number) => NodeJS.Timeout;
   clearTimer?: (timer: NodeJS.Timeout) => void;
@@ -171,11 +196,10 @@ export function createAzureCli({
     // Azure DevOps asks for this wait in a Retry-After header, which any response can carry.
     throttledUntil = 0,
     lastError: LastError | null = null;
-  function enqueue(args: string[]): Promise<unknown> {
-    const key = JSON.stringify(args);
+  function enqueue(key: string, start: QueueJob['start'], safe: QueueJob['safe']): Promise<unknown> {
     const existing = inFlight.get(key);
     if (existing) return existing;
-    const promise = new Promise((resolve, reject) => pending.push({ args: [...args], key, resolve, reject }));
+    const promise = new Promise((resolve, reject) => pending.push({ start, safe, key, resolve, reject }));
     inFlight.set(key, promise);
     pump();
     return promise;
@@ -203,7 +227,7 @@ export function createAzureCli({
       starts.push(now());
       totalStarts++;
       Promise.resolve()
-        .then(() => executor(job.args, { signal: controller.signal, timeoutMs, retryAfter, throttledUntil: () => throttledUntil }))
+        .then(() => job.start({ signal: controller.signal, timeoutMs, retryAfter, throttledUntil: () => throttledUntil }))
         .then(result => {
           if (closed) throw cliError('CLOSED', 'Azure CLI queue is closed.');
           try {
@@ -213,7 +237,7 @@ export function createAzureCli({
           }
         })
         .then(job.resolve, error => {
-          const safe = error?.code === 'INVALID_RESPONSE' ? error : classifyCliError(error);
+          const safe = job.safe(error);
           lastError = { code: safe.code, message: safe.message };
           job.reject(safe);
         })
@@ -233,7 +257,14 @@ export function createAzureCli({
     run(args: string[]) {
       if (closed) return Promise.reject(cliError('CLOSED', 'Azure CLI queue is closed.'));
       if (!allowed(args)) return Promise.reject(cliError('READ_ONLY', 'This Azure CLI operation is not allowed.'));
-      return enqueue(args);
+      const command = [...args];
+      return enqueue(JSON.stringify(command), options => executor(command, options), commandFailure);
+    },
+    /** One Azure DevOps REST read, through the same queue as az commands. */
+    read(request: AzureRead) {
+      if (closed) return Promise.reject(cliError('CLOSED', 'Azure CLI queue is closed.'));
+      if (!isAllowedRead(request)) return Promise.reject(cliError('READ_ONLY', 'This Azure CLI operation is not allowed.'));
+      return enqueue(JSON.stringify(['read', request]), options => reader(request, options), readFailure);
     },
     diagnostics(): import('../src/contract.ts').CliDiagnostics {
       const recent = starts.filter(time => time > now() - 60_000);

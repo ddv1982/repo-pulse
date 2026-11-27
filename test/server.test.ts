@@ -14,6 +14,7 @@ import { createSync } from '../server/sync.ts';
 import { seedDemo, idleSyncStatus } from '../server/demo.ts';
 import type { TestContext } from 'node:test';
 import { createAzureClient, type AzureProvider, type ResolvedRepository } from '../server/azure-client.ts';
+import type { AzureRead } from '../server/azure-reads.ts';
 import type { createCheckoutGit } from '../server/checkout-git.ts';
 import type { AppOptions } from '../server/runtime.ts';
 import type { CheckoutStatus, ConnectionStatus, PushCommitsResponse, StateResponse } from '../src/contract.ts';
@@ -578,8 +579,8 @@ test('a cross-site page load reaches the app page, but cross-site API calls stay
 test('Load push commits pages through the Azure client by push ID', async t => {
   const reads: Record<string, string>[] = [];
   const cli = {
-    run: async (args: string[]) => {
-      const query = Object.fromEntries(args.slice(args.indexOf('--query-parameters') + 1).map(pair => pair.split('=')));
+    run: async () => assert.fail('only REST reads'),
+    read: async ({ query }: AzureRead) => {
       reads.push(query);
       const length = Number(query.skip) === 0 ? 100 : 3;
       return { value: Array.from({ length }, (_, index) => ({ commitId: `${query.skip}-${index}`, comment: 'Change', author: {} })) };

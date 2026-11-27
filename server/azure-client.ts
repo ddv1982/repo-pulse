@@ -1,6 +1,7 @@
 import { normalizeOrganization, parseRemote, repositoryKey } from './repositories.ts';
 import { safeAzureUrl } from '../src/events.ts';
 import { cliError } from './azure-cli.ts';
+import { azureRead, type AzureArea, type AzureRead, type AzureResource } from './azure-reads.ts';
 import { isRecord, readRecord, recordId, unreadableField } from './azure-records.ts';
 import type {
   AzureRepo,
@@ -56,8 +57,8 @@ export type ResolvedRepository = {
   disabled: false;
 };
 export type RepositoryInput = { organization: string; project: string; repoName?: string; name?: string };
-/** The Azure CLI queue the client reads through (see createAzureCli). */
-type AzureClientCli = { run: (args: string[]) => Promise<unknown> };
+/** The Azure queue the client reads through (see createAzureCli): az commands with `run`, REST reads with `read`. */
+export type AzureClientCli = { run: (args: string[]) => Promise<unknown>; read: (request: AzureRead) => Promise<unknown> };
 /** The provider contract. Sync and backfill type their provider as the subset of it they call. */
 export type AzureProvider = ReturnType<typeof createAzureClient>;
 
@@ -206,39 +207,25 @@ export function createAzureClient({ cli, now = Date.now }: { cli?: AzureClientCl
     if (cache.size > 200) for (const [entry, value] of cache) if (value.expires <= now()) cache.delete(entry);
     return promise;
   }
-  const invoke = (
+  /** A read of this repository's project, and of the repository itself for a Git resource. Absent query values are left out. */
+  const invoke = <A extends Exclude<AzureArea, 'location'>>(
     repo: AzureRepo,
-    area: 'git' | 'build' | 'policy',
-    resource: string,
+    area: A,
+    resource: AzureResource<A>,
     query: Record<string, string | number | null | undefined> = {},
-    route: Record<string, string> = {},
+    route: AzureRead['route'] = {},
     shared = false,
   ): Promise<unknown> => {
-    const org = normalizeOrganization(repo.organization);
-    const routes: Record<string, string> = { project: repo.projectId || repo.project, ...route };
-    if (area === 'git') routes.repositoryId = repo.azureId;
-    const args = [
-      'devops',
-      'invoke',
-      '--organization',
-      org,
-      '--detect',
-      'false',
-      '--area',
-      area,
-      '--resource',
-      resource,
-      '--api-version',
+    const request = azureRead(area, resource, {
+      organization: normalizeOrganization(repo.organization),
+      route: { project: repo.projectId || repo.project, ...route, ...(area === 'git' ? { repositoryId: repo.azureId } : {}) },
+      query: Object.fromEntries(
+        Object.entries(query).flatMap(([key, value]) => (value === undefined || value === null ? [] : [[key, String(value)]])),
+      ),
       // Policy evaluations exist only as a preview API.
-      area === 'policy' ? '7.1-preview.1' : '7.1',
-      '--http-method',
-      'GET',
-      '--route-parameters',
-      ...Object.entries(routes).map(([key, value]) => `${key}=${value}`),
-    ];
-    const queries = Object.entries(query).filter(([, value]) => value !== undefined && value !== null);
-    if (queries.length) args.push('--query-parameters', ...queries.map(([key, value]) => `${key}=${value}`));
-    return shared ? cached(JSON.stringify(args), () => cli.run(args), 45_000) : cli.run(args);
+      apiVersion: area === 'policy' ? '7.1-preview.1' : '7.1',
+    });
+    return shared ? cached(JSON.stringify(request), () => cli.read(request), 45_000) : cli.read(request);
   };
   return {
     async checkConnection(organization?: string, repository?: AzureRepo): Promise<ConnectionStatus> {
@@ -390,7 +377,7 @@ export function createAzureClient({ cli, now = Date.now }: { cli?: AzureClientCl
           return page;
         }
         case 'prs':
-          response = await invoke(repo, 'git', 'pullRequests', {
+          response = await invoke(repo, 'git', 'pullrequests', {
             $top: PAGE,
             $skip: skip,
             'searchCriteria.status': 'active',
@@ -399,7 +386,7 @@ export function createAzureClient({ cli, now = Date.now }: { cli?: AzureClientCl
           mode = 'skip';
           break;
         case 'closedPrs':
-          response = await invoke(repo, 'git', 'pullRequests', {
+          response = await invoke(repo, 'git', 'pullrequests', {
             $top: PAGE,
             $skip: skip,
             'searchCriteria.status': 'all',
@@ -479,7 +466,7 @@ export function createAzureClient({ cli, now = Date.now }: { cli?: AzureClientCl
       const response = await invoke(
         repo,
         'git',
-        'pullRequests',
+        'pullrequests',
         {
           $top: 20,
           'searchCriteria.status': 'completed',
@@ -580,7 +567,7 @@ export function createAzureClient({ cli, now = Date.now }: { cli?: AzureClientCl
     async prReview(repo: AzureRepo, pullRequestId: string | number): Promise<PullRequestReview> {
       const id = String(pullRequestId);
       if (!/^\d+$/.test(id) || !repo.projectId) throw cliError('INVALID_QUERY', 'Invalid pull request.');
-      const threads = await invoke(repo, 'git', 'pullRequestThreads', {}, { pullRequestId: id });
+      const threads = await invoke(repo, 'git', 'pullrequestthreads', {}, { pullRequestId: id });
       const evaluations = await invoke(repo, 'policy', 'evaluations', {
         artifactId: `vstfs:///CodeReview/CodeReviewId/${repo.projectId}/${id}`,
         includeNotApplicable: 'true',
