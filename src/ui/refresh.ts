@@ -77,8 +77,8 @@ function pageMetadata(data: StateResponse) {
   return { ...data, watched, repos, streams };
 }
 
-const viewKey = ({ route, eventId, repoIds, search, kind, unseenOnly, generation }: View) =>
-  JSON.stringify([route, eventId, repoIds, search, kind, unseenOnly, generation]);
+const viewKey = ({ route, eventId, repoIds, search, activityFilter, unseenOnly, generation }: View) =>
+  JSON.stringify([route, eventId, repoIds, search, activityFilter, unseenOnly, generation]);
 
 export function createRefreshController({
   request,

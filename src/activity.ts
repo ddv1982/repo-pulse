@@ -176,7 +176,8 @@ export type ActivityItem = ActivityEvent & {
 export type ActivityRequest = {
   repoIds?: string[] | undefined;
   view?: 'new' | 'all';
-  kind?: string | undefined;
+  /** The encoded type filter (sent as the kind query key): a kind, status:<id> or evidence:<id>. */
+  activityFilter?: string | undefined;
   search?: string | undefined;
   people?: string;
   limit?: number;

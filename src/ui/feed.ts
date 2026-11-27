@@ -39,14 +39,17 @@ import { WIDE_LAYOUT } from './breakpoints.ts';
 export { renderDetail } from './activity-detail.ts';
 
 /** `openMenu` is the panel ID of the open toolbar menu, if any; `groups` holds which disclosures are open. */
-export type FeedView = Pick<import('./navigation.ts').NavigationState, 'unseenOnly' | 'repoIds' | 'search' | 'kind' | 'filtersOpen'> & {
+export type FeedView = Pick<
+  import('./navigation.ts').NavigationState,
+  'unseenOnly' | 'repoIds' | 'search' | 'activityFilter' | 'filtersOpen'
+> & {
   openMenu?: string;
   groups: Groups;
 };
 
 function filterControls(ui: FeedView & { savedFilterId: string }, state: PageState) {
   const desktop = globalThis.matchMedia?.(WIDE_LAYOUT).matches ?? true;
-  const active = Number(Boolean(ui.search)) + Number(Boolean(ui.kind)) + Number(ui.unseenOnly);
+  const active = Number(Boolean(ui.search)) + Number(Boolean(ui.activityFilter)) + Number(ui.unseenOnly);
   // Clear filter leaves the repository scope alone, so only the Filters count includes it.
   const count = active + Number(ui.repoIds !== null);
   const open = desktop || ui.filtersOpen === true;
@@ -60,7 +63,7 @@ function filterControls(ui: FeedView & { savedFilterId: string }, state: PageSta
     <div class="filters-box" id="activity-filters" ${open ? emptyHtml : html`hidden`}>
       <div class="toolbar">${renderSearchInput('feed-search', 'Search activity', 'Search branch, commit, person or repository…', ui.search, 'search-activity')}
         <div class="filter-actions">
-          ${renderTypeFilter(ui.kind, state.activity.filterOptions, state.activity.loading, ui.openMenu === 'kind-panel')}
+          ${renderTypeFilter(ui.activityFilter, state.activity.filterOptions, state.activity.loading, ui.openMenu === 'kind-panel')}
           ${renderRepositoryScope(state, ui)}
           <button class="btn" id="unread-only" type="button" ${action('toggle-unseen-only')} aria-pressed="${ui.unseenOnly}">Unread only</button>
           ${active ? html`<button class="btn" id="clear-filters" type="button" ${action('clear-filters')}>Clear filter</button>` : emptyHtml}
@@ -462,14 +465,14 @@ function matchingAction(state: PageState, ui: FeedView, repoIds: string[]) {
   // Stop at the snapshot this page was read at, so updates recorded later stay unread.
   if (state.activity.asOf !== undefined) query.set('through', String(state.activity.asOf));
   const search = ui.search.trim();
-  const scope = `${scopeName(state, ui)} · ${activityFilterLabel(ui.kind)}${search ? ` · Search “${search}”` : ''}`;
-  const label = ui.search || ui.kind || ui.repoIds !== null ? 'Mark all matching seen' : 'Mark all seen';
+  const scope = `${scopeName(state, ui)} · ${activityFilterLabel(ui.activityFilter)}${search ? ` · Search “${search}”` : ''}`;
+  const label = ui.search || ui.activityFilter || ui.repoIds !== null ? 'Mark all matching seen' : 'Mark all seen';
   return html`<button class="btn sm" type="button" ${action('ack-matching')} data-query="${query.toString()}" data-scope="${scope}">${label} (${total})</button>`;
 }
 
 export function renderFeed(state: PageState, ui: FeedView & { savedFilterId: string }, feedCommits?: ReadonlyMap<string, CommitsView>) {
   const records = state.activity.items;
-  const hasQuery = Boolean(ui.search || ui.kind);
+  const hasQuery = Boolean(ui.search || ui.activityFilter);
   const shown = state.repos.filter(repo => ui.repoIds === null || ui.repoIds.includes(repo.id));
   // Until every shown repository is synced, an empty or short list does not prove that nothing changed.
   const partial = shown.some(repo => state.syncStatus.repos[repo.id]?.state !== 'synced');

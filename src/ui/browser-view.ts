@@ -89,7 +89,7 @@ export function createBrowserUi(connection: BrowserUi['connection'], groups: Gro
     repoIds: null,
     search: '',
     savedFilterId: '',
-    kind: '',
+    activityFilter: '',
     filtersOpen: undefined,
     openMenu: '',
     unseenOnly: false,

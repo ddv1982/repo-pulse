@@ -49,7 +49,7 @@ test('highlights are selected before pagination, with a shared unread scope and 
   store.insertEvents([pr('merge', 7, { status: 'completed', mergeStrategy: 'squash', mergeCommit: landing })]);
   assert.deepEqual(ids(store.queryActivity({ limit: 2, cursor: page.nextCursor }).items), ['direct', 'ready']);
   assert.deepEqual(ids(store.queryActivity().items), ['merge', 'direct', 'ready']);
-  assert.deepEqual(ids(store.queryActivity({ view: 'new', kind: 'push' }).items), ['direct']);
+  assert.deepEqual(ids(store.queryActivity({ view: 'new', activityFilter: 'push' }).items), ['direct']);
   assert.deepEqual(store.queryActivity({ search: 'routine' }).items, []);
   const unseen = store.queryActivity.unseenIds({ through: page.asOf });
   assert.deepEqual([...unseen].sort(), ['direct', 'landing-push', 'ready']);
@@ -262,14 +262,14 @@ test('a live draft transition after an import is shown once and a late build sna
     { ...run('older-running', 3, 1, '', 'head', { buildId: 1, status: 'inProgress' }) },
     { ...run('2', 5, 1, 'succeeded', 'head'), repoId: 'two' },
   ]);
-  const page = store.queryActivity({ kind: 'status:failed' });
+  const page = store.queryActivity({ activityFilter: 'status:failed' });
   assert.deepEqual(ids(page.items), ['1']);
   assert.deepEqual(page.items[0]?.unseenIds, ['1', 'older-running']);
   assert.deepEqual(
     store.queryActivity().items.map(item => item.highlight),
     ['ci-failed', 'review-ready'],
   );
-  const unseen = store.queryActivity.unseenIds({ kind: 'status:failed', through: page.asOf });
+  const unseen = store.queryActivity.unseenIds({ activityFilter: 'status:failed', through: page.asOf });
   store.acknowledge(unseen);
   assert.ok(store.getEventGroup('1').every(event => event.seen));
   store.close();

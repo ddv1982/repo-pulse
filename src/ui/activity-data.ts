@@ -5,7 +5,7 @@ export type ActivityView = {
   route: import('./navigation.ts').Route;
   unseenOnly?: boolean;
   repoIds: string[] | null;
-  kind?: string;
+  activityFilter?: string;
   search?: string;
 };
 
@@ -14,15 +14,15 @@ const keyFor = (ui: ActivityView) =>
   JSON.stringify({
     view: ui.unseenOnly ? 'new' : 'all',
     repoIds: ui.repoIds === null ? null : [...ui.repoIds].sort(),
-    kind: ui.kind || '',
+    activityFilter: ui.activityFilter || '',
     search: ui.search || '',
   });
 const itemKey = (item: ActivityItem) => item.groupKey;
 
-export function activityScopeQuery(ui: Pick<ActivityView, 'repoIds' | 'search' | 'kind'>) {
+export function activityScopeQuery(ui: Pick<ActivityView, 'repoIds' | 'search' | 'activityFilter'>) {
   const query = new URLSearchParams();
   if (ui.repoIds !== null) query.set('repoIds', ui.repoIds.join(','));
-  if (ui.kind) query.set('kind', ui.kind);
+  if (ui.activityFilter) query.set('kind', ui.activityFilter);
   const { search, people } = splitActivitySearch(ui.search || '');
   if (search) query.set('search', search);
   if (people) query.set('people', people);

@@ -705,7 +705,7 @@ test('Activity resolves CI across pages and keeps failures and filtered runs vis
   assert.equal(all.find(item => item.id === 'pr-open')?.latestPrMilestone, false);
   assert.equal(all.find(item => item.id === 'pr-open')?.relatedCi?.[0]?.validation, true);
   assert.deepEqual(
-    store.queryActivity({ kind: 'build' }).items.map(item => item.id),
+    store.queryActivity({ activityFilter: 'build' }).items.map(item => item.id),
     ['legacy-preview', 'unread-pass', 'failed', 'scheduled', 'wrong-ref', 'passing', 'preview'],
   );
   assert.equal(store.queryActivity({ search: 'passing' }).items[0]?.id, 'passing');

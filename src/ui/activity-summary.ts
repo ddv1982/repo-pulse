@@ -6,10 +6,10 @@ import type { PageState } from './refresh.ts';
 import { action } from './actions.ts';
 
 export function emptyActivityMessage(
-  ui: { repoIds: string[] | null; unseenOnly?: boolean; search?: string; kind?: string },
+  ui: { repoIds: string[] | null; unseenOnly?: boolean; search?: string; activityFilter?: string },
   partial: boolean,
 ) {
-  const scoped = Boolean(ui.search || ui.kind || ui.repoIds !== null);
+  const scoped = Boolean(ui.search || ui.activityFilter || ui.repoIds !== null);
   if (scoped) return ui.unseenOnly ? 'No unread updates match these filters' : 'No activity matches these filters';
   if (partial) return 'No activity loaded yet';
   return ui.unseenOnly ? 'No new updates' : 'No activity recorded yet';
@@ -42,10 +42,10 @@ function unseenCounts(unseen: ActivityItem[], state: Pick<PageState, 'activity'>
   };
 }
 
-function ciFilterButton(layout: 'cell' | 'chip', kind: 'build' | 'status:failed', content: HtmlValue, label?: string) {
-  const failed = kind === 'status:failed';
+function ciFilterButton(layout: 'cell' | 'chip', activityFilter: 'build' | 'status:failed', content: HtmlValue, label?: string) {
+  const failed = activityFilter === 'status:failed';
   return html`<button type="button" id="summary-ci-${layout}-${failed ? 'failed' : 'total'}"
-    class="summary-filter ${failed ? 't-crit' : 't-info'}" ${action('filter-activity-type')} data-kind="${kind}"
+    class="summary-filter ${failed ? 't-crit' : 't-info'}" ${action('filter-activity-type')} data-activity-filter="${activityFilter}"
     ${label ? html`aria-label="${label}"` : emptyHtml}>${content}</button>`;
 }
 
@@ -67,7 +67,7 @@ function ciBreakdown(layout: 'cell' | 'chip', counts: ActivityPage['newBuildCoun
 export function renderSummary(
   records: ActivityItem[],
   state: Pick<PageState, 'activity'>,
-  ui: { repoIds: string[] | null; unseenOnly?: boolean; search?: string; kind?: string },
+  ui: { repoIds: string[] | null; unseenOnly?: boolean; search?: string; activityFilter?: string },
   partial: boolean,
   firstSync: string | undefined,
 ) {
@@ -75,7 +75,7 @@ export function renderSummary(
     records.filter(record => record.unseen),
     state,
   );
-  const scoped = Boolean(ui.search || ui.kind || ui.repoIds !== null);
+  const scoped = Boolean(ui.search || ui.activityFilter || ui.repoIds !== null);
   const noUnseen = scoped ? 'No unread updates match these filters' : 'No new updates';
   const headline = state.activity.loading
     ? 'Loading activity…'
@@ -92,7 +92,7 @@ export function renderSummary(
             : emptyActivityMessage(ui, partial);
   // The header names the repository scope. These lines appear only when the list leaves something out.
   const loaded = !state.activity.loading && !state.activity.error;
-  const filteredToFailures = canonicalActivityFilter(ui.kind ?? '') === 'status:failed';
+  const filteredToFailures = canonicalActivityFilter(ui.activityFilter ?? '') === 'status:failed';
   const shown = records.reduce((total, record) => total + 1 + (record.foldedCi ?? 0), 0);
   const legend = loaded
     ? [shown < (state.activity.total ?? 0) ? `Showing ${shown} of ${state.activity.total} items` : ''].filter(Boolean)

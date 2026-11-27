@@ -9,7 +9,8 @@ export type NavigationState = {
   relatedCi?: boolean | undefined;
   repoIds: string[] | null;
   search: string;
-  kind: string;
+  /** The encoded type filter: a kind, status:<id> or evidence:<id>. */
+  activityFilter: string;
   filtersOpen: boolean | undefined;
   unseenOnly: boolean;
   savedFilterId: string;
@@ -18,7 +19,7 @@ export type NavigationState = {
 export type ResultsContext = {
   unseenOnly: boolean;
   search: string;
-  kind: string;
+  activityFilter: string;
   repoIds: string[] | null;
   groups: [string, boolean][];
   filtersOpen: boolean | undefined;
@@ -76,13 +77,13 @@ const RESULTS_VERSION = 2;
 function readResultsContext(): ResultsContext | null {
   try {
     const value = JSON.parse(sessionStorage.getItem(RESULTS_KEY) ?? 'null');
-    // The stored key keeps its first name, unreadOnly.
+    // The stored keys keep their first names, unreadOnly and kind.
     if (!value || (typeof value.unreadOnly !== 'boolean' && value.route !== 'activity' && value.route !== 'catchup')) return null;
     const search = typeof value.search === 'string' ? value.search : '';
     return {
       unseenOnly: typeof value.unreadOnly === 'boolean' ? value.unreadOnly : value.route === 'catchup',
       search: value.version === RESULTS_VERSION ? search : joinActivitySearch(search, typeof value.people === 'string' ? value.people : ''),
-      kind: typeof value.kind === 'string' ? value.kind : '',
+      activityFilter: typeof value.kind === 'string' ? value.kind : '',
       repoIds: Array.isArray(value.repoIds) ? value.repoIds.filter((id: unknown) => typeof id === 'string') : null,
       // Entries stored before the groups had stable IDs name them by title; restoring maps those to IDs.
       groups: Array.isArray(value.groups)
@@ -128,7 +129,7 @@ export function createNavigation({
     results = {
       unseenOnly: ui.unseenOnly,
       search: ui.search,
-      kind: ui.kind,
+      activityFilter: ui.activityFilter,
       repoIds: ui.repoIds === null ? null : [...ui.repoIds],
       groups: captureGroups(),
       filtersOpen: ui.filtersOpen,
@@ -139,8 +140,11 @@ export function createNavigation({
       activityCapacity: activityCapacity(),
     };
     try {
-      const { unseenOnly, ...rest } = results;
-      sessionStorage.setItem(RESULTS_KEY, JSON.stringify({ ...rest, unreadOnly: unseenOnly, version: RESULTS_VERSION }));
+      const { unseenOnly, activityFilter, ...rest } = results;
+      sessionStorage.setItem(
+        RESULTS_KEY,
+        JSON.stringify({ ...rest, unreadOnly: unseenOnly, kind: activityFilter, version: RESULTS_VERSION }),
+      );
     } catch {
       /* Navigation still works without storage. */
     }
@@ -168,8 +172,8 @@ export function createNavigation({
       ui.unseenOnly = parsed.unseenOnly ?? results?.unseenOnly ?? false;
     },
     view(this: void) {
-      const { route, eventId, relatedCi, search, kind, repoIds, unseenOnly } = ui;
-      return { route, eventId, relatedCi, search, kind, repoIds, unseenOnly, generation };
+      const { route, eventId, relatedCi, search, activityFilter, repoIds, unseenOnly } = ui;
+      return { route, eventId, relatedCi, search, activityFilter, repoIds, unseenOnly, generation };
     },
     get returnUnseenOnly() {
       return results?.unseenOnly ?? false;
@@ -216,8 +220,8 @@ export function createNavigation({
       let capacity;
       if (isActivity(destination)) {
         if (previous === 'event' && results?.unseenOnly === ui.unseenOnly) {
-          const { search, kind, filtersOpen, savedFilterId, repoIds, activityCapacity } = results;
-          Object.assign(ui, { search, kind, filtersOpen, savedFilterId, repoIds });
+          const { search, activityFilter, filtersOpen, savedFilterId, repoIds, activityCapacity } = results;
+          Object.assign(ui, { search, activityFilter, filtersOpen, savedFilterId, repoIds });
           pending = results;
           capacity = activityCapacity;
         } else if (previous === destination && previousUnseenOnly === ui.unseenOnly) {

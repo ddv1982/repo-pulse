@@ -13,7 +13,7 @@ export function activityRoutes({ store, provider }: AppContext) {
     const enabled = store.enabledRepoIds();
     return {
       repoIds: (requested || enabled).filter(id => enabled.includes(id)),
-      kind: query.get('kind') || '',
+      activityFilter: query.get('kind') || '',
       search: query.get('search') || '',
       people: query.get('people') || '',
     };

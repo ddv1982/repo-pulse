@@ -55,7 +55,7 @@ export function createDetailController(
       detail: element => {
         // Detail buttons always carry data-id, so the fallbacks never apply.
         const row = element.closest('li[data-event-id]');
-        const matchingIds = (ui.search || ui.kind) && row instanceof HTMLElement ? eventIds(row) : undefined;
+        const matchingIds = (ui.search || ui.activityFilter) && row instanceof HTMLElement ? eventIds(row) : undefined;
         navigation.remember(element.dataset.id ?? null, matchingIds);
         location.hash = `event/${encodeURIComponent(element.dataset.id ?? '')}${element.hasAttribute('data-related') ? '/ci' : ''}`;
       },

@@ -85,7 +85,7 @@ test('a disabled repository row offers only enabling or removing it', async t =>
   assert.doesNotMatch(await disabled.outerHtml(), /Details for|checkout-state|Check for updates|Sync older/);
 });
 
-const view: Partial<FeedUi> = { repoIds: null, unseenOnly: true, kind: '', search: '' };
+const view: Partial<FeedUi> = { repoIds: null, unseenOnly: true, activityFilter: '', search: '' };
 /** The page state the feed and detail tests build on: the watched repositories and their stored events. */
 type Fixture = State & { repos: Repository[]; events: ActivityEvent[] };
 function fixture(): Fixture {
@@ -131,7 +131,7 @@ function activityPage(state: Fixture, ui: Partial<FeedUi>) {
     return store.queryActivity({
       view: ui.unseenOnly ? 'new' : 'all',
       repoIds: ui.repoIds ?? undefined,
-      kind: ui.kind,
+      activityFilter: ui.activityFilter,
       search: ui.search,
     });
   } finally {
@@ -750,13 +750,13 @@ test('only the failed CI count uses the failure color in both summary layouts', 
   const cell = one(summary, '[data-summary-kind="CI runs"]');
   assert.equal(await text(one(cell, '.val.t-info')), '4');
   assert.equal(await text(one(cell, '.sub')), '1 running · 1 queued · 1 failed');
-  assert.equal(await text(one(cell, 'button.t-crit[data-kind="status:failed"]')), '1 failed');
-  assert.equal(await text(one(cell, 'button.t-info[data-kind="build"]')), 'CI runs 4');
+  assert.equal(await text(one(cell, 'button.t-crit[data-activity-filter="status:failed"]')), '1 failed');
+  assert.equal(await text(one(cell, 'button.t-info[data-activity-filter="build"]')), 'CI runs 4');
   const chip = one(summary, '.summary-chips .chip');
   assert.deepEqual(await classes(chip), ['chip']);
   assert.equal(await text(chip), 'CI runs 4 · 1 running · 1 queued · 1 failed');
-  assert.equal(await text(one(chip, 'button.t-crit[data-kind="status:failed"]')), '1 failed');
-  assert.equal(await text(one(chip, 'button.t-info[data-kind="build"]')), 'CI runs 4');
+  assert.equal(await text(one(chip, 'button.t-crit[data-activity-filter="status:failed"]')), '1 failed');
+  assert.equal(await text(one(chip, 'button.t-info[data-activity-filter="build"]')), 'CI runs 4');
 });
 
 test('the failed CI summary offers all CI runs even when no failures are unread', async t => {
@@ -767,7 +767,7 @@ test('the failed CI summary offers all CI runs even when no failures are unread'
   };
   for (const seen of [false, true]) {
     state.events = [{ ...failure, seen }];
-    const page = parse(t, renderFeed(state, { ...view, unseenOnly: false, kind: 'status:failed' }));
+    const page = parse(t, renderFeed(state, { ...view, unseenOnly: false, activityFilter: 'status:failed' }));
     const count = seen ? '0' : '1';
     const cell = one(page, '[data-summary-kind="CI runs"]');
     const chip = one(page, '.summary-chips .chip');
@@ -775,7 +775,7 @@ test('the failed CI summary offers all CI runs even when no failures are unread'
     assert.equal(await text(one(cell, '.val')), count);
     assert.equal(await text(chip), `Failed CI runs ${count} · Show all CI runs`);
     for (const layout of [cell, chip]) {
-      assert.equal(await text(one(layout, 'button[data-kind="build"]')), 'Show all CI runs');
+      assert.equal(await text(one(layout, 'button[data-activity-filter="build"]')), 'Show all CI runs');
     }
     assert.equal(await one(page, '#kind-toggle').getAttribute('data-active'), 'true');
   }

@@ -358,7 +358,7 @@ const feedView = stub<import('../src/ui/feed.ts').FeedView & { savedFilterId: st
   unseenOnly: false,
   repoIds: null,
   search: '',
-  kind: '',
+  activityFilter: '',
   filtersOpen: false,
   groups: new Map(),
 });

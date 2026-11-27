@@ -464,8 +464,8 @@ export function createActivityQuery(
   db.function('matches_people', { deterministic: true, varargs: true }, (id, data, enrichment, ...terms) =>
     Number(matchesPeople(hydrate({ id, data, enrichment }), terms.map(String))),
   );
-  function readScope({ repoIds, kind = '', search = '', people = '' }: ActivityRequest) {
-    if (typeof search !== 'string' || typeof people !== 'string' || typeof kind !== 'string') {
+  function readScope({ repoIds, activityFilter = '', search = '', people = '' }: ActivityRequest) {
+    if (typeof search !== 'string' || typeof people !== 'string' || typeof activityFilter !== 'string') {
       throw invalid('Invalid activity filter.', 'BAD_REQUEST');
     }
     if (search.length > 300) {
@@ -473,7 +473,7 @@ export function createActivityQuery(
     }
     const selected = repoIds ? [...new Set(repoIds)].sort() : undefined;
     selected?.forEach(requireRepo);
-    const filter = parseActivityFilter(kind);
+    const filter = parseActivityFilter(activityFilter);
     const needles = parseSearchTerms(search);
     const names = peopleNames(people);
     if (!names) throw invalid(PEOPLE_LIMIT_MESSAGE, 'BAD_REQUEST');
@@ -502,7 +502,7 @@ export function createActivityQuery(
     highlights: ReturnType<typeof activityHighlights> | undefined,
     view: string,
     filtered: boolean,
-    kind: string,
+    activityFilter: string,
     foldCi: boolean,
   ) {
     // Late inserts are pinned out. A label or rewrite change to an existing row may invalidate the window.
@@ -510,7 +510,7 @@ export function createActivityQuery(
       const stamp = createHash('sha256')
         .update(JSON.stringify([...highlights.keys()]))
         .digest('base64url');
-      return `highlights:${stamp}:${view === 'new' ? seenRevision() : ''}:${filtered || kind ? activityRevision() : ''}`;
+      return `highlights:${stamp}:${view === 'new' ? seenRevision() : ''}:${filtered || activityFilter ? activityRevision() : ''}`;
     }
     if (filtered) return `2:${activityRevision()}`;
     if (foldCi) return `ci:${seenRevision()}`;
@@ -539,21 +539,21 @@ export function createActivityQuery(
   function queryActivity({
     repoIds,
     view = 'all',
-    kind = '',
+    activityFilter = '',
     search = '',
     people = '',
     limit = 50,
     cursor,
   }: ActivityRequest = {}): ActivityPage {
     const pageSize = Math.max(1, Math.min(Number(limit) || 50, 200));
-    const { selected, filter, needles, names } = readScope({ repoIds, kind, search, people });
-    const foldCi = !highlightsOnly && !kind && !needles.length && !names.length && view === 'all';
+    const { selected, filter, needles, names } = readScope({ repoIds, activityFilter, search, people });
+    const foldCi = !highlightsOnly && !activityFilter && !needles.length && !names.length && view === 'all';
     const filterKey = JSON.stringify({ selected, view, filter, search: needles, people: names });
     const position = decodeCursor(cursor, filterKey);
     const maxSequence =
       position?.maxSequence ?? Number(db.prepare('SELECT COALESCE(MAX(sequence),0) AS id FROM activity_members').get()?.id);
     const highlights = readHighlights(maxSequence, selected);
-    const revision = pageRevision(highlights, view, Boolean(needles.length || names.length), kind, foldCi);
+    const revision = pageRevision(highlights, view, Boolean(needles.length || names.length), activityFilter, foldCi);
     if (position && revision !== undefined && position.revision !== revision) {
       throw conflict('Activity changed while loading results. Try again.', 'ACTIVITY_CHANGED');
     }

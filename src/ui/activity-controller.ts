@@ -37,8 +37,8 @@ export function createActivityController(
     else void load({ force: true });
   }
 
-  function setActivityType(kind: string | undefined) {
-    ui.kind = kind ?? '';
+  function setActivityType(activityFilter: string | undefined) {
+    ui.activityFilter = activityFilter ?? '';
     activityChanged();
   }
 
@@ -49,7 +49,7 @@ export function createActivityController(
     Object.assign(ui, {
       savedFilterId: id,
       search: joinActivitySearch(search, people),
-      kind,
+      activityFilter: kind,
       repoIds: savedRepositoryScope(repoIds, state().watched),
     });
     const unseenOnly = view === 'new';
@@ -113,7 +113,7 @@ export function createActivityController(
       },
       'clear-filters': () => {
         ui.search = '';
-        ui.kind = '';
+        ui.activityFilter = '';
         ui.savedFilterId = '';
         if (ui.unseenOnly) location.hash = activityHref(false);
         else activityChanged();
@@ -123,9 +123,9 @@ export function createActivityController(
       },
       'filter-activity-type': element => {
         ui.filtersOpen = true;
-        setActivityType(element.dataset.kind);
+        setActivityType(element.dataset.activityFilter);
       },
-      'choose-activity-type': element => setActivityType(element.dataset.kind),
+      'choose-activity-type': element => setActivityType(element.dataset.activityFilter),
       'toggle-activity-filters': () => {
         ui.filtersOpen = !ui.filtersOpen;
         renderPage();

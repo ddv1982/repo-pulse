@@ -16,16 +16,17 @@ export function savedRepositoryScope(ids: string[] | null, watched: { id: string
 
 export function currentActivityFilters({
   search,
-  kind,
+  activityFilter,
   repoIds,
   unseenOnly,
 }: {
   search: string;
-  kind: string;
+  activityFilter: string;
   repoIds: string[] | null;
   unseenOnly: boolean;
 }): ActivityFilters {
-  return { ...splitActivitySearch(search), kind, repoIds, view: unseenOnly ? 'new' : 'all' };
+  // A saved filter stores the type filter under its first name, kind.
+  return { ...splitActivitySearch(search), kind: activityFilter, repoIds, view: unseenOnly ? 'new' : 'all' };
 }
 
 export function isSavedFilterModified(saved: ActivityFilters, current: ActivityFilters, watched: { id: string }[]) {
