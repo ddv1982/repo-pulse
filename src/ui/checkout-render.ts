@@ -1,4 +1,5 @@
 import { azureLink, emptyHtml, html, joinHtml } from './format.ts';
+import { repositoryHref } from './navigation.ts';
 import type { CheckoutSnapshot } from './checkout.ts';
 import type { CheckoutDiagnostic } from '../contract.d.ts';
 
@@ -105,7 +106,7 @@ function diagnosticMarkup(id: string, diagnostic: CheckoutDiagnostic | undefined
     </div>
     ${
       canSwitch && advice
-        ? html`<button type="button" class="btn primary sm" id="checkout-switch-${id}"
+        ? html`<button type="button" class="btn primary sm" id="checkout-switch-target-${id}"
       data-action="switch-checkout-target" data-id="${id}">Switch to ${advice.branch} and update</button>`
         : emptyHtml
     }
@@ -202,21 +203,31 @@ function checkTimeMarkup(checkout: CheckoutSnapshot | undefined) {
 }
 
 /** A switch needs a named branch and a verified Git directory, and no Git operation in progress. */
-const canSwitch = (checkout: CheckoutSnapshot | undefined) =>
+export const canSwitch = (checkout: CheckoutSnapshot | undefined) =>
   Boolean(checkout?.branch && checkout.head && checkout.identity && checkout.switchIdentity && checkout.state !== 'in-progress');
 
-function statusMarkup(id: string, checkout: CheckoutSnapshot | undefined) {
+function statusMarkup(id: string, checkout: CheckoutSnapshot | undefined, activityBranch?: string, showUpstream = false) {
+  const onActivityBranch = !activityBranch || checkout?.branch === activityBranch;
   const branch = checkout?.branch || (checkout?.state === 'detached' ? checkout.head?.slice(0, 8) : '');
   const label = branchStatus(checkout);
   const tone = statusTone(checkout?.state, label);
   return html`<div class="checkout-state">${branch ? html`<code class="subref" title="${branch}">${branch}</code>` : emptyHtml}
+    ${showUpstream && checkout?.upstream ? html`<code class="subref checkout-upstream" title="${checkout.upstream}">→ ${checkout.upstream}</code>` : emptyHtml}
     ${label ? html`<span class="chip status-chip ${tone}">${label}</span>` : emptyHtml}
     ${checkout?.dirty ? html`<span class="chip status-chip neutral">Local changes</span>` : emptyHtml}
     ${checkTimeMarkup(checkout)}
     </div>
-    ${checkout?.canCheck ? html`<button type="button" class="ghost sm" id="checkout-check-${id}" data-action="check-checkout" data-id="${id}" title="Fetch ${checkout.upstream} and compare it with your current branch">Check for updates</button>` : emptyHtml}
-    ${checkout?.canPull ? html`<button type="button" class="btn primary sm" id="checkout-pull-${id}" data-action="pull-checkout" data-id="${id}">Pull</button>` : emptyHtml}
-    ${canSwitch(checkout) ? html`<button type="button" class="ghost sm" id="checkout-switch-${id}" data-action="open-branch-picker" data-id="${id}">Switch branch…</button>` : emptyHtml}`;
+    ${onActivityBranch && checkout?.canCheck ? html`<button type="button" class="ghost sm" id="checkout-check-${id}" data-action="check-checkout" data-id="${id}" title="Fetch ${checkout.upstream} and compare it with your current branch">Check for updates</button>` : emptyHtml}
+    ${onActivityBranch && checkout?.canPull ? html`<button type="button" class="btn primary sm" id="checkout-pull-${id}" data-action="pull-checkout" data-id="${id}">Pull</button>` : emptyHtml}
+    ${canSwitch(checkout) && !activityBranch ? html`<button type="button" class="ghost sm" id="checkout-switch-${id}" data-action="open-branch-picker" data-id="${id}">Switch branch…</button>` : emptyHtml}
+    ${canSwitch(checkout) && !onActivityBranch ? html`<button type="button" class="ghost sm" id="activity-branch-action" data-action="switch-activity-branch">Switch to ${activityBranch}…</button>` : emptyHtml}`;
+}
+
+export function renderCheckoutBar(id: string, checkout: CheckoutSnapshot | undefined, activityBranch?: string) {
+  return html`<div class="checkout-bar" id="checkout-state-${id}" tabindex="-1" role="group" aria-label="Local checkout">
+    <div class="checkout-bar-state" aria-live="polite">${statusMarkup(id, checkout, activityBranch, true)}</div>
+    ${checkout && (activityBranch || checkout.diagnostic || checkout.followup || attention.has(checkout.state) || !canSwitch(checkout)) ? html`<a class="ghost sm" href="${repositoryHref(id)}">View in Repositories</a>` : emptyHtml}
+  </div>`;
 }
 
 export function renderCheckout(id: string, checkout: CheckoutSnapshot | undefined, part: string | undefined) {

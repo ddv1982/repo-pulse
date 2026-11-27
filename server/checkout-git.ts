@@ -8,7 +8,7 @@ import { adviseMissingUpstream, isCommit } from './checkout-advice.ts';
 import { branchFollowups, branchProblem, memoryFollowups } from './checkout-branches.ts';
 import { isSymbolicRef } from './checkout-delete-guard.cjs';
 import { checkoutDiagnostic, memoryObservations, observedRewrite } from './checkout-observations.ts';
-import { readGitHistory } from './git-history.ts';
+import { gitHistorySnapshot, readGitHistory } from './git-history.ts';
 import { createActivitySwitch } from './checkout-activity-switch.ts';
 import { createCheckoutUpdater } from './checkout-update.ts';
 import { archivedSwitchRewrite, readDirectCommit } from './checkout-switch-refs.ts';
@@ -233,11 +233,11 @@ function checkoutState({
   if (observation?.missing) return 'upstream-missing';
   if (rewrite) return 'upstream-rewritten';
   if (observation?.failure) return 'fetch-failed';
-  if (dirty && !(target && ahead === 0 && behind !== null && behind > 0)) return 'dirty';
   if (!upstream) return 'no-upstream';
   if (!target) return 'different-remote';
   if (ahead === null) return 'unknown';
   if (ahead && behind) return 'diverged';
+  if (dirty && !behind) return 'dirty';
   if (ahead) return 'ahead';
   if (behind) return 'behind';
   return 'current';
@@ -544,10 +544,10 @@ export function createCheckoutGit({
     }
   }
 
-  function status(repo: LinkedRepo): Promise<CheckoutStatus> {
+  function status(repo: LinkedRepo, { fresh = false } = {}): Promise<CheckoutStatus> {
     if (!repo.localPath) return Promise.resolve({ state: 'not-linked' });
     const previous = readings.get(repo.id);
-    if (previous?.path === repo.localPath && previous.until > now()) return previous.value;
+    if (!fresh && previous?.path === repo.localPath && previous.until > now()) return previous.value;
     const value = checkoutPath(repo).then(
       path => inspect(path, repo, { configChecked: true }),
       (error: { diagnostic?: import('./checkout-observations.ts').CheckoutDiagnostic }): CheckoutStatus =>
@@ -600,7 +600,11 @@ export function createCheckoutGit({
     } finally {
       readings.delete(repo.id);
       updatingRepos.delete(repo.id);
-      if (commonDir) updatingGitDirs.delete(commonDir);
+      if (commonDir) {
+        // Other watched worktrees can share tracking refs with this checkout.
+        readings.clear();
+        updatingGitDirs.delete(commonDir);
+      }
     }
   }
 
@@ -691,5 +695,14 @@ export function createCheckoutGit({
     }
   }
 
-  return { status, update, branchAction, switchToActivityBranch, localBranches, history };
+  async function historySnapshot(repo: LinkedRepo) {
+    const path = await checkoutPath(repo);
+    try {
+      return await gitHistorySnapshot(run, path, repo.defaultBranch);
+    } catch {
+      throw problem('Git could not read commit refs for this checkout.');
+    }
+  }
+
+  return { status, update, branchAction, switchToActivityBranch, localBranches, history, historySnapshot };
 }

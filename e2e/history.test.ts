@@ -661,9 +661,9 @@ test('a successful tag build folds only for the exact tag revision in the mixed 
 
   cacheTag(tagObject);
   await page.reload();
-  await expect(tag.getByText('CI succeeded', { exact: true })).toBeVisible();
+  await expect(tag.locator('summary').filter({ hasText: 'CI succeeded' })).toBeVisible();
   await expect(build).toHaveCount(0);
-  await tag.getByText('CI succeeded', { exact: true }).click();
+  await tag.locator('summary').filter({ hasText: 'CI succeeded' }).click();
   await expect(tag.getByRole('link', { name: 'Build in Azure ↗' })).toHaveAttribute('href', buildUrl);
   const detail = tag.getByRole('button', { name: 'Release test CI' });
   await detail.click();
@@ -687,7 +687,7 @@ test('a successful tag build folds only for the exact tag revision in the mixed 
   runtime.store.acknowledge(['release-build'], false);
   await page.reload();
   await expect(build).toBeVisible();
-  await expect(tag.getByText('CI succeeded', { exact: true })).toHaveCount(0);
+  await expect(tag.locator('summary').filter({ hasText: 'CI succeeded' })).toHaveCount(0);
 });
 
 test('opening Activity before the first state load arrives stays on Activity', async t => {

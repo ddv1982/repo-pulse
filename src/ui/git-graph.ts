@@ -2,7 +2,9 @@ import type { GitHistoryActivity, GitHistoryPage, Repository } from '../contract
 import { layoutGitGraph } from '../git-graph.ts';
 import { foldSearchText, matchesPersonName, parsePeople, parseSearchTerms } from '../search-terms.ts';
 import { splitActivitySearch } from './activity-search.ts';
-import { emptyHtml, html } from './format.ts';
+import { ciTime, emptyHtml, fullDateTime, html } from './format.ts';
+import { renderCheckoutBar } from './checkout-render.ts';
+import type { CheckoutSnapshot } from './checkout.ts';
 import { renderSearchHelp, renderSearchInput } from './search-field.ts';
 
 type State = {
@@ -11,6 +13,7 @@ type State = {
   page: GitHistoryPage | null;
   loading: boolean;
   error: string;
+  changed?: boolean;
 };
 
 type Options = {
@@ -23,8 +26,8 @@ export function createGitGraph({ read, render }: Options) {
   let state = empty;
 
   async function load(cursor: string | null, reportPending = true) {
-    if (!state.repoId || state.loading) return;
-    const pending = { ...state, page: cursor ? state.page : null, loading: true, error: '' };
+    if (!state.repoId || (cursor && (state.loading || state.changed))) return;
+    const pending = { ...state, page: cursor ? state.page : null, loading: true, error: '', changed: false };
     state = pending;
     if (reportPending) render();
     try {
@@ -53,6 +56,11 @@ export function createGitGraph({ read, render }: Options) {
     },
     reset() {
       state = empty;
+    },
+    markChanged(snapshot: string) {
+      if (state.page?.snapshot !== snapshot || state.changed) return;
+      state = { ...state, loading: false, changed: true, error: '' };
+      render();
     },
     reload: () => load(null),
     more: () => {
@@ -84,8 +92,9 @@ const ciTones = new Map([
 
 function graphActivity(item: GitHistoryActivity) {
   const merged = item.kind === 'pr' && item.status === 'Merged';
+  const date = item.kind === 'build' ? ciTime(item.time) : emptyHtml;
   const tone = item.kind === 'build' ? (ciTones.get(item.status) ?? 'neutral') : merged ? 'ok merged' : 'neutral';
-  return html`<a class="graph-link chip status-chip ${tone}" href="#event/${encodeURIComponent(item.id)}" title="${item.title}">${item.kind === 'build' ? 'CI' : 'PR'} · ${item.status}</a>`;
+  return html`<a class="graph-link chip status-chip ${tone}" href="#event/${encodeURIComponent(item.id)}" title="${item.kind === 'build' ? `${item.title} · ${fullDateTime(item.time)}` : item.title}">${item.kind === 'build' ? 'CI' : 'PR'} · ${item.status}${date === emptyHtml ? emptyHtml : html` · ${date}`}</a>`;
 }
 
 function searchMatches(page: GitHistoryPage | null, query: string) {
@@ -172,22 +181,31 @@ function historyRows(page: GitHistoryPage, matches: Set<string>, currentMatch: s
     </li>`;
     })}</ol>`;
 }
-export function renderGitGraph(repos: Repository[], repo: Repository | undefined, state: State, query: string, currentMatch: string) {
-  const { page, loading, error } = state;
+export function renderGitGraph(
+  repos: Repository[],
+  repo: Repository | undefined,
+  state: State,
+  query: string,
+  currentMatch: string,
+  checkout?: CheckoutSnapshot,
+) {
+  const { page, loading, error, changed } = state;
   const matches = searchMatches(page, query);
   return html`<section class="card git-graph" aria-label="Git Graph">
     <header class="graph-toolbar">
-      <div class="graph-heading"><h1>Git Graph</h1>${page ? html`<p class="graph-scope"><span class="graph-branch">${page.branch ?? (page.head ? 'Detached HEAD' : 'No commits yet')}</span>${page.upstream ? html` · <code>${page.upstream}</code>` : emptyHtml}${page.shallow ? ' · Shallow checkout' : ''}</p>` : emptyHtml}</div>
+      <div class="graph-heading"><h1>Git Graph</h1>${page && (changed || !checkout || checkout.branch !== page.branch || checkout.head !== page.head || page.shallow) ? html`<p class="graph-scope"><span class="graph-branch">${page.branch ?? (page.head ? 'Detached HEAD' : 'No commits yet')}</span>${page.upstream ? html` · <code>${page.upstream}</code>` : emptyHtml}${page.shallow ? ' · Shallow checkout' : ''}</p>` : emptyHtml}</div>
       ${repos.length ? html`<label class="graph-repo" for="graph-repo"><span>Repository</span><select class="control" id="graph-repo">${repos.map(item => html`<option value="${item.id}" ${item.id === repo?.id ? html`selected` : emptyHtml}>${item.name}</option>`)}</select></label>` : emptyHtml}
       ${repo?.localPath ? html`<button type="button" id="graph-reload" class="btn sm" data-action="reload-graph" ${loading ? html`disabled` : emptyHtml}>Reload graph</button>` : emptyHtml}
     </header>
+    ${repo?.localPath ? renderCheckoutBar(repo.id, checkout) : emptyHtml}
+    ${changed ? html`<p class="graph-status" role="status">Checkout changed. Reload the graph to see the current history.</p>` : emptyHtml}
     ${
       repo?.localPath
         ? html`${graphSearch(page, query, matches, currentMatch)}
         ${page?.commits.length ? historyRows(page, new Set(matches?.ids), currentMatch) : emptyHtml}
         ${loading ? html`<p class="graph-status" role="status">Loading Git history…</p>` : emptyHtml}
         ${error ? html`<p class="graph-status" role="alert">${error}</p>` : emptyHtml}
-        ${page?.nextCursor ? html`<div class="foot"><button type="button" id="graph-more" class="btn" data-action="more-graph" ${loading || error ? html`disabled` : emptyHtml}>Load more commits</button></div>` : emptyHtml}`
+        ${page?.nextCursor ? html`<div class="foot"><button type="button" id="graph-more" class="btn" data-action="more-graph" ${loading || error || changed ? html`disabled` : emptyHtml}>Load more commits</button></div>` : emptyHtml}`
         : html`<p class="graph-status">Link a local checkout in <a href="#repositories">Repositories</a> to view its commit history.</p>`
     }
   </section>`;

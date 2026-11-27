@@ -379,11 +379,15 @@ export function createApp({
     {
       method: 'GET',
       path: /^\/api\/events\/(.+)$/,
-      handler: ({ res, params: [rawId] }) => {
+      handler: ({ res, url, params: [rawId] }) => {
         const id = decodeParam(rawId);
         const event = store.getEvent(id);
         if (!event || !enabledRepoIds().includes(event.repoId)) throw problem('Activity not found.', 404);
-        return json(res, 200, { event, events: store.getEventGroup(id), related: store.relatedActivity(event) } satisfies EventResponse);
+        return json(res, 200, {
+          event,
+          events: store.getEventGroup(id),
+          related: store.relatedActivity(event, { ciOnly: url.searchParams.get('ci') === '1' }),
+        } satisfies EventResponse);
       },
     },
     {
@@ -480,6 +484,15 @@ export function createApp({
     },
     {
       method: 'GET',
+      path: /^\/api\/repos\/([^/]+)\/graph\/snapshot$/,
+      handler: async ({ res, params: [rawId] }) => {
+        const repo = enabledRepoById(decodeParam(rawId));
+        if (demo) throw problem('Demo repositories have no local Git history.', 404);
+        return json(res, 200, await checkoutGit.historySnapshot(repo));
+      },
+    },
+    {
+      method: 'GET',
       path: /^\/api\/repos\/([^/]+)\/graph$/,
       handler: async ({ res, url, params: [rawId] }) => {
         const repo = enabledRepoById(decodeParam(rawId));
@@ -488,9 +501,13 @@ export function createApp({
         const commits = new Map(page.commits.map(commit => [commit.id, commit]));
         for (const { sha, event } of store.commitActivity(repo.id, [...commits.keys()])) {
           if (event.kind === 'pr' || event.kind === 'build') {
-            commits
-              .get(sha)
-              ?.activity.push({ id: event.id, kind: event.kind, title: event.title ?? '', status: activityLabel(event) ?? 'Updated' });
+            commits.get(sha)?.activity.push({
+              id: event.id,
+              kind: event.kind,
+              time: event.time,
+              title: event.title ?? '',
+              status: activityLabel(event) ?? 'Updated',
+            });
           }
         }
         return json(res, 200, page);
@@ -503,7 +520,7 @@ export function createApp({
         if (demo) throw problem('Demo checkouts have no local branches.', 403);
         const repo = enabledRepoById(decodeParam(rawId));
         const local = new Set(await checkoutGit.localBranches(repo));
-        const pinned = ['main', 'master'];
+        const pinned = [repo.defaultBranch?.slice(11), 'main', 'master'];
         const branches = store
           .listEntities(repo.id, 'ref')
           .filter(({ id, data }) => id.startsWith('refs/heads/') && id.length > 11 && data.active !== false)
@@ -522,10 +539,14 @@ export function createApp({
     {
       method: 'GET',
       path: /^\/api\/repos\/([^/]+)\/checkout\/status$/,
-      handler: async ({ res, params: [rawId] }) => {
+      handler: async ({ res, url, params: [rawId] }) => {
         if (demo) throw problem('Demo checkouts have no local status.', 403);
         const repo = enabledRepoById(decodeParam(rawId));
-        return json(res, 200, (await checkoutGit.status(repo)) satisfies CheckoutStatusResponse);
+        return json(
+          res,
+          200,
+          (await checkoutGit.status(repo, { fresh: url.searchParams.get('fresh') === '1' })) satisfies CheckoutStatusResponse,
+        );
       },
     },
     {

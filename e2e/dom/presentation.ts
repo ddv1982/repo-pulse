@@ -199,9 +199,23 @@ test('a completed pull request detail offers a switch to the branch it merged in
   };
   state.events = [pr];
   state.repos = [stub<Repository>({ id: 'on', name: 'Orders', localPath: '/src/orders' })];
-  assert.equal(await text(one(parse(renderDetail(pr, state, null)), '[data-action="switch-activity-branch"]')), 'Switch to main…');
+  assert.equal(
+    await text(
+      one(
+        parse(
+          renderDetail(pr, state, null, {
+            checkouts: {
+              on: stub<CheckoutSnapshot>({ state: 'current', branch: 'topic', head: 'id', identity: 'id', switchIdentity: 'git' }),
+            },
+          }),
+        ),
+        '[data-action="switch-activity-branch"]',
+      ),
+    ),
+    'Switch to main…',
+  );
   const onMain = parse(renderDetail(pr, state, null, { checkouts: { on: stub<CheckoutSnapshot>({ branch: 'main' }) } }));
-  assert.equal(await text(one(onMain, '#activity-branch-action')), 'View in Repositories');
+  assert.equal(await text(one(onMain, '.checkout-bar a')), 'View in Repositories');
   assert.doesNotMatch(await text(parse(renderDetail(pr, { ...state, demo: true }, null))), /Switch to/);
 });
 

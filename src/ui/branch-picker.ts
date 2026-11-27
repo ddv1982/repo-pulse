@@ -21,6 +21,7 @@ export function createBranchPicker(dialog: HTMLDialogElement, { load }: { load: 
   let failure: string | null = null;
   let loading = false;
   let opened = 0;
+  let openerId = '';
 
   function render() {
     const query = filter.value.trim().toLowerCase();
@@ -55,7 +56,7 @@ export function createBranchPicker(dialog: HTMLDialogElement, { load }: { load: 
   dialog.addEventListener('close', () => {
     const active = document.activeElement;
     if (active && active !== document.body && !dialog.contains(active)) return;
-    (document.getElementById(`checkout-switch-${repo?.id}`) ?? document.getElementById(`checkout-state-${repo?.id}`))?.focus();
+    (document.getElementById(openerId) ?? document.getElementById(`checkout-state-${repo?.id}`))?.focus();
   });
 
   return {
@@ -66,9 +67,10 @@ export function createBranchPicker(dialog: HTMLDialogElement, { load }: { load: 
       if (dialog.open) dialog.close();
     },
     /** @param branch the branch checked out now */
-    async show(next: PickerRepo, branch: string) {
+    async show(next: PickerRepo, branch: string, triggerId: string) {
       const issued = ++opened;
       repo = next;
+      openerId = triggerId;
       current = branch;
       branches = [];
       failure = null;

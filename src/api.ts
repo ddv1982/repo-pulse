@@ -47,16 +47,18 @@ export type ResponseFor<P extends string> = P extends '/api/state'
               ? CheckoutsResponse
               : P extends `/api/repos/${string}/checkout/branches`
                 ? import('./contract.d.ts').CheckoutBranchesResponse
-                : P extends `/api/repos/${string}/checkout/status`
+                : P extends `/api/repos/${string}/checkout/status` | `/api/repos/${string}/checkout/status?${string}`
                   ? import('./contract.d.ts').CheckoutStatusResponse
                   : P extends `/api/repos/${string}/checkout`
                     ? CheckoutUpdateResponse
                     : P extends '/api/repos'
                       ? import('./contract.d.ts').Repository
                       : P extends `/api/repos/${string}`
-                        ? P extends `/api/repos/${string}/graph` | `/api/repos/${string}/graph?${string}`
-                          ? import('./contract.d.ts').GitHistoryPage
-                          : OkResponse
+                        ? P extends `/api/repos/${string}/graph/snapshot`
+                          ? import('./contract.d.ts').GitHistorySnapshot
+                          : P extends `/api/repos/${string}/graph` | `/api/repos/${string}/graph?${string}`
+                            ? import('./contract.d.ts').GitHistoryPage
+                            : OkResponse
                         : P extends '/api/connection' | `/api/connection?${string}`
                           ? ConnectionResponse
                           : P extends `/api/push/${string}/${string}/commits` | `/api/push/${string}/${string}/commits?${string}`

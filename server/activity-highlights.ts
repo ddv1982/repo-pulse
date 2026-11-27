@@ -31,6 +31,7 @@ function prReason(event: ActivityEvent, before?: ActivityEvent): HighlightReason
 function ciLink(entry: Entry, validation: boolean, postMerge: boolean, recovery = false, stale = false): RelatedCi {
   return {
     id: entry.event.id,
+    time: entry.event.time,
     title: entry.event.title ?? 'CI run',
     validation,
     postMerge,
@@ -320,6 +321,11 @@ export function attachHighlights(items: ActivityItem[], highlights: Map<string, 
     if (item.kind === 'push' && item.data?.refUpdates?.length === 1 && item.data.mergeEvidence) {
       item.data = { ...item.data, mergeEvidence: { ...item.data.mergeEvidence, prs: [] } };
     }
-    if (highlight.ci) item.relatedCi = highlight.ci.slice(-6).reverse();
+    if (highlight.ci) {
+      item.earlierCiCount = Math.max(0, highlight.ci.length - 6);
+      item.relatedCi = [...highlight.ci]
+        .sort((a, b) => (new Date(b.time).valueOf() || 0) - (new Date(a.time).valueOf() || 0) || b.id.localeCompare(a.id))
+        .slice(0, 6);
+    }
   }
 }

@@ -623,14 +623,11 @@ test('Activity resolves CI across pages and keeps failures and filtered runs vis
     ['legacy-preview', 'unread-pass', 'failed', 'scheduled', 'wrong-ref', 'merge', 'other-pr', 'new-pr-preview', 'pr-open', 'push-main'],
   );
   assert.deepEqual(
-    all
-      .find(item => item.id === 'merge')
-      ?.relatedCi?.map(run => [run.id, run.outcome, run.postMerge])
-      .sort(),
+    all.find(item => item.id === 'merge')?.relatedCi?.map(run => [run.id, run.outcome, run.postMerge, new Date(run.time).toISOString()]),
     [
-      ['failed', 'failed', true],
-      ['passing', 'passed', true],
-      ['unread-pass', 'passed', true],
+      ['unread-pass', 'passed', true, new Date(stamp(8)).toISOString()],
+      ['failed', 'failed', true, new Date(stamp(7)).toISOString()],
+      ['passing', 'passed', true, new Date(stamp(4)).toISOString()],
     ],
   );
   assert.ok(all.find(item => item.id === 'merge')?.eventIds.includes('passing'));
@@ -649,4 +646,34 @@ test('Activity resolves CI across pages and keeps failures and filtered runs vis
   store.acknowledge(['passing'], false);
   assert.throws(() => store.queryActivity({ limit: 1, cursor: present(first.nextCursor) }), { code: 'ACTIVITY_CHANGED' });
   assert.ok(store.queryActivity().items.some(item => item.id === 'passing'));
+});
+
+test('related CI keeps legacy numeric run times and orders them with ISO timestamps', t => {
+  const store = createStore();
+  t.after(() => store.close());
+  store.saveRepo(repo);
+  const main = 'refs/heads/main';
+  const sha = 'a'.repeat(40);
+  const day = '2026-11-17T';
+  const legacyMillis = Date.parse(`${day}11:30:00Z`);
+  const run = (id: number, time: string | number) =>
+    event(`run-${id}`, {
+      kind: 'build',
+      time,
+      data: { buildId: id, status: 'completed', result: 'succeeded', reason: 'individualCI', sourceBranch: main, sourceVersion: sha },
+    });
+  store.insertEvents([
+    event('merge', {
+      kind: 'pr',
+      data: { status: 'completed', pullRequestId: 42, mergeCommit: sha, targetRefName: main },
+    }),
+    run(1, `${day}11:00:00Z`),
+    run(2, legacyMillis),
+    run(3, `${day}12:00:00Z`),
+  ]);
+  const merge = store.queryActivity().items.find(item => item.id === 'merge');
+  assert.deepEqual(
+    merge?.relatedCi?.map(({ time }) => time),
+    [`${day}12:00:00Z`, legacyMillis, `${day}11:00:00Z`],
+  );
 });

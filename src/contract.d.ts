@@ -437,11 +437,14 @@ export type DemoEventResponse = ActivityEvent;
 export type GitHistoryActivity = {
   id: string;
   kind: 'build' | 'pr';
+  time: ActivityEvent['time'];
   title: string;
   status: string;
 };
 
-export type GitHistoryPage = {
+export type GitHistorySnapshot = { snapshot: string };
+
+export type GitHistoryPage = GitHistorySnapshot & {
   head: string;
   branch: string | null;
   upstream: string | null;

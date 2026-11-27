@@ -3,6 +3,7 @@ import { joinActivitySearch } from './activity-search.ts';
 export type NavigationState = {
   route: string;
   eventId: string | null;
+  relatedCi?: boolean | undefined;
   repoIds: string[] | null;
   search: string;
   kind: string;
@@ -31,7 +32,7 @@ export type WatchedRepo = { id: string; disabled?: boolean };
  * Resolve legacy Activity bookmarks to the corresponding filter.
  */
 export function parseRoute(hash: string) {
-  const [name, value] = String(hash || '')
+  const [name, value, detail] = String(hash || '')
     .replace(/^#/, '')
     .split('/');
   if (name === 'rules') return { route: 'settings', eventId: null };
@@ -45,7 +46,9 @@ export function parseRoute(hash: string) {
     } catch {
       /* Invalid bookmark gets the not-found view. */
     }
-    return name === 'event' ? { route: 'event', eventId: id } : { route: 'repositories', eventId: null, checkoutRepoId: id };
+    return name === 'event'
+      ? { route: 'event', eventId: id, ...(detail === 'ci' ? { relatedCi: true } : {}) }
+      : { route: 'repositories', eventId: null, checkoutRepoId: id };
   }
   if (name === 'settings' || name === 'graph') return { route: name, eventId: null };
   return { route: 'activity', eventId: null, unreadOnly: false };
@@ -148,13 +151,13 @@ export function createNavigation({
   return {
     initialize() {
       const { checkoutRepoId: id, ...parsed } = canonicalRoute();
-      Object.assign(ui, parsed);
+      Object.assign(ui, { relatedCi: false }, parsed);
       checkoutRepoId = id;
       ui.unreadOnly = parsed.unreadOnly ?? results?.unreadOnly ?? false;
     },
     view(this: void) {
-      const { route, eventId, search, kind, repoIds, unreadOnly } = ui;
-      return { route, eventId, search, kind, repoIds, unreadOnly, generation };
+      const { route, eventId, relatedCi, search, kind, repoIds, unreadOnly } = ui;
+      return { route, eventId, relatedCi, search, kind, repoIds, unreadOnly, generation };
     },
     get returnUnreadOnly() {
       return results?.unreadOnly ?? false;
@@ -186,7 +189,7 @@ export function createNavigation({
       const destination = parsed.route;
       invalidate();
       if (destination === 'event' && results?.eventId !== parsed.eventId) remember(parsed.eventId);
-      Object.assign(ui, parsed);
+      Object.assign(ui, { relatedCi: false }, parsed);
 
       let capacity;
       if (isActivity(destination)) {

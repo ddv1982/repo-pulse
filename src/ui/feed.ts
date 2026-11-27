@@ -4,6 +4,7 @@ import {
   joinHtml,
   dateTime,
   fullDateTime,
+  ciTime,
   azureLink,
   activityActor,
   activityLabel,
@@ -93,7 +94,7 @@ function inlineCommits(record: ActivityItem, commits: CommitsView | undefined) {
 function renderRelatedCi(record: ActivityItem) {
   const runs = record.relatedCi ?? [];
   const multiple = runs.length > 1;
-  const ciButtons = html`${runs.map(run => html`<button type="button" class="ghost sm status-text ${run.outcome === 'passed' || run.outcome === 'passing again' ? 'ok' : run.outcome === 'failed' ? 'crit' : 'warn'}" data-action="detail" data-id="${run.id}" title="${run.title}">${run.validation ? 'PR validation' : run.postMerge ? 'Post-merge CI' : 'Branch CI'} ${run.outcome}${run.stale ? ' on earlier revision' : ''}</button>`)}`;
+  const ciButtons = html`${runs.map(run => html`<button type="button" class="ghost sm ci-run status-text ${run.outcome === 'passed' || run.outcome === 'passing again' ? 'ok' : run.outcome === 'failed' ? 'crit' : 'warn'}" data-action="detail" data-id="${run.id}" title="${run.title} · ${fullDateTime(run.time)}"><span>${run.validation ? 'PR validation' : run.postMerge ? 'Post-merge CI' : 'Branch CI'} ${run.outcome}${run.stale ? ' on earlier revision' : ''}</span> ${ciTime(run.time, true)}</button>`)}`;
   const failed = runs.filter(run => run.outcome === 'failed').length;
   const partial = runs.filter(run => run.outcome === 'partially succeeded').length;
   const passed = runs.filter(run => run.outcome === 'passed').length;
@@ -103,10 +104,11 @@ function renderRelatedCi(record: ActivityItem) {
     runs.some(run => run.outcome === 'passing again') ? html`<span class="status-text ok">passing again</span>` : emptyHtml,
     passed ? html`<span>${passed} passed</span>` : emptyHtml,
   ].filter(count => count !== emptyHtml);
+  const earlier = record.earlierCiCount ?? 0;
   const summary = multiple
-    ? html`<details class="linked-event" data-group="ci-${record.groupKey}"><summary>CI · ${joinHtml(counts, html` · `)}</summary><div class="event-main ci-rollup">${ciButtons}</div></details>`
+    ? html`<details class="linked-event" data-group="ci-${record.groupKey}"><summary>CI · ${earlier ? `latest ${runs.length} · ` : ''}${joinHtml(counts, html` · `)}</summary><div class="ci-rollup">${ciButtons}${earlier ? html`<button type="button" class="ghost sm" data-action="detail" data-id="${record.id}" data-related>View ${earlier} earlier run${earlier === 1 ? '' : 's'}</button>` : emptyHtml}</div></details>`
     : runs.length
-      ? html`<div class="event-main">${ciButtons}</div>`
+      ? html`<div class="ci-rollup">${ciButtons}</div>`
       : emptyHtml;
   const host = record.ciHost
     ? html`<button type="button" class="ghost sm" data-action="detail" data-id="${record.ciHost}">${record.highlight ? 'View pull request' : 'View tested change'}</button>`
@@ -153,7 +155,7 @@ function renderEvent(record: ActivityItem, origin: string, targetShown: boolean,
     ? html`<details class="linked-event" data-group="linked-${related.kind}-${record.groupKey}">
         ${
           related.kind === 'build'
-            ? html`<summary>CI succeeded</summary>
+            ? html`<summary>CI succeeded ${ciTime(related.time, true)}</summary>
               <button class="ghost sm" type="button" data-action="detail" data-id="${related.id}">${activityTitle(related)}</button>
               ${renderMeta(related)}${azureLink(related.url, 'Build in Azure ↗')}`
             : html`<summary>Linked push${related.unseen ? ' · unread' : ''}</summary>

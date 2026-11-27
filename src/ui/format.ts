@@ -99,6 +99,19 @@ export function fullDateTime(value: string | number | undefined) {
   return Number.isNaN(date.valueOf()) ? '' : date.toLocaleString([], { dateStyle: 'full', timeStyle: 'short' });
 }
 
+const runDay = new Intl.DateTimeFormat([], { day: 'numeric', month: 'short' });
+const runClock = new Intl.DateTimeFormat([], { hour: '2-digit', minute: '2-digit' });
+
+export function ciTime(value: string | number, showClock = false) {
+  const date = new Date(value);
+  if (Number.isNaN(date.valueOf())) return emptyHtml;
+  const parts = runDay.formatToParts(date);
+  const day = parts.find(part => part.type === 'day')?.value;
+  const month = parts.find(part => part.type === 'month')?.value;
+  const label = `${day} ${month}${showClock ? `, ${runClock.format(date)}` : ''}`;
+  return html`<time class="ci-time" datetime="${date.toISOString()}" title="${fullDateTime(value)}">${label}</time>`;
+}
+
 export function azureLink(value: unknown, label = 'Azure ↗', className = 'ghost sm'): SafeHtml {
   try {
     const safe = safeAzureUrl(value);
