@@ -121,6 +121,111 @@ test('CI rolls up exact and known later revisions by pipeline, with attempts rea
   store.close();
 });
 
+test('a verified landing run leads validation history and an off-cap failing pipeline stays visible', () => {
+  const store = createStore(':memory:', { highlights: true });
+  store.saveRepo(repo);
+  const landing = { sourceBranch: main, reason: 'individualCI' };
+  store.insertEvents([
+    pr('ready', 1, { previewCommit: 'preview' }),
+    run('1', 2, 1, 'failed', 'preview'),
+    pr('merge', 3, { status: 'completed', mergeCommit: 'landed' }),
+    run('2', 4, 2, 'succeeded', 'landed', landing),
+  ]);
+  const merge = () => store.queryActivity({ search: 'main' }).items.find(item => item.id === 'merge');
+  assert.deepEqual(
+    merge()?.ciSummary?.results.map(result => [result.run.id, result.tone]),
+    [['2', 'ok']],
+  );
+  assert.equal(merge()?.ciSummary?.historyCount, 1);
+  store.insertEvents([
+    run('3', 5, 3, 'failed', 'landed', landing),
+    ...Array.from({ length: 7 }, (_, index) => run(String(index + 4), index + 6, 2, 'succeeded', 'landed', landing)),
+    run('11', 13, 3, 'succeeded', 'landed', { ...landing, reason: 'schedule' }),
+  ]);
+  assert.ok(merge()?.ciSummary?.results.some(result => result.run.id === '3' && result.tone === 'crit'));
+  assert.ok(!merge()?.relatedCi?.some(run => run.id === '11'));
+  assert.equal(merge()?.ciSummary?.historyCount, 9);
+  store.close();
+});
+
+test('a manual run alone cannot hide validation failure, but a verified landing retry can recover its pipeline', () => {
+  const store = createStore(':memory:', { highlights: true });
+  store.saveRepo(repo);
+  const landing = { sourceBranch: main };
+  const result = () => store.queryActivity().items.find(item => item.id === 'merge')?.ciSummary?.results[0];
+  store.insertEvents([
+    pr('ready', 1, { previewCommit: 'preview' }),
+    run('1', 2, 1, 'failed', 'preview'),
+    pr('merge', 3, { status: 'completed', mergeCommit: 'landed' }),
+    run('2', 4, 2, 'succeeded', 'landed', { ...landing, reason: 'manual' }),
+  ]);
+  assert.equal(result()?.run.id, '1');
+  store.insertEvents([run('3', 5, 2, 'failed', 'landed', { ...landing, reason: 'individualCI' })]);
+  assert.equal(result()?.run.id, '3');
+  store.insertEvents([run('4', 6, 2, 'succeeded', 'landed', { ...landing, reason: 'manual' })]);
+  assert.equal(result()?.run.id, '4');
+  assert.equal(result()?.tone, 'ok');
+  store.insertEvents([run('5', 7, 3, 'failed', 'landed', { ...landing, reason: 'manual' })]);
+  assert.equal(result()?.run.id, '5');
+  store.insertEvents([run('6', 8, 3, 'succeeded', 'landed', { ...landing, reason: 'manual' })]);
+  assert.equal(result()?.run.id, '4');
+
+  store.insertEvents([
+    pr('another-merge', 9, { pullRequestId: 2, status: 'completed', mergeCommit: 'another' }),
+    run('7', 10, 3, 'succeeded', 'another', { ...landing, reason: 'manual' }),
+  ]);
+  const manualOnly = store.queryActivity().items.find(item => item.id === 'another-merge')?.ciSummary?.results[0];
+  assert.equal(manualOnly?.note, 'trigger unverified');
+  assert.equal(manualOnly?.tone, 'neutral');
+  store.close();
+});
+
+test('CI heads by revision and start evidence, and a pending retry keeps the last failure visible', () => {
+  const store = createStore(':memory:', { highlights: true });
+  store.saveRepo(repo);
+  const summary = () => store.queryActivity().items.find(item => item.id === 'ready')?.ciSummary?.results;
+  store.insertEvents([
+    pr('ready', 1, { previewCommit: 'preview' }),
+    run('1', 15, 1, 'succeeded', 'preview', { buildStartedAt: time(10) }),
+    run('2', 4, 1, 'failed', 'preview', { buildStartedAt: time(2) }),
+  ]);
+  assert.equal(summary()?.[0]?.run.id, '1');
+  store.insertEvents([
+    run('3', 13, 1, 'failed', 'preview', { buildStartedAt: time(11) }),
+    run('4', 14, 1, '', 'preview', { status: 'inProgress' }),
+  ]);
+  assert.deepEqual(
+    summary()?.map(result => [result.run.id, result.tone]),
+    [
+      ['3', 'crit'],
+      ['4', 'neutral'],
+    ],
+  );
+  store.insertEvents([
+    pr('reviewers-updated', 16, { previewCommit: 'preview', reviewers: [{ name: 'Pat', vote: 5 }] }),
+    run('5', 17, 1, 'succeeded', 'preview', { buildStartedAt: '' }),
+  ]);
+  assert.equal(summary()?.[0]?.note, 'retry order unknown');
+  store.insertEvents([
+    pr('new-preview', 22, { previewCommit: 'updated' }),
+    run('6', 20, 1, 'failed', 'updated', { buildStartedAt: time(16) }),
+    run('7', 21, 1, 'succeeded', 'unrecorded', { buildStartedAt: time(17) }),
+  ]);
+  assert.deepEqual(
+    summary()?.map(result => [result.run.id, result.tone]),
+    [['6', 'crit']],
+  );
+  store.insertEvents([run('8', 23, 1, 'succeeded', 'updated', { buildStartedAt: time(22) })]);
+  assert.deepEqual(
+    summary()?.map(result => [result.run.id, result.tone]),
+    [['8', 'ok']],
+  );
+  store.insertEvents([run('9', 25, 1, 'failed', 'unrecorded', { buildStartedAt: time(24) })]);
+  assert.equal(summary()?.[0]?.note, 'revision unknown');
+  assert.equal(summary()?.[0]?.tone, 'warn');
+  store.close();
+});
+
 test('prefers a live merge, adopts delayed landing SHA and leaves later pushes to that SHA visible', () => {
   const store = createStore(':memory:', { highlights: true });
   store.saveRepo(repo);

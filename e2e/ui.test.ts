@@ -2758,8 +2758,8 @@ test('Activity keeps the branch tree while exposing merge status, CI and push co
   await expect(seen).toHaveAttribute('aria-pressed', 'true');
   await expect(passing).toHaveCount(0);
   assert.equal(runtime.store.getEvent('seen-passing-run')?.seen, true);
-  const rollup = merge.getByText('CI · 1 failed · 1 passed', { exact: true });
-  await expect(rollup.locator('.crit')).toHaveText('1 failed');
+  const rollup = merge.getByText('Run history · 1 run', { exact: true });
+  await expect(merge.locator('.ci-run.crit')).toContainText('failed');
   await rollup.focus();
   await page.keyboard.press('Enter');
   await expect(rollup).toBeFocused();
@@ -2772,7 +2772,7 @@ test('Activity keeps the branch tree while exposing merge status, CI and push co
       }),
     )
     .toBe(true);
-  await expect(merge.getByRole('button', { name: 'Post-merge CI failed' })).toBeVisible();
+  await expect(merge.getByRole('button', { name: /Post-merge CI.*failed/ })).toBeVisible();
   await expect(failure.locator('svg.tree rect.ci-node')).toBeVisible();
   await expect(page.locator('svg.tree .default-lane').first()).toHaveCSS('stroke-width', '2.5px');
 
@@ -2871,7 +2871,7 @@ test('Activity shows only highlights and links a landing and quieter CI to its d
       id: 'quiet-pass',
       kind: 'build',
       title: 'Billing CI',
-      data: { sourceBranch: main, sourceVersion: head, buildId: 600, status: 'completed', result: 'succeeded' },
+      data: { sourceBranch: main, sourceVersion: head, buildId: 600, status: 'completed', result: 'succeeded', reason: 'individualCI' },
     },
     ...Array.from({ length: 6 }, (_, index) => ({
       ...base,
@@ -2879,7 +2879,7 @@ test('Activity shows only highlights and links a landing and quieter CI to its d
       kind: 'build' as const,
       title: `Billing validation ${index}`,
       time: new Date(Date.parse(base.time) - (index + 1) * 60_000).toISOString(),
-      data: { sourceBranch: 'refs/pull/512/merge', buildId: 610 + index, status: 'completed', result: 'succeeded' },
+      data: { sourceBranch: 'refs/pull/512/merge', buildId: 610 + index, status: 'completed', result: index < 3 ? 'succeeded' : 'failed' },
     })),
     {
       ...base,
@@ -2894,10 +2894,18 @@ test('Activity shows only highlights and links a landing and quieter CI to its d
   const merge = page.locator('[data-event-id="highlight-pr"]');
   await expect(merge.locator('.kind')).toHaveText('PR merged');
   await expect(merge.getByText('Landed on main', { exact: false })).toBeVisible();
-  await merge.getByText('CI · latest 6 · 6 passed').click();
+  const headline = merge.getByRole('button', { name: 'Post-merge CI passed' });
+  await expect(headline).toBeVisible();
+  await headline.click();
+  await expect(page).toHaveURL(/#event\/quiet-pass$/);
+  await page.getByRole('link', { name: /Back to Activity/ }).click();
+  await expect(merge.locator('.event-ci .crit')).toHaveCount(0);
+  await expect(merge.getByRole('button', { name: 'PR validation failed' })).toHaveCount(0);
+  await merge.getByText('Run history · 6 runs').click();
+  await expect(merge.locator('.ci-history').getByRole('button', { name: 'PR validation failed' }).first()).toBeVisible();
   await expect(merge.locator('.ci-run time')).toHaveCount(6);
   await expect(merge.getByRole('button', { name: 'Post-merge CI passed' }).locator('time')).toHaveAttribute('datetime', base.time);
-  await expect(merge.getByRole('button', { name: 'View 1 earlier run' })).toBeVisible();
+  await expect(merge.getByRole('button', { name: 'View all CI runs' })).toBeVisible();
   await expect(page.locator('[data-event-id="quiet-landing-push"], [data-event-id="quiet-pass"]')).toHaveCount(0);
   await expect(merge.locator('svg.tree')).toBeVisible();
   await expect(page.locator('[data-event-id="later-push-to-same-tip"]')).toContainText('Later default branch push');
@@ -2981,7 +2989,7 @@ test('Activity shows only highlights and links a landing and quieter CI to its d
   await page.emulateMedia({ colorScheme: 'light' });
   await expect(page.locator('html')).not.toHaveClass(/\bdark\b/);
   await merge.screenshot({ path: 'test-results/activity-dated-ci-light-phone.png' });
-  await merge.getByRole('button', { name: 'View 1 earlier run' }).click();
+  await merge.getByRole('button', { name: 'View all CI runs' }).click();
   await expect(page.locator('.detail-related')).toHaveAttribute('open', '');
   await expect(page.locator('.detail-related summary')).toHaveText('Related CI runs · 7');
   await expect(page.locator('.detail-related summary')).toBeFocused();

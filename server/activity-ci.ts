@@ -7,11 +7,13 @@ export const activityCi = `
   , ci_snapshot AS (SELECT ? AS through), runs AS MATERIALIZED (
     SELECT run.*,e.repo_id AS repo,e.imported,lower(json_extract(e.data,'$.data.sourceVersion')) AS sha,
       json_extract(e.data,'$.data.sourceBranch') AS ref,json_extract(e.data,'$.data.reason') AS reason,
+      json_extract(e.data,'$.data.buildStartedAt') AS started_at,
+      CAST(json_extract(e.data,'$.data.definition.id') AS TEXT) AS pipeline,
       json_extract(e.data,'$.title') AS title,json_extract(e.data,'$.time') AS event_time,
       COALESCE(unixepoch(json_extract(e.data,'$.data.buildStartedAt'),'subsec')*1000,
         CASE WHEN json_type(e.data,'$.time') IN ('integer','real') THEN json_extract(e.data,'$.time') ELSE run.time END) AS started
     FROM matched run JOIN events e ON e.id=run.representative
-    WHERE run.kind='build' AND run.status IN ('succeeded','failed','partially-succeeded')
+    WHERE run.kind='build' AND run.status IN ('succeeded','failed','partially-succeeded','queued','running','canceling')
       AND json_extract(e.data,'$.data.sourceVersion')<>''
   ), validation_hosts AS (
     SELECT run.key AS run_key,host.group_key AS host_key,
@@ -58,6 +60,7 @@ export const activityCi = `
     FROM candidates
   ), ci_links AS MATERIALIZED (
     SELECT run.key AS run_key,run.representative AS run_id,run.status,run.title,run.event_time AS run_time,
+      run.pipeline,run.sha,run.started_at,run.reason,
       CASE WHEN typeof(run.event_time) IN ('integer','real') THEN run.event_time
         ELSE COALESCE(unixepoch(run.event_time,'subsec')*1000,0) END AS run_ms,
       host.key AS host_key,
