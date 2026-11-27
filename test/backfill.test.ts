@@ -8,7 +8,7 @@ import { createSync } from '../server/sync.ts';
 import { createBackfill } from '../server/backfill.ts';
 import type { AzurePage, AzureProvider, ReadOptions } from '../server/azure-client.ts';
 import type { ActivityEvent } from '../src/activity.ts';
-import type { AzureStream, Repository } from '../src/contract.d.ts';
+import type { AzureStream, Repository } from '../src/contract.ts';
 import { fieldsOf, present, stub } from './fixtures/typed.ts';
 
 type Provider = Pick<AzureProvider, 'read'>;
@@ -319,10 +319,8 @@ test('transaction failure keeps the page resumable and validation rejects ambigu
       now: () => time,
     },
   );
-  assert.throws(() => backfill.start('missing'), { status: 404 });
-  assert.throws(() => backfill.start(repo.id, 60), { status: 400 });
   backfill.start(repo.id);
-  assert.throws(() => backfill.start(repo.id, 90), { status: 409 });
+  assert.throws(() => backfill.start(repo.id, 90), { kind: 'conflict' });
   // Fail inside the actual transaction after its event inserts, before the job checkpoint.
   const original = store.commitPage;
   store.commitPage = page => {

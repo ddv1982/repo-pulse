@@ -69,7 +69,7 @@ function renderDisabledRepo(repo: Repo) {
 
 function renderRepo(
   repo: Repo,
-  status: import('../contract.d.ts').SyncStatus | undefined,
+  status: import('../contract.ts').SyncStatus | undefined,
   streams: PageState['streams'],
   job: HistoryJob | null | undefined,
   checkout: CheckoutSnapshot | undefined,

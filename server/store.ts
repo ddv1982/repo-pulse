@@ -1,4 +1,5 @@
 import { FIRST_SYNC_MS } from './time.ts';
+import { branchName } from '../src/events.ts';
 import { DatabaseSync } from 'node:sqlite';
 import { chmodSync, mkdirSync, readdirSync, renameSync, rmSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
@@ -27,16 +28,16 @@ import {
   readStream,
 } from './store-records.ts';
 import type { ActivityEvent } from '../src/activity.ts';
-import type { StoredEvent, HydratedEvent, Repository, StreamState, AzureStream as StreamName } from '../src/contract.d.ts';
+import type { StoredEvent, HydratedEvent, Repository, StreamState, AzureStream as StreamName } from '../src/contract.ts';
 import type { Job, JobType, JobOf, Settings, SettingKey, SqlRow } from './store-records.ts';
 import type { Entity, EntityData, EntityType } from './normalize.ts';
+import { conflict, invalid, notFound } from './errors.ts';
 
 export type Store = ReturnType<typeof createStore>;
 
 type JobQuery = { repoId?: string; status?: string; dueBefore?: string };
 type JobFilter = JobQuery & { type?: JobType };
 /** The first sync imports this far back from its baseline (server/sync.ts, the first window's `since`). */
-const badRequest = (message: string) => Object.assign(new Error(message), { code: 'BAD_REQUEST' });
 const stamp = (value: string | number) => {
   const time = Date.parse(String(value));
   return Number.isFinite(time) ? time : 0;
@@ -104,10 +105,11 @@ export function createStore(path = ':memory:', { highlights = false } = {}) {
       throw error;
     }
   };
+  const listRepos = () => q('SELECT id,data FROM repositories ORDER BY rowid').all().map(readRepository);
   const requireRepo = (id: string) => {
     const row = q('SELECT id,data FROM repositories WHERE id=?').get(id);
     const repo = row && readRepository(row);
-    if (!repo) throw Object.assign(new Error('Repository is not watched.'), { code: 'NOT_FOUND' });
+    if (!repo) throw notFound('Repository is not watched.', 'NOT_FOUND');
     return repo;
   };
   /**
@@ -159,8 +161,7 @@ export function createStore(path = ':memory:', { highlights = false } = {}) {
   }
   function saveJob(job: Job) {
     requireRepo(job.repoId);
-    if (typeof job.id !== 'string' || !job.id || typeof job.type !== 'string' || !job.type)
-      throw badRequest('Job ID and type are required.');
+    if (typeof job.id !== 'string' || !job.id || typeof job.type !== 'string' || !job.type) throw invalid('Job ID and type are required.');
     q(`INSERT INTO jobs(id,repo_id,type,next_at,data) VALUES(?,?,?,?,?) ON CONFLICT(id)
        DO UPDATE SET repo_id=excluded.repo_id,type=excluded.type,next_at=excluded.next_at,data=excluded.data`).run(
       job.id,
@@ -461,7 +462,7 @@ export function createStore(path = ':memory:', { highlights = false } = {}) {
     let inserted = false;
     for (const event of events) {
       requireRepo(event.repoId);
-      if (!event.id || !event.kind) throw badRequest('Event ID and kind are required.');
+      if (!event.id || !event.kind) throw invalid('Event ID and kind are required.');
       const imported = Boolean(event.imported);
       const time = event.time || event.observedAt || new Date().toISOString();
       const observedAt = event.observedAt || String(time);
@@ -500,8 +501,8 @@ export function createStore(path = ':memory:', { highlights = false } = {}) {
   }
   function enrichEvent(id: string, data: unknown) {
     const event = hydrateFound(q(`${selectEvents} WHERE e.id=?`).get(id));
-    if (!event) throw Object.assign(new Error('Event is no longer available.'), { code: 'NOT_FOUND' });
-    if (!data || typeof data !== 'object' || Array.isArray(data)) throw badRequest('Enrichment must be an object.');
+    if (!event) throw notFound('Event is no longer available.', 'NOT_FOUND');
+    if (!data || typeof data !== 'object' || Array.isArray(data)) throw invalid('Enrichment must be an object.');
     const stored = q('SELECT data FROM enrichment WHERE event_id=?').get(id);
     const old = stored ? readOverlay(id, stored.data) : {};
     const overlay = { ...old, ...data };
@@ -568,10 +569,39 @@ export function createStore(path = ':memory:', { highlights = false } = {}) {
 
   const store = {
     activityRevision,
-    listRepos: () => q('SELECT id,data FROM repositories ORDER BY rowid').all().map(readRepository),
+    listRepos,
     getRepo: requireRepo,
+    /** The watched repository, refused while it is disabled: reads and actions on it wait until it is enabled. */
+    getEnabledRepo(id: string) {
+      const repo = requireRepo(id);
+      if (repo.disabled) throw conflict('Repository is disabled. Enable it on Repositories first.');
+      return repo;
+    },
+    enabledRepoIds: () =>
+      listRepos()
+        .filter(repo => !repo.disabled)
+        .map(repo => repo.id),
+    /**
+     * The branch names the repository lists, in the order the branch picker shows them: the default branch, main and
+     * master first, then the most recently pushed, then by name.
+     */
+    listBranches(repo: Pick<Repository, 'id' | 'defaultBranch'>) {
+      const pinned = [branchName(repo.defaultBranch), 'main', 'master'];
+      return store
+        .listEntities(repo.id, 'ref')
+        .filter(({ id, data }) => id.startsWith('refs/heads/') && id.length > 11 && data.active !== false)
+        .map(({ id, data }) => ({ name: branchName(id), pushId: Number(data.lastPushId) || 0 }))
+        .sort(
+          (a, b) =>
+            Number(pinned.includes(b.name)) - Number(pinned.includes(a.name)) ||
+            pinned.indexOf(a.name) - pinned.indexOf(b.name) ||
+            b.pushId - a.pushId ||
+            a.name.localeCompare(b.name),
+        )
+        .map(({ name }) => name);
+    },
     saveRepo(repo: Repository) {
-      if (!repo.id || !repo.name) throw badRequest('Repository ID and name are required.');
+      if (!repo.id || !repo.name) throw invalid('Repository ID and name are required.');
       const row = q('SELECT id,data FROM repositories WHERE id=?').get(repo.id);
       const old = row && readRepository(row);
       const value = { disabled: false, ...old, ...repo };
@@ -742,8 +772,8 @@ export function createStore(path = ':memory:', { highlights = false } = {}) {
     enrichEvent(id: string, data: unknown) {
       return transaction(() => enrichEvent(id, data));
     },
-    acknowledge(ids: unknown, seen: boolean = true) {
-      if (!Array.isArray(ids) || ids.length > 5000) throw badRequest('An explicit list of up to 5000 event IDs is required.');
+    /** Marks these events seen or unseen; the route limits how many one request may name. */
+    acknowledge(ids: string[], seen: boolean = true) {
       return transaction(() => {
         const value = Number(Boolean(seen));
         const statement = q('UPDATE events SET seen=? WHERE id=? AND imported=0 AND seen<>?');

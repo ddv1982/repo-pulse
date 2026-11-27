@@ -1,7 +1,10 @@
 import { branchName } from '../src/events.ts';
 import { createHash } from 'node:crypto';
 import type { GitRunner } from './checkout-git.ts';
-import type { GitHistoryPage } from '../src/contract.d.ts';
+import { activityLabel } from '../src/activity-text.ts';
+import type { GitHistoryPage } from '../src/contract.ts';
+import type { ActivityEvent } from '../src/activity.ts';
+import { conflict, invalid } from './errors.ts';
 
 const fullId = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
 const pageSize = 50;
@@ -59,10 +62,10 @@ export async function readGitHistory(run: GitRunner, path: string, defaultBranch
   const [, offsetText, version] = cursor?.match(/^(\d{1,8})\.([0-9a-f]{64})$/) ?? [];
   const offset = Number(offsetText ?? 0);
   if (cursor !== null && (!version || offset === 0 || offset % pageSize !== 0)) {
-    throw Object.assign(new Error('Invalid Git history page.'), { status: 400 });
+    throw invalid('Invalid Git history page.');
   }
   if (version && version !== snapshot) {
-    throw Object.assign(new Error('Git references changed. Reload the graph to continue.'), { status: 409 });
+    throw conflict('Git references changed. Reload the graph to continue.');
   }
 
   const labels = new Map<string, string[]>();
@@ -115,4 +118,21 @@ function parseCommits(output: string, labels: Map<string, string[]>) {
   }
 
   return { commits, more: fields.length > pageSize * 4 + 1 };
+}
+
+/** Adds the pull requests and builds that ran on a page's commits, as the graph lists them beside each commit. */
+export function withCommitActivity(page: GitHistoryPage, activity: { sha: string; event: ActivityEvent }[]) {
+  const commits = new Map(page.commits.map(commit => [commit.id, commit]));
+  for (const { sha, event } of activity) {
+    if (event.kind === 'pr' || event.kind === 'build') {
+      commits.get(sha)?.activity.push({
+        id: event.id,
+        kind: event.kind,
+        time: event.time,
+        title: event.title ?? '',
+        status: activityLabel(event) ?? 'Updated',
+      });
+    }
+  }
+  return page;
 }

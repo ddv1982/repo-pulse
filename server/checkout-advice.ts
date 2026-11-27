@@ -1,7 +1,7 @@
 import { branchName, safeAzureUrl } from '../src/events.ts';
 import type { GitRunner } from './checkout-git.ts';
 import type { CheckoutPull, UnreadableCheckoutPull } from './azure-client.ts';
-import type { PullAdvice, Repository as LinkedRepo } from '../src/contract.d.ts';
+import type { PullAdvice, Repository as LinkedRepo } from '../src/contract.ts';
 
 export type FindCheckoutPulls = (repo: LinkedRepo, source: string, head: string) => Promise<(CheckoutPull | UnreadableCheckoutPull)[]>;
 const readable = (pr: CheckoutPull | UnreadableCheckoutPull): pr is CheckoutPull => !('unreadable' in pr);

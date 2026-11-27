@@ -2,17 +2,19 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { capture, defer, listen, openPage } from './fixtures/app.ts';
 import { expect } from '@playwright/test';
-import { createApp } from '../server.ts';
+import { createApp } from '../server/runtime.ts';
 import { TEST_KEY } from '../test/fixtures/access.ts';
 import { createStore } from '../server/store.ts';
 import { createSync } from '../server/sync.ts';
 import { createBackfill } from '../server/backfill.ts';
 import type { AzureProvider } from '../server/azure-client.ts';
-import type { ConnectionStatus, Repository, SyncStatus, DemoSyncStatus, HistoryJob } from '../src/contract.d.ts';
+import type { ConnectionStatus, Repository, SyncStatus, HistoryJob } from '../src/contract.ts';
 import { present, stub } from '../test/fixtures/typed.ts';
 import { setup, renderInBackground } from './fixtures/ui-app.ts';
-import type { AppSync } from '../server.ts';
+import type { AppSync } from '../server/routes/context.ts';
 import { historyJob } from '../test/fixtures/jobs.ts';
+import { conflict } from '../server/errors.ts';
+import { idleSyncStatus } from '../server/demo.ts';
 
 declare global {
   interface Window {
@@ -396,13 +398,13 @@ test('repository history import keeps the accepted request visible even if its f
     accessKey: TEST_KEY,
     store,
     provider: stub<AzureProvider>({ checkConnection: async () => stub<ConnectionStatus>({ available: true }) }),
-    sync: stub<AppSync>({ status: () => stub<DemoSyncStatus>({}) }),
+    sync: stub<AppSync>({ status: () => idleSyncStatus() }),
     backfill: {
       start(repoId, days) {
         calls.push({ repoId, days });
         if (failOnce) {
           failOnce = false;
-          throw Object.assign(new Error('Try this date range again.'), { status: 409 });
+          throw conflict('Try this date range again.');
         }
         const job = historyJob(repoId, { days: days ?? 30 });
         store.saveJob(job);

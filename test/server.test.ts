@@ -9,14 +9,14 @@ import { promisify } from 'node:util';
 import { request as httpRequest, createServer as createHttpServer } from 'node:http';
 import { once } from 'node:events';
 import { createStore } from '../server/store.ts';
-import { createApp, startApp } from '../server.ts';
+import { createApp, startApp } from '../server/runtime.ts';
 import { createSync } from '../server/sync.ts';
-import { seedDemo } from '../server/demo.ts';
+import { seedDemo, idleSyncStatus } from '../server/demo.ts';
 import type { TestContext } from 'node:test';
 import { createAzureClient, type AzureProvider, type ResolvedRepository } from '../server/azure-client.ts';
 import type { createCheckoutGit } from '../server/checkout-git.ts';
-import type { AppOptions } from '../server.ts';
-import type { CheckoutStatus, ConnectionStatus, PushCommitsResponse, StateResponse, SyncEngineStatus } from '../src/contract.d.ts';
+import type { AppOptions } from '../server/runtime.ts';
+import type { CheckoutStatus, ConnectionStatus, PushCommitsResponse, StateResponse } from '../src/contract.ts';
 import type { ActivityEvent, ActivityPage as ActivityResponse } from '../src/activity.ts';
 import { TEST_KEY, keyedFetch, portOf } from './fixtures/access.ts';
 import { fieldsOf, present, stub, watchedIdOf, type Thrown } from './fixtures/typed.ts';
@@ -37,7 +37,7 @@ async function fixture(t: TestContext, { demo = true, ...options }: Partial<AppO
       return { scheduled: true };
     },
     status() {
-      return stub<SyncEngineStatus>({ running: false });
+      return idleSyncStatus();
     },
   };
   const app = createApp({
@@ -242,15 +242,15 @@ test('refresh coalesces through sync interface, disabling persists and bad input
   assert.equal(calls.length, 1);
   assert.equal((await mutate(`/api/repos/${present(state.repos[0]).id}`, { disabled: false }, { method: 'PATCH' })).status, 200);
   assert.deepEqual(calls.at(-1), [present(state.repos[0]).id]);
-  assert.equal((await mutate('/api/settings', { refreshEnabled: false })).status, 200);
-  assert.equal((await mutate('/api/settings', { refreshEnabled: true })).status, 200);
+  assert.equal((await mutate('/api/settings', { refreshEnabled: false }, { method: 'PATCH' })).status, 200);
+  assert.equal((await mutate('/api/settings', { refreshEnabled: true }, { method: 'PATCH' })).status, 200);
   const {
     settings: { refreshResumedAt: resumed },
   }: StateResponse = await (await fetch(url + '/api/state')).json();
   assert.ok(resumed !== null && resumed > 0);
-  assert.equal((await mutate('/api/settings', { refreshEnabled: true })).status, 200);
+  assert.equal((await mutate('/api/settings', { refreshEnabled: true }, { method: 'PATCH' })).status, 200);
   assert.equal((await (await fetch(url + '/api/state')).json()).settings.refreshResumedAt, resumed);
-  assert.equal((await mutate('/api/repos', { url: 'https://dev.azure.com/example/Demo/_git/test' })).status, 400);
+  assert.equal((await mutate('/api/repos', { url: 'https://dev.azure.com/example/Demo/_git/test' })).status, 403);
 });
 
 test('a disabled repository disappears from activity and event details until enabled again', async t => {
@@ -270,10 +270,10 @@ test('a disabled repository disappears from activity and event details until ena
   assert.ok((await activity()).every(event => event.repoId !== id));
   assert.deepEqual(await activity(`?repoIds=${id}`), []);
   assert.ok((await activity(`?repoIds=${id},demo-orders`)).every(event => event.repoId === 'demo-orders'));
-  assert.equal((await fetch(`${url}/api/events/${encodeURIComponent(eventId)}`)).status, 404);
+  assert.equal((await fetch(`${url}/api/activity/${encodeURIComponent(eventId)}`)).status, 404);
   assert.equal((await mutate(`/api/repos/${id}`, { disabled: false }, { method: 'PATCH' })).status, 200);
   assert.ok((await activity()).some(event => event.repoId === id));
-  assert.equal((await fetch(`${url}/api/events/${encodeURIComponent(eventId)}`)).status, 200);
+  assert.equal((await fetch(`${url}/api/activity/${encodeURIComponent(eventId)}`)).status, 200);
 });
 
 test('Activity checkout mutations resolve the target from an event in the requested repository', async t => {
@@ -404,13 +404,13 @@ test('a disabled repository makes no direct Azure reads', async t => {
   });
   const { url, store, mutate } = await fixture(t, { demo: false, provider, checkoutGit });
   store.saveRepo({ ...store.getRepo('demo-billing'), disabled: true });
-  assert.equal((await fetch(`${url}/api/push/demo-billing/1/commits`)).status, 409);
-  assert.equal((await fetch(`${url}/api/connection?repoId=demo-billing`)).status, 409);
+  assert.equal((await fetch(`${url}/api/repos/demo-billing/pushes/1/commits`)).status, 409);
+  assert.equal((await fetch(`${url}/api/repos/demo-billing/connection`)).status, 409);
   const expected = { branch: 'main', head: 'a', upstream: 'origin/main', identity: 'i' };
   assert.equal((await mutate('/api/repos/demo-billing/checkout', { operation: 'check', expected })).status, 409);
   assert.deepEqual(reads, []);
   store.saveRepo({ ...store.getRepo('demo-billing'), disabled: false });
-  assert.equal((await fetch(`${url}/api/push/demo-billing/1/commits`)).status, 200);
+  assert.equal((await fetch(`${url}/api/repos/demo-billing/pushes/1/commits`)).status, 200);
 });
 
 test('live mode cannot generate demo activity or expose arbitrary files', async t => {
@@ -458,6 +458,7 @@ test('the data directory is closed to other accounts', { skip: typeof process.ge
 });
 
 const SERVER = fileURLToPath(new URL('../server.ts', import.meta.url));
+const RUNTIME = fileURLToPath(new URL('../server/runtime.ts', import.meta.url));
 /** A start expected to be refused; one that starts anyway is closed, so the test fails instead of hanging. */
 const refusedStart = async (dataDir: string) => {
   const runtime = await startApp({ demo: true, port: 0, dataDir });
@@ -508,7 +509,7 @@ test('a lock held by a run that was killed is taken over', async t => {
       `const { startApp } = await import(process.argv[1]);
        await startApp({ demo: true, port: 0, dataDir: process.argv[2] });
        process.stdout.write('started');`,
-      pathToFileURL(SERVER).href,
+      pathToFileURL(RUNTIME).href,
       directory,
     ],
     { stdio: ['ignore', 'pipe', 'inherit'] },
@@ -585,12 +586,12 @@ test('Load push commits pages through the Azure client by push ID', async t => {
     },
   };
   const { url } = await fixture(t, { demo: false, provider: createAzureClient({ cli }) });
-  const first: PushCommitsResponse = await (await fetch(`${url}/api/push/demo-billing/7/commits`)).json();
+  const first: PushCommitsResponse = await (await fetch(`${url}/api/repos/demo-billing/pushes/7/commits`)).json();
   assert.equal(first.items.length, 100);
   assert.deepEqual(first.items[0], { commitId: '0-0', comment: 'Change' });
   assert.deepEqual(first.nextCursor, { skip: 100 });
   const second: PushCommitsResponse = await (
-    await fetch(`${url}/api/push/demo-billing/7/commits?skip=${String(fieldsOf(first.nextCursor).skip)}`)
+    await fetch(`${url}/api/repos/demo-billing/pushes/7/commits?skip=${String(fieldsOf(first.nextCursor).skip)}`)
   ).json();
   assert.deepEqual(
     second.items.map(item => item.commitId),
@@ -649,7 +650,7 @@ test('malformed percent-encoding in route parameters returns 400 and CSP forbids
   assert.match(csp, /style-src 'self';/);
   assert.doesNotMatch(csp, /unsafe-inline/);
   for (const [method, path] of [
-    ['GET', '/api/events/%E0%A4%A'],
+    ['GET', '/api/activity/%E0%A4%A'],
     ['DELETE', '/api/activity-filters/%E0%A4%A'],
     ['DELETE', '/api/repos/%E0%A4%A'],
     ['GET', '/api/repos/%E0%A4%A/checkout/status'],

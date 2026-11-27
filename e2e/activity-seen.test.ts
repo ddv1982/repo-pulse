@@ -98,7 +98,7 @@ test('repo subset acknowledgement preserves hidden/incoming events and survives 
   assert.equal(app.runtime.store.getEvent(incoming.id)?.seen, false);
   await page.locator('[data-event-id="demo-branch-1"] .feed-title').click();
   await expect(page.getByRole('heading', { name: 'hotfix/2026.11-dose-rounding' })).toBeVisible();
-  assert.equal((await (await fetch(app.runtime.url + '/api/events/demo-branch-1')).json()).event.seen, false);
+  assert.equal((await (await fetch(app.runtime.url + '/api/activity/demo-branch-1')).json()).event.seen, false);
 });
 
 test('build transitions group into one item and exact acknowledgement leaves a later result new', async t => {

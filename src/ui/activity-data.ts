@@ -1,6 +1,6 @@
 import { splitActivitySearch } from './activity-search.ts';
 import type { ActivityItem, ActivityPage } from '../activity.ts';
-import type { EventResponse } from '../contract.d.ts';
+import type { EventResponse } from '../contract.ts';
 
 export type ActivityView = { route: string; unreadOnly?: boolean; repoIds: string[] | null; kind?: string; search?: string };
 
@@ -24,12 +24,12 @@ export function activityScopeQuery(ui: Pick<ActivityView, 'repoIds' | 'search' |
   return query;
 }
 
-function activityUrl(ui: ActivityView, limit: number, cursor?: string | null): `/api/activity?${string}` {
+function activityQuery(ui: ActivityView, limit: number, cursor?: string | null) {
   const query = activityScopeQuery(ui);
   query.set('view', ui.unreadOnly ? 'new' : 'all');
   query.set('limit', String(limit));
   if (cursor) query.set('cursor', cursor);
-  return `/api/activity?${query}`;
+  return query;
 }
 
 /**
@@ -68,7 +68,7 @@ export function createActivityData(request: typeof import('../api.ts').request) 
     if (!more && !force && result && activityRevision !== undefined && sameRevision) return result;
     async function fetchPage(limit: number, cursor: string | null) {
       try {
-        const value = await request(activityUrl(ui, limit, cursor));
+        const value = await request('GET /api/activity', { query: activityQuery(ui, limit, cursor) });
         if (current !== generation) return null;
         if (!Array.isArray(value?.items)) throw new Error('The local activity response is unreadable.');
         return value;
@@ -126,7 +126,7 @@ export function createActivityData(request: typeof import('../api.ts').request) 
       }
     },
     async event(id: string, ciOnly = false) {
-      return await request(`/api/events/${encodeURIComponent(id)}${ciOnly ? '?ci=1' : ''}`);
+      return await request('GET /api/activity/:id', { params: { id }, query: { ci: ciOnly ? '1' : undefined } });
     },
   };
 }

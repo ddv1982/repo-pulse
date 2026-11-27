@@ -11,13 +11,15 @@
 // docs/BACKLOG.md).
 import { fields, is, isRecord, list, type Check } from './azure-records.ts';
 
-import type { Repository, StoredEvent, StreamState, AzureStream, HistoryJob, SavedActivityFilter } from '../src/contract.d.ts';
-import type { ActivityKind } from '../src/activity.ts';
+import { AZURE_STREAMS, HISTORY_STREAMS } from '../src/contract.ts';
+import type { Repository, StoredEvent, StreamState, HistoryJob, SavedActivityFilter } from '../src/contract.ts';
+import { ACTIVITY_KINDS } from '../src/activity.ts';
 import type { RewriteJob } from './rewrite-check.ts';
 import type { ForkJob } from './fork-origin.ts';
 import type { Followup } from './checkout-branches.ts';
 import type { Observation } from './checkout-observations.ts';
 import type { EntityData, EntityType } from './normalize.ts';
+import { AppError, isAppError } from './errors.ts';
 
 /** A row as node:sqlite returns it. */
 export type SqlRow = Record<string, import('node:sqlite').SQLOutputValue>;
@@ -68,9 +70,6 @@ const object = is(isRecord);
 const anything: Check = () => null;
 const strings = list(string);
 
-const STREAMS: AzureStream[] = ['pushes', 'refs', 'prs', 'closedPrs', 'builds', 'activeBuilds'];
-const KINDS: ActivityKind[] = ['branch-created', 'branch-deleted', 'tag', 'push', 'pr', 'build'];
-
 // The store saves a repository with an ID and a name (createStore saveRepo). Every repository the app watches was
 // resolved through Azure or is a demo fixture, so it also has its Azure identity; tests save repositories without one,
 // so those fields are checked when present.
@@ -92,7 +91,7 @@ const eventTime = is(value => typeof value === 'string' || Number.isFinite(value
 const event = fields({
   id: string,
   repoId: string,
-  kind: oneOf(...KINDS),
+  kind: oneOf(...ACTIVITY_KINDS),
   time: eventTime,
   observedAt: string,
   data: maybe(object),
@@ -112,7 +111,7 @@ const warningShape = { code: oneOf('UNREADABLE_RECORDS'), message: string, count
 const warning = fields(warningShape);
 const stream = fields({
   repoId: string,
-  stream: oneOf(...STREAMS),
+  stream: oneOf(...AZURE_STREAMS),
   initialized: boolean,
   nextAt: string,
   error: maybe(nullable(failure)),
@@ -145,7 +144,7 @@ const historyJob = fields({
   nextAt: string,
   rangeStart: string,
   rangeEnd: string,
-  stream: oneOf('pushes', 'closedPrs', 'builds'),
+  stream: oneOf(...HISTORY_STREAMS),
   cursor: nullable(cursor),
   window: nullable(window),
   pages: finite,
@@ -153,7 +152,7 @@ const historyJob = fields({
   windowsCompleted: finite,
   failures: finite,
   error: nullable(failure),
-  warnings: maybe(list(fields({ ...warningShape, stream: oneOf('pushes', 'closedPrs', 'builds') }))),
+  warnings: maybe(list(fields({ ...warningShape, stream: oneOf(...HISTORY_STREAMS) }))),
   note: string,
   lastAttempt: maybe(string),
   lastProgressAt: maybe(string),
@@ -305,17 +304,15 @@ function settingCheck(key: SettingKey): Check {
 
 /** A stored row that cannot be read, by table, row and the first field that is missing or malformed. */
 export function corruptRow(table: string, id: string, field: string, reason = 'is missing or malformed') {
-  return Object.assign(new Error(`The stored ${table} row "${id}" cannot be read: ${field} ${reason}.`), {
-    code: 'CORRUPT_ROW',
-    status: 500,
+  return Object.assign(new AppError('corrupt', `The stored ${table} row "${id}" cannot be read: ${field} ${reason}.`, 'CORRUPT_ROW'), {
     table,
     id,
     field,
   });
 }
 
-export function isCorruptRow(error: unknown): error is Error & { code: 'CORRUPT_ROW' } {
-  return error instanceof Error && 'code' in error && error.code === 'CORRUPT_ROW';
+export function isCorruptRow(error: unknown): error is AppError {
+  return isAppError(error, 'corrupt');
 }
 
 /** The value of a JSON column, or a CORRUPT_ROW error when it is not text holding JSON. */

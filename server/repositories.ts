@@ -4,21 +4,22 @@ import { promisify } from 'node:util';
 import { stat, readdir, realpath } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { homedir } from 'node:os';
-import type { DiscoveredRemote as ParsedRemote, DiscoveredRemote, Discovery } from '../src/contract.d.ts';
+import type { DiscoveredRemote as ParsedRemote, DiscoveredRemote, Discovery } from '../src/contract.ts';
+import { AppError, invalid } from './errors.ts';
 
 const exec = promisify(execFile);
-const invalid = () => Object.assign(new Error('Use an Azure DevOps Services HTTPS or SSH repository URL.'), { code: 'INVALID_REPOSITORY' });
+const invalidUrl = () => invalid('Use an Azure DevOps Services HTTPS or SSH repository URL.', 'INVALID_REPOSITORY');
 const component = (value: string | undefined) => {
-  if (value === undefined) throw invalid();
+  if (value === undefined) throw invalidUrl();
   let decoded;
   try {
     decoded = decodeURIComponent(value);
   } catch {
-    throw invalid();
+    throw invalidUrl();
   }
   // These bytes are forbidden within decoded repository URL segments.
   // oxlint-disable-next-line no-control-regex
-  if (!decoded || /[\x00-\x1f/\\?#]/.test(decoded) || decoded === '.' || decoded === '..' || /^[-@]/.test(decoded)) throw invalid();
+  if (!decoded || /[\x00-\x1f/\\?#]/.test(decoded) || decoded === '.' || decoded === '..' || /^[-@]/.test(decoded)) throw invalidUrl();
   return decoded;
 };
 
@@ -28,16 +29,16 @@ export function normalizeOrganization(value: unknown) {
   try {
     url = new URL(String(value));
   } catch {
-    throw invalid();
+    throw invalidUrl();
   }
   const parts = url.pathname.split('/').filter(Boolean);
-  if (url.protocol !== 'https:' || url.port || url.search || url.hash || url.username || url.password) throw invalid();
+  if (url.protocol !== 'https:' || url.port || url.search || url.hash || url.username || url.password) throw invalidUrl();
   if (url.hostname.toLowerCase() === 'dev.azure.com' && parts.length === 1)
     return `https://dev.azure.com/${encodeURIComponent(component(parts[0]).toLowerCase())}`;
   const [, account] = url.hostname.match(/^([a-z0-9][a-z0-9-]*)\.visualstudio\.com$/i) ?? [];
   if (account !== undefined && (!parts.length || (parts.length === 1 && parts[0]?.toLowerCase() === 'defaultcollection')))
     return `https://dev.azure.com/${account.toLowerCase()}`;
-  throw invalid();
+  throw invalidUrl();
 }
 
 /**
@@ -51,19 +52,17 @@ function refuseCredentials(url: URL, organization: string) {
     user = decodeURIComponent(url.username);
     org = decodeURIComponent(organization);
   } catch {
-    throw invalid();
+    throw invalidUrl();
   }
-  if (url.protocol === 'ssh:' && user.startsWith('-')) throw invalid();
+  if (url.protocol === 'ssh:' && user.startsWith('-')) throw invalidUrl();
   if (url.password || (url.protocol === 'https:' && user && user.toLowerCase() !== org.toLowerCase()))
-    throw Object.assign(new Error('Remove the credentials from this remote URL and let a Git credential helper sign in.'), {
-      code: 'REMOTE_PASSWORD',
-    });
+    throw invalid('Remove the credentials from this remote URL and let a Git credential helper sign in.', 'REMOTE_PASSWORD');
 }
 
 export function parseRemote(value: unknown): ParsedRemote {
   // Reject control characters before the URL parser can trim them.
   // oxlint-disable-next-line no-control-regex
-  if (typeof value !== 'string' || value.length > 4096 || /[\x00-\x1f]/.test(value)) throw invalid();
+  if (typeof value !== 'string' || value.length > 4096 || /[\x00-\x1f]/.test(value)) throw invalidUrl();
   let organization, project, name;
   const ssh = value.match(/^(?:[^-@/:][^@/:]*@)?(?:ssh\.dev\.azure\.com|vs-ssh\.visualstudio\.com):v3\/([^/]+)\/([^/]+)\/([^/]+)\/?$/i);
   if (ssh) [, organization, project, name] = ssh;
@@ -72,9 +71,9 @@ export function parseRemote(value: unknown): ParsedRemote {
     try {
       url = new URL(value);
     } catch {
-      throw invalid();
+      throw invalidUrl();
     }
-    if (!['https:', 'ssh:'].includes(url.protocol) || url.port || url.search || url.hash) throw invalid();
+    if (!['https:', 'ssh:'].includes(url.protocol) || url.port || url.search || url.hash) throw invalidUrl();
     const parts = url.pathname.split('/').filter(Boolean);
     const host = url.hostname.toLowerCase();
     if (
@@ -88,14 +87,14 @@ export function parseRemote(value: unknown): ParsedRemote {
       [organization, project, , name] = parts;
     else {
       const [, account] = host.match(/^([a-z0-9][a-z0-9-]*)\.visualstudio\.com$/i) ?? [];
-      if (account === undefined || url.protocol !== 'https:') throw invalid();
+      if (account === undefined || url.protocol !== 'https:') throw invalidUrl();
       organization = account;
       if (parts[0]?.toLowerCase() === 'defaultcollection') parts.shift();
-      if (parts.length !== 3 || parts[1] !== '_git') throw invalid();
+      if (parts.length !== 3 || parts[1] !== '_git') throw invalidUrl();
       [project, , name] = parts;
     }
     // Each branch above checked the part count, so this never refuses a parsed URL.
-    if (organization === undefined) throw invalid();
+    if (organization === undefined) throw invalidUrl();
     refuseCredentials(url, organization);
   }
   organization = `https://dev.azure.com/${encodeURIComponent(component(organization).toLowerCase())}`;
@@ -135,9 +134,13 @@ export function repositoryKey(organization: unknown, azureId: unknown) {
 /** Explicit bounded discovery; Git reads worktree/linked configs without fetching. */
 export async function discoverRepositories(inputPath: unknown): Promise<Discovery> {
   if (typeof inputPath !== 'string' || !inputPath.trim() || inputPath.includes('\0'))
-    throw new Error('Choose a local checkout or its parent folder.');
+    throw invalid('Choose a local checkout or its parent folder.');
   const path = resolve(inputPath.startsWith('~/') ? `${homedir()}/${inputPath.slice(2)}` : inputPath);
-  if (!(await stat(path)).isDirectory()) throw new Error('Choose a folder.');
+  const found = await stat(path).catch((error: NodeJS.ErrnoException) => {
+    if (error.code === 'ENOENT' || error.code === 'ENOTDIR') throw invalid('This folder does not exist. Choose another folder.');
+    throw error;
+  });
+  if (!found.isDirectory()) throw invalid('Choose a folder.');
   const result: Discovery = { repositories: [], warnings: [] };
   async function readCheckout(localPath: string) {
     try {
@@ -176,7 +179,7 @@ export async function discoverRepositories(inputPath: unknown): Promise<Discover
       if (remotes.length) result.repositories.push({ localPath, remotes });
       return true;
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') throw new Error('Git is not installed.');
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') throw new AppError('upstream', 'Git is not installed.');
       return false;
     }
   }
@@ -188,4 +191,24 @@ export async function discoverRepositories(inputPath: unknown): Promise<Discover
   for (let i = 0; i < Math.min(children.length, 200); i += 2)
     await Promise.all(children.slice(i, Math.min(i + 2, 200)).map(entry => readCheckout(resolve(path, entry.name))));
   return result;
+}
+
+/**
+ * The Azure remote a request to watch a repository names: a repository URL, or a local checkout with its one Azure
+ * remote or the remote it names. A checkout keeps its folder as the repository's local path.
+ */
+export async function remoteToWatch(
+  input: Record<string, unknown>,
+  discover: (path: string) => Promise<Discovery>,
+): Promise<ParsedRemote & { localPath?: string }> {
+  if (typeof input.url === 'string' && input.url.trim()) return parseRemote(input.url.trim());
+  if (typeof input.path !== 'string' || !input.path.trim()) throw invalid('Enter an Azure repository URL or local checkout path.');
+  const result = await discover(input.path);
+  const enteredPath = input.path.startsWith('~/') ? resolve(homedir(), input.path.slice(2)) : resolve(input.path);
+  const checkout = result.repositories.find(repo => resolve(repo.localPath) === enteredPath);
+  if (!checkout) throw invalid('This folder is not an Azure Git checkout. Choose a repository folder.');
+  const remotes = input.remote ? checkout.remotes.filter(item => item.name === input.remote) : checkout.remotes;
+  const [only] = remotes;
+  if (!only || remotes.length !== 1) throw invalid('Choose the remote explicitly for a checkout with multiple Azure remotes.');
+  return { ...parseRemote(only.url), localPath: checkout.localPath };
 }

@@ -2,12 +2,13 @@ import { readdir, stat } from 'node:fs/promises';
 import { dirname, join, parse, resolve, sep } from 'node:path';
 import { homedir } from 'node:os';
 import { discoverRepositories } from './repositories.ts';
+import { invalid } from './errors.ts';
 
 /** Only immediate folder names and Git remotes; browsing never contacts Azure. */
 export async function browseFolders(
   input: unknown,
   { home = homedir(), discover = discoverRepositories }: { home?: string; discover?: typeof discoverRepositories } = {},
-): Promise<import('../src/contract.d.ts').FoldersResponse> {
+): Promise<import('../src/contract.ts').FoldersResponse> {
   let path;
   if (input === undefined || input === '') {
     const projects = join(home, 'projects');
@@ -15,15 +16,14 @@ export async function browseFolders(
       .then(entry => (entry.isDirectory() ? projects : home))
       .catch(() => home);
   } else {
-    if (typeof input !== 'string' || input.includes('\0') || input.length > 4096)
-      throw Object.assign(new Error('Choose a valid local folder.'), { status: 400 });
+    if (typeof input !== 'string' || input.includes('\0') || input.length > 4096) throw invalid('Choose a valid local folder.');
     path = resolve(input === '~' ? home : input.startsWith('~/') ? join(home, input.slice(2)) : input);
   }
   let entries;
   try {
     entries = await readdir(path, { withFileTypes: true });
   } catch {
-    throw Object.assign(new Error('This folder cannot be opened. Choose another local folder.'), { status: 400 });
+    throw invalid('This folder cannot be opened. Choose another local folder.');
   }
   const folders = entries
     .filter(entry => entry.isDirectory() && !entry.name.startsWith('.') && entry.name !== 'node_modules')

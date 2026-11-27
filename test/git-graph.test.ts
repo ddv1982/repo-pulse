@@ -5,7 +5,7 @@ import { present } from './fixtures/typed.ts';
 import { layoutGitGraph } from '../src/git-graph.ts';
 import { createCheckoutGit, runGit } from '../server/checkout-git.ts';
 import { createGitGraph } from '../src/ui/git-graph.ts';
-import type { GitHistoryPage } from '../src/contract.d.ts';
+import type { GitHistoryPage } from '../src/contract.ts';
 import { stub } from './fixtures/typed.ts';
 
 test('checkout history preserves Git order and all parents across pages', async t => {
@@ -103,7 +103,10 @@ test('the graph snapshot hides raw Git failures', async t => {
       return runGit(path, args, options);
     },
   });
-  await assert.rejects(checkoutGit.historySnapshot(repo), { message: 'Git could not read commit refs for this checkout.', status: 409 });
+  await assert.rejects(checkoutGit.historySnapshot(repo), {
+    message: 'Git could not read commit refs for this checkout.',
+    kind: 'conflict',
+  });
 });
 
 test('the graph takes a stored default branch as its base only when it is a full refs/heads/ name', async t => {

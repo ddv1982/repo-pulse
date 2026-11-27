@@ -6,7 +6,7 @@ import { resolve } from 'node:path';
 import { promisify } from 'node:util';
 import { hasRemoteCredentials, parseRemote } from './repositories.ts';
 import { adviseMissingUpstream, isCommit } from './checkout-advice.ts';
-import { branchFollowups, branchProblem, memoryFollowups } from './checkout-branches.ts';
+import { branchFollowups, memoryFollowups } from './checkout-branches.ts';
 import { isSymbolicRef } from './checkout-delete-guard.cjs';
 import { checkoutDiagnostic, memoryObservations, observedRewrite } from './checkout-observations.ts';
 import { gitHistorySnapshot, readGitHistory } from './git-history.ts';
@@ -23,7 +23,8 @@ import type {
   ActiveCheckout,
   CheckoutStatus,
   Repository as LinkedRepo,
-} from '../src/contract.d.ts';
+} from '../src/contract.ts';
+import { conflict, isAppError, notFound } from './errors.ts';
 
 export type Upstream = { remote: string; source: string; tracking: string; url: string };
 
@@ -39,7 +40,6 @@ export type GitRunner = (
 ) => Promise<string>;
 
 const exec = promisify(execFile);
-const problem = (message: string, status = 409) => Object.assign(new Error(message), { status });
 const operations: [marker: string, label: string][] = [
   ['rebase-merge', 'Rebase'],
   ['rebase-apply/applying', 'Patch apply'],
@@ -133,7 +133,7 @@ export const runGit: GitRunner = async (path, args, { guard, input, prepare, max
     command.child.stdin?.write(input);
     const { stdout } = await command;
     if (rejected) throw rejected;
-    if (!/^commit: ok\r?$/m.test(stdout)) throw problem('Git did not commit the verified ref transaction.');
+    if (!/^commit: ok\r?$/m.test(stdout)) throw conflict('Git did not commit the verified ref transaction.');
     return stdout;
   }
   if (input !== undefined) {
@@ -276,7 +276,6 @@ export function createCheckoutGit({
     hooks,
     now,
     observations,
-    problem,
     statusAt,
     validateUpstream,
     fetchUpstream,
@@ -294,7 +293,6 @@ export function createCheckoutGit({
     hooks,
     now,
     observations,
-    problem,
     statusAt,
     inspect,
     decorate: branches.decorate,
@@ -348,11 +346,11 @@ export function createCheckoutGit({
       const gitlinks = new Set(index.split('\0').flatMap(entry => entry.match(/^160000 [0-9a-f]+ \d\t([^]+)$/)?.[1] ?? []));
       for (const gitlink of gitlinks) {
         // A path that is not valid UTF-8 cannot be followed exactly, so the checkout is not read at all.
-        if (gitlink.includes('\uFFFD')) throw problem('A submodule path is not valid UTF-8. Rename it to read this checkout.', 404);
+        if (gitlink.includes('\uFFFD')) throw notFound('A submodule path is not valid UTF-8. Rename it to read this checkout.');
         const submodule = resolve(folder, gitlink);
         // Git follows a gitlink that is a symlink, so the scan does too; each folder is read once, so links cannot loop.
         const real = await realpath(submodule).catch(() => null);
-        if (real?.includes('\uFFFD')) throw problem('A submodule path is not valid UTF-8. Rename it to read this checkout.', 404);
+        if (real?.includes('\uFFFD')) throw notFound('A submodule path is not valid UTF-8. Rename it to read this checkout.');
         if (!real || visited.has(real)) continue;
         const populated = await access(resolve(submodule, '.git')).then(
           () => true,
@@ -366,7 +364,7 @@ export function createCheckoutGit({
   }
 
   async function checkoutPath(repo: LinkedRepo) {
-    if (!repo.localPath) throw problem('No local checkout linked.', 404);
+    if (!repo.localPath) throw notFound('No local checkout linked.');
     let path, keys;
     try {
       path = await realpath(repo.localPath);
@@ -374,9 +372,9 @@ export function createCheckoutGit({
       if ((await realpath(root)) === path) keys = await configuredCommands(path);
     } catch (error) {
       // The linked folder may have moved or Git may not be available; keep a reason this module gave itself.
-      if ((error as { status?: number }).status) throw error;
+      if (isAppError(error)) throw error;
     }
-    if (!path || !keys) throw problem('The linked checkout is unavailable.', 404);
+    if (!path || !keys) throw notFound('The linked checkout is unavailable.');
     refuseConfiguredCommands(keys);
     return path;
   }
@@ -388,7 +386,7 @@ export function createCheckoutGit({
     const shown = [...new Set(keys.map(key => key.replace(/^(url|http|credential|lfs|includeif)\.[^]+\.([^.]+)$/i, '$1.<…>.$2')))];
     const message = `This checkout's own Git config sets ${shown.join(', ')}.`;
     const suggestion = 'Repo Pulse does not run commands from a checkout. Move these settings to your global Git config or remove them.';
-    throw Object.assign(problem(`${message} ${suggestion}`), {
+    throw Object.assign(conflict(`${message} ${suggestion}`), {
       diagnostic: { title: 'Checkout Git config runs commands', message, suggestion },
     });
   }
@@ -474,7 +472,7 @@ export function createCheckoutGit({
     const rewrite = archive ?? observation?.rewrite ?? pending;
     const state = checkoutState({ ...snapshot, operation, observation, rewrite, target: validTarget });
     if (state === 'behind') {
-      if (!branch || !head || !upstream || !validTarget) throw problem('The upstream changed during the status check.');
+      if (!branch || !head || !upstream || !validTarget) throw conflict('The upstream changed during the status check.');
       return {
         snapshot: { ...snapshot, branch, head, upstream, identity, switchIdentity, lastBranchCheck, state, canCheck: true, canPull: true },
         target: validTarget,
@@ -543,7 +541,7 @@ export function createCheckoutGit({
     if (!fresh && previous?.path === repo.localPath && previous.until > now()) return previous.value;
     const value = checkoutPath(repo).then(
       path => inspect(path, repo, { configChecked: true }),
-      (error: { diagnostic?: import('../src/contract.d.ts').CheckoutDiagnostic }): CheckoutStatus =>
+      (error: { diagnostic?: import('../src/contract.ts').CheckoutDiagnostic }): CheckoutStatus =>
         error.diagnostic ? { state: 'unavailable', diagnostic: error.diagnostic } : { state: 'unavailable' },
     );
     readings.set(repo.id, { path: repo.localPath, until: now() + 5000, value });
@@ -572,11 +570,11 @@ export function createCheckoutGit({
   async function verifyCheckoutDirectory(path: string, expected: string | null) {
     const gitDir = (await run(path, ['rev-parse', '--absolute-git-dir'])).trimEnd();
     if (!expected || !gitDir || opaqueDirectory(await directoryIdentity(gitDir)) !== expected)
-      throw problem('The checkout changed. Review the current branch and try again.');
+      throw conflict('The checkout changed. Review the current branch and try again.');
   }
 
   async function exclusively<T>(repo: LinkedRepo, action: (path: string) => Promise<T>) {
-    if (updatingRepos.has(repo.id)) throw problem('This checkout is already updating. Try again in a moment.');
+    if (updatingRepos.has(repo.id)) throw conflict('This checkout is already updating. Try again in a moment.');
     updatingRepos.add(repo.id);
     readings.delete(repo.id);
     let commonDir: string | null = null;
@@ -585,7 +583,7 @@ export function createCheckoutGit({
       const rawCommonDir = (await run(path, ['rev-parse', '--path-format=absolute', '--git-common-dir'])).trimEnd();
       const resolvedCommonDir = await realpath(rawCommonDir).catch(() => rawCommonDir);
       if (updatingGitDirs.has(resolvedCommonDir)) {
-        throw problem('Another checkout sharing this Git repository is updating. Try again in a moment.');
+        throw conflict('Another checkout sharing this Git repository is updating. Try again in a moment.');
       }
       updatingGitDirs.add(resolvedCommonDir);
       commonDir = resolvedCommonDir;
@@ -606,8 +604,8 @@ export function createCheckoutGit({
     await run(path, ['check-ref-format', target.tracking]);
     // Use the already validated URL, independent of a later remote-name edit.
     const effective = (await run(path, ['ls-remote', '--get-url', '--', target.url])).trimEnd();
-    if (effective !== target.url) throw problem('Git rewrites this upstream. Review the configured remote in Git.');
-    if (await isSymbolicRef(run, path, target.tracking)) throw problem('The upstream tracking ref is symbolic. Review it in Git.');
+    if (effective !== target.url) throw conflict('Git rewrites this upstream. Review the configured remote in Git.');
+    if (await isSymbolicRef(run, path, target.tracking)) throw conflict('The upstream tracking ref is symbolic. Review it in Git.');
   }
 
   async function fetchUpstream(path: string, target: Upstream, destination: string | null = target.tracking) {
@@ -632,7 +630,7 @@ export function createCheckoutGit({
     repo: LinkedRepo,
     operation: 'check' | 'pull',
     expected: CheckoutIntent,
-  ): Promise<import('../src/contract.d.ts').CheckoutUpdateResult> {
+  ): Promise<import('../src/contract.ts').CheckoutUpdateResult> {
     return exclusively(repo, async path => {
       const result = await updateAt(path, repo, operation, expected);
       return { ...result, checkout: await inspect(path, repo) };
@@ -641,20 +639,20 @@ export function createCheckoutGit({
 
   function branchAction(
     repo: LinkedRepo,
-    action: import('./checkout-branches.ts').BranchAction,
+    action: import('../src/contract.ts').BranchAction,
     expected: CheckoutIntent,
-  ): Promise<import('../src/contract.d.ts').BranchActionResult> {
+  ): Promise<import('../src/contract.ts').BranchActionResult> {
     return exclusively(repo, async path => {
       const current = await statusAt(path, repo);
       if (!matchesIntent(current.snapshot, expected)) {
-        throw branchProblem('The checkout changed. Review the current branch and try again.');
+        throw conflict('The checkout changed. Review the current branch and try again.');
       }
       try {
         const result = await branches.act(repo, path, current, action);
         return { ...result, checkout: await inspect(path, repo) };
       } catch (error) {
-        if (error instanceof Error && 'status' in error && error.status === 409) throw error;
-        throw branchProblem('Git could not finish this branch action. Check the checkout in Git and try again.');
+        if (isAppError(error, 'conflict')) throw error;
+        throw conflict('Git could not finish this branch action. Check the checkout in Git and try again.');
       }
     });
   }
@@ -664,7 +662,7 @@ export function createCheckoutGit({
     name: string,
     expected: SwitchIntent,
     { eventId, confirmation }: { eventId?: string | undefined; confirmation?: string | undefined } = {},
-  ): Promise<import('../src/contract.d.ts').ActivitySwitchResult> {
+  ): Promise<import('../src/contract.ts').ActivitySwitchResult> {
     return exclusively(repo, path => switchAt(path, repo, name, expected, { eventId, confirmation }));
   }
 
@@ -683,8 +681,8 @@ export function createCheckoutGit({
     try {
       return await readGitHistory(run, path, repo.defaultBranch, cursor);
     } catch (error) {
-      if (error instanceof Error && 'status' in error) throw error;
-      throw problem('Git could not read commit history for this checkout.');
+      if (isAppError(error)) throw error;
+      throw conflict('Git could not read commit history for this checkout.');
     }
   }
 
@@ -693,7 +691,7 @@ export function createCheckoutGit({
     try {
       return await gitHistorySnapshot(run, path, repo.defaultBranch);
     } catch {
-      throw problem('Git could not read commit refs for this checkout.');
+      throw conflict('Git could not read commit refs for this checkout.');
     }
   }
 

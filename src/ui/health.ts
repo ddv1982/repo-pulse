@@ -1,5 +1,5 @@
 import { html, dateTime } from './format.ts';
-import type { SyncStatus, OverallSyncStatus } from '../contract.d.ts';
+import type { SyncStatus, OverallSyncStatus } from '../contract.ts';
 
 /** `unavailable` is a state response without a sync status, as from an older server. */
 export type ShownSyncStatus = OverallSyncStatus | { state: 'unavailable' };

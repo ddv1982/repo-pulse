@@ -3,7 +3,8 @@
 // the real signature, while the members left out need no placeholder.
 import assert from 'node:assert/strict';
 import type { request } from '../../src/api.ts';
-import type { AzureRepo, Repository } from '../../src/contract.d.ts';
+import type { AzureRepo, Repository, RouteKey } from '../../src/contract.ts';
+import { routeUrl, type RouteTarget } from '../../src/route-url.ts';
 
 /**
  * A T built from the members a test supplies, like the object literal it replaces. Calling a member left out throws;
@@ -19,7 +20,7 @@ export function stub<T>(members: { [K in keyof T]?: T[K] | undefined }): T {
  * the answer either way, and an answer stays synchronous so a test's timing does not change.
  */
 export function fakeRequest(answer: (path: string) => unknown) {
-  return answer as typeof request;
+  return ((route: RouteKey, target?: RouteTarget) => answer(routeUrl(route, target).url)) as typeof request;
 }
 
 /** The value, after failing the test if it is null or undefined. */

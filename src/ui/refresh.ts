@@ -2,7 +2,7 @@ import { createActivityData, activityEvents } from './activity-data.ts';
 import { isActivity } from './navigation.ts';
 import type { ActivityEvent, ActivityPage } from '../activity.ts';
 import type { ActivityView } from './activity-data.ts';
-import type { StateResponse, EventResponse } from '../contract.d.ts';
+import type { StateResponse, EventResponse } from '../contract.ts';
 
 export type View = ActivityView & { eventId: string | null; relatedCi?: boolean | undefined; generation: number };
 
@@ -96,7 +96,7 @@ export function createRefreshController({
     if (!isCurrent(view)) return { type: 'superseded' };
     let savedFilters;
     try {
-      const payload = await request('/api/state');
+      const payload = await request('GET /api/state');
       if (!isCurrent(view)) return { type: 'superseded' };
       const next: PageState = { ...readMetadata(payload), activity: state.activity, events: state.events };
       savedFilters = next.savedFilters;

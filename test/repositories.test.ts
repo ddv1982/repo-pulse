@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { parseRemote, normalizeOrganization, repositoryKey, discoverRepositories, hasRemoteCredentials } from '../server/repositories.ts';
 import type { Thrown } from './fixtures/typed.ts';
 import { present } from './fixtures/typed.ts';
+import { isAppError } from '../server/errors.ts';
 
 test('Azure remote formats normalize to a credential-free canonical identity', () => {
   const forms = [
@@ -138,4 +139,12 @@ test('discovery finds checkouts reached through a symlinked folder and keeps the
   } finally {
     await rm(root, { recursive: true, force: true });
   }
+});
+
+test('discovery refuses a missing path or a file with a message the person can act on', async t => {
+  const root = await mkdtemp(join(tmpdir(), 'repo-pulse-discover-input-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  await writeFile(join(root, 'file.txt'), 'not a folder');
+  for (const path of ['', join(root, 'missing'), join(root, 'file.txt')])
+    await assert.rejects(discoverRepositories(path), (error: unknown) => isAppError(error, 'invalid'), path || 'empty');
 });

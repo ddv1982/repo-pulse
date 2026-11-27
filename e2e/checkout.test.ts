@@ -4,14 +4,15 @@ import { cleanupStack, defer, listen, openPage, capture } from './fixtures/app.t
 import { readFile, writeFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { expect } from '@playwright/test';
-import { createApp } from '../server.ts';
+import { createApp } from '../server/runtime.ts';
 import { TEST_KEY } from '../test/fixtures/access.ts';
 import { checkoutFixture, git } from '../test/fixtures/checkout.ts';
 import { createStore } from '../server/store.ts';
-import type { AppSync } from '../server.ts';
+import type { AppSync } from '../server/routes/context.ts';
 import type { AzureProvider } from '../server/azure-client.ts';
-import type { ConnectionStatus, Repository, SyncEngineStatus, DemoSyncStatus, Repository as LinkedRepo } from '../src/contract.d.ts';
+import type { ConnectionStatus, Repository, Repository as LinkedRepo } from '../src/contract.ts';
 import { stub } from '../test/fixtures/typed.ts';
+import { idleSyncStatus } from '../server/demo.ts';
 
 test('a New branch detail reviews a rewritten tracking ref before switching, then pulls without leaving the detail', async t => {
   const { source, local, repo, checkoutGit, commit, original } = checkoutFixture(cleanupStack(t));
@@ -43,7 +44,7 @@ test('a New branch detail reviews a rewritten tracking ref before switching, the
   ]);
   const provider = stub<AzureProvider>({ checkConnection: async () => stub<ConnectionStatus>({ available: true }) });
   const sync = stub<AppSync>({
-    status: () => stub<SyncEngineStatus & { repos: Record<string, never> }>({ running: false, repos: {} }),
+    status: () => idleSyncStatus(),
   });
   const app = createApp({ store, provider, sync, checkoutGit, accessKey: TEST_KEY });
   const url = await listen(t, app);
@@ -126,7 +127,7 @@ test('Repositories switches between watched branches, and a merged pull request 
   ]);
   const provider = stub<AzureProvider>({ checkConnection: async () => stub<ConnectionStatus>({ available: true }) });
   const sync = stub<AppSync>({
-    status: () => stub<SyncEngineStatus & { repos: Record<string, never> }>({ running: false, repos: {} }),
+    status: () => idleSyncStatus(),
   });
   const app = createApp({ store, provider, sync, checkoutGit, accessKey: TEST_KEY });
   const url = await listen(t, app);
@@ -219,7 +220,7 @@ test('Repositories shows the checkout, checks on demand, and pulls only after co
     store,
     checkoutGit: fixture.checkoutGit,
     provider: stub<AzureProvider>({ checkConnection: async () => stub<ConnectionStatus>({ available: true }) }),
-    sync: stub<AppSync>({ status: () => stub<DemoSyncStatus>({}) }),
+    sync: stub<AppSync>({ status: () => idleSyncStatus() }),
   });
   const base = await listen(t, app);
   const page = await openPage(t, { key: TEST_KEY });
@@ -349,7 +350,7 @@ test('verified PR follow-up switches, reviews and removes the old branch from Re
     store,
     checkoutGit,
     provider: stub<AzureProvider>({ checkConnection: async () => stub<ConnectionStatus>({ available: true }) }),
-    sync: stub<AppSync>({ status: () => stub<DemoSyncStatus>({}) }),
+    sync: stub<AppSync>({ status: () => idleSyncStatus() }),
   });
   const url = await listen(t, app);
   const page = await openPage(t, { viewport: { width: 375, height: 812 }, colorScheme: 'dark', key: TEST_KEY });
@@ -426,7 +427,7 @@ test('ticked follow-up commits survive a checkout snapshot poll that changes the
     store,
     checkoutGit,
     provider: stub<AzureProvider>({ checkConnection: async () => stub<ConnectionStatus>({ available: true }) }),
-    sync: stub<AppSync>({ status: () => stub<DemoSyncStatus>({}) }),
+    sync: stub<AppSync>({ status: () => idleSyncStatus() }),
   });
   const url = await listen(t, app);
   const page = await openPage(t, { viewport: { width: 1280, height: 850 }, key: TEST_KEY });

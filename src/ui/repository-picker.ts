@@ -1,6 +1,6 @@
 import { emptyHtml, html } from './format.ts';
 import { required, setHtml } from './dom.ts';
-import type { FoldersResponse, Repository, DiscoveredRemote } from '../contract.d.ts';
+import type { FoldersResponse, Repository, DiscoveredRemote } from '../contract.ts';
 
 /** A subfolder row, or the row that leads up to the parent folder. */
 type FolderOption = FoldersResponse['folders'][number] & { up?: boolean };
@@ -118,7 +118,7 @@ export function createRepositoryPicker({ request, getRepos, onAdded, onError }: 
     active = 0;
     render();
     try {
-      const result = await request('/api/folders', { method: 'POST', body: path === undefined ? {} : { path } });
+      const result = await request('POST /api/folders', { body: path === undefined ? {} : { path } });
       if (current !== generation) return;
       data = result;
       message = '';
@@ -239,7 +239,7 @@ export function createRepositoryPicker({ request, getRepos, onAdded, onError }: 
     const failures: string[] = [];
     for (const [key, item] of [...selected]) {
       try {
-        await request('/api/repos', { method: 'POST', body: { path: item.localPath, remote: item.remote.name } });
+        await request('POST /api/repos', { body: { path: item.localPath, remote: item.remote.name } });
         selected.delete(key);
         added++;
       } catch (cause) {

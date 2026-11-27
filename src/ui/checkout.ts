@@ -1,6 +1,6 @@
 import { checkAge, renderCheckout } from './checkout-render.ts';
 import { setHtml } from './dom.ts';
-import type { CheckoutStatus, BlockedCheckout, Review, FollowupSummary } from '../contract.d.ts';
+import type { CheckoutStatus, BlockedCheckout, CheckoutOperation, Review, FollowupSummary } from '../contract.ts';
 
 /**
  * One repository's checkout as this page reads it. Every /api/checkouts entry fits: the server adds `followup`
@@ -20,11 +20,10 @@ export type CheckoutUpdate = {
   updated?: boolean;
   message?: string | undefined;
   notice?: string | undefined;
-  switchReview?: import('../contract.d.ts').ActivitySwitchReview | undefined;
+  switchReview?: import('../contract.ts').ActivitySwitchReview | undefined;
   review?: Review | undefined;
   nextStep?: string | undefined;
 };
-export type CheckoutOperation = 'check' | 'pull' | 'switch-activity' | 'switch-branch' | 'switch-update' | 'review' | 'remove' | 'carry';
 
 export function createCheckoutPanel({
   page,
@@ -116,8 +115,10 @@ export function createCheckoutPanel({
       refreshGeneration++;
       const read = Symbol(id);
       singleReads.set(id, read);
-      const path = `/api/repos/${encodeURIComponent(id)}/checkout/status` as const;
-      const checkout = await request(fresh ? `${path}?fresh=1` : path).catch(() => ({ state: 'unavailable' as const }));
+      const checkout = await request('GET /api/repos/:id/checkout/status', {
+        params: { id },
+        query: { fresh: fresh ? '1' : undefined },
+      }).catch(() => ({ state: 'unavailable' as const }));
       if (singleReads.get(id) === read) {
         singleReads.delete(id);
         if (!mutating && issued === generation) publish({ ...snapshots, [id]: retainLocalState(id, checkout) });
@@ -131,7 +132,7 @@ export function createCheckoutPanel({
       const current = () => isVisible() && !mutating && issued === generation && issuedRefresh === refreshGeneration;
       reading = true;
       try {
-        const next: Record<string, CheckoutSnapshot> = await request('/api/checkouts');
+        const next: Record<string, CheckoutSnapshot> = await request('GET /api/checkouts');
         if (current()) {
           for (const [id, checkout] of Object.entries(next)) retainLocalState(id, checkout);
           publish(next);
@@ -159,8 +160,8 @@ export function createCheckoutPanel({
       mutating = true;
       generation++;
       try {
-        const result: CheckoutUpdate = await request(`/api/repos/${encodeURIComponent(id)}/checkout`, {
-          method: 'POST',
+        const result: CheckoutUpdate = await request('POST /api/repos/:id/checkout', {
+          params: { id },
           body: { ...options, operation, expected },
         });
         publish({

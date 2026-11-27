@@ -4,7 +4,8 @@ import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { browseFolders } from '../server/folders.ts';
-import type { Discovery } from '../src/contract.d.ts';
+import { isAppError } from '../server/errors.ts';
+import type { Discovery } from '../src/contract.ts';
 import type { Thrown } from './fixtures/typed.ts';
 
 test('file-picker defaults to projects and returns immediate folders, breadcrumbs and local checkouts', async t => {
@@ -38,7 +39,7 @@ test('missing projects falls back home; unavailable folders return actionable sa
   assert.equal((await browseFolders(undefined, { home, discover })).path, home);
   await assert.rejects(
     browseFolders(join(home, 'missing'), { home, discover }),
-    (error: Thrown) => error.status === 400 && /cannot be opened/.test(error.message),
+    (error: Thrown) => isAppError(error, 'invalid') && /cannot be opened/.test(error.message),
   );
-  await assert.rejects(browseFolders({}, { home, discover }), { status: 400 });
+  await assert.rejects(browseFolders({}, { home, discover }), { kind: 'invalid' });
 });

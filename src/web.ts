@@ -120,10 +120,10 @@ const savedFilterActions = createToolbarMenu({
 });
 const filterName = createFilterNameDialog(required('#filter-name-dialog', HTMLDialogElement));
 const branchPicker = createBranchPicker(required('#branch-dialog', HTMLDialogElement), {
-  load: async repoId => (await request(`/api/repos/${encodeURIComponent(repoId)}/checkout/branches`)).branches,
+  load: async repoId => (await request('GET /api/repos/:id/checkout/branches', { params: { id: repoId } })).branches,
 });
 const historyImport = createHistoryImport(required('#history-dialog', HTMLDialogElement), {
-  start: (repoId, days) => request('/api/backfill', { method: 'POST', body: { repoId, days } }),
+  start: (repoId, days) => request('POST /api/repos/:id/backfill', { params: { id: repoId ?? '' }, body: { days } }),
   onStarted: async id => {
     try {
       await load({ force: true });
@@ -201,10 +201,7 @@ let graphDetailOrigin = '';
 let probingSnapshot: { repoId: string; snapshot: string } | undefined;
 let focusRelatedCi = false;
 const graph = createGitGraph({
-  read: (id, cursor) => {
-    const path = `/api/repos/${encodeURIComponent(id)}/graph` as const;
-    return cursor ? request(`${path}?cursor=${encodeURIComponent(cursor)}`) : request(path);
-  },
+  read: (id, cursor) => request('GET /api/repos/:id/graph', { params: { id }, query: { cursor: cursor || undefined } }),
   render: () => {
     if (ui.route === 'graph') renderPage();
   },
@@ -246,7 +243,7 @@ async function refreshGraphRefs(mutated = false) {
   probingSnapshot = probe;
   let matches = false;
   try {
-    const { snapshot } = await request(`/api/repos/${encodeURIComponent(repoId)}/graph/snapshot`);
+    const { snapshot } = await request('GET /api/repos/:id/graph/snapshot', { params: { id: repoId } });
     matches = snapshot === probe.snapshot;
   } catch {
     // A checkout can disappear or become unreadable after the history loaded.
@@ -545,7 +542,7 @@ function reconcileSavedFilter() {
   if (ui.savedFilterId && refresh.state.savedFilters && !selectedFilter()) ui.savedFilterId = '';
 }
 
-function applySavedFilter({ id, name, filters }: import('./contract.d.ts').SavedActivityFilter) {
+function applySavedFilter({ id, name, filters }: import('./contract.ts').SavedActivityFilter) {
   const { search, people, kind, repoIds, view } = filters;
   const watched = refresh.state.watched;
   const available = new Set(refresh.state.repos.map(repo => repo.id));
@@ -626,12 +623,11 @@ const actions: Record<string, Action> = {
     setRefreshPending(true);
     try {
       const retrySignIn = element.hasAttribute('data-retry-sign-in');
-      const { status } = await request('/api/refresh', {
-        method: 'POST',
+      const { status } = await request('POST /api/refresh', {
         body: { ...(ui.repoIds === null ? {} : { repoIds: ui.repoIds }), ...(retrySignIn ? { retrySignIn: true } : {}) },
       });
       toast(
-        'demo' in status || status.scheduled
+        status.scheduled
           ? 'Activity refresh queued.'
           : status.cooldown
             ? 'A refresh was requested recently. Try again shortly.'
@@ -645,7 +641,7 @@ const actions: Record<string, Action> = {
     }
   },
   'demo-event': async () => {
-    await request('/api/demo/event', { method: 'POST', body: {} });
+    await request('POST /api/demo/event', { body: {} });
     await load({ force: true });
     toast('Fictional incoming hotfix added.');
   },
@@ -673,7 +669,7 @@ const actions: Record<string, Action> = {
     const { query, scope } = element.dataset;
     if (!query || !scope) return;
     const { generation } = navigation.view();
-    const { ids } = await request(`/api/activity/unseen?${query}`);
+    const { ids } = await request('GET /api/activity/unseen', { query: new URLSearchParams(query) });
     if (navigation.view().generation !== generation) return;
     if (!ids.length) {
       await load({ force: true });
@@ -704,7 +700,7 @@ const actions: Record<string, Action> = {
       selectedFilter() ? 'Save as new filter' : 'Save Activity filter',
       '',
       holding('saved-filters', savedFiltersBusy, async name => {
-        const preset = await request('/api/activity-filters', { method: 'POST', body: { name, filters } });
+        const preset = await request('POST /api/activity-filters', { body: { name, filters } });
         await load({ force: true });
         if (isActivity(ui.route) && refresh.state.savedFilters?.some(filter => filter.id === preset.id)) {
           ui.savedFilterId = preset.id;
@@ -731,7 +727,7 @@ const actions: Record<string, Action> = {
       'Rename Activity filter',
       preset.name,
       holding('saved-filters', savedFiltersBusy, async name => {
-        await request(`/api/activity-filters/${preset.id}`, { method: 'PATCH', body: { name } });
+        await request('PATCH /api/activity-filters/:id', { params: { id: preset.id }, body: { name } });
         await load({ force: true });
         toast('Filter renamed.');
       }),
@@ -742,7 +738,7 @@ const actions: Record<string, Action> = {
     if (!preset) return;
     const filters = currentActivityFilters(ui);
     if (!isSavedFilterModified(preset.filters, filters, refresh.state.watched)) return;
-    await request(`/api/activity-filters/${preset.id}`, { method: 'PATCH', body: { filters } });
+    await request('PATCH /api/activity-filters/:id', { params: { id: preset.id }, body: { filters } });
     await load({ force: true });
     toast('Saved filter updated.');
   },
@@ -753,7 +749,7 @@ const actions: Record<string, Action> = {
       'Delete saved filter?',
       'Your current Activity filters will stay applied.',
       async () => {
-        await request(`/api/activity-filters/${preset.id}`, { method: 'DELETE' });
+        await request('DELETE /api/activity-filters/:id', { params: { id: preset.id } });
         if (ui.savedFilterId === preset.id) ui.savedFilterId = '';
         await load({ force: true });
         toast('Saved filter deleted.');
@@ -794,7 +790,7 @@ const actions: Record<string, Action> = {
       'Start from scratch?',
       'This deletes all stored activity, seen marks and imported history on this computer, then imports the last seven days from Azure DevOps again. Older history can be imported from Repositories. Your repositories, linked checkouts and settings stay.',
       async () => {
-        await request('/api/reset', { method: 'POST', body: {} });
+        await request('POST /api/reset', { body: {} });
         // The activity Undo would restore is being deleted.
         seen.forgetUndo();
         hideUndo();
@@ -814,7 +810,7 @@ const actions: Record<string, Action> = {
       `Remove ${repo.name} from this app?`,
       'This deletes its local watch and cached history only. The checkout, Azure repository and remote data are unchanged.',
       async () => {
-        await request(`/api/repos/${encodeURIComponent(repo.id)}`, { method: 'DELETE' });
+        await request('DELETE /api/repos/:id', { params: { id: repo.id } });
         await load({ force: true });
       },
       'Remove local watch',
@@ -826,9 +822,9 @@ const actions: Record<string, Action> = {
     try {
       commitResults.set(
         eventId,
-        await request(
-          `/api/pr/${encodeURIComponent(element.dataset.repoId ?? '')}/${encodeURIComponent(element.dataset.prId ?? '')}/review`,
-        ),
+        await request('GET /api/repos/:id/prs/:prId/review', {
+          params: { id: element.dataset.repoId ?? '', prId: element.dataset.prId ?? '' },
+        }),
       );
     } catch (error) {
       commitResults.set(eventId, { error: error instanceof Error ? error.message : String(error) });
@@ -843,9 +839,9 @@ const actions: Record<string, Action> = {
     try {
       results.set(
         eventId,
-        await request(
-          `/api/push/${encodeURIComponent(element.dataset.repoId ?? '')}/${encodeURIComponent(element.dataset.pushId ?? '')}/commits`,
-        ),
+        await request('GET /api/repos/:id/pushes/:pushId/commits', {
+          params: { id: element.dataset.repoId ?? '', pushId: element.dataset.pushId ?? '' },
+        }),
       );
     } catch (error) {
       results.set(eventId, { error: error instanceof Error ? error.message : String(error) });
@@ -932,7 +928,7 @@ document.addEventListener('change', event => {
     const enabled = control.checked;
     void withAction('repos', async () => {
       try {
-        await request(`/api/repos/${encodeURIComponent(repo.id)}`, { method: 'PATCH', body: { disabled: !enabled } });
+        await request('PATCH /api/repos/:id', { params: { id: repo.id }, body: { disabled: !enabled } });
         await load({ force: true });
         toast(`${repo.name} ${enabled ? 'enabled' : 'disabled'}.`);
       } finally {
@@ -949,7 +945,7 @@ document.addEventListener('change', event => {
     }
     void withAction('settings', async () => {
       try {
-        await request('/api/settings', { method: 'POST', body: { refreshEnabled: checked } });
+        await request('PATCH /api/settings', { body: { refreshEnabled: checked } });
         await load({ force: true });
       } finally {
         for (const control of document.querySelectorAll('[data-auto-toggle]')) {

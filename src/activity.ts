@@ -1,5 +1,6 @@
 import { ZERO_ID } from './events.ts';
-export type ActivityKind = 'branch-created' | 'branch-deleted' | 'tag' | 'push' | 'pr' | 'build';
+export const ACTIVITY_KINDS = ['branch-created', 'branch-deleted', 'tag', 'push', 'pr', 'build'] as const;
+export type ActivityKind = (typeof ACTIVITY_KINDS)[number];
 export type RefUpdate = { name?: string; oldObjectId?: string; newObjectId?: string | undefined };
 /**
  * A completed PR in push merge evidence (server/merge-evidence.ts localPrLink). `id` and an object `closedBy` come from older rows.

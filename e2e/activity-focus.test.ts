@@ -129,7 +129,7 @@ test('incoming activity renders while the repository scope panel is open, and th
 
 test('a focused saved-filter option keeps focus while incoming activity renders', async t => {
   const { page, runtime } = await setup(t);
-  const filters = (search: string): import('../src/contract.d.ts').ActivityFilters => ({
+  const filters = (search: string): import('../src/contract.ts').ActivityFilters => ({
     search,
     people: '',
     kind: '',
@@ -153,7 +153,7 @@ test('a focused saved-filter option keeps focus while incoming activity renders'
 
 test('a focused saved-filter option stays on its preset when another preset is deleted, and falls back to the toggle', async t => {
   const { page, runtime } = await setup(t);
-  const filters = (search: string): import('../src/contract.d.ts').ActivityFilters => ({
+  const filters = (search: string): import('../src/contract.ts').ActivityFilters => ({
     search,
     people: '',
     kind: '',

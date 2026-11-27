@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { createStore, type Store } from '../server/store.ts';
-import type { StoredEvent } from '../src/contract.d.ts';
+import type { StoredEvent } from '../src/contract.ts';
 
 const repo = {
   id: 'one',

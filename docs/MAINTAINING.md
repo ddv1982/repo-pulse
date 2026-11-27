@@ -4,7 +4,11 @@
 
 | Code | Responsibility |
 | --- | --- |
-| [server.ts](../server.ts) | Loopback HTTP, the access key, request validation, and runtime wiring |
+| [server.ts](../server.ts) | The command line entry: port, browser launch and shutdown |
+| [server/http.ts](../server/http.ts) and [server/errors.ts](../server/errors.ts) | Loopback HTTP: local-request checks, the access key and launch token, static files, dispatch from the route map, and the one mapping from `AppError` kinds to statuses |
+| [src/contract.ts](../src/contract.ts) | The JSON the server and browser share, the stream and kind lists, and the route map (`ROUTES` and what each route takes and answers) that both `request()` in [src/api.ts](../src/api.ts) and the server use |
+| [server/routes/](../server/routes/) | One module per route group (state, activity, filters, repositories, checkout, history). Each validates its request once and answers the type the route map names |
+| [server/runtime.ts](../server/runtime.ts) and [server/demo.ts](../server/demo.ts) | Building the app from its route groups and starting live or demo mode. Demo mode implements the same sync and Azure read interfaces, and the routes it cannot serve answer 403 from one table |
 | [server/azure-cli.ts](../server/azure-cli.ts), [server/azure-rest.ts](../server/azure-rest.ts) and [server/azure-client.ts](../server/azure-client.ts) | Azure command allowlist, queue, token-based REST reads, endpoint queries, and paging |
 | [server/sync.ts](../server/sync.ts), [server/normalize.ts](../server/normalize.ts), [server/backfill.ts](../server/backfill.ts), [server/rewrite-check.ts](../server/rewrite-check.ts) and [server/fork-origin.ts](../server/fork-origin.ts) | Live polling, payload normalization, historical imports, the one-call rewrite check for new pushes, and the fork origin check for new branches |
 | [server/sync-status.ts](../server/sync-status.ts) | The per-repository and overall sync status sent with `/api/state` |

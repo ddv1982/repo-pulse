@@ -3,12 +3,12 @@ import { request } from 'node:http';
 import assert from 'node:assert/strict';
 import { createStore } from '../server/store.ts';
 import { createSync } from '../server/sync.ts';
-import { seedDemo } from '../server/demo.ts';
+import { seedDemo, demoProvider, demoSync } from '../server/demo.ts';
 import { createBackfill } from '../server/backfill.ts';
 import type { TestContext } from 'node:test';
-import { createApp, type AppProvider, type AppSync } from '../server.ts';
+import { createApp } from '../server/runtime.ts';
 import type { AzureProvider } from '../server/azure-client.ts';
-import type { AzureStreamRecord, StateResponse } from '../src/contract.d.ts';
+import type { AzureStreamRecord, StateResponse } from '../src/contract.ts';
 import { TEST_KEY, keyedFetch, portOf } from './fixtures/access.ts';
 import { stub } from './fixtures/typed.ts';
 
@@ -59,10 +59,10 @@ async function live(t: TestContext, { pollMs }: { pollMs?: number } = {}) {
   const reset = (send = fetch) => send(url + '/api/reset', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
   const state = async (): Promise<StateResponse> => (await fetch(url + '/api/state')).json();
   const importHistory = () =>
-    fetch(url + '/api/backfill', {
+    fetch(url + '/api/repos/one/backfill', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ repoId: 'one', days: 30 }),
+      body: JSON.stringify({ days: 30 }),
     });
   async function drain() {
     for (let i = 0; i < 6; i++) await sync.tick();
@@ -91,8 +91,8 @@ async function live(t: TestContext, { pollMs }: { pollMs?: number } = {}) {
   }
   /** Sends the headers of a history import now and its body only when `send` is called. */
   function slowImportHistory() {
-    const payload = JSON.stringify({ repoId: 'one', days: 30 });
-    const req = request(url + '/api/backfill', {
+    const payload = JSON.stringify({ days: 30 });
+    const req = request(url + '/api/repos/one/backfill', {
       method: 'POST',
       headers: { 'content-type': 'application/json', 'content-length': Buffer.byteLength(payload), 'x-repo-pulse-key': TEST_KEY },
     });
@@ -278,8 +278,7 @@ test('a running scheduler resumes after a reset and imports again without a manu
 test('demo mode refuses a reset and keeps its data', async t => {
   const store = createStore();
   seedDemo(store);
-  const sync: AppSync = { refresh: () => ({ demo: true }), status: () => ({ demo: true, running: false }) };
-  const app = createApp({ store, provider: stub<AppProvider>({}), sync, demo: true, accessKey: TEST_KEY });
+  const app = createApp({ store, provider: demoProvider, sync: demoSync, demo: true, accessKey: TEST_KEY });
   await new Promise<void>(resolve => app.listen(0, '127.0.0.1', resolve));
   t.after(async () => {
     await new Promise(resolve => app.close(resolve));
@@ -292,6 +291,9 @@ test('demo mode refuses a reset and keeps its data', async t => {
     body: '{}',
   });
   assert.equal(response.status, 403);
-  assert.deepEqual(await response.json(), { message: 'Demo data cannot be cleared. Start live mode to start from scratch.' });
+  assert.deepEqual(await response.json(), {
+    message: 'Demo data cannot be cleared. Start live mode to start from scratch.',
+    code: 'NOT_IN_DEMO',
+  });
   assert.equal(store.listEvents().length, before);
 });

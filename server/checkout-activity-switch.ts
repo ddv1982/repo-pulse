@@ -14,7 +14,8 @@ import type {
   DecoratedCheckout,
   Repository as LinkedRepo,
   SwitchIntent,
-} from '../src/contract.d.ts';
+} from '../src/contract.ts';
+import { conflict, isAppError } from './errors.ts';
 
 /**
  * The caller owns the checkout lock and supplies its existing Git runner and scope checks.
@@ -24,7 +25,6 @@ export function createActivitySwitch({
   hooks,
   now,
   observations,
-  problem,
   statusAt,
   inspect,
   decorate,
@@ -43,7 +43,6 @@ export function createActivitySwitch({
   hooks: string;
   now: () => number;
   observations: import('./checkout-observations.ts').Observations;
-  problem: (message: string, status?: number) => Error & { status: number };
   statusAt: ReadCheckoutStatus;
   inspect: (path: string, repo: LinkedRepo) => Promise<CheckoutStatus>;
   decorate: (repo: LinkedRepo, path: string, snapshot: ActiveCheckout) => Promise<DecoratedCheckout>;
@@ -65,7 +64,7 @@ export function createActivitySwitch({
     const targets = (await Promise.all(remotes.map(remote => remoteTarget(path, repo, remote, source))))
       .map(({ target }) => target)
       .filter(target => target !== null);
-    if (targets.length !== 1) throw problem('This checkout needs one matching Git remote for the watched repository.');
+    if (targets.length !== 1) throw conflict('This checkout needs one matching Git remote for the watched repository.');
     return targets[0];
   }
 
@@ -76,7 +75,7 @@ export function createActivitySwitch({
         .split('\n')
         .find(line => line.endsWith(`\t${target.source}`))
         ?.split('\t') ?? [];
-    if (!isCommit(tip)) throw problem('The branch no longer exists on the watched remote.');
+    if (!isCommit(tip)) throw conflict('The branch no longer exists on the watched remote.');
     return tip;
   }
 
@@ -87,22 +86,22 @@ export function createActivitySwitch({
       // Fetch just the objects until the old tracking tip has been classified.
       await fetchUpstream(path, target, null);
       const latest = await activityRemoteTip(path, target);
-      if ((await trackingTip(path, latest)) !== latest) throw problem('The branch changed during the fetch. Try switching again.');
+      if ((await trackingTip(path, latest)) !== latest) throw conflict('The branch changed during the fetch. Try switching again.');
       return latest;
     } catch (error) {
-      if (error instanceof Error && 'status' in error) throw error;
+      if (isAppError(error)) throw error;
       const reason = fetchFailure(error);
       if (reason === 'missing-ref' || (error instanceof Error && 'code' in error && error.code === 2))
-        throw problem('The branch no longer exists on the watched remote.');
-      throw problem(`${reason.title}. ${reason.suggestion}`);
+        throw conflict('The branch no longer exists on the watched remote.');
+      throw conflict(`${reason.title}. ${reason.suggestion}`);
     }
   }
 
   async function activityTarget(path: string, repo: LinkedRepo, name: string, existingBranch: boolean) {
     const source = `refs/heads/${name}`;
-    if (await isSymbolicRef(run, path, source)) throw problem('The local branch ref is symbolic. Review it in Git.');
+    if (await isSymbolicRef(run, path, source)) throw conflict('The local branch ref is symbolic. Review it in Git.');
     const target = existingBranch ? (await upstreamFor(path, repo, name)).target : await newBranchTarget(path, repo, source);
-    if (target?.source !== source) throw problem('The local branch tracks a different upstream or has no upstream. Review it in Git.');
+    if (target?.source !== source) throw conflict('The local branch tracks a different upstream or has no upstream. Review it in Git.');
     await validateUpstream(path, target);
     await verifyTrackingMapping(run, path, target);
     return target;
@@ -110,9 +109,9 @@ export function createActivitySwitch({
 
   function checkSwitchIntent(snapshot: ActiveCheckout, expected: SwitchIntent) {
     if (!matchesIntent(snapshot, expected) || snapshot.switchIdentity !== expected.switchIdentity) {
-      throw problem('The checkout changed. Review the current branch and try again.');
+      throw conflict('The checkout changed. Review the current branch and try again.');
     }
-    if (snapshot.state === 'in-progress') throw problem('Finish the Git operation before switching branches.');
+    if (snapshot.state === 'in-progress') throw conflict('Finish the Git operation before switching branches.');
   }
 
   async function planActivitySwitch(
@@ -138,12 +137,13 @@ export function createActivitySwitch({
     const replaced = [];
     for (const baseline of baselines) {
       const forward = await ancestry(run, path, baseline, tip);
-      if (forward === null) throw problem('Git could not verify upstream history. Review the checkout in Git before switching.');
+      if (forward === null) throw conflict('Git could not verify upstream history. Review the checkout in Git before switching.');
       if (!forward) replaced.push(baseline);
     }
     const counts = localTip ? (await run(path, ['rev-list', '--left-right', '--count', `${localTip}...${tip}`])).trim() : '0\t0';
     const [, aheadCount, behindCount] = /^(\d+)\s+(\d+)$/.exec(counts) ?? [];
-    if (aheadCount === undefined || behindCount === undefined) throw problem('Git could not compare the local branch with the remote tip.');
+    if (aheadCount === undefined || behindCount === undefined)
+      throw conflict('Git could not compare the local branch with the remote tip.');
     const [ahead, behind] = [Number(aheadCount), Number(behindCount)];
     return { previous, tip, replaced, retained, ahead, behind };
   }
@@ -162,7 +162,7 @@ export function createActivitySwitch({
       if (!localTip) {
         const { snapshot } = await statusAt(path, repo);
         if (snapshot.branch !== name || snapshot.switchIdentity !== switchIdentity)
-          throw problem('The checkout changed during the switch.');
+          throw conflict('The checkout changed during the switch.');
         await run(path, ['config', '--local', '--replace-all', `branch.${name}.remote`, target.remote]);
         await run(path, ['config', '--local', '--replace-all', `branch.${name}.merge`, target.source]);
       }
@@ -192,7 +192,7 @@ export function createActivitySwitch({
         ) {
           const checkout = await decorate(repo, path, after.snapshot);
           if ((await readDirectCommit(run, path, target.tracking)) !== tip)
-            throw problem('The tracking ref changed during final verification.');
+            throw conflict('The tracking ref changed during final verification.');
           await verifyCheckoutDirectory(path, switchIdentity);
           return {
             checkout,
@@ -224,7 +224,7 @@ export function createActivitySwitch({
       if (name.startsWith('-') || name === 'HEAD' || name === '@') throw new Error();
       await run(path, ['check-ref-format', source]);
     } catch {
-      throw problem('The activity branch name cannot be used as a local Git branch.');
+      throw conflict('The activity branch name cannot be used as a local Git branch.');
     }
 
     const localTip = await readRef(run, path, source);
@@ -237,14 +237,14 @@ export function createActivitySwitch({
       .update(JSON.stringify([repo.id, eventId, name, expected, target, localTip, plan]))
       .digest('hex');
     if (confirmation !== undefined && (!needsReview || confirmation !== token))
-      throw problem('The branch or upstream changed since confirmation. Review the switch again.');
+      throw conflict('The branch or upstream changed since confirmation. Review the switch again.');
 
     async function verify() {
       const destination = await activityTarget(path, repo, name, existingBranch);
       if (JSON.stringify(destination) !== JSON.stringify(target) || (await readRef(run, path, source)) !== localTip)
-        throw problem('The destination branch or its remote changed. Review it in Git and try again.');
+        throw conflict('The destination branch or its remote changed. Review it in Git and try again.');
       if (existingBranch && (await worktreeUsesBranch(run, path, source)))
-        throw problem('The destination branch is in an occupied worktree. Open that worktree in Git.');
+        throw conflict('The destination branch is in an occupied worktree. Open that worktree in Git.');
       checkSwitchIntent((await statusAt(path, repo)).snapshot, expected);
       await verifyCheckoutDirectory(path, expected.switchIdentity);
     }
@@ -268,7 +268,7 @@ export function createActivitySwitch({
     try {
       await verify();
       if ((await readDirectCommit(run, path, target.tracking)) !== tip)
-        throw problem('The tracking ref changed before Git could switch branches.');
+        throw conflict('The tracking ref changed before Git could switch branches.');
       await verifyCheckoutDirectory(path, expected.switchIdentity);
       await switchLocalBranch(run, path, hooks, name, existingBranch ? undefined : tip);
     } catch (error) {

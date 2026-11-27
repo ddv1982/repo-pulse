@@ -1,10 +1,15 @@
 import { iso } from './time.ts';
 import { addUnreadable, warningOf } from './sync.ts';
 import type { ActivityEvent } from '../src/activity.ts';
-import type { AzureStreamRecord, HistoryStream, HistoryWindow, HistoryJob, HistoryWarning, UnreadableRecords } from '../src/contract.d.ts';
+import { HISTORY_STREAMS } from '../src/contract.ts';
+import type { AzureStreamRecord, HistoryStream, HistoryWindow, HistoryJob, HistoryWarning, UnreadableRecords } from '../src/contract.ts';
 import type { AzurePage as SourcePage } from './azure-client.ts';
 import type { Entity, WatchedRepo } from './normalize.ts';
 import type { JobType, JobOf } from './store-records.ts';
+import { conflict } from './errors.ts';
+
+/** How far back a history import reads. */
+export type HistoryPeriod = 30 | 90 | 'all';
 
 type HistoryBatch = { events?: ActivityEvent[]; entities?: Entity[] };
 type HistoryStore = {
@@ -18,8 +23,6 @@ type HistoryStore = {
 const DAY = 86400000;
 const WINDOW = 30 * DAY;
 const EARLIEST = Date.parse('2010-01-01T00:00:00Z');
-const STREAMS: [HistoryStream, ...HistoryStream[]] = ['pushes', 'closedPrs', 'builds'];
-const failure = (message: string, status: number) => Object.assign(new Error(message), { status });
 /** The job's warnings with the records a page of `stream` skipped added to that stream's. */
 function withSkipped(warnings: HistoryWarning[], stream: HistoryStream, skipped: UnreadableRecords): HistoryWarning[] {
   const previous = warnings.find(warning => warning.stream === stream);
@@ -49,14 +52,11 @@ export function createBackfill({
   let lastId: string | undefined;
   const retriedAt = new Map<string, number>();
   const jobs = () => store.listJobs({ type: 'backfill' });
-  function start(repoId: string, days: number | 'all' = 30): HistoryJob {
-    const repo = store.listRepos().find(item => item.id === repoId);
-    if (!repo) throw failure('Repository is not watched.', 404);
-    const period = days === 'all' ? 'all' : Number(days);
-    if (![30, 90, 'all'].includes(period)) throw failure('Choose 30 days, 90 days or all available history.', 400);
+  /** Starts a history import for a watched repository; the route checks the repository and the period. */
+  function start(repoId: string, period: HistoryPeriod = 30): HistoryJob {
     const previous = jobs().find(job => job.repoId === repoId);
     if (previous && previous.status !== 'completed') {
-      if (previous.days !== period) throw failure('A history import is already running for this repository.', 409);
+      if (previous.days !== period) throw conflict('A history import is already running for this repository.');
       return previous;
     }
     const requestedAt = now();
@@ -75,7 +75,7 @@ export function createBackfill({
       nextAt: iso(requestedAt),
       rangeStart: iso(since),
       rangeEnd: iso(until),
-      stream: STREAMS[0],
+      stream: HISTORY_STREAMS[0],
       cursor: null,
       window: complete ? null : { since: iso(Math.max(since, until - WINDOW)), until: iso(until) },
       pages: 0,
@@ -108,13 +108,14 @@ export function createBackfill({
     };
     if (page.nextCursor) return { ...next, cursor: page.nextCursor };
     next.cursor = null;
-    const following = STREAMS[STREAMS.indexOf(job.stream) + 1];
+    const following = HISTORY_STREAMS[HISTORY_STREAMS.indexOf(job.stream) + 1];
     if (following) return { ...next, stream: following };
     next.windowsCompleted++;
     next.coverageStart = window.since;
     const until = Date.parse(window.since),
       lower = Date.parse(job.rangeStart);
-    if (until > lower) return { ...next, stream: STREAMS[0], window: { since: iso(Math.max(lower, until - WINDOW)), until: iso(until) } };
+    if (until > lower)
+      return { ...next, stream: HISTORY_STREAMS[0], window: { since: iso(Math.max(lower, until - WINDOW)), until: iso(until) } };
     return { ...next, status: 'completed', completedAt: iso(now()), window: null };
   }
   async function runPage() {

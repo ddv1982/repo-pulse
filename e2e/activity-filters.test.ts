@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { capture, refreshNow, gate } from './fixtures/app.ts';
 import { expect } from '@playwright/test';
-import type { SavedActivityFilter } from '../src/contract.d.ts';
+import type { SavedActivityFilter } from '../src/contract.ts';
 import { selectActivityType, setup, groupedFixture } from './fixtures/ui-app.ts';
 import { demo } from './fixtures/history-app.ts';
 import type { ActivityEvent } from '../src/activity.ts';
@@ -464,7 +464,7 @@ test('saving selects the new filter after an older state response arrives', asyn
 
 test('an Activity response renders while a saved-filter menu stays open, and deletes keep newer selections', async t => {
   const { runtime, page } = await demo(t);
-  const filters = (search: string): import('../src/contract.d.ts').ActivityFilters => ({
+  const filters = (search: string): import('../src/contract.ts').ActivityFilters => ({
     search,
     people: '',
     kind: '',

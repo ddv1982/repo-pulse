@@ -27,7 +27,7 @@ export type ResultsContext = {
 };
 
 /** The fields of a watched repository that navigation reads. */
-type ScopeRepo = Pick<import('../contract.d.ts').Repository, 'id' | 'disabled'>;
+type ScopeRepo = Pick<import('../contract.ts').Repository, 'id' | 'disabled'>;
 
 /**
  * Resolve legacy Activity bookmarks to the corresponding filter.

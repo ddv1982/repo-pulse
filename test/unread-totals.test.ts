@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createStore } from '../server/store.ts';
 import type { ActivityEvent } from '../src/activity.ts';
-import type { Repository } from '../src/contract.d.ts';
+import type { Repository } from '../src/contract.ts';
 import { stub } from './fixtures/typed.ts';
 
 const repo = stub<Repository>({ id: 'repo', name: 'Repo', azureId: 'a' });
