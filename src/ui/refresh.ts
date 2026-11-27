@@ -8,20 +8,16 @@ export type View = ActivityView & { eventId: string | null; relatedCi?: boolean 
 
 export type Repo = StateResponse['repos'][number];
 
-type Metadata = Partial<Omit<StateResponse, 'settings' | 'diagnostics'>> & {
-  watched?: Repo[];
-  settings?: Partial<StateResponse['settings']>;
-  diagnostics?: Partial<StateResponse['diagnostics']>;
-};
-
 /** Before the first page arrives only `items` and `loading` are set. */
 type DisplayActivity = Pick<ActivityPage, 'items'> & Partial<Omit<ActivityPage, 'items'>> & { loading?: boolean; error?: string };
 
-export type PageState = Omit<Metadata, 'syncStatus'> & {
-  repos: Repo[];
+/**
+ * The state the page renders: the last /api/state answer, checked once in `readState`, with disabled repositories left
+ * out of `repos` and `streams` (`watched` keeps them for Repositories), and the Activity rows or detail loaded for it.
+ * Before the first answer every field holds an empty placeholder, and `diagnostics` stays empty.
+ */
+export type PageState = Omit<StateResponse, 'syncStatus' | 'diagnostics'> & {
   watched: Repo[];
-  streams: StateResponse['streams'];
-  settings: Partial<StateResponse['settings']>;
   diagnostics: Partial<StateResponse['diagnostics']>;
   syncStatus: PageSyncStatus;
   activity: DisplayActivity;
@@ -38,22 +34,43 @@ type RefreshOutcome = { type: 'applied' | 'superseded' } | { type: 'failed'; err
 
 const noSyncStatus: PageSyncStatus = { overall: { state: 'unavailable' }, repos: {} };
 
-function readMetadata(value: unknown) {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Local state is unreadable.');
-  // Relies on the /api/state response contract; the runtime checks cover the top-level object, repository IDs and the activity revision.
-  const data = value as Metadata;
-  if (data.repos !== undefined && (!Array.isArray(data.repos) || data.repos.some(repo => typeof repo?.id !== 'string'))) {
+const isObject = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);
+
+/**
+ * The /api/state answer as the page reads it, checked once here: every field the page reads is present with its type.
+ * Repository IDs and the activity revision keep their own messages; any other missing or mistyped field makes the state
+ * unreadable. The fields inside each entry are trusted to match the contract.
+ */
+export function readState(value: unknown): StateResponse {
+  if (!isObject(value)) throw new Error('Local state is unreadable.');
+  const { repos, streams, diagnostics, jobs, activityRevision, savedFilters, settings, syncStatus, demo } = value;
+  if (!Array.isArray(repos) || repos.some(repo => !isObject(repo) || typeof repo.id !== 'string'))
     throw new Error('Local repository data is unreadable.');
-  }
-  if (data.activityRevision !== undefined && typeof data.activityRevision !== 'string') {
-    throw new Error('The local Activity revision is unreadable.');
-  }
-  // Disabled repositories stay manageable on Repositories but leave every other view.
-  const watched = data.repos || [];
+  if (typeof activityRevision !== 'string') throw new Error('The local Activity revision is unreadable.');
+  if (
+    !Array.isArray(streams) ||
+    !Array.isArray(jobs) ||
+    !Array.isArray(savedFilters) ||
+    !isObject(diagnostics) ||
+    !isObject(settings) ||
+    typeof settings.refreshEnabled !== 'boolean' ||
+    !isObject(syncStatus) ||
+    !isObject(syncStatus.overall) ||
+    typeof syncStatus.overall.state !== 'string' ||
+    !isObject(syncStatus.repos) ||
+    typeof demo !== 'boolean'
+  )
+    throw new Error('Local state is unreadable.');
+  // Checked above field by field; the entries inside each list follow the route map in src/contract.ts.
+  return value as StateResponse;
+}
+
+/** The page state for a checked answer: disabled repositories stay manageable on Repositories but leave every other view. */
+function pageMetadata(data: StateResponse) {
+  const watched = data.repos;
   const repos = watched.filter(repo => !repo.disabled);
-  const streams = (data.streams || []).filter(stream => repos.some(repo => repo.id === stream.repoId));
-  const syncStatus = data.syncStatus || noSyncStatus;
-  return { ...data, watched, repos, streams, settings: data.settings || {}, diagnostics: data.diagnostics || {}, syncStatus };
+  const streams = data.streams.filter(stream => repos.some(repo => repo.id === stream.repoId));
+  return { ...data, watched, repos, streams };
 }
 
 const viewKey = ({ route, eventId, repoIds, search, kind, unreadOnly, generation }: View) =>
@@ -62,13 +79,14 @@ const viewKey = ({ route, eventId, repoIds, search, kind, unreadOnly, generation
 export function createRefreshController({
   request,
   getView,
-  reconcileRepositories,
+  reconcile,
   onUpdate,
   onError,
 }: {
   request: typeof import('../api.ts').request;
   getView: () => View;
-  reconcileRepositories: (repos: Repo[]) => void;
+  /** Brings the navigation state in line with each state answer as it arrives: the repository scope and the saved filter. */
+  reconcile: (next: Pick<PageState, 'watched' | 'savedFilters'>) => void;
   onUpdate: (event: { metadata: string; force: boolean }) => void;
   onError: (error: Error, force: boolean) => void;
 }) {
@@ -79,9 +97,13 @@ export function createRefreshController({
     activity: { items: [], loading: true },
     events: [],
     streams: [],
-    settings: {},
+    jobs: [],
+    activityRevision: '',
+    savedFilters: [],
+    settings: { refreshEnabled: true, refreshResumedAt: null },
     diagnostics: {},
     syncStatus: noSyncStatus,
+    demo: false,
   };
   // Until the first state read lands, state.watched is a placeholder, not the watch list.
   let loaded = false;
@@ -94,14 +116,14 @@ export function createRefreshController({
 
   async function read({ view, force, more }: RefreshJob): Promise<RefreshOutcome> {
     if (!isCurrent(view)) return { type: 'superseded' };
-    let savedFilters;
+    let savedFilters: PageState['savedFilters'] | undefined;
     try {
       const payload = await request('GET /api/state');
       if (!isCurrent(view)) return { type: 'superseded' };
-      const next: PageState = { ...readMetadata(payload), activity: state.activity, events: state.events };
+      const next: PageState = { ...pageMetadata(readState(payload)), activity: state.activity, events: state.events };
       savedFilters = next.savedFilters;
       const metadata = JSON.stringify(payload);
-      reconcileRepositories(next.watched);
+      reconcile(next);
       const reconciled = getView();
       if (viewKey(view) !== viewKey(reconciled)) more = false;
       view = reconciled;

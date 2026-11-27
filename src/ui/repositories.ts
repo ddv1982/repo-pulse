@@ -15,7 +15,7 @@ export function renderRepositories(
   ui: { connection?: RepositoriesView },
   checkouts: Record<string, CheckoutSnapshot> = {},
 ) {
-  const jobs = new Map(state.jobs?.map(job => [job.repoId, job]));
+  const jobs = new Map(state.jobs.map(job => [job.repoId, job]));
   const disabled = state.watched.filter(repo => repo.disabled).length;
   return html`<div class="repo-heading">
     <h1 class="sr">Repositories</h1>
@@ -76,7 +76,7 @@ function renderRepo(
   demo: boolean | undefined,
   settings: PageState['settings'],
 ) {
-  const automatic = settings.refreshEnabled !== false;
+  const automatic = settings.refreshEnabled;
   const records = streams.filter(stream => stream.repoId === repo.id);
   const checked = records.map(stream => Date.parse(stream.lastSuccess ?? '')).filter(Number.isFinite);
   const failed = records.flatMap(stream => streamProblems(stream).map(message => ({ label: streamLabel(stream.stream), message })));

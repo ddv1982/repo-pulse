@@ -1,6 +1,14 @@
 import { checkAge, renderCheckout } from './checkout-render.ts';
 import { setHtml } from './dom.ts';
-import type { CheckoutStatus, BlockedCheckout, CheckoutOperation, Review, FollowupSummary } from '../contract.ts';
+import type {
+  CheckoutStatus,
+  BlockedCheckout,
+  CheckoutOperation,
+  CheckoutRequest,
+  CheckoutUpdateResponse,
+  Review,
+  FollowupSummary,
+} from '../contract.ts';
 
 /**
  * One repository's checkout as this page reads it. Every /api/checkouts entry fits: the server adds `followup`
@@ -15,15 +23,27 @@ export type CheckoutSnapshot = {
   carry?: string[] | undefined;
   nextStep?: string | undefined;
 } & Partial<Omit<BlockedCheckout, 'state' | 'canPull'>>;
-export type CheckoutUpdate = {
-  checkout: CheckoutSnapshot;
-  updated?: boolean;
-  message?: string | undefined;
-  notice?: string | undefined;
-  switchReview?: import('../contract.ts').ActivitySwitchReview | undefined;
-  review?: Review | undefined;
-  nextStep?: string | undefined;
-};
+/** The answer to a checkout command, narrowed to the operation the command names. */
+export type CheckoutAnswer<O extends CheckoutOperation> = CheckoutUpdateResponse extends infer R
+  ? R extends { operation: infer P }
+    ? O extends P
+      ? R
+      : never
+    : never
+  : never;
+
+/** The review and next step a branch follow-up action answered with; the other operations answer neither. */
+function branchOutcome(result: CheckoutUpdateResponse) {
+  switch (result.operation) {
+    case 'switch-update':
+    case 'review':
+    case 'remove':
+    case 'carry':
+      return { review: result.review, nextStep: result.nextStep };
+    default:
+      return { review: undefined, nextStep: undefined };
+  }
+}
 
 export function createCheckoutPanel({
   page,
@@ -150,33 +170,20 @@ export function createCheckoutPanel({
         reading = false;
       }
     },
-    async update(
-      id: string,
-      operation: CheckoutOperation,
-      // Sent as JSON, which leaves out a field holding undefined.
-      expected: { [K in 'branch' | 'head' | 'upstream' | 'identity' | 'switchIdentity']?: CheckoutSnapshot[K] | undefined },
-      options: Record<string, unknown> = {},
-    ): Promise<CheckoutUpdate> {
+    /** Runs one command. `expected` is sent as JSON, which leaves out a field holding undefined. */
+    async update<C extends CheckoutRequest>(id: string, command: C): Promise<CheckoutAnswer<C['operation']>> {
       mutating = true;
       generation++;
       try {
-        const result: CheckoutUpdate = await request('POST /api/repos/:id/checkout', {
-          params: { id },
-          body: { ...options, operation, expected },
-        });
-        publish({
-          ...snapshots,
-          [id]: {
-            ...result.checkout,
-            review: result.review ?? (result.nextStep ? snapshots[id]?.review : undefined),
-            nextStep: result.nextStep,
-          },
-        });
+        // The route answers with the operation the command named, so the answer narrows to it.
+        const result = (await request('POST /api/repos/:id/checkout', { params: { id }, body: command })) as CheckoutAnswer<C['operation']>;
+        const { review, nextStep } = branchOutcome(result);
+        publish({ ...snapshots, [id]: { ...result.checkout, review: review ?? (nextStep ? snapshots[id]?.review : undefined), nextStep } });
         return result;
       } finally {
         generation++;
         mutating = false;
-        if (operation !== 'review') onMutation(id);
+        if (command.operation !== 'review') onMutation(id);
       }
     },
   };

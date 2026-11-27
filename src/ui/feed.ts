@@ -46,7 +46,7 @@ function filterControls(ui: FeedView & { savedFilterId: string }, state: PageSta
   // Clear filter leaves the repository scope alone, so only the Filters count includes it.
   const count = active + Number(ui.repoIds !== null);
   const open = desktop || ui.filtersOpen === true;
-  const presets = state.savedFilters ?? [];
+  const presets = state.savedFilters;
   const saved = presets.find(filter => filter.id === ui.savedFilterId);
   const modified = Boolean(saved && isSavedFilterModified(saved.filters, currentActivityFilters(ui), state.watched));
   return html`<div class="activity-filter-bar">
@@ -459,7 +459,7 @@ export function renderFeed(state: PageState, ui: FeedView & { savedFilterId: str
   const partial = shown.some(repo => state.syncStatus.repos[repo.id]?.state !== 'synced');
   const overall = state.syncStatus.overall;
   const attention =
-    overall.state === 'problem' && !('repoId' in overall)
+    overall.state === 'problem' && overall.repoId === undefined
       ? { ...overall, repoId: '' }
       : worstStatus(
           shown.flatMap(repo => {
@@ -493,5 +493,5 @@ export function renderFeed(state: PageState, ui: FeedView & { savedFilterId: str
     shown.map(repo => repo.id),
   );
   return html`<h1 class="sr">Activity</h1>${renderSummary(records, state, ui, partial, firstSync)}${statusBanner(state, attention)}${filterControls(ui, state)}
-    <section class="card feed" aria-label="Repository activity">${bulk === emptyHtml ? emptyHtml : html`<div class="foot feed-actions">${bulk}</div>`}${legend ? treeLegend : emptyHtml}${records.length ? content : html`<div class="empty"><p class="big">${state.activity?.loading ? 'Loading activity…' : state.activity?.error ? 'Activity could not load' : emptyMessage}</p>${emptyHint ? html`<p class="dim">${emptyHint}</p>` : emptyHtml}${state.activity?.error ? html`<button class="btn sm" type="button" data-action="retry-activity">Try again</button>` : emptyHtml}</div>`}${state.activity?.nextCursor ? html`<div class="foot"><button class="btn" type="button" data-action="load-more-activity">Load more</button><span>Showing ${records.reduce((total, record) => total + 1 + (record.foldedCi ?? 0), 0)} of ${state.activity.total} recorded items.</span></div>` : emptyHtml}</section>`;
+    <section class="card feed" aria-label="Repository activity">${bulk === emptyHtml ? emptyHtml : html`<div class="foot feed-actions">${bulk}</div>`}${legend ? treeLegend : emptyHtml}${records.length ? content : html`<div class="empty"><p class="big">${state.activity.loading ? 'Loading activity…' : state.activity.error ? 'Activity could not load' : emptyMessage}</p>${emptyHint ? html`<p class="dim">${emptyHint}</p>` : emptyHtml}${state.activity.error ? html`<button class="btn sm" type="button" data-action="retry-activity">Try again</button>` : emptyHtml}</div>`}${state.activity.nextCursor ? html`<div class="foot"><button class="btn" type="button" data-action="load-more-activity">Load more</button><span>Showing ${records.reduce((total, record) => total + 1 + (record.foldedCi ?? 0), 0)} of ${state.activity.total} recorded items.</span></div>` : emptyHtml}</section>`;
 }

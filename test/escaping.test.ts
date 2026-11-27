@@ -182,7 +182,7 @@ function pageState(activity: PageState['activity']): PageState {
     repos: [repo],
     watched: [repo, disabledRepo],
     streams,
-    settings: { refreshEnabled: true },
+    settings: { refreshEnabled: true, refreshResumedAt: null },
     diagnostics: {
       startsLastMinute: 1,
       limitPerMinute: 10,
@@ -208,6 +208,9 @@ function pageState(activity: PageState['activity']): PageState {
     },
     activity,
     events,
+    activityRevision: '1',
+    savedFilters: [],
+    demo: false,
   };
 }
 

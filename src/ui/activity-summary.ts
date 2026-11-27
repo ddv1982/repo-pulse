@@ -76,7 +76,7 @@ export function renderSummary(
   );
   const scoped = Boolean(ui.search || ui.kind || ui.repoIds !== null);
   const noUnread = scoped ? 'No unread updates match these filters' : 'No new updates';
-  const headline = state.activity?.loading
+  const headline = state.activity.loading
     ? 'Loading activity…'
     : !records.length && state.activity.error
       ? 'Activity could not load'

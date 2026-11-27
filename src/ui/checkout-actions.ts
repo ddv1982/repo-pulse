@@ -1,5 +1,5 @@
 import type { CheckoutSnapshot } from './checkout.ts';
-import type { CheckoutOperation } from '../contract.ts';
+import type { BranchAction } from '../contract.ts';
 
 import type { Action } from './dom.ts';
 export type ActivityCheckout = { repoId: string; localPath: string; eventId: string; branch: string; isCurrent: () => boolean };
@@ -25,29 +25,34 @@ export function createCheckoutActions({
   closeBranchPicker: () => void;
   currentView: () => () => boolean;
 }): Record<string, Action> {
-  async function updateCheckout(id: string, operation: CheckoutOperation, checkout: CheckoutSnapshot, options?: Record<string, unknown>) {
+  /** A check, a pull or a branch follow-up action on the checkout the page shows. */
+  async function updateCheckout(id: string, command: { operation: 'check' | 'pull' } | BranchAction, checkout: CheckoutSnapshot) {
     const { branch, head, upstream, identity } = checkout;
     try {
-      const result = await checkoutPanel.update(id, operation, { branch, head, upstream, identity }, options);
-      if (result.message) return toast(result.message);
-      if (result.review) return;
-      if (result.checkout.diagnostic && !result.updated) return;
-      if (operation === 'check') {
-        const { ahead, behind, lastBranchCheck } = result.checkout;
-        const upToDate = lastBranchCheck?.matchesFetchedTip && ahead === 0 && behind === 0;
-        return toast(upToDate ? `${branch} is up to date.` : `Checked ${branch} for updates.`);
+      const result = await checkoutPanel.update(id, { ...command, expected: { branch, head, upstream, identity } });
+      switch (result.operation) {
+        case 'check':
+        case 'pull': {
+          const shown: CheckoutSnapshot = result.checkout;
+          if (shown.diagnostic && !result.updated) return;
+          if (result.operation === 'check') {
+            const { ahead, behind, lastBranchCheck } = shown;
+            const upToDate = lastBranchCheck?.matchesFetchedTip && ahead === 0 && behind === 0;
+            return toast(upToDate ? `${branch} is up to date.` : `Checked ${branch} for updates.`);
+          }
+          return toast(result.updated ? `Updated ${branch}.` : 'The checkout is already at the fetched upstream.');
+        }
+        default:
+          // A follow-up action answers with a message, a review the page now shows, or both.
+          if (result.message) toast(result.message);
       }
-      toast(result.updated ? `Updated ${branch}.` : 'The checkout is already at the fetched upstream.');
     } catch (error) {
       void checkoutPanel.read(id, true);
       throw error;
     }
   }
 
-  function branchAction(
-    element: HTMLElement,
-    operation: Exclude<CheckoutOperation, 'check' | 'pull' | 'switch-activity' | 'switch-branch'>,
-  ) {
+  function branchAction(element: HTMLElement, operation: BranchAction['operation']) {
     const id = element.dataset.id ?? '';
     const checkout = checkoutPanel.snapshots[id];
     if (!checkout) return;
@@ -58,19 +63,18 @@ export function createCheckoutActions({
       return confirm(
         `Switch to ${advice.branch} and update?`,
         `Git will switch this checkout to ${advice.branch} and fast-forward it if possible. You can review the old local branch afterward.`,
-        () => updateCheckout(id, operation, checkout, { prId: advice.id, result: receipt.result }),
+        () => updateCheckout(id, { operation, prId: advice.id, result: receipt.result }, checkout),
         'Switch and update',
       );
     }
     const followup = checkout.followup;
     if (!followup) return;
-    const options: { planId: string; commits?: string[] } = { planId: followup.id };
-    const perform = () => updateCheckout(id, operation, checkout, options);
+    const planId = followup.id;
     if (operation === 'remove') {
       return confirm(
         'Remove local branch?',
         'Repo Pulse keeps a local Git reference to the branch’s last commit before deleting the branch.',
-        perform,
+        () => updateCheckout(id, { operation, planId }, checkout),
         'Remove local branch',
         { subject: followup.source, destructive: true },
       );
@@ -78,18 +82,18 @@ export function createCheckoutActions({
     if (operation === 'carry') {
       const reviewPanel = element.closest('[data-checkout-review]');
       if (!reviewPanel) throw new Error('Repo Pulse: missing required element [data-checkout-review]');
-      options.commits = [...reviewPanel.querySelectorAll('input:checked')]
+      const commits = [...reviewPanel.querySelectorAll('input:checked')]
         .filter(input => input instanceof HTMLInputElement)
         .map(input => input.value);
-      if (!options.commits.length) return toast('Select at least one commit to carry.');
+      if (!commits.length) return toast('Select at least one commit to carry.');
       return confirm(
         `Apply selected commits to ${checkout.review?.branch}?`,
         'Git will apply your selection on a new local branch in its original order, then switch to it. If Git stops, the follow-up stays in a separate worktree.',
-        perform,
+        () => updateCheckout(id, { operation, planId, commits }, checkout),
         'Create branch and apply',
       );
     }
-    return perform();
+    return updateCheckout(id, { operation, planId }, checkout);
   }
 
   /**
@@ -99,8 +103,7 @@ export function createCheckoutActions({
    */
   async function switchCheckout(
     { repoId, localPath, branch, isCurrent }: { repoId: string; localPath: string; branch: string; isCurrent: () => boolean },
-    operation: 'switch-activity' | 'switch-branch',
-    request: Record<string, unknown>,
+    command: { operation: 'switch-activity'; eventId: string } | { operation: 'switch-branch'; branch: string },
     done: () => void,
   ) {
     const checkout = await checkoutPanel.read(repoId, true);
@@ -115,7 +118,7 @@ export function createCheckoutActions({
     const switchBranch = async (confirmation?: string) => {
       if (!isCurrent()) return;
       const result = await checkoutPanel
-        .update(repoId, operation, { branch: current, head, upstream, identity, switchIdentity }, { ...request, confirmation })
+        .update(repoId, { ...command, confirmation, expected: { branch: current, head, upstream, identity, switchIdentity } })
         .catch(error => {
           void checkoutPanel.read(repoId, true);
           throw error;
@@ -140,7 +143,8 @@ export function createCheckoutActions({
         return;
       }
       if (result.message) throw new Error(result.message);
-      if (result.checkout.branch !== branch)
+      const switched: CheckoutSnapshot = result.checkout;
+      if (switched.branch !== branch)
         throw new Error('Git finished switching, but the new checkout status could not be verified. Review it in Repositories.');
       toast(`Switched to ${branch}.${result.notice ? ` ${result.notice}` : ''}`);
       done();
@@ -171,7 +175,7 @@ export function createCheckoutActions({
       const context = getActivityCheckout();
       if (!context) return;
       const { repoId, localPath, eventId, branch, isCurrent } = context;
-      await switchCheckout({ repoId, localPath, branch, isCurrent }, 'switch-activity', { eventId }, () => {
+      await switchCheckout({ repoId, localPath, branch, isCurrent }, { operation: 'switch-activity', eventId }, () => {
         document.getElementById(`checkout-state-${repoId}`)?.focus({ preventScroll: true });
       });
     },
@@ -181,7 +185,7 @@ export function createCheckoutActions({
       if (!repoId || !branch) return;
       const focus = () => document.getElementById(`checkout-state-${repoId}`)?.focus();
       const isCurrent = currentView();
-      await switchCheckout({ repoId, localPath, branch, isCurrent }, 'switch-branch', { branch }, focus);
+      await switchCheckout({ repoId, localPath, branch, isCurrent }, { operation: 'switch-branch', branch }, focus);
     },
     'check-checkout': async element => {
       const id = element.dataset.id ?? '';
@@ -191,7 +195,7 @@ export function createCheckoutActions({
       if (!isCurrent()) return;
       checkShownCheckout(shown, checkout);
       if (!checkout.canCheck) throw new Error('This checkout can no longer check for updates. Review its Git status.');
-      return updateCheckout(id, 'check', checkout);
+      return updateCheckout(id, { operation: 'check' }, checkout);
     },
     'pull-checkout': async element => {
       const id = element.dataset.id ?? '';
@@ -205,7 +209,7 @@ export function createCheckoutActions({
         `Update ${checkout.branch}?`,
         `Pull the latest commits from ${checkout.upstream} into this local checkout. Git will only fast-forward the branch and will check that it can keep your local changes.`,
         async () => {
-          if (isCurrent()) await updateCheckout(id, 'pull', checkout);
+          if (isCurrent()) await updateCheckout(id, { operation: 'pull' }, checkout);
         },
         'Pull',
       );

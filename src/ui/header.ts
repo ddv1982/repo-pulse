@@ -8,7 +8,7 @@ type HeaderState = Pick<import('./refresh.ts').PageState, 'repos' | 'settings' |
 type HeaderView = Pick<import('./navigation.ts').NavigationState, 'route' | 'unreadOnly'> & { refreshing?: boolean };
 
 export function renderHeader(state: HeaderState, ui: HeaderView) {
-  const automatic = state.settings.refreshEnabled !== false;
+  const automatic = state.settings.refreshEnabled;
   const pill = syncPill(state.syncStatus.overall, syncRepoName(state.repos, state.syncStatus.overall));
   const switchInput = (
     suffix: 'desktop' | 'mobile',

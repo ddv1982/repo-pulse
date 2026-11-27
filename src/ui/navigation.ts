@@ -1,7 +1,10 @@
 import { joinActivitySearch } from './activity-search.ts';
 
+/** The pages the hash names. Every switch over a route is exhaustive. */
+export type Route = 'activity' | 'event' | 'graph' | 'repositories' | 'settings';
+
 export type NavigationState = {
-  route: string;
+  route: Route;
   eventId: string | null;
   relatedCi?: boolean | undefined;
   repoIds: string[] | null;
@@ -29,10 +32,17 @@ export type ResultsContext = {
 /** The fields of a watched repository that navigation reads. */
 type ScopeRepo = Pick<import('../contract.ts').Repository, 'id' | 'disabled'>;
 
+/** What a hash names: the route, plus the unread choice an Activity link carries and the checkout a Repositories link names. */
+type ParsedRoute =
+  | { route: 'activity'; eventId: null; unreadOnly: boolean; checkoutRepoId?: undefined }
+  | { route: 'event'; eventId: string | null; relatedCi?: true; unreadOnly?: undefined; checkoutRepoId?: undefined }
+  | { route: 'repositories'; eventId: null; checkoutRepoId: string | null; unreadOnly?: undefined }
+  | { route: 'graph' | 'settings'; eventId: null; unreadOnly?: undefined; checkoutRepoId?: undefined };
+
 /**
  * Resolve legacy Activity bookmarks to the corresponding filter.
  */
-export function parseRoute(hash: string) {
+export function parseRoute(hash: string): ParsedRoute {
   const [name, value, detail] = String(hash || '')
     .replace(/^#/, '')
     .split('/');
@@ -56,7 +66,7 @@ export function parseRoute(hash: string) {
 }
 
 export const activityHref = (unreadOnly: boolean) => (unreadOnly ? '#activity/unread' : '#activity');
-export const isActivity = (route: unknown) => route === 'activity';
+export const isActivity = (route: Route) => route === 'activity';
 export const repositoryHref = (id: string) => `#repositories/${encodeURIComponent(id)}`;
 
 const RESULTS_KEY = 'repo-pulse-results-context';

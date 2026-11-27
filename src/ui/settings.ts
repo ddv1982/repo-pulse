@@ -43,7 +43,7 @@ export function renderSettings(state: PageState, connection: ConnectionState) {
       </details>
       <label class="settings-row settings-toggle" for="refresh-enabled">
         <span><strong id="refresh-label">Automatic checks</strong><span class="help" id="refresh-help">Checks watched branches, pull requests and CI in Azure DevOps. You can still refresh activity manually.</span></span>
-        <input class="setting-switch" type="checkbox" role="switch" id="refresh-enabled" data-auto-toggle aria-labelledby="refresh-label" aria-describedby="refresh-help" ${settings.refreshEnabled !== false ? html`checked` : emptyHtml}>
+        <input class="setting-switch" type="checkbox" role="switch" id="refresh-enabled" data-auto-toggle aria-labelledby="refresh-label" aria-describedby="refresh-help" ${settings.refreshEnabled ? html`checked` : emptyHtml}>
       </label>
       <details data-group="troubleshooting">
         <summary class="settings-row" id="troubleshooting-toggle"><strong>Troubleshooting</strong> <span class="settings-chevron" aria-hidden="true"></span></summary>

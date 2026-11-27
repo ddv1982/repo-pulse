@@ -166,28 +166,36 @@ export function createBrowserView({
     const focused = document.activeElement;
     const focusId = focused && page.contains(focused) ? focusedControlId(focused) : '';
     const neighbours = focused instanceof HTMLElement && page.contains(focused) ? seenToggleNeighbours(focused) : [];
-    if (ui.route === 'repositories') setHtml(page, renderRepositories(state, ui, checkouts));
-    else if (ui.route === 'graph') setHtml(page, graph ?? emptyHtml);
-    else if (ui.route === 'settings') setHtml(page, renderSettings(state, ui.connection));
-    else if (ui.route === 'event' && state.detailLoading && !state.events.some(event => event.id === ui.eventId))
-      setHtml(page, html`<div class="card loading" role="status">Loading activity details…</div>`);
-    else if (ui.route === 'event')
-      setHtml(
-        page,
-        renderDetail(
-          state.events.find(event => event.id === ui.eventId),
-          state,
-          commits,
-          {
-            returnUnreadOnly,
-            returnToGraph,
-            showRelated,
-            matchingIds,
-            checkouts,
-          },
-        ),
-      );
-    else setHtml(page, renderFeed(state, ui, feedCommits));
+    switch (ui.route) {
+      case 'repositories':
+        setHtml(page, renderRepositories(state, ui, checkouts));
+        break;
+      case 'graph':
+        setHtml(page, graph ?? emptyHtml);
+        break;
+      case 'settings':
+        setHtml(page, renderSettings(state, ui.connection));
+        break;
+      case 'event':
+        if (state.detailLoading && !state.events.some(event => event.id === ui.eventId))
+          setHtml(page, html`<div class="card loading" role="status">Loading activity details…</div>`);
+        else
+          setHtml(
+            page,
+            renderDetail(
+              state.events.find(event => event.id === ui.eventId),
+              state,
+              commits,
+              { returnUnreadOnly, returnToGraph, showRelated, matchingIds, checkouts },
+            ),
+          );
+        break;
+      case 'activity':
+        setHtml(page, renderFeed(state, ui, feedCommits));
+        break;
+      default:
+        ui.route satisfies never;
+    }
     const pickerHost = page.querySelector('#repository-picker');
     picker.mount(pickerHost instanceof HTMLElement ? pickerHost : null);
     for (const [selector, menu] of Object.entries(toolbarMenus)) {

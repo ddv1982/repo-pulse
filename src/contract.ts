@@ -223,7 +223,9 @@ export type SyncStatus = {
   stream?: AzureStream | 'history';
   signInRequired?: true;
 };
-export type OverallSyncStatus = (SyncStatus & { repoId: string }) | { state: 'empty' } | { state: 'problem'; reason: string };
+/** The status of one repository, which names it, or of the app as a whole, which names none. */
+export type OverallSyncStatus =
+  (SyncStatus & { repoId: string }) | { state: 'empty'; repoId?: undefined } | { state: 'problem'; reason: string; repoId?: undefined };
 export type SyncStatusReport = { overall: OverallSyncStatus; repos: Record<string, SyncStatus> };
 
 // History import
@@ -362,7 +364,7 @@ export type CheckoutUpdateResult = { checkout: CheckoutStatus; updated: boolean 
  * A branch action, with the checkout read after it: a message, a review of the branch, or a next step.
  */
 export type BranchActionResult =
-  | { checkout: CheckoutStatus; message: string }
+  | { checkout: CheckoutStatus; message: string; review?: undefined; nextStep?: undefined }
   | { checkout: CheckoutStatus; review: Review; message?: undefined; nextStep?: undefined }
   | { checkout: CheckoutStatus; message: string; nextStep: string; review?: undefined };
 /**
@@ -370,10 +372,10 @@ export type BranchActionResult =
  * confirm the review.
  */
 export type ActivitySwitchResult =
-  | { checkout: DecoratedCheckout; notice: string | undefined; message?: undefined }
-  | { checkout: CheckoutStatus; message: string; notice?: undefined }
-  | { checkout: CheckoutStatus; switchReview?: undefined }
-  | { checkout: CheckoutStatus; switchReview: ActivitySwitchReview };
+  | { checkout: DecoratedCheckout; notice: string | undefined; message?: undefined; switchReview?: undefined }
+  | { checkout: CheckoutStatus; message: string; notice?: undefined; switchReview?: undefined }
+  | { checkout: CheckoutStatus; switchReview?: undefined; message?: undefined; notice?: undefined }
+  | { checkout: CheckoutStatus; switchReview: ActivitySwitchReview; message?: undefined; notice?: undefined };
 
 // Responses, one per route
 
@@ -418,11 +420,14 @@ export type CheckoutCommand =
   | { operation: 'switch-branch'; expected: SwitchIntent; branch: string; confirmation: string | undefined }
   | (BranchAction & { expected: CheckoutIntent });
 export type CheckoutOperation = CheckoutCommand['operation'];
-/** POST /api/repos/:id/checkout as the page sends it: the command's fields as read from the checkout it shows. */
-export type CheckoutRequest = {
-  operation: CheckoutOperation;
+type WithoutExpected<C> = C extends unknown ? Omit<C, 'expected'> : never;
+/**
+ * POST /api/repos/:id/checkout as the page sends it: one command, with `expected` copied from the checkout the page
+ * shows, whose fields may be missing. The route reads the command again and refuses one whose checkout is incomplete.
+ */
+export type CheckoutRequest = WithoutExpected<CheckoutCommand> & {
   expected: { [K in 'branch' | 'head' | 'upstream' | 'identity' | 'switchIdentity']?: string | null | undefined };
-} & Record<string, unknown>;
+};
 /** POST /api/repos/:id/checkout: the result of the command, with the operation it answers. */
 export type CheckoutUpdateResponse =
   | ({ operation: 'check' | 'pull' } & CheckoutUpdateResult)

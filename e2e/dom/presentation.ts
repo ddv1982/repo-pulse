@@ -27,7 +27,9 @@ const activityTitle = (event: Event) => activityTitleOf(stub<ActivityEvent>(even
 const activitySummary = (event: Event) => activitySummaryOf(stub<ActivityEvent>(event));
 const renderRepositories = (state: State, ...rest: Parameters<typeof renderRepositoriesHtml> extends [unknown, ...infer R] ? R : never) =>
   String(renderRepositoriesHtml(stub<PageState>(state), ...rest));
-const renderPagedFeed = (state: State, ui: Partial<FeedUi>) => String(renderPagedFeedHtml(stub<PageState>(state), stub<FeedUi>(ui)));
+// Every feed renders the saved filter menu, so a state without saved filters has none.
+const renderPagedFeed = (state: State, ui: Partial<FeedUi>) =>
+  String(renderPagedFeedHtml(stub<PageState>({ savedFilters: [], ...state }), stub<FeedUi>(ui)));
 // The detail only tests commits for truthiness, so a test's null stands for "not loaded" as undefined does.
 const renderDetail = (
   event: Event,
@@ -45,7 +47,8 @@ test('a disabled repository row offers only enabling or removing it', async t =>
       stub<Repository>({ id: 'on', name: 'Orders', project: 'Shop', localPath: '/src/orders' }),
       stub<Repository>({ id: 'off', name: 'Billing', project: 'Shop', localPath: '/src/billing', disabled: true }),
     ],
-    settings: {},
+    jobs: [],
+    settings: { refreshEnabled: true, refreshResumedAt: null },
     syncStatus: { overall: { state: 'syncing', repoId: 'on' }, repos: { on: { state: 'syncing' } } },
     streams: [stringError({ repoId: 'on', stream: 'refs', initialized: true }, 'Read refused')],
   };
@@ -90,7 +93,7 @@ function fixture(): Fixture {
   } satisfies Event;
   return {
     repos: [stub<Repository>({ id: 'r', name: 'Orders' })],
-    settings: {},
+    settings: { refreshEnabled: true, refreshResumedAt: null },
     syncStatus: { overall: { state: 'synced', repoId: 'r' }, repos: { r: { state: 'synced' } } },
     streams: [],
     events: [

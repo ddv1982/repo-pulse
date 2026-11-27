@@ -69,7 +69,7 @@ const page = (overall: ShownSyncStatus, repos: Record<string, SyncStatus> = {}):
       error: { code: 'FAILED', message: 'Read failed' },
     }),
   ],
-  settings: { refreshEnabled: false },
+  settings: { refreshEnabled: false, refreshResumedAt: null },
   diagnostics: {
     startsLastMinute: 3,
     limitPerMinute: 60,
@@ -80,8 +80,12 @@ const page = (overall: ShownSyncStatus, repos: Record<string, SyncStatus> = {}):
   activity: { items: [], total: 0, newItems: 0, newUpdates: 0 },
   events: [],
   syncStatus: { overall, repos },
+  jobs: [],
+  activityRevision: '1',
+  savedFilters: [],
+  demo: false,
 });
-const headerView = { route: 'activity', unreadOnly: true };
+const headerView = { route: 'activity' as const, unreadOnly: true };
 
 test('the header shows one sync status pill per state in place of the last Azure check', async t => {
   for (const [status, label, tone] of states) {
@@ -216,14 +220,27 @@ test('the Activity banner and partial wording follow the repositories in the Act
 
 test('a state without a sync status reads as unavailable, not as no repositories', async t => {
   const { createRefreshController } = await import('../../src/ui/refresh.ts');
+  const errors: string[] = [];
   const refresh = createRefreshController({
-    request: fakeRequest(async () => ({ repos: [repo], settings: { refreshEnabled: true } })),
+    request: fakeRequest(async () => ({
+      repos: [repo],
+      streams: [],
+      diagnostics: {},
+      jobs: [],
+      activityRevision: '1',
+      savedFilters: [],
+      settings: { refreshEnabled: true, refreshResumedAt: null },
+      demo: false,
+    })),
     getView: () => ({ route: 'settings', repoIds: null, eventId: null, search: '', kind: '', generation: 0 }),
-    reconcileRepositories: () => {},
-    onUpdate: () => {},
-    onError: assert.fail,
+    reconcile: () => {},
+    onUpdate: () => assert.fail('a state without a sync status was applied'),
+    onError: error => errors.push(error.message),
   });
   await refresh.load();
+  // The answer is checked once at the boundary: one without a sync status is refused, and the page keeps the
+  // placeholder status it shows before any state has loaded.
+  assert.deepEqual(errors, ['Local state is unreadable.']);
   const shown = await pill(t, renderHeader(refresh.state, headerView));
   assert.equal(shown?.text, 'Sync status unavailable');
   assert.equal(shown?.tone, 'neutral');

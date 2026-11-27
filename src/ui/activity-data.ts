@@ -2,7 +2,13 @@ import { splitActivitySearch } from './activity-search.ts';
 import type { ActivityItem, ActivityPage } from '../activity.ts';
 import type { EventResponse } from '../contract.ts';
 
-export type ActivityView = { route: string; unreadOnly?: boolean; repoIds: string[] | null; kind?: string; search?: string };
+export type ActivityView = {
+  route: import('./navigation.ts').Route;
+  unreadOnly?: boolean;
+  repoIds: string[] | null;
+  kind?: string;
+  search?: string;
+};
 
 const PAGE_SIZE = 50;
 const keyFor = (ui: ActivityView) =>

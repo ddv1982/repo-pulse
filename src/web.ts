@@ -104,7 +104,7 @@ const savedFilterPicker = createToolbarMenu({
   itemSelector: '[data-preset]',
   state: ui,
   onSelect: option => {
-    const preset = refresh.state.savedFilters?.find(filter => filter.id === option.dataset.preset);
+    const preset = refresh.state.savedFilters.find(filter => filter.id === option.dataset.preset);
     if (preset) applySavedFilter(preset);
     else renderPage();
   },
@@ -261,7 +261,7 @@ async function refreshGraphRefs(mutated = false) {
 }
 
 function renderOptions() {
-  const restored = navigation.takeRestoration(refresh.state.activity?.loading);
+  const restored = navigation.takeRestoration(refresh.state.activity.loading);
   const { generation } = navigation.view();
   return {
     restored,
@@ -376,9 +376,11 @@ function activityChanged({ debounce = false } = {}) {
 const refresh = createRefreshController({
   request,
   getView: navigation.view,
-  reconcileRepositories: navigation.reconcileRepositories,
+  reconcile(next) {
+    navigation.reconcileRepositories(next.watched);
+    if (ui.savedFilterId && !next.savedFilters.some(filter => filter.id === ui.savedFilterId)) ui.savedFilterId = '';
+  },
   onUpdate({ metadata, force }) {
-    reconcileSavedFilter();
     const { activity, events } = refresh.state;
     if (force || metadata !== lastRendered.metadata || activity !== lastRendered.activity || events !== lastRendered.events) {
       const target = refreshTarget(force);
@@ -393,7 +395,6 @@ const refresh = createRefreshController({
     if (ui.route === 'graph') void refreshGraphRefs();
   },
   onError(error, force) {
-    reconcileSavedFilter();
     showError(`Cannot refresh local state: ${error.message} Last loaded events remain visible.`, true);
     if (isActivity(ui.route) && refreshTarget(force)) renderPage();
     if (ui.route === 'event' && !refresh.state.events.some(event => event.id === ui.eventId)) renderPage();
@@ -535,11 +536,7 @@ function setRefreshPending(pending: boolean) {
 }
 
 function selectedFilter() {
-  return refresh.state.savedFilters?.find(filter => filter.id === ui.savedFilterId);
-}
-
-function reconcileSavedFilter() {
-  if (ui.savedFilterId && refresh.state.savedFilters && !selectedFilter()) ui.savedFilterId = '';
+  return refresh.state.savedFilters.find(filter => filter.id === ui.savedFilterId);
 }
 
 function applySavedFilter({ id, name, filters }: import('./contract.ts').SavedActivityFilter) {
@@ -702,7 +699,7 @@ const actions: Record<string, Action> = {
       holding('saved-filters', savedFiltersBusy, async name => {
         const preset = await request('POST /api/activity-filters', { body: { name, filters } });
         await load({ force: true });
-        if (isActivity(ui.route) && refresh.state.savedFilters?.some(filter => filter.id === preset.id)) {
+        if (isActivity(ui.route) && refresh.state.savedFilters.some(filter => filter.id === preset.id)) {
           ui.savedFilterId = preset.id;
           renderPage();
         }
@@ -940,7 +937,7 @@ document.addEventListener('change', event => {
   if (target instanceof HTMLInputElement && target.matches('[data-auto-toggle]')) {
     const checked = target.checked;
     if (pending.has('settings')) {
-      target.checked = refresh.state.settings.refreshEnabled !== false;
+      target.checked = refresh.state.settings.refreshEnabled;
       return;
     }
     void withAction('settings', async () => {
@@ -949,7 +946,7 @@ document.addEventListener('change', event => {
         await load({ force: true });
       } finally {
         for (const control of document.querySelectorAll('[data-auto-toggle]')) {
-          if (control instanceof HTMLInputElement) control.checked = refresh.state.settings.refreshEnabled !== false;
+          if (control instanceof HTMLInputElement) control.checked = refresh.state.settings.refreshEnabled;
         }
       }
     });
