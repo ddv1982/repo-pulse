@@ -1,20 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { startApp } from '../../server.ts';
-import { page } from '../fixtures/dom.ts';
+import { openPage, startTestApp } from '../fixtures/app.ts';
 
 test('setHtml updates a real DOM node in place and refuses unbranded HTML', async t => {
-  const dataDir = await mkdtemp(join(tmpdir(), 'repo-pulse-dom-'));
-  let app: Awaited<ReturnType<typeof startApp>> | undefined;
-  t.after(async () => {
-    await app?.close();
-    await rm(dataDir, { recursive: true, force: true });
-  });
-  app = await startApp({ demo: true, port: 0, dataDir });
-  await page.goto(app.launchUrl);
+  const app = await startTestApp(t);
+  const page = await openPage(t);
+  await page.goto(app.runtime.launchUrl);
   const result = await page.evaluate(async () => {
     const domPath = '/src/ui/dom.js';
     const formatPath = '/src/ui/format.js';

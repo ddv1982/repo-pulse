@@ -16,6 +16,8 @@ export interface PickerHost {
   getRepos: () => Repository[];
   /** Called after at least one repository was added. */
   onAdded: (count: number) => unknown;
+  /** Reports broken picker markup, such as an option without an index or a button naming no action. */
+  onError: (error: Error) => void;
 }
 
 const KEY = 'repo-pulse-picker-folder';
@@ -41,7 +43,7 @@ function highlight(text: string, query: string) {
 const messageOf = (cause: unknown) => (cause instanceof Error ? cause.message : String(cause));
 
 /** Self-contained local picker: no Azure reads until the explicit commit action. */
-export function createRepositoryPicker({ request, getRepos, onAdded }: PickerHost) {
+export function createRepositoryPicker({ request, getRepos, onAdded, onError }: PickerHost) {
   let host: HTMLElement | undefined;
   let boundHost: HTMLElement | undefined;
   /** The folder whose checkouts are listed, or the one being browsed. */
@@ -310,13 +312,18 @@ export function createRepositoryPicker({ request, getRepos, onAdded }: PickerHos
         if (!(event.target instanceof Element)) return;
         const option = event.target.closest('[data-picker-option]');
         if (option instanceof HTMLElement) {
-          void choose(Number(option.dataset.pickerOption));
+          const index = option.dataset.pickerOption ?? '';
+          if (/^\d+$/.test(index)) void choose(Number(index));
+          else onError(new Error(`Repo Pulse: a picker option has data-picker-option ${JSON.stringify(index)}, expected an index`));
           return;
         }
         const button = event.target.closest('[data-picker]');
         if (button instanceof HTMLButtonElement && !button.disabled) {
           event.preventDefault();
-          void actions[button.dataset.picker ?? '']?.(button);
+          const name = button.dataset.picker ?? '';
+          const action = Object.hasOwn(actions, name) ? actions[name] : undefined;
+          if (action) void action(button);
+          else onError(new Error(`Repo Pulse: unknown picker action ${JSON.stringify(name)}`));
         }
       };
       host.onmousedown = event => {
