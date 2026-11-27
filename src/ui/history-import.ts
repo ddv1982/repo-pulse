@@ -1,5 +1,7 @@
 import { emptyHtml, html, dateTime } from './format.ts';
 import { required } from './dom.ts';
+import { createDialog } from './dialog.ts';
+import { action } from './actions.ts';
 
 /** /api/state lists backfill jobs; these are the fields the Repositories page shows. */
 export type HistoryJob = Pick<import('../contract.ts').HistoryJob, 'status' | 'error' | 'pages' | 'lastProgressAt' | 'warnings'>;
@@ -14,7 +16,7 @@ function statusFor(job: HistoryJob): [string, string] {
 
 export function renderHistoryButton(repo: Pick<HistoryRepo, 'id'>, job: HistoryJob | null | undefined) {
   const busy = job && job.status !== 'completed';
-  return html`<button class="btn sm" type="button" id="import-${repo.id}" data-action="open-history-import" data-id="${repo.id}" ${busy ? html`disabled` : emptyHtml}>Sync older activity…</button>`;
+  return html`<button class="btn sm" type="button" id="import-${repo.id}" ${action('open-history-import')} data-id="${repo.id}" ${busy ? html`disabled` : emptyHtml}>Sync older activity…</button>`;
 }
 
 /** The chip names the records the import skipped, since the warnings that explain them show only in Details. */
@@ -48,41 +50,24 @@ export function createHistoryImport(
 ) {
   const form = required('form', HTMLFormElement, dialog);
   const repositoryName = required('#history-repository', HTMLElement, dialog);
-  const error = required('[role="alert"]', HTMLElement, dialog);
   const controls = [...form.querySelectorAll('input, button')].filter(
     control => control instanceof HTMLInputElement || control instanceof HTMLButtonElement,
   );
   let repoId: string | undefined;
-  let submitting = false;
+  // Every control waits while the request runs.
+  const modal = createDialog(dialog, { busy: () => controls });
 
-  required('[data-history-cancel]', HTMLElement, dialog).addEventListener('click', () => dialog.close());
-  dialog.addEventListener('cancel', event => {
-    if (submitting) event.preventDefault();
-  });
   const submitImport = async (event: SubmitEvent) => {
     event.preventDefault();
-    if (submitting) return;
+    if (modal.busy) return;
     const range = new FormData(form).get('history-range');
     const id = repoId;
-    submitting = true;
-    controls.forEach(control => {
-      control.disabled = true;
-    });
-    error.hidden = true;
-    try {
-      await start(id, range === 'all' ? range : Number(range));
-    } catch (failure) {
-      error.textContent = failure instanceof Error ? failure.message : String(failure);
-      error.hidden = false;
+    if (!(await modal.submit(() => start(id, range === 'all' ? range : Number(range))))) {
+      // The disabled controls lost focus; Start sync takes it back beside the error.
+      required('[type="submit"]', HTMLElement, form).focus();
       return;
-    } finally {
-      submitting = false;
-      controls.forEach(control => {
-        control.disabled = false;
-      });
-      if (!error.hidden) required('[type="submit"]', HTMLElement, form).focus();
     }
-    dialog.close();
+    modal.close();
     try {
       await onStarted(id);
     } catch (failure) {
@@ -92,15 +77,11 @@ export function createHistoryImport(
   form.addEventListener('submit', event => void submitImport(event));
 
   return {
-    get open() {
-      return dialog.open;
-    },
     show(repo: HistoryRepo) {
       repoId = repo.id;
       repositoryName.textContent = repo.name;
       form.reset();
-      error.hidden = true;
-      dialog.showModal();
+      modal.show();
     },
   };
 }

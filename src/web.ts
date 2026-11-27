@@ -1,1042 +1,239 @@
 import { request } from './api.ts';
-import { joinActivitySearch } from './ui/activity-search.ts';
-import { activityFilterLabel } from './activity-text.ts';
+import { createActivityController } from './ui/activity-controller.ts';
+import { detailView } from './ui/activity-detail.ts';
+import { createDispatcher, type ActionName, type Actions } from './ui/actions.ts';
+import { createBrowserUi, createBrowserView, replacementFocus } from './ui/browser-view.ts';
 import { createCheckoutActions } from './ui/checkout-actions.ts';
-import { activityBranch } from './activity-branch.ts';
 import { createCheckoutPanel } from './ui/checkout.ts';
-import { connectionResult, createConnectionController } from './ui/connection.ts';
-import { emptyHtml, html } from './ui/format.ts';
-import { createRepositoryPicker } from './ui/repository-picker.ts';
-import { createNavigation, activityHref, isActivity } from './ui/navigation.ts';
-import { createGitGraph, renderGitGraph } from './ui/git-graph.ts';
+import { createCommands } from './ui/commands.ts';
+import { createConfirmation } from './ui/confirm.ts';
+import { createConnectionController, renderConnectionStatus } from './ui/connection.ts';
+import { createDetailController } from './ui/detail-controller.ts';
+import { anyDialogOpen } from './ui/dialog.ts';
+import { required } from './ui/dom.ts';
+import { createFeedback } from './ui/feedback.ts';
+import { createGraphController } from './ui/git-graph.ts';
+import { createGroupState } from './ui/groups.ts';
+import { createHeaderActions } from './ui/header-actions.ts';
+import { createMenuManager } from './ui/menus.ts';
+import { createNavigation, isActivity } from './ui/navigation.ts';
+import { createRefreshController, type PageState } from './ui/refresh.ts';
+import { createRepositoriesController } from './ui/repositories-controller.ts';
+import { createRepositoryScope } from './ui/repository-scope.ts';
+import { createSavedFilterActions } from './ui/saved-filter-actions.ts';
+import { createSavedFilterMenus } from './ui/saved-filters.ts';
+import { createSettingsController } from './ui/settings-controller.ts';
 import { createTypeFilter } from './ui/type-filter.ts';
-import { createRefreshController } from './ui/refresh.ts';
-import { createBrowserView, replacementFocus } from './ui/browser-view.ts';
-import { createSeenActions, eventIds } from './ui/seen-actions.ts';
-import { createFilterNameDialog, currentActivityFilters, isSavedFilterModified, savedRepositoryScope } from './ui/saved-filters.ts';
-import { createToolbarMenu } from './ui/toolbar-menu.ts';
-import { createRepositoryScope, scopeName } from './ui/repository-scope.ts';
-import { createHistoryImport } from './ui/history-import.ts';
-import { createBranchPicker } from './ui/branch-picker.ts';
-import { all, checked, required, setHtml } from './ui/dom.ts';
-import type { PageState } from './ui/refresh.ts';
-import type { Action } from './ui/dom.ts';
+import { listenForSearchKey } from './ui/search-field.ts';
+import type { Shell } from './ui/shell.ts';
 
+// Composition: the shared services, the route controllers and the one action table, then routing and start-up.
 const page = required('#page');
 const header = required('#header');
-const dialog = required('#confirm-dialog', HTMLDialogElement);
-let pendingConfirmation: { callback: () => Promise<void>; resource: string } | null;
-let dialogOpener: HTMLElement | SVGElement | null;
-/**
- * Commands in flight, by the resource they change. A command is held back only while another command on the same
- * resource runs, so a pending refresh never blocks navigation or a detail view.
- */
-const pending = new Set<string>();
-const savedFiltersBusy = 'A saved filter change is still being saved. Try again when it finishes.';
-/** Commands that change the same local data share a resource; every other command is its own. */
-const actionResources: Record<string, string> = {
-  'ack-item': 'activity',
-  'undo-ack': 'activity',
-  'ack-matching': 'activity',
-  'reset-activity': 'activity',
-  'demo-event': 'activity',
-  'switch-activity-branch': 'checkout',
-  'switch-checkout-branch': 'checkout',
-  'check-checkout': 'checkout',
-  'pull-checkout': 'checkout',
-  'switch-checkout-target': 'checkout',
-  'review-checkout-branch': 'checkout',
-  'remove-checkout-branch': 'checkout',
-  'carry-checkout-branch': 'checkout',
-  'update-filter': 'saved-filters',
-  'delete-filter': 'saved-filters',
-  'remove-repo': 'repos',
-};
-let lastRendered: { metadata?: string; activity?: PageState['activity']; events?: PageState['events'] } = {};
-let toastTimer: ReturnType<typeof setTimeout> | undefined;
-let undoTimer: ReturnType<typeof setTimeout> | undefined;
-
-let searchTimer: ReturnType<typeof setTimeout> | undefined;
+const feedback = createFeedback();
+const confirmation = createConfirmation(required('#confirm-dialog', HTMLDialogElement), { replacement: replacementFocus });
+const commands = createCommands({ report: feedback.reportError, confirmed: () => confirmation.resource });
+const groups = createGroupState();
 const connection = createConnectionController({
   request,
   render() {
     if (ui.route === 'settings') renderPage();
-    const status = document.querySelector('#connection-status');
-    if (status) {
-      const focused = status.contains(document.activeElement);
-      setHtml(status, connectionResult(connection.state.results.get('')));
-      if (focused) status.querySelector('button')?.focus({ preventScroll: true });
-    }
+    renderConnectionStatus(connection.state);
   },
 });
-const ui: import('./ui/browser-view.ts').BrowserUi = {
-  route: 'activity',
-  eventId: null,
-  repoIds: null,
-  search: '',
-  savedFilterId: '',
-  kind: '',
-  filtersOpen: undefined,
-  openMenu: '',
-  unreadOnly: false,
-  connection: connection.state,
-};
-/** Data each detail page loaded on request, by event. */
-const commitResults: Map<string | null, import('./ui/activity-detail.ts').LoadedView> = new Map();
-const feedCommits = new Map<string, import('./ui/activity-detail.ts').CommitsView>();
-const picker = createRepositoryPicker({
+const ui = createBrowserUi(connection.state, groups.open);
+const menus = createMenuManager(ui);
+const savedFilterMenus = createSavedFilterMenus(menus);
+const navigation = createNavigation({ ui, captureGroups: groups.snapshot, activityCapacity: () => refresh.capacity() });
+let lastRendered: { metadata?: string; activity?: PageState['activity']; detail?: PageState['detail'] } = {};
+const refresh = createRefreshController({
   request,
-  getRepos: () => refresh.state.watched,
-  onError: reportError,
-  onAdded: async count => {
-    await load({ force: true });
-    toast(`${count} repositories watched.`);
+  getView: navigation.view,
+  reconcile(next) {
+    navigation.reconcileRepositories(next.watched);
+    if (ui.savedFilterId && !next.savedFilters.some(filter => filter.id === ui.savedFilterId)) ui.savedFilterId = '';
   },
-});
-const typeFilter = createTypeFilter({
-  state: ui,
-  onChange: setActivityType,
-});
-const repositoryScope = createRepositoryScope(ui);
-const savedFilterPicker = createToolbarMenu({
-  toggleId: 'saved-filter-toggle',
-  panelId: 'saved-filter-panel',
-  itemSelector: '[data-preset]',
-  state: ui,
-  onSelect: option => {
-    const preset = refresh.state.savedFilters?.find(filter => filter.id === option.dataset.preset);
-    if (preset) applySavedFilter(preset);
-    else renderPage();
-  },
-});
-const savedFilterActions = createToolbarMenu({
-  toggleId: 'saved-filter-actions-toggle',
-  panelId: 'saved-filter-actions-panel',
-  itemSelector: '[data-filter-action]',
-  state: ui,
-  onSelect: option => {
-    void withAction(actionResource(option.dataset.filterAction), () => dispatch(option.dataset.filterAction, option));
-  },
-});
-const filterName = createFilterNameDialog(required('#filter-name-dialog', HTMLDialogElement));
-const branchPicker = createBranchPicker(required('#branch-dialog', HTMLDialogElement), {
-  load: async repoId => (await request('GET /api/repos/:id/checkout/branches', { params: { id: repoId } })).branches,
-});
-const historyImport = createHistoryImport(required('#history-dialog', HTMLDialogElement), {
-  start: (repoId, days) => request('POST /api/repos/:id/backfill', { params: { id: repoId ?? '' }, body: { days } }),
-  onStarted: async id => {
-    try {
-      await load({ force: true });
-      if (document.activeElement === document.body || document.activeElement?.id === `import-${id}`) {
-        document.getElementById(`history-${id}`)?.focus({ preventScroll: true });
+  onUpdate({ metadata, force }) {
+    const { activity, detail } = refresh.state;
+    // The answer can change which repository the graph shows; its history loads before any render, checkout read or
+    // probe, even when a focused control holds off the full render. A changed repository renders the graph regardless.
+    let graphChanged = ui.route === 'graph' && graph.sync();
+    if (force || metadata !== lastRendered.metadata || activity !== lastRendered.activity || detail !== lastRendered.detail) {
+      if (refreshTarget(force) === 'full') {
+        render();
+        lastRendered = { metadata, activity, detail };
+        graphChanged = false;
       }
-    } finally {
-      toast('Older activity sync requested.');
     }
+    if (graphChanged) renderPage();
+    feedback.clearNetworkError();
+    void checkoutPanel.refresh();
+    checkoutPanel.readShown();
+    if (ui.route === 'graph') void graph.refresh();
   },
-  onFollowupError: failure => {
-    const detail = failure instanceof Error ? failure.message : typeof failure === 'string' ? failure : '';
-    showError(`Older activity sync was requested, but its status could not be shown.${detail ? ` ${detail}` : ''}`);
+  onError(error, force) {
+    feedback.showError(`Cannot refresh local state: ${error.message} Last loaded events remain visible.`, true);
+    if (isActivity(ui.route) && refreshTarget(force)) renderPage();
+    if (ui.route === 'event' && !detailView(refresh.state, ui.eventId)) renderPage();
   },
 });
-
-const seen = createSeenActions({
+const load = refresh.load;
+const shell: Shell = {
+  ui,
   page,
   request,
-  toast: seenToast,
-  async reload() {
-    const outcome = await load({ force: true });
-    if (outcome.type === 'failed') throw new Error(`Could not refresh seen status. ${outcome.error.message}`);
+  state: () => refresh.state,
+  load,
+  renderPage,
+  navigation,
+  feedback,
+  commands,
+  confirm: confirmation.ask,
+};
+const checkoutPanel = createCheckoutPanel({
+  page,
+  groups: ui.groups,
+  request,
+  isVisible: () => ui.route === 'repositories' && !refresh.state.demo && refresh.state.repos.some(repo => repo.localPath),
+  shown() {
+    if (ui.route !== 'graph' || refresh.state.demo) return detail.activityCheckout()?.repoId;
+    const { repo } = graph.selection();
+    return repo?.localPath ? repo.id : undefined;
   },
+  onShownChange: renderPage,
+  onMutation: id => graph.checkoutChanged(id),
 });
+const detail = createDetailController(shell, currentView);
+const activity = createActivityController(shell, () => refresh.resetActivity());
+const repositories = createRepositoriesController(shell, { menus, checkouts: () => checkoutPanel.snapshots });
 const view = createBrowserView({
   page,
   header,
   demo: required('#demo'),
   syncLive: required('#sync-live'),
-  picker,
+  picker: repositories.picker,
   toolbarMenus: {
-    '.type-menu': typeFilter,
-    '.scope-menu': repositoryScope,
-    '.saved-filter-menu': savedFilterPicker,
-    '.saved-filter-actions': savedFilterActions,
+    '.type-menu': createTypeFilter(menus),
+    '.scope-menu': createRepositoryScope(menus),
+    '.saved-filter-menu': savedFilterMenus.list,
+    '.saved-filter-actions': savedFilterMenus.commands,
   },
+  groups,
 });
-const checkoutPanel = createCheckoutPanel({
-  page,
+const graph = createGraphController({
   request,
-  isVisible: () => ui.route === 'repositories' && !refresh.state.demo && refresh.state.repos.some(repo => repo.localPath),
-  onChange(before) {
-    const id = visibleCheckout();
-    if (id && JSON.stringify(before[id]) !== JSON.stringify(checkoutPanel.snapshots[id])) renderPage();
-  },
-  onMutation(id) {
-    if (graph.state.repoId !== id) return;
-    if (ui.route !== 'graph') {
-      graphReturn = undefined;
-      graph.reset();
-      return;
-    }
-    void refreshGraphRefs(true);
-  },
-});
-const navigation = createNavigation({ ui, captureGroups: view.captureGroups, activityCapacity: () => refresh.capacity() });
-
-let graphRepoId = '';
-let graphQuery = '';
-let graphMatch = '';
-let graphVisit = 0;
-let graphReturn:
-  | {
-      visit: number;
-      repoId: string;
-      rowId: string;
-      href: string;
-      y: number;
-      x: number;
-      revision: PageState['activityRevision'];
-    }
-  | undefined;
-let graphDetailOrigin = '';
-let probingSnapshot: { repoId: string; snapshot: string } | undefined;
-let focusRelatedCi = false;
-const graph = createGitGraph({
-  read: (id, cursor) => request('GET /api/repos/:id/graph', { params: { id }, query: { cursor: cursor || undefined } }),
-  render: () => {
-    if (ui.route === 'graph') renderPage();
+  page,
+  state: () => refresh.state,
+  scope: () => ui.repoIds,
+  isActive: () => ui.route === 'graph',
+  render: renderPage,
+  checkout: id => checkoutPanel.snapshots[id],
+  readCheckout: () => checkoutPanel.readShown(true),
+  currentView,
+  onRepositoryChoice() {
+    repositories.closeBranchPicker();
+    navigation.invalidate();
   },
 });
 
-function graphSelection() {
-  const { repos } = refresh.state;
-  const repo =
-    repos.find(item => item.id === graphRepoId) ??
-    repos.find(item => ui.repoIds?.length === 1 && item.id === ui.repoIds[0]) ??
-    repos.find(item => item.localPath) ??
-    repos[0];
-  return { repos, repo };
-}
-
-function visibleCheckout() {
-  if (ui.route === 'graph' && !refresh.state.demo) {
-    const { repo } = graphSelection();
-    return repo?.localPath ? repo.id : undefined;
-  }
-  return getActivityCheckout()?.repoId;
-}
-
-function refreshViewCheckout(fresh = false) {
-  const id = visibleCheckout();
-  if (id) void checkoutPanel.read(id, fresh);
-}
-
-async function refreshGraphRefs(mutated = false) {
-  const { repoId, page: history, changed } = graph.state;
-  if (!repoId || (!mutated && (!history || changed))) return;
-  if (mutated && !history) {
-    graphMatch = '';
-    void graph.reload();
-    return;
-  }
-  if (!history || (!mutated && probingSnapshot?.repoId === repoId && probingSnapshot.snapshot === history.snapshot)) return;
-  const probe = { repoId, snapshot: history.snapshot };
-  probingSnapshot = probe;
-  let matches = false;
-  try {
-    const { snapshot } = await request('GET /api/repos/:id/graph/snapshot', { params: { id: repoId } });
-    matches = snapshot === probe.snapshot;
-  } catch {
-    // A checkout can disappear or become unreadable after the history loaded.
-  }
-  if (probingSnapshot !== probe) return;
-  probingSnapshot = undefined;
-  if (matches || ui.route !== 'graph' || graph.state.repoId !== repoId || graph.state.page?.snapshot !== probe.snapshot) return;
-  if (mutated) {
-    graphMatch = '';
-    void graph.reload();
-  } else {
-    graph.markChanged(probe.snapshot);
-    refreshViewCheckout(true);
-  }
+/** A check that the page shown now is still the one shown when it was made, on the graph with the same checkout. */
+function currentView() {
+  return navigation.currentView(() => {
+    const repo = ui.route === 'graph' ? graph.selection().repo : undefined;
+    return repo && JSON.stringify([repo.id, repo.localPath]);
+  });
 }
 
 function renderOptions() {
-  const restored = navigation.takeRestoration(refresh.state.activity?.loading);
+  const restored = navigation.takeRestoration(refresh.state.activity.loading);
   const { generation } = navigation.view();
   return {
     restored,
     returnUnreadOnly: navigation.returnUnreadOnly,
-    returnToGraph: Boolean(graphDetailOrigin) && location.hash === graphDetailOrigin,
+    returnToGraph: graph.returnsHere,
     showRelated: Boolean(ui.relatedCi),
     matchingIds: navigation.matchingIds,
-    commits: commitResults.get(ui.eventId),
-    feedCommits,
-    ...(ui.route === 'graph' ? { graph: renderGraph() } : {}),
+    commits: detail.loaded(),
+    feedCommits: detail.feedCommits,
+    ...(ui.route === 'graph' ? { graph: graph.render() } : {}),
     checkouts: checkoutPanel.snapshots,
     checkoutFocus: navigation.takeCheckoutFocus(refresh.state.watched),
     isCurrent: () => navigation.view().generation === generation,
   };
 }
 
-function getActivityCheckout(): import('./ui/checkout-actions.ts').ActivityCheckout | null {
-  if (ui.route !== 'event' || refresh.state.demo) return null;
-  const event = refresh.state.events.find(event => event.id === ui.eventId);
-  const repo = event && refresh.state.repos.find(repo => repo.id === event.repoId);
-  const branch = event && activityBranch(event);
-  if (!event || !repo?.localPath || !branch) return null;
-  return { repoId: repo.id, localPath: repo.localPath, eventId: event.id, branch, isCurrent: currentView() };
-}
-
-/** A check that the page shown now is still the one shown when it was made. */
-function currentView() {
-  const { generation } = navigation.view();
-  const hash = location.hash;
-  const repo = ui.route === 'graph' ? graphSelection().repo : undefined;
-  return () => {
-    if (location.hash !== hash || navigation.view().generation !== generation) return false;
-    if (!repo) return true;
-    const selected = graphSelection().repo;
-    return selected?.id === repo.id && selected.localPath === repo.localPath;
-  };
-}
-
-function renderGraph() {
-  const { repos, repo } = graphSelection();
-  graph.select(repo);
-  return renderGitGraph(repos, repo, graph.state, graphQuery, graphMatch, repo ? checkoutPanel.snapshots[repo.id] : undefined);
-}
-
-function setGraphSearch(query: string) {
-  graphQuery = query;
-  graphMatch = '';
-  renderPage();
-}
-
-function moveGraphMatch(step: 1 | -1) {
-  const matches = all('.graph-match', HTMLElement, page);
-  if (!matches.length) return;
-  const current = matches.findIndex(row => row.id === `commit-${graphMatch}`);
-  const index = current < 0 ? (step === 1 ? 0 : matches.length - 1) : (current + step + matches.length) % matches.length;
-  const row = matches[index];
-  if (!row) return;
-  graphMatch = row.id.slice('commit-'.length);
-  renderPage();
-  document.getElementById(row.id)?.scrollIntoView({ block: 'center', inline: 'nearest' });
-}
-
-function revealRelatedCi() {
-  if (!focusRelatedCi || ui.route !== 'event') return;
-  const summary = checked(page.querySelector('.detail-related > summary'), HTMLElement, '.detail-related > summary');
-  if (!summary) return;
-  focusRelatedCi = false;
-  summary.scrollIntoView({ block: 'start' });
-  summary.focus({ preventScroll: true });
-}
-
 function renderPage() {
   view.renderPage(refresh.state, ui, renderOptions());
-  revealRelatedCi();
+  detail.revealRelatedCi();
 }
 
 function render() {
   view.render(refresh.state, ui, renderOptions());
-  revealRelatedCi();
+  detail.revealRelatedCi();
   if (ui.route === 'repositories') void connection.check();
 }
 
 function refreshTarget(force: boolean) {
-  return view.refreshTarget(
-    force,
-    pending.size > 0 ||
-      dialog.open ||
-      historyImport.open ||
-      filterName.open ||
-      branchPicker.open ||
-      (ui.route === 'repositories' && picker.active()),
-  );
+  return view.refreshTarget(force, commands.busy || anyDialogOpen() || (ui.route === 'repositories' && repositories.picker.active()));
 }
 
-function setActivityType(kind: string | undefined) {
-  ui.kind = kind ?? '';
-  activityChanged();
-}
-
-function activityChanged({ debounce = false } = {}) {
-  navigation.invalidate();
-  refresh.resetActivity();
-  renderPage();
-  clearTimeout(searchTimer);
-  if (debounce)
-    searchTimer = setTimeout(() => {
-      void load({ force: true });
-    }, 250);
-  else void load({ force: true });
-}
-
-const refresh = createRefreshController({
-  request,
-  getView: navigation.view,
-  reconcileRepositories: navigation.reconcileRepositories,
-  onUpdate({ metadata, force }) {
-    reconcileSavedFilter();
-    const { activity, events } = refresh.state;
-    if (force || metadata !== lastRendered.metadata || activity !== lastRendered.activity || events !== lastRendered.events) {
-      const target = refreshTarget(force);
-      if (target === 'full') {
-        render();
-        lastRendered = { metadata, activity, events };
-      }
-    }
-    if (required('#notice').dataset.networkError) clearNotice();
-    void checkoutPanel.refresh();
-    refreshViewCheckout();
-    if (ui.route === 'graph') void refreshGraphRefs();
-  },
-  onError(error, force) {
-    reconcileSavedFilter();
-    showError(`Cannot refresh local state: ${error.message} Last loaded events remain visible.`, true);
-    if (isActivity(ui.route) && refreshTarget(force)) renderPage();
-    if (ui.route === 'event' && !refresh.state.events.some(event => event.id === ui.eventId)) renderPage();
-  },
-});
-const load = refresh.load;
-
-function showError(message: string, network = false) {
-  const notice = required('#notice');
-  setHtml(
-    notice,
-    html`<div class="banner crit" role="alert"><span class="ic">!</span><div><strong>Something needs attention</strong><span class="error-message">${message}</span> <button class="ghost sm" type="button" data-action="dismiss-error">Dismiss</button></div></div>`,
-  );
-  if (network) notice.dataset.networkError = 'true';
-  else delete notice.dataset.networkError;
-}
-
-function clearNotice() {
-  const notice = required('#notice');
-  setHtml(notice, emptyHtml);
-  delete notice.dataset.networkError;
-}
-
-function toast(message: string) {
-  const element = required('#toast');
-  clearTimeout(toastTimer);
-  setHtml(element, html`${message}`);
-  element.hidden = false;
-  toastTimer = setTimeout(() => {
-    element.hidden = true;
-  }, 6000);
-}
-
-function hideUndo() {
-  clearTimeout(undoTimer);
-  required('#undo-toast').hidden = true;
-}
-
-/**
- * Seen feedback. An Undo offer has its own slot and timer below the message toast, so other messages show above it
- * and never remove or move it; the next seen result replaces it.
- */
-function seenToast(message: string, { undo = false } = {}) {
-  const element = required('#undo-toast');
-  hideUndo();
-  if (!undo) return toast(message);
-  setHtml(element, html`${message}<button type="button" data-action="undo-ack">Undo</button>`);
-  element.hidden = false;
-  undoTimer = setTimeout(() => {
-    element.hidden = true;
-  }, 20000);
-}
-
-function confirm(
-  title: string,
-  description: string,
-  callback: () => Promise<void>,
-  label = 'Confirm',
-  { subject = '', destructive = false, resource = 'confirm-dialog' } = {},
-) {
-  // One confirmation at a time: a command that asks while another waits for an answer is refused, never swapped in.
-  if (dialog.open) throw new Error('Finish the open confirmation before starting another action.');
-  pendingConfirmation = { callback, resource };
-  const opener = document.activeElement;
-  dialogOpener = opener instanceof HTMLElement || opener instanceof SVGElement ? opener : null;
-  required('#confirm-title').textContent = title;
-  const subjectLine = required('#confirm-subject');
-  subjectLine.textContent = subject;
-  subjectLine.hidden = !subject;
-  required('#confirm-description').textContent = description;
-  const button = required('#confirm-button', HTMLButtonElement);
-  button.textContent = label;
-  button.classList.toggle('danger', destructive);
-  dialog.showModal();
-}
-
-function closeDialog() {
-  dialog.close();
-  pendingConfirmation = null;
-  const opener = dialogOpener?.isConnected ? dialogOpener : replacementFocus(dialogOpener?.id ?? '');
-  dialogOpener = null;
-  opener?.focus({ preventScroll: true });
-}
-
-function reportError(error: unknown) {
-  showError(error instanceof Error ? error.message : String(error));
-}
-
-async function withAction(resource: string, callback: () => unknown) {
-  if (pending.has(resource)) return;
-  pending.add(resource);
-  try {
-    await callback();
-  } catch (error) {
-    reportError(error);
-  } finally {
-    pending.delete(resource);
-  }
-}
-
-/**
- * Runs a dialog's submission under a resource, so it cannot overlap a command on the same resource. A busy resource
- * throws, and the dialog shows the message.
- */
-function holding<T extends unknown[]>(resource: string, message: string, callback: (...args: T) => Promise<void>) {
-  return async (...args: T) => {
-    if (pending.has(resource)) throw new Error(message);
-    pending.add(resource);
-    try {
-      await callback(...args);
-    } finally {
-      pending.delete(resource);
-    }
-  };
-}
-
-/** The resource a named action changes; a confirmation runs under the resource of the command that asked for it. */
-function actionResource(name: string | undefined) {
-  if (name === 'confirm-dialog') return pendingConfirmation?.resource ?? name;
-  return (name && Object.hasOwn(actionResources, name) ? actionResources[name] : undefined) ?? name ?? '';
-}
-
-/** Runs the named action. A name without one is broken markup, reported instead of ignored. */
-function dispatch(name: string | undefined, element: HTMLElement) {
-  const action = name && Object.hasOwn(actions, name) ? actions[name] : undefined;
-  if (!action) throw new Error(`Repo Pulse: unknown action ${JSON.stringify(name ?? '')}`);
-  return action(element);
-}
-
-function setRefreshPending(pending: boolean) {
-  ui.refreshing = pending;
-  for (const button of header.querySelectorAll('[data-action="refresh"]')) {
-    if (!(button instanceof HTMLElement)) continue;
-    button.setAttribute('aria-busy', String(pending));
-    button.setAttribute('aria-disabled', String(pending));
-    // The header renders data-idle-title on every refresh button, so the fallback never applies.
-    button.title = pending ? 'Refreshing activity…' : (button.dataset.idleTitle ?? '');
-  }
-}
-
-function selectedFilter() {
-  return refresh.state.savedFilters?.find(filter => filter.id === ui.savedFilterId);
-}
-
-function reconcileSavedFilter() {
-  if (ui.savedFilterId && refresh.state.savedFilters && !selectedFilter()) ui.savedFilterId = '';
-}
-
-function applySavedFilter({ id, name, filters }: import('./contract.ts').SavedActivityFilter) {
-  const { search, people, kind, repoIds, view } = filters;
-  const watched = refresh.state.watched;
-  const available = new Set(refresh.state.repos.map(repo => repo.id));
-  const unavailable = (repoIds ?? []).filter(id => !available.has(id)).length;
-  Object.assign(ui, {
-    savedFilterId: id,
-    search: joinActivitySearch(search, people),
-    kind,
-    repoIds: savedRepositoryScope(repoIds, watched),
-  });
-  const unreadOnly = view === 'new';
-  if (unreadOnly === ui.unreadOnly) activityChanged();
-  else location.hash = activityHref(unreadOnly);
-  const scopeMessage = unavailable
-    ? unavailable === repoIds?.length
-      ? ' All saved repositories are unavailable.'
-      : ' Some saved repositories are unavailable.'
-    : '';
-  toast(`Applied “${name}”.${scopeMessage}`);
-}
-
-const actions: Record<string, Action> = {
-  'reload-graph': () => {
-    graphMatch = '';
-    refreshViewCheckout(true);
-    void graph.reload();
-  },
-  'more-graph': () => {
-    void graph.more();
-  },
-  'clear-graph-search': () => setGraphSearch(''),
-  'previous-graph-match': () => moveGraphMatch(-1),
-  'next-graph-match': () => moveGraphMatch(1),
+const actions: Actions<ActionName> = {
+  ...activity.actions,
+  ...createSavedFilterActions(shell, activity.applySavedFilter),
+  ...detail.actions,
+  ...graph.actions,
+  ...repositories.actions,
+  ...checkoutPanel.actions,
   ...createCheckoutActions({
     checkoutPanel,
-    getActivityCheckout,
+    getActivityCheckout: detail.activityCheckout,
     confirm: (title, description, callback, label, options) =>
-      confirm(title, description, callback, label, { ...options, resource: 'checkout' }),
-    toast,
-    closeBranchPicker: () => branchPicker.close(),
+      confirmation.ask(title, description, callback, label, { ...options, resource: 'checkout' }),
+    toast: feedback.toast,
+    closeBranchPicker: repositories.closeBranchPicker,
     currentView,
   }),
-  'open-branch-picker': element => {
-    const repo = refresh.state.repos.find(item => item.id === element.dataset.id);
-    const branch = checkoutPanel.snapshots[element.dataset.id ?? '']?.branch;
-    if (repo && branch && !refresh.state.demo) void branchPicker.show(repo, branch, element.id);
-  },
-  'load-more-activity': async () => {
-    await load({ force: true, more: true });
-  },
-  'retry-activity': async () => {
-    await load({ force: true });
-  },
-  'open-history-import': element => {
-    const repo = refresh.state.repos.find(item => item.id === element.dataset.id);
-    if (repo) historyImport.show(repo);
-  },
-  'copy-diagnostics': async () => {
-    try {
-      await navigator.clipboard.writeText(JSON.stringify(refresh.state.diagnostics, null, 2));
-      toast('Diagnostics copied.');
-    } catch {
-      toast('Copy is unavailable in this browser.');
-    }
-  },
-  'copy-azure-login': async () => {
-    try {
-      await navigator.clipboard.writeText('az login');
-      toast('Command copied.');
-    } catch {
-      toast('Copy is unavailable in this browser. Select the command to copy it manually.');
-    }
-  },
-  'check-connection': element => {
-    void connection.check(element.dataset.repoId || '', { force: true });
-  },
-  refresh: async element => {
-    setRefreshPending(true);
-    try {
-      const retrySignIn = element.hasAttribute('data-retry-sign-in');
-      const { status } = await request('POST /api/refresh', {
-        body: { ...(ui.repoIds === null ? {} : { repoIds: ui.repoIds }), ...(retrySignIn ? { retrySignIn: true } : {}) },
-      });
-      toast(
-        status.scheduled
-          ? 'Activity refresh queued.'
-          : status.cooldown
-            ? 'A refresh was requested recently. Try again shortly.'
-            : retrySignIn
-              ? 'No sign-in checks need retrying.'
-              : 'No enabled repositories are selected.',
-      );
-      await load({ force: true });
-    } finally {
-      setRefreshPending(false);
-    }
-  },
-  'demo-event': async () => {
-    await request('POST /api/demo/event', { body: {} });
-    await load({ force: true });
-    toast('Fictional incoming hotfix added.');
-  },
-  detail: element => {
-    // Detail buttons always carry data-id, so the fallbacks never apply.
-    const row = element.closest('li[data-event-id]');
-    const matchingIds = (ui.search || ui.kind) && row instanceof HTMLElement ? eventIds(row) : undefined;
-    navigation.remember(element.dataset.id ?? null, matchingIds);
-    location.hash = `event/${encodeURIComponent(element.dataset.id ?? '')}${element.hasAttribute('data-related') ? '/ci' : ''}`;
-  },
-  'back-to-graph': () => history.back(),
-  'back-to-results': () => {
-    location.hash = activityHref(navigation.returnUnreadOnly);
-  },
-  'copy-commit': async element => {
-    try {
-      await navigator.clipboard.writeText(element.dataset.value || '');
-      toast('Commit copied.');
-    } catch {
-      toast('Copy unavailable in this browser. Open Azure DevOps to copy the full commit.');
-    }
-  },
-  ...seen.actions,
-  'ack-matching': async element => {
-    const { query, scope } = element.dataset;
-    if (!query || !scope) return;
-    const { generation } = navigation.view();
-    const { ids } = await request('GET /api/activity/unseen', { query: new URLSearchParams(query) });
-    if (navigation.view().generation !== generation) return;
-    if (!ids.length) {
-      await load({ force: true });
-      return toast('No unread updates match the current filters.');
-    }
-    const shown = new Set(seen.shownUnseenIds());
-    const below = ids.filter(id => !shown.has(id)).length;
-    // Everything it would mark is on screen, so there is nothing to preview; Undo covers a slip.
-    if (!below) return seen.acknowledge(ids, true);
-    confirm(
-      `Mark ${ids.length} update${ids.length === 1 ? '' : 's'} as seen?`,
-      `${below} ${below === 1 ? 'is' : 'are'} below the rows shown. Updates recorded after this page loaded stay unread.`,
-      () => seen.acknowledge(ids, true),
-      'Mark as seen',
-      { subject: scope, resource: 'activity' },
-    );
-  },
-  'cancel-dialog': closeDialog,
-  'confirm-dialog': async () => {
-    const callback = pendingConfirmation?.callback;
-    closeDialog();
-    if (callback) await callback();
-  },
-  'save-filter': () => {
-    const filters = currentActivityFilters(ui);
-    const summary = `Includes ${filters.view === 'all' ? 'All activity' : 'Unread only'} · ${scopeName(refresh.state, filters)} · ${activityFilterLabel(filters.kind)}`;
-    filterName.show(
-      selectedFilter() ? 'Save as new filter' : 'Save Activity filter',
-      '',
-      holding('saved-filters', savedFiltersBusy, async name => {
-        const preset = await request('POST /api/activity-filters', { body: { name, filters } });
-        await load({ force: true });
-        if (isActivity(ui.route) && refresh.state.savedFilters?.some(filter => filter.id === preset.id)) {
-          ui.savedFilterId = preset.id;
-          renderPage();
-        }
-        toast(`Filter “${preset.name}” saved.`);
-      }),
-      `${summary}${ui.search ? ` · Search “${ui.search}”` : ''}`,
-    );
-  },
-  'restore-filter': () => {
-    const preset = selectedFilter();
-    if (preset) applySavedFilter(preset);
-  },
-  'detach-filter': () => {
-    ui.savedFilterId = '';
-    renderPage();
-    document.getElementById('saved-filter-toggle')?.focus({ preventScroll: true });
-  },
-  'rename-filter': () => {
-    const preset = selectedFilter();
-    if (!preset) return;
-    filterName.show(
-      'Rename Activity filter',
-      preset.name,
-      holding('saved-filters', savedFiltersBusy, async name => {
-        await request('PATCH /api/activity-filters/:id', { params: { id: preset.id }, body: { name } });
-        await load({ force: true });
-        toast('Filter renamed.');
-      }),
-    );
-  },
-  'update-filter': async () => {
-    const preset = selectedFilter();
-    if (!preset) return;
-    const filters = currentActivityFilters(ui);
-    if (!isSavedFilterModified(preset.filters, filters, refresh.state.watched)) return;
-    await request('PATCH /api/activity-filters/:id', { params: { id: preset.id }, body: { filters } });
-    await load({ force: true });
-    toast('Saved filter updated.');
-  },
-  'delete-filter': () => {
-    const preset = selectedFilter();
-    if (!preset) return;
-    confirm(
-      'Delete saved filter?',
-      'Your current Activity filters will stay applied.',
-      async () => {
-        await request('DELETE /api/activity-filters/:id', { params: { id: preset.id } });
-        if (ui.savedFilterId === preset.id) ui.savedFilterId = '';
-        await load({ force: true });
-        toast('Saved filter deleted.');
-      },
-      'Delete filter',
-      { subject: preset.name, destructive: true, resource: 'saved-filters' },
-    );
-  },
-  'clear-filters': () => {
-    ui.search = '';
-    ui.kind = '';
-    ui.savedFilterId = '';
-    if (ui.unreadOnly) location.hash = activityHref(false);
-    else activityChanged();
-  },
-  'toggle-unread': () => {
-    location.hash = activityHref(!ui.unreadOnly);
-  },
-  'filter-activity-type': element => {
-    ui.filtersOpen = true;
-    setActivityType(element.dataset.kind);
-  },
-  'toggle-activity-filters': () => {
-    ui.filtersOpen = !ui.filtersOpen;
-    renderPage();
-  },
-  'dismiss-error': clearNotice,
-  'all-repos': () => {
-    ui.repoIds = null;
-    activityChanged();
-  },
-  'no-repos': () => {
-    ui.repoIds = [];
-    activityChanged();
-  },
-  'reset-activity': () => {
-    confirm(
-      'Start from scratch?',
-      'This deletes all stored activity, seen marks and imported history on this computer, then imports the last seven days from Azure DevOps again. Older history can be imported from Repositories. Your repositories, linked checkouts and settings stay.',
-      async () => {
-        await request('POST /api/reset', { body: {} });
-        // The activity Undo would restore is being deleted.
-        seen.forgetUndo();
-        hideUndo();
-        feedCommits.clear();
-        await load({ force: true });
-        toast('Starting from scratch. Stored activity is being deleted, then the last seven days are imported.');
-      },
-      'Delete and import again',
-      { destructive: true, resource: 'activity' },
-    );
-  },
-  'remove-repo': element => {
-    // Remove buttons are rendered from the watched list. A repository removed since the render throws here and withAction reports it.
-    const repo = refresh.state.watched.find(item => item.id === element.dataset.id);
-    if (!repo) throw new Error('This repository is no longer watched.');
-    confirm(
-      `Remove ${repo.name} from this app?`,
-      'This deletes its local watch and cached history only. The checkout, Azure repository and remote data are unchanged.',
-      async () => {
-        await request('DELETE /api/repos/:id', { params: { id: repo.id } });
-        await load({ force: true });
-      },
-      'Remove local watch',
-      { resource: 'repos' },
-    );
-  },
-  'load-review': async element => {
-    const { eventId } = ui;
-    try {
-      commitResults.set(
-        eventId,
-        await request('GET /api/repos/:id/prs/:prId/review', {
-          params: { id: element.dataset.repoId ?? '', prId: element.dataset.prId ?? '' },
-        }),
-      );
-    } catch (error) {
-      commitResults.set(eventId, { error: error instanceof Error ? error.message : String(error) });
-    }
-    if (ui.route === 'event' && ui.eventId === eventId) renderPage();
-  },
-  'load-commits': async element => {
-    const inlineId = element.dataset.inlineId;
-    const eventId = inlineId ?? ui.eventId;
-    const results = inlineId ? feedCommits : commitResults;
-    element.setAttribute('aria-busy', 'true');
-    try {
-      results.set(
-        eventId,
-        await request('GET /api/repos/:id/pushes/:pushId/commits', {
-          params: { id: element.dataset.repoId ?? '', pushId: element.dataset.pushId ?? '' },
-        }),
-      );
-    } catch (error) {
-      results.set(eventId, { error: error instanceof Error ? error.message : String(error) });
-    }
-    if ((inlineId && isActivity(ui.route)) || (ui.route === 'event' && ui.eventId === eventId)) renderPage();
-  },
+  ...createSettingsController(shell, {
+    connection,
+    onReset() {
+      activity.seen.forgetUndo();
+      feedback.hideUndo();
+      detail.forgetCommits();
+    },
+  }),
+  ...createHeaderActions(shell, { header, renderHeader: () => view.renderHeader(refresh.state, ui) }),
+  ...groups.actions,
+  'confirm-dialog': () => confirmation.accept(),
+  'dismiss-error': feedback.clearNotice,
 };
-
-document.addEventListener('click', event => {
-  const target = event.target;
-  const monitoring = header.querySelector('.header-overflow[open]');
-  if (monitoring instanceof HTMLDetailsElement && !(target instanceof Node && monitoring.contains(target))) monitoring.open = false;
-  if (!(target instanceof Element)) return;
-  const theme = target.closest('[data-theme]');
-  if (theme instanceof HTMLElement) {
-    // web/theme.ts defines repoPulseTheme on window before this module loads; the optional call covers its absence.
-    window.repoPulseTheme?.set(theme.dataset.theme ?? '');
-    return;
-  }
-  const graphLink = checked(target.closest('.graph-link'), HTMLAnchorElement, '.graph-link');
-  if (ui.route === 'graph' && graphLink && !event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey) {
-    graphReturn = {
-      visit: ++graphVisit,
-      repoId: graph.state.repoId,
-      rowId: graphLink.closest('.graph-commit')?.id ?? '',
-      href: graphLink.hash,
-      y: window.scrollY,
-      x: page.querySelector('.graph-commits')?.scrollLeft ?? 0,
-      revision: refresh.state.activityRevision,
-    };
-    // Mark the history entry we left, so a fresh click on Git Graph still reads the checkout.
-    history.replaceState({ ...history.state, graphVisit }, '');
-  }
-  const element = target.closest('[data-action]');
-  if (element instanceof HTMLElement) {
-    event.preventDefault();
-    void withAction(actionResource(element.dataset.action), () => dispatch(element.dataset.action, element));
-  }
+createDispatcher({
+  actions,
+  run: (name, callback) => void commands.run(commands.resourceOf(name), callback),
+  report: feedback.reportError,
 });
 
-document.addEventListener('input', event => {
-  const target = event.target;
-  if (!(target instanceof HTMLInputElement)) return;
-  if (target.id === 'feed-search') {
-    ui.search = target.value;
-    activityChanged({ debounce: true });
-  } else if (target.id === 'graph-search') setGraphSearch(target.value);
-});
-
-document.addEventListener('change', event => {
-  const target = event.target;
-  if (!(target instanceof HTMLInputElement || target instanceof HTMLSelectElement)) return;
-  if (target.id === 'graph-repo') {
-    branchPicker.close();
-    graphReturn = undefined;
-    navigation.invalidate();
-    graphRepoId = target.value;
-    graphMatch = '';
-    renderPage();
-    refreshViewCheckout(true);
-    return;
-  }
-  if (target.matches('[data-scope-repo]')) {
-    // Disabled repositories have no checkbox; keep their place in the scope for when they are enabled.
-    const disabled = refresh.state.watched.filter(repo => repo.disabled && (ui.repoIds === null || ui.repoIds.includes(repo.id)));
-    ui.repoIds = [...document.querySelectorAll('[data-scope-repo]:checked')]
-      .filter(input => input instanceof HTMLInputElement)
-      // The selector guarantees data-scope-repo, so the fallback never applies.
-      .map(input => input.dataset.scopeRepo ?? '')
-      .concat(disabled.map(repo => repo.id));
-    activityChanged();
-  }
-  if (target.id === 'connection-repo') {
-    connection.select(target.value);
-    renderPage();
-  }
-  if (target instanceof HTMLInputElement && target.matches('[data-repo-toggle]')) {
-    const control = target;
-    const repo = refresh.state.watched.find(item => item.id === control.dataset.id);
-    if (pending.has('repos') || !repo) {
-      control.checked = !repo?.disabled;
-      return;
-    }
-    const enabled = control.checked;
-    void withAction('repos', async () => {
-      try {
-        await request('PATCH /api/repos/:id', { params: { id: repo.id }, body: { disabled: !enabled } });
-        await load({ force: true });
-        toast(`${repo.name} ${enabled ? 'enabled' : 'disabled'}.`);
-      } finally {
-        const current = refresh.state.watched.find(item => item.id === repo.id);
-        if (control.isConnected) control.checked = !current?.disabled;
-      }
-    });
-  }
-  if (target instanceof HTMLInputElement && target.matches('[data-auto-toggle]')) {
-    const checked = target.checked;
-    if (pending.has('settings')) {
-      target.checked = refresh.state.settings.refreshEnabled !== false;
-      return;
-    }
-    void withAction('settings', async () => {
-      try {
-        await request('PATCH /api/settings', { body: { refreshEnabled: checked } });
-        await load({ force: true });
-      } finally {
-        for (const control of document.querySelectorAll('[data-auto-toggle]')) {
-          if (control instanceof HTMLInputElement) control.checked = refresh.state.settings.refreshEnabled !== false;
-        }
-      }
-    });
-  }
-});
-
-dialog.addEventListener('cancel', event => {
-  event.preventDefault();
-  closeDialog();
-});
-document.addEventListener('keydown', event => {
-  const monitoring = header.querySelector('.header-overflow[open]');
-  if (event.key === 'Escape' && monitoring instanceof HTMLDetailsElement && monitoring.contains(document.activeElement)) {
-    monitoring.open = false;
-    required('summary', HTMLElement, monitoring).focus();
-    return;
-  }
-  if (
-    event.key === '/' &&
-    !dialog.open &&
-    !historyImport.open &&
-    !filterName.open &&
-    !branchPicker.open &&
-    !savedFilterPicker.expanded &&
-    !savedFilterActions.expanded &&
-    !['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement?.tagName ?? '')
-  ) {
-    if (ui.route === 'graph') {
-      const search = document.getElementById('graph-search');
-      if (search) {
-        event.preventDefault();
-        search.focus();
-      }
-      return;
-    }
-    event.preventDefault();
-    const controls = document.getElementById('activity-filters');
-    if (controls?.hidden) {
-      ui.filtersOpen = true;
-      renderPage();
-    }
-    const search = document.querySelector('#feed-search');
-    if (search instanceof HTMLElement) search.focus();
-  }
+listenForSearchKey({
+  blocked: () => anyDialogOpen() || savedFilterMenus.list.expanded || savedFilterMenus.commands.expanded,
+  focus: () => (ui.route === 'graph' ? graph.focusSearch() : activity.focusSearch()),
 });
 
 function route() {
-  clearTimeout(searchTimer);
+  activity.leave();
   // The branch picker belongs to the view that opened it.
-  branchPicker.close();
+  repositories.closeBranchPicker();
   const previous = ui.route;
   const { destination, capacity, scrollToTop } = navigation.enter(refresh.loaded ? refresh.state.watched : null);
-  focusRelatedCi = destination === 'event' && Boolean(ui.relatedCi);
-  graphDetailOrigin = previous === 'graph' && destination === 'event' && graphReturn ? location.hash : '';
-  const restoreGraph =
-    destination === 'graph' &&
-    previous === 'event' &&
-    graphReturn &&
-    graphReturn.visit === history.state?.graphVisit &&
-    graphReturn.repoId === graphSelection().repo?.id &&
-    graphReturn.revision === refresh.state.activityRevision &&
-    !graph.state.error
-      ? graphReturn
-      : undefined;
+  detail.enter(destination);
+  let restoredGraph = false;
+  if (destination === 'graph') restoredGraph = graph.enter(previous);
+  else graph.leave(previous, destination);
   if (isActivity(destination)) refresh.resetActivity(capacity);
   else if (destination === 'event') refresh.prepareDetail(ui.eventId);
-  else if (destination === 'graph' && !restoreGraph) {
-    graphReturn = undefined;
-    graphMatch = '';
-    graph.reset();
-  }
   render();
   const needsActivity = isActivity(destination) || destination === 'event';
   void load({ force: needsActivity });
-  if (ui.route === 'graph' || ui.route === 'event') refreshViewCheckout(true);
-  if (restoreGraph) {
-    void refreshGraphRefs();
-    const isCurrent = currentView();
-    requestAnimationFrame(() => {
-      if (!isCurrent()) return;
-      const row = document.getElementById(restoreGraph.rowId);
-      const link = (row ? all('.graph-link', HTMLAnchorElement, row) : []).find(link => link.hash === restoreGraph.href);
-      (link ?? document.getElementById('graph-search'))?.focus({ preventScroll: true });
-      page.querySelector('.graph-commits')?.scrollTo({ left: restoreGraph.x, behavior: 'instant' });
-      window.scrollTo({ top: restoreGraph.y, behavior: 'instant' });
-    });
-  } else if (destination === 'graph' || (needsActivity && scrollToTop)) window.scrollTo({ top: 0, behavior: 'instant' });
+  if (ui.route === 'graph' || ui.route === 'event') checkoutPanel.readShown(true);
+  if (!restoredGraph && (destination === 'graph' || (needsActivity && scrollToTop))) window.scrollTo({ top: 0, behavior: 'instant' });
 }
 
 window.addEventListener('hashchange', route);
@@ -1047,9 +244,11 @@ document.addEventListener('visibilitychange', () => {
   if (!document.hidden) void load();
 });
 window.matchMedia('(min-width:640px)').addEventListener('change', () => {
-  // The filter bar changes layout, so an open toolbar menu closes and focus returns to its toggle.
+  // The filter bar changes layout, so an open toolbar menu closes and focus returns to its toggle. Other pages keep
+  // their menus: the Repositories picker stays open and tracked.
+  if (!isActivity(ui.route)) return;
   ui.openMenu = '';
-  if (isActivity(ui.route)) renderPage();
+  renderPage();
 });
 navigation.initialize();
 await load({ force: true });

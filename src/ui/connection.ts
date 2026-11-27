@@ -1,5 +1,7 @@
 import { dateTime, emptyHtml, html } from './format.ts';
+import { setHtml } from './dom.ts';
 import type { ConnectionResponse as ConnectionStatus } from '../contract.ts';
+import { action } from './actions.ts';
 
 export type ConnectionState = {
   /** Check answers by repository id; a failed request is recorded as an unavailable status. */
@@ -15,8 +17,19 @@ export function connectionResult(connection: ConnectionStatus | undefined) {
   return html`<div class="connection-summary"><span class="${connection.available ? 'status-good' : 'status-bad'}" role="status">
     ${connection.available ? 'Using existing Azure CLI' : 'Azure CLI needs attention'}</span>
     ${connection.account?.name ? html`<span class="help" title="Azure CLI account context">${connection.account.name}</span>` : emptyHtml}
-    <button class="ghost sm" type="button" id="check-picker-connection" data-action="check-connection">Check again</button></div>
+    <button class="ghost sm" type="button" id="check-picker-connection" ${action('check-connection')}>Check again</button></div>
     ${connection.available ? emptyHtml : html`<p class="help">${connection.message}</p>`}`;
+}
+
+/**
+ * The CLI check under the Repositories picker, rendered again when a check answers. Focus stays on its button.
+ */
+export function renderConnectionStatus(connection: ConnectionState) {
+  const status = document.querySelector('#connection-status');
+  if (!status) return;
+  const focused = status.contains(document.activeElement);
+  setHtml(status, connectionResult(connection.results.get('')));
+  if (focused) status.querySelector('button')?.focus({ preventScroll: true });
 }
 
 export function connectionStatus(state: ConnectionPage, connection: ConnectionState, repoId: string) {

@@ -55,7 +55,8 @@ test('missing branch observations are never presented as confirmed deletions', (
 test('repository details keep failure text and one timestamp without routine source labels', () => {
   const state: State = {
     watched: [stub<Repository>({ id: 'r', name: 'Orders' })],
-    settings: { refreshEnabled: false },
+    jobs: [],
+    settings: { refreshEnabled: false, refreshResumedAt: null },
     syncStatus: { overall: { state: 'paused', repoId: 'r' }, repos: { r: { state: 'paused' } } },
     streams: [
       stub<StreamState>({ repoId: 'r', stream: 'refs', initialized: true, lastSuccess: '2026-11-01T10:00:00Z' }),

@@ -1,27 +1,28 @@
 import { required } from './dom.ts';
+import type { MenuManager } from './menus.ts';
 
 /**
- * The open menu is kept in `state.openMenu` (its panel ID), so a render draws it open and incoming activity can render
- * while a person is choosing.
+ * A toolbar menu. The menu manager keeps the open menu in `openMenu` (its panel ID), so a render draws it open and
+ * incoming activity can render while a person is choosing. Each item names its own action, which the dispatcher runs.
  *
- * Without `onSelect` the items are checkboxes a person ticks several of: a tick keeps the menu open, Tab moves through
- * its controls, and the menu closes once focus leaves it.
+ * When a person chooses `one` item, an option or a command, choosing closes the menu and returns focus to its toggle
+ * before the item's action runs, and Tab closes it. When they choose `many`, the items are checkboxes: a tick keeps
+ * the menu open, Tab moves through its controls, and the menu closes once focus leaves it.
  */
 export function createToolbarMenu({
+  menus,
   toggleId,
   panelId,
   itemSelector,
-  state,
-  onSelect,
+  choosing,
 }: {
+  menus: MenuManager;
   toggleId: string;
   panelId: string;
   itemSelector: string;
-  state: { openMenu?: string };
-  onSelect?: (item: HTMLElement) => void;
+  choosing: 'one' | 'many';
 }) {
   let root: HTMLElement | null | undefined;
-  let pointerDown = false;
   function menu() {
     const panel = root?.querySelector(`#${panelId}`);
     if (!root || !(panel instanceof HTMLElement)) return null;
@@ -30,7 +31,7 @@ export function createToolbarMenu({
   const options = (host: HTMLElement) => [...host.querySelectorAll(itemSelector)].filter(option => option instanceof HTMLElement);
   function close(restore = false) {
     const current = menu();
-    if (state.openMenu === panelId) state.openMenu = '';
+    menus.closed(panelId);
     if (!current || current.panel.hidden) return;
     current.panel.hidden = true;
     current.toggle.setAttribute('aria-expanded', 'false');
@@ -51,38 +52,14 @@ export function createToolbarMenu({
     const current = menu();
     if (!current || current.toggle.getAttribute('aria-disabled') === 'true') return;
     // One menu is open at a time; another panel, such as the repository scope, closes as this one opens.
-    const previous = state.openMenu && state.openMenu !== panelId ? document.getElementById(state.openMenu) : null;
-    if (previous) {
-      previous.hidden = true;
-      document.querySelector(`[aria-controls="${previous.id}"]`)?.setAttribute('aria-expanded', 'false');
-    }
-    state.openMenu = panelId;
+    menus.open(panelId);
     current.panel.hidden = false;
     current.toggle.setAttribute('aria-expanded', 'true');
     const selected = current.root.querySelector('[aria-selected="true"]');
     focusOption(current.panel, selected instanceof HTMLElement ? selected : options(current.root)[0]);
     current.panel.scrollIntoView({ block: 'nearest' });
   }
-  const outside = (event: Event) => {
-    const target = event.target;
-    if (target instanceof Node && target.isConnected && root?.isConnected && !root.contains(target)) close();
-  };
-  document.addEventListener(
-    'pointerdown',
-    () => {
-      pointerDown = true;
-    },
-    true,
-  );
-  const releasePointer = () => {
-    pointerDown = false;
-  };
-  document.addEventListener('pointerup', releasePointer, true);
-  document.addEventListener('pointercancel', releasePointer, true);
-  document.addEventListener('click', outside);
-  document.addEventListener('focusin', event => {
-    if (!pointerDown) outside(event);
-  });
+  menus.register(panelId, { root: () => root, close: () => close(), outside: { pointer: 'click', focus: 'keyboard' } });
   return {
     get expanded() {
       return menu()?.panel.hidden === false;
@@ -90,7 +67,7 @@ export function createToolbarMenu({
     mount(element: HTMLElement | null) {
       root = element;
       // A menu that left the page, such as on another route, is not open when it comes back.
-      if (!root && state.openMenu === panelId) state.openMenu = '';
+      if (!root) menus.closed(panelId);
       if (!root) return;
       root.onclick = event => {
         const target = event.target;
@@ -100,15 +77,11 @@ export function createToolbarMenu({
           else close(true);
           return;
         }
-        const option = target.closest(itemSelector);
-        if (onSelect && option instanceof HTMLElement) {
-          close(true);
-          onSelect(option);
-        }
+        if (choosing === 'one' && target.closest(itemSelector)) close(true);
       };
       root.onkeydown = event => {
         if (event.key === 'Tab') {
-          if (onSelect) close();
+          if (choosing === 'one') close();
           return;
         }
         if (event.key === 'Escape' && !menu()?.panel.hidden) {

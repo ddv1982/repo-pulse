@@ -1,8 +1,13 @@
 import { splitActivitySearch } from './activity-search.ts';
-import type { ActivityItem, ActivityPage } from '../activity.ts';
-import type { EventResponse } from '../contract.ts';
+import type { ActivityEvent, ActivityItem, ActivityPage } from '../activity.ts';
 
-export type ActivityView = { route: string; unreadOnly?: boolean; repoIds: string[] | null; kind?: string; search?: string };
+export type ActivityView = {
+  route: import('./navigation.ts').Route;
+  unreadOnly?: boolean;
+  repoIds: string[] | null;
+  kind?: string;
+  search?: string;
+};
 
 const PAGE_SIZE = 50;
 const keyFor = (ui: ActivityView) =>
@@ -131,10 +136,9 @@ export function createActivityData(request: typeof import('../api.ts').request) 
   };
 }
 
-export function activityEvents(activity: Pick<ActivityPage, 'items'> | undefined, detail?: EventResponse) {
-  const values = new Map();
-  for (const item of activity?.items || []) for (const event of item.events) values.set(event.id, event);
-  for (const event of detail?.events || []) values.set(event.id, event);
-  if (detail?.event && !values.has(detail.event.id)) values.set(detail.event.id, detail.event);
+/** Every event of the loaded Activity rows, once each. */
+export function activityEvents(activity: Pick<ActivityPage, 'items'>): ActivityEvent[] {
+  const values = new Map<string, ActivityEvent>();
+  for (const item of activity.items) for (const event of item.events) values.set(event.id, event);
   return [...values.values()];
 }

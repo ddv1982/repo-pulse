@@ -2,7 +2,7 @@ import { html, dateTime } from './format.ts';
 import type { SyncStatus, OverallSyncStatus } from '../contract.ts';
 
 /** `unavailable` is a state response without a sync status, as from an older server. */
-export type ShownSyncStatus = OverallSyncStatus | { state: 'unavailable' };
+export type ShownSyncStatus = OverallSyncStatus | { state: 'unavailable'; repoId?: undefined };
 type AnySyncStatus = SyncStatus | ShownSyncStatus;
 
 const tones: Record<AnySyncStatus['state'], string> = {
@@ -23,7 +23,6 @@ function clock(value: string) {
     : dateTime(value);
 }
 
-const reason = (status: AnySyncStatus) => ('reason' in status && status.reason ? status.reason : '');
 // A reason that starts with a product name, such as Azure DevOps, keeps its capital.
 const lowerFirst = (text: string) => (text.startsWith('Azure') ? text : text.replace(/^\w/, c => c.toLowerCase()));
 
@@ -35,7 +34,7 @@ export function syncLabel(status: AnySyncStatus) {
     case 'syncing':
       return status.firstSync ? `First sync · ${status.firstSync.completed} of ${status.firstSync.total}` : 'Syncing…';
     case 'delayed':
-      return `Delayed · ${lowerFirst(reason(status) || 'behind schedule')}`;
+      return `Delayed · ${lowerFirst(status.reason || 'behind schedule')}`;
     case 'problem':
       return 'Problem';
     case 'paused':
@@ -58,9 +57,9 @@ export function syncSentence(status: AnySyncStatus, repoName: string = '') {
         ? `First sync${where}, ${status.firstSync.completed} of ${status.firstSync.total} checks complete`
         : 'Syncing, checks are running';
     case 'delayed':
-      return `Delayed${where}: ${lowerFirst(reason(status) || 'behind schedule')}`;
+      return `Delayed${where}: ${lowerFirst(status.reason || 'behind schedule')}`;
     case 'problem':
-      return `Problem${where}: ${reason(status)}`;
+      return `Problem${where}: ${status.reason ?? ''}`;
     case 'paused':
       return 'Paused, automatic checks are off';
     case 'empty':
@@ -87,6 +86,6 @@ export function syncPill(status: AnySyncStatus, repoName?: string) {
 }
 
 /** The repository an overall status concerns. */
-export function syncRepoName(repos: { id: string; name: string }[], status: AnySyncStatus) {
-  return 'repoId' in status ? (repos.find(repo => repo.id === status.repoId)?.name ?? '') : '';
+export function syncRepoName(repos: { id: string; name: string }[], status: { repoId?: string | undefined }) {
+  return status.repoId === undefined ? '' : (repos.find(repo => repo.id === status.repoId)?.name ?? '');
 }

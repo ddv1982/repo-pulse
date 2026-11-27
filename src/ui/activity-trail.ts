@@ -1,6 +1,12 @@
 import { emptyHtml, html, dateTime, isUnseen, activityLabel, activityTone } from './format.ts';
+import { disclosure, type Groups } from './groups.ts';
+import { action } from './actions.ts';
 
-export function renderTrail(record: import('../activity.ts').ActivityItem, { expanded = false } = {}) {
+/** A row's updates: a disclosure on Activity, whose state `groups` holds, and an open list on the detail. */
+export function renderTrail(
+  record: import('../activity.ts').ActivityItem,
+  { expanded = false, groups = new Map() }: { expanded?: boolean; groups?: Groups } = {},
+) {
   if (record.events.length < 2) return emptyHtml;
   const entries = html`<ol>${record.events.map(event => {
     const label = activityLabel(event);
@@ -8,5 +14,5 @@ export function renderTrail(record: import('../activity.ts').ActivityItem, { exp
   })}</ol>`;
   return expanded
     ? html`<section class="activity-history"><h2>Update history</h2><div class="trail">${entries}</div></section>`
-    : html`<details class="trail" data-group="activity-${record.groupKey}"><summary>${record.events.length} updates</summary>${entries}</details>`;
+    : html`<details class="trail" ${disclosure(groups, `activity-${record.groupKey}`)}><summary ${action('toggle-group')}>${record.events.length} updates</summary>${entries}</details>`;
 }

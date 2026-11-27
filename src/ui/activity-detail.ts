@@ -20,10 +20,12 @@ import {
 } from './format.ts';
 import { renderTrail } from './activity-trail.ts';
 import { renderCheckoutBar } from './checkout-render.ts';
+import { disclosure, type Groups } from './groups.ts';
 import { activityHref } from './navigation.ts';
 import type { ActivityEvent, ActivityItem, EventData } from '../activity.ts';
 import type { HtmlValue } from './format.ts';
-import type { StateResponse, PushCommitsResponse, PrReviewResponse } from '../contract.ts';
+import type { StateResponse, PushCommitsResponse, PrReviewResponse, EventResponse } from '../contract.ts';
+import { action } from './actions.ts';
 
 export type Repo = StateResponse['repos'][number];
 type PushId = number | string | undefined;
@@ -34,10 +36,41 @@ export type CommitsView = PushCommitsResponse | { error: string };
 type ReviewView = PrReviewResponse | { error: string };
 /** Data a detail page loaded on request: push commits for a push, review data for a PR. */
 export type LoadedView = CommitsView | ReviewView;
-type DetailState = { events: ActivityEvent[]; repos: Repo[]; demo?: boolean; detailRelated?: ActivityEvent[] | undefined };
+type DetailState = { repos: Repo[]; demo?: boolean };
+
+/** What the detail page shows: the event the address names, the group it belongs to, and its related activity. */
+export type DetailView = { event: ActivityEvent; record: ActivityItem; related: ActivityEvent[] };
+
+/** The group of `events` that holds `event`, or the event alone when it belongs to no group there. */
+function groupOf(events: ActivityEvent[], event: ActivityEvent) {
+  return groupActivity(events).find(item => item.eventIds.includes(event.id)) ?? groupActivity([event])[0];
+}
+
+/**
+ * The detail of event `id`: the group the server answered with (GET /api/activity/:id). Until that answer arrives, the
+ * Activity row that holds the event gives its group, so a detail opened from a row shows at once; related activity
+ * waits for the answer.
+ */
+export function detailView(
+  state: {
+    detail?: (Pick<EventResponse, 'related'> & { event: ActivityEvent; events: ActivityEvent[] }) | undefined;
+    activity: { items: ActivityItem[] };
+  },
+  id: string | null,
+): DetailView | undefined {
+  const answer = state.detail;
+  if (answer && answer.event.id === id) {
+    const record = groupOf(answer.events, answer.event);
+    return record && { event: answer.event, record, related: answer.related ?? [] };
+  }
+  const item = state.activity.items.find(row => id !== null && row.eventIds.includes(id));
+  const event = item?.events.find(member => member.id === id);
+  const record = item && event && groupOf(item.events, event);
+  return event && record && { event, record, related: [] };
+}
 
 function commit(value: string) {
-  return html`<code title="${value}">${value.slice(0, 8)}</code> <button class="ghost sm detail-copy" type="button" data-action="copy-commit" data-value="${value}" aria-label="Copy full commit ID">Copy</button>`;
+  return html`<code title="${value}">${value.slice(0, 8)}</code> <button class="ghost sm detail-copy" type="button" ${action('copy-commit')} data-value="${value}" aria-label="Copy full commit ID">Copy</button>`;
 }
 
 const mergeStrategies: Record<string, string | undefined> = {
@@ -123,7 +156,7 @@ function detailHead(record: ActivityItem, repo: Repo | undefined, title: string,
   const ids = (unseen.length ? unseen : matching.filter(event => !event.imported)).map(event => event.id);
   const ack = !ids.length
     ? emptyHtml
-    : html`<button class="btn" data-action="ack-item" data-mark-seen="${Boolean(unseen.length)}" data-id="${record.id}" data-event-ids="${JSON.stringify(ids)}">Mark ${unseen.length ? 'seen' : 'unseen'}</button>`;
+    : html`<button class="btn" ${action('ack-item')} data-mark-seen="${Boolean(unseen.length)}" data-id="${record.id}" data-event-ids="${JSON.stringify(ids)}">Mark ${unseen.length ? 'seen' : 'unseen'}</button>`;
   return html`<header class="dhead"><div class="detail-heading">${detailStatus(record, activityTone(record), matching)}<h1>${title}</h1><div class="meta">${record.kind.startsWith('branch-') ? 'Branch' : labels[record.kind]} · ${repo?.name} · ${branchName(record.branch)}</div></div><div class="actions">${azureLink(record.url, 'Open in Azure DevOps', 'btn')}${ack}</div></header>`;
 }
 
@@ -140,7 +173,7 @@ function detailStatus(record: ActivityItem, tone: string, matching: ActivityEven
 
 function pushCommits(record: ActivityItem, repo: Repo | undefined, pushId: PushId, commits: CommitsView | undefined) {
   if (record.kind !== 'push' || !pushId) return emptyHtml;
-  return html`<button class="btn" data-action="load-commits" data-repo-id="${record.repoId}" data-push-id="${pushId}">${commits ? 'Reload commits' : 'Load push commits'}</button><p class="help">Loads on request within the shared budget.</p>${commits ? renderCommits(commits) : emptyHtml}`;
+  return html`<button class="btn" ${action('load-commits')} data-repo-id="${record.repoId}" data-push-id="${pushId}">${commits ? 'Reload commits' : 'Load push commits'}</button><p class="help">Loads on request within the shared budget.</p>${commits ? renderCommits(commits) : emptyHtml}`;
 }
 
 /** Azure policy status labels and tones. Unknown policy statuses stay neutral. */
@@ -169,7 +202,7 @@ function renderReview(review: ReviewView) {
 
 function prReview(record: ActivityItem, data: EventData, review: ReviewView | undefined) {
   if (record.kind !== 'pr' || !data.pullRequestId) return emptyHtml;
-  return html`<section class="detail-section"><div class="detail-section-head"><h2>Discussion and policies</h2><button class="btn sm" data-action="load-review" data-repo-id="${record.repoId}" data-pr-id="${data.pullRequestId}">${review ? 'Reload discussion and policies' : 'Load discussion and policies'}</button></div><p class="help">Loads the current state on request within the shared budget.</p>${review ? renderReview(review) : emptyHtml}</section>`;
+  return html`<section class="detail-section"><div class="detail-section-head"><h2>Discussion and policies</h2><button class="btn sm" ${action('load-review')} data-repo-id="${record.repoId}" data-pr-id="${data.pullRequestId}">${review ? 'Reload discussion and policies' : 'Load discussion and policies'}</button></div><p class="help">Loads the current state on request within the shared budget.</p>${review ? renderReview(review) : emptyHtml}</section>`;
 }
 
 function detailData(
@@ -181,6 +214,7 @@ function detailData(
   loaded: LoadedView | undefined,
   related: ActivityEvent[],
   showRelated: boolean,
+  groups: Groups,
 ) {
   const completed = record.kind === 'pr' && data.status === 'completed';
   const summary = record.kind !== 'build' ? activitySummary(record) : '';
@@ -190,7 +224,7 @@ function detailData(
     record.kind === 'pr'
       ? prReview(record, data, loaded && !('items' in loaded) ? loaded : undefined)
       : pushCommits(record, repo, pushId, loaded && !('threads' in loaded) ? loaded : undefined);
-  const timeline = relatedActivity(record, related, showRelated);
+  const timeline = relatedActivity(record, related, showRelated, groups);
   const hasMain = [evidence, trail, extra, timeline].some(section => section !== emptyHtml);
   const main = hasMain
     ? html`<div class="detail-main">
@@ -203,7 +237,7 @@ function detailData(
     <div class="detail-data ${record.kind === 'pr' && hasMain ? 'pr-detail-data' : ''}">${record.kind === 'pr' ? html`${main}${metadata}` : html`${metadata}${main}`}</div>`;
 }
 
-function relatedActivity(record: ActivityItem, events: ActivityEvent[], showRelated: boolean) {
+function relatedActivity(record: ActivityItem, events: ActivityEvent[], showRelated: boolean, groups: Groups) {
   if (!events.length) return emptyHtml;
   const days = new Map<string, ActivityEvent[]>();
   for (const event of events) {
@@ -212,7 +246,7 @@ function relatedActivity(record: ActivityItem, events: ActivityEvent[], showRela
     if (group) group.push(event);
     else days.set(day, [event]);
   }
-  return html`<details class="detail-section detail-related" data-group="related-${record.id}" ${showRelated ? html`open` : emptyHtml}><summary>${showRelated ? 'Related CI runs' : 'Related activity'} · ${events.length}</summary>
+  return html`<details class="detail-section detail-related" ${disclosure(groups, `related-${record.id}`, showRelated)}><summary ${action('toggle-group')}>${showRelated ? 'Related CI runs' : 'Related activity'} · ${events.length}</summary>
     ${[...days].map(
       ([day, entries]) =>
         html`<h3>${day}</h3><ul class="detail-list">${entries.map(event => {
@@ -238,7 +272,7 @@ function relatedActivity(record: ActivityItem, events: ActivityEvent[], showRela
 }
 
 export function renderDetail(
-  event: ActivityEvent | undefined,
+  view: DetailView | undefined,
   state: DetailState,
   commits: LoadedView | undefined,
   {
@@ -247,21 +281,22 @@ export function renderDetail(
     showRelated = false,
     matchingIds,
     checkouts,
+    groups = new Map(),
   }: {
     returnUnreadOnly?: boolean;
     returnToGraph?: boolean;
     showRelated?: boolean;
     matchingIds?: string[] | undefined;
     checkouts?: Record<string, import('./checkout.ts').CheckoutSnapshot>;
+    /** Which disclosures the reader opened; none before the reader chooses. */
+    groups?: Groups;
   } = {},
 ) {
   const back = returnToGraph
-    ? html`<a class="ghost sm back" data-action="back-to-graph" href="#graph">← Back to Git Graph</a>`
-    : html`<a class="ghost sm back" data-action="back-to-results" href="${activityHref(returnUnreadOnly)}">← Back to Activity</a>`;
-  if (!event) return html`${back}<div class="card empty"><h1>Activity not found</h1></div>`;
-  const record = groupActivity(state.events).find(item => item.eventIds.includes(event.id)) || groupActivity([event])[0];
-  // Grouping one event always yields its group.
-  if (!record) return html`${back}<div class="card empty"><h1>Activity not found</h1></div>`;
+    ? html`<a class="ghost sm back" ${action('back-to-graph')} href="#graph">← Back to Git Graph</a>`
+    : html`<a class="ghost sm back" ${action('back-to-results')} href="${activityHref(returnUnreadOnly)}">← Back to Activity</a>`;
+  if (!view) return html`${back}<div class="card empty"><h1>Activity not found</h1></div>`;
+  const { event, record, related } = view;
   const repo = state.repos.find(item => item.id === record.repoId);
   const data = record.data || {};
   const pushId = data.pushId || data.push?.pushId;
@@ -271,7 +306,7 @@ export function renderDetail(
   const branch = !state.demo && repo?.localPath ? activityBranch(event) : null;
   const checkoutBar = branch ? renderCheckoutBar(event.repoId, checkouts?.[event.repoId], branch) : emptyHtml;
   return html`<div class="crumb">${back}<span>${repo?.name}</span></div><section class="card">${detailHead(record, repo, activityTitle(record), matching)}${checkoutBar}
-    ${detailData(record, repo, data, fields, pushId, commits, state.detailRelated ?? [], showRelated)}</section>`;
+    ${detailData(record, repo, data, fields, pushId, commits, related, showRelated, groups)}</section>`;
 }
 
 export function renderCommits(commits: CommitsView) {

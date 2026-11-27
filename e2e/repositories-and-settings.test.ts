@@ -9,7 +9,7 @@ import { createSync } from '../server/sync.ts';
 import { createAzureCli } from '../server/azure-cli.ts';
 import { createAzureClient } from '../server/azure-client.ts';
 import type { Repository, ConnectionStatus } from '../src/contract.ts';
-import { fetch, setup, setupPicker } from './fixtures/ui-app.ts';
+import { fetch, renderInBackground, setup, setupPicker } from './fixtures/ui-app.ts';
 import type { AppSync } from '../server/routes/context.ts';
 import type { AzureProvider } from '../server/azure-client.ts';
 import { stub } from '../test/fixtures/typed.ts';
@@ -382,4 +382,81 @@ test('Settings shows scoped CLI access and header switches share the automatic c
   assert.ok(panel.x >= 0 && panel.x + panel.width <= 320);
   await page.keyboard.press('Escape');
   await expect(header.getByRole('switch', { name: 'Automatic checks' })).toHaveCount(0);
+});
+
+test('the repository picker list closes when a pointer goes down or focus moves outside it, and stays open while choosing', async t => {
+  const { page } = await setupPicker(t);
+  const search = page.getByRole('combobox', { name: 'Search local repositories' });
+  const list = page.getByRole('listbox', { name: 'Search local repositories' });
+  await search.focus();
+  await expect(list).toBeVisible();
+  await expect(search).toHaveAttribute('aria-expanded', 'true');
+  // A pointer going down outside closes it at once, before any click.
+  await page.mouse.move(5, 5);
+  await page.mouse.down();
+  await expect(list).toBeHidden();
+  await expect(search).toHaveAttribute('aria-expanded', 'false');
+  await page.mouse.up();
+  await search.focus();
+  await expect(list).toBeVisible();
+  // So does focus moving to another control by keyboard.
+  await page.getByRole('link', { name: 'Settings', exact: true }).focus();
+  await expect(list).toBeHidden();
+  // Choosing in the list keeps it open.
+  await search.focus();
+  await page.getByRole('option').first().click();
+  await expect(list).toBeVisible();
+});
+
+test('the repository picker list still closes after the viewport crosses the phone breakpoint', async t => {
+  const { page } = await setupPicker(t);
+  await page.setViewportSize({ width: 1024, height: 800 });
+  const search = page.getByRole('combobox', { name: 'Search local repositories' });
+  const list = page.getByRole('listbox', { name: 'Search local repositories' });
+  await search.focus();
+  await expect(list).toBeVisible();
+  await page.setViewportSize({ width: 390, height: 800 });
+  await expect(list).toBeVisible();
+  await expect(search).toHaveAttribute('aria-expanded', 'true');
+  await page.getByRole('link', { name: 'Settings', exact: true }).focus();
+  await expect(list).toBeHidden();
+  await search.focus();
+  await page.setViewportSize({ width: 1024, height: 800 });
+  await page.getByRole('button', { name: 'Close repository picker' }).click();
+  await expect(list).toBeHidden();
+});
+
+test('the phone header check menu stays open while the page renders and closes on a click outside or Escape', async t => {
+  const { page, runtime } = await setup(t);
+  await page.setViewportSize({ width: 375, height: 812 });
+  const header = page.locator('#header');
+  const trigger = header.getByLabel(/^Checks: automatic/);
+  const refresh = header.getByRole('button', { name: /^Refresh activity/ });
+  await trigger.click();
+  await expect(refresh).toBeVisible();
+  await fetch(runtime.url + '/api/demo/event', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
+  await renderInBackground(page);
+  await expect(refresh).toBeVisible();
+  await page.locator('#page').click({ position: { x: 5, y: 5 } });
+  await expect(refresh).toBeHidden();
+  await trigger.click();
+  await header.getByRole('switch', { name: 'Automatic checks' }).focus();
+  await page.keyboard.press('Escape');
+  await expect(refresh).toBeHidden();
+  await expect(trigger).toBeFocused();
+});
+
+test('after the phone check menu was open, the first desktop Automatic checks click sends the new value', async t => {
+  const { page } = await setup(t);
+  await page.setViewportSize({ width: 375, height: 812 });
+  const header = page.locator('#header');
+  await header.getByLabel(/^Checks: automatic on/).click();
+  await expect(header.getByRole('button', { name: /^Refresh activity/ })).toBeVisible();
+  await page.setViewportSize({ width: 1280, height: 812 });
+  const desktop = page.locator('#header-auto-desktop');
+  await expect(desktop).toBeChecked();
+  const patch = page.waitForRequest(request => request.method() === 'PATCH' && new URL(request.url()).pathname === '/api/settings');
+  await desktop.click();
+  assert.deepEqual((await patch).postDataJSON(), { refreshEnabled: false });
+  await expect(desktop).not.toBeChecked();
 });

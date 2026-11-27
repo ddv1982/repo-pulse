@@ -181,7 +181,7 @@ test('mark all matching uses the rendered repository scope when another reposito
   runtime.store.saveRepo({ ...shared, disabled: true });
   await page.goto(runtime.url + '/#activity/unread');
   await expect(page.getByRole('button', { name: 'All 2 repositories' })).toBeVisible();
-  await page.locator('details[data-group="Activity"] > summary').click();
+  await page.locator('details[data-group="activity"] > summary').click();
   const ids = runtime.store.queryActivity.unseenIds({ repoIds: ['demo-orders', 'demo-billing'] });
   runtime.store.saveRepo({ ...shared, disabled: false });
   const sharedIds = runtime.store.queryActivity.unseenIds({ repoIds: ['demo-shared'] });

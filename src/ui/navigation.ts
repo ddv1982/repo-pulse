@@ -1,7 +1,10 @@
 import { joinActivitySearch } from './activity-search.ts';
 
+/** The pages the hash names. Every switch over a route is exhaustive. */
+export type Route = 'activity' | 'event' | 'graph' | 'repositories' | 'settings';
+
 export type NavigationState = {
-  route: string;
+  route: Route;
   eventId: string | null;
   relatedCi?: boolean | undefined;
   repoIds: string[] | null;
@@ -29,10 +32,17 @@ export type ResultsContext = {
 /** The fields of a watched repository that navigation reads. */
 type ScopeRepo = Pick<import('../contract.ts').Repository, 'id' | 'disabled'>;
 
+/** What a hash names: the route, plus the unread choice an Activity link carries and the checkout a Repositories link names. */
+type ParsedRoute =
+  | { route: 'activity'; eventId: null; unreadOnly: boolean; checkoutRepoId?: undefined }
+  | { route: 'event'; eventId: string | null; relatedCi?: true; unreadOnly?: undefined; checkoutRepoId?: undefined }
+  | { route: 'repositories'; eventId: null; checkoutRepoId: string | null; unreadOnly?: undefined }
+  | { route: 'graph' | 'settings'; eventId: null; unreadOnly?: undefined; checkoutRepoId?: undefined };
+
 /**
  * Resolve legacy Activity bookmarks to the corresponding filter.
  */
-export function parseRoute(hash: string) {
+export function parseRoute(hash: string): ParsedRoute {
   const [name, value, detail] = String(hash || '')
     .replace(/^#/, '')
     .split('/');
@@ -56,7 +66,7 @@ export function parseRoute(hash: string) {
 }
 
 export const activityHref = (unreadOnly: boolean) => (unreadOnly ? '#activity/unread' : '#activity');
-export const isActivity = (route: unknown) => route === 'activity';
+export const isActivity = (route: Route) => route === 'activity';
 export const repositoryHref = (id: string) => `#repositories/${encodeURIComponent(id)}`;
 
 const RESULTS_KEY = 'repo-pulse-results-context';
@@ -73,10 +83,9 @@ function readResultsContext(): ResultsContext | null {
       search: value.version === RESULTS_VERSION ? search : joinActivitySearch(search, typeof value.people === 'string' ? value.people : ''),
       kind: typeof value.kind === 'string' ? value.kind : '',
       repoIds: Array.isArray(value.repoIds) ? value.repoIds.filter((id: unknown) => typeof id === 'string') : null,
+      // Entries stored before the groups had stable IDs name them by title; restoring maps those to IDs.
       groups: Array.isArray(value.groups)
-        ? value.groups
-            .filter((entry: unknown) => Array.isArray(entry) && typeof entry[0] === 'string' && typeof entry[1] === 'boolean')
-            .map(([group, open]: [string, boolean]) => [group === 'New updates' ? 'Activity' : group, open])
+        ? value.groups.filter((entry: unknown) => Array.isArray(entry) && typeof entry[0] === 'string' && typeof entry[1] === 'boolean')
         : [],
       filtersOpen: typeof value.filtersOpen === 'boolean' ? value.filtersOpen : undefined,
       savedFilterId: typeof value.savedFilterId === 'string' ? value.savedFilterId : '',
@@ -169,6 +178,16 @@ export function createNavigation({
     invalidate,
     reconcileRepositories,
     remember,
+    /**
+     * A check that the page shown now is still the one shown when it was made: the same address and view, and the same
+     * `subject`, such as the repository a page shows, when the page had one.
+     */
+    currentView(this: void, subject: () => string | undefined = () => undefined) {
+      const made = generation;
+      const hash = location.hash;
+      const shown = subject();
+      return () => location.hash === hash && generation === made && (shown === undefined || subject() === shown);
+    },
     takeCheckoutFocus(repos: ScopeRepo[]) {
       if (ui.route !== 'repositories' || !repos.some(repo => repo.id === checkoutRepoId && !repo.disabled)) return null;
       const id = checkoutRepoId;

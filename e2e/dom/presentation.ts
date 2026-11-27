@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { activityTitle as activityTitleOf, activitySummary as activitySummaryOf, type SafeHtml } from '../../src/ui/format.ts';
 import { renderRepositories as renderRepositoriesHtml } from '../../src/ui/repositories.ts';
 import { renderFeed as renderPagedFeedHtml, renderDetail as renderDetailHtml } from '../../src/ui/feed.ts';
+import { detailView } from '../../src/ui/activity-detail.ts';
 import { forkText, treeLegend } from '../../src/ui/activity-tree.ts';
 import type { TreeFork } from '../../src/activity-tree.ts';
 import { createStore } from '../../server/store.ts';
@@ -27,7 +28,9 @@ const activityTitle = (event: Event) => activityTitleOf(stub<ActivityEvent>(even
 const activitySummary = (event: Event) => activitySummaryOf(stub<ActivityEvent>(event));
 const renderRepositories = (state: State, ...rest: Parameters<typeof renderRepositoriesHtml> extends [unknown, ...infer R] ? R : never) =>
   String(renderRepositoriesHtml(stub<PageState>(state), ...rest));
-const renderPagedFeed = (state: State, ui: Partial<FeedUi>) => String(renderPagedFeedHtml(stub<PageState>(state), stub<FeedUi>(ui)));
+// Every feed renders the saved filter menu, so a state without saved filters has none.
+const renderPagedFeed = (state: State, ui: Partial<FeedUi>) =>
+  String(renderPagedFeedHtml(stub<PageState>({ savedFilters: [], ...state }), stub<FeedUi>({ groups: new Map(), ...ui })));
 // The detail only tests commits for truthiness, so a test's null stands for "not loaded" as undefined does.
 const renderDetail = (
   event: Event,
@@ -36,7 +39,13 @@ const renderDetail = (
   options?: Partial<DetailOptions>,
 ) =>
   String(
-    renderDetailHtml(stub<ActivityEvent>(event), stub<PageState>(state), commits ?? undefined, options && stub<DetailOptions>(options)),
+    renderDetailHtml(
+      // The server answers a detail with the event's group; the test state's events stand for it.
+      detailView({ detail: { event: stub<ActivityEvent>(event), events: state.events ?? [] }, activity: { items: [] } }, event.id ?? null),
+      stub<PageState>(state),
+      commits ?? undefined,
+      options && stub<DetailOptions>(options),
+    ),
   );
 
 test('a disabled repository row offers only enabling or removing it', async t => {
@@ -45,7 +54,8 @@ test('a disabled repository row offers only enabling or removing it', async t =>
       stub<Repository>({ id: 'on', name: 'Orders', project: 'Shop', localPath: '/src/orders' }),
       stub<Repository>({ id: 'off', name: 'Billing', project: 'Shop', localPath: '/src/billing', disabled: true }),
     ],
-    settings: {},
+    jobs: [],
+    settings: { refreshEnabled: true, refreshResumedAt: null },
     syncStatus: { overall: { state: 'syncing', repoId: 'on' }, repos: { on: { state: 'syncing' } } },
     streams: [stringError({ repoId: 'on', stream: 'refs', initialized: true }, 'Read refused')],
   };
@@ -54,7 +64,7 @@ test('a disabled repository row offers only enabling or removing it', async t =>
   const articles = await all(doc, 'article');
   const enabled = present(articles[0]);
   const disabled = present(articles[1]);
-  const toggle = (article: DomRoot) => one(article, 'input[role="switch"][data-repo-toggle]');
+  const toggle = (article: DomRoot) => one(article, 'input[role="switch"][data-action="toggle-repo"]');
   assert.equal(await toggle(enabled).getAttribute('data-id'), 'on');
   assert.ok(await toggle(enabled).hasAttribute('checked'));
   assert.equal(await one(enabled, 'summary').getAttribute('aria-label'), 'Details for Orders');
@@ -66,7 +76,7 @@ test('a disabled repository row offers only enabling or removing it', async t =>
   assert.deepEqual(
     await Promise.all(
       (await all(disabled, 'button, input, select, summary, a, details')).map(
-        async control => (await control.getAttribute('data-action')) ?? (await control.getAttribute('role')),
+        async control => (await control.getAttribute('role')) ?? (await control.getAttribute('data-action')),
       ),
     ),
     ['switch', 'remove-repo'],
@@ -90,7 +100,7 @@ function fixture(): Fixture {
   } satisfies Event;
   return {
     repos: [stub<Repository>({ id: 'r', name: 'Orders' })],
-    settings: {},
+    settings: { refreshEnabled: true, refreshResumedAt: null },
     syncStatus: { overall: { state: 'synced', repoId: 'r' }, repos: { r: { state: 'synced' } } },
     streams: [],
     events: [
@@ -607,8 +617,8 @@ test('each fork origin has its own row text, and only an unchecked PR target is 
     ],
   );
   assert.equal(forkText(null), '');
-  assert.doesNotMatch(await text(parse(t, treeLegend)), /assumed from the pull request target/);
-  assert.match(await text(parse(t, treeLegend)), /PR target, origin not checked/);
+  assert.doesNotMatch(await text(parse(t, treeLegend(new Map()))), /assumed from the pull request target/);
+  assert.match(await text(parse(t, treeLegend(new Map()))), /PR target, origin not checked/);
 });
 
 test('Activity distinguishes tag events and tag builds from branch activity', async t => {

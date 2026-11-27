@@ -2,23 +2,27 @@ import { emptyHtml, html } from './format.ts';
 import { syncPill, syncRepoName } from './health.ts';
 import { icons, themeSwitch } from './icons.ts';
 import { activityHref, isActivity } from './navigation.ts';
+import { action } from './actions.ts';
 
 type HeaderState = Pick<import('./refresh.ts').PageState, 'repos' | 'settings' | 'syncStatus'>;
-/** web.ts sets `refreshing` while a refresh runs. */
-type HeaderView = Pick<import('./navigation.ts').NavigationState, 'route' | 'unreadOnly'> & { refreshing?: boolean };
+/** web.ts sets `refreshing` while a refresh runs; `headerMenuOpen` while the phone check menu is open. */
+type HeaderView = Pick<import('./navigation.ts').NavigationState, 'route' | 'unreadOnly'> & {
+  refreshing?: boolean;
+  headerMenuOpen?: boolean;
+};
 
 export function renderHeader(state: HeaderState, ui: HeaderView) {
-  const automatic = state.settings.refreshEnabled !== false;
+  const automatic = state.settings.refreshEnabled;
   const pill = syncPill(state.syncStatus.overall, syncRepoName(state.repos, state.syncStatus.overall));
   const switchInput = (
     suffix: 'desktop' | 'mobile',
-  ) => html`<input class="setting-switch" type="checkbox" role="switch" id="header-auto-${suffix}" data-auto-toggle
+  ) => html`<input class="setting-switch" type="checkbox" role="switch" id="header-auto-${suffix}" ${action('toggle-automatic-checks')}
     aria-label="Automatic checks" ${automatic ? html`checked` : emptyHtml}>`;
   const refreshTitle = 'Refresh activity for the repositories shown in Activity.';
   const refresh = (
     suffix: 'desktop' | 'mobile',
   ) => html`<button type="button" class="${suffix === 'mobile' ? 'ghost mobile-refresh' : 'monitor-refresh'}"
-    id="header-refresh-${suffix}" data-action="refresh"
+    id="header-refresh-${suffix}" ${action('refresh')}
     aria-label="Refresh activity" aria-busy="${Boolean(ui.refreshing)}" aria-disabled="${Boolean(ui.refreshing)}"
     data-idle-title="${refreshTitle}" title="${ui.refreshing ? 'Refreshing activity…' : refreshTitle}">
     ${icons.refresh}${suffix === 'mobile' ? html`<span>Refresh activity</span>` : emptyHtml}</button>`;
@@ -37,8 +41,8 @@ export function renderHeader(state: HeaderState, ui: HeaderView) {
           <label class="header-auto" for="header-auto-desktop">${switchInput('desktop')}<span>Automatic checks</span></label>
           ${refresh('desktop')}
         </div>
-        <details class="header-overflow">
-          <summary class="ghost monitor-trigger" id="header-monitoring" aria-label="Checks: automatic ${automatic ? 'on' : 'off'}">${icons.pulse}${automatic ? html`<span class="monitor-dot" aria-hidden="true"></span>` : emptyHtml}</summary>
+        <details class="header-overflow" ${ui.headerMenuOpen ? html`open` : emptyHtml}>
+          <summary ${action('toggle-header-menu')} class="ghost monitor-trigger" id="header-monitoring" aria-label="Checks: automatic ${automatic ? 'on' : 'off'}">${icons.pulse}${automatic ? html`<span class="monitor-dot" aria-hidden="true"></span>` : emptyHtml}</summary>
           <div class="menu-panel header-monitoring-menu">
             <label class="settings-row settings-toggle" for="header-auto-mobile">
               <span>Automatic checks<span class="help">${automatic ? 'Every 3–5 minutes' : 'Off · refresh manually'}</span></span>

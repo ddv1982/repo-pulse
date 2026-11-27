@@ -16,7 +16,9 @@ test('an older checkout poll cannot overwrite a fresh reading', async () => {
       return { state: 'current', branch: 'topic' };
     }),
     isVisible: () => true,
-    onChange: () => {},
+    groups: new Map(),
+    shown: () => undefined,
+    onShownChange: () => {},
     onMutation: () => {},
   });
   const pending = panel.refresh();

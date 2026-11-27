@@ -1,8 +1,12 @@
 import { required } from './dom.ts';
+import { createDialog } from './dialog.ts';
+import { createToolbarMenu } from './toolbar-menu.ts';
+import type { MenuManager } from './menus.ts';
 import { canonicalActivityFilter } from '../activity-text.ts';
 import { splitActivitySearch } from './activity-search.ts';
 import { emptyHtml, html } from './format.ts';
 import type { SavedActivityFilter } from '../contract.ts';
+import { action, type ActionName } from './actions.ts';
 
 export type ActivityFilters = SavedActivityFilter['filters'];
 
@@ -47,7 +51,7 @@ export function renderSavedFilters(filters: SavedActivityFilter[], selectedId: s
       <div class="menu-panel type-panel saved-filter-panel" id="saved-filter-panel" role="listbox" aria-label="Saved filters" ${panel('saved-filter-panel')}>
         ${filters.map(
           filter => html`<button class="type-option" type="button" role="option" id="saved-filter-option-${filter.id}" aria-selected="${filter.id === selected?.id}"
-          data-preset="${filter.id}" tabindex="-1"><span class="type-check" aria-hidden="true">${filter.id === selected?.id ? '✓' : ''}</span><span>${filter.name}<small class="help">${filter.filters.view === 'all' ? 'All activity' : 'Unread only'}</small></span></button>`,
+          ${action('apply-saved-filter')} data-preset="${filter.id}" tabindex="-1"><span class="type-check" aria-hidden="true">${filter.id === selected?.id ? '✓' : ''}</span><span>${filter.name}<small class="help">${filter.filters.view === 'all' ? 'All activity' : 'Unread only'}</small></span></button>`,
         )}
       </div>
     </div>`
@@ -55,8 +59,8 @@ export function renderSavedFilters(filters: SavedActivityFilter[], selectedId: s
     }
     ${
       !selected
-        ? html`<button id="save-filter" class="btn" type="button" data-action="save-filter">Save filter…</button>`
-        : html`${modified ? html`<button id="update-filter" class="btn saved-filter-update" type="button" data-action="update-filter" title="Update “${title}”">Update “${title}”</button>` : emptyHtml}
+        ? html`<button id="save-filter" class="btn" type="button" ${action('save-filter')}>Save filter…</button>`
+        : html`${modified ? html`<button id="update-filter" class="btn saved-filter-update" type="button" ${action('update-filter')} title="Update “${title}”">Update “${title}”</button>` : emptyHtml}
         <div class="menu saved-filter-actions">
           <button id="saved-filter-actions-toggle" class="btn" type="button" aria-label="More saved filter actions"
             aria-haspopup="menu" aria-expanded="${openMenu === 'saved-filter-actions-panel'}" aria-controls="saved-filter-actions-panel">More ▾</button>
@@ -72,8 +76,28 @@ export function renderSavedFilters(filters: SavedActivityFilter[], selectedId: s
   </div>`;
 }
 
-function filterAction(action: string, label: string) {
-  return html`<button class="type-option" role="menuitem" type="button" data-filter-action="${action}" tabindex="-1">${label}</button>`;
+function filterAction(name: ActionName, label: string) {
+  return html`<button class="type-option" role="menuitem" type="button" ${action(name)} tabindex="-1">${label}</button>`;
+}
+
+/** The saved filter list, a listbox, and the selected filter's command menu. */
+export function createSavedFilterMenus(menus: MenuManager) {
+  return {
+    list: createToolbarMenu({
+      menus,
+      toggleId: 'saved-filter-toggle',
+      panelId: 'saved-filter-panel',
+      itemSelector: '[data-preset]',
+      choosing: 'one',
+    }),
+    commands: createToolbarMenu({
+      menus,
+      toggleId: 'saved-filter-actions-toggle',
+      panelId: 'saved-filter-actions-panel',
+      itemSelector: '[role="menuitem"]',
+      choosing: 'one',
+    }),
+  };
 }
 
 export function createFilterNameDialog(dialog: HTMLDialogElement) {
@@ -81,51 +105,33 @@ export function createFilterNameDialog(dialog: HTMLDialogElement) {
   const title = required('#filter-name-title', HTMLElement, dialog);
   const input = required('#filter-name', HTMLInputElement, dialog);
   const scope = required('#filter-name-scope', HTMLElement, dialog);
-  const error = required('[role="alert"]', HTMLElement, dialog);
   const submit = required('button[type="submit"]', HTMLButtonElement, dialog);
   let save: ((name: string) => Promise<void>) | undefined;
-  let openerId = '';
-  dialog.addEventListener('close', () => {
-    save = undefined;
-    (document.getElementById(openerId) ?? document.getElementById('saved-filter-toggle'))?.focus({ preventScroll: true });
-  });
-  required('[data-cancel]', HTMLButtonElement, dialog).addEventListener('click', () => {
-    if (!submit.disabled) dialog.close();
-  });
-  dialog.addEventListener('cancel', event => {
-    if (submit.disabled) event.preventDefault();
+  // The name stays editable while it saves; only Save waits.
+  const modal = createDialog(dialog, {
+    busy: () => [submit],
+    replacement: id => document.getElementById(id) ?? document.getElementById('saved-filter-toggle'),
+    onClose: () => {
+      save = undefined;
+    },
   });
   const submitName = async (event: SubmitEvent) => {
     event.preventDefault();
-    if (submit.disabled || !save) return;
-    submit.disabled = true;
-    error.hidden = true;
-    try {
-      await save(input.value);
-      dialog.close();
-    } catch (failure) {
-      error.textContent = failure instanceof Error ? failure.message : String(failure);
-      error.hidden = false;
-    } finally {
-      submit.disabled = false;
-    }
+    const callback = save;
+    if (!callback) return;
+    if (await modal.submit(() => callback(input.value))) modal.close();
   };
-  // A failed save is caught above and shown in the dialog's alert, so this promise does not reject.
+  // A failed save shows in the dialog's alert, so this promise does not reject.
   form.addEventListener('submit', event => void submitName(event));
 
   return {
-    get open() {
-      return dialog.open;
-    },
     show(heading: string, name: string, callback: (name: string) => Promise<void>, summary: string = '') {
-      openerId = document.activeElement?.id || '';
       title.textContent = heading;
       scope.hidden = !summary;
       scope.textContent = summary;
       input.value = name;
-      error.hidden = true;
       save = callback;
-      dialog.showModal();
+      modal.show();
       input.select();
     },
   };

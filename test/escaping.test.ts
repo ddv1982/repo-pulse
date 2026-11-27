@@ -20,7 +20,7 @@ import type { ActivityEvent } from '../src/activity.ts';
 import type { PageState, Repo } from '../src/ui/refresh.ts';
 import type { CheckoutSnapshot } from '../src/ui/checkout.ts';
 import type { ConnectionState } from '../src/ui/connection.ts';
-import type { CommitsView } from '../src/ui/activity-detail.ts';
+import { detailView, type CommitsView } from '../src/ui/activity-detail.ts';
 import type { ConnectionResponse as ConnectionStatus } from '../src/contract.ts';
 
 /** A transformed value and the exact escaped markup expected where it is rendered. */
@@ -182,7 +182,7 @@ function pageState(activity: PageState['activity']): PageState {
     repos: [repo],
     watched: [repo, disabledRepo],
     streams,
-    settings: { refreshEnabled: true },
+    settings: { refreshEnabled: true, refreshResumedAt: null },
     diagnostics: {
       startsLastMinute: 1,
       limitPerMinute: 10,
@@ -208,6 +208,9 @@ function pageState(activity: PageState['activity']): PageState {
     },
     activity,
     events,
+    activityRevision: '1',
+    savedFilters: [],
+    demo: false,
   };
 }
 
@@ -357,6 +360,7 @@ const feedView = stub<import('../src/ui/feed.ts').FeedView & { savedFilterId: st
   search: '',
   kind: '',
   filtersOpen: false,
+  groups: new Map(),
 });
 
 /** A full commit ID in its title with the first 8 characters shown, as the detail view renders commits. */
@@ -412,7 +416,13 @@ const views: Record<string, View> = {
     ],
   },
   detail: {
-    render: () => events.flatMap(event => [undefined, ...commitViews].map(commits => renderDetail(event, state, commits))),
+    // The server answers a detail with the event's group; this state's events stand for it.
+    render: () =>
+      events.flatMap(event =>
+        [undefined, ...commitViews].map(commits =>
+          renderDetail(detailView({ detail: { event, events: state.events }, activity: { items: [] } }, event.id), state, commits),
+        ),
+      ),
     shows: [
       'repo.name',
       'build.running.title',

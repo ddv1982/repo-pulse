@@ -1,9 +1,22 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createRefreshController, type View } from '../src/ui/refresh.ts';
+import { createRefreshController, readState, type View } from '../src/ui/refresh.ts';
 import { fakeRequest } from './fixtures/typed.ts';
 
-const metadata = { repos: [{ id: 'orders' }], activityRevision: '1' };
+/** A complete /api/state answer: the refresh controller refuses one with a missing field. */
+const state = (fields: Record<string, unknown>) => ({
+  repos: [],
+  streams: [],
+  diagnostics: { sync: {} },
+  jobs: [],
+  activityRevision: '1',
+  savedFilters: [],
+  settings: { refreshEnabled: true, refreshResumedAt: null },
+  syncStatus: { overall: { state: 'empty' }, repos: {} },
+  demo: false,
+  ...fields,
+});
+const metadata = state({ repos: [{ id: 'orders' }] });
 const page = (id: string) => ({ items: [{ groupKey: id, events: [{ id }] }], total: 1, nextCursor: null });
 const initialView: View = { route: 'activity', repoIds: null, eventId: null, search: '', kind: '', generation: 0 };
 
@@ -22,7 +35,7 @@ test('an obsolete filter cannot publish its rows or an error after navigation', 
         return delayed.promise;
       }),
       getView: () => view,
-      reconcileRepositories: () => {},
+      reconcile: () => {},
       onUpdate: () => updates.push(refresh.state.events.map(event => event.id)),
       onError: error => errors.push(error.message),
     });
@@ -48,7 +61,7 @@ test('forced refresh callers complete after their coalesced follow-up read', asy
   const refresh = createRefreshController({
     request: fakeRequest(() => (++requests === 1 ? firstRead.promise : secondRead.promise)),
     getView: () => ({ ...initialView, route: 'settings' }),
-    reconcileRepositories: () => {},
+    reconcile: () => {},
     onUpdate: () => updates.push(refresh.state.activityRevision),
     onError: assert.fail,
   });
@@ -88,7 +101,7 @@ test('a new non-Activity view gets a refresh while older metadata is in flight',
       return previousRead.promise;
     }),
     getView: () => view,
-    reconcileRepositories: () => {},
+    reconcile: () => {},
     onUpdate: () => updates.push(refresh.state.activityRevision),
     onError: assert.fail,
   });
@@ -107,18 +120,17 @@ test('disabled repositories stay watched but leave the shown repositories and th
   const refresh = createRefreshController({
     request: fakeRequest(path =>
       path === '/api/state'
-        ? {
+        ? state({
             repos: [{ id: 'orders' }, { id: 'billing', disabled: true }],
             streams: [
               { repoId: 'orders', stream: 'refs' },
               { repoId: 'billing', stream: 'refs' },
             ],
-            activityRevision: '1',
-          }
+          })
         : page('orders'),
     ),
     getView: () => initialView,
-    reconcileRepositories: repos => reconciled.push(repos.map(repo => repo.id)),
+    reconcile: ({ watched }) => reconciled.push(watched.map(repo => repo.id)),
     onUpdate: () => {},
     onError: error => {
       throw error;
@@ -138,4 +150,16 @@ test('disabled repositories stay watched but leave the shown repositories and th
     ['orders'],
   );
   assert.deepEqual(reconciled, [['orders', 'billing']]);
+});
+
+test('a state answer without its settings resume time or sync counters is unreadable', () => {
+  assert.doesNotThrow(() => readState(state({})));
+  assert.doesNotThrow(() => readState(state({ settings: { refreshEnabled: false, refreshResumedAt: 5 } })));
+  for (const fields of [
+    { diagnostics: {} },
+    { diagnostics: { sync: null } },
+    { settings: { refreshEnabled: true } },
+    { settings: { refreshEnabled: true, refreshResumedAt: '5' } },
+  ])
+    assert.throws(() => readState(state(fields)), { message: 'Local state is unreadable.' }, JSON.stringify(fields));
 });

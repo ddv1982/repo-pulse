@@ -48,7 +48,7 @@ test('Activity shows history by default and filters to unread without changing s
   await expect(page.getByRole('searchbox', { name: 'Search activity' })).toHaveValue('Orders');
   await expect(page.locator('li.row')).toHaveCount(3);
   await expect(page.locator('[data-event-id="seen-push"]')).toBeVisible();
-  const importedHistory = page.locator('details[data-group="Imported history"]');
+  const importedHistory = page.locator('details[data-group="imported-history"]');
   if ((await importedHistory.getAttribute('open')) === null) await importedHistory.locator('summary').click();
   await expect(page.locator('[data-event-id="imported-push"]')).toBeVisible();
   await expect(page.getByRole('region', { name: 'Activity summary' })).toContainText('1 new item');
@@ -133,7 +133,7 @@ test('unread filtering, paged history, filters and deep links reach events beyon
   await page.getByRole('button', { name: 'Load more', exact: true }).click();
   await expect(page.locator('li.row')).toHaveCount(100);
   await expect(page.getByRole('region', { name: 'Activity summary' })).toContainText('Showing 100 of 1063 items');
-  await page.locator('details[data-group="Imported history"] > summary').click();
+  await page.locator('details[data-group="imported-history"] > summary').click();
   const last = page.locator('li.row').last();
   const id = await last.getAttribute('data-event-id');
   await last.locator('.feed-title').click();

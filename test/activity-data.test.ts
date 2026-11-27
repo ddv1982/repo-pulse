@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { joinActivitySearch, splitActivitySearch } from '../src/ui/activity-search.ts';
 import { createActivityData, activityEvents, type ActivityView } from '../src/ui/activity-data.ts';
+import { detailView } from '../src/ui/activity-detail.ts';
 import type { ActivityEvent, ActivityItem } from '../src/activity.ts';
 import { fakeRequest, present, stub } from './fixtures/typed.ts';
 
@@ -70,9 +71,18 @@ test('a changed filter cancels a stale page and an empty scope never queries all
   assert.equal(calls, 2);
 });
 
-test('deep-link retrieval and constituent flattening preserve exact acknowledgement flags', async () => {
-  const old = { id: 'older-than-window', repoId: 'repo', kind: 'build', seen: false, imported: false };
-  const newer = { ...old, id: 'latest-run-update', seen: true };
+test("a deep-linked detail shows the group the server answered with, keeping each event's acknowledgement flag", async () => {
+  // Two updates of one CI run, which the server groups together.
+  const old = {
+    id: 'older-than-window',
+    repoId: 'repo',
+    kind: 'build',
+    seen: false,
+    imported: false,
+    time: '2026-11-01T10:00:00Z',
+    data: { buildId: 7, status: 'inProgress' },
+  };
+  const newer = { ...old, id: 'latest-run-update', seen: true, time: '2026-11-01T10:05:00Z', data: { buildId: 7, status: 'completed' } };
   const client = createActivityData(
     fakeRequest(async path => {
       assert.equal(path, '/api/activity/older-than-window');
@@ -80,10 +90,16 @@ test('deep-link retrieval and constituent flattening preserve exact acknowledgem
     }),
   );
   const detail = await client.event(old.id);
-  const events = activityEvents({ items: [record(1)] }, detail);
+  const view = present(detailView({ detail, activity: { items: [record(1)] } }, old.id));
+  const events = view.record.events;
   assert.equal(present(events.find(event => event.id === old.id)).seen, false);
   assert.equal(present(events.find(event => event.id === newer.id)).seen, true);
-  assert.equal(events.length, 3);
+  // The loaded Activity rows are not regrouped into it.
+  assert.deepEqual(
+    events.map(event => event.id),
+    [newer.id, old.id],
+  );
+  assert.deepEqual(activityEvents({ items: [record(1)] }).length, 1);
 });
 
 test('a new revision replaces an old cursor snapshot when Load more is clicked', async () => {

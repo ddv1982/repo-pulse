@@ -1,6 +1,8 @@
 import { emptyHtml, html } from './format.ts';
 import { required, setHtml } from './dom.ts';
+import { createDialog } from './dialog.ts';
 import type { CheckoutBranchesResponse } from '../contract.ts';
+import { action } from './actions.ts';
 
 type CheckoutBranch = CheckoutBranchesResponse['branches'][number];
 type PickerRepo = { id: string; name: string; localPath?: string | undefined };
@@ -21,7 +23,10 @@ export function createBranchPicker(dialog: HTMLDialogElement, { load }: { load: 
   let failure: string | null = null;
   let loading = false;
   let opened = 0;
-  let openerId = '';
+  // Checkout polling may have replaced the button that opened the dialog; focus its replacement or the checkout.
+  const modal = createDialog(dialog, {
+    replacement: id => document.getElementById(id) ?? document.getElementById(`checkout-state-${repo?.id}`),
+  });
 
   function render() {
     const query = filter.value.trim().toLowerCase();
@@ -32,7 +37,7 @@ export function createBranchPicker(dialog: HTMLDialogElement, { load }: { load: 
         const here = branch.name === current;
         const label = here ? 'Checked out' : branch.local ? 'Local' : 'Remote only';
         const attributes = html`data-id="${repo?.id ?? ''}" data-path="${repo?.localPath ?? ''}" data-branch="${branch.name}"`;
-        return html`<li><button type="button" class="branch-option" data-action="switch-checkout-branch" ${attributes} ${here ? html`disabled aria-current="true"` : emptyHtml}><code>${branch.name}</code> <span class="chip ${here ? 'status-chip ok' : ''}">${label}</span></button></li>`;
+        return html`<li><button type="button" class="branch-option" ${action('switch-checkout-branch')} ${attributes} ${here ? html`disabled aria-current="true"` : emptyHtml}><code>${branch.name}</code> <span class="chip ${here ? 'status-chip ok' : ''}">${label}</span></button></li>`;
       })}`,
     );
     status.textContent = loading
@@ -51,26 +56,13 @@ export function createBranchPicker(dialog: HTMLDialogElement, { load }: { load: 
     // Enter in the filter chooses the first branch it shows.
     list.querySelector('button:not([disabled])')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
   });
-  required('[data-branch-cancel]', HTMLElement, dialog).addEventListener('click', () => dialog.close());
-  // Checkout polling may have replaced the button that opened the dialog; focus its replacement or the checkout.
-  dialog.addEventListener('close', () => {
-    const active = document.activeElement;
-    if (active && active !== document.body && !dialog.contains(active)) return;
-    (document.getElementById(openerId) ?? document.getElementById(`checkout-state-${repo?.id}`))?.focus();
-  });
 
   return {
-    get open() {
-      return dialog.open;
-    },
-    close() {
-      if (dialog.open) dialog.close();
-    },
+    close: modal.close,
     /** @param branch the branch checked out now */
-    async show(next: PickerRepo, branch: string, triggerId: string) {
+    async show(next: PickerRepo, branch: string) {
       const issued = ++opened;
       repo = next;
-      openerId = triggerId;
       current = branch;
       branches = [];
       failure = null;
@@ -78,7 +70,7 @@ export function createBranchPicker(dialog: HTMLDialogElement, { load }: { load: 
       repository.textContent = next.localPath ? `${next.name} · ${next.localPath}` : next.name;
       filter.value = '';
       render();
-      dialog.showModal();
+      modal.show();
       try {
         const loaded = await load(next.id);
         if (issued === opened) branches = loaded;

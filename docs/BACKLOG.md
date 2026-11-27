@@ -23,9 +23,8 @@ From the [improvement plan](archive/IMPROVEMENT-PLAN.md#phase-3-working-agreemen
 
 ## Architecture refactor
 
-Approved on 2026-11-27 after a council review at `a0c73ea`. Phases 0 and 1 (user-visible bug fixes and mechanical hygiene), phase 2 (server boundary and one contract) and phase 4 (server internals: the store split, `server/git.ts` with one checkout context, typed Azure reads, PR and build reconciliation out of `server/sync.ts`, and per-repository settings keys owned by the store) are done. Each later phase is one PR, merged before the next starts, and its pull request lists the items and their checks.
+Approved on 2026-11-27 after a council review at `a0c73ea`. Phases 0 and 1 (user-visible bug fixes and mechanical hygiene), phase 2 (server boundary and one contract), phase 3 (browser shell: route controllers, page state in `ui`, one action dispatcher, one menu manager, a dialog helper, and typed navigation and state) and phase 4 (server internals: the store split, `server/git.ts` with one checkout context, typed Azure reads, PR and build reconciliation out of `server/sync.ts`, and per-repository settings keys owned by the store) are done. Each later phase is one PR, merged before the next starts, and its pull request lists the items and their checks.
 
-- Phase 3, browser shell: a graph controller, page state in `ui` (header overflow, group open state, commit selection), one action dispatcher, one menu manager, a dialog helper, `src/web.ts` split into controllers, the Activity detail rendered from the group the server returned, and typed navigation state.
 - Phase 5, presentation, naming and tests: stylesheets split with shared tokens and documented breakpoints, stable graph status IDs, identifier renames, and a split sync test with shared fixtures.
 
 ## When the code is next touched
@@ -36,7 +35,6 @@ From the [post-migration plan](archive/post-migration-plan.md#when-the-code-is-n
 - `request()` in `src/api.ts` trusts the response body to match the route map; validating it before returning is still open.
 - A smaller `/api/state` response that leaves out stored stream internals.
 - New tests use narrow typed fakes instead of `stub<T>()`, which asserts a partial object as a complete one (`test/fixtures/typed.ts`).
-- Ticked follow-up commits now live on the checkout snapshot and survive polls, but `refreshTarget` in `src/ui/browser-view.ts` still skips background renders while one is ticked. Moving the selection into `ui` lets that guard go. Planned as refactor phase 3.
 - `activityTitle` (`src/activity-text.ts`) renders the raw stored build `definition.name`, so a value that cannot be converted to text can break the page.
 
 ## Only if use shows it

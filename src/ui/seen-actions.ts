@@ -1,4 +1,4 @@
-import type { Action } from './dom.ts';
+import type { Actions } from './actions.ts';
 
 function readIds(encoded: string | undefined): string[] | undefined {
   try {
@@ -106,6 +106,6 @@ export function createSeenActions({
       'undo-ack': async () => {
         if (undoIds.length) await acknowledge(undoIds, false, { undo: true });
       },
-    } satisfies Record<string, Action>,
+    } satisfies Actions<'ack-item' | 'undo-ack'>,
   };
 }

@@ -3,6 +3,7 @@ import { canonicalActivityFilter } from '../activity-text.ts';
 import type { HtmlValue } from './format.ts';
 import type { ActivityItem, ActivityPage } from '../activity.ts';
 import type { PageState } from './refresh.ts';
+import { action } from './actions.ts';
 
 export function emptyActivityMessage(
   ui: { repoIds: string[] | null; unreadOnly?: boolean; search?: string; kind?: string },
@@ -44,7 +45,7 @@ function unreadCounts(unseen: ActivityItem[], state: Pick<PageState, 'activity'>
 function ciFilterButton(layout: 'cell' | 'chip', kind: 'build' | 'status:failed', content: HtmlValue, label?: string) {
   const failed = kind === 'status:failed';
   return html`<button type="button" id="summary-ci-${layout}-${failed ? 'failed' : 'total'}"
-    class="summary-filter ${failed ? 't-crit' : 't-info'}" data-action="filter-activity-type" data-kind="${kind}"
+    class="summary-filter ${failed ? 't-crit' : 't-info'}" ${action('filter-activity-type')} data-kind="${kind}"
     ${label ? html`aria-label="${label}"` : emptyHtml}>${content}</button>`;
 }
 
@@ -76,7 +77,7 @@ export function renderSummary(
   );
   const scoped = Boolean(ui.search || ui.kind || ui.repoIds !== null);
   const noUnread = scoped ? 'No unread updates match these filters' : 'No new updates';
-  const headline = state.activity?.loading
+  const headline = state.activity.loading
     ? 'Loading activity…'
     : !records.length && state.activity.error
       ? 'Activity could not load'
