@@ -20,7 +20,17 @@ export function replacementFocus(id: string) {
   if (checkoutAction) return document.getElementById(`checkout-state-${checkoutAction[1]}`);
   if (id === 'activity-branch-action') return checked(document.querySelector('.checkout-bar'), HTMLElement, '.checkout-bar');
   if (id === 'graph-clear-search') return document.getElementById('graph-search');
-  if (id.startsWith('kind-option-') || id.startsWith('summary-ci-')) return document.getElementById('kind-toggle');
+  const filterTrigger =
+    id === 'kind-toggle' || id.startsWith('kind-option-') || id.startsWith('summary-ci-')
+      ? 'kind-toggle'
+      : id === 'repo-toggle' || id.startsWith('scope-')
+        ? 'repo-toggle'
+        : '';
+  if (filterTrigger) {
+    // Below 640px the triggers sit inside the Filters disclosure, which can be collapsed.
+    const trigger = document.getElementById(filterTrigger);
+    return trigger?.checkVisibility() ? trigger : document.getElementById('activity-filters-toggle');
+  }
   if (id.startsWith('saved-filter-option-'))
     return document.getElementById('saved-filter-toggle') ?? document.getElementById('save-filter');
   if (['saved-filter-toggle', 'saved-filter-actions-toggle', 'update-filter', 'save-filter'].includes(id))

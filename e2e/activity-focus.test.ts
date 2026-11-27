@@ -384,3 +384,33 @@ test('a background render leaves the repository picker in place, so its focused 
   await expect(toggle).toBeFocused();
   assert.equal(await page.evaluate(() => document.querySelector<Marked>('#checkout-search')?.marker), 'picker');
 });
+
+test('crossing the 640px breakpoint moves focus from a filter menu to its visible trigger or the Filters disclosure', async t => {
+  const { page } = await setup(t);
+  const active = () => page.evaluate(() => document.activeElement?.id || document.activeElement?.tagName);
+  const cases = [
+    { name: 'type option', toggle: 'kind-toggle', focus: '#kind-option-all', open: true },
+    { name: 'scope checkbox', toggle: 'repo-toggle', focus: '[data-scope-repo="demo-billing"]', open: true },
+    { name: 'type toggle', toggle: 'kind-toggle', focus: '#kind-toggle', open: false },
+    { name: 'scope toggle', toggle: 'repo-toggle', focus: '#repo-toggle', open: false },
+  ];
+  for (const { name, toggle, focus, open } of cases) {
+    // Wide to narrow: the Filters disclosure collapses and hides the trigger.
+    await page.setViewportSize({ width: 1100, height: 900 });
+    await page.reload();
+    await expect(page.locator(`#${toggle}`)).toBeVisible();
+    if (open) await page.locator(`#${toggle}`).click();
+    await page.locator(focus).focus();
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expect(page.locator('#activity-filters')).toBeHidden();
+    await expect.poll(active, { message: `${name}, wide to narrow` }).toBe('activity-filters-toggle');
+
+    // Narrow to wide: the trigger is visible again.
+    await page.locator('#activity-filters-toggle').click();
+    await expect(page.locator(`#${toggle}`)).toBeVisible();
+    if (open) await page.locator(`#${toggle}`).click();
+    await page.locator(focus).focus();
+    await page.setViewportSize({ width: 1100, height: 900 });
+    await expect.poll(active, { message: `${name}, narrow to wide` }).toBe(toggle);
+  }
+});
