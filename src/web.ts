@@ -242,9 +242,11 @@ document.addEventListener('visibilitychange', () => {
   if (!document.hidden) void load();
 });
 window.matchMedia('(min-width:640px)').addEventListener('change', () => {
-  // The filter bar changes layout, so an open toolbar menu closes and focus returns to its toggle.
+  // The filter bar changes layout, so an open toolbar menu closes and focus returns to its toggle. Other pages keep
+  // their menus: the Repositories picker stays open and tracked.
+  if (!isActivity(ui.route)) return;
   ui.openMenu = '';
-  if (isActivity(ui.route)) renderPage();
+  renderPage();
 });
 navigation.initialize();
 await load({ force: true });

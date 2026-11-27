@@ -408,6 +408,24 @@ test('the repository picker list closes when a pointer goes down or focus moves 
   await expect(list).toBeVisible();
 });
 
+test('the repository picker list still closes after the viewport crosses the phone breakpoint', async t => {
+  const { page } = await setupPicker(t);
+  await page.setViewportSize({ width: 1024, height: 800 });
+  const search = page.getByRole('combobox', { name: 'Search local repositories' });
+  const list = page.getByRole('listbox', { name: 'Search local repositories' });
+  await search.focus();
+  await expect(list).toBeVisible();
+  await page.setViewportSize({ width: 390, height: 800 });
+  await expect(list).toBeVisible();
+  await expect(search).toHaveAttribute('aria-expanded', 'true');
+  await page.getByRole('link', { name: 'Settings', exact: true }).focus();
+  await expect(list).toBeHidden();
+  await search.focus();
+  await page.setViewportSize({ width: 1024, height: 800 });
+  await page.getByRole('button', { name: 'Close repository picker' }).click();
+  await expect(list).toBeHidden();
+});
+
 test('the phone header check menu stays open while the page renders and closes on a click outside or Escape', async t => {
   const { page, runtime } = await setup(t);
   await page.setViewportSize({ width: 375, height: 812 });
