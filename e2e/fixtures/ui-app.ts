@@ -22,7 +22,7 @@ export async function selectActivityType(page: Page, label: string) {
 export async function setup(
   t: TestContext,
   demo = true,
-  { highlights = false, ...options }: { hasTouch?: boolean; highlights?: boolean } = {},
+  { highlights = false, ...options }: { hasTouch?: boolean; highlights?: boolean; locale?: string } = {},
 ) {
   const app = await startTestApp(t, { demo, highlights });
   const page = await openPage(t, { colorScheme: 'light', consoleErrors: true, ...options });
@@ -253,7 +253,8 @@ export async function awkwardFixture(
   t: TestContext,
   { colorScheme, highlights = false }: { colorScheme?: 'light' | 'dark'; highlights?: boolean } = {},
 ) {
-  const app = await setup(t, true, { highlights });
+  // CI browsers run in en-US, whose 12-hour times are wider; the fixture uses it everywhere so layouts match.
+  const app = await setup(t, true, { highlights, locale: 'en-US' });
   if (colorScheme) await app.page.emulateMedia({ colorScheme });
   for (const repo of app.runtime.store.listRepos()) app.runtime.store.removeRepo(repo.id);
   const organization = 'https://dev.azure.com/example';

@@ -694,9 +694,15 @@ button.vote-tally.crit {
 }
 
 @media (max-width: 639px) {
-  /* The phone's row controls are taller than the label, so the label centres on them. */
+  /* The phone's row controls are taller than the label, so the label's first line centres on them. A CI count that
+     does not fit beside the kind wraps under it without moving the kind off the top line. */
   .row > .status {
-    align-self: center;
+    align-self: start;
+    padding-block-start: calc((var(--control-height-sm) - 20px) / 2);
+  }
+  /* The kind stays one line beside the time; a CI count that does not fit goes under it instead. */
+  .row > .status .kind-label {
+    white-space: nowrap;
   }
   /* Without the tree there is no blue lane beside the row, so unread rows add a bar. */
   .row.new {
