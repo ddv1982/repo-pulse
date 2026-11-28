@@ -12,11 +12,12 @@ const TAIL = 9;
 
 const x = (slot: number) => PITCH / 2 + slot * PITCH;
 const lane = (color: number) => (color < 0 ? 'lane-none' : `lane-${color + 1}`);
+const laneClass = (line: TreeRow['through'][number]) => `${lane(line.color)}${line.isDefault ? ' default-lane' : ''}`;
 
 /** The part of a lane inside one row. `anchor` is where a lane that stops here ends. */
 function segment(line: TreeLine, anchor: number) {
   if (!line.up && !line.down) return emptyHtml;
-  return html`<line class="${lane(line.color)}${line.isDefault ? ' default-lane' : ''}" x1="${x(line.slot)}" x2="${x(line.slot)}" y1="${line.up ? ABOVE : anchor}" y2="${line.down ? '100%' : anchor}"/>`;
+  return html`<line class="${laneClass(line)}" x1="${x(line.slot)}" x2="${x(line.slot)}" y1="${line.up ? ABOVE : anchor}" y2="${line.down ? '100%' : anchor}"/>`;
 }
 
 /**
@@ -56,6 +57,20 @@ export function renderTreeCell(row: TreeRow, tone: string) {
   return html`<svg class="tree" aria-hidden="true" focusable="false"><g>${row.through.map(line => segment({ ...line, up: true, down: true }, 0))}${segment(node, 0)}${
     forkFrom ? join(forkFrom, node, lane(node.color), forkFrom.evidence === 'pr') : emptyHtml
   }${mergeFrom ? join(mergeFrom, node, lane(mergeFrom.color)) : emptyHtml}${isDetachedPr(row) ? emptyHtml : marker(node, tone === 'crit' ? 'lane-crit' : lane(node.color))}</g></svg>`;
+}
+
+/**
+ * The tree cell of a day header above `row`: straight lanes, full height, for every lane that enters the row from
+ * above, so no lane breaks at the header. It has its own class, so `svg.tree` still counts row cells only. A header
+ * that nothing crosses draws no cell.
+ */
+export function renderTreePassThrough(row: TreeRow) {
+  const joined = [row.node, row.forkFrom, row.mergeFrom].filter((line): line is TreeLine => Boolean(line?.up));
+  const entering = [...row.through, ...joined];
+  if (!entering.length) return emptyHtml;
+  return html`<svg class="tree-pass" aria-hidden="true" focusable="false">${entering.map(
+    line => html`<line class="${laneClass(line)}" x1="${x(line.slot)}" x2="${x(line.slot)}" y1="0" y2="100%"/>`,
+  )}</svg>`;
 }
 
 /**

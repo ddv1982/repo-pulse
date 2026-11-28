@@ -5,8 +5,8 @@ import { activityTitle as activityTitleOf, activitySummary as activitySummaryOf,
 import { renderRepositories as renderRepositoriesHtml } from '../../src/ui/repositories.ts';
 import { renderFeed as renderPagedFeedHtml, renderDetail as renderDetailHtml } from '../../src/ui/feed.ts';
 import { detailView } from '../../src/ui/activity-detail.ts';
-import { forkText, treeLegend } from '../../src/ui/activity-tree.ts';
-import type { TreeFork } from '../../src/activity-tree.ts';
+import { forkText, renderTreePassThrough, treeLegend } from '../../src/ui/activity-tree.ts';
+import { buildActivityTree, type TreeFork, type TreeLine, type TreeRow } from '../../src/activity-tree.ts';
 import { createStore } from '../../server/store.ts';
 import type { ActivityEvent } from '../../src/activity.ts';
 import type { GitHistoryActivity, GitHistoryPage, Repository, StreamError, StreamState } from '../../src/contract.ts';
@@ -620,6 +620,65 @@ test('each fork origin has its own row text, and only an unchecked PR target is 
   assert.equal(forkText(null), '');
   assert.doesNotMatch(await text(parse(t, treeLegend(new Map()))), /assumed from the pull request target/);
   assert.match(await text(parse(t, treeLegend(new Map()))), /PR target, origin not checked/);
+});
+
+test('a day header draws every lane that crosses into the row below it once, in its colour', async t => {
+  const event = (kind: ActivityEvent['kind'], branch: string, data: ActivityEvent['data'] = {}): ActivityEvent => ({
+    id: `${kind}-${branch}-${Math.random()}`,
+    repoId: 'r',
+    kind,
+    branch,
+    time: '',
+    data,
+  });
+  const push = (branch: string) =>
+    event('push', branch, { refUpdates: [{ name: `refs/heads/${branch}`, oldObjectId: 'a'.repeat(40), newObjectId: 'b'.repeat(40) }] });
+  const pr = (id: number, source: string, status: string) =>
+    event('pr', source, { pullRequestId: id, status, sourceRefName: `refs/heads/${source}`, targetRefName: 'refs/heads/main' });
+  const created = (branch: string) =>
+    event('branch-created', branch, {
+      name: `refs/heads/${branch}`,
+      oldObjectId: '0'.repeat(40),
+      newObjectId: 'c'.repeat(40),
+      evidence: 'push',
+    });
+  const { rows } = buildActivityTree([
+    push('main'),
+    push('feature/a'),
+    // A merge whose source lane runs on above it.
+    pr(7, 'feature/a', 'completed'),
+    pr(8, 'feature/b', 'active'),
+    push('feature/a'),
+    push('main'),
+    // A fork whose parent lane runs on above it.
+    created('feature/b'),
+    push('main'),
+  ]);
+  const lines = (row: TreeRow) => [row.node, row.forkFrom, row.mergeFrom].filter((line): line is TreeLine => Boolean(line));
+  assert.ok(rows.some(row => row.mergeFrom?.up) && rows.some(row => row.forkFrom?.up) && rows.some(row => row.through.length));
+  const key = ({ slot, color, isDefault }: { slot: number; color: number; isDefault?: boolean }) =>
+    `${5 + slot * 10} ${color < 0 ? 'lane-none' : `lane-${color + 1}`}${isDefault ? ' default-lane' : ''}`;
+  for (const [index, row] of rows.entries()) {
+    const entering = [...row.through, ...lines(row).filter(line => line.up)].map(key).sort();
+    const above = rows[index - 1];
+    const leaving = above ? [...above.through, ...lines(above).filter(line => line.down)].map(key).sort() : [];
+    assert.deepEqual(entering, leaving, `row ${index}: what enters from above is what left the row above`);
+    const drawn = await all(parse(t, renderTreePassThrough(row)), 'svg line');
+    const shown = await Promise.all(
+      drawn.map(async line => {
+        assert.equal(await line.getAttribute('x1'), await line.getAttribute('x2'));
+        assert.deepEqual([await line.getAttribute('y1'), await line.getAttribute('y2')], ['0', '100%']);
+        return `${await line.getAttribute('x1')} ${await line.getAttribute('class')}`;
+      }),
+    );
+    assert.deepEqual(shown.sort(), entering, `row ${index}`);
+  }
+  const crossing = present(rows.find(row => row.mergeFrom?.up));
+  const svg = one(parse(t, renderTreePassThrough(crossing)), 'svg');
+  assert.ok(await svg.hasClass('tree-pass'));
+  assert.ok(!(await svg.hasClass('tree')), 'a row cell selector does not count the header');
+  assert.equal(await svg.getAttribute('aria-hidden'), 'true');
+  assert.equal((await all(parse(t, renderTreePassThrough(present(rows[0]))), 'svg')).length, 0, 'nothing enters the first row');
 });
 
 test('Activity distinguishes tag events and tag builds from branch activity', async t => {
