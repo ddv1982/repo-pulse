@@ -169,3 +169,73 @@ export async function groupedFixture(t: TestContext) {
   await expect(app.page.locator('li[data-event-id]')).toHaveCount(1);
   return { ...app, event };
 }
+
+/** The browser's fixed local time in the multi-day fixture: a Saturday afternoon. */
+export const MULTI_DAY_NOW = new Date(2026, 10, 28, 15, 0);
+
+/**
+ * One repository with rows on three local days and lanes that cross each day boundary, including a merge and a fork
+ * whose other lane runs on above them, plus imported rows on two older days. The browser clock is fixed at
+ * MULTI_DAY_NOW so the day labels do not depend on when the test runs.
+ */
+export async function multiDayFixture(t: TestContext, options: { colorScheme?: 'light' | 'dark' } = {}) {
+  const app = await setup(t);
+  if (options.colorScheme) await app.page.emulateMedia({ colorScheme: options.colorScheme });
+  for (const repo of app.runtime.store.listRepos()) app.runtime.store.removeRepo(repo.id);
+  app.runtime.store.saveRepo(
+    stub<Repository>({ id: 'days', name: 'Orders', project: 'Demo', organization: 'https://dev.azure.com/example', azureId: 'days' }),
+  );
+  const at = (day: number, hour: number, minute = 0) => new Date(2026, 10, day, hour, minute).toISOString();
+  const sha = (letter: string) => letter.repeat(40);
+  const base = { repoId: 'days', actor: 'Ana', seen: false, imported: false };
+  const push = (id: string, branch: string, time: string, to: string, extra: Partial<ActivityEvent> = {}): ActivityEvent => ({
+    ...base,
+    id,
+    kind: 'push',
+    branch,
+    title: `Ana pushed to ${branch}`,
+    time,
+    data: { refUpdates: [{ name: `refs/heads/${branch}`, oldObjectId: sha('1'), newObjectId: sha(to) }] },
+    ...extra,
+  });
+  const pr = (id: string, number: number, source: string, status: string, time: string): ActivityEvent => ({
+    ...base,
+    id,
+    kind: 'pr',
+    branch: `refs/heads/${source}`,
+    title: `PR ${number} · Update ${source}`,
+    time,
+    data: {
+      pullRequestId: number,
+      status,
+      sourceRefName: `refs/heads/${source}`,
+      targetRefName: 'refs/heads/main',
+      ...(status === 'completed' ? { mergeCommit: sha('f') } : {}),
+    },
+  });
+  app.runtime.store.insertEvents([
+    push('today-main', 'main', at(28, 14, 30), 'a'),
+    push('today-a', 'feature/a', at(28, 13), 'b'),
+    push('today-b', 'feature/b', at(28, 12), 'c'),
+    pr('yesterday-merge', 7, 'feature/a', 'completed', at(27, 16)),
+    pr('yesterday-pr', 8, 'feature/b', 'active', at(27, 10, 30)),
+    push('yesterday-a', 'feature/a', at(27, 9), 'd'),
+    push('older-main', 'main', at(26, 18), 'e'),
+    {
+      ...base,
+      id: 'older-branch',
+      kind: 'branch-created',
+      branch: 'feature/b',
+      title: 'New branch · feature/b',
+      time: at(26, 10),
+      data: { name: 'refs/heads/feature/b', oldObjectId: sha('0'), newObjectId: sha('9'), evidence: 'push' },
+    },
+    push('older-main-2', 'main', at(26, 8), '8'),
+    push('imported-1', 'main', at(25, 11), '7', { imported: true }),
+    push('imported-2', 'main', at(24, 11), '6', { imported: true }),
+  ]);
+  await app.page.clock.setFixedTime(MULTI_DAY_NOW);
+  await app.page.reload();
+  await expect(app.page.locator('li[data-event-id="older-main-2"]')).toBeVisible();
+  return app;
+}

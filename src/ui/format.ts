@@ -98,6 +98,33 @@ export function fullDateTime(value: string | number | undefined) {
   return Number.isNaN(date.valueOf()) ? '' : date.toLocaleString([], { dateStyle: 'full', timeStyle: 'short' });
 }
 
+/** The local calendar day of a time as `YYYY-MM-DD`, or '' for an invalid time. */
+export function localDay(value: string | number | Date) {
+  const date = new Date(value);
+  if (Number.isNaN(date.valueOf())) return '';
+  return [date.getFullYear(), date.getMonth() + 1, date.getDate()].map(part => String(part).padStart(2, '0')).join('-');
+}
+
+const headerDay = new Intl.DateTimeFormat([], { weekday: 'short', day: 'numeric', month: 'short' });
+const headerYear = new Intl.DateTimeFormat([], { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
+
+/**
+ * The label of an Activity day header: "Today", "Yesterday · Fri 27 Nov", otherwise "Thu 26 Nov", with the year when it
+ * is not the current year. The parts keep one order in every locale, as ciTime's do. '' for an invalid time.
+ */
+export function dayLabel(value: string | number, now: number | Date = Date.now()) {
+  const date = new Date(value);
+  const today = new Date(now);
+  const day = localDay(date);
+  if (!day) return '';
+  if (day === localDay(today)) return 'Today';
+  const format = date.getFullYear() === today.getFullYear() ? headerDay : headerYear;
+  const parts = Object.fromEntries(format.formatToParts(date).map(part => [part.type, part.value]));
+  const label = [parts.weekday, parts.day, parts.month, parts.year].filter(Boolean).join(' ');
+  const yesterday = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 1);
+  return day === localDay(yesterday) ? `Yesterday · ${label}` : label;
+}
+
 const runDay = new Intl.DateTimeFormat([], { day: 'numeric', month: 'short' });
 const runClock = new Intl.DateTimeFormat([], { hour: '2-digit', minute: '2-digit' });
 

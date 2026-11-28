@@ -9,6 +9,8 @@ import {
   streamLabel,
   activitySummary as activitySummaryOf,
   labels,
+  dayLabel,
+  localDay,
 } from '../src/ui/format.ts';
 import { renderRepositories as renderRepositoriesHtml } from '../src/ui/repositories.ts';
 import { scopeName } from '../src/ui/repository-scope.ts';
@@ -244,4 +246,28 @@ test('the scope reads 1 repository when only one exists, and All N repositories 
   assert.equal(scopeName({ enabledRepos: repos.slice(0, 1) }, { repoIds: null }), '1 repository');
   assert.equal(scopeName({ enabledRepos: repos }, { repoIds: null }), 'All 2 repositories');
   assert.equal(scopeName({ enabledRepos: repos }, { repoIds: ['a'] }), '1 repository shown');
+});
+
+test('a day header names today, yesterday with its date, and other days by date, with the year only when it differs', () => {
+  // Local times, so the test holds in every time zone. The words follow the default locale, so only their order is fixed.
+  const now = new Date(2026, 11, 1, 0, 30);
+  const parts = (date: Date, year = false) => {
+    const format = new Intl.DateTimeFormat([], { weekday: 'short', day: 'numeric', month: 'short', ...(year ? { year: 'numeric' } : {}) });
+    const byType = Object.fromEntries(format.formatToParts(date).map(part => [part.type, part.value]));
+    return [byType.weekday, byType.day, byType.month, byType.year].filter(Boolean).join(' ');
+  };
+  assert.equal(dayLabel(new Date(2026, 11, 1, 0, 0).toISOString(), now), 'Today');
+  // Yesterday across a month boundary, a minute before midnight.
+  const lastNight = new Date(2026, 10, 30, 23, 59);
+  assert.equal(dayLabel(lastNight.toISOString(), now), `Yesterday · ${parts(lastNight)}`);
+  assert.match(dayLabel(lastNight.toISOString(), now), /\b30\b/);
+  const older = new Date(2026, 10, 26, 12);
+  assert.equal(dayLabel(older.valueOf(), now), parts(older));
+  assert.doesNotMatch(dayLabel(older.valueOf(), now), /2026|Yesterday/);
+  const lastYear = new Date(2025, 11, 31, 12);
+  assert.equal(dayLabel(lastYear.toISOString(), now), parts(lastYear, true));
+  assert.match(dayLabel(lastYear.toISOString(), now), /2025/);
+  assert.equal(dayLabel('not a time', now), '');
+  assert.equal(localDay(new Date(2026, 0, 5, 23, 59)), '2026-01-05');
+  assert.equal(localDay(''), '');
 });

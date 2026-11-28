@@ -6,6 +6,8 @@ import {
   dateTime,
   fullDateTime,
   ciTime,
+  dayLabel,
+  localDay,
   azureLink,
   activityActor,
   activityLabel,
@@ -28,7 +30,7 @@ import { renderRepositoryScope, scopeName } from './repository-scope.ts';
 import { currentActivityFilters, isSavedFilterModified, renderSavedFilters } from './saved-filters.ts';
 import { mergeEvidenceBadge } from './merge-evidence.ts';
 import { buildActivityTree, type ActivityTree } from '../activity-tree.ts';
-import { forkText, renderTreeCell, treeLegend } from './activity-tree.ts';
+import { forkText, renderTreeCell, renderTreePassThrough, treeLegend } from './activity-tree.ts';
 import { linkedMergePushes } from './linked-pushes.ts';
 import { linkedTagBuilds } from './linked-tag-builds.ts';
 import type { PageState } from './refresh.ts';
@@ -368,6 +370,26 @@ function row(
     <div class="rowact">${azureLink(record.url)}${record.imported ? emptyHtml : html`<button class="ghost sm seen-toggle" type="button" id="seen-${record.groupKey}" ${action('ack-item')} data-event-id="${record.id}" data-mark-seen="${record.unseen}" data-event-ids="${ackIds}" aria-pressed="${!record.unseen}" aria-label="Seen: ${fullTitle}${ackLinkedPush ? ' and linked push' : ''}">${icons.seenBox}Seen</button>`}</div></li>`;
 }
 
+/**
+ * A day header before the first row of each local calendar day. It is a list item without a row's data attributes,
+ * so nothing that reads rows counts it, and the row below keeps its tree row index. Over the tree it draws the lanes
+ * that enter that row from above, so they run on through the header.
+ */
+function dayHeader(groupId: string, day: string, time: ActivityItem['time'], tree: import('../activity-tree.ts').TreeRow | undefined) {
+  return html`<li class="day" id="day-${groupId}-${day}">${tree ? renderTreePassThrough(tree) : emptyHtml}<time datetime="${day}">${dayLabel(time)}</time></li>`;
+}
+
+/** The day of each row that starts a new local day, or '' when it continues the day above. Invalid times start none. */
+function rowDays(records: ActivityItem[]) {
+  let previous = '';
+  return records.map(record => {
+    const day = localDay(record.time);
+    if (!day || day === previous) return '';
+    previous = day;
+    return day;
+  });
+}
+
 function group(
   id: string,
   title: string,
@@ -392,7 +414,13 @@ function group(
   },
 ) {
   if (!records.length) return emptyHtml;
-  return html`<section class="group"><details ${disclosure(groups, id, open)}><summary ${action('toggle-group')} class="ghead">${title} <span class="pill u">${records.length + linked.size + records.reduce((total, record) => total + (record.foldedCi ?? 0), 0)}</span><span class="note">${description}</span></summary><ul class="rows${tree ? ' with-tree' : ''}" ${tree ? html`data-tree-lanes="${tree.width}"` : emptyHtml}>${records.map((record, index) => row(record, state, tree?.rows[index], showRepo, groups, linked.get(record.id), feedCommits?.get(record.id)))}</ul></details></section>`;
+  const days = rowDays(records);
+  return html`<section class="group"><details ${disclosure(groups, id, open)}><summary ${action('toggle-group')} class="ghead">${title} <span class="pill u">${records.length + linked.size + records.reduce((total, record) => total + (record.foldedCi ?? 0), 0)}</span><span class="note">${description}</span></summary><ul class="rows${tree ? ' with-tree' : ''}" ${tree ? html`data-tree-lanes="${tree.width}"` : emptyHtml}>${records.map(
+    (record, index) => {
+      const day = days[index];
+      return html`${day ? dayHeader(id, day, record.time, tree?.rows[index]) : emptyHtml}${row(record, state, tree?.rows[index], showRepo, groups, linked.get(record.id), feedCommits?.get(record.id))}`;
+    },
+  )}</ul></details></section>`;
 }
 
 const hasTreeLegend = (tree: ActivityTree) =>
