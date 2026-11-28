@@ -496,7 +496,8 @@ button.vote-tally.crit {
   /* A note wraps, so it grows with its text instead of keeping a token's one-line height. */
   height: auto;
   min-height: 22px;
-  align-items: baseline;
+  align-items: flex-start;
+  padding-block: 3px;
   line-height: 16px;
   gap: var(--space-1);
   border-color: transparent;
@@ -509,6 +510,8 @@ button.vote-tally.crit {
   flex: none;
   width: 12px;
   height: 12px;
+  /* Centred on the first 16px line, so a wrapped note keeps its icon beside where it starts. */
+  margin-top: 2px;
 }
 /* What goes under line 3: the run list, the update trail, a linked row and push commits. */
 .row-extra {

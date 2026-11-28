@@ -735,6 +735,18 @@ test('line 3 holds tokens of one shape in a fixed order, opens what they open un
   await expect(tokens('fork-merge').first()).toHaveClass(/\bunread\b/);
   await expect(tokens('fork-merge').nth(1)).toHaveClass(/\bplain\b/);
   await expect(tokens('fork-merge').nth(1).locator('xpath=self::button')).toHaveCount(0);
+  // A one-line note sits on the same centre line as the token beside it, its icon too.
+  const centres = await line3('fork-merge').evaluate(line => {
+    const centre = (element: Element | Range) => {
+      const box = element.getBoundingClientRect();
+      return box.top + box.height / 2;
+    };
+    const [linked, note] = [...line.querySelectorAll(':scope > .token')];
+    const text = document.createRange();
+    text.selectNodeContents(note!.lastElementChild!);
+    return [centre(linked!), centre(text), centre(note!.querySelector('svg')!)];
+  });
+  for (const value of centres.slice(1)) assert.ok(Math.abs(value - centres[0]!) <= 1, `centres ${centres.join(', ')}`);
   // A CI run with three updates offers them as a token in the unread blue.
   await expect(tokens('nightly-completed')).toHaveText(['3 updates ›']);
   await expect(tokens('nightly-completed')).toHaveClass(/\bunread\b/);
