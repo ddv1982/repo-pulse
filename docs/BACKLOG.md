@@ -25,6 +25,10 @@ From the [improvement plan](archive/IMPROVEMENT-PLAN.md#phase-3-working-agreemen
 
 Approved on 2026-11-27 after a council review at `a0c73ea`. Phases 0 and 1 (user-visible bug fixes and mechanical hygiene), phase 2 (server boundary and one contract), phase 3 (browser shell: route controllers, page state in `ui`, one action dispatcher, one menu manager, a dialog helper, and typed navigation and state), phase 4 (server internals: the store split, `server/git.ts` with one checkout context, typed Azure reads, PR and build reconciliation out of `server/sync.ts`, and per-repository settings keys owned by the store) and phase 5 (presentation, naming and tests: stylesheets split with shared tokens and documented breakpoints, stable Git Graph status IDs, identifier renames, a split sync test with shared fixtures and `testApp()`, and `npm run test:fast`) are done. All phases of the architecture refactor are done.
 
+## Activity feed redesign
+
+Planned on 2026-11-28 after three council rounds: [activity-redesign-plan.md](activity-redesign-plan.md). Started 2026-11-28 as an agreed exception to the usage period's no-polish rule (decision D1).
+
 ## When the code is next touched
 
 From the [post-migration plan](archive/post-migration-plan.md#when-the-code-is-next-touched). Do each one as part of a change that already touches the code, not on its own.

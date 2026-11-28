@@ -192,11 +192,20 @@ export const voteLabel = (vote: number) => votes[vote] || 'unknown vote';
 export const prForkSource = (fork: { repository?: string; project?: string } | undefined) =>
   fork ? `From fork ${fork.repository || 'of unknown name'}${fork.project ? ` in ${fork.project}` : ''}` : '';
 
+/**
+ * A reviewer's name for display, without the `[Project]\` prefix Azure puts on group reviewers. Provider data can carry a
+ * number or nothing where a name belongs.
+ */
+export function reviewerName(name: unknown) {
+  const text = typeof name === 'string' && name.trim() ? name : typeof name === 'number' ? String(name) : 'Unknown reviewer';
+  return text.replace(/^\[[^\]]+\]\\/, '') || text;
+}
+
 /** The vote changes that are an open PR's news, each in words. */
 export const prVoteChanges = (data: NonNullable<ActivityEvent['data']>) =>
   (data.status === 'active' ? data.voteChanges || [] : []).map(change => ({
     vote: change.vote,
-    text: `${change.name}: ${change.vote ? voteLabel(change.vote) : 'vote reset'}`,
+    text: `${reviewerName(change.name)}: ${change.vote ? voteLabel(change.vote) : 'vote reset'}`,
   }));
 
 /** Where the PR goes. */

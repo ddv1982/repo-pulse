@@ -1,6 +1,7 @@
 import { renderMergeEvidence } from './merge-evidence.ts';
 import { groupActivity, isUnseen } from '../activity.ts';
 import { activityBranch } from '../activity-branch.ts';
+import { reviewerName } from '../activity-text.ts';
 import {
   emptyHtml,
   html,
@@ -86,7 +87,7 @@ function reviewerList(reviewers: NonNullable<EventData['reviewers']> | undefined
     const rawName: unknown = reviewer.name;
     const name =
       typeof rawName === 'string' && rawName.trim() ? rawName : typeof rawName === 'number' ? String(rawName) : 'Unknown reviewer';
-    const display = name.replace(/^\[[^\]]+\]\\/, '') || name;
+    const display = reviewerName(rawName);
     const tone = reviewer.vote > 0 ? 'ok' : reviewer.vote === -5 ? 'warn' : reviewer.vote < 0 ? 'crit' : 'neutral';
     return html`<li><span title="${name}">${display}</span>${reviewer.required ? html`<span class="chip">Required</span>` : emptyHtml}<span class="chip status-chip ${tone}">${voteLabel(reviewer.vote)}</span></li>`;
   })}</ul></section>`;
