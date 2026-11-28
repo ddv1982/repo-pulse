@@ -58,15 +58,38 @@ Media queries use three shared breakpoints, documented at the top of `tokens.css
 
 An Activity row has three cells from 1100 px; [src/ui/feed.ts](../src/ui/feed.ts) builds them and `feed.css` lays them out.
 
-- **Status:** the kind label, then `CI · N runs ›`, which opens the run list. A recovered run adds `✓ again` on the same line, so the cell stays at two lines.
+- **Status:** the kind label, then the CI count `CI · N runs`.
+  - The count is a disclosure (`›`) when it has runs to open, and plain text when the trouble line already shows every run.
+  - When every current result passes without a note or stale revision and one of them recovered, `✓ again` joins the same line, so the cell stays at two lines.
 - **Main:**
-  - the title;
-  - line 2, quiet facts in a fixed order: repository (only when several are shown), `branch → target sha`, `author X` / `pushed by X` / `requested by X`, then the summary or vote tally;
-  - a trouble line for any failing, running, partially succeeded or stale CI result, naming each pipeline when there are several;
-  - line 3, tokens in a fixed order: updates, linked push or tag build, fork or branch-start note, Load commits. It is left out when empty.
+  - **Title.**
+  - **Line 2:** quiet facts, each optional, in this order:
+    - the repository, only when several are shown;
+    - the route: `branch → target` for open and merged PRs, with the shortened merge commit once landed, or the branch, with its PR chip on CI rows;
+    - `author X`, `pushed by X` or `requested by X`;
+    - the summary or vote tally;
+    - merge evidence.
+  - **Trouble line:** appears when any current CI result is failing, queued, running, canceling, partially succeeded, stale or carries a verification note. It then lists every current result, passes included, naming each pipeline when there are several, plus the link to the tested change.
+  - **Line 3:** tokens in a fixed order: updates, linked push or tag build, fork or branch-start note, Load commits. It is left out when empty.
 - **Right:** the clock time, Azure and Seen. A row without Azure or Seen keeps an invisible copy, so times line up.
 
-Colour belongs to the kind label and to trouble; passing CI and approvals stay muted. Row tints are flat colours in `--row-bg`, which the lane tree's ring cutouts use too. Unread is a blue tint and a bold title, and it wins over the failed tint. Only the phone layout adds an unread bar, because a bar beside the tree reads as another lane. Each local day starts with an `li.day` header that draws the lanes entering the row below it (`renderTreePassThrough`), so lanes never break. Headers are not sticky and never count as rows, and an idle tab re-renders them after midnight.
+**Colour.**
+- Passing CI and approvals stay muted.
+- Colour is used for:
+  - the kind label;
+  - CI trouble;
+  - negative votes and tallies;
+  - the history-rewritten evidence;
+  - unread controls and tokens, in blue.
+- Row tints are flat colours in `--row-bg`, which the lane tree's ring cutouts use too.
+- Unread is a blue tint and a bold title, and it wins over the failed tint.
+- Only the phone layout adds an unread bar, because a bar beside the tree reads as another lane.
+
+**Day headers.**
+- An `li.day` header goes wherever the displayed local day changes between rows. A CI group sorted by a newer time than it shows can make a day appear twice.
+- The header draws the lanes entering the row below it (`renderTreePassThrough`), so lanes never break.
+- Headers are not sticky and never count as rows.
+- After midnight, the next refresh relabels them; a hidden tab refreshes when it becomes visible.
 
 ## Local Git actions
 

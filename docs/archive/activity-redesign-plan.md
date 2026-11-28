@@ -1,6 +1,6 @@
 # Activity feed redesign: phased plan
 
-Archived on 2026-11-28 with every item done. The row layout is described in [MAINTAINING.md](../MAINTAINING.md#activity-rows).
+Archived on 2026-11-28. One item is open: the owner's review of the before and after screenshots (5.1). The row layout is described in [MAINTAINING.md](../MAINTAINING.md#activity-rows).
 
 Source: three council rounds on 2026-11-28 (Claude Fable 5.2 and Gemini 4 Neon) over the owner's screenshot of the Activity feed. Goal from the owner: keep the information, make it read cleanly, with far fewer date and time stamps. Chosen design: "B · Status cell" with the existing lane tree kept intact and CI trouble on its own line (2B). Mockups (scratchpad, not tracked): `design5-round2.html`, `council-fable-r3/b-tree.html`, `council-neon-r3/b-tree.html`.
 
@@ -99,10 +99,11 @@ Every phase leaves `npm run lint`, `npm run check:types`, `npm test` and `npm ru
 
 ## Phase 5: Verify and close
 
-- [x] 5.1 Screenshots of the new feed in `test-results/activity-redesign/after/`, at the same set as 0.2, compared side by side in the last PR. Check: the owner reviews the comparison. Done 2026-11-28: the demo at 360, 640, 1100 and 1265px in both themes is in `test-results/activity-redesign/after/`, next to `before/`. The owner's review of the comparison is requested in the final report of the last PR.
+- [x] 5.1 Screenshots of the new feed in `test-results/activity-redesign/after/`, at the same set as 0.2. Done 2026-11-28: the demo at 360, 640, 1100 and 1265px in both themes, next to `before/`. Like the baseline, they show Imported history closed and no CI history open; those states are covered by the phase 4 screenshots and e2e tests.
+  - [ ] The owner reviews the before and after comparison. Open: requested in the final report.
 - [x] 5.2 One run on a `VACUUM INTO` copy of the live database in the scratchpad, at 1265px, with the copy deleted afterwards. Check: count timestamps on the first screen against the 13 of the owner's screenshot, and read the rows for clipped or missing pieces. Done 2026-11-28: on a copy of the live database at 1265px, the first screen shows 8 clock-only times under the Today and Yesterday headers, against the 13 dated ones in the owner's screenshot. The page has no horizontal scroll, and PR 21935 reads as D2 describes. The copy was deleted.
 - [x] 5.3 `docs/MAINTAINING.md` describes the row layout and the day headers. `docs/BACKLOG.md` drops this item. This plan moves to `docs/archive/`. Check: the link probe finds 0 broken links. Done 2026-11-28: `docs/MAINTAINING.md` has an Activity rows section, the backlog item is removed, and this plan is archived.
-- [x] 5.4 The README screenshots (`docs/screenshots/activity-light.png` and `activity-dark.png`, 1280px demo) are retaken with the new feed, plus `pr-detail-*` if the detail page changed. Check: the README images show day headers and the new row, viewed in both themes. Done 2026-11-28: `activity-light.png` and `activity-dark.png` were retaken at 1280px from a fictional two-day feed (en-GB, demo banner hidden), and the README alt text was updated. The detail page did not change, so `pr-detail-*` stays.
+- [x] 5.4 The README screenshots (`docs/screenshots/activity-light.png` and `activity-dark.png`, 1280px demo) are retaken with the new feed, plus `pr-detail-*` if the detail page changed. Check: the README images show day headers and the new row, viewed in both themes. Done 2026-11-28: `activity-light.png` and `activity-dark.png` were retaken at 1280px from a fictional two-day feed (en-GB, demo banner hidden), and the README alt text was updated. Phase 1 moved the detail page to the shared reviewer-name helper with the same output, so `pr-detail-*` still matches and stays.
 
 ## Not doing
 
