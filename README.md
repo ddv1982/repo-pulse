@@ -9,7 +9,7 @@ A local Azure DevOps activity feed for testers. Watch multiple repositories for 
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/activity-dark.png">
-  <img src="docs/screenshots/activity-light.png" alt="Repo Pulse Activity highlights with branch lanes, merged pull requests, and CI results.">
+  <img src="docs/screenshots/activity-light.png" alt="Repo Pulse Activity with day headers, branch lanes, merged pull requests, review votes and CI results.">
 </picture>
 
 | Screen       | Light mode                                      | Dark mode                                     |
