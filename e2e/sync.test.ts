@@ -12,10 +12,9 @@ import type { AzureProvider } from '../server/azure-client.ts';
 import type { ConnectionStatus, Repository, SyncStatus, HistoryImportJob } from '../src/contract.ts';
 import { present, stub } from '../test/fixtures/typed.ts';
 import { setup, renderInBackground } from './fixtures/ui-app.ts';
-import type { AppSync } from '../server/routes/context.ts';
 import { historyImportJob } from '../test/fixtures/jobs.ts';
 import { conflict } from '../server/errors.ts';
-import { idleSyncStatus } from '../server/demo.ts';
+import { testApp } from '../test/fixtures/app.ts';
 
 declare global {
   interface Window {
@@ -396,11 +395,8 @@ test('repository history import keeps the accepted request visible even if its f
   defer(t, () => store.close());
   const calls: { repoId: string; days: HistoryImportJob['days'] | undefined }[] = [];
   let failOnce = true;
-  const app = createApp({
-    accessKey: TEST_KEY,
+  const app = testApp({
     store,
-    provider: stub<AzureProvider>({ checkConnection: async () => stub<ConnectionStatus>({ available: true }) }),
-    sync: stub<AppSync>({ status: () => idleSyncStatus() }),
     historyImporter: {
       start(repoId, days) {
         calls.push({ repoId, days });

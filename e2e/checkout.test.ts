@@ -4,15 +4,12 @@ import { cleanupStack, defer, listen, openPage, capture } from './fixtures/app.t
 import { readFile, writeFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { expect } from '@playwright/test';
-import { createApp } from '../server/runtime.ts';
 import { TEST_KEY } from '../test/fixtures/access.ts';
 import { checkoutFixture, git } from '../test/fixtures/checkout.ts';
 import { createStore } from '../server/store.ts';
-import type { AppSync } from '../server/routes/context.ts';
-import type { AzureProvider } from '../server/azure-client.ts';
-import type { ConnectionStatus, Repository, Repository as LinkedRepo } from '../src/contract.ts';
+import type { Repository, Repository as LinkedRepo } from '../src/contract.ts';
 import { stub } from '../test/fixtures/typed.ts';
-import { idleSyncStatus } from '../server/demo.ts';
+import { testApp } from '../test/fixtures/app.ts';
 
 test('a New branch detail reviews a rewritten tracking ref before switching, then pulls without leaving the detail', async t => {
   const { source, local, repo, checkoutGit, commit, original } = checkoutFixture(cleanupStack(t));
@@ -42,11 +39,7 @@ test('a New branch detail reviews a rewritten tracking ref before switching, the
       data: { name: `refs/heads/${branch}`, objectId: firstTip, evidence: 'snapshot' },
     },
   ]);
-  const provider = stub<AzureProvider>({ checkConnection: async () => stub<ConnectionStatus>({ available: true }) });
-  const sync = stub<AppSync>({
-    status: () => idleSyncStatus(),
-  });
-  const app = createApp({ store, provider, sync, checkoutGit, accessKey: TEST_KEY });
+  const app = testApp({ store, checkoutGit });
   const url = await listen(t, app);
   const page = await openPage(t, { viewport: { width: 390, height: 844 }, key: TEST_KEY });
   page.setDefaultTimeout(5000);
@@ -125,11 +118,7 @@ test('Repositories switches between watched branches, and a merged pull request 
       data: { pullRequestId: 7, status: 'completed', sourceRefName: 'refs/heads/topic', targetRefName: 'refs/heads/main' },
     },
   ]);
-  const provider = stub<AzureProvider>({ checkConnection: async () => stub<ConnectionStatus>({ available: true }) });
-  const sync = stub<AppSync>({
-    status: () => idleSyncStatus(),
-  });
-  const app = createApp({ store, provider, sync, checkoutGit, accessKey: TEST_KEY });
+  const app = testApp({ store, checkoutGit });
   const url = await listen(t, app);
   const page = await openPage(t, { viewport: { width: 390, height: 844 }, key: TEST_KEY });
   page.setDefaultTimeout(5000);
@@ -215,13 +204,7 @@ test('Repositories shows the checkout, checks on demand, and pulls only after co
     nextAt: new Date().toISOString(),
     lastSuccess: new Date(Date.now() - 60 * 60_000).toISOString(),
   });
-  const app = createApp({
-    accessKey: TEST_KEY,
-    store,
-    checkoutGit: fixture.checkoutGit,
-    provider: stub<AzureProvider>({ checkConnection: async () => stub<ConnectionStatus>({ available: true }) }),
-    sync: stub<AppSync>({ status: () => idleSyncStatus() }),
-  });
+  const app = testApp({ store, checkoutGit: fixture.checkoutGit });
   const base = await listen(t, app);
   const page = await openPage(t, { key: TEST_KEY });
   const updatePath = base + '/api/repos/repo/checkout';
@@ -345,13 +328,7 @@ test('verified PR follow-up switches, reviews and removes the old branch from Re
   store.setSetting('refreshEnabled', false);
   let clock = Date.now();
   const checkoutGit = createCheckoutGit({ matchesRemote: url => url === remote, findPulls: async () => [pr], now: () => clock });
-  const app = createApp({
-    accessKey: TEST_KEY,
-    store,
-    checkoutGit,
-    provider: stub<AzureProvider>({ checkConnection: async () => stub<ConnectionStatus>({ available: true }) }),
-    sync: stub<AppSync>({ status: () => idleSyncStatus() }),
-  });
+  const app = testApp({ store, checkoutGit });
   const url = await listen(t, app);
   const page = await openPage(t, { viewport: { width: 375, height: 812 }, colorScheme: 'dark', key: TEST_KEY });
   await page.goto(`${url}/#repositories`);
@@ -422,13 +399,7 @@ test('ticked follow-up commits survive a checkout snapshot poll that changes the
   store.setSetting('refreshEnabled', false);
   let clock = Date.now();
   const checkoutGit = createCheckoutGit({ matchesRemote: url => url === remote, findPulls: async () => [pr], now: () => clock });
-  const app = createApp({
-    accessKey: TEST_KEY,
-    store,
-    checkoutGit,
-    provider: stub<AzureProvider>({ checkConnection: async () => stub<ConnectionStatus>({ available: true }) }),
-    sync: stub<AppSync>({ status: () => idleSyncStatus() }),
-  });
+  const app = testApp({ store, checkoutGit });
   const url = await listen(t, app);
   const page = await openPage(t, { viewport: { width: 1280, height: 850 }, key: TEST_KEY });
   await page.goto(`${url}/#repositories`);
@@ -470,13 +441,7 @@ test('ticked follow-up commits stay ticked while a state change renders Reposito
   store.saveRepo(stub<Repository>(repo));
   store.setSetting('refreshEnabled', false);
   const checkoutGit = createCheckoutGit({ matchesRemote: url => url === remote, findPulls: async () => [pr] });
-  const app = createApp({
-    accessKey: TEST_KEY,
-    store,
-    checkoutGit,
-    provider: stub<AzureProvider>({ checkConnection: async () => stub<ConnectionStatus>({ available: true }) }),
-    sync: stub<AppSync>({ status: () => idleSyncStatus() }),
-  });
+  const app = testApp({ store, checkoutGit });
   const url = await listen(t, app);
   const page = await openPage(t, { viewport: { width: 1280, height: 850 }, key: TEST_KEY });
   await page.goto(`${url}/#repositories`);
