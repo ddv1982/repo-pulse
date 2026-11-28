@@ -211,7 +211,8 @@ export function createBrowserView({
         const row = [...page.querySelectorAll('li[data-event-id]')].find(
           element => element instanceof HTMLElement && restored.eventId != null && eventIds(element).includes(restored.eventId),
         );
-        const detail = (row ? all('[data-action="detail"]', HTMLButtonElement, row) : []).find(
+        // Line 2 opens the detail too, but only buttons take focus.
+        const detail = (row ? all('button[data-action="detail"]', HTMLButtonElement, row) : []).find(
           element => element.dataset.eventId === restored.eventId && element.checkVisibility(),
         );
         const title = detail ?? row?.querySelector('.feed-title');

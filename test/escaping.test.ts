@@ -413,7 +413,7 @@ const views: Record<string, View> = {
         { field: `row unread ${idsField(item.unseenIds)}`, html: `data-unseen-ids="${html(JSON.stringify(item.unseenIds))}"` },
         { field: `seen button ${idsField(item.eventIds)}`, html: eventIds(item.eventIds, ' aria-pressed=') },
       ]),
-      { field: 'newBranchPush.refUpdates.newObjectId', html: `<span class="ref-summary"><span class="sr"> · </span>${summary}</span>` },
+      { field: 'newBranchPush.refUpdates.newObjectId', html: `<span class="ref-summary">${summary}</span>` },
     ],
   },
   detail: {

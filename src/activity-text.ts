@@ -204,7 +204,9 @@ export function reviewerName(name: unknown) {
 /** The vote changes that are an open PR's news, each in words. */
 export const prVoteChanges = (data: NonNullable<ActivityEvent['data']>) =>
   (data.status === 'active' ? data.voteChanges || [] : []).map(change => ({
+    name: reviewerName(change.name),
     vote: change.vote,
+    label: change.vote ? voteLabel(change.vote) : 'vote reset',
     text: `${reviewerName(change.name)}: ${change.vote ? voteLabel(change.vote) : 'vote reset'}`,
   }));
 

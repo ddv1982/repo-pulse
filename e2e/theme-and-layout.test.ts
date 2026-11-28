@@ -256,6 +256,8 @@ test('semantic status colors match rows, imported history, details and trails in
     }
     await expect(page.locator('li[data-event-id="color-deleted"]')).not.toHaveClass(/(?:^|\s)crit(?:\s|$)/);
     await expect(page.locator('li[data-event-id="color-failed"]')).toHaveClass(/(?:^|\s)crit(?:\s|$)/);
+    // Rows fade between backgrounds when the theme changes.
+    await page.waitForFunction(() => document.getAnimations().length === 0);
     const contrast = await page.evaluate(() => {
       const canvas = document.createElement('canvas');
       canvas.width = canvas.height = 1;
@@ -283,7 +285,6 @@ test('semantic status colors match rows, imported history, details and trails in
         info: '--info',
         neutral: '--muted-foreground',
       };
-      const washes: Record<string, string> = { crit: '--critical-wash', warn: '--warning-wash', ok: '--ok-wash', info: '--primary-wash' };
       return [...document.querySelectorAll<HTMLElement>('li[data-event-id^="color-"]')].map(row => {
         const kind = row.querySelector('.kind');
         const card = row.closest('.card');
@@ -293,15 +294,9 @@ test('semantic status colors match rows, imported history, details and trails in
         const [tone, defaultToken] = named;
         const token = kind.classList.contains('merged') ? '--merged' : defaultToken;
         const foreground = rgba(getComputedStyle(kind).color);
-        let background = rgba(getComputedStyle(card).backgroundColor);
-        const hasWash = getComputedStyle(row).backgroundImage !== 'none';
-        const washToken = washes[tone];
-        if (washToken && hasWash) {
-          const [washRed, washGreen, washBlue, washAlpha] = rgba(tokens.getPropertyValue(washToken));
-          const blend = (value: number, tint: number) => (tint * washAlpha) / 255 + value * (1 - washAlpha / 255);
-          const [red, green, blue] = background;
-          background = [blend(red, washRed), blend(green, washGreen), blend(blue, washBlue), 255];
-        }
+        // A row's tint is a flat, opaque colour of its own; an untinted row shows the card.
+        const background = rgba(getComputedStyle(row).backgroundColor);
+        const hasWash = JSON.stringify(background) !== JSON.stringify(rgba(getComputedStyle(card).backgroundColor));
         const first = luminance(foreground),
           second = luminance(background);
         return {
@@ -317,11 +312,15 @@ test('semantic status colors match rows, imported history, details and trails in
     });
     for (const result of contrast) {
       assert.equal(result.matchesToken, true, `${theme} ${result.id} token`);
-      assert.equal(result.hasWash, result.critical || (theme === 'Dark' && result.unread), `${theme} ${result.id} wash`);
+      assert.equal(result.hasWash, result.critical || result.unread, `${theme} ${result.id} tint`);
       assert.ok(result.ratio >= 4.5, `${theme} ${result.id} contrast ${result.ratio}`);
     }
     const trail = page.locator('li[data-event-id="canceled-transition"] .trail');
-    if (!(await trail.evaluate((element: HTMLDetailsElement) => element.open))) await trail.locator('summary').click();
+    if (!(await trail.evaluate((element: HTMLDetailsElement) => element.open)))
+      await page
+        .locator('li[data-event-id="canceled-transition"] .row-line3')
+        .getByRole('button', { name: /updates$/ })
+        .click();
     await expect(trail.locator('.status-text.warn')).toHaveText('Canceled');
     await expect(trail.locator('.status-text.info')).toHaveCount(2);
     await capture(page, `status-colors-${theme.toLowerCase()}.png`, { fullPage: true });

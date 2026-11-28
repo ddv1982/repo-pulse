@@ -65,6 +65,9 @@
   --ok-wash: color-mix(in oklab, var(--ok-solid) 14%, transparent);
   /* Unseen updates and new branches use a primary tint. */
   --primary-wash: color-mix(in oklab, var(--primary) 11%, transparent);
+  /* Activity row tints: opaque, so the lane tree can cut its nodes out of them. */
+  --row-unread: color-mix(in oklab, var(--info) 7%, var(--card));
+  --row-failed: color-mix(in oklab, var(--critical-solid) 5%, var(--card));
   --shadow-sm: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);
   --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
   --sky:
@@ -109,6 +112,8 @@
   --warning-wash: color-mix(in oklab, var(--warning-solid) 7%, transparent);
   --ok-wash: color-mix(in oklab, var(--ok-solid) 7%, transparent);
   --primary-wash: color-mix(in oklab, var(--primary) 9%, transparent);
+  --row-unread: color-mix(in oklab, var(--info) 8%, var(--card));
+  --row-failed: color-mix(in oklab, var(--critical-solid) 8%, var(--card));
   --info: oklch(0.72 0.14 264); /* RP: primary as text on dark cards needs a lighter step for 4.5:1 */
   --merged: var(--ok);
   --approved: color-mix(in oklab, var(--ok) 65%, var(--muted-foreground));

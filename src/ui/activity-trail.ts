@@ -4,11 +4,12 @@ import { action } from './actions.ts';
 
 /**
  * A row's updates: a disclosure on Activity, whose state `groups` holds, and an open list on the detail. On Activity an
- * update on the row's day shows only its clock, as the row does; the detail keeps full dates.
+ * update on the row's day shows only its clock, as the row does; the detail keeps full dates. With an `id` the
+ * disclosure has no summary of its own: a control elsewhere names it with aria-controls.
  */
 export function renderTrail(
   record: import('../activity.ts').ActivityItem,
-  { expanded = false, groups = new Map() }: { expanded?: boolean; groups?: Groups } = {},
+  { expanded = false, groups = new Map(), id }: { expanded?: boolean; groups?: Groups; id?: string } = {},
 ) {
   if (record.events.length < 2) return emptyHtml;
   const entries = html`<ol>${record.events.map(event => {
@@ -17,5 +18,7 @@ export function renderTrail(
   })}</ol>`;
   return expanded
     ? html`<section class="activity-history"><h2>Update history</h2><div class="trail">${entries}</div></section>`
-    : html`<details class="trail" ${disclosure(groups, `activity-${record.groupKey}`)}><summary ${action('toggle-group')}>${record.events.length} updates</summary>${entries}</details>`;
+    : id
+      ? html`<details class="trail" id="${id}" ${disclosure(groups, `activity-${record.groupKey}`)}><summary hidden></summary>${entries}</details>`
+      : html`<details class="trail" ${disclosure(groups, `activity-${record.groupKey}`)}><summary ${action('toggle-group')}>${record.events.length} updates</summary>${entries}</details>`;
 }

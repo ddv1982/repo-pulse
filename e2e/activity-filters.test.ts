@@ -95,7 +95,7 @@ test('detail reload and back restore Activity filters, open trail and source row
   await page.getByRole('link', { name: 'Activity', exact: true }).click();
   await page.getByRole('searchbox', { name: 'Search activity' }).fill('Orders');
   await selectActivityType(page, 'CI runs');
-  await page.locator('.trail > summary').click();
+  await page.getByRole('button', { name: '2 updates', exact: true }).click();
   await page.locator('li.row .feed-title').click();
   await expect(page.getByRole('link', { name: '← Back to Activity', exact: true })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Update history' })).toBeVisible();

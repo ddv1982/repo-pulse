@@ -68,62 +68,32 @@ li.day {
 :root:not(.dark) .feed li.day {
   background: var(--table-head);
 }
+/* A row's background is one flat colour in --row-bg, so the tree's ring cutouts and node outlines can take the same
+   colour. Failed CI runs get a red tint and unread rows a blue one, which wins on an unread failure; hover darkens
+   whichever tint the row has. The background does not fade, since the cutouts could not fade with it. */
 .row {
+  --row-tint: var(--card);
+  --row-bg: var(--row-tint);
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   gap: var(--space-1-5) var(--space-3);
   align-items: start;
   padding: var(--space-3);
   border-top: 1px solid var(--border);
-  transition: background-color 0.15s;
-  background-repeat: no-repeat;
+  background-color: var(--row-bg);
+}
+.row.crit {
+  --row-tint: var(--row-failed);
+}
+.row.new {
+  --row-tint: var(--row-unread);
 }
 .row:hover,
 .row:focus-within {
-  background-color: var(--accent);
-}
-.row.crit {
-  background-image: linear-gradient(90deg, var(--critical-wash), transparent 36%);
-}
-.row.new {
-  background-image: linear-gradient(90deg, var(--primary-wash), transparent 36%);
-}
-.row.warn {
-  background-image: linear-gradient(90deg, var(--warning-wash), transparent 36%);
-}
-.row.tone-crit {
-  background-image: linear-gradient(90deg, var(--critical-wash), transparent 36%);
-}
-.row.tone-warn {
-  background-image: linear-gradient(90deg, var(--warning-wash), transparent 36%);
-}
-.row.tone-ok {
-  background-image: linear-gradient(90deg, var(--ok-wash), transparent 36%);
-}
-.row.tone-info {
-  background-image: linear-gradient(90deg, var(--primary-wash), transparent 36%);
-}
-.row.tone-neutral {
-  background-image: none;
-}
-/* The wash marks unread rows (tinted by kind) and failed CI runs; seen rows stay plain. */
-.row:not(.new, .crit) {
-  background-image: none;
-}
-.row.new.tone-neutral {
-  background-image: linear-gradient(90deg, var(--primary-wash), transparent 36%);
+  --row-bg: color-mix(in oklab, var(--foreground) 4%, var(--row-tint));
 }
 :root:not(.dark) .feed .ghead {
   background: var(--table-head);
-}
-:root:not(.dark) .feed .row.new {
-  box-shadow: inset 3px 0 var(--primary);
-}
-:root:not(.dark) .feed .row.new:not(.crit) {
-  background-image: none;
-}
-:root:not(.dark) .feed .row.new:not(.crit, :hover, :focus-within) {
-  background-color: color-mix(in srgb, var(--primary) 7%, transparent);
 }
 .row.new .title {
   font-weight: 600;
@@ -178,13 +148,10 @@ button.ci-count:hover {
 }
 /* Light mode carries status as a tinted pill, so the column reads at the strength dark mode gets from saturated text. */
 :root:not(.dark) .feed .kind-label {
-  padding: 0 var(--space-2);
+  padding: 0 var(--space-1-5);
   border-radius: 10px;
   font-weight: 600;
   background: color-mix(in srgb, currentColor 12%, var(--card));
-}
-:root:not(.dark) .feed .row .title {
-  font-weight: 600;
 }
 .kind > .d,
 .kind > svg {
@@ -274,7 +241,8 @@ button.ci-count:hover {
 }
 /* Where a row happened: repository, branch and PR as tokens that wrap as whole units. A single token wider than the
    column ends in an ellipsis; the branch keeps its full name in its title and in the DOM. */
-.feed-title .subref {
+.row-head .subref {
+  cursor: pointer;
   font-family: inherit;
   overflow-wrap: normal;
   display: flex;
@@ -288,7 +256,7 @@ button.ci-count:hover {
 }
 /* Line 2's facts read as one sentence: a middot after each token but the last, drawn so that it is not read out. It
    trails its token, so a wrapped line starts with a fact, not a dot. */
-.feed-title .subref > :not(:last-child)::after {
+.row-head .subref > :not(:last-child)::after {
   content: '·' / '';
   margin-inline-start: var(--space-1-5);
 }
@@ -312,11 +280,62 @@ button.ci-count:hover {
   min-width: 0;
   overflow-wrap: anywhere;
 }
-.ref-summary > :not(.sr) ~ .status-text {
-  margin-inline-start: var(--space-2);
+/* The vote tally opens the named votes under line 2. Approvals stay muted; a vote that asks for changes is coloured. */
+button.vote-tally.sm {
+  display: inline;
+  height: auto;
+  padding: 0;
+  font-size: inherit;
+  font-weight: 400;
+  line-height: inherit;
+  text-align: left;
+  white-space: normal;
+  color: var(--muted-foreground);
+}
+button.vote-tally:hover {
+  background: none;
+  text-decoration: underline;
+}
+button.vote-tally.warn {
+  color: var(--warning);
+}
+button.vote-tally.crit {
+  color: var(--critical);
+}
+/* Both columns shrink on a narrow row, and a long name or vote wraps inside its column. */
+.vote-list ul {
+  display: grid;
+  grid-template-columns: minmax(0, max-content) minmax(0, max-content);
+  gap: 0 var(--space-4);
+  margin: var(--space-1) 0 0;
+  padding: var(--space-0-5) 0 var(--space-0-5) var(--space-2-5);
+  border-inline-start: 1px solid var(--border);
+  list-style: none;
+}
+.vote-list li {
+  display: contents;
+}
+.vote-list li > * {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.vote-list .voter {
+  color: var(--foreground-soft);
+}
+.vote-list .status-text:not(.warn, .crit) {
+  color: var(--muted-foreground);
 }
 .subref > .chip {
   padding-block: 0;
+}
+/* Merge evidence on line 2 reads as a quiet outlined chip. A completed PR link is muted; a rewrite stays amber. */
+.subref > .status-chip {
+  border-color: color-mix(in oklab, currentColor 40%, transparent);
+  background: none;
+  font-size: var(--text-2xs);
+}
+.subref > .status-chip.ok {
+  color: var(--muted-foreground);
 }
 .ref-repo,
 .ref-branch {
@@ -377,7 +396,124 @@ button.ci-count:hover {
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
-/* What goes under line 2: CI, origin notes, the update trail, linked rows and commits. */
+/* The trouble line: every CI result of a row with a problem, on one line under line 2. Only failures (red) and runs in
+   progress or other problems (amber) are coloured; passes and notes stay muted. */
+.ci-trouble {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 var(--space-1-5);
+  margin-top: var(--space-1);
+  font-size: var(--text-xs);
+  line-height: 20px;
+  color: var(--muted-foreground);
+}
+/* Inline, not flex, so the spaces between glyph, name and note stay. */
+.ci-trouble button.sm {
+  display: inline;
+  height: auto;
+  padding: 0;
+  font-size: inherit;
+  font-weight: 500;
+  line-height: inherit;
+  text-align: left;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.ci-trouble button.sm:hover {
+  background: none;
+  text-decoration: underline;
+}
+.ci-trouble .ci-run.crit {
+  color: var(--critical);
+}
+.ci-trouble .ci-run.warn {
+  color: var(--warning);
+}
+.ci-trouble .ci-run.muted,
+.ci-trouble .ci-host {
+  color: var(--muted-foreground);
+  font-weight: 400;
+}
+.ci-glyph {
+  display: inline-block;
+  min-width: 1ch;
+  text-align: center;
+}
+.ci-note {
+  color: var(--muted-foreground);
+  font-weight: 400;
+}
+.ci-sep {
+  opacity: 0.6;
+}
+/* A recovered run: a muted note after the CI count, on its line. */
+.ci-count > .ci-again {
+  margin-inline-start: 0.3em;
+}
+/* Line 3: small tokens of one shape, in a fixed order. A token in the unread blue says what is new; a plain one is a
+   note. What a token opens appears under line 3. */
+.row-line3 {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-2);
+  margin-top: var(--space-1-5);
+  font-size: var(--text-2xs);
+  color: var(--muted-foreground);
+}
+.row-line3 > .token {
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  min-height: 0;
+  padding: 0 var(--space-1-5);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: none;
+  color: var(--muted-foreground);
+  font-size: var(--text-2xs);
+  font-weight: 500;
+  line-height: 20px;
+  white-space: nowrap;
+}
+.row-line3 > button.token:hover {
+  background: var(--accent);
+  color: var(--foreground);
+}
+.row-line3 > .token.unread {
+  border-color: color-mix(in oklab, var(--info) 50%, transparent);
+  color: var(--info);
+}
+.row-line3 > .token.unread:hover {
+  color: var(--info);
+}
+.row-line3 > .token > [aria-hidden] {
+  margin-inline-start: 0.3em;
+  opacity: 0.7;
+}
+.row-line3 > .token.plain {
+  /* A note wraps, so it grows with its text instead of keeping a token's one-line height. */
+  height: auto;
+  min-height: 22px;
+  align-items: flex-start;
+  padding-block: 3px;
+  line-height: 16px;
+  gap: var(--space-1);
+  border-color: transparent;
+  padding-inline: 0;
+  font-weight: 400;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.row-line3 > .token.plain svg {
+  flex: none;
+  width: 12px;
+  height: 12px;
+  /* Centred on the first 16px line, so a wrapped note keeps its icon beside where it starts. */
+  margin-top: 2px;
+}
+/* What goes under line 3: the run list, the update trail, a linked row and push commits. */
 .row-extra {
   margin-top: var(--space-1);
   font-size: var(--text-sm);
@@ -385,6 +521,13 @@ button.ci-count:hover {
 }
 .row-extra > * + * {
   margin-top: var(--space-0-5);
+}
+/* A closed panel takes no room, so a row whose panels are all closed ends at its last line. */
+.row-extra > details:not([open]) {
+  margin-top: 0;
+}
+.row-extra:not(:has(> details[open], > :not(details))) {
+  margin-top: 0;
 }
 .event-meta {
   overflow-wrap: anywhere;
@@ -397,19 +540,6 @@ button.ci-count:hover {
   font-weight: 500;
   color: var(--foreground-soft);
 }
-.event-origin {
-  overflow-wrap: anywhere;
-  display: flex;
-  align-items: flex-start;
-  gap: 5px;
-  margin-top: var(--space-0-5);
-}
-.event-origin svg {
-  flex: none;
-  width: 12px;
-  height: 12px;
-  margin-top: var(--space-0-5);
-}
 .linked-event {
   width: fit-content;
   max-width: 100%;
@@ -417,17 +547,13 @@ button.ci-count:hover {
   color: var(--muted-foreground);
   font-size: var(--text-xs);
 }
-.event-ci > .linked-event {
-  margin-top: 0;
-}
 .linked-event .push {
   padding: 3px 0;
 }
 .linked-event summary {
   cursor: pointer;
 }
-.linked-event button.sm,
-.event-ci button.sm {
+.linked-event button.sm {
   max-width: 100%;
   height: auto;
   min-height: var(--control-height-sm);
@@ -443,15 +569,20 @@ button.ci-count:hover {
 .ci-history {
   width: 100%;
 }
-.ci-history > .ci-rollup {
-  margin-inline-start: var(--space-1);
-  padding-inline-start: var(--space-1);
+/* The panels under line 3 share one shape with the vote list: a hairline rule, and their content 10px in. */
+.ci-history > .ci-rollup,
+.linked-panel {
+  padding-inline-start: var(--space-2-5);
   border-inline-start: 1px solid var(--border);
+}
+.ci-history > .ci-rollup > button.sm,
+.linked-panel > button.sm {
+  padding-inline: 0;
 }
 .ci-rollup > [data-related] {
   justify-self: start;
 }
-.event-ci button.ci-run {
+.ci-history button.ci-run {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: baseline;
@@ -482,8 +613,12 @@ button.ci-count:hover {
 .rowact .ghost {
   padding-inline: 5px;
 }
-.seen-toggle {
+.seen-toggle,
+.seen-toggle-slot {
   gap: 5px;
+}
+.rowact .slot {
+  visibility: hidden;
 }
 .seen-box {
   flex: none;
@@ -512,18 +647,30 @@ button.ci-count:hover {
   gap: var(--space-1-5);
   align-items: center;
 }
-.feed .feed-actions {
-  border-top: 0;
+/* The feed's top line: Mark all seen, then the lane key toggle, then Open Git Graph at the end. The key opens below its
+   toggle and the line stays where it is. */
+.feed-top {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-1) var(--space-3);
+  padding: var(--space-1-5) var(--space-3);
   border-bottom: 1px solid var(--border);
+}
+.feed-actions {
+  flex: none;
+  display: flex;
+  align-items: center;
+}
+@media (max-width: 639px) {
+  /* Without the tree there is no key, so a top line without Mark all seen would be empty. */
+  .feed-top:not(:has(> .feed-actions)) {
+    display: none;
+  }
 }
 .trail {
   margin-top: var(--space-1-5);
   font-size: var(--text-xs);
   color: var(--muted-foreground);
-}
-/* In a row the trail follows the meta line by the row's 2px line gap. */
-.event-notes .trail {
-  margin-top: var(--space-0-5);
 }
 .trail summary {
   cursor: pointer;
@@ -534,7 +681,7 @@ button.ci-count:hover {
   list-style: none;
   margin: var(--space-1) 0 0;
   padding: 0 0 0 var(--space-2-5);
-  border-left: 2px solid var(--border);
+  border-left: 1px solid var(--border);
 }
 .trail li {
   display: flex;
@@ -547,9 +694,27 @@ button.ci-count:hover {
 }
 
 @media (max-width: 639px) {
-  /* The phone's row controls are taller than the label, so the label centres on them. */
+  /* The phone's row controls are taller than the label, so the label's first line centres on them. A CI count that
+     does not fit beside the kind wraps under it without moving the kind off the top line. */
   .row > .status {
-    align-self: center;
+    align-self: start;
+    padding-block-start: calc((var(--control-height-sm) - 20px) / 2);
+  }
+  /* The kind stays one line beside the time; a CI count that does not fit goes under it instead. */
+  .row > .status .kind-label {
+    white-space: nowrap;
+  }
+  /* Without the tree there is no blue lane beside the row, so unread rows add a bar. */
+  .row.new {
+    box-shadow: inset 2px 0 var(--info);
+  }
+  /* The Seen box says it alone; its name stays in the toggle's label. */
+  .rowact .seen-label {
+    display: none;
+  }
+  .rowact .seen-box {
+    width: 16px;
+    height: 16px;
   }
 }
 @media (min-width: 640px) {

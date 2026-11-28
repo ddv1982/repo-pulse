@@ -315,7 +315,7 @@ test('disclosures keep the state the reader gave them while incoming activity re
   // The Activity group comes first and opens by default.
   const activity = page.locator('section.group > details').first();
   await expect(activity).toHaveAttribute('open', '');
-  await activity.locator('summary').click();
+  await activity.locator(':scope > summary').click();
   await expect(activity).not.toHaveAttribute('open');
   const incoming = await postDemoEvent(runtime);
   await renderInBackground(page);

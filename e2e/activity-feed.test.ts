@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { capture } from './fixtures/app.ts';
 import { expect } from '@playwright/test';
-import { multiDayFixture, setup } from './fixtures/ui-app.ts';
+import { awkwardFixture, multiDayFixture, setup } from './fixtures/ui-app.ts';
 import type { ActivityEvent } from '../src/activity.ts';
 
 test('the branch tree works with the unread filter and keeps status markers on narrow screens', async t => {
@@ -11,9 +11,9 @@ test('the branch tree works with the unread filter and keeps status markers on n
   await expect(rows.first()).toBeVisible();
   await expect(page.locator('.with-tree li.row > svg.tree')).toHaveCount(await rows.count());
   const hotfix = page.locator('li[data-event-id="demo-branch-1"]');
-  // A new branch has nothing else to say, so where it started is the summary at the end of line 2.
-  await expect(hotfix.locator('.ref-summary')).toHaveText(/ Started at 3f9a2c1, the tip of main$/);
-  await expect(hotfix.locator('.event-origin')).toHaveCount(0);
+  // Where a branch started is a note on line 3, also when line 2 has no summary.
+  await expect(hotfix.locator('.row-line3 > .event-origin')).toHaveText('Started at 3f9a2c1, the tip of main');
+  await expect(hotfix.locator('.ref-summary')).toHaveCount(0);
   await expect(hotfix.locator('svg.tree path')).toHaveCount(1);
   await expect(hotfix.locator('svg.tree path.assumed')).toHaveCount(0);
   await expect(page.locator('li[data-event-id="demo-branch-3"]')).toContainText('PR 1175 targets main, origin not checked');
@@ -21,7 +21,7 @@ test('the branch tree works with the unread filter and keeps status markers on n
   await expect(page.locator('li[data-event-id="demo-pr-2"] svg.tree path')).toHaveCount(1);
   // A CI run on a pull request ref takes the branch of the stored PR and joins its lane.
   const ciRef = page.locator('li[data-event-id="demo-build-2"] .subref');
-  await expect(ciRef.locator('.ref-repo')).toHaveText(' · repository shared-components');
+  await expect(ciRef.locator('.ref-repo')).toHaveText('repository shared-components');
   await expect(ciRef.locator('.ref-name')).toHaveText('feature/date-range');
   await expect(ciRef.locator('.ref-pr')).toHaveText(' · PR 412');
   await expect(ciRef.locator('.ref-pr')).toBeVisible();
@@ -49,7 +49,7 @@ test('the branch tree works with the unread filter and keeps status markers on n
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.getByRole('button', { name: 'Unread only', exact: true }).click();
   await expect(hotfix.locator('svg.tree')).toBeVisible();
-  await expect(hotfix.locator('.ref-summary')).toHaveText(/ Started at 3f9a2c1, the tip of main$/);
+  await expect(hotfix.locator('.row-line3 > .event-origin')).toHaveText('Started at 3f9a2c1, the tip of main');
   await page.setViewportSize({ width: 640, height: 900 });
   await expect(hotfix.locator('svg.tree')).toBeVisible();
   await page.setViewportSize({ width: 390, height: 900 });
@@ -131,7 +131,7 @@ test('Activity gives wrapped titles room and keeps their facts line under them o
   await expect.poll(async () => (await longTitle.boundingBox())?.height ?? 0, { message: 'the long title wraps' }).toBeGreaterThan(30);
   await expect(page.locator('.with-tree .row').first()).toBeVisible();
   // Line 2 follows the wrapped title directly.
-  const facts = page.locator('li[data-event-id="long-title-pr"] .feed-title .subref');
+  const facts = page.locator('li[data-event-id="long-title-pr"] .row-head .subref');
   await expect
     .poll(() =>
       facts.evaluate(element => {
@@ -148,7 +148,7 @@ test('Activity gives wrapped titles room and keeps their facts line under them o
   // The phase 2 layout's title column was 444px wide here with 4 lanes. Without the event column it is wider.
   await expect(prRow.locator('xpath=..')).toHaveAttribute('data-tree-lanes', '4');
   await expect.poll(async () => (await prRow.locator('.subject').boundingBox())?.width ?? 0).toBeGreaterThan(444);
-  await expect(prRow.locator('.feed-title')).toHaveAccessibleName(
+  await expect(prRow.locator('.feed-title')).toHaveAccessibleDescription(
     /source branch feature\/DAT-9861_animal_seeds_standards targeting branch main/,
   );
   await expect(prRow.locator('svg.tree circle')).toHaveCount(0);
@@ -415,7 +415,7 @@ test('Activity shows only highlights and links a landing and quieter CI to its d
   const ciCount = merge.locator('.status').getByRole('button', { name: 'CI · 7 runs', exact: true });
   const headline = merge.getByRole('button', { name: 'Post-merge CI passed' });
   await expect(headline).toBeHidden();
-  await expect(merge.locator('.event-ci .crit')).toHaveCount(0);
+  await expect(merge.locator('.ci-trouble')).toHaveCount(0);
   await expect(merge.getByRole('button', { name: 'PR validation failed' })).toHaveCount(0);
   await ciCount.click();
   await expect(ciCount).toHaveAttribute('aria-expanded', 'true');
@@ -423,6 +423,8 @@ test('Activity shows only highlights and links a landing and quieter CI to its d
   await expect(merge.locator('.ci-history').getByRole('button', { name: 'PR validation failed' }).first()).toBeVisible();
   await expect(merge.locator('.ci-run time')).toHaveCount(6);
   await expect(headline.locator('time')).toHaveAttribute('datetime', base.time);
+  // View all CI runs ends the run list the count opens.
+  await expect(merge.locator('.row-extra > .ci-history .ci-rollup > :last-child')).toHaveText('View all CI runs');
   await expect(merge.getByRole('button', { name: 'View all CI runs' })).toBeVisible();
   await headline.click();
   await expect(page).toHaveURL(/#event\/quiet-pass$/);
@@ -443,12 +445,18 @@ test('Activity shows only highlights and links a landing and quieter CI to its d
   assert.equal(await sharesStatusColor(merge.locator('.kind')), false);
   await expect(approved.locator('.title')).toHaveText(approval.title);
   await expect(approved.locator('.feed-title')).toHaveAccessibleName(/fatty_acids_individual_risks/);
-  await expect(approved.locator('.ref-actor')).toHaveText(/ author Ines Adriaens - Doekes$/);
+  await expect(approved.locator('.ref-actor')).toHaveText('author Ines Adriaens - Doekes');
   await expect(approved.locator('.ref-repo')).toBeVisible();
   await expect(approved.locator('xpath=..')).toHaveAttribute('data-tree-lanes', '5');
   const longCi = approved.getByRole('button', { name: 'PR validation partially succeeded on earlier revision' });
   await expect(longCi).toBeVisible();
-  await expect(longCi.locator('time')).toHaveAttribute('datetime', new Date(Date.parse(base.time) + 60_000).toISOString());
+  // The trouble line keeps first-screen timestamps down: the run's time is in its title, not on the line.
+  await expect(longCi.locator('time')).toHaveCount(0);
+  const staleTime = new Date(Date.parse(base.time) + 60_000).toISOString();
+  const shown = await page.evaluate(time => new Date(time).toLocaleString([], { dateStyle: 'full', timeStyle: 'short' }), staleTime);
+  await expect(longCi).toHaveAttribute('title', `PR validation · Billing CI · ${shown}`);
+  await expect(longCi).toHaveText('! PR validation partially succeeded on earlier revision · Billing CI');
+  await expect(approved.locator('.status .ci-run')).toHaveCount(0);
   const rowFits = () =>
     approved.evaluate(row => {
       const kind = row.querySelector('.kind')!;
@@ -460,7 +468,7 @@ test('Activity shows only highlights and links a landing and quieter CI to its d
       const overlaps = (a: DOMRect, b: DOMRect) => a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
       const subject = box('.subject');
       const actions = box('.rowact');
-      const ci = box('.event-ci button');
+      const ci = box('.ci-trouble button');
       return {
         labelFits: rect.right <= bounds.right + 1 && [subject, actions].every(area => !overlaps(rect, area)),
         actionsClearTitle: !overlaps(actions, subject),
@@ -610,4 +618,378 @@ test('Activity starts each local day with a header that the lanes run through an
   await expect(headers.first()).toBeVisible();
   await expect(list.locator('li.day svg.tree-pass').first()).toBeHidden();
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+});
+
+test('the vote tally on line 2 opens the named votes under it, and the rest of line 2 still opens the detail', async t => {
+  const { page, runtime } = await setup(t);
+  const branch = 'refs/heads/feature/votes';
+  const votes = [
+    { name: '[Demo]\\Data Team', vote: 10 },
+    { name: 'Cy', vote: -5 },
+  ];
+  runtime.store.insertEvents([
+    {
+      id: 'voted-pr',
+      repoId: 'demo-orders',
+      kind: 'pr',
+      title: 'PR 900 · Two votes',
+      branch,
+      actor: 'Ana',
+      time: new Date().toISOString(),
+      data: {
+        pullRequestId: 900,
+        status: 'active',
+        sourceRefName: branch,
+        targetRefName: 'refs/heads/main',
+        reviewers: votes,
+        voteChanges: votes,
+      },
+    },
+  ]);
+  await page.reload();
+  const pr = page.locator('li[data-event-id="voted-pr"]');
+  const tally = pr.getByRole('button', { name: '1 approval, 1 waiting for author', exact: true });
+  await expect(tally).toHaveAttribute('aria-expanded', 'false');
+  const list = pr.locator('.vote-list');
+  await expect(list.locator('li').first()).toBeHidden();
+  await tally.click();
+  await expect(tally).toHaveAttribute('aria-expanded', 'true');
+  await expect(list.locator('li')).toHaveText(['Data Team approved', 'Cy waiting for author']);
+  await expect(page).toHaveURL(/#activity$/);
+  // The list sits under line 2, and line 2 names no reviewer.
+  const [facts, names] = await Promise.all([pr.locator('.row-head .subref').boundingBox(), list.boundingBox()]);
+  assert.ok(facts && names && names.y >= facts.y + facts.height - 1);
+  await expect(pr.locator('.row-head .subref')).not.toContainText('Cy');
+  await pr.locator('.row-head .ref-actor').click();
+  await expect(page).toHaveURL(/#event\/voted-pr$/);
+});
+
+test('at 360px a long vote tally wraps and the named votes shrink, so both stay inside the row', async t => {
+  const { page, runtime } = await setup(t);
+  const branch = 'refs/heads/feature/many-votes';
+  const votes = [
+    { name: '[Demo]\\Cloudforce Team Data Engineering Platform Reviewers', vote: 10 },
+    { name: 'Bea', vote: 5 },
+    { name: 'Cy', vote: -5 },
+    { name: 'Dee', vote: -10 },
+    { name: 'Ed', vote: 0 },
+  ];
+  runtime.store.insertEvents([
+    {
+      id: 'many-votes',
+      repoId: 'demo-orders',
+      kind: 'pr',
+      title: 'PR 901 · Many votes',
+      branch,
+      actor: 'Ana',
+      time: new Date().toISOString(),
+      data: {
+        pullRequestId: 901,
+        status: 'active',
+        sourceRefName: branch,
+        targetRefName: 'refs/heads/main',
+        reviewers: votes,
+        voteChanges: votes,
+      },
+    },
+  ]);
+  await page.setViewportSize({ width: 360, height: 900 });
+  await page.reload();
+  const pr = page.locator('li[data-event-id="many-votes"]');
+  const tally = pr.locator('.vote-tally');
+  await tally.click();
+  await expect(pr.locator('.vote-list li')).toHaveCount(5);
+  const outside = await pr.evaluate(row => {
+    const bounds = row.getBoundingClientRect();
+    const right = bounds.right - parseFloat(getComputedStyle(row).paddingRight) + 0.5;
+    return [row.querySelector('.vote-tally')!, ...row.querySelectorAll('.vote-list li > *')]
+      .filter(element => element.getBoundingClientRect().right > right || element.scrollWidth > element.clientWidth + 1)
+      .map(element => `${element.className}: ${element.textContent}`);
+  });
+  assert.deepEqual(outside, [], 'controls that reach past the row');
+  // A plain note on line 3 that names several branches wraps, and its token grows with it.
+  const note = page.locator('li.row .row-line3 > .token.plain').first();
+  await expect(note).toContainText('Started at');
+  const placement = await note.evaluate(token => {
+    token.lastElementChild!.textContent =
+      'Started at 3f9a2c1, which feature/one-long-branch-name, feature/another-long-branch-name and main all held';
+    const box = token.getBoundingClientRect();
+    const row = token.closest('li.row')!.getBoundingClientRect();
+    const facts = token.closest('.subject')!.querySelector('.subref')!.getBoundingClientRect();
+    return {
+      wraps: box.height > 24,
+      inside: box.bottom <= row.bottom + 0.5,
+      belowFacts: box.top >= facts.bottom - 0.5,
+      fits: token.scrollHeight <= token.clientHeight + 1,
+    };
+  });
+  assert.deepEqual(placement, { wraps: true, inside: true, belowFacts: true, fits: true });
+});
+
+test('line 3 holds tokens of one shape in a fixed order, opens what they open under it, and is left out when empty', async t => {
+  const { page } = await awkwardFixture(t);
+  const line3 = (id: string) => page.locator(`li[data-event-id="${id}"] .subject > .row-line3`);
+  const tokens = (id: string) => line3(id).locator(':scope > .token');
+  // An unread merged PR from a fork: its linked push in the unread blue, then where it came from, which is plain text.
+  await expect(tokens('fork-merge')).toHaveText(['Linked push · unread ›', 'From fork data-sandbox in Team Project']);
+  await expect(tokens('fork-merge').first()).toHaveClass(/\bunread\b/);
+  await expect(tokens('fork-merge').nth(1)).toHaveClass(/\bplain\b/);
+  await expect(tokens('fork-merge').nth(1).locator('xpath=self::button')).toHaveCount(0);
+  // A one-line note sits on the same centre line as the token beside it, its icon too.
+  const centres = await line3('fork-merge').evaluate(line => {
+    const centre = (element: Element | Range) => {
+      const box = element.getBoundingClientRect();
+      return box.top + box.height / 2;
+    };
+    const [linked, note] = [...line.querySelectorAll(':scope > .token')];
+    const text = document.createRange();
+    text.selectNodeContents(note!.lastElementChild!);
+    return [centre(linked!), centre(text), centre(note!.querySelector('svg')!)];
+  });
+  for (const value of centres.slice(1)) assert.ok(Math.abs(value - centres[0]!) <= 1, `centres ${centres.join(', ')}`);
+  // A CI run with three updates offers them as a token in the unread blue.
+  await expect(tokens('nightly-completed')).toHaveText(['3 updates ›']);
+  await expect(tokens('nightly-completed')).toHaveClass(/\bunread\b/);
+  await expect(tokens('incremental-push')).toHaveText(['Load commits']);
+  // A listed new branch keeps its caveat on line 2, so where it started goes to line 3.
+  await expect(tokens('incremental-branch')).toHaveText([/^Started at /]);
+  await expect(line3('long-merge')).toHaveCount(0);
+  await expect(page.locator('li[data-event-id="long-merge"] .row-extra')).toHaveCount(0);
+  // Every token has the same shape.
+  const shapes = await page.locator('.row-line3 > .token:not(.plain)').evaluateAll(elements =>
+    elements.map(element => {
+      const style = getComputedStyle(element);
+      return [style.borderTopWidth, style.borderRadius, style.fontSize, style.height].join(' ');
+    }),
+  );
+  assert.ok(shapes.length >= 3);
+  assert.equal(new Set(shapes).size, 1, `token shapes: ${shapes.join(', ')}`);
+  // A token opens its panel under line 3 and says so.
+  const linked = page.locator('li[data-event-id="fork-merge"]').getByRole('button', { name: 'Linked push · unread', exact: true });
+  await expect(linked).toHaveAttribute('aria-expanded', 'false');
+  await linked.click();
+  await expect(linked).toHaveAttribute('aria-expanded', 'true');
+  const view = page.locator('li[data-event-id="fork-merge"]').getByRole('button', { name: 'View push to main' });
+  await expect(view).toBeVisible();
+  const below = async (id: string, panel: typeof view) => {
+    const [line, box] = await Promise.all([line3(id).boundingBox(), panel.boundingBox()]);
+    return !!line && !!box && box.y >= line.y + line.height - 1;
+  };
+  assert.ok(await below('fork-merge', view), 'the linked push opens under line 3');
+  const trail = page.locator('li[data-event-id="nightly-completed"]');
+  await trail.getByRole('button', { name: '3 updates', exact: true }).click();
+  await expect(trail.locator('.trail li')).toHaveCount(3);
+  assert.ok(await below('nightly-completed', trail.locator('.trail ol')), 'the trail opens under line 3');
+  const push = page.locator('li[data-event-id="incremental-push"]');
+  await push.getByRole('button', { name: 'Load commits', exact: true }).click();
+  await expect(push.getByRole('button', { name: 'Reload commits', exact: true })).toBeVisible();
+  await expect(push.locator('.row-extra summary')).toHaveText('Push commits');
+});
+
+test('rows use flat tints that the tree cuts out of, and colour only failures, runs in progress and warnings', async t => {
+  const { page } = await awkwardFixture(t);
+  await page.setViewportSize({ width: 1265, height: 1400 });
+  for (const scheme of ['light', 'dark'] as const) {
+    await page.emulateMedia({ colorScheme: scheme });
+    await expect(page.locator('html')).toHaveClass(scheme === 'dark' ? /\bdark\b/ : /^(?!.*\bdark\b)/);
+    await page.mouse.move(0, 0);
+    // Controls fade to the new theme's colours, so read them once that has ended.
+    await page.waitForFunction(() => document.getAnimations().length === 0);
+    const read = await page.evaluate(() => {
+      const probe = document.createElement('span');
+      document.querySelector('.feed')!.append(probe);
+      const token = (value: string) => {
+        probe.style.color = value;
+        return getComputedStyle(probe).color;
+      };
+      const css = (selector: string, property: string) => {
+        const element = document.querySelector(selector);
+        if (!element) throw new Error(`no ${selector}`);
+        return getComputedStyle(element).getPropertyValue(property);
+      };
+      const row = (id: string) => `li[data-event-id="${id}"]`;
+      const result = {
+        card: token('var(--card)'),
+        unreadTint: token('var(--row-unread)'),
+        failedTint: token('var(--row-failed)'),
+        critical: token('var(--critical)'),
+        warning: token('var(--warning)'),
+        muted: token('var(--muted-foreground)'),
+        info: token('var(--info)'),
+        unread: css(row('retry-pr'), 'background-color'),
+        unreadImage: css(row('retry-pr'), 'background-image'),
+        unreadBar: css(row('retry-pr'), 'box-shadow'),
+        unreadTitle: css(`${row('retry-pr')} .title`, 'font-weight'),
+        seenTitle: css(`${row('mixed-merge')} .title`, 'font-weight'),
+        unreadSeenBox: css(`${row('retry-pr')} .seen-box`, 'color'),
+        failed: css(row('incremental-ci'), 'background-color'),
+        failedSeen: document.querySelector(row('incremental-ci'))!.classList.contains('new'),
+        unreadFailed: css(row('nightly-completed'), 'background-color'),
+        unreadFailedClasses: document.querySelector(row('nightly-completed'))!.className,
+        seen: css(row('mixed-merge'), 'background-color'),
+        failure: css(`${row('mixed-merge')} .ci-trouble .ci-run.crit`, 'color'),
+        pass: css(`${row('mixed-merge')} .ci-trouble .ci-run.muted`, 'color'),
+        running: css(`${row('retry-pr')} .ci-trouble .ci-run.warn`, 'color'),
+        count: css(`${row('mixed-merge')} .ci-count`, 'color'),
+        rewrite: css(`${row('rewrite-push')} .subref .status-chip.warn`, 'color'),
+        // Every ring cutout and node outline is the colour of the row it sits on.
+        cutouts: [...document.querySelectorAll('li.row')]
+          .filter(element => element.checkVisibility())
+          .flatMap(element => {
+            const background = getComputedStyle(element).backgroundColor;
+            return [...element.querySelectorAll('svg.tree .hole, svg.tree .dot, svg.tree .ci-node')].map(node => ({
+              id: element.getAttribute('data-event-id'),
+              unread: element.classList.contains('new'),
+              background,
+              paint: getComputedStyle(node).getPropertyValue(node.classList.contains('hole') ? 'fill' : 'stroke'),
+            }));
+          }),
+      };
+      probe.remove();
+      return result;
+    });
+    assert.equal(read.unread, read.unreadTint, `${scheme}: an unread row has a flat blue tint`);
+    assert.equal(read.unreadImage, 'none', `${scheme}: no gradient`);
+    assert.equal(read.unreadBar, 'none', `${scheme}: no left bar while the tree shows`);
+    assert.ok(Number(read.unreadTitle) > Number(read.seenTitle), `${scheme}: the unread title is bolder`);
+    assert.equal(read.unreadSeenBox, read.info, `${scheme}: the unread Seen box is blue`);
+    assert.equal(read.failedSeen, false, `${scheme}: the failed row is seen`);
+    assert.equal(read.failed, read.failedTint, `${scheme}: a seen failed row has a flat red tint`);
+    for (const name of ['new', 'crit']) assert.match(read.unreadFailedClasses, new RegExp(`\\b${name}\\b`), `${scheme}: unread and failed`);
+    assert.equal(read.unreadFailed, read.unreadTint, `${scheme}: unread outranks failed: ${read.unreadFailedClasses}`);
+    assert.equal(read.seen, read.card, `${scheme}: a seen row is the card`);
+    assert.equal(read.failure, read.critical, `${scheme}: a failure is red`);
+    assert.equal(read.running, read.warning, `${scheme}: a run in progress is amber`);
+    assert.equal(read.pass, read.muted, `${scheme}: a pass is muted`);
+    assert.equal(read.count, read.muted, `${scheme}: the CI count is muted`);
+    assert.equal(read.rewrite, read.warning, `${scheme}: the rewrite warning is amber`);
+    assert.ok(
+      read.cutouts.some(cutout => cutout.unread),
+      `${scheme}: an unread row has a node`,
+    );
+    for (const cutout of read.cutouts) assert.equal(cutout.paint, cutout.background, `${scheme}: the node cutout of ${cutout.id}`);
+  }
+  // Hover keeps the tint flat, and the cutouts follow it.
+  const hovered = page.locator('li[data-event-id="fork-merge"]');
+  await hovered.hover();
+  // The background changes at once, as the cutouts do: a fade would show them in the new colour on the old background.
+  assert.deepEqual(await hovered.evaluate(row => row.getAnimations().map(animation => String(animation.constructor.name))), []);
+  await page.waitForFunction(() => document.getAnimations().length === 0);
+  const hover = await hovered.evaluate(row => ({
+    background: getComputedStyle(row).backgroundColor,
+    hole: getComputedStyle(row.querySelector('svg.tree .hole, svg.tree .dot')!).getPropertyValue(
+      row.querySelector('svg.tree .hole') ? 'fill' : 'stroke',
+    ),
+  }));
+  assert.equal(hover.hole, hover.background);
+});
+
+test('Mark all seen, the lane key and Open Git Graph share one top line, and the key opens below it', async t => {
+  const { page } = await setup(t);
+  await page.setViewportSize({ width: 1265, height: 900 });
+  const bulk = page.locator('.feed-actions button');
+  const key = page.locator('.activity-graph-guide > details > summary');
+  const graph = page.getByRole('link', { name: 'Open Git Graph', exact: true });
+  await expect(bulk).toHaveText(/^Mark all seen \(\d+\)$/);
+  const centres = async () =>
+    Promise.all([bulk, key, graph].map(async item => item.boundingBox().then(box => (box ? Math.round(box.y + box.height / 2) : NaN))));
+  const [first = NaN, ...rest] = await centres();
+  for (const centre of rest) assert.ok(Math.abs(centre - first) <= 2, `top line centres: ${[first, ...rest].join(', ')}`);
+  await key.click();
+  const legend = page.locator('.tree-legend');
+  await expect(legend).toBeVisible();
+  const [summary, open] = await Promise.all([key.boundingBox(), legend.boundingBox()]);
+  assert.ok(summary && open && open.y >= summary.y + summary.height - 1, 'the key opens below the top line');
+  assert.deepEqual(await centres(), [first, ...rest], 'the top line stays where it was');
+  // Below 640px the key and the tree are gone, and the bulk action keeps its line.
+  await page.setViewportSize({ width: 360, height: 800 });
+  await expect(key).toBeHidden();
+  await expect(bulk).toBeVisible();
+});
+
+test('rows keep kind and time on their top line at 800 and 360px, and times line up with or without Azure and Seen', async t => {
+  const { page } = await awkwardFixture(t);
+  await page.locator('details[data-group="imported-history"] > summary').click();
+  const layout = () =>
+    page.locator('li.row').evaluateAll(rows =>
+      rows
+        .filter(row => row.checkVisibility())
+        .map(row => {
+          const box = (selector: string) => row.querySelector(selector)?.getBoundingClientRect();
+          const kind = box('.kind')!;
+          const time = box('.row-time')!;
+          const status = box('.status')!;
+          const subject = box('.subject')!;
+          const count = box('.ci-count');
+          const centre = (rect: DOMRect) => rect.top + rect.height / 2;
+          return {
+            id: row.getAttribute('data-event-id'),
+            sameLine: Math.abs(centre(kind) - centre(time)) <= 4 && time.left > kind.right,
+            // Beside the kind, or, where a wider time leaves no room (12-hour clocks on a phone), right under it.
+            countBeside:
+              !count ||
+              Math.abs(centre(count) - centre(kind)) <= 2 ||
+              (Math.abs(count.left - kind.left) <= 1 && count.top >= kind.bottom - 1 && count.top - kind.bottom <= 4),
+            subjectBelow: subject.top >= status.bottom - 1,
+            timeRight: Math.round(time.right),
+            bar: getComputedStyle(row).boxShadow,
+            unread: row.classList.contains('new'),
+          };
+        }),
+    );
+  const fits = () => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth);
+  for (const width of [800, 360]) {
+    await page.setViewportSize({ width, height: 1200 });
+    await expect.poll(fits, { message: `no horizontal scroll at ${width}px` }).toBe(true);
+    const rows = await layout();
+    assert.ok(rows.length >= 12, `${width}px rows`);
+    for (const row of rows) {
+      assert.ok(row.sameLine, `${width}px: kind and time share the top line of ${row.id}`);
+      assert.ok(row.countBeside, `${width}px: the CI count of ${row.id} sits beside or right under its kind`);
+      assert.ok(row.subjectBelow, `${width}px: the main cell of ${row.id} is below its top line`);
+      // Only the phone layout marks unread with a bar; the tree's blue lane would sit next to it otherwise.
+      if (row.unread && width < 640) assert.match(row.bar, /^\S.* 2px 0px 0px 0px inset$/, `${width}px: ${row.id} bar`);
+      else assert.equal(row.bar, 'none', `${width}px: ${row.id} bar`);
+    }
+    assert.equal(new Set(rows.map(row => row.timeRight)).size, 1, `${width}px: times line up`);
+  }
+  // Phone: no tree, the kind glyph shows, and the Seen box is 16px.
+  await expect(page.locator('li[data-event-id="retry-pr"] svg.tree')).toBeHidden();
+  await expect(page.locator('li[data-event-id="retry-pr"] .kind > .d')).toBeVisible();
+  const seenBox = await page.locator('li[data-event-id="retry-pr"] .seen-box').boundingBox();
+  assert.equal(seenBox?.width, 16);
+  await expect(page.locator('li[data-event-id="retry-pr"] .seen-toggle')).toHaveAccessibleName(/^Seen: /);
+  // Wide: times line up across rows with and without an Azure link or Seen box.
+  for (const width of [1100, 1265]) {
+    await page.setViewportSize({ width, height: 1200 });
+    const rows = await layout();
+    assert.equal(new Set(rows.map(row => row.timeRight)).size, 1, `${width}px: times line up`);
+  }
+});
+
+test('each rare piece of a row has its place', async t => {
+  const { page } = await awkwardFixture(t);
+  const row = (id: string) => page.locator(`li[data-event-id="${id}"]`);
+  // Merge evidence sits on line 2; a history rewrite is a warning.
+  const rewrite = row('rewrite-push').locator('.row-head > .subref > .status-chip.warn');
+  await expect(rewrite).toHaveText('History rewritten · 2 commits dropped');
+  // The "N new" pill sits on line 1, in the title.
+  await expect(row('fork-merge').locator('.feed-title .title > .new-count')).toHaveText('2 new');
+  // A CI run on a pull request ref names the PR with a chip on line 2.
+  await expect(row('pr-ref-ci').locator('.row-head > .subref .ref-pr')).toHaveText(' · PR 21950');
+  await expect(row('pr-ref-ci').locator('.row-head > .subref .ref-pr')).toBeVisible();
+  // Where a listed branch started is a plain note on line 3.
+  await expect(row('incremental-branch').locator('.row-line3 > .token.plain.event-origin')).toHaveText(/^Started at /);
+  // A failed run links to the change it tested from its trouble line.
+  const host = row('mixed-dbt').locator('.subject > .ci-trouble > .ci-host');
+  await expect(host).toHaveText('View tested change');
+  await host.click();
+  await expect(page).toHaveURL(/#event\/mixed-merge$/);
+  await page.getByRole('link', { name: /Back to Activity/ }).click();
+  // An imported row has no Seen toggle, only the space one would take.
+  await page.locator('details[data-group="imported-history"] > summary').click();
+  const imported = row('imported-push');
+  await expect(imported).toBeVisible();
+  await expect(imported.locator('.seen-toggle, [aria-pressed], input[type="checkbox"]')).toHaveCount(0);
+  await expect(imported.locator('.rowact > .slot')).toHaveCount(2);
 });
