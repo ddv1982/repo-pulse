@@ -460,6 +460,15 @@ test('Activity shows only highlights and links a landing and quieter CI to its d
   await expect(page.getByRole('heading', { name: 'Billing CI' })).toBeVisible();
 });
 
+test('an idle Activity tab moves its day headers on after midnight', async t => {
+  const { page } = await multiDayFixture(t);
+  const headers = page.locator('details[data-group="activity"] ul.rows li.day');
+  await expect(headers.first()).toHaveText('Today');
+  // The server state stays the same, so only the local day changing can move the labels on at the next poll.
+  await page.clock.setFixedTime(new Date(2026, 10, 29, 0, 5));
+  await expect(headers.first()).toHaveText(/^Yesterday · .*\b28\b/, { timeout: 15000 });
+});
+
 test('Activity starts each local day with a header that the lanes run through and that never counts as a row', async t => {
   const { page } = await multiDayFixture(t);
   const activity = page.locator('details[data-group="activity"]');

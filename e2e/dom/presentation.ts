@@ -925,3 +925,34 @@ test('Git Graph chips name each status from its ID and take the Activity tone', 
     assert.deepEqual(await classes(chip(id)), ['chip', 'graph-link', 'status-chip', ...tone].sort(), id);
   }
 });
+
+test('two sections of the same day in a feed out of time order get distinct day header ids', async t => {
+  const { groupActivity } = await import('../../src/activity.ts');
+  const repo = stub<Repository>({ id: 'r1', name: 'orders-api' });
+  const at = (day: number) => new Date(2026, 10, day, 12, 0).toISOString();
+  const push = (id: string, day: number) =>
+    stub<ActivityEvent>({ id, repoId: 'r1', kind: 'push', time: at(day), title: `Pushed ${id}`, branch: `refs/heads/${id}`, data: {} });
+  const byId = new Map(groupActivity([push('a', 27), push('b', 26), push('c', 27)]).map(item => [item.id, item]));
+  // A CI group can sort by a newer time than the one it shows, so a day can start twice in one list.
+  const items = ['a', 'b', 'c'].map(id => present(byId.get(id)));
+  const state = stub<PageState>({
+    enabledRepos: [repo],
+    allRepos: [repo],
+    savedFilters: [],
+    syncStatus: { overall: { state: 'empty' }, repos: {} },
+    activity: { items, total: 3, newItems: 0, newUpdates: 0, nextCursor: null, filterOptions: [] },
+  });
+  const view = stub<import('../../src/ui/feed.ts').FeedView & { savedFilterId: string }>({
+    unseenOnly: false,
+    repoIds: null,
+    search: '',
+    activityFilter: '',
+    filtersOpen: false,
+    groups: new Map(),
+    savedFilterId: '',
+  });
+  const headers = await all(parse(t, renderPagedFeedHtml(state, view)), 'li.day');
+  const ids = await Promise.all(headers.map(header => header.getAttribute('id')));
+  assert.equal(ids.length, 3);
+  assert.equal(new Set(ids).size, 3, `duplicate day header ids: ${ids.join(', ')}`);
+});

@@ -10,6 +10,7 @@ import { createConfirmation } from './ui/confirm.ts';
 import { createConnectionController, renderConnectionStatus } from './ui/connection.ts';
 import { createDetailController } from './ui/detail-controller.ts';
 import { anyDialogOpen } from './ui/dialog.ts';
+import { localDay } from './ui/format.ts';
 import { required } from './ui/dom.ts';
 import { createFeedback } from './ui/feedback.ts';
 import { createGraphController } from './ui/git-graph.ts';
@@ -46,7 +47,7 @@ const ui = createBrowserUi(connection.state, groups.open);
 const menus = createMenuManager(ui);
 const savedFilterMenus = createSavedFilterMenus(menus);
 const navigation = createNavigation({ ui, captureGroups: groups.snapshot, activityCapacity: () => refresh.capacity() });
-let lastRendered: { metadata?: string; activity?: PageState['activity']; detail?: PageState['detail'] } = {};
+let lastRendered: { metadata?: string; activity?: PageState['activity']; detail?: PageState['detail']; day?: string } = {};
 const refresh = createRefreshController({
   request,
   getView: navigation.view,
@@ -59,10 +60,18 @@ const refresh = createRefreshController({
     // The answer can change which repository the graph shows; its history loads before any render, checkout read or
     // probe, even when a focused control holds off the full render. A changed repository renders the graph regardless.
     let graphChanged = ui.route === 'graph' && graph.sync();
-    if (force || metadata !== lastRendered.metadata || activity !== lastRendered.activity || detail !== lastRendered.detail) {
+    // Day headers name today and yesterday, so a new local day renders again even when the server state is the same.
+    const day = localDay(Date.now());
+    if (
+      force ||
+      metadata !== lastRendered.metadata ||
+      activity !== lastRendered.activity ||
+      detail !== lastRendered.detail ||
+      day !== lastRendered.day
+    ) {
       if (refreshTarget(force) === 'full') {
         render();
-        lastRendered = { metadata, activity, detail };
+        lastRendered = { metadata, activity, detail, day };
         graphChanged = false;
       }
     }

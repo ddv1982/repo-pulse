@@ -375,8 +375,9 @@ function row(
  * so nothing that reads rows counts it, and the row below keeps its tree row index. Over the tree it draws the lanes
  * that enter that row from above, so they run on through the header.
  */
-function dayHeader(groupId: string, day: string, time: ActivityItem['time'], tree: import('../activity-tree.ts').TreeRow | undefined) {
-  return html`<li class="day" id="day-${groupId}-${day}">${tree ? renderTreePassThrough(tree) : emptyHtml}<time datetime="${day}">${dayLabel(time)}</time></li>`;
+function dayHeader(groupId: string, day: string, first: ActivityItem, tree: import('../activity-tree.ts').TreeRow | undefined) {
+  // Keyed by the row it starts: a day can start twice when a CI group sorts by a newer time than it shows.
+  return html`<li class="day" id="day-${groupId}-${first.groupKey}">${tree ? renderTreePassThrough(tree) : emptyHtml}<time datetime="${day}">${dayLabel(first.time)}</time></li>`;
 }
 
 /** The day of each row that starts a new local day, or '' when it continues the day above. Invalid times start none. */
@@ -418,7 +419,7 @@ function group(
   return html`<section class="group"><details ${disclosure(groups, id, open)}><summary ${action('toggle-group')} class="ghead">${title} <span class="pill u">${records.length + linked.size + records.reduce((total, record) => total + (record.foldedCi ?? 0), 0)}</span><span class="note">${description}</span></summary><ul class="rows${tree ? ' with-tree' : ''}" ${tree ? html`data-tree-lanes="${tree.width}"` : emptyHtml}>${records.map(
     (record, index) => {
       const day = days[index];
-      return html`${day ? dayHeader(id, day, record.time, tree?.rows[index]) : emptyHtml}${row(record, state, tree?.rows[index], showRepo, groups, linked.get(record.id), feedCommits?.get(record.id))}`;
+      return html`${day ? dayHeader(id, day, record, tree?.rows[index]) : emptyHtml}${row(record, state, tree?.rows[index], showRepo, groups, linked.get(record.id), feedCommits?.get(record.id))}`;
     },
   )}</ul></details></section>`;
 }
