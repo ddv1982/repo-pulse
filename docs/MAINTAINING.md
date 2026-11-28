@@ -54,6 +54,20 @@ Use the shared `.btn`, `.control`, `.ghost`, and `.search` classes. Choose one s
 
 Media queries use three shared breakpoints, documented at the top of `tokens.css`: 640 px (the phone layout), 768 px (touch-sized controls) and 1100 px (the wide feed), plus 360 px for the narrowest phones. Write `min-width: N` and `max-width: N - 1px`. Scripts that follow the layout breakpoint read it from [src/ui/breakpoints.ts](../src/ui/breakpoints.ts), never a literal. A width that fits one component's content stays in that component's file, and `tokens.css` lists it.
 
+## Activity rows
+
+An Activity row has three cells from 1100 px; [src/ui/feed.ts](../src/ui/feed.ts) builds them and `feed.css` lays them out.
+
+- **Status:** the kind label, then `CI · N runs ›`, which opens the run list. A recovered run adds `✓ again` on the same line, so the cell stays at two lines.
+- **Main:**
+  - the title;
+  - line 2, quiet facts in a fixed order: repository (only when several are shown), `branch → target sha`, `author X` / `pushed by X` / `requested by X`, then the summary or vote tally;
+  - a trouble line for any failing, running, partially succeeded or stale CI result, naming each pipeline when there are several;
+  - line 3, tokens in a fixed order: updates, linked push or tag build, fork or branch-start note, Load commits. It is left out when empty.
+- **Right:** the clock time, Azure and Seen. A row without Azure or Seen keeps an invisible copy, so times line up.
+
+Colour belongs to the kind label and to trouble; passing CI and approvals stay muted. Row tints are flat colours in `--row-bg`, which the lane tree's ring cutouts use too. Unread is a blue tint and a bold title, and it wins over the failed tint. Only the phone layout adds an unread bar, because a bar beside the tree reads as another lane. Each local day starts with an `li.day` header that draws the lanes entering the row below it (`renderTreePassThrough`), so lanes never break. Headers are not sticky and never count as rows, and an idle tab re-renders them after midnight.
+
 ## Local Git actions
 
 Branch switches verify the destination ref, its fetch mapping, and the linked Git directory. Tracking-ref updates check the expected old value, and Repo Pulse checks the type of each ref while Git holds its transaction lock. For a confirmed rewrite, Repo Pulse writes and verifies recovery refs under `refs/repo-pulse/upstream-rewrites/` before updating the tracker. Later checks can use those refs to detect the rewrite on other local branches tracking the same upstream, including branches in linked worktrees. Git handles the worktree switch separately.
