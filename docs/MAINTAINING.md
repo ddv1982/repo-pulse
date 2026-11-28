@@ -30,7 +30,7 @@
 | [src/ui/activity-controller.ts](../src/ui/activity-controller.ts), [detail-controller.ts](../src/ui/detail-controller.ts), [git-graph.ts](../src/ui/git-graph.ts), [repositories-controller.ts](../src/ui/repositories-controller.ts) and [settings-controller.ts](../src/ui/settings-controller.ts) | One controller per page: its state outside `ui` and the actions its controls name. [saved-filter-actions.ts](../src/ui/saved-filter-actions.ts) and [header-actions.ts](../src/ui/header-actions.ts) hold the actions of features shared across pages. [shell.ts](../src/ui/shell.ts) is the context they share |
 | [src/ui/actions.ts](../src/ui/actions.ts), [menus.ts](../src/ui/menus.ts), [dialog.ts](../src/ui/dialog.ts) and [groups.ts](../src/ui/groups.ts) | The action list and its one dispatcher, the menu manager, the dialog helper, and disclosure open state |
 | [src/ui/](../src/ui/) (other modules) | View rendering, refresh coordination, navigation, checkout reads, and exact seen actions |
-| [web/app.css](../web/app.css), [web/styles/](../web/styles/) and [web/theme.ts](../web/theme.ts) | Modular CSS tokens, layouts, screen styles, light-mode glass, and System, Light, and Dark controls |
+| [web/app.css](../web/app.css), [web/styles/](../web/styles/) and [web/theme.ts](../web/theme.ts) | Stylesheets (see [Stylesheets](#stylesheets)) and the System, Light, and Dark controls |
 
 The app uses Node 26, built-in SQLite, TypeScript, and CSS. Node runs the server, scripts and tests from `.ts` directly. It has no runtime npm dependencies and no bundler. Browser TypeScript is compiled with `tsc` to `dist/` (`npm run build:web`, which runs automatically before `npm start`, `npm run demo` and the tests; `npm run watch:web` rebuilds while editing), and the server serves `/src/` and `/web/theme.js` from there. The only third-party code is one vendored browser file (see [Vendored browser code](#vendored-browser-code)). Live and demo databases are separate and ignored by Git. `PORT` fixes the loopback port; by default each start gets a free port from the OS. `REPO_PULSE_NO_BROWSER=1` stops `npm start` from opening the browser. `REPO_PULSE_DATA_DIR` changes the storage directory. Use one Azure CLI account context for each local data directory.
 
@@ -43,6 +43,16 @@ The Activity page query and unread snapshot share the same repository, search, p
 ## Size frontend controls
 
 Use the shared `.btn`, `.control`, `.ghost`, and `.search` classes. Choose one size for controls that share a row. The default is 36 CSS px on desktop and 44 CSS px below 768 px. Add `sm` to each control in a compact row for 28 CSS px on desktop and 36 CSS px below 768 px. Both sizes come from `web/styles/tokens.css`. Set layout, spacing, and wrapping in the feature stylesheet. Keep the shared height when mixing buttons with native selects or inputs.
+
+## Stylesheets
+
+[web/app.css](../web/app.css) only imports the files in [web/styles/](../web/styles/), in cascade order:
+
+- `tokens.css`: control and option-row sizes, the `--text-*` type scale, the `--space-*` spacing scale, colors and theme backdrops, and the list of breakpoints. Use a token where a value is on its scale; a value off the scale stays literal where it is used.
+- `glass.css`: the light-mode glass theme. `base.css`: element defaults. `components.css`: shared controls, `.search`, menus and their option rows, and dialogs. `layout.css`: the shell, header and page tabs.
+- One file per screen or concern: `activity-toolbar.css`, `feed.css` (Activity rows), `activity-detail.css`, `activity-tree.css`, `repositories.css`, `settings.css` and `git-graph.css`.
+
+Media queries use three shared breakpoints, documented at the top of `tokens.css`: 640 px (the phone layout), 768 px (touch-sized controls) and 1100 px (the wide feed), plus 360 px for the narrowest phones. Write `min-width: N` and `max-width: N - 1px`. Scripts that follow the layout breakpoint read it from [src/ui/breakpoints.ts](../src/ui/breakpoints.ts), never a literal. A width that fits one component's content stays in that component's file, and `tokens.css` lists it.
 
 ## Local Git actions
 
@@ -82,6 +92,14 @@ UI rendering tests read markup in Chromium through [e2e/fixtures/dom.ts](../e2e/
 
 `npm run lint` rejects regular expressions over HTML (such as `/class="row/` or `/<div/`) in these test files.
 
+## Test fixtures
+
+Shared test setup lives in [test/fixtures/](../test/fixtures/), and the browser suites import it too. Use it instead of building the same object again in a suite:
+
+- `app.ts`: `testApp({ store, ... })` creates the app with an idle sync (`idleSync`), an Azure provider that answers only the connection check (`availableProvider`) and the test access key; pass only what the test changes. `access.ts` holds that key and fetch helpers that send it.
+- `repository.ts`: the watched repository most server suites store. `sync.ts`: a store and sync over that repository on a fixed clock, and the pages the sync suites share. `jobs.ts`: complete history import and rewrite jobs.
+- `checkout.ts`: temporary Git repositories with a linked checkout, and readers for checkout results. `azure.ts`: a fake Azure CLI. `typed.ts`: `present`, `stub` and other narrowing helpers.
+
 ## Run checks
 
 ```sh
@@ -90,6 +108,8 @@ npm run lint
 npm test
 npm run test:ui
 ```
+
+While editing, `npm run test:fast` runs the unit suite in a few seconds. It leaves out the real-Git checkout suites (`test/checkout-advice`, `checkout-branches` and `checkout-git`) and the database lock and migration upgrade tests, which take most of the time of `npm test`. Run `npm test` before pushing. A test added to `test/` runs in both unless its file or name is listed in the `test:fast` script.
 
 CI runs the first three on Linux and Windows. Linux runs the full browser suite, and Windows runs the rendered DOM suite (`npm run test:dom`). Browser tests use Chromium. Run `npx playwright install chromium` if needed, or set `CHROME` to a local executable. Tests use isolated databases and temporary Git repositories. They verify workflows and failure cases without proving live Azure permissions. See [coverage and limits](COVERAGE.md) for the distinction.
 
