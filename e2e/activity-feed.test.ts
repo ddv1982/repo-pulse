@@ -452,7 +452,9 @@ test('Activity shows only highlights and links a landing and quieter CI to its d
   await expect(longCi).toBeVisible();
   // The trouble line keeps first-screen timestamps down: the run's time is in its title, not on the line.
   await expect(longCi.locator('time')).toHaveCount(0);
-  await expect(longCi).toHaveAttribute('title', /^PR validation · Billing CI · .*\d/);
+  const staleTime = new Date(Date.parse(base.time) + 60_000).toISOString();
+  const shown = await page.evaluate(time => new Date(time).toLocaleString([], { dateStyle: 'full', timeStyle: 'short' }), staleTime);
+  await expect(longCi).toHaveAttribute('title', `PR validation · Billing CI · ${shown}`);
   await expect(longCi).toHaveText('! PR validation partially succeeded on earlier revision · Billing CI');
   await expect(approved.locator('.status .ci-run')).toHaveCount(0);
   const rowFits = () =>
