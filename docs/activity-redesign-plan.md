@@ -58,12 +58,17 @@ Every phase leaves `npm run lint`, `npm run check:types`, `npm test` and `npm ru
 
 ### 4b: Trouble, line 3, colour and widths
 
-- [ ] 4b.1 Trouble line (D5): a failing, running, partially succeeded or stale result gets one full-width line under line 2. In a mixed state every pipeline is named ("✕ dbt-build failed · ✓ adf-deploy passed"), and CI notes (revision unknown, retry order unknown, trigger unverified) follow in muted text. Check: e2e rows for failed, running, stale, mixed and noted results.
-- [ ] 4b.2 A recovered run shows "✓ passed again" in the left cell, muted. Phase 3 found that `passing again` is set only for PR validation runs (`server/activity-highlights.ts:277`), also when a pass on a new revision fixes an earlier failure, so the wording is "passed again" rather than "passed on retry". Post-merge retries still show a plain pass. Check: e2e on a demo or fixture row from 3.2.
-- [ ] 4b.3 Line 3 holds tokens of one shape in a fixed order: updates trail, linked push or linked tag build, fork origin or branch-start note, Load commits. It appears only when it has content. Check: e2e on a row with three extras at once, and on a row with none (no empty line 3).
-- [ ] 4b.4 Vote lists: the tally on line 2 opens the named votes under line 2. The names are not repeated on line 3. Check: e2e on an active PR with two votes.
-- [ ] 4b.5 Colour (D7): kind labels keep their tone. Passing CI and approvals are muted. Only failures, running and warnings are coloured. Unread gets the blue tint and a bold title, with no left bar from 640px. Row tints become flat colours in a `--row-bg` custom property, and ring cutouts and node strokes in `web/styles/activity-tree.css` use `var(--row-bg)` instead of `var(--card)` (from 1.2). Check: e2e computed colours on one row of each state, both themes, and an unread row's `.hole` fill equals its background, failing first.
-- [ ] 4b.6 Rare pieces each get a place, checked against the inventory (`src/ui/feed.ts`, `merge-evidence.ts`, `linked-*.ts`, `activity-trail.ts`):
+- [x] 4b.1 Trouble line (D5): a failing, running, partially succeeded or stale result gets one full-width line under line 2. In a mixed state every pipeline is named ("✕ dbt-build failed · ✓ adf-deploy passed"), and CI notes (revision unknown, retry order unknown, trigger unverified) follow in muted text. Check: e2e rows for failed, running, stale, mixed and noted results.
+  Done: `.ci-trouble` under line 2 (and under the vote list when open). A lone result reads `✕ Post-merge CI failed · <pipeline>`; in a mixed state each part names its pipeline. Failures red, runs in progress and partial results amber, passes and notes muted. The run's time moved to the part's title. Covered by the DOM test with mixed, retry, noted, stale and recovered results, and the real-data e2e in `activity-details.test.ts`.
+- [x] 4b.2 A recovered run shows "✓ passed again" in the left cell, muted. Phase 3 found that `passing again` is set only for PR validation runs (`server/activity-highlights.ts:277`), also when a pass on a new revision fixes an earlier failure, so the wording is "passed again" rather than "passed on retry". Post-merge retries still show a plain pass. Check: e2e on a demo or fixture row from 3.2.
+  Done: `✓ passed again` sits between the kind and the CI count, muted. In a mixed state the part reads `passed again`; the run list keeps `passed`.
+- [x] 4b.3 Line 3 holds tokens of one shape in a fixed order: updates trail, linked push or linked tag build, fork origin or branch-start note, Load commits. It appears only when it has content. Check: e2e on a row with three extras at once, and on a row with none (no empty line 3).
+  Done: `.row-line3` tokens open panels under line 3 through `aria-controls`, as the CI count does. No stored PR has a trail, so the three-token check is a DOM test that gives a fork PR three updates; the e2e uses the awkward-rows fixture (`e2e/fixtures/ui-app.ts`).
+- [x] 4b.4 Vote lists: the tally on line 2 opens the named votes under line 2. The names are not repeated on line 3. Check: e2e on an active PR with two votes.
+  Done: line 2 is now a sibling of the title button. The button's name is the title, line 2 is its description, and a click on line 2 still opens the detail. The tally counts each vote kind (`1 approval, 1 waiting for author ›`) and is amber or red only for a vote that asks for changes.
+- [x] 4b.5 Colour (D7): kind labels keep their tone. Passing CI and approvals are muted. Only failures, running and warnings are coloured. Unread gets the blue tint and a bold title, with no left bar from 640px. Row tints become flat colours in a `--row-bg` custom property, and ring cutouts and node strokes in `web/styles/activity-tree.css` use `var(--row-bg)` instead of `var(--card)` (from 1.2). Check: e2e computed colours on one row of each state, both themes, and an unread row's `.hole` fill equals its background, failing first.
+  Done: `--row-unread` and `--row-failed` in `tokens.css` per theme (light failed tint 5%, the others 7 to 8%), hover mixes 4% foreground into the row's tint. Light mode lost its inset bar and its bold titles on every row, so bold means unread in both themes. A completed PR link on line 2 and passing runs in the run list are muted. The glass theme styles only chrome, so rows keep the opaque card.
+- [x] 4b.6 Rare pieces each get a place, checked against the inventory (`src/ui/feed.ts`, `merge-evidence.ts`, `linked-*.ts`, `activity-trail.ts`):
   - the merge evidence badge (line 2, the rewrite warning coloured);
   - the `ciHost` "View pull request" link (trouble line);
   - "View all CI runs" (run list);
@@ -72,8 +77,11 @@ Every phase leaves `npm run lint`, `npm run check:types`, `npm test` and `npm ru
   - branch-start notes (line 3).
 
   Check: the demo data or fixtures cover each one, and an e2e test asserts that each is present.
-- [ ] 4b.7 The legend strip: "Mark all matching seen", the lane key toggle and Open Git Graph share one top line, keeping the DOM that `e2e/dom/presentation.ts:365` and `e2e/git-graph.test.ts:62` expect. Check: those tests pass unchanged.
-- [ ] 4b.8 640 to 1099px: the tree is in the left padding, kind and CI are top left, time and actions top right, with the main cell below. Below 640px: no tree, the kind glyph is shown, kind and time share the top line, Seen is 16px and unread has a 2px bar. Check: e2e at 360 and 800px, with no horizontal overflow.
+  Done: `each rare piece of a row has its place` (awkward-rows fixture) plus View all CI runs in the highlights test. The rewrite chip is outlined amber.
+- [x] 4b.7 The legend strip: "Mark all matching seen", the lane key toggle and Open Git Graph share one top line, keeping the DOM that `e2e/dom/presentation.ts:365` and `e2e/git-graph.test.ts:62` expect. Check: those tests pass unchanged.
+  Done: `.feed-top` holds `.feed-actions` and the guide; `e2e/dom/presentation.ts` and `e2e/git-graph.test.ts` pass unchanged.
+- [x] 4b.8 640 to 1099px: the tree is in the left padding, kind and CI are top left, time and actions top right, with the main cell below. Below 640px: no tree, the kind glyph is shown, kind and time share the top line, Seen is 16px and unread has a 2px bar. Check: e2e at 360 and 800px, with no horizontal overflow.
+  Done, plus the 4a gap: a row without an Azure link or Seen toggle keeps an invisible copy of it, so times line up at every width. Below 640px the Seen toggle shows only its 16px box and keeps its full name for screen readers.
 
 ## Phase 5: Verify and close
 
