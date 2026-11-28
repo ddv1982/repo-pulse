@@ -15,7 +15,7 @@ import { detailView } from '../../src/ui/activity-detail.ts';
 import { forkText, renderTreePassThrough, treeLegend } from '../../src/ui/activity-tree.ts';
 import { buildActivityTree, type TreeFork, type TreeLine, type TreeRow } from '../../src/activity-tree.ts';
 import { createStore } from '../../server/store.ts';
-import type { ActivityEvent, ActivityItem } from '../../src/activity.ts';
+import type { ActivityEvent, ActivityItem, CiResult, RelatedCi } from '../../src/activity.ts';
 import type { GitHistoryActivity, GitHistoryPage, Repository, StreamError, StreamState } from '../../src/contract.ts';
 import type { CheckoutSnapshot } from '../../src/ui/checkout.ts';
 import type { PageState } from '../../src/ui/refresh.ts';
@@ -25,12 +25,14 @@ import { present, stub } from '../../test/fixtures/typed.ts';
 
 /** Line 2 of a row as `class: text` per token, without screen-reader text, so a test reads its order and wording. */
 const facts = async (doc: DomRoot, id: string) =>
-  (await one(row(doc, id), '.feed-title .subref').handle()).evaluate(line =>
-    [...line.children].map(child => {
-      const copy = child.cloneNode(true);
-      if (copy instanceof Element) for (const hidden of copy.querySelectorAll('.sr')) hidden.remove();
-      return `${child.classList[0]}: ${(copy.textContent ?? '').replace(/\s+/g, ' ').trim()}`;
-    }),
+  (await one(row(doc, id), '.row-head .subref').handle()).evaluate(line =>
+    [...line.children]
+      .filter(child => !child.matches('.sr'))
+      .map(child => {
+        const copy = child.cloneNode(true);
+        if (copy instanceof Element) for (const hidden of copy.querySelectorAll('.sr')) hidden.remove();
+        return `${child.classList[0]}: ${(copy.textContent ?? '').replace(/\s+/g, ' ').trim()}`;
+      }),
   );
 
 // The tests give the views and labels only the fields they read: an event of a kind with its data, a page state
@@ -419,7 +421,7 @@ test('a CI run on a pull request ref names the source branch and the pull reques
     assert.equal(await text(one(token, '.ref-name')), name, id);
     // The cue is for screen readers only, and comes before the name so it says what the name is first.
     assert.equal(await text(token), name, id);
-    assert.equal(await textIncludingHidden(token), `· branch ${name}`, id);
+    assert.equal(await textIncludingHidden(token), `branch ${name}`, id);
     return token;
   };
   await branch('known', 'feature/a');
@@ -427,7 +429,7 @@ test('a CI run on a pull request ref names the source branch and the pull reques
   assert.equal(await text(chip), 'PR 7');
   assert.equal(await textIncludingHidden(chip), '· PR 7');
   // Branch and PR sit in one group that does not wrap, so the chip never ends up on a line of its own.
-  const group = one(row(doc, 'known'), '.feed-title .ref-target');
+  const group = one(row(doc, 'known'), '.row-head .ref-target');
   assert.equal((await all(group, ':scope > *')).length, 2);
   await one(group, ':scope > .ref-branch:first-child').handle();
   await one(group, ':scope > .ref-pr:last-child').handle();
@@ -439,12 +441,12 @@ test('a CI run on a pull request ref names the source branch and the pull reques
 
 test('a row names its repository only when more than one repository is shown', async t => {
   const state = fixture();
-  const subref = (out: SafeHtml | string) => one(parse(t, out), '.feed-title .subref');
+  const subref = (out: SafeHtml | string) => one(parse(t, out), '.row-head .subref');
   assert.doesNotMatch(await textIncludingHidden(subref(renderFeed(state, view))), /Orders/);
   state.enabledRepos.push(stub<Repository>({ id: 'other', name: 'Billing' }));
   const repo = one(subref(renderFeed(state, view)), '.ref-repo');
   assert.equal(await text(repo), 'Orders');
-  assert.equal(await textIncludingHidden(repo), '· repository Orders');
+  assert.equal(await textIncludingHidden(repo), 'repository Orders');
   // The selected scope decides, not which repositories happen to have rows on the page.
   assert.doesNotMatch(await textIncludingHidden(subref(renderFeed(state, { ...view, repoIds: ['r'] }))), /Orders/);
 });
@@ -476,8 +478,8 @@ test('a generic branch row leads with its ref and a descriptive title keeps the 
     ['build', 'main CI · 1', 'main'],
   ] satisfies [string, string, string][]) {
     assert.equal(await text(one(row(doc, id), '.title')), title, id);
-    if (name) assert.equal(await text(one(row(doc, id), '.feed-title .ref-name')), name, id);
-    else assert.equal((await all(row(doc, id), '.feed-title .ref-name')).length, 0, id);
+    if (name) assert.equal(await text(one(row(doc, id), '.row-head .ref-name')), name, id);
+    else assert.equal((await all(row(doc, id), '.row-head .ref-name')).length, 0, id);
   }
   // The Seen button keeps the full title, so its accessible name still says which branch.
   assert.equal(await one(row(doc, 'push'), '.seen-toggle').getAttribute('aria-label'), 'Seen: Ana pushed to feature/a');
@@ -628,16 +630,26 @@ test('a PR row lists each vote change on its own and names a fork source on the 
     { ...base, id: 'target', data: { id: 4, status: 'active', isDraft: true, targetRefName: 'refs/heads/main', fork } },
   ];
   const doc = parse(t, renderFeed(state, view));
-  const votes = await all(one(row(doc, 'votes'), '.feed-title .ref-summary'), '.status-text');
-  assert.deepEqual(
-    await Promise.all(votes.map(async vote => [(await classes(vote)).filter(name => name !== 'status-text'), await text(vote)])),
-    [
-      [['ok'], 'Bo: approved'],
-      [['warn'], 'Cy: waiting for author'],
-      [['neutral'], 'Di: vote reset'],
-    ],
-  );
-  assert.ok((await Promise.all(votes.map(vote => one(vote, '.status-dot').getAttribute('aria-hidden')))).every(value => value === 'true'));
+  // Line 2 counts the votes; the count opens the named votes under line 2, and the names appear nowhere else.
+  const tally = one(row(doc, 'votes'), '.subref .ref-summary button.vote-tally');
+  assert.equal(await text(tally), '1 approval, 1 waiting for author, 1 vote reset ›');
+  assert.ok(await tally.hasClass('warn'), 'the tally takes the colour of its worst vote');
+  assert.equal(await tally.getAttribute('data-action'), 'toggle-group');
+  assert.equal(await tally.getAttribute('aria-expanded'), 'false');
+  const list = one(row(doc, 'votes'), `[id='${await tally.getAttribute('aria-controls')}']`);
+  assert.ok(await list.matches('details.vote-list:not([open])'));
+  assert.deepEqual(await Promise.all((await all(list, 'li')).map(item => text(item))), [
+    'Bo approved',
+    'Cy waiting for author',
+    'Di vote reset',
+  ]);
+  assert.ok(await one(list, ':scope li:nth-child(2) .status-text').hasClass('warn'));
+  assert.doesNotMatch(await text(one(row(doc, 'votes'), '.subref')), /Bo|Cy|Di/);
+  // Line 2 is no longer inside the title button, so the tally is not nested interactive content. The button names
+  // the title and is described by line 2.
+  assert.equal((await all(row(doc, 'votes'), '.feed-title :is(button, a, .subref)')).length, 0);
+  const title = one(row(doc, 'votes'), '.feed-title');
+  assert.equal(await title.getAttribute('aria-describedby'), await one(row(doc, 'votes'), '.subref').getAttribute('id'));
   assert.equal((await all(row(doc, 'target'), '.ref-summary')).length, 0);
   for (const id of ['votes', 'target']) {
     assert.match(
@@ -798,7 +810,7 @@ test('Activity distinguishes tag events and tag builds from branch activity', as
   assert.equal((await all(row(doc, 'tag'), '.kind svg')).length, 1);
   assert.match(await text(row(doc, 'tag')), /Points at aaaaaaa/);
   assert.equal(await text(one(row(doc, 'tag'), '.title')), 'v1');
-  assert.equal(await textIncludingHidden(one(row(doc, 'tag-build'), '.ref-branch')), '· tag v1');
+  assert.equal(await textIncludingHidden(one(row(doc, 'tag-build'), '.ref-branch')), 'tag v1');
   assert.equal(
     await one(row(doc, 'tag-build'), '.ref-branch svg path').getAttribute('d'),
     await one(row(doc, 'tag'), '.kind svg path').getAttribute('d'),
@@ -822,6 +834,112 @@ test('a grouped row counts its unread updates beside the title only when there i
   assert.deepEqual(await classes(count), ['new-count', 'pill', 'u']);
   state.events = [present(state.events[0])];
   assert.equal((await all(parse(t, renderFeed(state, view)), '.new-count')).length, 0);
+});
+
+/** A feed whose rows carry the CI summaries a test gives them, keyed by row ID, in place of what the store found. */
+function feedWithCi(state: Fixture, summaries: Record<string, { results: CiResult[]; historyCount?: number }>) {
+  const activity = activityPage(state, view);
+  for (const [id, { results, historyCount = 0 }] of Object.entries(summaries)) {
+    const item = present(activity.items.find(candidate => candidate.id === id));
+    item.ciSummary = { results, historyCount };
+    item.relatedCi = results.map(result => result.run);
+  }
+  return renderPagedFeed({ ...state, activity }, view);
+}
+const ciRun = (id: string, title: string, outcome: RelatedCi['outcome'], fields: Partial<RelatedCi> = {}): RelatedCi => ({
+  id,
+  time: '2026-11-17T10:05:00Z',
+  title,
+  validation: false,
+  postMerge: true,
+  outcome,
+  ...fields,
+});
+const mergedPr = (id: string, number: number): ActivityEvent => ({
+  id,
+  repoId: 'r',
+  kind: 'pr',
+  title: `PR ${number} · Change ${number}`,
+  branch: `feature/${id}`,
+  actor: 'Ana',
+  seen: false,
+  imported: false,
+  time: '2026-11-17T10:00:00Z',
+  observedAt: '2026-11-17T10:00:00Z',
+  data: {
+    pullRequestId: number,
+    status: 'completed',
+    sourceRefName: `refs/heads/feature/${id}`,
+    targetRefName: 'refs/heads/main',
+    mergeCommit: String(number).repeat(40).slice(0, 40),
+  },
+});
+
+test('a CI result with a problem gets one trouble line under line 2 that names every pipeline in a mixed state', async t => {
+  const state = fixture();
+  state.events = ['mixed', 'retry', 'noted', 'stale', 'recovered'].map((id, index) => mergedPr(id, index + 1));
+  const doc = parse(
+    t,
+    feedWithCi(state, {
+      mixed: {
+        results: [
+          { run: ciRun('b1', 'dbt-build', 'failed'), tone: 'crit' },
+          { run: ciRun('b2', 'adf-deploy', 'passed'), tone: 'ok' },
+        ],
+        historyCount: 1,
+      },
+      // A pending retry stays next to its last failure.
+      retry: {
+        results: [
+          { run: ciRun('c1', 'dbt-build', 'failed'), tone: 'crit' },
+          { run: ciRun('c2', 'dbt-build', 'running'), tone: 'neutral' },
+        ],
+      },
+      noted: { results: [{ run: ciRun('d1', 'Billing CI', 'failed'), tone: 'warn', note: 'retry order unknown' }] },
+      stale: {
+        results: [
+          { run: ciRun('e1', 'Billing CI', 'partially succeeded', { stale: true, validation: true, postMerge: false }), tone: 'warn' },
+        ],
+      },
+      recovered: {
+        results: [{ run: ciRun('f1', 'Billing CI', 'passing again', { validation: true, postMerge: false }), tone: 'ok' }],
+        historyCount: 1,
+      },
+    }),
+  );
+  const trouble = (id: string) => one(row(doc, id), '.subject > .ci-trouble');
+  const parts = async (id: string) =>
+    Promise.all(
+      (await all(trouble(id), 'button.ci-run')).map(async part => ({
+        text: await text(part),
+        tone: (await classes(part)).filter(name => ['crit', 'warn', 'muted'].includes(name)).join(),
+        id: await part.getAttribute('data-event-id'),
+        action: await part.getAttribute('data-action'),
+      })),
+    );
+  assert.equal(await text(trouble('mixed')), '✕ dbt-build failed · ✓ adf-deploy passed');
+  assert.deepEqual(await parts('mixed'), [
+    { text: '✕ dbt-build failed', tone: 'crit', id: 'b1', action: 'detail' },
+    { text: '✓ adf-deploy passed', tone: 'muted', id: 'b2', action: 'detail' },
+  ]);
+  assert.deepEqual(
+    (await parts('retry')).map(({ text, tone }) => [text, tone]),
+    [
+      ['✕ dbt-build failed', 'crit'],
+      ['○ dbt-build running', 'warn'],
+    ],
+  );
+  assert.equal(await text(trouble('noted')), '✕ Post-merge CI failed · Billing CI · retry order unknown');
+  assert.equal(await text(one(trouble('noted'), '.ci-note')), '· retry order unknown');
+  assert.equal(await text(trouble('stale')), '! PR validation partially succeeded on earlier revision · Billing CI');
+  assert.equal((await parts('stale'))[0]?.tone, 'warn');
+  // The left cell keeps the kind and the count; the trouble stays out of it.
+  for (const id of ['mixed', 'retry', 'noted', 'stale']) assert.equal((await all(row(doc, id), '.status .ci-run')).length, 0, id);
+  assert.equal(await text(one(row(doc, 'mixed'), '.status')), 'PR merged CI · 3 runs ›');
+  // A recovered run has no trouble: the left cell says it passed again, muted.
+  assert.equal((await all(row(doc, 'recovered'), '.ci-trouble')).length, 0);
+  assert.equal(await text(one(row(doc, 'recovered'), '.status')), 'PR merged ✓ passed again CI · 2 runs ›');
+  assert.equal(await text(one(row(doc, 'recovered'), '.status .ci-again')), '✓ passed again');
 });
 
 test('a CI row without a known trigger shows no summary line, and the detail page still names the gap', async t => {

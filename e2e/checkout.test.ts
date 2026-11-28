@@ -49,8 +49,9 @@ test('a New branch detail reviews a rewritten tracking ref before switching, the
   await search.fill('checkout-from-activity');
   await page
     .getByRole('button', {
-      name: `${branch} · repository ${repo.name} · pushed by Test · First seen remotely; creation time not supplied`,
+      name: branch,
       exact: true,
+      description: `repository ${repo.name} · pushed by Test · First seen remotely; creation time not supplied`,
     })
     .click();
   await page.getByRole('button', { name: `Switch to ${branch}…` }).click();

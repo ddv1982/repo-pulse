@@ -274,7 +274,8 @@ button.ci-count:hover {
 }
 /* Where a row happened: repository, branch and PR as tokens that wrap as whole units. A single token wider than the
    column ends in an ellipsis; the branch keeps its full name in its title and in the DOM. */
-.feed-title .subref {
+.row-head .subref {
+  cursor: pointer;
   font-family: inherit;
   overflow-wrap: normal;
   display: flex;
@@ -288,7 +289,7 @@ button.ci-count:hover {
 }
 /* Line 2's facts read as one sentence: a middot after each token but the last, drawn so that it is not read out. It
    trails its token, so a wrapped line starts with a fact, not a dot. */
-.feed-title .subref > :not(:last-child)::after {
+.row-head .subref > :not(:last-child)::after {
   content: '·' / '';
   margin-inline-start: var(--space-1-5);
 }
@@ -312,8 +313,42 @@ button.ci-count:hover {
   min-width: 0;
   overflow-wrap: anywhere;
 }
-.ref-summary > :not(.sr) ~ .status-text {
-  margin-inline-start: var(--space-2);
+/* The vote tally opens the named votes under line 2. Approvals stay muted; a vote that asks for changes is coloured. */
+button.vote-tally.sm {
+  height: auto;
+  padding: 0;
+  font-size: inherit;
+  font-weight: 400;
+  line-height: inherit;
+  color: var(--muted-foreground);
+}
+button.vote-tally:hover {
+  background: none;
+  text-decoration: underline;
+}
+button.vote-tally.warn {
+  color: var(--warning);
+}
+button.vote-tally.crit {
+  color: var(--critical);
+}
+.vote-list ul {
+  display: grid;
+  grid-template-columns: max-content max-content;
+  gap: 0 var(--space-4);
+  margin: var(--space-1) 0 0;
+  padding: var(--space-0-5) 0 var(--space-0-5) var(--space-2-5);
+  border-inline-start: 1px solid var(--border);
+  list-style: none;
+}
+.vote-list li {
+  display: contents;
+}
+.vote-list .voter {
+  color: var(--foreground-soft);
+}
+.vote-list .status-text:not(.warn, .crit) {
+  color: var(--muted-foreground);
 }
 .subref > .chip {
   padding-block: 0;
@@ -377,6 +412,65 @@ button.ci-count:hover {
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
+/* The trouble line: every CI result of a row with a problem, on one line under line 2. Only failures (red) and runs in
+   progress or other problems (amber) are coloured; passes and notes stay muted. */
+.ci-trouble {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 var(--space-1-5);
+  margin-top: var(--space-1);
+  font-size: var(--text-xs);
+  line-height: 20px;
+  color: var(--muted-foreground);
+}
+.ci-trouble button.sm {
+  height: auto;
+  padding: 0;
+  font-size: inherit;
+  font-weight: 500;
+  line-height: inherit;
+  text-align: left;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.ci-trouble button.sm:hover {
+  background: none;
+  text-decoration: underline;
+}
+.ci-trouble .ci-run.crit {
+  color: var(--critical);
+}
+.ci-trouble .ci-run.warn {
+  color: var(--warning);
+}
+.ci-trouble .ci-run.muted,
+.ci-trouble .ci-host {
+  color: var(--muted-foreground);
+  font-weight: 400;
+}
+.ci-trouble .ci-host {
+  margin-inline-start: var(--space-1-5);
+}
+.ci-glyph {
+  display: inline-block;
+  min-width: 1ch;
+  text-align: center;
+}
+.ci-note {
+  color: var(--muted-foreground);
+  font-weight: 400;
+}
+.ci-sep {
+  opacity: 0.6;
+}
+/* A recovered run in the status cell: muted, between the kind and the CI count. */
+.ci-again {
+  font-size: var(--text-xs);
+  line-height: 20px;
+  color: var(--muted-foreground);
+  white-space: nowrap;
+}
 /* What goes under line 2: CI, origin notes, the update trail, linked rows and commits. */
 .row-extra {
   margin-top: var(--space-1);
@@ -417,17 +511,13 @@ button.ci-count:hover {
   color: var(--muted-foreground);
   font-size: var(--text-xs);
 }
-.event-ci > .linked-event {
-  margin-top: 0;
-}
 .linked-event .push {
   padding: 3px 0;
 }
 .linked-event summary {
   cursor: pointer;
 }
-.linked-event button.sm,
-.event-ci button.sm {
+.linked-event button.sm {
   max-width: 100%;
   height: auto;
   min-height: var(--control-height-sm);
@@ -451,7 +541,7 @@ button.ci-count:hover {
 .ci-rollup > [data-related] {
   justify-self: start;
 }
-.event-ci button.ci-run {
+.ci-history button.ci-run {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: baseline;

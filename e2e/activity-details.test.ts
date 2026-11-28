@@ -58,8 +58,10 @@ test('completed PRs clearly show a merge into the target and optional source/res
   await selectActivityType(page, 'Pull request');
   await expect(page.locator('li.row .kind')).toHaveText('PR merged');
   // Line 2 says the merge as `source → target` and the merge commit, with its full sha on hover.
-  await expect(page.locator('li.row .feed-title')).toHaveAccessibleName(
-    'PR 45 · Fix export · source branch feature/export targeting branch main · merge commit bbbbbbbbb · author PR creator',
+  // The title button names the title, and line 2 beside it describes the button.
+  await expect(page.locator('li.row .feed-title')).toHaveAccessibleName('PR 45 · Fix export');
+  await expect(page.locator('li.row .feed-title')).toHaveAccessibleDescription(
+    'source branch feature/export targeting branch main · merge commit bbbbbbbbb · author PR creator',
   );
   await expect(page.locator('li.row .ref-sha')).toHaveAttribute('title', 'b'.repeat(40));
   await expect(page.locator('li.row')).toHaveClass(/tone-ok/);
@@ -176,9 +178,11 @@ test('an open Activity view picks up a seen action in another tab and later merg
   const title = 'Merge of PR 12 pushed to main';
   await expect(row.getByText('Merge of PR 12 pushed', { exact: true })).toBeVisible({ timeout: 8000 });
   await expect(row.getByText('Completed PR linked')).toHaveCount(0);
-  await expect(row.locator('.ref-actor')).toHaveText(/ pushed by Azure DevOps service$/);
+  await expect(row.locator('.ref-actor')).toHaveText('pushed by Azure DevOps service');
   // The row title leaves the branch to line 2; the detail heading keeps the whole title.
-  await row.getByRole('button', { name: /^Merge of PR 12 pushed · .*branch main · pushed by Azure DevOps service$/ }).click();
+  await row
+    .getByRole('button', { name: 'Merge of PR 12 pushed', exact: true, description: /branch main · pushed by Azure DevOps service$/ })
+    .click();
   await expect(page.getByRole('heading', { name: title, exact: true })).toBeVisible();
   await expect(page.getByText('Pushed by', { exact: true })).toBeVisible();
   await expect(page.getByText(/PR closed by Alice Morgan/)).toBeVisible();
@@ -361,7 +365,7 @@ test('a pending refresh leaves Activity details available', async t => {
   await expect(page.locator('#toast')).toContainText('Activity refresh queued.');
 });
 
-test('a CI row shows a failing pipeline next to a passing one, and a passed retry reads as passed in the row and detail', async t => {
+test('a merged PR names a failing pipeline next to a passing one on its trouble line, and a passed retry reads as passed again', async t => {
   const { page, runtime } = await setup(t, true, { highlights: true });
   const at = (minutes: number) => new Date(Date.now() - minutes * 60_000).toISOString();
   const base = { repoId: 'demo-billing', branch: 'main', actor: 'Demo developer', observedAt: at(0) };
@@ -409,20 +413,20 @@ test('a CI row shows a failing pipeline next to a passing one, and a passed retr
   await page.reload();
 
   const mixed = page.locator('li[data-event-id="mixed-merge"]');
-  await expect(mixed.locator('.ci-rollup').first().locator('.ci-run')).toHaveText([
-    /Post-merge CI failed · dbt-build/,
-    /Post-merge CI passed · adf-deploy/,
-  ]);
+  await expect(mixed.locator('.ci-trouble .ci-run')).toHaveText(['✕ dbt-build failed', '✓ adf-deploy passed']);
+  await expect(mixed.locator('.ci-trouble .ci-run').first()).toHaveClass(/\bcrit\b/);
   await expect(mixed.locator('.ci-history')).toHaveCount(0);
-  await capture(mixed, 'activity-redesign/phase3/failing-next-to-passing.png');
+  await capture(mixed, 'activity-redesign/phase4b/failing-next-to-passing.png');
 
   const retried = page.locator('li[data-event-id="retried-pr"]');
   // A passing row folds its runs into the CI count; the list opens with the current pass first, then the failed attempt.
   await expect(retried).not.toContainText('passing again');
+  await expect(retried.locator('.status .ci-again')).toHaveText('✓ passed again');
+  await expect(retried.locator('.ci-trouble')).toHaveCount(0);
   await retried.getByRole('button', { name: 'CI · 2 runs' }).click();
   await expect(retried.locator('.ci-history .ci-run')).toHaveText([/^PR validation passed /, /^PR validation failed /]);
   const headline = retried.locator('.ci-history .ci-run').first();
-  await capture(retried, 'activity-redesign/phase3/passed-retry.png');
+  await capture(retried, 'activity-redesign/phase4b/passed-retry.png');
   await headline.click();
   await expect(page).toHaveURL(/#event\/retry-passed-4$/);
   await expect(page.getByRole('heading', { name: 'billing-validation', exact: false }).first()).toBeVisible();

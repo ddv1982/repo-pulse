@@ -25,7 +25,7 @@ import { renderTrail } from './activity-trail.ts';
 import { renderSearchInput, renderSearchHelp } from './search-field.ts';
 import { renderTypeFilter } from './type-filter.ts';
 import { activityScopeQuery } from './activity-data.ts';
-import { activityFilterLabel, activityRef, prForkSource, prTarget, prVoteChanges } from '../activity-text.ts';
+import { activityFilterLabel, activityRef, prForkSource, prTarget, prVoteChanges, reviewerName, voteLabel } from '../activity-text.ts';
 import { branchName } from '../events.ts';
 import { renderRepositoryScope, scopeName } from './repository-scope.ts';
 import { currentActivityFilters, isSavedFilterModified, renderSavedFilters } from './saved-filters.ts';
@@ -90,7 +90,7 @@ const actorRoles: Record<import('../activity.ts').ActivityKind, string> = {
 function renderActor(record: ActivityItem) {
   const actor = activityActor(record);
   if (!actor) return emptyHtml;
-  return html`<span class="ref-actor"><span class="sr"> · </span>${actor === 'Unknown' ? emptyHtml : html`${actorRoles[record.kind]} `}<span class="actor">${actor}</span></span>`;
+  return html`<span class="ref-actor">${actor === 'Unknown' ? emptyHtml : html`${actorRoles[record.kind]} `}<span class="actor">${actor}</span></span>`;
 }
 
 /** Who and when, for a run nested in another row. The day header above the row names the day of `rowTime`. */
@@ -108,67 +108,108 @@ function inlineCommits(record: ActivityItem, commits: CommitsView | undefined, g
     ${commits && 'items' in commits ? html`<details class="linked-event" ${disclosure(groups, `push-commits-${record.groupKey}`, true)}><summary ${action('toggle-group')}>Push commits</summary>${renderCommits(commits)}</details>` : commits ? renderCommits(commits) : emptyHtml}`;
 }
 
-function ciRunButton(run: import('../activity.ts').RelatedCi, rowTime: ActivityItem['time'], tone: string, named = false, note?: string) {
-  const phase = run.validation ? 'PR validation' : run.postMerge ? 'Post-merge CI' : 'Branch CI';
-  return html`<button type="button" class="ghost sm ci-run status-text ${tone}" ${action('detail')} data-event-id="${run.id}" title="${run.title} · ${fullDateTime(run.time)}"><span>${phase} ${run.outcome}${run.stale ? ' on earlier revision' : ''}${named && run.title !== 'CI run' ? ` · ${run.title}` : ''}${note ? ` · ${note}` : ''}</span> ${ciTime(run.time, true, rowTime)}</button>`;
+const ciPhase = (run: import('../activity.ts').RelatedCi) =>
+  run.validation ? 'PR validation' : run.postMerge ? 'Post-merge CI' : 'Branch CI';
+const activeCi = (run: import('../activity.ts').RelatedCi) => ['queued', 'running', 'canceling'].includes(run.outcome);
+
+/** A run in the run list the CI count opens: its phase, outcome and time. */
+function ciRunButton(run: import('../activity.ts').RelatedCi, rowTime: ActivityItem['time'], tone: string, named = false) {
+  const outcome = run.outcome === 'passing again' ? 'passed' : run.outcome;
+  return html`<button type="button" class="ghost sm ci-run status-text ${tone}" ${action('detail')} data-event-id="${run.id}" title="${run.title} · ${fullDateTime(run.time)}"><span>${ciPhase(run)} ${outcome}${run.stale ? ' on earlier revision' : ''}${named && run.title !== 'CI run' ? ` · ${run.title}` : ''}</span> ${ciTime(run.time, true, rowTime)}</button>`;
 }
 
 /**
- * A row's CI: the count of its runs for the status cell, and what goes under line 2. Results that all pass stay folded
- * into the count, which opens the run list under line 2. A result with a problem stays in view, and the count opens
- * the runs not shown already. With nothing more to open, the count is plain text.
+ * One part of the trouble line: a glyph, then the pipeline and its outcome. A result that stands alone names its phase
+ * and then its pipeline; in a mixed state each part names its pipeline. Failures are red, runs in progress and other
+ * problems amber, and passes muted. A note follows in muted text.
+ */
+function troublePart({ run, tone, note }: import('../activity.ts').CiResult, named: boolean) {
+  const known = run.title !== 'CI run';
+  const outcome = run.outcome === 'passing again' ? 'passed again' : run.outcome;
+  const glyph = run.outcome === 'failed' ? '✕' : activeCi(run) ? '○' : run.outcome === 'partially succeeded' ? '!' : '✓';
+  const colour = activeCi(run) ? 'warn' : tone === 'crit' || tone === 'warn' ? tone : 'muted';
+  return html`<button type="button" class="ghost sm ci-run ${colour}" ${action('detail')} data-event-id="${run.id}" title="${ciPhase(run)} · ${run.title} · ${fullDateTime(run.time)}"><span class="ci-glyph" aria-hidden="true">${glyph}</span> ${named && known ? run.title : ciPhase(run)} ${outcome}${run.stale ? ' on earlier revision' : ''}${!named && known ? html`<span class="ci-pipeline"> · ${run.title}</span>` : emptyHtml}${note ? html`<span class="ci-note"> · ${note}</span>` : emptyHtml}</button>`;
+}
+
+/**
+ * A row's CI: the count of its runs and a recovery note for the status cell, the trouble line under line 2, and the
+ * run list the count opens. Results that all pass stay folded into the count. A result with a problem puts every
+ * result on the trouble line, and the count opens the runs not shown already. With nothing more to open, the count is
+ * plain text. A CI run that tested a change links to it from the trouble line.
  */
 function relatedCi(record: ActivityItem, groups: Groups) {
   const { results, historyCount } = record.ciSummary ?? { results: [], historyCount: 0 };
-  if (!results.length) {
-    const host = record.ciHost
-      ? html`<div class="event-ci"><button type="button" class="ghost sm" ${action('detail')} data-event-id="${record.ciHost}">${record.highlight ? 'View pull request' : 'View tested change'}</button></div>`
-      : emptyHtml;
-    return { count: emptyHtml, runs: host };
-  }
+  const host = record.ciHost
+    ? html`<button type="button" class="ghost sm ci-host" ${action('detail')} data-event-id="${record.ciHost}">${record.highlight ? 'View pull request' : 'View tested change'}</button>`
+    : emptyHtml;
   const passing = results.every(({ run, tone, note }) => tone === 'ok' && !note && !run.stale);
+  const parts = passing ? [] : results.map(result => troublePart(result, results.length > 1));
+  const trouble =
+    parts.length || host !== emptyHtml
+      ? html`<div class="ci-trouble">${joinHtml(parts, html` <span class="ci-sep" aria-hidden="true">·</span> `)}${host}</div>`
+      : emptyHtml;
+  if (!results.length) return { count: emptyHtml, trouble, runs: emptyHtml };
+  const again =
+    passing && results.some(({ run }) => run.outcome === 'passing again')
+      ? html`<span class="ci-again"><span aria-hidden="true">✓</span> passed again</span>`
+      : emptyHtml;
   const currentIds = new Set(results.map(({ run }) => run.id));
   const history = record.relatedCi?.filter(run => !currentIds.has(run.id)) ?? [];
-  const headline = results.map(({ run, tone, note }) =>
-    ciRunButton(
-      run.outcome === 'passing again' ? { ...run, outcome: 'passed' } : run,
-      record.time,
-      tone,
-      results.length > 1 || tone === 'crit' || tone === 'warn',
-      note,
-    ),
-  );
   const total = results.length + historyCount;
   const label = html`CI · ${total} ${total === 1 ? 'run' : 'runs'}`;
-  if (!passing && !historyCount)
-    return {
-      count: html`<span class="ci-count">${label}</span>`,
-      runs: html`<div class="event-ci"><div class="ci-rollup">${headline}</div></div>`,
-    };
+  if (!passing && !historyCount) return { count: html`${again} <span class="ci-count">${label}</span>`, trouble, runs: emptyHtml };
   const id = `ci-${record.groupKey}`;
   const listId = `ci-runs-${record.groupKey}`;
-  const count = html`<button type="button" class="ghost sm ci-count" id="ci-count-${record.groupKey}" ${action('toggle-group')} aria-controls="${listId}" aria-expanded="${groups.get(id) ?? false}">${label}<span aria-hidden="true"> ›</span></button>`;
+  const count = html`${again} <button type="button" class="ghost sm ci-count" id="ci-count-${record.groupKey}" ${action('toggle-group')} aria-controls="${listId}" aria-expanded="${groups.get(id) ?? false}">${label}<span aria-hidden="true"> ›</span></button>`;
   // The list is a disclosure that the count in the status cell opens; its own summary stays hidden.
-  const list = html`<details class="linked-event ci-history" id="${listId}" ${disclosure(groups, id)}><summary hidden></summary><div class="ci-rollup">${passing ? headline : emptyHtml}${history.map(run => ciRunButton(run.outcome === 'passing again' ? { ...run, outcome: 'passed' } : run, record.time, 'neutral'))}${historyCount > history.length ? html`<button type="button" class="ghost sm" ${action('detail')} data-event-id="${record.id}" data-related>View all CI runs</button>` : emptyHtml}</div></details>`;
-  return { count, runs: html`<div class="event-ci">${passing ? emptyHtml : html`<div class="ci-rollup">${headline}</div>`}${list}</div>` };
+  const runs = html`<details class="linked-event ci-history" id="${listId}" ${disclosure(groups, id)}><summary hidden></summary><div class="ci-rollup">${passing ? results.map(({ run, tone }) => ciRunButton(run, record.time, tone, results.length > 1)) : emptyHtml}${history.map(run => ciRunButton(run, record.time, 'neutral'))}${historyCount > history.length ? html`<button type="button" class="ghost sm" ${action('detail')} data-event-id="${record.id}" data-related>View all CI runs</button>` : emptyHtml}</div></details>`;
+  return { count, trouble, runs };
 }
 
-/** Line 2's last token: the vote changes, the vote tally of an open PR, or the row's summary. */
-function eventSummary(record: ActivityItem, targetShown: boolean, pr: ActivityItem['data']) {
-  const votes = pr ? prVoteChanges(pr) : [];
+/** A vote kind as the tally counts it. */
+function voteCount(vote: number, label: string, count: number) {
+  if (vote === 10) return `${count} ${count === 1 ? 'approval' : 'approvals'}`;
+  if (vote === 0) return `${count} ${count === 1 ? 'vote reset' : 'votes reset'}`;
+  return `${count} ${label}`;
+}
+
+/**
+ * The votes a PR row names: on an open PR's latest milestone, its current approvals and the other votes that changed;
+ * on other milestones, the votes that changed there. Line 2 counts them, and the count opens the named list.
+ */
+function rowVotes(record: ActivityItem, pr: ActivityItem['data'], groups: Groups) {
+  const changes = pr ? prVoteChanges(pr) : [];
   const latest = record.latestPrMilestone && pr?.status === 'active' ? pr.reviewers : undefined;
-  const tally = latest?.filter(reviewer => reviewer.vote > 0).length;
-  const approvals = votes.filter(change => change.vote === 10).length;
-  const shownVotes = latest
-    ? votes.filter(change => change.vote <= 0)
-    : approvals > 1
-      ? [{ vote: 10, text: `${approvals} new approvals` }, ...votes.filter(change => change.vote !== 10)]
-      : votes;
-  if (tally !== undefined || shownVotes.length) {
-    return html`${tally === undefined ? emptyHtml : html`<span>${tally} ${tally === 1 ? 'approval' : 'approvals'}</span>`}${shownVotes.map(change => html`<span class="status-text ${voteTone(change.vote)}"><span class="status-dot" aria-hidden="true"></span>${change.text}</span>`)}`;
-  }
-  if (pr?.targetRefName) return targetShown ? '' : prTarget(pr);
-  return rowSummary(record);
+  const named = latest
+    ? [
+        ...latest
+          .filter(reviewer => reviewer.vote > 0)
+          .map(reviewer => ({ name: reviewerName(reviewer.name), vote: reviewer.vote, label: voteLabel(reviewer.vote) })),
+        ...changes.filter(change => change.vote <= 0),
+      ]
+    : changes;
+  if (!named.length) return latest ? { tally: html`<span>0 approvals</span>`, list: emptyHtml } : undefined;
+  const kinds = new Map<number, { label: string; count: number }>();
+  for (const { vote, label } of named) kinds.set(vote, { label, count: (kinds.get(vote)?.count ?? 0) + 1 });
+  const words = [...kinds].map(([vote, { label, count }]) => voteCount(vote, label, count)).join(', ');
+  const tone = named.some(({ vote }) => vote === -10) ? ' crit' : named.some(({ vote }) => vote === -5) ? ' warn' : '';
+  const id = `votes-${record.groupKey}`;
+  const listId = `vote-list-${record.groupKey}`;
+  return {
+    tally: html`<button type="button" class="ghost sm vote-tally${tone}" id="vote-tally-${record.groupKey}" ${action('toggle-group')} aria-controls="${listId}" aria-expanded="${groups.get(id) ?? false}">${words}<span aria-hidden="true"> ›</span></button>`,
+    list: html`<details class="linked-event vote-list" id="${listId}" ${disclosure(groups, id)}><summary hidden></summary><ul>${named.map(
+      ({ name, vote, label }) =>
+        html`<li><span class="voter">${name}</span> <span class="status-text ${voteTone(vote)}">${label}</span></li>`,
+    )}</ul></details>`,
+  };
+}
+
+/** Line 2's last token: the vote tally of a PR, or the row's summary; and the named votes the tally opens. */
+function eventSummary(record: ActivityItem, targetShown: boolean, pr: ActivityItem['data'], groups: Groups) {
+  const votes = rowVotes(record, pr, groups);
+  if (votes) return { summary: votes.tally, votes: votes.list };
+  if (pr?.targetRefName) return { summary: targetShown ? '' : prTarget(pr), votes: emptyHtml };
+  return { summary: rowSummary(record), votes: emptyHtml };
 }
 
 /**
@@ -279,10 +320,14 @@ function renderTitle(record: ActivityItem, title: string) {
   )}`;
 }
 
+/** The separator between line 2's facts as it is read out; the middot a reader sees is drawn by the stylesheet. */
+const SEPARATOR = html`<span class="sr"> · </span>`;
+const sep = (token: SafeHtml) => (token === emptyHtml ? emptyHtml : html`${SEPARATOR}${token}`);
+
 /** A merged PR's merge commit, shortened, with the full ID in its title. */
 function mergeShaToken(pr: ActivityItem['data']) {
   const sha = pr?.status === 'completed' ? pr.mergeCommit : undefined;
-  return sha ? html`<code class="ref-sha" title="${sha}"><span class="sr"> · merge commit </span>${sha.slice(0, 9)}</code>` : emptyHtml;
+  return sha ? html`<code class="ref-sha" title="${sha}"><span class="sr">merge commit </span>${sha.slice(0, 9)}</code>` : emptyHtml;
 }
 
 /**
@@ -304,19 +349,19 @@ function renderRoute(record: ActivityItem, title: string, target: string) {
   // The branch and its PR share a group that never wraps, so a long branch name is cut short before the chip moves.
   return html`<span class="ref-target${target ? ' ref-route' : ''}">${
     branch
-      ? html`<span class="ref-branch" title="${branch}">${tag ? icons.tag : icons.branch}<span class="sr"> · ${tag ? 'tag' : target ? 'source branch' : 'branch'} </span><span class="ref-name">${tag ? branch.replace(/^refs\/tags\//, '') : branch}</span></span>`
+      ? html`<span class="ref-branch" title="${branch}">${tag ? icons.tag : icons.branch}<span class="sr">${tag ? 'tag' : target ? 'source branch' : 'branch'} </span><span class="ref-name">${tag ? branch.replace(/^refs\/tags\//, '') : branch}</span></span>`
       : emptyHtml
   }${
     target
-      ? html`${branch ? html`<span aria-hidden="true">→</span><span class="sr"> targeting branch </span>` : html` <span class="sr"> · </span><span>Target:</span> `}<span class="ref-destination" title="${target}"><span class="ref-name">${target}</span></span> ${shaToken}`
-      : html` ${shaToken}`
+      ? html`${branch ? html`<span aria-hidden="true">→</span><span class="sr"> targeting branch </span>` : html`<span>Target:</span> `}<span class="ref-destination" title="${target}"><span class="ref-name">${target}</span></span> ${sep(shaToken)}`
+      : html` ${sep(shaToken)}`
   }${pullRequestId ? html`<span class="chip ref-pr"><span class="sr"> · </span>PR ${pullRequestId}</span>` : emptyHtml}</span>`;
 }
 
 /**
  * Line 2, the facts under a row's title, in this order: repository, where (`renderRoute`), who did it, then the
- * summary or votes, and the merge evidence. The hidden words keep the button's accessible name readable after its
- * title.
+ * summary or vote tally, and the merge evidence. It describes the title button, and its hidden words keep that
+ * description readable.
  * @param title the row's shown title
  * @param repoName empty when the row needs no repository name
  */
@@ -325,13 +370,16 @@ function renderFacts(
   { title, repoName, target, summary }: { title: string; repoName: string; target: string; summary: string | SafeHtml },
 ) {
   const parts = [
-    repoName ? html`<span class="ref-repo"><span class="sr"> · repository </span>${repoName}</span>` : emptyHtml,
+    repoName ? html`<span class="ref-repo"><span class="sr">repository </span>${repoName}</span>` : emptyHtml,
     renderRoute(record, title, target),
     renderActor(record),
-    summary ? html`<span class="ref-summary"><span class="sr"> · </span>${summary}</span>` : emptyHtml,
+    summary ? html`<span class="ref-summary">${summary}</span>` : emptyHtml,
     mergeEvidenceBadge(record),
   ].filter(part => part !== emptyHtml);
-  return parts.length ? html`<span class="subref">${parts}</span>` : emptyHtml;
+  // A click on line 2 opens the detail as the title does; a control in it, such as the vote tally, keeps its own action.
+  return parts.length
+    ? html`<div class="subref" id="facts-${record.groupKey}" ${action('detail')} data-event-id="${record.id}">${joinHtml(parts, SEPARATOR)}</div>`
+    : emptyHtml;
 }
 
 function renderKind(record: ActivityItem, tone: string) {
@@ -379,14 +427,20 @@ function renderKind(record: ActivityItem, tone: string) {
  * Line 2 of a row, and the origin notes it leaves for under it. Open and merged PRs name their target on line 2.
  * @param repoName empty when the row needs no repository name
  */
-function rowFacts(record: ActivityItem, title: string, repoName: string, tree: import('../activity-tree.ts').TreeRow | undefined) {
+function rowFacts(
+  record: ActivityItem,
+  title: string,
+  repoName: string,
+  tree: import('../activity-tree.ts').TreeRow | undefined,
+  groups: Groups,
+) {
   const pr = record.kind === 'pr' ? record.data : undefined;
   const target = pr && ['active', 'completed'].includes(pr.status ?? '') && pr.targetRefName ? branchName(pr.targetRefName) : '';
-  const summary = eventSummary(record, Boolean(target), pr);
+  const { summary, votes } = eventSummary(record, Boolean(target), pr, groups);
   const origins = [pr ? prForkSource(pr.fork) : '', forkText(tree?.fork ?? null)].filter(Boolean);
   // A new branch can lead with its origin. A PR with its target on line 2 keeps the origin under it.
   const lead = summary || target || origins.length === 0 ? summary : (origins.shift() ?? '');
-  return { facts: renderFacts(record, { title, repoName, target, summary: lead }), origins };
+  return { facts: renderFacts(record, { title, repoName, target, summary: lead }), votes, origins };
 }
 
 /**
@@ -414,11 +468,11 @@ function row(
   const ackLinkedPush = push && (!record.unseen || push.unseen);
   const fullTitle = activityTitle(record);
   const title = rowTitle(record, fullTitle, commits);
-  const { facts, origins } = rowFacts(record, title, showRepo ? repo?.name || 'Unknown repository' : '', tree);
+  const { facts, votes, origins } = rowFacts(record, title, showRepo ? repo?.name || 'Unknown repository' : '', tree, groups);
   const ci = relatedCi(record, groups);
   return html`<li class="${['row', failed ? 'crit' : '', record.unseen ? 'new' : '', `tone-${tone}`].filter(Boolean).join(' ')}" id="row-${record.groupKey}" data-event-id="${record.id}" data-event-ids="${ids}" data-group-key="${record.groupKey}" data-unseen-ids="${unseenIds}">${tree ? renderTreeCell(tree, tone) : emptyHtml}
-    <div class="status">${renderKind(record, tone)}${ci.count}</div>
-    <div class="subject"><button class="feed-title" type="button" ${action('detail')} data-event-id="${record.id}"><span class="title">${renderTitle(record, title)}${unseen.length > 1 ? html` <span class="pill u new-count">${unseen.length} new</span>` : emptyHtml}</span>${facts}</button>${renderExtra(record, origins, ci.runs, groups, related, commits)}</div>
+    <div class="status">${renderKind(record, tone)} ${ci.count}</div>
+    <div class="subject"><div class="row-head"><button class="feed-title" type="button" ${action('detail')} data-event-id="${record.id}" ${facts === emptyHtml ? emptyHtml : html`aria-describedby="facts-${record.groupKey}"`}><span class="title">${renderTitle(record, title)}${unseen.length > 1 ? html` <span class="pill u new-count">${unseen.length} new</span>` : emptyHtml}</span></button>${facts}</div>${votes}${ci.trouble}${renderExtra(record, origins, ci.runs, groups, related, commits)}</div>
     ${renderRowActions(record, fullTitle, ackIds, Boolean(ackLinkedPush))}</li>`;
 }
 
