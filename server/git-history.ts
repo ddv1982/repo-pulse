@@ -1,7 +1,7 @@
 import { branchName } from '../src/events.ts';
 import { createHash } from 'node:crypto';
 import type { GitRunner } from './git.ts';
-import { activityLabel } from '../src/activity-text.ts';
+import { activityStatusId } from '../src/activity-text.ts';
 import type { GitHistoryPage } from '../src/contract.ts';
 import type { ActivityEvent } from '../src/activity.ts';
 import { conflict, invalid } from './errors.ts';
@@ -130,7 +130,7 @@ export function withCommitActivity(page: GitHistoryPage, activity: { sha: string
         kind: event.kind,
         time: event.time,
         title: event.title ?? '',
-        status: activityLabel(event) ?? 'Updated',
+        status: activityStatusId(event),
       });
     }
   }

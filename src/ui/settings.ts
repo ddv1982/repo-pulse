@@ -7,7 +7,7 @@ import type { ConnectionResponse as ConnectionStatus } from '../contract.ts';
 import { disclosure, type Groups } from './groups.ts';
 import { action } from './actions.ts';
 
-function repositorySelect(repos: PageState['repos'], repoId: string) {
+function repositorySelect(repos: PageState['enabledRepos'], repoId: string) {
   if (!repos.length) return emptyHtml;
   return html`<label>Repository <select class="control sm" id="connection-repo" ${action('choose-connection-repo')}>
               ${repos.map(repo => html`<option value="${repo.id}" ${repo.id === repoId ? html`selected` : emptyHtml}>${repo.name} · ${repo.project}</option>`)}
@@ -18,7 +18,7 @@ function connectionDetails(state: PageState, connection: ConnectionState, repoId
   const local = result?.version || result?.available === false ? result : connection.local;
   return html`
           <div class="connection-summary">
-            ${repositorySelect(state.repos, repoId)}
+            ${repositorySelect(state.enabledRepos, repoId)}
             <button class="btn sm" type="button" id="check-settings-connection" ${action('check-connection')} data-repo-id="${repoId}" ${connection.pending === null ? emptyHtml : html`aria-disabled="true"`}>Check connection</button>
           </div>
           ${local?.version ? html`<p class="help">Azure CLI ${local.version}${local.extension ? ` · azure-devops ${local.extension}` : ''}</p>` : emptyHtml}
@@ -30,7 +30,7 @@ function connectionDetails(state: PageState, connection: ConnectionState, repoId
 /** `groups` says which of the page's disclosures the reader opened. */
 export function renderSettings(state: PageState, connection: ConnectionState, groups: Groups = new Map()) {
   const { settings, syncStatus } = state;
-  const repoId = state.repos.some(repo => repo.id === connection.repoId) ? connection.repoId : state.repos[0]?.id || '';
+  const repoId = state.enabledRepos.some(repo => repo.id === connection.repoId) ? connection.repoId : state.enabledRepos[0]?.id || '';
   const result = connection.results.get(repoId);
   return html`<div class="section-heading"><h1>Settings</h1></div>
     <div class="card settings-card">
@@ -51,7 +51,7 @@ export function renderSettings(state: PageState, connection: ConnectionState, gr
       <details ${disclosure(groups, 'troubleshooting')}>
         <summary ${action('toggle-group')} class="settings-row" id="troubleshooting-toggle"><strong>Troubleshooting</strong> <span class="settings-chevron" aria-hidden="true"></span></summary>
         <div class="settings-content">
-          <p class="sync-sentence">${syncSentence(syncStatus.overall, syncRepoName(state.repos, syncStatus.overall))}</p>
+          <p class="sync-sentence">${syncSentence(syncStatus.overall, syncRepoName(state.enabledRepos, syncStatus.overall))}</p>
           <button class="btn sm" type="button" id="copy-diagnostics" ${action('copy-diagnostics')}>Copy diagnostics</button>
         </div>
       </details>

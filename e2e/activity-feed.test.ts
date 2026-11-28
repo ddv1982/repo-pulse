@@ -10,22 +10,22 @@ test('the branch tree works with the unread filter and keeps status markers on n
   const rows = page.locator('.with-tree .row');
   await expect(rows.first()).toBeVisible();
   await expect(page.locator('.with-tree svg.tree')).toHaveCount(await rows.count());
-  const hotfix = page.locator('[data-event-id="demo-branch-1"]');
+  const hotfix = page.locator('li[data-event-id="demo-branch-1"]');
   // A new branch has nothing else to say first, so where it started is its top line, above who and when.
   await expect(hotfix.locator('.event-main')).toHaveText('Started at 3f9a2c1, the tip of main');
   await expect(hotfix.locator('.event-origin')).toHaveCount(0);
   await expect(hotfix.locator('svg.tree path')).toHaveCount(1);
   await expect(hotfix.locator('svg.tree path.assumed')).toHaveCount(0);
-  await expect(page.locator('[data-event-id="demo-branch-3"]')).toContainText('PR 1175 targets main, origin not checked');
-  await expect(page.locator('[data-event-id="demo-branch-3"] svg.tree path.assumed')).toHaveCount(1);
-  await expect(page.locator('[data-event-id="demo-pr-2"] svg.tree path')).toHaveCount(1);
+  await expect(page.locator('li[data-event-id="demo-branch-3"]')).toContainText('PR 1175 targets main, origin not checked');
+  await expect(page.locator('li[data-event-id="demo-branch-3"] svg.tree path.assumed')).toHaveCount(1);
+  await expect(page.locator('li[data-event-id="demo-pr-2"] svg.tree path')).toHaveCount(1);
   // A CI run on a pull request ref takes the branch of the stored PR and joins its lane.
-  const ciRef = page.locator('[data-event-id="demo-build-2"] .subref');
+  const ciRef = page.locator('li[data-event-id="demo-build-2"] .subref');
   await expect(ciRef.locator('.ref-repo')).toHaveText(' · repository shared-components');
   await expect(ciRef.locator('.ref-name')).toHaveText('feature/date-range');
   await expect(ciRef.locator('.ref-pr')).toHaveText(' · PR 412');
   await expect(ciRef.locator('.ref-pr')).toBeVisible();
-  await expect(page.locator('[data-event-id="demo-build-2"] svg.tree rect.ci-node:not(.lane-none)')).toHaveCount(1);
+  await expect(page.locator('li[data-event-id="demo-build-2"] svg.tree rect.ci-node:not(.lane-none)')).toHaveCount(1);
   // A lane must run unbroken through a row, so each cell covers its row from border to border.
   const [cell, row] = await Promise.all([hotfix.locator('svg.tree').boundingBox(), hotfix.boundingBox()]);
   assert.ok(cell && row);
@@ -99,12 +99,12 @@ test('Activity gives wrapped titles room and keeps their event metadata together
     },
   ]);
   await page.reload();
-  const longTitle = page.locator('[data-event-id="long-title-pr"] .feed-title .title');
+  const longTitle = page.locator('li[data-event-id="long-title-pr"] .feed-title .title');
   await expect(longTitle).toBeVisible();
   // The page re-renders as it polls, so box reads retry until a rendered row answers.
   await expect.poll(async () => (await longTitle.boundingBox())?.height ?? 0, { message: 'the long title wraps' }).toBeGreaterThan(30);
   await expect(page.locator('.with-tree .row').first()).toBeVisible();
-  const event = page.locator('[data-event-id="long-title-pr"] .event');
+  const event = page.locator('li[data-event-id="long-title-pr"] .event');
   await expect
     .poll(() =>
       event.evaluate(element => {
@@ -120,13 +120,13 @@ test('Activity gives wrapped titles room and keeps their event metadata together
 
   // At the narrowest wide layout, refs and PR chips stay in the title column.
   await page.setViewportSize({ width: 1100, height: 900 });
-  const prRow = page.locator('[data-event-id="long-title-pr"]');
+  const prRow = page.locator('li[data-event-id="long-title-pr"]');
   await expect(prRow.locator('.feed-title')).toHaveAccessibleName(
     /source branch feature\/DAT-9861_animal_seeds_standards targeting branch main/,
   );
   await expect(prRow.locator('svg.tree circle')).toHaveCount(0);
   await expect(prRow.locator('.standalone-pr-ring')).toHaveCount(0);
-  const connectedPr = page.locator('[data-event-id="demo-pr-1"]');
+  const connectedPr = page.locator('li[data-event-id="demo-pr-1"]');
   await expect(connectedPr.locator('svg.tree circle.hole')).toBeVisible();
   const destinationFits = async () =>
     prRow.locator('.ref-destination').evaluate(element => {
@@ -134,7 +134,7 @@ test('Activity gives wrapped titles room and keeps their event metadata together
       return !!column && element.getBoundingClientRect().right <= column.right && element.scrollWidth <= element.clientWidth;
     });
   await expect.poll(destinationFits).toBe(true);
-  const ciRow = page.locator('[data-event-id="long-branch-ci"]');
+  const ciRow = page.locator('li[data-event-id="long-branch-ci"]');
   await expect
     .poll(
       async () => {
@@ -198,11 +198,11 @@ test('Activity keeps the branch tree while exposing merge status, CI and push co
     },
   ]);
   await page.reload();
-  const merge = page.locator('[data-event-id="readable-merge"]');
-  const failure = page.locator('[data-event-id="failed-after-merge"]');
+  const merge = page.locator('li[data-event-id="readable-merge"]');
+  const failure = page.locator('li[data-event-id="failed-after-merge"]');
   await expect(merge.locator('.kind')).toHaveText('PR merged');
   await expect(merge.getByText('Merged into main')).toBeVisible();
-  const passing = page.locator('[data-event-id="seen-passing-run"]');
+  const passing = page.locator('li[data-event-id="seen-passing-run"]');
   const seen = merge.locator('.seen-toggle');
   await expect(passing).toHaveCount(0);
   await expect(seen).toHaveAttribute('aria-pressed', 'true');
@@ -231,7 +231,7 @@ test('Activity keeps the branch tree while exposing merge status, CI and push co
   await expect(failure.locator('svg.tree rect.ci-node')).toBeVisible();
   await expect(page.locator('svg.tree .default-lane').first()).toHaveCSS('stroke-width', '2.5px');
 
-  const push = page.locator('[data-event-id="demo-push-1"]');
+  const push = page.locator('li[data-event-id="demo-push-1"]');
   const loadCommits = push.getByRole('button', { name: 'Load commits', exact: true });
   await loadCommits.focus();
   await page.keyboard.press('Enter');
@@ -346,7 +346,7 @@ test('Activity shows only highlights and links a landing and quieter CI to its d
     },
   ]);
   await page.reload();
-  const merge = page.locator('[data-event-id="highlight-pr"]');
+  const merge = page.locator('li[data-event-id="highlight-pr"]');
   await expect(merge.locator('.kind')).toHaveText('PR merged');
   await expect(merge.getByText('Landed on main', { exact: false })).toBeVisible();
   const headline = merge.getByRole('button', { name: 'Post-merge CI passed' });
@@ -361,12 +361,12 @@ test('Activity shows only highlights and links a landing and quieter CI to its d
   await expect(merge.locator('.ci-run time')).toHaveCount(6);
   await expect(merge.getByRole('button', { name: 'Post-merge CI passed' }).locator('time')).toHaveAttribute('datetime', base.time);
   await expect(merge.getByRole('button', { name: 'View all CI runs' })).toBeVisible();
-  await expect(page.locator('[data-event-id="quiet-landing-push"], [data-event-id="quiet-pass"]')).toHaveCount(0);
+  await expect(page.locator('li[data-event-id="quiet-landing-push"], li[data-event-id="quiet-pass"]')).toHaveCount(0);
   await expect(merge.locator('svg.tree')).toBeVisible();
-  await expect(page.locator('[data-event-id="later-push-to-same-tip"]')).toContainText('Later default branch push');
-  const approved = page.locator('[data-event-id="approval-highlight"]');
+  await expect(page.locator('li[data-event-id="later-push-to-same-tip"]')).toContainText('Later default branch push');
+  const approved = page.locator('li[data-event-id="approval-highlight"]');
   const approvalLabel = approved.locator('.kind');
-  const readyLabel = page.locator('[data-event-id="opened-0"] .kind');
+  const readyLabel = page.locator('li[data-event-id="opened-0"] .kind');
   await expect(approvalLabel).toHaveText('Approvals met');
   await expect(approved.locator('.event-meta time')).toHaveCSS('white-space', 'nowrap');
   const statusColor = () => approvalLabel.evaluate(element => getComputedStyle(element).color);

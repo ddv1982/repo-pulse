@@ -1,30 +1,37 @@
 import { iso } from './time.ts';
 import { addUnreadable, warningOf } from './read-warnings.ts';
 import type { ActivityEvent } from '../src/activity.ts';
-import { HISTORY_STREAMS } from '../src/contract.ts';
-import type { AzureStreamRecord, HistoryStream, HistoryWindow, HistoryJob, HistoryWarning, UnreadableRecords } from '../src/contract.ts';
+import { HISTORY_IMPORT_STREAMS } from '../src/contract.ts';
+import type {
+  AzureStreamRecord,
+  HistoryImportStream,
+  HistoryImportWindow,
+  HistoryImportJob,
+  HistoryImportWarning,
+  UnreadableRecords,
+} from '../src/contract.ts';
 import type { AzurePage as SourcePage } from './azure-client.ts';
 import type { WatchedRepo } from './normalize.ts';
 import type { Entity, JobType, JobOf } from './store-records.ts';
 import { conflict } from './errors.ts';
 
 /** How far back a history import reads. */
-export type HistoryPeriod = 30 | 90 | 'all';
+export type HistoryImportPeriod = 30 | 90 | 'all';
 
-type HistoryBatch = { events?: ActivityEvent[]; entities?: Entity[] };
-type HistoryStore = {
+type HistoryImportBatch = { events?: ActivityEvent[]; entities?: Entity[] };
+type HistoryImportStore = {
   listRepos: () => WatchedRepo[];
   listJobs: <T extends JobType>(filter: { type: T }) => JobOf<T>[];
   getBaseline: (repoId: string) => string | undefined;
-  saveJob: (job: HistoryJob) => void;
-  commitPage: (page: { repoId: string; events: ActivityEvent[]; entities: Entity[]; jobs: HistoryJob[] }) => void;
+  saveJob: (job: HistoryImportJob) => void;
+  commitPage: (page: { repoId: string; events: ActivityEvent[]; entities: Entity[]; jobs: HistoryImportJob[] }) => void;
 };
 
 const DAY = 86400000;
 const WINDOW = 30 * DAY;
 const EARLIEST = Date.parse('2010-01-01T00:00:00Z');
 /** The job's warnings with the records a page of `stream` skipped added to that stream's. */
-function withSkipped(warnings: HistoryWarning[], stream: HistoryStream, skipped: UnreadableRecords): HistoryWarning[] {
+function withSkipped(warnings: HistoryImportWarning[], stream: HistoryImportStream, skipped: UnreadableRecords): HistoryImportWarning[] {
   const previous = warnings.find(warning => warning.stream === stream);
   const warning = warningOf(stream, addUnreadable(previous && { count: previous.count, fields: previous.fields }, skipped));
   if (!warning) return warnings;
@@ -32,20 +39,20 @@ function withSkipped(warnings: HistoryWarning[], stream: HistoryStream, skipped:
   return previous ? warnings.map(entry => (entry === previous ? next : entry)) : [...warnings, next];
 }
 
-export function createBackfill({
+export function createHistoryImporter({
   store,
   provider,
   normalize,
   now = Date.now,
 }: {
-  store: HistoryStore;
+  store: HistoryImportStore;
   provider: Pick<import('./azure-client.ts').AzureProvider, 'read'>;
   normalize: (
     repo: WatchedRepo,
-    stream: HistoryStream,
+    stream: HistoryImportStream,
     records: AzureStreamRecord[],
-    state: { initialized: false; historical: true; window: HistoryWindow },
-  ) => HistoryBatch;
+    state: { initialized: false; historical: true; window: HistoryImportWindow },
+  ) => HistoryImportBatch;
   now?: () => number;
 }) {
   let active: Promise<boolean> | null | undefined;
@@ -53,7 +60,7 @@ export function createBackfill({
   const retriedAt = new Map<string, number>();
   const jobs = () => store.listJobs({ type: 'backfill' });
   /** Starts a history import for a watched repository; the route checks the repository and the period. */
-  function start(repoId: string, period: HistoryPeriod = 30): HistoryJob {
+  function start(repoId: string, period: HistoryImportPeriod = 30): HistoryImportJob {
     const previous = jobs().find(job => job.repoId === repoId);
     if (previous && previous.status !== 'completed') {
       if (previous.days !== period) throw conflict('A history import is already running for this repository.');
@@ -65,7 +72,7 @@ export function createBackfill({
     const until = Number.isFinite(baseline) ? Math.min(requestedAt, baseline) : requestedAt;
     const since = period === 'all' ? EARLIEST : requestedAt - period * DAY;
     const complete = since >= until;
-    const job: HistoryJob = {
+    const job: HistoryImportJob = {
       id: `backfill:${repoId}`,
       type: 'backfill',
       repoId,
@@ -75,7 +82,7 @@ export function createBackfill({
       nextAt: iso(requestedAt),
       rangeStart: iso(since),
       rangeEnd: iso(until),
-      stream: HISTORY_STREAMS[0],
+      stream: HISTORY_IMPORT_STREAMS[0],
       cursor: null,
       window: complete ? null : { since: iso(Math.max(since, until - WINDOW)), until: iso(until) },
       pages: 0,
@@ -92,8 +99,8 @@ export function createBackfill({
     store.saveJob(job);
     return job;
   }
-  function nextPage(job: HistoryJob, window: HistoryWindow, page: SourcePage): HistoryJob {
-    const next: HistoryJob = {
+  function nextPage(job: HistoryImportJob, window: HistoryImportWindow, page: SourcePage): HistoryImportJob {
+    const next: HistoryImportJob = {
       ...job,
       status: 'pending',
       nextAt: iso(now()),
@@ -108,14 +115,14 @@ export function createBackfill({
     };
     if (page.nextCursor) return { ...next, cursor: page.nextCursor };
     next.cursor = null;
-    const following = HISTORY_STREAMS[HISTORY_STREAMS.indexOf(job.stream) + 1];
+    const following = HISTORY_IMPORT_STREAMS[HISTORY_IMPORT_STREAMS.indexOf(job.stream) + 1];
     if (following) return { ...next, stream: following };
     next.windowsCompleted++;
     next.coverageStart = window.since;
     const until = Date.parse(window.since),
       lower = Date.parse(job.rangeStart);
     if (until > lower)
-      return { ...next, stream: HISTORY_STREAMS[0], window: { since: iso(Math.max(lower, until - WINDOW)), until: iso(until) } };
+      return { ...next, stream: HISTORY_IMPORT_STREAMS[0], window: { since: iso(Math.max(lower, until - WINDOW)), until: iso(until) } };
     return { ...next, status: 'completed', completedAt: iso(now()), window: null };
   }
   async function runPage() {

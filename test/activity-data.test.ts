@@ -6,7 +6,7 @@ import { detailView } from '../src/ui/activity-detail.ts';
 import type { ActivityEvent, ActivityItem } from '../src/activity.ts';
 import { fakeRequest, present, stub } from './fixtures/typed.ts';
 
-const ui: ActivityView = { route: 'activity', repoIds: null, kind: '', search: '' };
+const ui: ActivityView = { route: 'activity', repoIds: null, activityFilter: '', search: '' };
 const record = (index: number) => {
   const event = stub<ActivityEvent>({ id: `event-${index}`, repoId: 'repo', kind: 'push', seen: false, imported: false });
   return stub<ActivityItem>({ ...event, groupKey: event.id, events: [event], eventIds: [event.id], unseenIds: [event.id], unseen: true });
@@ -40,7 +40,7 @@ test('local history appends cursor pages and polling retains the loaded window',
     calls.slice(-3).map(query => Number(query.get('limit'))),
     [200, 200, 50],
   );
-  const filtered = present(await client.read({ ...ui, kind: 'pr', search: 'old feature', repoIds: ['one'] }, {}));
+  const filtered = present(await client.read({ ...ui, activityFilter: 'pr', search: 'old feature', repoIds: ['one'] }, {}));
   assert.equal(filtered.items.length, 50);
   assert.equal(calls.at(-1)?.get('kind'), 'pr');
   assert.equal(calls.at(-1)?.get('search'), 'old feature');

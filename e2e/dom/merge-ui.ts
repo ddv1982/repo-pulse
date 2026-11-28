@@ -5,20 +5,20 @@ import {
   mergeEvidenceBadge as mergeEvidenceBadgeHtml,
 } from '../../src/ui/merge-evidence.ts';
 import {
-  renderHistoryButton as renderHistoryButtonHtml,
-  renderHistoryProgress as renderHistoryProgressHtml,
+  renderHistoryImportButton as renderHistoryButtonHtml,
+  renderHistoryImportProgress as renderHistoryProgressHtml,
 } from '../../src/ui/history-import.ts';
 import type { ActivityEvent, EventData, MergeEvidenceData } from '../../src/activity.ts';
-import type { HistoryJob, JobError } from '../../src/contract.ts';
+import type { HistoryImportJob, JobError } from '../../src/contract.ts';
 import { parse, one, all, text } from '../fixtures/dom.ts';
 import { stub } from '../../test/fixtures/typed.ts';
 
 const renderMergeEvidence = (...args: Parameters<typeof renderMergeEvidenceHtml>) => String(renderMergeEvidenceHtml(...args));
 const mergeEvidenceBadge = (event: Partial<ActivityEvent>) => String(mergeEvidenceBadgeHtml(stub<ActivityEvent>(event)));
-const renderHistoryButton = (repo: { id: string }, job: Partial<HistoryJob>) =>
-  String(renderHistoryButtonHtml(repo, stub<HistoryJob>(job)));
-const renderHistoryProgress = (repo: { id: string }, job: Partial<HistoryJob>) =>
-  String(renderHistoryProgressHtml(repo, stub<HistoryJob>(job)));
+const renderHistoryImportButton = (repo: { id: string }, job: Partial<HistoryImportJob>) =>
+  String(renderHistoryButtonHtml(repo, stub<HistoryImportJob>(job)));
+const renderHistoryImportProgress = (repo: { id: string }, job: Partial<HistoryImportJob>) =>
+  String(renderHistoryProgressHtml(repo, stub<HistoryImportJob>(job)));
 
 test('saved graph evidence stays readable in the detail without a row badge, and no direct merge is invented', async t => {
   const evidence: MergeEvidenceData = {
@@ -78,25 +78,25 @@ test('a push without merge evidence shows nothing about analysis', async t => {
 
 test('the repository import row shows retry and pause without exposing a second start', async t => {
   const repo = { id: 'r', name: 'Repo' };
-  const job: Partial<HistoryJob> = { status: 'retrying', pages: 2, error: stub<JobError>({ message: '<Read denied>' }) };
-  const progress = parse(t, renderHistoryProgress(repo, job));
+  const job: Partial<HistoryImportJob> = { status: 'retrying', pages: 2, error: stub<JobError>({ message: '<Read denied>' }) };
+  const progress = parse(t, renderHistoryImportProgress(repo, job));
   assert.match(await text(progress), /History sync retrying/);
   assert.match(await text(progress), /<Read denied>/);
-  const busy = one(parse(t, renderHistoryButton(repo, job)), 'button[data-action="open-history-import"]');
+  const busy = one(parse(t, renderHistoryImportButton(repo, job)), 'button[data-action="open-history-import"]');
   assert.equal(await text(busy), 'Sync older activity…');
   assert.ok(await busy.hasAttribute('disabled'), 'a running import offers no second start');
-  assert.ok(!(await one(parse(t, renderHistoryButton(repo, { status: 'completed' })), 'button').hasAttribute('disabled')));
+  assert.ok(!(await one(parse(t, renderHistoryImportButton(repo, { status: 'completed' })), 'button').hasAttribute('disabled')));
 });
 
 test('the repository import row shows the records the import skipped as a warning', async t => {
   const message = 'Skipped 3 records in pushes that Azure returned without a readable value for pushId or date.';
-  const job: Partial<HistoryJob> = {
+  const job: Partial<HistoryImportJob> = {
     status: 'completed',
     pages: 4,
     error: null,
     warnings: [{ stream: 'pushes', code: 'UNREADABLE_RECORDS', count: 3, fields: ['pushId', 'date'], message }],
   };
-  const progress = parse(t, renderHistoryProgress({ id: 'r' }, job));
+  const progress = parse(t, renderHistoryImportProgress({ id: 'r' }, job));
   assert.equal(await text(one(progress, '.status-chip.warn')), 'History sync finished · 3 records skipped');
   assert.deepEqual(await Promise.all((await all(progress, '.history-warning')).map(text)), [message]);
 });
@@ -109,7 +109,7 @@ test('the repository import chip says how many records the import skipped, since
     fields: ['date'],
     message: `Skipped ${count} in ${stream}.`,
   });
-  const chip = (job: Partial<HistoryJob>) => text(one(parse(t, renderHistoryProgress({ id: 'r' }, job)), '.status-chip'));
+  const chip = (job: Partial<HistoryImportJob>) => text(one(parse(t, renderHistoryImportProgress({ id: 'r' }, job)), '.status-chip'));
   const warnings = [warning('pushes', 1), warning('builds', 1)];
   assert.equal(await chip({ status: 'running', warnings }), 'History sync running · 2 records skipped');
   assert.equal(await chip({ status: 'retrying', warnings }), 'History sync retrying · 2 records skipped');

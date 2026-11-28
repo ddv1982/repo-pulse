@@ -5,14 +5,14 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createStore } from '../server/store.ts';
 import { createNormalizer } from '../server/normalize.ts';
-import { createBackfill } from '../server/backfill.ts';
+import { createHistoryImporter } from '../server/history-import.ts';
 import type { AzurePage, AzureProvider, ReadOptions } from '../server/azure-client.ts';
 import type { ActivityEvent } from '../src/activity.ts';
 import type { AzureStream, Repository } from '../src/contract.ts';
 import { fieldsOf, present, stub } from './fixtures/typed.ts';
 
 type Provider = Pick<AzureProvider, 'read'>;
-type Normalize = Parameters<typeof createBackfill>[0]['normalize'];
+type Normalize = Parameters<typeof createHistoryImporter>[0]['normalize'];
 /** What a fake provider was asked to read. */
 type ReadCall = { stream: AzureStream } & ReadOptions;
 
@@ -50,31 +50,31 @@ function setup(
   const store = createStore(path);
   if (!store.listRepos().length) store.saveRepo(repo);
   store.setBaseline(repo.id, iso(BASE));
-  const backfill = createBackfill({ store, provider, normalize, now });
-  return { store, backfill };
+  const historyImporter = createHistoryImporter({ store, provider, normalize, now });
+  return { store, historyImporter };
 }
 
 test('history sign-in retry covers due and recovering jobs and coalesces repeat clicks', () => {
-  const { store, backfill } = setup({
+  const { store, historyImporter } = setup({
     async read() {
       return { items: [], nextCursor: null };
     },
   });
   const second = { ...repo, id: 'two' };
   store.saveRepo(second);
-  const one = backfill.start(repo.id);
-  const two = backfill.start(second.id);
+  const one = historyImporter.start(repo.id);
+  const two = historyImporter.start(second.id);
   const later = iso(BASE + 1800000);
   const auth = { code: 'AUTH_REQUIRED', message: 'Sign in again' };
   store.saveJob({ ...one, status: 'retrying', nextAt: later, error: auth });
   store.saveJob({ ...two, status: 'running', nextAt: iso(BASE), error: auth });
-  assert.deepEqual(backfill.retrySignIn([repo.id]), { scheduled: true });
-  assert.equal(backfill.status().find(job => job.id === one.id)?.nextAt, iso(BASE));
-  assert.deepEqual(backfill.retrySignIn([repo.id]), { scheduled: false, cooldown: true });
-  assert.deepEqual(backfill.retrySignIn([second.id]), { scheduled: true });
+  assert.deepEqual(historyImporter.retrySignIn([repo.id]), { scheduled: true });
+  assert.equal(historyImporter.status().find(job => job.id === one.id)?.nextAt, iso(BASE));
+  assert.deepEqual(historyImporter.retrySignIn([repo.id]), { scheduled: false, cooldown: true });
+  assert.deepEqual(historyImporter.retrySignIn([second.id]), { scheduled: true });
   store.saveJob({ ...one, status: 'retrying', nextAt: later, error: { code: 'UNAVAILABLE', message: 'Offline' } });
-  assert.deepEqual(backfill.retrySignIn([repo.id]), { scheduled: false });
-  assert.equal(backfill.status().find(job => job.id === one.id)?.nextAt, later);
+  assert.deepEqual(historyImporter.retrySignIn([repo.id]), { scheduled: false });
+  assert.equal(historyImporter.status().find(job => job.id === one.id)?.nextAt, later);
   store.close();
 });
 
@@ -82,22 +82,22 @@ test('a sign-in retry requested during a history read survives failure on the ol
   const oldRead = Promise.withResolvers<AzurePage>();
   const auth = { code: 'AUTH_REQUIRED', message: 'Sign in again' };
   let calls = 0;
-  const { store, backfill } = setup({
+  const { store, historyImporter } = setup({
     async read() {
       if (++calls === 1) return oldRead.promise;
       return { items: [], nextCursor: null };
     },
   });
-  const job = backfill.start(repo.id);
+  const job = historyImporter.start(repo.id);
   store.saveJob({ ...job, status: 'retrying', error: auth, failures: 6 });
-  const inFlight = backfill.tick();
+  const inFlight = historyImporter.tick();
   assert.equal(calls, 1);
-  assert.deepEqual(backfill.retrySignIn([repo.id]), { scheduled: true });
+  assert.deepEqual(historyImporter.retrySignIn([repo.id]), { scheduled: true });
   oldRead.reject(Object.assign(new Error(auth.message), { code: auth.code }));
   await inFlight;
-  assert.equal(await backfill.tick(), true, 'retry without waiting for the stale read’s backoff');
+  assert.equal(await historyImporter.tick(), true, 'retry without waiting for the stale read’s backoff');
   assert.equal(calls, 2);
-  assert.equal(backfill.status()[0]?.error, null);
+  assert.equal(historyImporter.status()[0]?.error, null);
   store.close();
 });
 
@@ -113,7 +113,7 @@ test('historical imports mark only new history read without changing live state'
       };
     },
   };
-  const { store, backfill } = setup(provider);
+  const { store, historyImporter } = setup(provider);
   store.insertEvents([{ id: 'live', repoId: repo.id, kind: 'push', time: iso(BASE + 1000), seen: false }]);
   store.saveStream({
     repoId: repo.id,
@@ -131,15 +131,15 @@ test('historical imports mark only new history read without changing live state'
     ],
   });
   const streams = store.getStreams();
-  const initial = backfill.start(repo.id);
-  assert.equal(backfill.start(repo.id).id, initial.id);
-  for (let page = 0; page < 3; page++) assert.equal(await backfill.tick(), true);
-  assert.equal(await backfill.tick(), false);
+  const initial = historyImporter.start(repo.id);
+  assert.equal(historyImporter.start(repo.id).id, initial.id);
+  for (let page = 0; page < 3; page++) assert.equal(await historyImporter.tick(), true);
+  assert.equal(await historyImporter.tick(), false);
   assert.deepEqual(
     calls.map(call => call.stream),
     ['pushes', 'closedPrs', 'builds'],
   );
-  assert.equal(present(backfill.status()[0]).status, 'completed');
+  assert.equal(present(historyImporter.status()[0]).status, 'completed');
   assert.ok(
     store
       .listEvents()
@@ -172,24 +172,24 @@ test('failed pages retain durable fixed windows and cursors across restart and r
       };
     },
   };
-  let { store, backfill } = setup(provider, { path, now: () => time });
-  backfill.start(repo.id, 90);
-  await backfill.tick();
-  await backfill.tick();
-  const failed = present(backfill.status()[0]);
+  let { store, historyImporter } = setup(provider, { path, now: () => time });
+  historyImporter.start(repo.id, 90);
+  await historyImporter.tick();
+  await historyImporter.tick();
+  const failed = present(historyImporter.status()[0]);
   assert.equal(failed.status, 'retrying');
   assert.deepEqual(failed.cursor, { skip: 100 });
   assert.equal(store.listEvents().length, 1);
   store.close();
-  ({ store, backfill } = setup(provider, { path, now: () => time }));
-  assert.equal(await backfill.tick(), false, 'retry delay cannot be bypassed by restart');
+  ({ store, historyImporter } = setup(provider, { path, now: () => time }));
+  assert.equal(await historyImporter.tick(), false, 'retry delay cannot be bypassed by restart');
   fail = false;
   time += 60001;
-  await backfill.tick();
+  await historyImporter.tick();
   assert.deepEqual(present(calls[2]).cursor, { skip: 100 });
   assert.equal(present(calls[0]).since, present(calls[2]).since);
   assert.equal(present(calls[0]).until, present(calls[2]).until);
-  assert.equal(present(backfill.status()[0]).stream, 'closedPrs');
+  assert.equal(present(historyImporter.status()[0]).stream, 'closedPrs');
   assert.equal(store.listEvents().length, 2);
   store.close();
 });
@@ -205,16 +205,16 @@ test('a page cut off by closing the queue is not a failed attempt and resumes wi
       return { items: [], nextCursor: null };
     },
   };
-  const { store, backfill } = setup(provider);
-  backfill.start(repo.id, 90);
-  const before = present(backfill.status()[0]);
-  await backfill.tick();
-  const after = present(backfill.status()[0]);
+  const { store, historyImporter } = setup(provider);
+  historyImporter.start(repo.id, 90);
+  const before = present(historyImporter.status()[0]);
+  await historyImporter.tick();
+  const after = present(historyImporter.status()[0]);
   assert.equal(after.failures ?? 0, 0);
   assert.equal(after.error ?? null, null);
   assert.equal(after.nextAt, before.nextAt);
   closed = false;
-  assert.equal(await backfill.tick(), true, 'the page is due again at once');
+  assert.equal(await historyImporter.tick(), true, 'the page is due again at once');
   assert.equal(calls.length, 2);
   store.close();
 });
@@ -222,7 +222,7 @@ test('a page cut off by closing the queue is not a failed attempt and resumes wi
 test('all available history uses explicit 2010 boundary and keeps scanning older empty windows', async () => {
   const time = Date.parse('2010-02-05T00:00:00Z');
   const calls: ReadCall[] = [];
-  const { store, backfill } = setup(
+  const { store, historyImporter } = setup(
     {
       async read(_repo, stream, given) {
         const options = present(given);
@@ -233,13 +233,13 @@ test('all available history uses explicit 2010 boundary and keeps scanning older
     { now: () => time },
   );
   store.setBaseline(repo.id, iso(time));
-  const job = backfill.start(repo.id, 'all');
+  const job = historyImporter.start(repo.id, 'all');
   assert.equal(job.rangeStart, '2010-01-01T00:00:00.000Z');
   assert.match(job.note, /retention and permissions/);
-  for (let page = 0; page < 6; page++) await backfill.tick();
+  for (let page = 0; page < 6; page++) await historyImporter.tick();
   assert.equal(calls.length, 6, 'an empty recent window does not prove no older history');
-  assert.equal(present(backfill.status()[0]).status, 'completed');
-  assert.equal(present(backfill.status()[0]).windowsCompleted, 2);
+  assert.equal(present(historyImporter.status()[0]).status, 'completed');
+  assert.equal(present(historyImporter.status()[0]).windowsCompleted, 2);
   assert.equal(present(calls[3]).until, present(calls[0]).since);
   assert.equal(present(calls[3]).since, job.rangeStart);
   store.close();
@@ -248,7 +248,7 @@ test('all available history uses explicit 2010 boundary and keeps scanning older
 test('pause, removal and concurrent tick calls cannot duplicate work or resurrect jobs', async () => {
   let release: (() => void) | undefined,
     reads = 0;
-  const { store, backfill } = setup({
+  const { store, historyImporter } = setup({
     read() {
       reads++;
       return new Promise<AzurePage>(resolve => {
@@ -256,13 +256,13 @@ test('pause, removal and concurrent tick calls cannot duplicate work or resurrec
       });
     },
   });
-  backfill.start(repo.id);
+  historyImporter.start(repo.id);
   store.saveRepo({ ...repo, disabled: true });
-  assert.equal(await backfill.tick(), false);
+  assert.equal(await historyImporter.tick(), false);
   assert.equal(reads, 0);
   store.saveRepo({ ...repo, disabled: false });
-  const first = backfill.tick(),
-    same = backfill.tick();
+  const first = historyImporter.tick(),
+    same = historyImporter.tick();
   assert.equal(first, same);
   assert.equal(reads, 1);
   store.saveRepo({ ...repo, disabled: true });
@@ -271,7 +271,7 @@ test('pause, removal and concurrent tick calls cannot duplicate work or resurrec
   await first;
   assert.equal(store.listEvents().length, 0);
   store.saveRepo({ ...repo, disabled: false });
-  const second = backfill.tick();
+  const second = historyImporter.tick();
   store.removeRepo(repo.id);
   assert.ok(release);
   release();
@@ -282,7 +282,7 @@ test('pause, removal and concurrent tick calls cannot duplicate work or resurrec
 });
 
 test('provider windows widened for builds cannot mark post-monitoring live changes as imported', async () => {
-  const { store, backfill } = setup({
+  const { store, historyImporter } = setup({
     async read() {
       return {
         items: [
@@ -294,8 +294,8 @@ test('provider windows widened for builds cannot mark post-monitoring live chang
       };
     },
   });
-  backfill.start(repo.id);
-  await backfill.tick();
+  historyImporter.start(repo.id);
+  await historyImporter.tick();
   assert.deepEqual(
     store.listEvents().map(event => event.data?.pushId),
     [1],
@@ -309,7 +309,7 @@ test('provider windows widened for builds cannot mark post-monitoring live chang
 
 test('transaction failure keeps the page resumable and validation rejects ambiguous requests', async () => {
   let time = BASE;
-  const { store, backfill } = setup(
+  const { store, historyImporter } = setup(
     {
       async read() {
         return { items: [{ id: 1, date: iso(BASE - DAY), repository: { id: 'a' } }], nextCursor: { skip: 100 } };
@@ -319,8 +319,8 @@ test('transaction failure keeps the page resumable and validation rejects ambigu
       now: () => time,
     },
   );
-  backfill.start(repo.id);
-  assert.throws(() => backfill.start(repo.id, 90), { kind: 'conflict' });
+  historyImporter.start(repo.id);
+  assert.throws(() => historyImporter.start(repo.id, 90), { kind: 'conflict' });
   // Fail inside the actual transaction after its event inserts, before the job checkpoint.
   const original = store.commitPage;
   store.commitPage = page => {
@@ -337,15 +337,15 @@ test('transaction failure keeps the page resumable and validation rejects ambigu
     } satisfies import('../server/jobs.ts').RewriteJob;
     original({ ...page, jobs: [...present(page.jobs), invalid] });
   };
-  await backfill.tick();
+  await historyImporter.tick();
   assert.equal(store.listEvents().length, 0);
-  assert.equal(present(backfill.status()[0]).cursor, null);
-  assert.equal(present(backfill.status()[0]).status, 'retrying');
+  assert.equal(present(historyImporter.status()[0]).cursor, null);
+  assert.equal(present(historyImporter.status()[0]).status, 'retrying');
   store.commitPage = original;
   time += 60001;
-  await backfill.tick();
+  await historyImporter.tick();
   assert.equal(store.listEvents().length, 1);
-  assert.deepEqual(present(backfill.status()[0]).cursor, { skip: 100 });
+  assert.deepEqual(present(historyImporter.status()[0]).cursor, { skip: 100 });
   store.close();
 });
 
@@ -371,10 +371,10 @@ test('a build queued before an internal window boundary and completed after it r
     },
   };
   const normalizer = createNormalizer({ store, now: () => BASE });
-  const backfill = createBackfill({ store, provider, normalize: normalizer.normalize, now: () => BASE });
-  backfill.start(repo.id, 90);
-  for (let i = 0; i < 9; i++) await backfill.tick();
-  assert.equal(present(backfill.status()[0]).status, 'completed');
+  const historyImporter = createHistoryImporter({ store, provider, normalize: normalizer.normalize, now: () => BASE });
+  historyImporter.start(repo.id, 90);
+  for (let i = 0; i < 9; i++) await historyImporter.tick();
+  assert.equal(present(historyImporter.status()[0]).status, 'completed');
   const events = store.listEvents();
   assert.equal(events.length, 1);
   assert.equal(present(events[0]).data?.buildId, 99);
@@ -398,10 +398,10 @@ test('records Azure returns unreadable during a history import are counted on th
       return pages[stream]?.shift() ?? { items: [], nextCursor: null };
     },
   };
-  const { store, backfill } = setup(provider);
-  backfill.start(repo.id);
-  while (await backfill.tick());
-  const job = present(backfill.status()[0]);
+  const { store, historyImporter } = setup(provider);
+  historyImporter.start(repo.id);
+  while (await historyImporter.tick());
+  const job = present(historyImporter.status()[0]);
   assert.equal(job.status, 'completed');
   assert.deepEqual(job.warnings, [
     {

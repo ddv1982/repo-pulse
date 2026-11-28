@@ -10,7 +10,7 @@ import { renderMergeEvidence, mergeEvidenceBadge } from '../src/ui/merge-evidenc
 import type { ActivityEvent, ActivityRequest, EventData } from '../src/activity.ts';
 import type { Repository, StreamState } from '../src/contract.ts';
 import { dataOf, fieldsOf, present, stub } from './fixtures/typed.ts';
-import { historyJob } from './fixtures/jobs.ts';
+import { historyImportJob } from './fixtures/jobs.ts';
 import type { Job } from '../server/store-records.ts';
 
 type Reviewer = NonNullable<EventData['reviewers']>[number];
@@ -58,7 +58,7 @@ test('cached branch lifetimes separate pushes across seen, filtered and paginate
       topic('new-push', 3),
     ]);
     store.acknowledge(['deletion', 'recreation']);
-    for (const filters of [{ kind: 'push' }, { view: 'new' }] satisfies ActivityRequest[]) {
+    for (const filters of [{ activityFilter: 'push' }, { view: 'new' }] satisfies ActivityRequest[]) {
       const first = store.queryActivity({ ...filters, limit: 1 });
       const second = store.queryActivity({ ...filters, limit: 1, cursor: present(first.nextCursor) });
       const items = [...first.items, ...second.items];
@@ -280,10 +280,10 @@ test('new-view keyset cursor survives acknowledgement between pages without skip
 test('raw filters apply before grouping and never acknowledge hidden group members', () => {
   const store = setup();
   store.insertEvents([build('queued', 'Queued'), build('running', 'Running', { observedAt: '2026-11-17T10:01:00Z' })]);
-  const filtered = store.queryActivity({ view: 'new', kind: 'build', search: 'Running' });
+  const filtered = store.queryActivity({ view: 'new', activityFilter: 'build', search: 'Running' });
   assert.equal(filtered.total, 1);
   assert.deepEqual(present(filtered.items[0]).eventIds, ['running']);
-  assert.deepEqual(store.queryActivity.unseenIds({ kind: 'build', search: 'Running' }), ['running']);
+  assert.deepEqual(store.queryActivity.unseenIds({ activityFilter: 'build', search: 'Running' }), ['running']);
   assert.equal(store.getEventGroup('running').length, 2);
   store.acknowledge(present(filtered.items[0]).unseenIds);
   assert.equal(present(store.getEvent('queued')).seen, false);
@@ -300,7 +300,7 @@ test('kind-filtering a deletion supporting push keeps its matching raw record vi
     event('branch', { kind: 'branch-deleted', data: { pushId: 4, ...ref } }),
   ]);
   assert.equal(store.queryActivity().total, 1);
-  assert.deepEqual(present(store.queryActivity({ kind: 'push' }).items[0]).eventIds, ['push']);
+  assert.deepEqual(present(store.queryActivity({ activityFilter: 'push' }).items[0]).eventIds, ['push']);
   assert.equal(store.getEventGroup('branch').length, 2);
   store.close();
 });
@@ -330,7 +330,7 @@ test('enrichment is durable search metadata without changing raw identity, timin
 
 test('job, event and stream writes roll back together', () => {
   const store = setup();
-  const job = historyJob(repo.id, { nextAt: '2026-01-01T00:00:00Z' });
+  const job = historyImportJob(repo.id, { nextAt: '2026-01-01T00:00:00Z' });
   const state: StreamState = { repoId: repo.id, stream: 'pushes', initialized: false, nextAt: '2026-01-01T00:00:00Z', cursor: { skip: 1 } };
   assert.throws(() =>
     store.commitPage({
@@ -512,7 +512,7 @@ test('opening a database with merge work left drops the jobs and keeps evidence 
       limitations: ['Merge enrichment is still in progress.', 'Merge evidence could not be read. Retrying later.'],
     },
   });
-  store.saveJob(historyJob(repo.id, { status: 'pending', nextAt: '2026-11-17T10:00:00Z' }));
+  store.saveJob(historyImportJob(repo.id, { status: 'pending', nextAt: '2026-11-17T10:00:00Z' }));
   store.close();
   const db = new DatabaseSync(path);
   for (const id of ['done', 'partial', 'retrying'])
@@ -650,10 +650,10 @@ test('filter options come from the full scoped history and stay available when a
     const all = store.queryActivity(scope);
     assert.deepEqual(all.filterOptions, ['push', 'pr', 'build', 'status:canceled', 'status:merged', 'evidence:pr-linked']);
     assert.equal(store.queryActivity({ ...scope, cursor: all.nextCursor ?? undefined }).filterOptions, undefined);
-    const canceled = store.queryActivity({ ...scope, kind: 'status:Canceled' });
+    const canceled = store.queryActivity({ ...scope, activityFilter: 'status:Canceled' });
     assert.equal(present(canceled.items[0]).id, 'older-canceled');
     assert.deepEqual(canceled.filterOptions, all.filterOptions);
-    assert.equal(present(store.queryActivity({ ...scope, kind: 'evidence:Completed PR linked' }).items[0]).id, 'push-evidence');
+    assert.equal(present(store.queryActivity({ ...scope, activityFilter: 'evidence:Completed PR linked' }).items[0]).id, 'push-evidence');
     assert.equal(present(store.queryActivity({ ...scope, search: 'Completed PR linked' }).items[0]).id, 'push-evidence');
     assert.equal(store.queryActivity({ ...scope, view: 'new' }).filterOptions?.includes('status:canceled'), false);
     assert.deepEqual(store.queryActivity({ ...scope, search: 'merged' }).filterOptions, ['pr', 'status:merged']);
@@ -680,18 +680,18 @@ test('New activity offers the displayed run status even when only an earlier upd
     assert.deepEqual(page.newBuildCounts, { running: 0, queued: 0, failed: 1 });
     assert.equal(present(page.items[0]).id, 'a-succeeded');
     assert.equal(present(store.queryActivity({ ...base, cursor: page.nextCursor ?? undefined }).items[0]).id, 'b-failed');
-    const failed = store.queryActivity({ ...base, kind: 'status:failed' });
+    const failed = store.queryActivity({ ...base, activityFilter: 'status:failed' });
     assert.deepEqual(
       failed.items.map(item => item.id),
       ['b-failed'],
     );
     assert.deepEqual(failed.newBuildCounts, page.newBuildCounts);
-    const succeeded = store.queryActivity({ ...base, kind: 'status:succeeded' });
+    const succeeded = store.queryActivity({ ...base, activityFilter: 'status:succeeded' });
     assert.equal(present(succeeded.items[0]).id, 'a-succeeded');
     assert.deepEqual(present(succeeded.items[0]).unseenIds, ['a-failed']);
-    assert.deepEqual(store.queryActivity.unseenIds({ ...base, kind: 'status:succeeded' }), ['a-failed']);
+    assert.deepEqual(store.queryActivity.unseenIds({ ...base, activityFilter: 'status:succeeded' }), ['a-failed']);
     store.acknowledge(present(succeeded.items[0]).unseenIds);
-    assert.equal(store.queryActivity({ ...base, kind: 'status:succeeded' }).total, 0);
+    assert.equal(store.queryActivity({ ...base, activityFilter: 'status:succeeded' }).total, 0);
     assert.equal(present(store.getEvent('b-failed')).seen, false);
   } finally {
     store.close();
@@ -973,7 +973,7 @@ test('People filters recorded identities before grouping and binds the cursor to
       'vote',
     ]);
     assert.throws(() => store.queryActivity({ people: 'Chris', cursor: first.nextCursor ?? undefined }), /cursor does not match/);
-    assert.equal(present(store.queryActivity({ people: names, kind: 'build' }).items[0]).unseenIds.join(), 'alice-build');
+    assert.equal(present(store.queryActivity({ people: names, activityFilter: 'build' }).items[0]).unseenIds.join(), 'alice-build');
     assert.equal(store.queryActivity({ people: 'Bob', search: 'branch-only' }).total, 0);
     assert.equal(store.queryActivity({ people: 'unknown, Microsoft' }).total, 0);
     assert.equal(store.queryActivity({ people: '%_' }).total, 0);

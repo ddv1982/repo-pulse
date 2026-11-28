@@ -9,7 +9,7 @@ import type { StateResponse } from '../../src/contract.ts';
 const isStringList = (value: unknown): value is string[] => Array.isArray(value) && value.every(item => typeof item === 'string');
 
 /** The page state, refresh, Start from scratch, the refresh setting, and demo mode's incoming event. */
-export function stateRoutes({ store, sync, cli, backfill, demo, savedFilters, onStateRead, startedAt, reset }: AppContext) {
+export function stateRoutes({ store, sync, cli, historyImporter, demo, savedFilters, onStateRead, startedAt, reset }: AppContext) {
   return {
     'GET /api/state': () => {
       onStateRead();
@@ -69,7 +69,7 @@ export function stateRoutes({ store, sync, cli, backfill, demo, savedFilters, on
       repoIds?.forEach(store.getRepo);
       const status = retrySignIn ? sync.refresh(repoIds, true) : sync.refresh(repoIds);
       const history = retrySignIn
-        ? backfill?.retrySignIn?.(
+        ? historyImporter?.retrySignIn?.(
             store
               .listRepos()
               .filter(repo => !repo.disabled && (!repoIds || repoIds.includes(repo.id)))

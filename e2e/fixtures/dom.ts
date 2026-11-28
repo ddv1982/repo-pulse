@@ -83,7 +83,7 @@ export async function all(root: DomRoot, selector: string) {
 }
 
 export function row(root: DomRoot, id: string) {
-  return one(root, `[data-event-id="${id}"]`);
+  return one(root, `li[data-event-id="${id}"]`);
 }
 
 /** The element's text content with whitespace collapsed and .sr nodes removed. Text hidden by attributes or CSS stays in. */

@@ -1,16 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createStore } from '../server/store.ts';
-import { createApp } from '../server/runtime.ts';
-import { type AppProvider, type AppSync } from '../server/routes/context.ts';
 import type { ActivityEvent } from '../src/activity.ts';
-import type { HistoryJob, Repository } from '../src/contract.ts';
+import type { HistoryImportJob, Repository } from '../src/contract.ts';
 import { TEST_KEY, keyedFetch, portOf } from './fixtures/access.ts';
 import { stub } from './fixtures/typed.ts';
-import { idleSyncStatus } from '../server/demo.ts';
-
-const provider = stub<AppProvider>({});
-const sync = stub<AppSync>({ status: () => idleSyncStatus() });
+import { testApp } from './fixtures/app.ts';
 
 const fetch = keyedFetch();
 
@@ -29,7 +24,7 @@ test('paged history and deep links reach old unseen activity beyond latest 1000'
       data: {},
     })),
   );
-  const app = createApp({ store, provider, sync, accessKey: TEST_KEY });
+  const app = testApp({ store });
   await new Promise<void>(resolve => app.listen(0, '127.0.0.1', resolve));
   t.after(async () => {
     await new Promise(resolve => app.close(resolve));
@@ -62,17 +57,14 @@ test('historical import endpoint validates repository, range and access key', as
   const store = createStore();
   store.saveRepo(stub<Repository>({ id: 'r', name: 'Repo' }));
   const starts: { repoId: string; days?: number | 'all' | undefined }[] = [];
-  const app = createApp({
+  const app = testApp({
     store,
-    provider,
-    sync,
-    backfill: {
+    historyImporter: {
       start: (repoId, days) => {
         starts.push({ repoId, days });
-        return stub<HistoryJob>({ status: 'pending' });
+        return stub<HistoryImportJob>({ status: 'pending' });
       },
     },
-    accessKey: TEST_KEY,
   });
   await new Promise<void>(resolve => app.listen(0, '127.0.0.1', resolve));
   t.after(async () => {

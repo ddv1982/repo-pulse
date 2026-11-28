@@ -62,7 +62,7 @@ export function createCheckoutActions({
   }
 
   function branchAction(element: HTMLElement, operation: BranchAction['operation']) {
-    const id = element.dataset.id ?? '';
+    const id = element.dataset.repoId ?? '';
     const checkout = checkoutPanel.snapshots[id];
     if (!checkout) return;
     if (operation === 'switch-update') {
@@ -189,7 +189,7 @@ export function createCheckoutActions({
       });
     },
     'switch-checkout-branch': async element => {
-      const { id: repoId = '', branch = '', path: localPath = '' } = element.dataset;
+      const { repoId = '', branch = '', path: localPath = '' } = element.dataset;
       closeBranchPicker();
       if (!repoId || !branch) return;
       const focus = () => document.getElementById(`checkout-state-${repoId}`)?.focus();
@@ -197,7 +197,7 @@ export function createCheckoutActions({
       await switchCheckout({ repoId, localPath, branch, isCurrent }, { operation: 'switch-branch', branch }, focus);
     },
     'check-checkout': async element => {
-      const id = element.dataset.id ?? '';
+      const id = element.dataset.repoId ?? '';
       const isCurrent = currentView();
       const shown = checkoutPanel.snapshots[id];
       const checkout = await checkoutPanel.read(id, true);
@@ -207,7 +207,7 @@ export function createCheckoutActions({
       return updateCheckout(id, { operation: 'check' }, checkout);
     },
     'pull-checkout': async element => {
-      const id = element.dataset.id ?? '';
+      const id = element.dataset.repoId ?? '';
       const isCurrent = currentView();
       const shown = checkoutPanel.snapshots[id];
       const checkout = await checkoutPanel.read(id, true);

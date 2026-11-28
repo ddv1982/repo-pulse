@@ -89,10 +89,10 @@ export function createBrowserUi(connection: BrowserUi['connection'], groups: Gro
     repoIds: null,
     search: '',
     savedFilterId: '',
-    kind: '',
+    activityFilter: '',
     filtersOpen: undefined,
     openMenu: '',
-    unreadOnly: false,
+    unseenOnly: false,
     connection,
     groups,
   };
@@ -100,7 +100,7 @@ export function createBrowserUi(connection: BrowserUi['connection'], groups: Gro
 
 type RenderOptions = {
   restored: ResultsContext | null;
-  returnUnreadOnly: boolean;
+  returnUnseenOnly: boolean;
   returnToGraph?: boolean;
   showRelated?: boolean;
   matchingIds?: string[] | undefined;
@@ -143,7 +143,7 @@ export function createBrowserView({
     ui: BrowserUi,
     {
       restored,
-      returnUnreadOnly,
+      returnUnseenOnly,
       returnToGraph = false,
       showRelated = false,
       matchingIds,
@@ -175,7 +175,7 @@ export function createBrowserView({
         else
           setHtml(
             page,
-            renderDetail(view, state, commits, { returnUnreadOnly, returnToGraph, showRelated, matchingIds, checkouts, groups: ui.groups }),
+            renderDetail(view, state, commits, { returnUnseenOnly, returnToGraph, showRelated, matchingIds, checkouts, groups: ui.groups }),
           );
         break;
       }
@@ -212,7 +212,7 @@ export function createBrowserView({
           element => element instanceof HTMLElement && restored.eventId != null && eventIds(element).includes(restored.eventId),
         );
         const detail = (row ? all('[data-action="detail"]', HTMLButtonElement, row) : []).find(
-          element => element.dataset.id === restored.eventId && element.checkVisibility(),
+          element => element.dataset.eventId === restored.eventId && element.checkVisibility(),
         );
         const title = detail ?? row?.querySelector('.feed-title');
         if (title instanceof HTMLElement) title.focus({ preventScroll: true });
@@ -223,7 +223,7 @@ export function createBrowserView({
 
   function renderHeaderPart(state: PageState, ui: BrowserUi) {
     setHtml(header, renderHeader(state, ui));
-    const sentence = syncAnnouncement(state.syncStatus.overall, syncRepoName(state.repos, state.syncStatus.overall));
+    const sentence = syncAnnouncement(state.syncStatus.overall, syncRepoName(state.enabledRepos, state.syncStatus.overall));
     // Writing the same text again would replace the text node and could repeat the announcement.
     if (syncLive.textContent !== sentence) syncLive.textContent = sentence;
     // As in renderPage: theme.ts runs first, and the optional call covers its absence.

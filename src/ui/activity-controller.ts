@@ -37,24 +37,24 @@ export function createActivityController(
     else void load({ force: true });
   }
 
-  function setActivityType(kind: string | undefined) {
-    ui.kind = kind ?? '';
+  function setActivityType(activityFilter: string | undefined) {
+    ui.activityFilter = activityFilter ?? '';
     activityChanged();
   }
 
   function applySavedFilter({ id, name, filters }: SavedActivityFilter) {
     const { search, people, kind, repoIds, view } = filters;
-    const available = new Set(state().repos.map(repo => repo.id));
+    const available = new Set(state().enabledRepos.map(repo => repo.id));
     const unavailable = (repoIds ?? []).filter(id => !available.has(id)).length;
     Object.assign(ui, {
       savedFilterId: id,
       search: joinActivitySearch(search, people),
-      kind,
-      repoIds: savedRepositoryScope(repoIds, state().watched),
+      activityFilter: kind,
+      repoIds: savedRepositoryScope(repoIds, state().allRepos),
     });
-    const unreadOnly = view === 'new';
-    if (unreadOnly === ui.unreadOnly) activityChanged();
-    else location.hash = activityHref(unreadOnly);
+    const unseenOnly = view === 'new';
+    if (unseenOnly === ui.unseenOnly) activityChanged();
+    else location.hash = activityHref(unseenOnly);
     const scopeMessage = unavailable
       ? unavailable === repoIds?.length
         ? ' All saved repositories are unavailable.'
@@ -113,19 +113,19 @@ export function createActivityController(
       },
       'clear-filters': () => {
         ui.search = '';
-        ui.kind = '';
+        ui.activityFilter = '';
         ui.savedFilterId = '';
-        if (ui.unreadOnly) location.hash = activityHref(false);
+        if (ui.unseenOnly) location.hash = activityHref(false);
         else activityChanged();
       },
-      'toggle-unread': () => {
-        location.hash = activityHref(!ui.unreadOnly);
+      'toggle-unseen-only': () => {
+        location.hash = activityHref(!ui.unseenOnly);
       },
       'filter-activity-type': element => {
         ui.filtersOpen = true;
-        setActivityType(element.dataset.kind);
+        setActivityType(element.dataset.activityFilter);
       },
-      'choose-activity-type': element => setActivityType(element.dataset.kind),
+      'choose-activity-type': element => setActivityType(element.dataset.activityFilter),
       'toggle-activity-filters': () => {
         ui.filtersOpen = !ui.filtersOpen;
         renderPage();
@@ -140,7 +140,7 @@ export function createActivityController(
       },
       'scope-repo': () => {
         // Disabled repositories have no checkbox; keep their place in the scope for when they are enabled.
-        const disabled = state().watched.filter(repo => repo.disabled && (ui.repoIds === null || ui.repoIds.includes(repo.id)));
+        const disabled = state().allRepos.filter(repo => repo.disabled && (ui.repoIds === null || ui.repoIds.includes(repo.id)));
         ui.repoIds = [...document.querySelectorAll('[data-scope-repo]:checked')]
           .filter(input => input instanceof HTMLInputElement)
           // The selector guarantees data-scope-repo, so the fallback never applies.
@@ -159,7 +159,7 @@ export function createActivityController(
       | 'retry-activity'
       | 'ack-matching'
       | 'clear-filters'
-      | 'toggle-unread'
+      | 'toggle-unseen-only'
       | 'filter-activity-type'
       | 'choose-activity-type'
       | 'toggle-activity-filters'

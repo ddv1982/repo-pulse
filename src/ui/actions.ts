@@ -64,7 +64,7 @@ const ACTIONS = {
     'toggle-activity-filters',
     'toggle-group',
     'toggle-header-menu',
-    'toggle-unread',
+    'toggle-unseen-only',
     'undo-ack',
     'update-filter',
   ],

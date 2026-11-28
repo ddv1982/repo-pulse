@@ -5,16 +5,16 @@ import type { Handlers } from '../http.ts';
 import type { AppContext } from './context.ts';
 
 /** Imports of older Azure activity, and the local Git history the graph shows. */
-export function historyRoutes({ store, backfill, checkoutGit, reset }: AppContext) {
+export function historyRoutes({ store, historyImporter, checkoutGit, reset }: AppContext) {
   return {
     'POST /api/repos/:id/backfill': ({ params: { id }, body }) => {
-      if (!backfill) throw notInDemo(NOT_IN_DEMO['POST /api/repos/:id/backfill']);
+      if (!historyImporter) throw notInDemo(NOT_IN_DEMO['POST /api/repos/:id/backfill']);
       const repo = store.getRepo(id);
       const days = body.days;
       if (days !== 30 && days !== 90 && days !== 'all') throw invalid('Choose 30 days, 90 days or all available history.');
       // Checked after the body arrives: the reset would delete the job this request creates.
       if (reset.running) throw conflict('Starting from scratch is in progress. Try again in a moment.');
-      return backfill.start(repo.id, days);
+      return historyImporter.start(repo.id, days);
     },
     'GET /api/repos/:id/graph': async ({ params: { id }, query }) => {
       const repo = store.getEnabledRepo(id);

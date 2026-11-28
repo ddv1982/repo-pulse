@@ -3,12 +3,12 @@ import { createToolbarMenu } from './toolbar-menu.ts';
 import type { MenuManager } from './menus.ts';
 import { action } from './actions.ts';
 
-type ScopeState = Pick<import('./refresh.ts').PageState, 'repos'>;
+type ScopeState = Pick<import('./refresh.ts').PageState, 'enabledRepos'>;
 /** `openMenu` is `repo-panel` while the scope panel is open. */
 type ScopeView = Pick<import('./navigation.ts').NavigationState, 'repoIds'> & { openMenu?: string };
 
 export function scopeName(state: ScopeState, ui: ScopeView) {
-  const count = ui.repoIds === null ? state.repos.length : state.repos.filter(repo => ui.repoIds?.includes(repo.id)).length;
+  const count = ui.repoIds === null ? state.enabledRepos.length : state.enabledRepos.filter(repo => ui.repoIds?.includes(repo.id)).length;
   return `${ui.repoIds === null && count > 1 ? 'All ' : ''}${count} repositor${count === 1 ? 'y' : 'ies'}${ui.repoIds === null ? '' : ' shown'}`;
 }
 
@@ -16,8 +16,8 @@ export function scopeName(state: ScopeState, ui: ScopeView) {
 export function renderRepositoryScope(state: ScopeState, ui: ScopeView) {
   const open = ui.openMenu === 'repo-panel';
   const name = scopeName(state, ui);
-  const options = state.repos.length
-    ? state.repos.map(
+  const options = state.enabledRepos.length
+    ? state.enabledRepos.map(
         repo =>
           html`<label class="opt"><input type="checkbox" id="scope-${repo.id}" ${action('scope-repo')} data-scope-repo="${repo.id}" ${ui.repoIds === null || ui.repoIds.includes(repo.id) ? html`checked` : emptyHtml}><b>${repo.name}</b><small>${repo.project}</small></label>`,
       )

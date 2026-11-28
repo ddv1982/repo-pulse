@@ -9,9 +9,10 @@ import { forkText, treeLegend } from '../../src/ui/activity-tree.ts';
 import type { TreeFork } from '../../src/activity-tree.ts';
 import { createStore } from '../../server/store.ts';
 import type { ActivityEvent } from '../../src/activity.ts';
-import type { Repository, StreamError, StreamState } from '../../src/contract.ts';
+import type { GitHistoryActivity, GitHistoryPage, Repository, StreamError, StreamState } from '../../src/contract.ts';
 import type { CheckoutSnapshot } from '../../src/ui/checkout.ts';
 import type { PageState } from '../../src/ui/refresh.ts';
+import { renderGitGraph } from '../../src/ui/git-graph.ts';
 import { parse, one, all, row, text, textIncludingHidden, type DomElement, type DomRoot } from '../fixtures/dom.ts';
 import { present, stub } from '../../test/fixtures/typed.ts';
 
@@ -50,7 +51,7 @@ const renderDetail = (
 
 test('a disabled repository row offers only enabling or removing it', async t => {
   const state: State = {
-    watched: [
+    allRepos: [
       stub<Repository>({ id: 'on', name: 'Orders', project: 'Shop', localPath: '/src/orders' }),
       stub<Repository>({ id: 'off', name: 'Billing', project: 'Shop', localPath: '/src/billing', disabled: true }),
     ],
@@ -65,13 +66,13 @@ test('a disabled repository row offers only enabling or removing it', async t =>
   const enabled = present(articles[0]);
   const disabled = present(articles[1]);
   const toggle = (article: DomRoot) => one(article, 'input[role="switch"][data-action="toggle-repo"]');
-  assert.equal(await toggle(enabled).getAttribute('data-id'), 'on');
+  assert.equal(await toggle(enabled).getAttribute('data-repo-id'), 'on');
   assert.ok(await toggle(enabled).hasAttribute('checked'));
   assert.equal(await one(enabled, 'summary').getAttribute('aria-label'), 'Details for Orders');
-  assert.equal(await toggle(disabled).getAttribute('data-id'), 'off');
+  assert.equal(await toggle(disabled).getAttribute('data-repo-id'), 'off');
   assert.equal((await all(disabled, '[checked]')).length, 0);
   assert.equal(await text(one(disabled, '.chip.name')), 'Disabled');
-  assert.equal(await one(disabled, '[data-action="remove-repo"]').getAttribute('data-id'), 'off');
+  assert.equal(await one(disabled, '[data-action="remove-repo"]').getAttribute('data-repo-id'), 'off');
   // A disabled repository offers only its switch and Remove watch: no details, checkout state, update check or sync.
   assert.deepEqual(
     await Promise.all(
@@ -84,9 +85,9 @@ test('a disabled repository row offers only enabling or removing it', async t =>
   assert.doesNotMatch(await disabled.outerHtml(), /Details for|checkout-state|Check for updates|Sync older/);
 });
 
-const view: Partial<FeedUi> = { repoIds: null, unreadOnly: true, kind: '', search: '' };
+const view: Partial<FeedUi> = { repoIds: null, unseenOnly: true, activityFilter: '', search: '' };
 /** The page state the feed and detail tests build on: the watched repositories and their stored events. */
-type Fixture = State & { repos: Repository[]; events: ActivityEvent[] };
+type Fixture = State & { enabledRepos: Repository[]; events: ActivityEvent[] };
 function fixture(): Fixture {
   const event = {
     repoId: 'r',
@@ -99,7 +100,7 @@ function fixture(): Fixture {
     data: { buildId: 42, sourceVersion: 'abc123def456', reason: 'manual' },
   } satisfies Event;
   return {
-    repos: [stub<Repository>({ id: 'r', name: 'Orders' })],
+    enabledRepos: [stub<Repository>({ id: 'r', name: 'Orders' })],
     settings: { refreshEnabled: true, refreshResumedAt: null },
     syncStatus: { overall: { state: 'synced', repoId: 'r' }, repos: { r: { state: 'synced' } } },
     streams: [],
@@ -125,12 +126,12 @@ function fixture(): Fixture {
 function activityPage(state: Fixture, ui: Partial<FeedUi>) {
   const store = createStore();
   try {
-    for (const repo of state.repos) store.saveRepo(repo);
+    for (const repo of state.enabledRepos) store.saveRepo(repo);
     store.insertEvents(state.events);
     return store.queryActivity({
-      view: ui.unreadOnly ? 'new' : 'all',
+      view: ui.unseenOnly ? 'new' : 'all',
       repoIds: ui.repoIds ?? undefined,
-      kind: ui.kind,
+      activityFilter: ui.activityFilter,
       search: ui.search,
     });
   } finally {
@@ -209,7 +210,7 @@ test('a completed pull request detail offers a switch to the branch it merged in
     data: { pullRequestId: 7, status: 'completed', sourceRefName: 'refs/heads/feature/topic', targetRefName: 'refs/heads/main' },
   };
   state.events = [pr];
-  state.repos = [stub<Repository>({ id: 'on', name: 'Orders', localPath: '/src/orders' })];
+  state.enabledRepos = [stub<Repository>({ id: 'on', name: 'Orders', localPath: '/src/orders' })];
   assert.equal(
     await text(
       one(
@@ -240,7 +241,7 @@ test('Activity shows ordinary pushes, hotfixes, and new branches in source-time 
     { ...event, id: 'branch', kind: 'branch-created', branch: 'feature/newest', title: 'New branch', time: '2026-11-17T10:00:00Z' },
   ];
   assert.deepEqual(await rowIds(t, renderFeed(state, view)), ['ordinary', 'priority', 'branch']);
-  assert.deepEqual(await rowIds(t, renderFeed(state, { ...view, unreadOnly: false })), ['ordinary', 'priority', 'branch']);
+  assert.deepEqual(await rowIds(t, renderFeed(state, { ...view, unseenOnly: false })), ['ordinary', 'priority', 'branch']);
   assert.doesNotMatch(await text(parse(t, renderFeed(state, view))), /Prioritized|Muted|Show muted/);
 });
 
@@ -342,7 +343,7 @@ test('both activity views draw a branch tree with the fork evidence in the row t
       data: { name: 'refs/heads/feature/a', evidence: 'refs' },
     },
   ];
-  const doc = parse(t, renderFeed(state, { ...view, unreadOnly: false }));
+  const doc = parse(t, renderFeed(state, { ...view, unseenOnly: false }));
   assert.equal(await one(doc, 'ul.rows.with-tree').getAttribute('data-tree-lanes'), '2');
   const cells = await all(doc, 'svg.tree');
   assert.equal(cells.length, 3);
@@ -424,7 +425,7 @@ test('a row names its repository only when more than one repository is shown', a
   const state = fixture();
   const subref = (out: SafeHtml | string) => one(parse(t, out), '.feed-title .subref');
   assert.doesNotMatch(await textIncludingHidden(subref(renderFeed(state, view))), /Orders/);
-  state.repos.push(stub<Repository>({ id: 'other', name: 'Billing' }));
+  state.enabledRepos.push(stub<Repository>({ id: 'other', name: 'Billing' }));
   const repo = one(subref(renderFeed(state, view)), '.ref-repo');
   assert.equal(await text(repo), 'Orders');
   assert.equal(await textIncludingHidden(repo), '· repository Orders');
@@ -710,10 +711,10 @@ test('the summary counts every unread item in scope, not only the loaded rows', 
   ];
   const store = createStore();
   try {
-    for (const repo of state.repos) store.saveRepo(repo);
+    for (const repo of state.enabledRepos) store.saveRepo(repo);
     store.insertEvents([...state.events, ...extra]);
     const activity = store.queryActivity({ view: 'all', limit: 2 });
-    const markup = renderPagedFeed({ ...state, events: [...state.events, ...extra], activity }, { ...view, unreadOnly: false });
+    const markup = renderPagedFeed({ ...state, events: [...state.events, ...extra], activity }, { ...view, unseenOnly: false });
     const summary = one(parse(t, markup), '[aria-label="Activity summary"]');
     const headline = one(summary, '.headline b');
     assert.equal(await text(headline), '7 new items');
@@ -749,13 +750,13 @@ test('only the failed CI count uses the failure color in both summary layouts', 
   const cell = one(summary, '[data-summary-kind="CI runs"]');
   assert.equal(await text(one(cell, '.val.t-info')), '4');
   assert.equal(await text(one(cell, '.sub')), '1 running · 1 queued · 1 failed');
-  assert.equal(await text(one(cell, 'button.t-crit[data-kind="status:failed"]')), '1 failed');
-  assert.equal(await text(one(cell, 'button.t-info[data-kind="build"]')), 'CI runs 4');
+  assert.equal(await text(one(cell, 'button.t-crit[data-activity-filter="status:failed"]')), '1 failed');
+  assert.equal(await text(one(cell, 'button.t-info[data-activity-filter="build"]')), 'CI runs 4');
   const chip = one(summary, '.summary-chips .chip');
   assert.deepEqual(await classes(chip), ['chip']);
   assert.equal(await text(chip), 'CI runs 4 · 1 running · 1 queued · 1 failed');
-  assert.equal(await text(one(chip, 'button.t-crit[data-kind="status:failed"]')), '1 failed');
-  assert.equal(await text(one(chip, 'button.t-info[data-kind="build"]')), 'CI runs 4');
+  assert.equal(await text(one(chip, 'button.t-crit[data-activity-filter="status:failed"]')), '1 failed');
+  assert.equal(await text(one(chip, 'button.t-info[data-activity-filter="build"]')), 'CI runs 4');
 });
 
 test('the failed CI summary offers all CI runs even when no failures are unread', async t => {
@@ -766,7 +767,7 @@ test('the failed CI summary offers all CI runs even when no failures are unread'
   };
   for (const seen of [false, true]) {
     state.events = [{ ...failure, seen }];
-    const page = parse(t, renderFeed(state, { ...view, unreadOnly: false, kind: 'status:failed' }));
+    const page = parse(t, renderFeed(state, { ...view, unseenOnly: false, activityFilter: 'status:failed' }));
     const count = seen ? '0' : '1';
     const cell = one(page, '[data-summary-kind="CI runs"]');
     const chip = one(page, '.summary-chips .chip');
@@ -774,8 +775,56 @@ test('the failed CI summary offers all CI runs even when no failures are unread'
     assert.equal(await text(one(cell, '.val')), count);
     assert.equal(await text(chip), `Failed CI runs ${count} · Show all CI runs`);
     for (const layout of [cell, chip]) {
-      assert.equal(await text(one(layout, 'button[data-kind="build"]')), 'Show all CI runs');
+      assert.equal(await text(one(layout, 'button[data-activity-filter="build"]')), 'Show all CI runs');
     }
     assert.equal(await one(page, '#kind-toggle').getAttribute('data-active'), 'true');
+  }
+});
+
+test('Git Graph chips name each status from its ID and take the Activity tone', async t => {
+  const activity = (id: string, kind: GitHistoryActivity['kind'], status: GitHistoryActivity['status']): GitHistoryActivity => ({
+    id,
+    kind,
+    status,
+    title: id,
+    time: '2026-11-27T10:00:00.000Z',
+  });
+  const items = [
+    activity('merged-pr', 'pr', 'merged'),
+    activity('abandoned-pr', 'pr', 'pr-abandoned'),
+    activity('open-pr', 'pr', 'open-pr'),
+    activity('passed', 'build', 'succeeded'),
+    activity('failed', 'build', 'failed'),
+    activity('partial', 'build', 'partially-succeeded'),
+    activity('running', 'build', 'running'),
+    activity('skipped', 'build', 'skipped'),
+  ];
+  const repo = stub<Repository>({ id: 'orders', name: 'Orders', project: 'Demo', localPath: '/work/orders' });
+  const page = stub<GitHistoryPage>({
+    snapshot: 's',
+    head: 'a'.repeat(40),
+    branch: 'main',
+    upstream: null,
+    shallow: false,
+    nextCursor: null,
+    commits: [{ id: 'a'.repeat(40), parents: [], author: 'Ann', subject: 'Release', refs: [], activity: items }],
+  });
+  const doc = parse(t, renderGitGraph([repo], repo, { repoId: 'orders', path: '/work/orders', page, loading: false, error: '' }, '', ''));
+  const chip = (id: string) => one(doc, `.graph-link[href="#event/${id}"]`);
+  const expected: [string, string, string[]][] = [
+    ['merged-pr', 'PR · Merged', ['merged', 'ok']],
+    // Activity shows an abandoned pull request as a warning, so the graph does too.
+    ['abandoned-pr', 'PR · PR abandoned', ['warn']],
+    ['open-pr', 'PR · Open PR', ['info']],
+    ['passed', 'CI · Succeeded', ['ok']],
+    ['failed', 'CI · Failed', ['crit']],
+    ['partial', 'CI · Partially succeeded', ['warn']],
+    ['running', 'CI · Running', ['info']],
+    ['skipped', 'CI · Skipped', ['neutral']],
+  ];
+  for (const [id, label, tone] of expected) {
+    const shown = await text(chip(id));
+    assert.ok(shown === label || shown.startsWith(`${label} · `), `${id}: ${shown}`);
+    assert.deepEqual(await classes(chip(id)), ['chip', 'graph-link', 'status-chip', ...tone].sort(), id);
   }
 });

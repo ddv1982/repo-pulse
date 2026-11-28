@@ -5,8 +5,8 @@ import type { SyncStatus, OverallSyncStatus, StreamState } from '../src/contract
 export type SyncStatusInput = {
   repos: { id: string; disabled?: boolean }[];
   streams: StreamState[];
-  jobs: (Pick<import('../src/contract.ts').HistoryJob, 'repoId' | 'status'> &
-    Partial<Pick<import('../src/contract.ts').HistoryJob, 'failures' | 'error' | 'stream'>>)[];
+  jobs: (Pick<import('../src/contract.ts').HistoryImportJob, 'repoId' | 'status'> &
+    Partial<Pick<import('../src/contract.ts').HistoryImportJob, 'failures' | 'error' | 'stream'>>)[];
   inProgress: { repoId: string; stream: string }[];
   settings: { refreshEnabled: boolean; refreshResumedAt: number | null };
   startedAt: number;

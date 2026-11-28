@@ -107,7 +107,7 @@ function diagnosticMarkup(id: string, diagnostic: CheckoutDiagnostic | undefined
     ${
       canSwitch && advice
         ? html`<button type="button" class="btn primary sm" id="checkout-switch-target-${id}"
-      ${action('switch-checkout-target')} data-id="${id}">Switch to ${advice.branch} and update</button>`
+      ${action('switch-checkout-target')} data-repo-id="${id}">Switch to ${advice.branch} and update</button>`
         : emptyHtml
     }
   </div>`;
@@ -128,7 +128,7 @@ function reviewMarkup(id: string, checkout: CheckoutSnapshot) {
     name: 'review' | 'carry' | 'remove',
     label: string,
   ) => html`<button class="btn sm" type="button" id="checkout-${name}-${id}"
-    ${action(`${name}-checkout-branch`)} data-id="${id}">${label}</button>`;
+    ${action(`${name}-checkout-branch`)} data-repo-id="${id}">${label}</button>`;
   const workspace = followup.workspace
     ? html`<p class="checkout-diagnostic help">Follow-up worktree <code>${followup.workspace}</code></p>`
     : emptyHtml;
@@ -141,7 +141,7 @@ function reviewMarkup(id: string, checkout: CheckoutSnapshot) {
       <legend>Commits to carry onto a new branch</legend>
       ${review.commits.map(
         commit =>
-          html`<label><input type="checkbox" name="checkout-commit" ${action('choose-carry-commit')} data-id="${id}" value="${commit.id}" ${checkout.carry?.includes(commit.id) ? html`checked` : emptyHtml}>
+          html`<label><input type="checkbox" name="checkout-commit" ${action('choose-carry-commit')} data-repo-id="${id}" value="${commit.id}" ${checkout.carry?.includes(commit.id) ? html`checked` : emptyHtml}>
         <code>${commit.id.slice(0, 8)}</code> ${commit.subject}</label>`,
       )}
       ${branchButton('carry', 'Carry selected commits')}
@@ -219,9 +219,9 @@ function statusMarkup(id: string, checkout: CheckoutSnapshot | undefined, activi
     ${checkout?.dirty ? html`<span class="chip status-chip neutral">Local changes</span>` : emptyHtml}
     ${checkTimeMarkup(checkout)}
     </div>
-    ${onActivityBranch && checkout?.canCheck ? html`<button type="button" class="ghost sm" id="checkout-check-${id}" ${action('check-checkout')} data-id="${id}" title="Fetch ${checkout.upstream} and compare it with your current branch">Check for updates</button>` : emptyHtml}
-    ${onActivityBranch && checkout?.canPull ? html`<button type="button" class="btn primary sm" id="checkout-pull-${id}" ${action('pull-checkout')} data-id="${id}">Pull</button>` : emptyHtml}
-    ${canSwitch(checkout) && !activityBranch ? html`<button type="button" class="ghost sm" id="checkout-switch-${id}" ${action('open-branch-picker')} data-id="${id}">Switch branch…</button>` : emptyHtml}
+    ${onActivityBranch && checkout?.canCheck ? html`<button type="button" class="ghost sm" id="checkout-check-${id}" ${action('check-checkout')} data-repo-id="${id}" title="Fetch ${checkout.upstream} and compare it with your current branch">Check for updates</button>` : emptyHtml}
+    ${onActivityBranch && checkout?.canPull ? html`<button type="button" class="btn primary sm" id="checkout-pull-${id}" ${action('pull-checkout')} data-repo-id="${id}">Pull</button>` : emptyHtml}
+    ${canSwitch(checkout) && !activityBranch ? html`<button type="button" class="ghost sm" id="checkout-switch-${id}" ${action('open-branch-picker')} data-repo-id="${id}">Switch branch…</button>` : emptyHtml}
     ${canSwitch(checkout) && !onActivityBranch ? html`<button type="button" class="ghost sm" id="activity-branch-action" ${action('switch-activity-branch')}>Switch to ${activityBranch}…</button>` : emptyHtml}`;
 }
 

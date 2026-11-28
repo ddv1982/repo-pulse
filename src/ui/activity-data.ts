@@ -3,26 +3,26 @@ import type { ActivityEvent, ActivityItem, ActivityPage } from '../activity.ts';
 
 export type ActivityView = {
   route: import('./navigation.ts').Route;
-  unreadOnly?: boolean;
+  unseenOnly?: boolean;
   repoIds: string[] | null;
-  kind?: string;
+  activityFilter?: string;
   search?: string;
 };
 
 const PAGE_SIZE = 50;
 const keyFor = (ui: ActivityView) =>
   JSON.stringify({
-    view: ui.unreadOnly ? 'new' : 'all',
+    view: ui.unseenOnly ? 'new' : 'all',
     repoIds: ui.repoIds === null ? null : [...ui.repoIds].sort(),
-    kind: ui.kind || '',
+    activityFilter: ui.activityFilter || '',
     search: ui.search || '',
   });
 const itemKey = (item: ActivityItem) => item.groupKey;
 
-export function activityScopeQuery(ui: Pick<ActivityView, 'repoIds' | 'search' | 'kind'>) {
+export function activityScopeQuery(ui: Pick<ActivityView, 'repoIds' | 'search' | 'activityFilter'>) {
   const query = new URLSearchParams();
   if (ui.repoIds !== null) query.set('repoIds', ui.repoIds.join(','));
-  if (ui.kind) query.set('kind', ui.kind);
+  if (ui.activityFilter) query.set('kind', ui.activityFilter);
   const { search, people } = splitActivitySearch(ui.search || '');
   if (search) query.set('search', search);
   if (people) query.set('people', people);
@@ -31,7 +31,7 @@ export function activityScopeQuery(ui: Pick<ActivityView, 'repoIds' | 'search' |
 
 function activityQuery(ui: ActivityView, limit: number, cursor?: string | null) {
   const query = activityScopeQuery(ui);
-  query.set('view', ui.unreadOnly ? 'new' : 'all');
+  query.set('view', ui.unseenOnly ? 'new' : 'all');
   query.set('limit', String(limit));
   if (cursor) query.set('cursor', cursor);
   return query;

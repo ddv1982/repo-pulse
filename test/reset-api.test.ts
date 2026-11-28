@@ -5,23 +5,16 @@ import { createStore } from '../server/store.ts';
 import { createNormalizer } from '../server/normalize.ts';
 import { createSync } from '../server/sync.ts';
 import { seedDemo, demoProvider, demoSync } from '../server/demo.ts';
-import { createBackfill } from '../server/backfill.ts';
+import { createHistoryImporter } from '../server/history-import.ts';
 import type { TestContext } from 'node:test';
 import { createApp } from '../server/runtime.ts';
 import type { AzureProvider } from '../server/azure-client.ts';
 import type { AzureStreamRecord, StateResponse } from '../src/contract.ts';
 import { TEST_KEY, keyedFetch, portOf } from './fixtures/access.ts';
 import { stub } from './fixtures/typed.ts';
+import { repo } from './fixtures/repository.ts';
 
 const fetch = keyedFetch();
-const repo = {
-  id: 'one',
-  name: 'One',
-  azureId: 'a',
-  organization: 'https://dev.azure.com/org',
-  project: 'P',
-  webUrl: 'https://dev.azure.com/org/P/_git/One',
-};
 const push = (id: number) => ({
   pushId: id,
   date: '2026-11-18T10:00:00Z',
@@ -47,8 +40,8 @@ async function live(t: TestContext, { pollMs }: { pollMs?: number } = {}) {
   });
   const normalizer = createNormalizer({ store });
   const sync = createSync({ store, provider, pollMs, normalizer });
-  const backfill = createBackfill({ store, provider, normalize: normalizer.normalize });
-  const app = createApp({ store, provider, sync, backfill, accessKey: TEST_KEY });
+  const historyImporter = createHistoryImporter({ store, provider, normalize: normalizer.normalize });
+  const app = createApp({ store, provider, sync, historyImporter, accessKey: TEST_KEY });
   await new Promise<void>(resolve => app.listen(0, '127.0.0.1', resolve));
   t.after(async () => {
     control.hold = false;

@@ -25,6 +25,7 @@ import { createSavedFilterMenus } from './ui/saved-filters.ts';
 import { createSettingsController } from './ui/settings-controller.ts';
 import { createTypeFilter } from './ui/type-filter.ts';
 import { listenForSearchKey } from './ui/search-field.ts';
+import { WIDE_LAYOUT } from './ui/breakpoints.ts';
 import type { Shell } from './ui/shell.ts';
 
 // Composition: the shared services, the route controllers and the one action table, then routing and start-up.
@@ -50,7 +51,7 @@ const refresh = createRefreshController({
   request,
   getView: navigation.view,
   reconcile(next) {
-    navigation.reconcileRepositories(next.watched);
+    navigation.reconcileRepositories(next.allRepos);
     if (ui.savedFilterId && !next.savedFilters.some(filter => filter.id === ui.savedFilterId)) ui.savedFilterId = '';
   },
   onUpdate({ metadata, force }) {
@@ -94,7 +95,7 @@ const checkoutPanel = createCheckoutPanel({
   page,
   groups: ui.groups,
   request,
-  isVisible: () => ui.route === 'repositories' && !refresh.state.demo && refresh.state.repos.some(repo => repo.localPath),
+  isVisible: () => ui.route === 'repositories' && !refresh.state.demo && refresh.state.enabledRepos.some(repo => repo.localPath),
   shown() {
     if (ui.route !== 'graph' || refresh.state.demo) return detail.activityCheckout()?.repoId;
     const { repo } = graph.selection();
@@ -149,7 +150,7 @@ function renderOptions() {
   const { generation } = navigation.view();
   return {
     restored,
-    returnUnreadOnly: navigation.returnUnreadOnly,
+    returnUnseenOnly: navigation.returnUnseenOnly,
     returnToGraph: graph.returnsHere,
     showRelated: Boolean(ui.relatedCi),
     matchingIds: navigation.matchingIds,
@@ -157,7 +158,7 @@ function renderOptions() {
     feedCommits: detail.feedCommits,
     ...(ui.route === 'graph' ? { graph: graph.render() } : {}),
     checkouts: checkoutPanel.snapshots,
-    checkoutFocus: navigation.takeCheckoutFocus(refresh.state.watched),
+    checkoutFocus: navigation.takeCheckoutFocus(refresh.state.allRepos),
     isCurrent: () => navigation.view().generation === generation,
   };
 }
@@ -222,7 +223,7 @@ function route() {
   // The branch picker belongs to the view that opened it.
   repositories.closeBranchPicker();
   const previous = ui.route;
-  const { destination, capacity, scrollToTop } = navigation.enter(refresh.loaded ? refresh.state.watched : null);
+  const { destination, capacity, scrollToTop } = navigation.enter(refresh.loaded ? refresh.state.allRepos : null);
   detail.enter(destination);
   let restoredGraph = false;
   if (destination === 'graph') restoredGraph = graph.enter(previous);
@@ -243,7 +244,7 @@ window.addEventListener('focus', () => {
 document.addEventListener('visibilitychange', () => {
   if (!document.hidden) void load();
 });
-window.matchMedia('(min-width:640px)').addEventListener('change', () => {
+window.matchMedia(WIDE_LAYOUT).addEventListener('change', () => {
   // The filter bar changes layout, so an open toolbar menu closes and focus returns to its toggle. Other pages keep
   // their menus: the Repositories picker stays open and tracked.
   if (!isActivity(ui.route)) return;

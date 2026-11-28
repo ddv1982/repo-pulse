@@ -7,7 +7,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { createStore } from '../server/store.ts';
 import { createNormalizer } from '../server/normalize.ts';
 import { createSync } from '../server/sync.ts';
-import { createBackfill } from '../server/backfill.ts';
+import { createHistoryImporter } from '../server/history-import.ts';
 import { createRewriteCheck } from '../server/rewrite-check.ts';
 import type { RewriteJob } from '../server/jobs.ts';
 import { mergeEvidenceBadge as mergeEvidenceBadgeHtml } from '../src/ui/merge-evidence.ts';
@@ -16,17 +16,10 @@ import type { AzurePage, AzureProvider } from '../server/azure-client.ts';
 import type { AzureStreamRecord } from '../src/contract.ts';
 import type { ActivityEvent, RewriteResult } from '../src/activity.ts';
 import { present, stub } from './fixtures/typed.ts';
+import { repo } from './fixtures/repository.ts';
 
 const mergeEvidenceBadge = (...args: Parameters<typeof mergeEvidenceBadgeHtml>) => String(mergeEvidenceBadgeHtml(...args));
 
-const repo = {
-  id: 'one',
-  name: 'One',
-  azureId: 'a',
-  organization: 'https://dev.azure.com/org',
-  project: 'P',
-  webUrl: 'https://dev.azure.com/org/P/_git/One',
-};
 const BASE = Date.parse('2026-11-17T10:00:00Z');
 const LIVE = '2026-11-17T10:00:01Z';
 const sha = (char: string) => char.repeat(40);
@@ -65,7 +58,7 @@ function setup({
     },
   });
   const check = createRewriteCheck({ store, provider, now: () => time });
-  let backfill: ReturnType<typeof createBackfill> | undefined;
+  let historyImporter: ReturnType<typeof createHistoryImporter> | undefined;
   const normalizer = createNormalizer({ store, now: () => time });
   const sync = createSync({
     store,
@@ -73,9 +66,9 @@ function setup({
     now: () => time,
     normalizer,
     intervalMs: 60000,
-    background: { rewrite: () => check.tick(), history: () => backfill?.tick() },
+    background: { rewrite: () => check.tick(), history: () => historyImporter?.tick() },
   });
-  backfill = createBackfill({ store, provider, normalize: normalizer.normalize, now: () => time });
+  historyImporter = createHistoryImporter({ store, provider, normalize: normalizer.normalize, now: () => time });
   sync.refresh();
   for (const state of store.getStreams()) if (state.stream !== 'pushes') store.saveStream({ ...state, nextAt: '2099-01-01T00:00:00Z' });
   return {
@@ -83,7 +76,7 @@ function setup({
     sync,
     calls,
     offered,
-    backfill,
+    historyImporter,
     advance(this: void, ms: number) {
       time += ms;
     },
@@ -128,13 +121,13 @@ test('a live fast-forward push makes one call and shows no badge', async () => {
 });
 
 test('imported pushes are never checked, from the first sync or from a history import', async () => {
-  const { store, calls, run, offered, backfill } = setup({
+  const { store, calls, run, offered, historyImporter } = setup({
     pushes: [push(12, [move('main', A, B)], new Date(BASE - 60000).toISOString())],
   });
   await run();
   assert.equal(store.getEvent('one:push:12')?.imported, true);
   offered.pushes = [push(18, [move('main', C, D)], new Date(BASE - 2 * 86400000).toISOString())];
-  backfill.start(repo.id, 30);
+  historyImporter.start(repo.id, 30);
   await run(20);
   assert.equal(store.getEvent('one:push:18')?.imported, true);
   assert.deepEqual(calls, []);
@@ -228,10 +221,10 @@ test('a disabled repository keeps its checks waiting and a removed one drops the
 
 test('due rewrite checks and a history import share background turns', async () => {
   const refs = Array.from({ length: 10 }, (_, i) => move(`b${i}`, A, B));
-  const { store, calls, run, backfill } = setup({ pushes: [push(19, refs)] });
+  const { store, calls, run, historyImporter } = setup({ pushes: [push(19, refs)] });
   await run(1);
   assert.equal(store.listJobs({ type: 'rewrite' }).length, 10);
-  backfill.start(repo.id, 'all');
+  historyImporter.start(repo.id, 'all');
   await run(10);
   assert.equal(calls.length, 5, 'rewrite checks take the first and every other turn');
   assert.equal(present(store.listJobs({ type: 'backfill' })[0]).pages, 5, 'history import takes the turns between them');

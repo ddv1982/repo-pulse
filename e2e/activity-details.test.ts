@@ -84,9 +84,9 @@ test('tag activity has its own type filter and a detail that names the tag and w
 test('a push that rewrote history says so on its row and in how it was merged, and a fast-forward push does not', async t => {
   const { page } = await setup(t);
   await page.locator('details[data-group="imported-history"] > summary').click();
-  const rewritten = page.locator('[data-event-id="demo-history"]');
+  const rewritten = page.locator('li[data-event-id="demo-history"]');
   await expect(rewritten).toContainText('History rewritten · 2 commits dropped');
-  await expect(page.locator('[data-event-id="demo-push-1"]')).not.toContainText('History rewritten');
+  await expect(page.locator('li[data-event-id="demo-push-1"]')).not.toContainText('History rewritten');
   await rewritten.locator('.feed-title').click();
   await expect(page.getByRole('region', { name: 'Push evidence' })).toContainText(
     'main · history rewritten, 2 commits dropped from the old tip',
@@ -95,7 +95,7 @@ test('a push that rewrote history says so on its row and in how it was merged, a
 
 test('a pull request detail lists its reviewers and their votes in words', async t => {
   const { page } = await setup(t);
-  await page.locator('[data-event-id="demo-pr-1"] .feed-title').click();
+  await page.locator('li[data-event-id="demo-pr-1"] .feed-title').click();
   const reviewers = page.locator('.detail-section', { has: page.getByRole('heading', { name: 'Reviewers', exact: true }) });
   await expect(reviewers.getByRole('listitem').filter({ hasText: 'Redacted 3' }).locator('.chip')).toHaveText(['Required', 'approved']);
   await expect(reviewers.getByRole('listitem').filter({ hasText: 'Redacted 1' }).locator('.status-chip')).toHaveText('waiting for author');
@@ -107,7 +107,7 @@ test('a pull request detail lists its reviewers and their votes in words', async
 
 test('a pull request detail loads its discussion and policy results only when asked', async t => {
   const { page } = await setup(t);
-  await page.locator('[data-event-id="demo-pr-1"] .feed-title').click();
+  await page.locator('li[data-event-id="demo-pr-1"] .feed-title').click();
   const detail = page.locator('.detail-data');
   await expect(detail.locator('.discussion-stats')).toHaveCount(0);
   await detail.getByRole('button', { name: 'Load discussion and policies' }).click();

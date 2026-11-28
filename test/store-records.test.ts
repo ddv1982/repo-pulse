@@ -6,15 +6,8 @@ import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { createStore, type Store } from '../server/store.ts';
 import type { StoredEvent } from '../src/contract.ts';
+import { repo } from './fixtures/repository.ts';
 
-const repo = {
-  id: 'one',
-  name: 'One',
-  azureId: 'a',
-  organization: 'https://dev.azure.com/org',
-  project: 'P',
-  webUrl: 'https://dev.azure.com/org/P/_git/One',
-};
 const stream = { repoId: 'one', stream: 'pushes', initialized: true, nextAt: '2026-11-19T00:00:00Z' };
 const event: StoredEvent = { id: 'push-1', repoId: 'one', kind: 'push', time: '2026-11-17T10:00:00Z', observedAt: '2026-11-17T10:00:00Z' };
 const rewrite = {

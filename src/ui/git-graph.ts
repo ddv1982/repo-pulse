@@ -1,5 +1,6 @@
 import type { GitHistoryActivity, GitHistoryPage, Repository } from '../contract.ts';
 import { layoutGitGraph } from '../git-graph.ts';
+import { statusLabel, statusTone } from '../activity-text.ts';
 import { foldSearchText, matchesPersonName, parsePeople, parseSearchTerms } from '../search-terms.ts';
 import { splitActivitySearch } from './activity-search.ts';
 import { ciTime, emptyHtml, fullDateTime, html } from './format.ts';
@@ -104,7 +105,7 @@ export function createGraphController({
 }: {
   request: typeof import('../api.ts').request;
   page: HTMLElement;
-  state: () => { repos: Repository[]; activityRevision: string };
+  state: () => { enabledRepos: Repository[]; activityRevision: string };
   /** The Activity repository scope: one repository in it is the graph's first choice. */
   scope: () => string[] | null;
   isActive: () => boolean;
@@ -133,7 +134,7 @@ export function createGraphController({
   let probing: { repoId: string; snapshot: string } | undefined;
 
   function selection() {
-    const { repos } = state();
+    const { enabledRepos: repos } = state();
     const ids = scope();
     const repo =
       repos.find(item => item.id === chosenId) ??
@@ -346,21 +347,10 @@ function path(segment: { from: number; to: number; color: number }, top: number,
   return html`<path class="${laneClass(segment.color)}" d="M ${from} ${top} C ${from} ${middle}, ${to} ${middle}, ${to} ${bottom}"/>`;
 }
 
-const ciTones = new Map([
-  ['Succeeded', 'ok'],
-  ['Failed', 'crit'],
-  ['Canceled', 'warn'],
-  ['Canceling', 'warn'],
-  ['Partially succeeded', 'warn'],
-  ['Running', 'info'],
-  ['Queued', 'info'],
-]);
-
 function graphActivity(item: GitHistoryActivity) {
-  const merged = item.kind === 'pr' && item.status === 'Merged';
   const date = item.kind === 'build' ? ciTime(item.time) : emptyHtml;
-  const tone = item.kind === 'build' ? (ciTones.get(item.status) ?? 'neutral') : merged ? 'ok merged' : 'neutral';
-  return html`<a class="graph-link chip status-chip ${tone}" href="#event/${encodeURIComponent(item.id)}" title="${item.kind === 'build' ? `${item.title} · ${fullDateTime(item.time)}` : item.title}">${item.kind === 'build' ? 'CI' : 'PR'} · ${item.status}${date === emptyHtml ? emptyHtml : html` · ${date}`}</a>`;
+  const tone = `${statusTone(item.status)}${item.status === 'merged' ? ' merged' : ''}`;
+  return html`<a class="graph-link chip status-chip ${tone}" href="#event/${encodeURIComponent(item.id)}" title="${item.kind === 'build' ? `${item.title} · ${fullDateTime(item.time)}` : item.title}">${item.kind === 'build' ? 'CI' : 'PR'} · ${statusLabel(item.status)}${date === emptyHtml ? emptyHtml : html` · ${date}`}</a>`;
 }
 
 function searchMatches(page: GitHistoryPage | null, query: string) {

@@ -10,11 +10,11 @@ import { createAzureCli } from '../server/azure-cli.ts';
 import { createAzureClient } from '../server/azure-client.ts';
 import type { Repository, ConnectionStatus } from '../src/contract.ts';
 import { fetch, renderInBackground, setup, setupPicker } from './fixtures/ui-app.ts';
-import type { AppSync } from '../server/routes/context.ts';
 import type { AzureProvider } from '../server/azure-client.ts';
 import { stub } from '../test/fixtures/typed.ts';
 import { demo } from './fixtures/history-app.ts';
 import { idleSyncStatus } from '../server/demo.ts';
+import { idleSync, testApp } from '../test/fixtures/app.ts';
 
 test('all branches remain visible without rules, with working settings', async t => {
   const app = await setup(t);
@@ -22,7 +22,7 @@ test('all branches remain visible without rules, with working settings', async t
   await page.reload();
   await expect(page.getByRole('link', { name: 'Rules', exact: true })).toHaveCount(0);
   await expect(page.getByRole('checkbox', { name: 'Show muted', exact: true })).toHaveCount(0);
-  await expect(page.locator('[data-event-id="demo-branch-1"]')).toBeVisible();
+  await expect(page.locator('li[data-event-id="demo-branch-1"]')).toBeVisible();
   await page.goto(app.runtime.url + '/#rules');
   await expect(page.getByRole('heading', { name: 'Settings', exact: true })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Watch and mute rules' })).toHaveCount(0);
@@ -304,8 +304,7 @@ test('Settings shows scoped CLI access and header switches share the automatic c
   });
   const probes: string[] = [];
   let manual = 0;
-  const app = createApp({
-    accessKey: TEST_KEY,
+  const app = testApp({
     store,
     provider: stub<AzureProvider>({
       // The server passes the watched repository the check is for.
@@ -324,13 +323,13 @@ test('Settings shows scoped CLI access and header switches share the automatic c
         });
       },
     }),
-    sync: stub<AppSync>({
-      status: () => idleSyncStatus(),
-      // Returns no status, which the page does not read.
-      refresh: (() => {
+    sync: {
+      ...idleSync,
+      refresh: () => {
         manual++;
-      }) as AppSync['refresh'],
-    }),
+        return { scheduled: true };
+      },
+    },
   });
   const url = await listen(t, app);
   const page = await openPage(t, { viewport: { width: 1280, height: 850 }, key: TEST_KEY });

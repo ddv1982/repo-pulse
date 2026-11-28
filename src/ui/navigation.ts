@@ -9,16 +9,17 @@ export type NavigationState = {
   relatedCi?: boolean | undefined;
   repoIds: string[] | null;
   search: string;
-  kind: string;
+  /** The encoded type filter: a kind, status:<id> or evidence:<id>. */
+  activityFilter: string;
   filtersOpen: boolean | undefined;
-  unreadOnly: boolean;
+  unseenOnly: boolean;
   savedFilterId: string;
 };
 
 export type ResultsContext = {
-  unreadOnly: boolean;
+  unseenOnly: boolean;
   search: string;
-  kind: string;
+  activityFilter: string;
   repoIds: string[] | null;
   groups: [string, boolean][];
   filtersOpen: boolean | undefined;
@@ -34,10 +35,10 @@ type ScopeRepo = Pick<import('../contract.ts').Repository, 'id' | 'disabled'>;
 
 /** What a hash names: the route, plus the unread choice an Activity link carries and the checkout a Repositories link names. */
 type ParsedRoute =
-  | { route: 'activity'; eventId: null; unreadOnly: boolean; checkoutRepoId?: undefined }
-  | { route: 'event'; eventId: string | null; relatedCi?: true; unreadOnly?: undefined; checkoutRepoId?: undefined }
-  | { route: 'repositories'; eventId: null; checkoutRepoId: string | null; unreadOnly?: undefined }
-  | { route: 'graph' | 'settings'; eventId: null; unreadOnly?: undefined; checkoutRepoId?: undefined };
+  | { route: 'activity'; eventId: null; unseenOnly: boolean; checkoutRepoId?: undefined }
+  | { route: 'event'; eventId: string | null; relatedCi?: true; unseenOnly?: undefined; checkoutRepoId?: undefined }
+  | { route: 'repositories'; eventId: null; checkoutRepoId: string | null; unseenOnly?: undefined }
+  | { route: 'graph' | 'settings'; eventId: null; unseenOnly?: undefined; checkoutRepoId?: undefined };
 
 /**
  * Resolve legacy Activity bookmarks to the corresponding filter.
@@ -48,7 +49,7 @@ export function parseRoute(hash: string): ParsedRoute {
     .split('/');
   if (name === 'rules') return { route: 'settings', eventId: null };
   if (name === 'activity' || name === 'catchup') {
-    return { route: 'activity', eventId: null, unreadOnly: name === 'catchup' || value === 'new' || value === 'unread' };
+    return { route: 'activity', eventId: null, unseenOnly: name === 'catchup' || value === 'new' || value === 'unread' };
   }
   if (name === 'event' || name === 'repositories') {
     let id = null;
@@ -62,10 +63,10 @@ export function parseRoute(hash: string): ParsedRoute {
       : { route: 'repositories', eventId: null, checkoutRepoId: id };
   }
   if (name === 'settings' || name === 'graph') return { route: name, eventId: null };
-  return { route: 'activity', eventId: null, unreadOnly: false };
+  return { route: 'activity', eventId: null, unseenOnly: false };
 }
 
-export const activityHref = (unreadOnly: boolean) => (unreadOnly ? '#activity/unread' : '#activity');
+export const activityHref = (unseenOnly: boolean) => (unseenOnly ? '#activity/unread' : '#activity');
 export const isActivity = (route: Route) => route === 'activity';
 export const repositoryHref = (id: string) => `#repositories/${encodeURIComponent(id)}`;
 
@@ -76,12 +77,13 @@ const RESULTS_VERSION = 2;
 function readResultsContext(): ResultsContext | null {
   try {
     const value = JSON.parse(sessionStorage.getItem(RESULTS_KEY) ?? 'null');
+    // The stored keys keep their first names, unreadOnly and kind.
     if (!value || (typeof value.unreadOnly !== 'boolean' && value.route !== 'activity' && value.route !== 'catchup')) return null;
     const search = typeof value.search === 'string' ? value.search : '';
     return {
-      unreadOnly: typeof value.unreadOnly === 'boolean' ? value.unreadOnly : value.route === 'catchup',
+      unseenOnly: typeof value.unreadOnly === 'boolean' ? value.unreadOnly : value.route === 'catchup',
       search: value.version === RESULTS_VERSION ? search : joinActivitySearch(search, typeof value.people === 'string' ? value.people : ''),
-      kind: typeof value.kind === 'string' ? value.kind : '',
+      activityFilter: typeof value.kind === 'string' ? value.kind : '',
       repoIds: Array.isArray(value.repoIds) ? value.repoIds.filter((id: unknown) => typeof id === 'string') : null,
       // Entries stored before the groups had stable IDs name them by title; restoring maps those to IDs.
       groups: Array.isArray(value.groups)
@@ -101,8 +103,8 @@ function readResultsContext(): ResultsContext | null {
 
 function canonicalRoute() {
   const parsed = parseRoute(location.hash);
-  if (parsed.unreadOnly !== undefined) {
-    const hash = activityHref(parsed.unreadOnly);
+  if (parsed.unseenOnly !== undefined) {
+    const hash = activityHref(parsed.unseenOnly);
     if (location.hash !== hash) history.replaceState(history.state, '', hash);
   }
   return parsed;
@@ -125,9 +127,9 @@ export function createNavigation({
   function remember(eventId: string | null, matchingIds?: string[]) {
     if (!isActivity(ui.route)) return;
     results = {
-      unreadOnly: ui.unreadOnly,
+      unseenOnly: ui.unseenOnly,
       search: ui.search,
-      kind: ui.kind,
+      activityFilter: ui.activityFilter,
       repoIds: ui.repoIds === null ? null : [...ui.repoIds],
       groups: captureGroups(),
       filtersOpen: ui.filtersOpen,
@@ -138,7 +140,11 @@ export function createNavigation({
       activityCapacity: activityCapacity(),
     };
     try {
-      sessionStorage.setItem(RESULTS_KEY, JSON.stringify({ ...results, version: RESULTS_VERSION }));
+      const { unseenOnly, activityFilter, ...rest } = results;
+      sessionStorage.setItem(
+        RESULTS_KEY,
+        JSON.stringify({ ...rest, unreadOnly: unseenOnly, kind: activityFilter, version: RESULTS_VERSION }),
+      );
     } catch {
       /* Navigation still works without storage. */
     }
@@ -163,14 +169,14 @@ export function createNavigation({
       const { checkoutRepoId: id, ...parsed } = canonicalRoute();
       Object.assign(ui, { relatedCi: false }, parsed);
       checkoutRepoId = id;
-      ui.unreadOnly = parsed.unreadOnly ?? results?.unreadOnly ?? false;
+      ui.unseenOnly = parsed.unseenOnly ?? results?.unseenOnly ?? false;
     },
     view(this: void) {
-      const { route, eventId, relatedCi, search, kind, repoIds, unreadOnly } = ui;
-      return { route, eventId, relatedCi, search, kind, repoIds, unreadOnly, generation };
+      const { route, eventId, relatedCi, search, activityFilter, repoIds, unseenOnly } = ui;
+      return { route, eventId, relatedCi, search, activityFilter, repoIds, unseenOnly, generation };
     },
-    get returnUnreadOnly() {
-      return results?.unreadOnly ?? false;
+    get returnUnseenOnly() {
+      return results?.unseenOnly ?? false;
     },
     get matchingIds() {
       return results && results.eventId === ui.eventId ? results.matchingIds : undefined;
@@ -203,7 +209,7 @@ export function createNavigation({
     /** Null repositories mean the watch list has not loaded yet; the first state read reconciles instead. */
     enter(repos: ScopeRepo[] | null) {
       const previous = ui.route;
-      const previousUnreadOnly = ui.unreadOnly;
+      const previousUnseenOnly = ui.unseenOnly;
       const { checkoutRepoId: id, ...parsed } = canonicalRoute();
       checkoutRepoId = id;
       const destination = parsed.route;
@@ -213,12 +219,12 @@ export function createNavigation({
 
       let capacity;
       if (isActivity(destination)) {
-        if (previous === 'event' && results?.unreadOnly === ui.unreadOnly) {
-          const { search, kind, filtersOpen, savedFilterId, repoIds, activityCapacity } = results;
-          Object.assign(ui, { search, kind, filtersOpen, savedFilterId, repoIds });
+        if (previous === 'event' && results?.unseenOnly === ui.unseenOnly) {
+          const { search, activityFilter, filtersOpen, savedFilterId, repoIds, activityCapacity } = results;
+          Object.assign(ui, { search, activityFilter, filtersOpen, savedFilterId, repoIds });
           pending = results;
           capacity = activityCapacity;
-        } else if (previous === destination && previousUnreadOnly === ui.unreadOnly) {
+        } else if (previous === destination && previousUnseenOnly === ui.unseenOnly) {
           capacity = activityCapacity();
         }
       }

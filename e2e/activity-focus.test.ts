@@ -25,7 +25,7 @@ test('focused search keeps its value and selection while incoming matching activ
     })
   ).json();
   await refreshNow(page);
-  await expect(page.locator(`[data-event-id="${incoming.id}"]`)).toBeVisible();
+  await expect(page.locator(`li[data-event-id="${incoming.id}"]`)).toBeVisible();
   await expect(search).toBeFocused();
   await expect(search).toHaveValue('hotfix/');
   assert.deepEqual(await search.evaluate((input: HTMLInputElement) => [input.selectionStart, input.selectionEnd]), [2, 5]);
@@ -51,7 +51,7 @@ for (const [name, selector] of [
     await row.locator(selector).focus();
     const incoming = await postDemoEvent(runtime);
     await refreshNow(page);
-    await expect(page.locator(`[data-event-id="${incoming.id}"]`)).toBeVisible();
+    await expect(page.locator(`li[data-event-id="${incoming.id}"]`)).toBeVisible();
     await expect(page.locator(`li[data-event-id="${id}"] ${selector}`)).toBeFocused();
   });
 }
@@ -68,7 +68,7 @@ test('incoming activity updates the feed in place: the search box and an existin
   }, id);
   const incoming = await postDemoEvent(runtime);
   await refreshNow(page);
-  await expect(page.locator(`[data-event-id="${incoming.id}"]`)).toBeVisible();
+  await expect(page.locator(`li[data-event-id="${incoming.id}"]`)).toBeVisible();
   assert.deepEqual(
     await page.evaluate(
       id => [document.querySelector<Marked>('#feed-search')?.marker, document.querySelector<Marked>(`li[data-event-id="${id}"]`)?.marker],
@@ -85,7 +85,7 @@ test('a header control keeps keyboard focus while incoming activity renders the 
   await refresh.evaluate((element: Marked) => (element.marker = 'header'));
   const incoming = await postDemoEvent(runtime);
   await refreshNow(page);
-  await expect(page.locator(`[data-event-id="${incoming.id}"]`)).toBeVisible();
+  await expect(page.locator(`li[data-event-id="${incoming.id}"]`)).toBeVisible();
   await expect(refresh).toBeFocused();
   assert.equal(await refresh.evaluate((element: Marked) => element.marker), 'header');
 });
@@ -99,7 +99,7 @@ test('incoming activity renders while the Activity type menu is open, and the me
   await expect(all).toBeFocused();
   const incoming = await postDemoEvent(runtime);
   await refreshNow(page);
-  await expect(page.locator(`[data-event-id="${incoming.id}"]`)).toBeVisible();
+  await expect(page.locator(`li[data-event-id="${incoming.id}"]`)).toBeVisible();
   await expect(panel).toBeVisible();
   await expect(toggle).toHaveAttribute('aria-expanded', 'true');
   await expect(all).toBeFocused();
@@ -118,7 +118,7 @@ test('incoming activity renders while the repository scope panel is open, and th
   await orders.focus();
   const incoming = await postDemoEvent(runtime);
   await refreshNow(page);
-  await expect(page.locator(`[data-event-id="${incoming.id}"]`)).toBeVisible();
+  await expect(page.locator(`li[data-event-id="${incoming.id}"]`)).toBeVisible();
   await expect(panel).toBeVisible();
   await expect(toggle).toHaveAttribute('aria-expanded', 'true');
   await expect(orders).toBeFocused();
@@ -147,7 +147,7 @@ test('a focused saved-filter option keeps focus while incoming activity renders'
   await expect(second).toBeFocused();
   const incoming = await postDemoEvent(runtime);
   await refreshNow(page);
-  await expect(page.locator(`[data-event-id="${incoming.id}"]`)).toBeVisible();
+  await expect(page.locator(`li[data-event-id="${incoming.id}"]`)).toBeVisible();
   await expect(second).toBeFocused();
 });
 
@@ -219,7 +219,7 @@ test('a focused CI row keeps focus when a status update changes which event repr
 test('a focused Activity type option keeps its type when a new type appears ahead of it', async t => {
   const { page, runtime } = await setup(t);
   await page.goto(`${runtime.url}/#activity/unread`);
-  await expect(page.locator('[data-event-id="demo-push-1"]')).toBeVisible();
+  await expect(page.locator('li[data-event-id="demo-push-1"]')).toBeVisible();
   await page.getByRole('button', { name: /^Activity type:/ }).press('ArrowDown');
   const panel = page.getByRole('listbox', { name: 'Activity type' });
   const push = panel.getByRole('option', { name: 'Push', exact: true });
@@ -254,7 +254,7 @@ test('a focused imported row keeps focus when a newer imported row renders above
     .locator('li[data-event-id] .feed-title')
     .filter({ has: page.locator('xpath=ancestor::details[@data-group="imported-history"]') })
     .first();
-  const id = await title.getAttribute('data-id');
+  const id = await title.getAttribute('data-event-id');
   await title.focus();
   runtime.store.insertEvents([
     {
@@ -270,8 +270,8 @@ test('a focused imported row keeps focus when a newer imported row renders above
     },
   ]);
   await renderInBackground(page);
-  await expect(page.locator('[data-event-id="imported-newer"]')).toBeVisible();
-  await expect(page.locator(`.feed-title[data-id="${id}"]`)).toBeFocused();
+  await expect(page.locator('li[data-event-id="imported-newer"]')).toBeVisible();
+  await expect(page.locator(`.feed-title[data-event-id="${id}"]`)).toBeFocused();
 });
 
 test('a focused scope checkbox stays on its repository when an earlier repository leaves the list', async t => {
@@ -319,11 +319,11 @@ test('disclosures keep the state the reader gave them while incoming activity re
   await expect(activity).not.toHaveAttribute('open');
   const incoming = await postDemoEvent(runtime);
   await renderInBackground(page);
-  await expect(page.locator(`[data-event-id="${incoming.id}"]`)).toBeAttached();
+  await expect(page.locator(`li[data-event-id="${incoming.id}"]`)).toBeAttached();
   await expect(activity).not.toHaveAttribute('open');
   await page.goto(`${base}#event/${encodeURIComponent(incoming.id)}`);
   await page.getByRole('link', { name: '← Back to Activity', exact: true }).click();
-  await expect(page.locator(`[data-event-id="${incoming.id}"]`)).toBeAttached();
+  await expect(page.locator(`li[data-event-id="${incoming.id}"]`)).toBeAttached();
   await expect(activity).not.toHaveAttribute('open');
   await page.goto(`${base}#repositories`);
   const details = page.locator('details.repo-details').first();
@@ -341,7 +341,7 @@ test('a backward selection in the focused search box survives incoming activity'
   await search.evaluate((input: HTMLInputElement) => input.setSelectionRange(2, 5, 'backward'));
   const incoming = await postDemoEvent(runtime);
   await refreshNow(page);
-  await expect(page.locator(`[data-event-id="${incoming.id}"]`)).toBeVisible();
+  await expect(page.locator(`li[data-event-id="${incoming.id}"]`)).toBeVisible();
   await expect(search).toBeFocused();
   await expect(search).toHaveValue('hotfix/');
   assert.deepEqual(
@@ -365,7 +365,7 @@ test('text selected inside a row stays selected while incoming activity renders'
   assert.ok(selected.length > 0);
   const incoming = await postDemoEvent(runtime);
   await refreshNow(page);
-  await expect(page.locator(`[data-event-id="${incoming.id}"]`)).toBeVisible();
+  await expect(page.locator(`li[data-event-id="${incoming.id}"]`)).toBeVisible();
   assert.equal(await page.evaluate(() => getSelection()?.toString()), selected);
 });
 

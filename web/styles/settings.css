@@ -16,13 +16,13 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
+  gap: var(--space-4);
   min-height: 45px;
-  padding: 10px 16px;
+  padding: var(--space-2-5) var(--space-4);
 }
 .settings-row .help {
   display: block;
-  margin-top: 2px;
+  margin-top: var(--space-0-5);
 }
 .settings-row:hover {
   background: var(--accent);
@@ -34,8 +34,8 @@
 .settings-content {
   display: grid;
   justify-items: start;
-  gap: 8px;
-  padding: 0 16px 14px;
+  gap: var(--space-2);
+  padding: 0 var(--space-4) 14px;
 }
 .settings-chevron {
   width: 7px;
@@ -43,7 +43,7 @@
   border-right: 1px solid var(--muted-foreground);
   border-bottom: 1px solid var(--muted-foreground);
   transform: rotate(-45deg);
-  margin-right: 4px;
+  margin-right: var(--space-1);
 }
 .settings-card details[open] .settings-chevron {
   transform: rotate(45deg);
@@ -64,7 +64,7 @@
   display: block;
   width: 16px;
   height: 16px;
-  margin: 2px;
+  margin: var(--space-0-5);
   border-radius: 50%;
   background: #fff;
 }
@@ -81,9 +81,9 @@
 .connection-summary {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: var(--space-2);
   align-items: center;
-  font-size: 12px;
+  font-size: var(--text-xs);
 }
 .connection-state {
   margin-inline-start: auto;
@@ -94,7 +94,7 @@
   .connection-heading {
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;
-    gap: 4px 12px;
+    gap: var(--space-1) var(--space-3);
   }
   .connection-heading .connection-state {
     grid-row: 2;

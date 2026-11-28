@@ -1,0 +1,188 @@
+/* Shared controls: the search field, menus and their option rows, and dialogs. */
+.search {
+  width: 100%;
+  max-width: 384px;
+  border: 1px solid var(--input);
+  background: var(--card);
+  border-radius: var(--radius);
+  padding: 0 var(--space-3);
+  font-size: var(--text-base);
+  outline: none;
+}
+.search::placeholder {
+  color: var(--muted-foreground);
+}
+.search:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px color-mix(in oklab, var(--primary) 30%, transparent);
+}
+
+/* Dropdown menus (repository scope and header overflow). */
+.menu {
+  position: relative;
+  max-width: 100%;
+}
+.menu-panel {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  z-index: 30;
+  margin-top: var(--space-1);
+  width: 340px;
+  max-width: calc(100vw - 32px);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--card);
+  padding: var(--space-1);
+  box-shadow: var(--shadow-lg);
+}
+.menu-panel .opt {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr);
+  gap: var(--space-0-5) var(--space-2-5);
+  align-items: center;
+  min-height: var(--option-row-height);
+  padding: var(--option-row-padding);
+  border-radius: var(--row-radius);
+  cursor: pointer;
+}
+.menu-panel .opt:hover {
+  background: var(--accent);
+}
+.menu-panel .opt input {
+  margin: 0;
+  accent-color: var(--primary);
+  width: 16px;
+  height: 16px;
+}
+.menu-panel .opt b {
+  font-weight: 500;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.menu-panel .opt small {
+  grid-column: 2;
+  font-size: var(--text-xs);
+  color: var(--muted-foreground);
+}
+.menu-panel .menu-empty {
+  padding: var(--space-2);
+}
+.menu-panel .mfoot {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-2);
+  align-items: center;
+  padding: var(--space-1-5) var(--space-2) var(--space-1);
+  margin-top: var(--space-0-5);
+  border-top: 1px solid var(--border);
+  font-size: var(--text-xs);
+  color: var(--muted-foreground);
+}
+@media (max-width: 639px) {
+  .menu {
+    position: static;
+  }
+  .menu-panel {
+    top: var(--control-height);
+    left: 0;
+    right: 0;
+    width: auto;
+    max-width: none;
+  }
+}
+
+/* Option rows in toolbar menus (type, saved filter and saved filter actions). */
+.type-option {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  min-height: var(--option-row-height);
+  padding: var(--option-row-padding);
+  border: 0;
+  border-radius: var(--row-radius);
+  background: var(--card);
+  color: var(--foreground);
+  text-align: left;
+  cursor: pointer;
+  font-size: var(--text-base);
+}
+.type-option:hover,
+.type-option:focus {
+  background: var(--accent);
+}
+.type-option:focus-visible {
+  outline-offset: -2px;
+}
+.type-check {
+  width: 16px;
+  flex: none;
+  color: var(--info);
+}
+
+/* Dialogs. */
+dialog {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--card);
+  color: var(--foreground);
+  padding: 0;
+  max-width: min(460px, calc(100% - 32px));
+  box-shadow: var(--shadow-lg);
+}
+dialog::backdrop {
+  background: oklch(0 0 0 / 0.35);
+}
+dialog .dbody {
+  padding: var(--space-4);
+  display: grid;
+  gap: var(--space-2-5);
+  font-size: var(--text-base);
+}
+dialog .dfoot {
+  display: flex;
+  gap: var(--space-2);
+  justify-content: flex-end;
+  padding: var(--space-3) var(--space-4);
+  border-top: 1px solid var(--border);
+}
+#confirm-dialog {
+  width: min(460px, calc(100% - 32px));
+}
+#confirm-dialog .dbody {
+  grid-template-columns: minmax(0, 1fr);
+  overflow-wrap: anywhere;
+}
+#confirm-title {
+  font-size: var(--text-xl);
+  line-height: 1.35;
+}
+#confirm-description {
+  color: var(--muted-foreground);
+}
+#confirm-subject {
+  padding: var(--space-2) var(--space-2-5);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--muted);
+  line-height: 1.45;
+}
+#confirm-dialog .dfoot {
+  flex-wrap: wrap;
+}
+#confirm-dialog .dfoot .btn {
+  min-height: var(--control-height);
+  height: auto;
+  padding-block: var(--space-1-5);
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+#confirm-button.danger {
+  background: var(--critical-wash);
+  color: var(--critical);
+  border-color: color-mix(in oklab, var(--critical) 38%, var(--border));
+}
+#confirm-button.danger:hover {
+  background: color-mix(in oklab, var(--critical) 14%, var(--card));
+}

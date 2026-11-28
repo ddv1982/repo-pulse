@@ -13,12 +13,14 @@ export type Repo = StateResponse['repos'][number];
 type DisplayActivity = Pick<ActivityPage, 'items'> & Partial<Omit<ActivityPage, 'items'>> & { loading?: boolean; error?: string };
 
 /**
- * The state the page renders: the last /api/state answer, checked once in `readState`, with disabled repositories left
- * out of `repos` and `streams` (`watched` keeps them for Repositories), and the Activity rows or detail loaded for it.
- * Before the first answer every field holds an empty placeholder, and `diagnostics` stays empty.
+ * The state the page renders: the last /api/state answer, checked once in `readState`, with its repositories split
+ * into `allRepos` (every watched repository, for Repositories) and `enabledRepos` (the ones every other view shows),
+ * `streams` limited to enabled repositories, and the Activity rows or detail loaded for it. Before the first answer
+ * every field holds an empty placeholder, and `diagnostics` stays empty.
  */
-export type PageState = Omit<StateResponse, 'syncStatus' | 'diagnostics'> & {
-  watched: Repo[];
+export type PageState = Omit<StateResponse, 'syncStatus' | 'diagnostics' | 'repos'> & {
+  allRepos: Repo[];
+  enabledRepos: Repo[];
   diagnostics: Partial<StateResponse['diagnostics']>;
   syncStatus: PageSyncStatus;
   activity: DisplayActivity;
@@ -70,15 +72,14 @@ export function readState(value: unknown): StateResponse {
 }
 
 /** The page state for a checked answer: disabled repositories stay manageable on Repositories but leave every other view. */
-function pageMetadata(data: StateResponse) {
-  const watched = data.repos;
-  const repos = watched.filter(repo => !repo.disabled);
-  const streams = data.streams.filter(stream => repos.some(repo => repo.id === stream.repoId));
-  return { ...data, watched, repos, streams };
+function pageMetadata({ repos: allRepos, ...data }: StateResponse) {
+  const enabledRepos = allRepos.filter(repo => !repo.disabled);
+  const streams = data.streams.filter(stream => enabledRepos.some(repo => repo.id === stream.repoId));
+  return { ...data, allRepos, enabledRepos, streams };
 }
 
-const viewKey = ({ route, eventId, repoIds, search, kind, unreadOnly, generation }: View) =>
-  JSON.stringify([route, eventId, repoIds, search, kind, unreadOnly, generation]);
+const viewKey = ({ route, eventId, repoIds, search, activityFilter, unseenOnly, generation }: View) =>
+  JSON.stringify([route, eventId, repoIds, search, activityFilter, unseenOnly, generation]);
 
 export function createRefreshController({
   request,
@@ -90,14 +91,14 @@ export function createRefreshController({
   request: typeof import('../api.ts').request;
   getView: () => View;
   /** Brings the navigation state in line with each state answer as it arrives: the repository scope and the saved filter. */
-  reconcile: (next: Pick<PageState, 'watched' | 'savedFilters'>) => void;
+  reconcile: (next: Pick<PageState, 'allRepos' | 'savedFilters'>) => void;
   onUpdate: (event: { metadata: string; force: boolean }) => void;
   onError: (error: Error, force: boolean) => void;
 }) {
   const activityData = createActivityData(request);
   let state: PageState = {
-    repos: [],
-    watched: [],
+    allRepos: [],
+    enabledRepos: [],
     activity: { items: [], loading: true },
     events: [],
     streams: [],
@@ -109,7 +110,7 @@ export function createRefreshController({
     syncStatus: noSyncStatus,
     demo: false,
   };
-  // Until the first state read lands, state.watched is a placeholder, not the watch list.
+  // Until the first state read lands, state.allRepos is a placeholder, not the watch list.
   let loaded = false;
   let detailResult: EventResponse | null | undefined;
   let detailRevision: string | undefined;

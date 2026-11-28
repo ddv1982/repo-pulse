@@ -18,7 +18,7 @@ export function createRepositoriesController(
   const picker = createRepositoryPicker({
     menus,
     request,
-    getRepos: () => state().watched,
+    getRepos: () => state().allRepos,
     onAdded: async count => {
       await load({ force: true });
       feedback.toast(`${count} repositories watched.`);
@@ -51,18 +51,18 @@ export function createRepositoriesController(
     actions: {
       ...picker.actions,
       'open-branch-picker': element => {
-        const repo = state().repos.find(item => item.id === element.dataset.id);
-        const branch = checkouts()[element.dataset.id ?? '']?.branch;
+        const repo = state().enabledRepos.find(item => item.id === element.dataset.repoId);
+        const branch = checkouts()[element.dataset.repoId ?? '']?.branch;
         if (repo && branch && !state().demo) void branchPicker.show(repo, branch);
       },
       'open-history-import': element => {
-        const repo = state().repos.find(item => item.id === element.dataset.id);
+        const repo = state().enabledRepos.find(item => item.id === element.dataset.repoId);
         if (repo) historyImport.show(repo);
       },
       'remove-repo': element => {
         // Remove buttons are rendered from the watched list. A repository removed since the render throws here and the
         // dispatcher reports it.
-        const repo = state().watched.find(item => item.id === element.dataset.id);
+        const repo = state().allRepos.find(item => item.id === element.dataset.repoId);
         if (!repo) throw new Error('This repository is no longer watched.');
         confirm(
           `Remove ${repo.name} from this app?`,
@@ -77,7 +77,7 @@ export function createRepositoriesController(
       },
       'toggle-repo': control => {
         if (!(control instanceof HTMLInputElement)) return;
-        const repo = state().watched.find(item => item.id === control.dataset.id);
+        const repo = state().allRepos.find(item => item.id === control.dataset.repoId);
         if (commands.isPending('repos') || !repo) {
           control.checked = !repo?.disabled;
           return;
@@ -89,7 +89,7 @@ export function createRepositoriesController(
             await load({ force: true });
             feedback.toast(`${repo.name} ${enabled ? 'enabled' : 'disabled'}.`);
           } finally {
-            const current = state().watched.find(item => item.id === repo.id);
+            const current = state().allRepos.find(item => item.id === repo.id);
             if (control.isConnected) control.checked = !current?.disabled;
           }
         });

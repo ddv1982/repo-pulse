@@ -12,16 +12,9 @@ import { spawn } from 'node:child_process';
 import type { ActivityEvent, EventData } from '../src/activity.ts';
 import type { StreamState } from '../src/contract.ts';
 import { dataOf, fieldsOf, present, stub } from './fixtures/typed.ts';
-import { historyJob, rewriteJob } from './fixtures/jobs.ts';
+import { historyImportJob, rewriteJob } from './fixtures/jobs.ts';
+import { repo } from './fixtures/repository.ts';
 
-const repo = {
-  id: 'one',
-  name: 'One',
-  azureId: 'a',
-  organization: 'https://dev.azure.com/org',
-  project: 'P',
-  webUrl: 'https://dev.azure.com/org/P/_git/One',
-};
 const event = (id: string, extra: Partial<ActivityEvent> = {}): ActivityEvent => ({
   id,
   repoId: 'one',
@@ -246,7 +239,7 @@ test('starting from scratch clears activity, checkpoints, jobs and baselines but
     entities: [{ type: 'push', id: '1', data: { date: '2026-11-17T10:00:00Z' } }],
     jobs: [rewriteJob('one', 'push-0')],
   });
-  store.saveJob(historyJob('one'));
+  store.saveJob(historyImportJob('one'));
   store.enrichEvent('push-0', { mergeEvidence: { status: 'complete' } });
   store.setBaseline('one', '2026-11-01T00:00:00.000Z');
   store.setBaseline('two', '2026-11-01T00:00:00.000Z');
@@ -569,7 +562,7 @@ test('upgrading leaves imported branch creations unchecked in a repository that 
       data: { ...created('x').data, name: 'refs/heads/stored-result', forkOrigin: { status: 'orphan' } },
     },
   ]);
-  store.saveJob(historyJob('one', { status: 'completed', nextAt: '2026-11-17T10:00:00.000Z' }));
+  store.saveJob(historyImportJob('one', { status: 'completed', nextAt: '2026-11-17T10:00:00.000Z' }));
   store.close();
   const raw = new DatabaseSync(path);
   raw.exec('PRAGMA user_version = 14;');
@@ -705,7 +698,7 @@ test('Activity resolves CI across pages and keeps failures and filtered runs vis
   assert.equal(all.find(item => item.id === 'pr-open')?.latestPrMilestone, false);
   assert.equal(all.find(item => item.id === 'pr-open')?.relatedCi?.[0]?.validation, true);
   assert.deepEqual(
-    store.queryActivity({ kind: 'build' }).items.map(item => item.id),
+    store.queryActivity({ activityFilter: 'build' }).items.map(item => item.id),
     ['legacy-preview', 'unread-pass', 'failed', 'scheduled', 'wrong-ref', 'passing', 'preview'],
   );
   assert.equal(store.queryActivity({ search: 'passing' }).items[0]?.id, 'passing');

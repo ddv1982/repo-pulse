@@ -4,10 +4,10 @@ import { parseRoute, activityHref, isActivity } from '../src/ui/navigation.ts';
 
 test('Activity defaults to all history and preserves legacy unread bookmarks', () => {
   for (const hash of ['', '#activity', '#activity/all', '#activity/unknown']) {
-    assert.deepEqual(parseRoute(hash), { route: 'activity', eventId: null, unreadOnly: false });
+    assert.deepEqual(parseRoute(hash), { route: 'activity', eventId: null, unseenOnly: false });
   }
   for (const hash of ['#activity/new', '#catchup', '#activity/unread']) {
-    assert.deepEqual(parseRoute(hash), { route: 'activity', eventId: null, unreadOnly: true });
+    assert.deepEqual(parseRoute(hash), { route: 'activity', eventId: null, unseenOnly: true });
   }
   assert.equal(activityHref(true), '#activity/unread');
   assert.equal(activityHref(false), '#activity');

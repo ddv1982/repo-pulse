@@ -8,7 +8,7 @@ import { setup, groupedFixture } from './fixtures/ui-app.ts';
 test('approved light/dark/System UI and responsive routes work without remote traffic', async t => {
   const { page } = await setup(t);
   await expect(page.getByText('Demo mode · fictional repositories and people')).toBeVisible();
-  await expect(page.locator('[data-event-id="demo-branch-1"]')).toContainText('hotfix/2026.11-dose-rounding');
+  await expect(page.locator('li[data-event-id="demo-branch-1"]')).toContainText('hotfix/2026.11-dose-rounding');
   const remoteReads: string[] = [];
   page.on('request', request => {
     if (/\/api\/(refresh|connection|repos)(\?|$)/.test(request.url())) remoteReads.push(request.url());
@@ -112,7 +112,7 @@ test('Light uses the vivid palette with glass chrome, status pills and an opaque
   await expect(summary.locator('.cells')).toBeHidden();
 
   // An unknown media feature is unmatched even when negated.
-  await page.route('**/web/styles/tokens.css', async route => {
+  await page.route('**/web/styles/glass.css', async route => {
     const response = await route.fetch();
     const body = (await response.text()).replaceAll('prefers-reduced-transparency', 'repo-pulse-unknown-preference');
     await route.fulfill({ response, body });
@@ -254,8 +254,8 @@ test('semantic status colors match rows, imported history, details and trails in
       await expect(row.locator('.kind')).toHaveClass(new RegExp(`\\b${tone}\\b`));
       await expect(row).toHaveClass(new RegExp(`\\btone-${tone}\\b`));
     }
-    await expect(page.locator('[data-event-id="color-deleted"]')).not.toHaveClass(/(?:^|\s)crit(?:\s|$)/);
-    await expect(page.locator('[data-event-id="color-failed"]')).toHaveClass(/(?:^|\s)crit(?:\s|$)/);
+    await expect(page.locator('li[data-event-id="color-deleted"]')).not.toHaveClass(/(?:^|\s)crit(?:\s|$)/);
+    await expect(page.locator('li[data-event-id="color-failed"]')).toHaveClass(/(?:^|\s)crit(?:\s|$)/);
     const contrast = await page.evaluate(() => {
       const canvas = document.createElement('canvas');
       canvas.width = canvas.height = 1;
@@ -320,14 +320,14 @@ test('semantic status colors match rows, imported history, details and trails in
       assert.equal(result.hasWash, result.critical || (theme === 'Dark' && result.unread), `${theme} ${result.id} wash`);
       assert.ok(result.ratio >= 4.5, `${theme} ${result.id} contrast ${result.ratio}`);
     }
-    const trail = page.locator('[data-event-id="canceled-transition"] .trail');
+    const trail = page.locator('li[data-event-id="canceled-transition"] .trail');
     if (!(await trail.evaluate((element: HTMLDetailsElement) => element.open))) await trail.locator('summary').click();
     await expect(trail.locator('.status-text.warn')).toHaveText('Canceled');
     await expect(trail.locator('.status-text.info')).toHaveCount(2);
     await capture(page, `status-colors-${theme.toLowerCase()}.png`, { fullPage: true });
   }
   await page.getByRole('button', { name: 'Light', exact: true }).click();
-  await page.locator('[data-event-id="color-completed"] .feed-title').click();
+  await page.locator('li[data-event-id="color-completed"] .feed-title').click();
   await expect(page.locator('#page .status-chip')).toHaveClass(/\bok\b/);
   await expect(page.locator('#page .status-chip')).toHaveText('Merged');
   await expect(page.locator('#page .status-chip')).toHaveCSS('color', 'rgb(6, 116, 61)');

@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createStore } from '../server/store.ts';
 import type { ActivityEvent, EventData } from '../src/activity.ts';
+import { repo as watchedRepo } from './fixtures/repository.ts';
 
 const main = 'refs/heads/main';
 const feature = 'refs/heads/feature';
@@ -14,15 +15,7 @@ const event = (id: string, minute: number, kind: ActivityEvent['kind'], data: Ev
   kind,
   data,
 });
-const repo = {
-  id: 'one',
-  name: 'One',
-  azureId: 'a',
-  organization: 'https://dev.azure.com/org',
-  project: 'P',
-  webUrl: 'https://dev.azure.com/org/P/_git/One',
-  defaultBranch: main,
-};
+const repo = { ...watchedRepo, defaultBranch: main };
 const pr = (id: string, minute: number, fields: EventData = {}) =>
   event(id, minute, 'pr', { pullRequestId: 1, status: 'active', sourceRefName: feature, targetRefName: main, ...fields });
 const push = (id: string, minute: number, ref: string, tip: string) =>
@@ -49,7 +42,7 @@ test('highlights are selected before pagination, with a shared unread scope and 
   store.insertEvents([pr('merge', 7, { status: 'completed', mergeStrategy: 'squash', mergeCommit: landing })]);
   assert.deepEqual(ids(store.queryActivity({ limit: 2, cursor: page.nextCursor }).items), ['direct', 'ready']);
   assert.deepEqual(ids(store.queryActivity().items), ['merge', 'direct', 'ready']);
-  assert.deepEqual(ids(store.queryActivity({ view: 'new', kind: 'push' }).items), ['direct']);
+  assert.deepEqual(ids(store.queryActivity({ view: 'new', activityFilter: 'push' }).items), ['direct']);
   assert.deepEqual(store.queryActivity({ search: 'routine' }).items, []);
   const unseen = store.queryActivity.unseenIds({ through: page.asOf });
   assert.deepEqual([...unseen].sort(), ['direct', 'landing-push', 'ready']);
@@ -262,14 +255,14 @@ test('a live draft transition after an import is shown once and a late build sna
     { ...run('older-running', 3, 1, '', 'head', { buildId: 1, status: 'inProgress' }) },
     { ...run('2', 5, 1, 'succeeded', 'head'), repoId: 'two' },
   ]);
-  const page = store.queryActivity({ kind: 'status:failed' });
+  const page = store.queryActivity({ activityFilter: 'status:failed' });
   assert.deepEqual(ids(page.items), ['1']);
   assert.deepEqual(page.items[0]?.unseenIds, ['1', 'older-running']);
   assert.deepEqual(
     store.queryActivity().items.map(item => item.highlight),
     ['ci-failed', 'review-ready'],
   );
-  const unseen = store.queryActivity.unseenIds({ kind: 'status:failed', through: page.asOf });
+  const unseen = store.queryActivity.unseenIds({ activityFilter: 'status:failed', through: page.asOf });
   store.acknowledge(unseen);
   assert.ok(store.getEventGroup('1').every(event => event.seen));
   store.close();

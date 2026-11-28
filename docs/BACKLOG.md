@@ -23,9 +23,7 @@ From the [improvement plan](archive/IMPROVEMENT-PLAN.md#phase-3-working-agreemen
 
 ## Architecture refactor
 
-Approved on 2026-11-27 after a council review at `a0c73ea`. Phases 0 and 1 (user-visible bug fixes and mechanical hygiene), phase 2 (server boundary and one contract), phase 3 (browser shell: route controllers, page state in `ui`, one action dispatcher, one menu manager, a dialog helper, and typed navigation and state) and phase 4 (server internals: the store split, `server/git.ts` with one checkout context, typed Azure reads, PR and build reconciliation out of `server/sync.ts`, and per-repository settings keys owned by the store) are done. Each later phase is one PR, merged before the next starts, and its pull request lists the items and their checks.
-
-- Phase 5, presentation, naming and tests: stylesheets split with shared tokens and documented breakpoints, stable graph status IDs, identifier renames, and a split sync test with shared fixtures.
+Approved on 2026-11-27 after a council review at `a0c73ea`. Phases 0 and 1 (user-visible bug fixes and mechanical hygiene), phase 2 (server boundary and one contract), phase 3 (browser shell: route controllers, page state in `ui`, one action dispatcher, one menu manager, a dialog helper, and typed navigation and state), phase 4 (server internals: the store split, `server/git.ts` with one checkout context, typed Azure reads, PR and build reconciliation out of `server/sync.ts`, and per-repository settings keys owned by the store) and phase 5 (presentation, naming and tests: stylesheets split with shared tokens and documented breakpoints, stable Git Graph status IDs, identifier renames, a split sync test with shared fixtures and `testApp()`, and `npm run test:fast`) are done. All phases of the architecture refactor are done.
 
 ## When the code is next touched
 

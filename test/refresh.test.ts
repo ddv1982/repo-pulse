@@ -18,7 +18,7 @@ const state = (fields: Record<string, unknown>) => ({
 });
 const metadata = state({ repos: [{ id: 'orders' }] });
 const page = (id: string) => ({ items: [{ groupKey: id, events: [{ id }] }], total: 1, nextCursor: null });
-const initialView: View = { route: 'activity', repoIds: null, eventId: null, search: '', kind: '', generation: 0 };
+const initialView: View = { route: 'activity', repoIds: null, eventId: null, search: '', activityFilter: '', generation: 0 };
 
 test('an obsolete filter cannot publish its rows or an error after navigation', async () => {
   for (const fail of [false, true]) {
@@ -130,7 +130,7 @@ test('disabled repositories stay watched but leave the shown repositories and th
         : page('orders'),
     ),
     getView: () => initialView,
-    reconcile: ({ watched }) => reconciled.push(watched.map(repo => repo.id)),
+    reconcile: ({ allRepos }) => reconciled.push(allRepos.map(repo => repo.id)),
     onUpdate: () => {},
     onError: error => {
       throw error;
@@ -138,11 +138,11 @@ test('disabled repositories stay watched but leave the shown repositories and th
   });
   await refresh.load();
   assert.deepEqual(
-    refresh.state.watched.map(repo => repo.id),
+    refresh.state.allRepos.map(repo => repo.id),
     ['orders', 'billing'],
   );
   assert.deepEqual(
-    refresh.state.repos.map(repo => repo.id),
+    refresh.state.enabledRepos.map(repo => repo.id),
     ['orders'],
   );
   assert.deepEqual(

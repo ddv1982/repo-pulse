@@ -3,16 +3,12 @@ import assert from 'node:assert/strict';
 import { capture, cleanupStack, defer, listen, openPage, refreshNow } from './fixtures/app.ts';
 import { createCheckoutGit } from '../server/checkout-git.ts';
 import { expect } from '@playwright/test';
-import { createApp } from '../server/runtime.ts';
 import { TEST_KEY } from '../test/fixtures/access.ts';
 import { checkoutFixture, git } from '../test/fixtures/checkout.ts';
 import { createStore } from '../server/store.ts';
-import type { AppSync } from '../server/routes/context.ts';
-import type { AzureProvider } from '../server/azure-client.ts';
-import type { ConnectionStatus } from '../src/contract.ts';
-import { present, stub } from '../test/fixtures/typed.ts';
+import { present } from '../test/fixtures/typed.ts';
 import { setup } from './fixtures/ui-app.ts';
-import { idleSyncStatus } from '../server/demo.ts';
+import { testApp } from '../test/fixtures/app.ts';
 
 test('Git Graph shows a merged branch and exact CI links alongside the Activity feed', async t => {
   const { source, local, repo, checkoutGit, commit } = checkoutFixture(cleanupStack(t));
@@ -59,13 +55,7 @@ test('Git Graph shows a merged branch and exact CI links alongside the Activity 
       data: { buildId: 10, status: 'completed', result: 'failed', sourceVersion: 'f'.repeat(40) },
     },
   ]);
-  const app = createApp({
-    store,
-    checkoutGit,
-    provider: stub<AzureProvider>({ checkConnection: async () => stub<ConnectionStatus>({ available: true }) }),
-    sync: stub<AppSync>({ status: () => idleSyncStatus() }),
-    accessKey: TEST_KEY,
-  });
+  const app = testApp({ store, checkoutGit });
   const url = await listen(t, app);
   const page = await openPage(t, { key: TEST_KEY });
   await page.goto(`${url}/#activity`);
@@ -293,12 +283,9 @@ test('a state answer that disables the shown repository moves the graph to the n
   defer(t, () => store.close());
   store.saveRepo(repoA);
   store.saveRepo(repoB);
-  const app = createApp({
+  const app = testApp({
     store,
     checkoutGit: createCheckoutGit({ matchesRemote: url => url === first.remote || url === second.remote }),
-    provider: stub<AzureProvider>({ checkConnection: async () => stub<ConnectionStatus>({ available: true }) }),
-    sync: stub<AppSync>({ status: () => idleSyncStatus() }),
-    accessKey: TEST_KEY,
   });
   const url = await listen(t, app);
   const page = await openPage(t, { key: TEST_KEY });
@@ -332,12 +319,9 @@ test('a state answer that disables the shown repository moves a focused graph to
   defer(t, () => store.close());
   store.saveRepo(repoA);
   store.saveRepo(repoB);
-  const app = createApp({
+  const app = testApp({
     store,
     checkoutGit: first.checkoutGit,
-    provider: stub<AzureProvider>({ checkConnection: async () => stub<ConnectionStatus>({ available: true }) }),
-    sync: stub<AppSync>({ status: () => idleSyncStatus() }),
-    accessKey: TEST_KEY,
   });
   const url = await listen(t, app);
   const page = await openPage(t, { key: TEST_KEY });

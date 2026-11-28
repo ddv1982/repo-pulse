@@ -9,7 +9,7 @@ import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { createApp, startApp } from '../server/runtime.ts';
 import type { AzureProvider } from '../server/azure-client.ts';
-import { createBackfill } from '../server/backfill.ts';
+import { createHistoryImporter } from '../server/history-import.ts';
 import { demoProvider } from '../server/demo.ts';
 import { createRewriteCheck } from '../server/rewrite-check.ts';
 import { createStore } from '../server/store.ts';
@@ -17,17 +17,10 @@ import { createNormalizer } from '../server/normalize.ts';
 import { createSync } from '../server/sync.ts';
 import type { StateResponse } from '../src/contract.ts';
 import { keyedFetch, portOf, TEST_KEY } from './fixtures/access.ts';
-import { historyJob, rewriteJob } from './fixtures/jobs.ts';
+import { historyImportJob, rewriteJob } from './fixtures/jobs.ts';
 import { present, watchedIdOf } from './fixtures/typed.ts';
+import { repo } from './fixtures/repository.ts';
 
-const repo = {
-  id: 'one',
-  name: 'One',
-  azureId: 'a',
-  organization: 'https://dev.azure.com/org',
-  project: 'P',
-  webUrl: 'https://dev.azure.com/org/P/_git/One',
-};
 const now = Date.parse('2026-11-17T10:00:00Z');
 const streamError = {
   code: 'CORRUPT_ROW',
@@ -68,7 +61,7 @@ for (const type of jobTypes) {
   test(`a corrupt ${type} job reports a problem and leaves live reads running`, async t => {
     const { path, store, remove } = database();
     store.saveRepo({ ...repo, id: 'two', name: 'Two' });
-    const job = type === 'rewrite' ? rewriteJob(repo.id, 'push-1') : historyJob(repo.id);
+    const job = type === 'rewrite' ? rewriteJob(repo.id, 'push-1') : historyImportJob(repo.id);
     const field = type === 'rewrite' ? 'ref' : 'days';
     store.saveJob(job);
     using db = new DatabaseSync(path);
@@ -98,10 +91,10 @@ for (const type of jobTypes) {
       normalizer,
       background: {
         rewrite: type === 'rewrite' ? rewrite.tick : other,
-        history: type === 'backfill' ? () => backfill.tick() : other,
+        history: type === 'backfill' ? () => historyImporter.tick() : other,
       },
     });
-    const backfill = createBackfill({ store, provider, normalize: normalizer.normalize, now: clock });
+    const historyImporter = createHistoryImporter({ store, provider, normalize: normalizer.normalize, now: clock });
     const getState = await stateReader(t, store, sync, remove);
     const failedTicks: number[] = [];
     for (let tick = 1; tick <= 14; tick++) {

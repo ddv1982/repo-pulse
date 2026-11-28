@@ -36,7 +36,7 @@ export type CommitsView = PushCommitsResponse | { error: string };
 type ReviewView = PrReviewResponse | { error: string };
 /** Data a detail page loaded on request: push commits for a push, review data for a PR. */
 export type LoadedView = CommitsView | ReviewView;
-type DetailState = { repos: Repo[]; demo?: boolean };
+type DetailState = { enabledRepos: Repo[]; demo?: boolean };
 
 /** What the detail page shows: the event the address names, the group it belongs to, and its related activity. */
 export type DetailView = { event: ActivityEvent; record: ActivityItem; related: ActivityEvent[] };
@@ -156,7 +156,7 @@ function detailHead(record: ActivityItem, repo: Repo | undefined, title: string,
   const ids = (unseen.length ? unseen : matching.filter(event => !event.imported)).map(event => event.id);
   const ack = !ids.length
     ? emptyHtml
-    : html`<button class="btn" ${action('ack-item')} data-mark-seen="${Boolean(unseen.length)}" data-id="${record.id}" data-event-ids="${JSON.stringify(ids)}">Mark ${unseen.length ? 'seen' : 'unseen'}</button>`;
+    : html`<button class="btn" ${action('ack-item')} data-mark-seen="${Boolean(unseen.length)}" data-event-id="${record.id}" data-event-ids="${JSON.stringify(ids)}">Mark ${unseen.length ? 'seen' : 'unseen'}</button>`;
   return html`<header class="dhead"><div class="detail-heading">${detailStatus(record, activityTone(record), matching)}<h1>${title}</h1><div class="meta">${record.kind.startsWith('branch-') ? 'Branch' : labels[record.kind]} · ${repo?.name} · ${branchName(record.branch)}</div></div><div class="actions">${azureLink(record.url, 'Open in Azure DevOps', 'btn')}${ack}</div></header>`;
 }
 
@@ -276,14 +276,14 @@ export function renderDetail(
   state: DetailState,
   commits: LoadedView | undefined,
   {
-    returnUnreadOnly = false,
+    returnUnseenOnly = false,
     returnToGraph = false,
     showRelated = false,
     matchingIds,
     checkouts,
     groups = new Map(),
   }: {
-    returnUnreadOnly?: boolean;
+    returnUnseenOnly?: boolean;
     returnToGraph?: boolean;
     showRelated?: boolean;
     matchingIds?: string[] | undefined;
@@ -294,10 +294,10 @@ export function renderDetail(
 ) {
   const back = returnToGraph
     ? html`<a class="ghost sm back" ${action('back-to-graph')} href="#graph">← Back to Git Graph</a>`
-    : html`<a class="ghost sm back" ${action('back-to-results')} href="${activityHref(returnUnreadOnly)}">← Back to Activity</a>`;
+    : html`<a class="ghost sm back" ${action('back-to-results')} href="${activityHref(returnUnseenOnly)}">← Back to Activity</a>`;
   if (!view) return html`${back}<div class="card empty"><h1>Activity not found</h1></div>`;
   const { event, record, related } = view;
-  const repo = state.repos.find(item => item.id === record.repoId);
+  const repo = state.enabledRepos.find(item => item.id === record.repoId);
   const data = record.data || {};
   const pushId = data.pushId || data.push?.pushId;
   const sha = data.sourceVersion || data.sourceCommit || data.commitId;

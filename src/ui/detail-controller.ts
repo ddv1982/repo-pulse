@@ -42,7 +42,7 @@ export function createDetailController(
     activityCheckout(this: void): ActivityCheckout | null {
       if (ui.route !== 'event' || state().demo) return null;
       const event = detailView(state(), ui.eventId)?.event;
-      const repo = event && state().repos.find(repo => repo.id === event.repoId);
+      const repo = event && state().enabledRepos.find(repo => repo.id === event.repoId);
       const branch = event && activityBranch(event);
       if (!event || !repo?.localPath || !branch) return null;
       return { repoId: repo.id, localPath: repo.localPath, eventId: event.id, branch, isCurrent: currentView() };
@@ -53,15 +53,15 @@ export function createDetailController(
     },
     actions: {
       detail: element => {
-        // Detail buttons always carry data-id, so the fallbacks never apply.
+        // Detail buttons always carry data-event-id, so the fallbacks never apply.
         const row = element.closest('li[data-event-id]');
-        const matchingIds = (ui.search || ui.kind) && row instanceof HTMLElement ? eventIds(row) : undefined;
-        navigation.remember(element.dataset.id ?? null, matchingIds);
-        location.hash = `event/${encodeURIComponent(element.dataset.id ?? '')}${element.hasAttribute('data-related') ? '/ci' : ''}`;
+        const matchingIds = (ui.search || ui.activityFilter) && row instanceof HTMLElement ? eventIds(row) : undefined;
+        navigation.remember(element.dataset.eventId ?? null, matchingIds);
+        location.hash = `event/${encodeURIComponent(element.dataset.eventId ?? '')}${element.hasAttribute('data-related') ? '/ci' : ''}`;
       },
       'back-to-graph': () => history.back(),
       'back-to-results': () => {
-        location.hash = activityHref(navigation.returnUnreadOnly);
+        location.hash = activityHref(navigation.returnUnseenOnly);
       },
       'copy-commit': async element => {
         try {

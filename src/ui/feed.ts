@@ -35,23 +35,27 @@ import type { PageState } from './refresh.ts';
 import type { ActivityItem } from '../activity.ts';
 import { renderCommits, type CommitsView } from './activity-detail.ts';
 import { action } from './actions.ts';
+import { WIDE_LAYOUT } from './breakpoints.ts';
 export { renderDetail } from './activity-detail.ts';
 
 /** `openMenu` is the panel ID of the open toolbar menu, if any; `groups` holds which disclosures are open. */
-export type FeedView = Pick<import('./navigation.ts').NavigationState, 'unreadOnly' | 'repoIds' | 'search' | 'kind' | 'filtersOpen'> & {
+export type FeedView = Pick<
+  import('./navigation.ts').NavigationState,
+  'unseenOnly' | 'repoIds' | 'search' | 'activityFilter' | 'filtersOpen'
+> & {
   openMenu?: string;
   groups: Groups;
 };
 
 function filterControls(ui: FeedView & { savedFilterId: string }, state: PageState) {
-  const desktop = globalThis.matchMedia?.('(min-width: 640px)').matches ?? true;
-  const active = Number(Boolean(ui.search)) + Number(Boolean(ui.kind)) + Number(ui.unreadOnly);
+  const desktop = globalThis.matchMedia?.(WIDE_LAYOUT).matches ?? true;
+  const active = Number(Boolean(ui.search)) + Number(Boolean(ui.activityFilter)) + Number(ui.unseenOnly);
   // Clear filter leaves the repository scope alone, so only the Filters count includes it.
   const count = active + Number(ui.repoIds !== null);
   const open = desktop || ui.filtersOpen === true;
   const presets = state.savedFilters;
   const saved = presets.find(filter => filter.id === ui.savedFilterId);
-  const modified = Boolean(saved && isSavedFilterModified(saved.filters, currentActivityFilters(ui), state.watched));
+  const modified = Boolean(saved && isSavedFilterModified(saved.filters, currentActivityFilters(ui), state.allRepos));
   return html`<div class="activity-filter-bar">
     <button class="btn filters-toggle" id="activity-filters-toggle" ${action('toggle-activity-filters')} type="button"
       aria-expanded="${open}" aria-controls="activity-filters">Filters${count ? ` · ${count}` : ''}</button>
@@ -59,9 +63,9 @@ function filterControls(ui: FeedView & { savedFilterId: string }, state: PageSta
     <div class="filters-box" id="activity-filters" ${open ? emptyHtml : html`hidden`}>
       <div class="toolbar">${renderSearchInput('feed-search', 'Search activity', 'Search branch, commit, person or repository…', ui.search, 'search-activity')}
         <div class="filter-actions">
-          ${renderTypeFilter(ui.kind, state.activity.filterOptions, state.activity.loading, ui.openMenu === 'kind-panel')}
+          ${renderTypeFilter(ui.activityFilter, state.activity.filterOptions, state.activity.loading, ui.openMenu === 'kind-panel')}
           ${renderRepositoryScope(state, ui)}
-          <button class="btn" id="unread-only" type="button" ${action('toggle-unread')} aria-pressed="${ui.unreadOnly}">Unread only</button>
+          <button class="btn" id="unread-only" type="button" ${action('toggle-unseen-only')} aria-pressed="${ui.unseenOnly}">Unread only</button>
           ${active ? html`<button class="btn" id="clear-filters" type="button" ${action('clear-filters')}>Clear filter</button>` : emptyHtml}
         </div>
       </div>${renderSearchHelp('feed-search', 'names only')}
@@ -97,7 +101,7 @@ function inlineCommits(record: ActivityItem, commits: CommitsView | undefined, g
 
 function ciRunButton(run: import('../activity.ts').RelatedCi, tone: string, named = false, note?: string) {
   const phase = run.validation ? 'PR validation' : run.postMerge ? 'Post-merge CI' : 'Branch CI';
-  return html`<button type="button" class="ghost sm ci-run status-text ${tone}" ${action('detail')} data-id="${run.id}" title="${run.title} · ${fullDateTime(run.time)}"><span>${phase} ${run.outcome}${run.stale ? ' on earlier revision' : ''}${named && run.title !== 'CI run' ? ` · ${run.title}` : ''}${note ? ` · ${note}` : ''}</span> ${ciTime(run.time, true)}</button>`;
+  return html`<button type="button" class="ghost sm ci-run status-text ${tone}" ${action('detail')} data-event-id="${run.id}" title="${run.title} · ${fullDateTime(run.time)}"><span>${phase} ${run.outcome}${run.stale ? ' on earlier revision' : ''}${named && run.title !== 'CI run' ? ` · ${run.title}` : ''}${note ? ` · ${note}` : ''}</span> ${ciTime(run.time, true)}</button>`;
 }
 
 function renderRelatedCi(record: ActivityItem, groups: Groups) {
@@ -106,9 +110,9 @@ function renderRelatedCi(record: ActivityItem, groups: Groups) {
   const history = record.relatedCi?.filter(run => !currentIds.has(run.id)) ?? [];
   const content = results.length
     ? html`<div class="ci-rollup">${results.map(({ run, tone, note }) => ciRunButton(run, tone, results.length > 1 || tone === 'crit' || tone === 'warn', note))}</div>
-      ${historyCount ? html`<details class="linked-event ci-history" ${disclosure(groups, `ci-${record.groupKey}`)}><summary ${action('toggle-group')}>Run history · ${historyCount} ${historyCount === 1 ? 'run' : 'runs'}</summary><div class="ci-rollup">${history.map(run => ciRunButton(run.outcome === 'passing again' ? { ...run, outcome: 'passed' } : run, 'neutral'))}${historyCount > history.length ? html`<button type="button" class="ghost sm" ${action('detail')} data-id="${record.id}" data-related>View all CI runs</button>` : emptyHtml}</div></details>` : emptyHtml}`
+      ${historyCount ? html`<details class="linked-event ci-history" ${disclosure(groups, `ci-${record.groupKey}`)}><summary ${action('toggle-group')}>Run history · ${historyCount} ${historyCount === 1 ? 'run' : 'runs'}</summary><div class="ci-rollup">${history.map(run => ciRunButton(run.outcome === 'passing again' ? { ...run, outcome: 'passed' } : run, 'neutral'))}${historyCount > history.length ? html`<button type="button" class="ghost sm" ${action('detail')} data-event-id="${record.id}" data-related>View all CI runs</button>` : emptyHtml}</div></details>` : emptyHtml}`
     : record.ciHost
-      ? html`<button type="button" class="ghost sm" ${action('detail')} data-id="${record.ciHost}">${record.highlight ? 'View pull request' : 'View tested change'}</button>`
+      ? html`<button type="button" class="ghost sm" ${action('detail')} data-event-id="${record.ciHost}">${record.highlight ? 'View pull request' : 'View tested change'}</button>`
       : emptyHtml;
   return content === emptyHtml ? emptyHtml : html`<div class="event-ci">${content}</div>`;
 }
@@ -159,10 +163,10 @@ function renderEvent(
         ${
           related.kind === 'build'
             ? html`<summary ${action('toggle-group')}>CI succeeded ${ciTime(related.time, true)}</summary>
-              <button class="ghost sm" type="button" ${action('detail')} data-id="${related.id}">${activityTitle(related)}</button>
+              <button class="ghost sm" type="button" ${action('detail')} data-event-id="${related.id}">${activityTitle(related)}</button>
               ${renderMeta(related)}${azureLink(related.url, 'Build in Azure ↗')}`
             : html`<summary ${action('toggle-group')}>Linked push${related.unseen ? ' · unread' : ''}</summary>
-              <button class="ghost sm" type="button" ${action('detail')} data-id="${related.id}">View push to ${activityRef(related).branch}</button>`
+              <button class="ghost sm" type="button" ${action('detail')} data-event-id="${related.id}">View push to ${activityRef(related).branch}</button>`
         }
       </details>`
     : emptyHtml;
@@ -342,26 +346,26 @@ function row(
   related?: ActivityItem,
   commits?: CommitsView,
 ) {
-  const repo = state.repos.find(item => item.id === record.repoId);
+  const repo = state.enabledRepos.find(item => item.id === record.repoId);
   const tone = activityTone(record);
   const failed = record.kind === 'build' && buildState(record).tone === 'crit';
   const push = related?.kind === 'push' ? related : undefined;
   const ids = JSON.stringify([...record.eventIds, ...(related?.eventIds ?? [])]);
-  const unread = [...record.unseenIds, ...(push?.unseenIds ?? [])];
-  const unreadIds = JSON.stringify(unread);
+  const unseen = [...record.unseenIds, ...(push?.unseenIds ?? [])];
+  const unseenIds = JSON.stringify(unseen);
   const ackIds = record.unseen
-    ? unreadIds
+    ? unseenIds
     : JSON.stringify([...record.events, ...(push?.events ?? [])].filter(event => !event.imported).map(event => event.id));
   const ackLinkedPush = push && (!record.unseen || push.unseen);
   const fullTitle = activityTitle(record);
   const title = rowTitle(record, fullTitle, commits);
   const origin = forkText(tree?.fork ?? null);
   const prDestination = record.kind === 'pr' && record.data?.status === 'active' ? branchName(record.data.targetRefName) : '';
-  return html`<li class="${['row', failed ? 'crit' : '', record.unseen ? 'new' : '', `tone-${tone}`].filter(Boolean).join(' ')}" id="row-${record.groupKey}" data-event-id="${record.id}" data-event-ids="${ids}" data-group-key="${record.groupKey}" data-unseen-ids="${unreadIds}">${tree ? renderTreeCell(tree, tone) : emptyHtml}
+  return html`<li class="${['row', failed ? 'crit' : '', record.unseen ? 'new' : '', `tone-${tone}`].filter(Boolean).join(' ')}" id="row-${record.groupKey}" data-event-id="${record.id}" data-event-ids="${ids}" data-group-key="${record.groupKey}" data-unseen-ids="${unseenIds}">${tree ? renderTreeCell(tree, tone) : emptyHtml}
     ${renderKind(record, tone)}
-    <div class="subject"><button class="feed-title" type="button" ${action('detail')} data-id="${record.id}"><span class="title">${renderTitle(record, title)}${unread.length > 1 ? html` <span class="pill u new-count">${unread.length} new</span>` : emptyHtml}</span>${renderRefLine(record, title, showRepo ? repo?.name || 'Unknown repository' : '', prDestination)}</button></div>
+    <div class="subject"><button class="feed-title" type="button" ${action('detail')} data-event-id="${record.id}"><span class="title">${renderTitle(record, title)}${unseen.length > 1 ? html` <span class="pill u new-count">${unseen.length} new</span>` : emptyHtml}</span>${renderRefLine(record, title, showRepo ? repo?.name || 'Unknown repository' : '', prDestination)}</button></div>
     ${renderEvent(record, origin, Boolean(prDestination), groups, related, commits)}
-    <div class="rowact">${azureLink(record.url)}${record.imported ? emptyHtml : html`<button class="ghost sm seen-toggle" type="button" id="seen-${record.groupKey}" ${action('ack-item')} data-id="${record.id}" data-mark-seen="${record.unseen}" data-event-ids="${ackIds}" aria-pressed="${!record.unseen}" aria-label="Seen: ${fullTitle}${ackLinkedPush ? ' and linked push' : ''}">${icons.seenBox}Seen</button>`}</div></li>`;
+    <div class="rowact">${azureLink(record.url)}${record.imported ? emptyHtml : html`<button class="ghost sm seen-toggle" type="button" id="seen-${record.groupKey}" ${action('ack-item')} data-event-id="${record.id}" data-mark-seen="${record.unseen}" data-event-ids="${ackIds}" aria-pressed="${!record.unseen}" aria-label="Seen: ${fullTitle}${ackLinkedPush ? ' and linked push' : ''}">${icons.seenBox}Seen</button>`}</div></li>`;
 }
 
 function group(
@@ -413,7 +417,7 @@ function historyGroups(
     records.filter(record => record.imported),
     hasQuery,
   );
-  const defaultBranches = new Map(state.repos.flatMap(repo => (repo.defaultBranch ? [[repo.id, repo.defaultBranch]] : [])));
+  const defaultBranches = new Map(state.enabledRepos.flatMap(repo => (repo.defaultBranch ? [[repo.id, repo.defaultBranch]] : [])));
   const recordedTree = buildActivityTree(recorded.items, { defaultBranches });
   const importedTree = buildActivityTree(imported.items, { defaultBranches });
   const width = Math.max(recordedTree.width, importedTree.width);
@@ -437,7 +441,7 @@ function historyRows(records: ActivityItem[], hasQuery: boolean) {
  */
 function statusBanner(state: PageState, status: (import('../contract.ts').SyncStatus & { repoId: string }) | undefined) {
   if (!status) return emptyHtml;
-  const name = syncRepoName(state.repos, status);
+  const name = syncRepoName(state.enabledRepos, status);
   const where = name ? `${name}: ` : '';
   if (status.state === 'problem' && status.signInRequired)
     return html`<div class="banner crit azure-sign-in"><div>
@@ -461,15 +465,15 @@ function matchingAction(state: PageState, ui: FeedView, repoIds: string[]) {
   // Stop at the snapshot this page was read at, so updates recorded later stay unread.
   if (state.activity.asOf !== undefined) query.set('through', String(state.activity.asOf));
   const search = ui.search.trim();
-  const scope = `${scopeName(state, ui)} · ${activityFilterLabel(ui.kind)}${search ? ` · Search “${search}”` : ''}`;
-  const label = ui.search || ui.kind || ui.repoIds !== null ? 'Mark all matching seen' : 'Mark all seen';
+  const scope = `${scopeName(state, ui)} · ${activityFilterLabel(ui.activityFilter)}${search ? ` · Search “${search}”` : ''}`;
+  const label = ui.search || ui.activityFilter || ui.repoIds !== null ? 'Mark all matching seen' : 'Mark all seen';
   return html`<button class="btn sm" type="button" ${action('ack-matching')} data-query="${query.toString()}" data-scope="${scope}">${label} (${total})</button>`;
 }
 
 export function renderFeed(state: PageState, ui: FeedView & { savedFilterId: string }, feedCommits?: ReadonlyMap<string, CommitsView>) {
   const records = state.activity.items;
-  const hasQuery = Boolean(ui.search || ui.kind);
-  const shown = state.repos.filter(repo => ui.repoIds === null || ui.repoIds.includes(repo.id));
+  const hasQuery = Boolean(ui.search || ui.activityFilter);
+  const shown = state.enabledRepos.filter(repo => ui.repoIds === null || ui.repoIds.includes(repo.id));
   // Until every shown repository is synced, an empty or short list does not prove that nothing changed.
   const partial = shown.some(repo => state.syncStatus.repos[repo.id]?.state !== 'synced');
   const overall = state.syncStatus.overall;
@@ -485,7 +489,7 @@ export function renderFeed(state: PageState, ui: FeedView & { savedFilterId: str
   const progress = attention?.state === 'syncing' ? attention.firstSync : undefined;
   const firstSync =
     attention && progress
-      ? `${shown.length > 1 ? `${syncRepoName(state.repos, attention)} · ` : ''}${progress.completed} of ${progress.total} checks complete`
+      ? `${shown.length > 1 ? `${syncRepoName(state.enabledRepos, attention)} · ` : ''}${progress.completed} of ${progress.total} checks complete`
       : undefined;
   // With one repository in view every row would repeat its name, so rows name it only when several are shown.
   const showRepo = shown.length > 1;
@@ -497,7 +501,7 @@ export function renderFeed(state: PageState, ui: FeedView & { savedFilterId: str
       ? 'Reading your locally stored history.'
       : partial
         ? 'This does not confirm that nothing changed. Check repository status.'
-        : ui.unreadOnly
+        : ui.unseenOnly
           ? 'Turn off Unread only to browse history.'
           : hasQuery || ui.repoIds !== null
             ? 'Adjust your filters to see more activity.'
