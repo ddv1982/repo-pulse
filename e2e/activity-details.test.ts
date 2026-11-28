@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import { expect } from '@playwright/test';
 import { selectActivityType, setup, groupedFixture } from './fixtures/ui-app.ts';
 import { demo, isSeen } from './fixtures/history-app.ts';
-import { gate } from './fixtures/app.ts';
+import { capture, gate } from './fixtures/app.ts';
+import type { ActivityEvent, EventData } from '../src/activity.ts';
 
 test('confirmed branch deletion wording replaces legacy missing titles in rows, filters and detail', async t => {
   const { page, runtime } = await groupedFixture(t);
@@ -354,4 +355,73 @@ test('a pending refresh leaves Activity details available', async t => {
   held.release();
   await refreshed;
   await expect(page.locator('#toast')).toContainText('Activity refresh queued.');
+});
+
+test('a CI row shows a failing pipeline next to a passing one, and a passed retry reads as passed in the row and detail', async t => {
+  const { page, runtime } = await setup(t, true, { highlights: true });
+  const at = (minutes: number) => new Date(Date.now() - minutes * 60_000).toISOString();
+  const base = { repoId: 'demo-billing', branch: 'main', actor: 'Demo developer', observedAt: at(0) };
+  const landed = 'c'.repeat(40);
+  const preview = 'd'.repeat(40);
+  const build = (id: string, minutes: number, title: string, data: EventData): ActivityEvent => ({
+    ...base,
+    id,
+    kind: 'build',
+    title,
+    time: at(minutes),
+    data: { buildId: Number(id.replace(/\D/g, '')), status: 'completed', buildStartedAt: at(minutes + 1), ...data },
+  });
+  const landing = { sourceBranch: 'refs/heads/main', sourceVersion: landed, reason: 'individualCI' };
+  const validation = { sourceBranch: 'refs/pull/778/merge', sourceVersion: preview, definition: { id: 78, name: 'billing-validation' } };
+  runtime.store.insertEvents([
+    {
+      ...base,
+      id: 'mixed-merge',
+      kind: 'pr',
+      title: 'PR 777 · Split the billing deploy',
+      time: at(20),
+      data: { pullRequestId: 777, status: 'completed', targetRefName: 'refs/heads/main', mergeCommit: landed },
+    },
+    build('mixed-dbt-1', 10, 'dbt-build', { ...landing, result: 'failed', definition: { id: 71, name: 'dbt-build' } }),
+    build('mixed-adf-2', 8, 'adf-deploy', { ...landing, result: 'succeeded', definition: { id: 72, name: 'adf-deploy' } }),
+    {
+      ...base,
+      id: 'retried-pr',
+      kind: 'pr',
+      title: 'PR 778 · Retry the billing validation',
+      branch: 'feature/retry',
+      time: at(30),
+      data: {
+        pullRequestId: 778,
+        status: 'active',
+        sourceRefName: 'refs/heads/feature/retry',
+        targetRefName: 'refs/heads/main',
+        previewCommit: preview,
+      },
+    },
+    build('retry-failed-3', 6, 'billing-validation', { ...validation, result: 'failed' }),
+    build('retry-passed-4', 4, 'billing-validation', { ...validation, result: 'succeeded' }),
+  ]);
+  await page.reload();
+
+  const mixed = page.locator('li[data-event-id="mixed-merge"]');
+  await expect(mixed.locator('.ci-rollup').first().locator('.ci-run')).toHaveText([
+    /Post-merge CI failed · dbt-build/,
+    /Post-merge CI passed · adf-deploy/,
+  ]);
+  await expect(mixed.locator('.ci-history')).toHaveCount(0);
+  await capture(mixed, 'activity-redesign/phase3/failing-next-to-passing.png');
+
+  const retried = page.locator('li[data-event-id="retried-pr"]');
+  const headline = retried.locator('.ci-rollup').first().locator('.ci-run');
+  await expect(headline).toHaveText([/^PR validation passed /]);
+  await expect(retried).not.toContainText('passing again');
+  await retried.getByText('Run history · 1 run', { exact: true }).click();
+  await expect(retried.locator('.ci-history .ci-run')).toHaveText([/^PR validation failed /]);
+  await capture(retried, 'activity-redesign/phase3/passed-retry.png');
+  await headline.click();
+  await expect(page).toHaveURL(/#event\/retry-passed-4$/);
+  await expect(page.getByRole('heading', { name: 'billing-validation', exact: false }).first()).toBeVisible();
+  await expect(page.locator('.dhead .status-chip')).toHaveText('Succeeded');
+  await expect(page.locator('#page')).not.toContainText('passing again');
 });

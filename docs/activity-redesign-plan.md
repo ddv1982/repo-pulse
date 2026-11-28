@@ -16,7 +16,7 @@ Every phase leaves `npm run lint`, `npm run check:types`, `npm test` and `npm ru
 - [x] D3 Layout B: the left cell holds the kind label and CI; the main cell holds the title, the facts line and an optional line 3; the right cell holds the time, the Azure link and Seen.
 - [x] D4 The lane tree stays as it is: same lanes, nodes, curves, legend and Open Git Graph link, with no change to `src/activity-tree.ts`. It stays hidden below 640px.
 - [x] D5 CI trouble goes on its own full-width line under line 2 (2B). The left cell stays at two lines.
-- [x] D6 Within a pipeline, the latest completed attempt decides the result (current behaviour), and while a retry is queued or running the last completed failure stays visible next to it (`server/activity-ci-summary.ts:81`), shown as the failure line plus a running line. In a mixed state every line names its pipeline. A failure fixed by a retry shows as a muted "passed on retry".
+- [x] D6 Within a pipeline, the latest completed attempt decides the result (current behaviour), and while a retry is queued or running the last completed failure stays visible next to it (`server/activity-ci-summary.ts:81`), shown as the failure line plus a running line. In a mixed state every line names its pipeline. A failure fixed by a retry shows as a muted "passed again".
 - [x] D7 Unread is shown by a blue tint, a bold title, a blue Seen box and the "N new" pill, with no left bar while the tree shows, because lane 1 and `--info` are the same colour in dark. Below 640px a 2px left bar is added.
 - [x] D8 No runtime switch between the old and new layouts: a switch would keep two row renderers alive. Compare by running a phase branch and `main` on two separate writable copies of the same database snapshot (the app locks and writes its data directory), plus the screenshots of P0.2.
 
@@ -39,9 +39,9 @@ Every phase leaves `npm run lint`, `npm run check:types`, `npm test` and `npm ru
 
 ## Phase 3: CI summary keeps every pipeline's current result (S, server)
 
-- [ ] 3.1 `applyCiSummary` keeps the passing results of other pipelines next to a problem, instead of dropping them (`server/activity-ci-summary.ts:125-126`). The headline order is problems first, then passes. `historyCount` counts only the runs that are not in the headline. Check: a test with dbt-build failed and adf-deploy passed on one merge fails first, then shows both.
-- [ ] 3.2 A recovered pipeline keeps its "passing again" outcome in the summary, instead of being turned into "passed" (`activity-ci-summary.ts:39`), so the row can say "passed on retry". Check: a test with failed, then passed on the same sha, gives one result marked as recovered, with the failure only in the history.
-- [ ] 3.3 Clients that read `ciSummary` still render: the detail page and the CI panel. Check: `npm run test:ui` green, and the detail page of a recovered run in demo shows no regression.
+- [x] 3.1 `applyCiSummary` keeps the passing results of other pipelines next to a problem, instead of dropping them (`server/activity-ci-summary.ts:125-126`). The headline order is problems first, then passes. `historyCount` counts only the runs that are not in the headline. Only pipelines with a known ID add their pass, and a pipeline with a problem in any phase keeps its passes in the history: runs without a pipeline ID cannot be told apart from retries. Check: a test with dbt-build failed and adf-deploy passed on one merge fails first, then shows both.
+- [x] 3.2 A recovered pipeline keeps its "passing again" outcome in the summary, instead of being turned into "passed" (`activity-ci-summary.ts:39`), so the row can say "passed again". Check: a test with failed, then passed on the same sha, gives one result marked as recovered, with the failure only in the history.
+- [x] 3.3 Clients that read `ciSummary` still render: the detail page and the CI panel. Check: `npm run test:ui` green, and the detail page of a recovered run in demo shows no regression.
 
 ## Phase 4: Row layout B (L, split into PRs 4a and 4b)
 
@@ -57,7 +57,7 @@ Every phase leaves `npm run lint`, `npm run check:types`, `npm test` and `npm ru
 ### 4b: Trouble, line 3, colour and widths
 
 - [ ] 4b.1 Trouble line (D5): a failing, running, partially succeeded or stale result gets one full-width line under line 2. In a mixed state every pipeline is named ("✕ dbt-build failed · ✓ adf-deploy passed"), and CI notes (revision unknown, retry order unknown, trigger unverified) follow in muted text. Check: e2e rows for failed, running, stale, mixed and noted results.
-- [ ] 4b.2 A recovered run shows "✓ passed on retry" in the left cell, muted. Check: e2e on a demo or fixture row from 3.2.
+- [ ] 4b.2 A recovered run shows "✓ passed again" in the left cell, muted. Phase 3 found that `passing again` is set only for PR validation runs (`server/activity-highlights.ts:277`), also when a pass on a new revision fixes an earlier failure, so the wording is "passed again" rather than "passed on retry". Post-merge retries still show a plain pass. Check: e2e on a demo or fixture row from 3.2.
 - [ ] 4b.3 Line 3 holds tokens of one shape in a fixed order: updates trail, linked push or linked tag build, fork origin or branch-start note, Load commits. It appears only when it has content. Check: e2e on a row with three extras at once, and on a row with none (no empty line 3).
 - [ ] 4b.4 Vote lists: the tally on line 2 opens the named votes under line 2. The names are not repeated on line 3. Check: e2e on an active PR with two votes.
 - [ ] 4b.5 Colour (D7): kind labels keep their tone. Passing CI and approvals are muted. Only failures, running and warnings are coloured. Unread gets the blue tint and a bold title, with no left bar from 640px. Row tints become flat colours in a `--row-bg` custom property, and ring cutouts and node strokes in `web/styles/activity-tree.css` use `var(--row-bg)` instead of `var(--card)` (from 1.2). Check: e2e computed colours on one row of each state, both themes, and an unread row's `.hole` fill equals its background, failing first.

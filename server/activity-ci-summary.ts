@@ -34,10 +34,6 @@ function publicRun({ id, time, title, validation, postMerge, stale, outcome }: C
   return { id, time, title, validation, postMerge, ...(stale ? { stale } : {}), outcome };
 }
 
-function resultRun(run: CiAttempt): RelatedCi {
-  return publicRun(run.outcome === 'passing again' ? { ...run, outcome: 'passed' } : run);
-}
-
 function currentAttempts(runs: CiAttempt[]) {
   const latestRevision = runs.reduce((latest, run) => Math.max(latest, run.revision ?? -1), -1);
   // PR snapshots can change without a new commit. Same-SHA retries still need start-time evidence.
@@ -74,7 +70,7 @@ function pipelineResults(runs: CiAttempt[], verified: (run: CiAttempt) => boolea
   } else if (successful) {
     const note =
       successful.postMerge && !verified(successful) ? 'trigger unverified' : successful.revisionUnverified ? 'revision unknown' : undefined;
-    const run = resultRun(successful);
+    const run = publicRun(successful);
     results.push(note ? { run, tone: 'neutral', note } : { run, tone: 'ok' });
   }
 
@@ -117,14 +113,23 @@ export function applyCiSummary(item: ActivityItem, attempts: CiAttempt[], limit 
     else byPipeline.set(key, [run]);
   }
   const severity = { crit: 3, warn: 2, ok: 1, neutral: 0 };
-  const results = [...byPipeline.values()]
-    .flatMap(runs => pipelineResults(runs, verified))
-    .filter(result => result.note !== 'trigger unverified' || !(postMerge || hasValidation));
-  results.sort((a, b) => severity[b.tone] - severity[a.tone] || newest(a.run, b.run));
-  // Give one passing result the headline. Other passes are available with the attempts.
-  const problems = results.filter(result => result.tone === 'crit' || result.tone === 'warn' || activeCi(result.run));
-  const headline = problems.length ? problems : results.slice(0, 1);
-  if (!headline.length && ordered[0]) headline.push({ run: resultRun(ordered[0]), tone: 'neutral' });
+  const bySeverity = (a: CiResult, b: CiResult) => severity[b.tone] - severity[a.tone] || newest(a.run, b.run);
+  const problem = (result: CiResult) => result.tone === 'crit' || result.tone === 'warn' || activeCi(result.run);
+  const tracks = [...byPipeline.values()].map(runs => ({
+    pipeline: runs[0]?.pipeline,
+    results: pipelineResults(runs, verified).filter(result => result.note !== 'trigger unverified' || !(postMerge || hasValidation)),
+  }));
+  const results = tracks.flatMap(({ results }) => results).sort(bySeverity);
+  const problems = results.filter(problem);
+  // Next to a problem, each other named pipeline shows its current pass. A pipeline with a problem in any phase keeps its
+  // passes with the attempts. Without a problem, one pass takes the headline and the others are available with the attempts.
+  const failing = new Set(tracks.filter(({ results }) => results.some(problem)).map(({ pipeline }) => pipeline));
+  const passes = tracks
+    .filter(({ pipeline }) => pipeline != null && !failing.has(pipeline))
+    .flatMap(({ results }) => results)
+    .sort(bySeverity);
+  const headline = problems.length ? [...problems, ...passes] : results.slice(0, 1);
+  if (!headline.length && ordered[0]) headline.push({ run: publicRun(ordered[0]), tone: 'neutral' });
   item.ciSummary = { results: headline, historyCount: ordered.length - headline.length };
   item.relatedCi = ordered.slice(0, limit).map(publicRun);
 }
