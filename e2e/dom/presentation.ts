@@ -948,10 +948,12 @@ test('a CI result with a problem gets one trouble line under line 2 that names e
   // The left cell keeps the kind and the count; the trouble stays out of it.
   for (const id of ['mixed', 'retry', 'phases', 'noted', 'stale']) assert.equal((await all(row(doc, id), '.status .ci-run')).length, 0, id);
   assert.equal(await text(one(row(doc, 'mixed'), '.status')), 'PR merged CI · 3 runs ›');
-  // A recovered run has no trouble: the left cell says it passed again, muted.
+  // A recovered run has no trouble: the CI count says it passed again, muted, on the count's own line.
   assert.equal((await all(row(doc, 'recovered'), '.ci-trouble')).length, 0);
-  assert.equal(await text(one(row(doc, 'recovered'), '.status')), 'PR merged ✓ passed again CI · 2 runs ›');
-  assert.equal(await text(one(row(doc, 'recovered'), '.status .ci-again')), '✓ passed again');
+  const again = one(row(doc, 'recovered'), '.status > button.ci-count > .ci-again');
+  assert.equal(await text(one(again, '[aria-hidden="true"]')), '· ✓ again');
+  assert.equal(await textIncludingHidden(one(again, '.sr')), '· passed again');
+  assert.equal(await again.getAttribute('title'), 'Passed again after an earlier failure');
 });
 
 test('line 3 puts the update trail, the linked push and the fork origin in that order, and a row without extras has none', async t => {

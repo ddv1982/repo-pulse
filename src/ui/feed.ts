@@ -125,8 +125,8 @@ function troublePart({ run, tone, note }: import('../activity.ts').CiResult, nam
 }
 
 /**
- * A row's CI: the count of its runs and a recovery note for the status cell, the trouble line under line 2, and the
- * run list the count opens. Results that all pass stay folded into the count. A result with a problem puts every
+ * A row's CI: the count of its runs for the status cell, with a recovery note on its line, the trouble line under
+ * line 2, and the run list the count opens. Results that all pass stay folded into the count. A result with a problem puts every
  * result on the trouble line, and the count opens the runs not shown already. With nothing more to open, the count is
  * plain text. A CI run that tested a change links to it from the trouble line.
  */
@@ -147,18 +147,19 @@ function relatedCi(record: ActivityItem, groups: Groups) {
       ? html`<div class="ci-trouble">${joinHtml(parts, html` <span class="ci-sep" aria-hidden="true">·</span> `)}${host}</div>`
       : emptyHtml;
   if (!results.length) return { count: emptyHtml, trouble, runs: emptyHtml };
+  // A recovery rides on the count's line, short enough that the status cell keeps two lines.
   const again =
     passing && results.some(({ run }) => run.outcome === 'passing again')
-      ? html`<span class="ci-again"><span aria-hidden="true">✓</span> passed again</span>`
+      ? html`<span class="ci-again" title="Passed again after an earlier failure"><span aria-hidden="true">· ✓ again</span><span class="sr"> · passed again</span></span>`
       : emptyHtml;
   const currentIds = new Set(results.map(({ run }) => run.id));
   const history = record.relatedCi?.filter(run => !currentIds.has(run.id)) ?? [];
   const total = results.length + historyCount;
   const label = html`CI · ${total} ${total === 1 ? 'run' : 'runs'}`;
-  if (!passing && !historyCount) return { count: html`${again} <span class="ci-count">${label}</span>`, trouble, runs: emptyHtml };
+  if (!passing && !historyCount) return { count: html`<span class="ci-count">${label}</span>`, trouble, runs: emptyHtml };
   const id = `ci-${record.groupKey}`;
   const listId = `ci-runs-${record.groupKey}`;
-  const count = html`${again} <button type="button" class="ghost sm ci-count" id="ci-count-${record.groupKey}" ${action('toggle-group')} aria-controls="${listId}" aria-expanded="${groups.get(id) ?? false}">${label}<span aria-hidden="true"> ›</span></button>`;
+  const count = html`<button type="button" class="ghost sm ci-count" id="ci-count-${record.groupKey}" ${action('toggle-group')} aria-controls="${listId}" aria-expanded="${groups.get(id) ?? false}">${label}${again}<span aria-hidden="true"> ›</span></button>`;
   // The list is a disclosure that the count in the status cell opens; its own summary stays hidden.
   const runs = html`<details class="linked-event ci-history" id="${listId}" ${disclosure(groups, id)}><summary hidden></summary><div class="ci-rollup">${passing ? results.map(({ run }) => ciRunButton(run, record.time, 'neutral', results.length > 1)) : emptyHtml}${history.map(run => ciRunButton(run, record.time, 'neutral'))}${historyCount > history.length ? html`<button type="button" class="ghost sm" ${action('detail')} data-event-id="${record.id}" data-related>View all CI runs</button>` : emptyHtml}</div></details>`;
   return { count, trouble, runs };

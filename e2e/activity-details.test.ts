@@ -421,9 +421,20 @@ test('a merged PR names a failing pipeline next to a passing one on its trouble 
   const retried = page.locator('li[data-event-id="retried-pr"]');
   // A passing row folds its runs into the CI count; the list opens with the current pass first, then the failed attempt.
   await expect(retried).not.toContainText('passing again');
-  await expect(retried.locator('.status .ci-again')).toHaveText('✓ passed again');
+  // The left cell keeps two lines: the kind, then the count with the recovery mark on the same line.
+  const count = retried.getByRole('button', { name: 'CI · 2 runs · passed again', exact: true });
+  await expect(count.locator('.ci-again > [aria-hidden="true"]')).toHaveText('· ✓ again');
+  await expect(count.locator('.ci-again')).toHaveAttribute('title', 'Passed again after an earlier failure');
   await expect(retried.locator('.ci-trouble')).toHaveCount(0);
-  await retried.getByRole('button', { name: 'CI · 2 runs' }).click();
+  await page.setViewportSize({ width: 1265, height: 900 });
+  const cell = await retried.locator('.status').evaluate(status => {
+    const box = (selector: string) => status.querySelector(selector)!.getBoundingClientRect();
+    const [cell, kind, count] = [status.getBoundingClientRect(), box('.kind'), box('.ci-count')];
+    return { height: cell.height, countHeight: count.height, below: count.top >= kind.bottom - 1, inside: count.right <= cell.right + 0.5 };
+  });
+  assert.deepEqual(cell, { ...cell, below: true, inside: true }, 'the count sits under the kind, inside the status column');
+  assert.ok(cell.height <= 41 && cell.countHeight <= 21, `two lines of 20px, without a wrapped count: ${JSON.stringify(cell)}`);
+  await count.click();
   await expect(retried.locator('.ci-history .ci-run')).toHaveText([/^PR validation passed /, /^PR validation failed /]);
   const headline = retried.locator('.ci-history .ci-run').first();
   await capture(retried, 'activity-redesign/phase4b/passed-retry.png');

@@ -447,12 +447,9 @@ button.vote-tally.crit {
 .ci-sep {
   opacity: 0.6;
 }
-/* A recovered run in the status cell: muted, between the kind and the CI count. */
-.ci-again {
-  font-size: var(--text-xs);
-  line-height: 20px;
-  color: var(--muted-foreground);
-  white-space: nowrap;
+/* A recovered run: a muted note after the CI count, on its line. */
+.ci-count > .ci-again {
+  margin-inline-start: 0.3em;
 }
 /* Line 3: small tokens of one shape, in a fixed order. A token in the unread blue says what is new; a plain one is a
    note. What a token opens appears under line 3. */
