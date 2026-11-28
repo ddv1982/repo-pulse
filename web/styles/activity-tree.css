@@ -1,6 +1,7 @@
 /* Activity branch tree, drawn in the left padding of each row's type label. src/ui/activity-tree.ts draws one
    cell per row, with y = 0 on the type label. Below 640px there is no tree, so rows keep their dot. */
 .tree,
+.tree-pass,
 .activity-graph-guide {
   display: none;
 }
@@ -28,7 +29,9 @@
   .rows.with-tree[data-tree-lanes='5'] {
     --tree-lanes: 5;
   }
-  .with-tree .row {
+  /* A day header's text lines up with the type label at every width from here. */
+  .with-tree .row,
+  .with-tree .day {
     position: relative;
     padding-inline-start: calc(16px + var(--tree-width));
   }
@@ -36,7 +39,9 @@
   .with-tree .kind > svg {
     display: none;
   }
-  .tree {
+  /* A day header's cell (.tree-pass) covers the header the same way, so its lanes meet the rows above and below. */
+  .tree,
+  .tree-pass {
     display: block;
     position: absolute;
     top: -1px;
@@ -103,6 +108,7 @@
   }
 }
 .tree line,
+.tree-pass line,
 .tree path,
 .tree-key path {
   fill: none;
@@ -110,10 +116,12 @@
   stroke-width: 1.75;
   stroke-linecap: round;
 }
-.tree line.default-lane {
+.tree line.default-lane,
+.tree-pass line.default-lane {
   stroke-width: 2.5;
 }
-:root:not(.dark) .tree :is(line:not(.default-lane), path:not(.tag-mark path)) {
+:root:not(.dark) .tree :is(line:not(.default-lane), path:not(.tag-mark path)),
+:root:not(.dark) .tree-pass line:not(.default-lane) {
   stroke-width: 2;
 }
 .tree .ci-node,

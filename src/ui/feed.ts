@@ -3,9 +3,11 @@ import {
   emptyHtml,
   html,
   joinHtml,
-  dateTime,
   fullDateTime,
+  timeInRow,
   ciTime,
+  dayLabel,
+  localDay,
   azureLink,
   activityActor,
   activityLabel,
@@ -28,7 +30,7 @@ import { renderRepositoryScope, scopeName } from './repository-scope.ts';
 import { currentActivityFilters, isSavedFilterModified, renderSavedFilters } from './saved-filters.ts';
 import { mergeEvidenceBadge } from './merge-evidence.ts';
 import { buildActivityTree, type ActivityTree } from '../activity-tree.ts';
-import { forkText, renderTreeCell, treeLegend } from './activity-tree.ts';
+import { forkText, renderTreeCell, renderTreePassThrough, treeLegend } from './activity-tree.ts';
 import { linkedMergePushes } from './linked-pushes.ts';
 import { linkedTagBuilds } from './linked-tag-builds.ts';
 import type { PageState } from './refresh.ts';
@@ -83,12 +85,12 @@ const actorRoles: Record<import('../activity.ts').ActivityKind, string> = {
   tag: 'Pushed by',
 };
 
-/** Who and when. An unknown actor has no role to name. */
-function renderMeta(record: ActivityItem) {
+/** Who and when. An unknown actor has no role to name. The day header above the row names the day of `rowTime`. */
+function renderMeta(record: ActivityItem, rowTime: ActivityItem['time'] = record.time) {
   const actor = activityActor(record);
   const shown = Boolean(actor);
   const role = actor === 'Unknown' ? '' : record.highlight && record.kind === 'pr' ? 'PR author ' : `${actorRoles[record.kind]} `;
-  return html`<div class="help event-meta">${shown ? html`${role}<span class="actor">${actor}</span> · ` : emptyHtml}<time datetime="${record.time}" title="${fullDateTime(record.time)}">${dateTime(record.time)}</time></div>`;
+  return html`<div class="help event-meta">${shown ? html`${role}<span class="actor">${actor}</span> · ` : emptyHtml}<time datetime="${record.time}" title="${fullDateTime(record.time)}">${timeInRow(record.time, rowTime)}</time></div>`;
 }
 
 function inlineCommits(record: ActivityItem, commits: CommitsView | undefined, groups: Groups) {
@@ -99,9 +101,9 @@ function inlineCommits(record: ActivityItem, commits: CommitsView | undefined, g
     ${commits && 'items' in commits ? html`<details class="linked-event" ${disclosure(groups, `push-commits-${record.groupKey}`, true)}><summary ${action('toggle-group')}>Push commits</summary>${renderCommits(commits)}</details>` : commits ? renderCommits(commits) : emptyHtml}`;
 }
 
-function ciRunButton(run: import('../activity.ts').RelatedCi, tone: string, named = false, note?: string) {
+function ciRunButton(run: import('../activity.ts').RelatedCi, rowTime: ActivityItem['time'], tone: string, named = false, note?: string) {
   const phase = run.validation ? 'PR validation' : run.postMerge ? 'Post-merge CI' : 'Branch CI';
-  return html`<button type="button" class="ghost sm ci-run status-text ${tone}" ${action('detail')} data-event-id="${run.id}" title="${run.title} · ${fullDateTime(run.time)}"><span>${phase} ${run.outcome}${run.stale ? ' on earlier revision' : ''}${named && run.title !== 'CI run' ? ` · ${run.title}` : ''}${note ? ` · ${note}` : ''}</span> ${ciTime(run.time, true)}</button>`;
+  return html`<button type="button" class="ghost sm ci-run status-text ${tone}" ${action('detail')} data-event-id="${run.id}" title="${run.title} · ${fullDateTime(run.time)}"><span>${phase} ${run.outcome}${run.stale ? ' on earlier revision' : ''}${named && run.title !== 'CI run' ? ` · ${run.title}` : ''}${note ? ` · ${note}` : ''}</span> ${ciTime(run.time, true, rowTime)}</button>`;
 }
 
 function renderRelatedCi(record: ActivityItem, groups: Groups) {
@@ -109,8 +111,8 @@ function renderRelatedCi(record: ActivityItem, groups: Groups) {
   const currentIds = new Set(results.map(({ run }) => run.id));
   const history = record.relatedCi?.filter(run => !currentIds.has(run.id)) ?? [];
   const content = results.length
-    ? html`<div class="ci-rollup">${results.map(({ run, tone, note }) => ciRunButton(run.outcome === 'passing again' ? { ...run, outcome: 'passed' } : run, tone, results.length > 1 || tone === 'crit' || tone === 'warn', note))}</div>
-      ${historyCount ? html`<details class="linked-event ci-history" ${disclosure(groups, `ci-${record.groupKey}`)}><summary ${action('toggle-group')}>Run history · ${historyCount} ${historyCount === 1 ? 'run' : 'runs'}</summary><div class="ci-rollup">${history.map(run => ciRunButton(run.outcome === 'passing again' ? { ...run, outcome: 'passed' } : run, 'neutral'))}${historyCount > history.length ? html`<button type="button" class="ghost sm" ${action('detail')} data-event-id="${record.id}" data-related>View all CI runs</button>` : emptyHtml}</div></details>` : emptyHtml}`
+    ? html`<div class="ci-rollup">${results.map(({ run, tone, note }) => ciRunButton(run.outcome === 'passing again' ? { ...run, outcome: 'passed' } : run, record.time, tone, results.length > 1 || tone === 'crit' || tone === 'warn', note))}</div>
+      ${historyCount ? html`<details class="linked-event ci-history" ${disclosure(groups, `ci-${record.groupKey}`)}><summary ${action('toggle-group')}>Run history · ${historyCount} ${historyCount === 1 ? 'run' : 'runs'}</summary><div class="ci-rollup">${history.map(run => ciRunButton(run.outcome === 'passing again' ? { ...run, outcome: 'passed' } : run, record.time, 'neutral'))}${historyCount > history.length ? html`<button type="button" class="ghost sm" ${action('detail')} data-event-id="${record.id}" data-related>View all CI runs</button>` : emptyHtml}</div></details>` : emptyHtml}`
     : record.ciHost
       ? html`<button type="button" class="ghost sm" ${action('detail')} data-event-id="${record.ciHost}">${record.highlight ? 'View pull request' : 'View tested change'}</button>`
       : emptyHtml;
@@ -162,9 +164,9 @@ function renderEvent(
     ? html`<details class="linked-event" ${disclosure(groups, `linked-${related.kind}-${record.groupKey}`)}>
         ${
           related.kind === 'build'
-            ? html`<summary ${action('toggle-group')}>CI succeeded ${ciTime(related.time, true)}</summary>
+            ? html`<summary ${action('toggle-group')}>CI succeeded ${ciTime(related.time, true, record.time)}</summary>
               <button class="ghost sm" type="button" ${action('detail')} data-event-id="${related.id}">${activityTitle(related)}</button>
-              ${renderMeta(related)}${azureLink(related.url, 'Build in Azure ↗')}`
+              ${renderMeta(related, record.time)}${azureLink(related.url, 'Build in Azure ↗')}`
             : html`<summary ${action('toggle-group')}>Linked push${related.unseen ? ' · unread' : ''}</summary>
               <button class="ghost sm" type="button" ${action('detail')} data-event-id="${related.id}">View push to ${activityRef(related).branch}</button>`
         }
@@ -368,6 +370,27 @@ function row(
     <div class="rowact">${azureLink(record.url)}${record.imported ? emptyHtml : html`<button class="ghost sm seen-toggle" type="button" id="seen-${record.groupKey}" ${action('ack-item')} data-event-id="${record.id}" data-mark-seen="${record.unseen}" data-event-ids="${ackIds}" aria-pressed="${!record.unseen}" aria-label="Seen: ${fullTitle}${ackLinkedPush ? ' and linked push' : ''}">${icons.seenBox}Seen</button>`}</div></li>`;
 }
 
+/**
+ * A day header before the first row of each local calendar day. It is a list item without a row's data attributes,
+ * so nothing that reads rows counts it, and the row below keeps its tree row index. Over the tree it draws the lanes
+ * that enter that row from above, so they run on through the header.
+ */
+function dayHeader(groupId: string, day: string, first: ActivityItem, tree: import('../activity-tree.ts').TreeRow | undefined) {
+  // Keyed by the row it starts: a day can start twice when a CI group sorts by a newer time than it shows.
+  return html`<li class="day" id="day-${groupId}-${first.groupKey}">${tree ? renderTreePassThrough(tree) : emptyHtml}<time datetime="${day}">${dayLabel(first.time)}</time></li>`;
+}
+
+/** The day of each row that starts a new local day, or '' when it continues the day above. Invalid times start none. */
+function rowDays(records: ActivityItem[]) {
+  let previous = '';
+  return records.map(record => {
+    const day = localDay(record.time);
+    if (!day || day === previous) return '';
+    previous = day;
+    return day;
+  });
+}
+
 function group(
   id: string,
   title: string,
@@ -392,7 +415,13 @@ function group(
   },
 ) {
   if (!records.length) return emptyHtml;
-  return html`<section class="group"><details ${disclosure(groups, id, open)}><summary ${action('toggle-group')} class="ghead">${title} <span class="pill u">${records.length + linked.size + records.reduce((total, record) => total + (record.foldedCi ?? 0), 0)}</span><span class="note">${description}</span></summary><ul class="rows${tree ? ' with-tree' : ''}" ${tree ? html`data-tree-lanes="${tree.width}"` : emptyHtml}>${records.map((record, index) => row(record, state, tree?.rows[index], showRepo, groups, linked.get(record.id), feedCommits?.get(record.id)))}</ul></details></section>`;
+  const days = rowDays(records);
+  return html`<section class="group"><details ${disclosure(groups, id, open)}><summary ${action('toggle-group')} class="ghead">${title} <span class="pill u">${records.length + linked.size + records.reduce((total, record) => total + (record.foldedCi ?? 0), 0)}</span><span class="note">${description}</span></summary><ul class="rows${tree ? ' with-tree' : ''}" ${tree ? html`data-tree-lanes="${tree.width}"` : emptyHtml}>${records.map(
+    (record, index) => {
+      const day = days[index];
+      return html`${day ? dayHeader(id, day, record, tree?.rows[index]) : emptyHtml}${row(record, state, tree?.rows[index], showRepo, groups, linked.get(record.id), feedCommits?.get(record.id))}`;
+    },
+  )}</ul></details></section>`;
 }
 
 const hasTreeLegend = (tree: ActivityTree) =>

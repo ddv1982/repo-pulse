@@ -32,10 +32,10 @@ Every phase leaves `npm run lint`, `npm run check:types`, `npm test` and `npm ru
 
 ## Phase 2: Day headers and clock times in the current layout (M)
 
-- [ ] 2.1 `renderTreePassThrough(row)` in `src/ui/activity-tree.ts` draws straight lane segments for the lanes entering a row from above: `through`, plus `node`, `forkFrom` and `mergeFrom` where `up` is true. Check: a unit test over a built tree where every lane crossing the boundary appears once, in its colour.
-- [ ] 2.2 `group()` in `src/ui/feed.ts` inserts an `li.day` before the first row of each local day ("Today", "Yesterday · Fri 27 Nov", "Thu 26 Nov"), with the pass-through cell built from the row below. It is not sticky, the tree row indexes are unchanged, and the Activity and Imported history groups each start their own headers. Check: an e2e test in demo mode counts the day headers and asserts that no lane breaks. The selector `.with-tree svg.tree` in `e2e/activity-feed.test.ts:12` is narrowed to row cells.
-- [ ] 2.3 Row times show only the clock. Run times show the clock, plus the date when the run is on another day than its row. The full date stays in the `title`. Check: unit tests for the formatter, with one run on the same day and one across midnight.
-- [ ] 2.4 Screenshot comparison against 0.2 at the four widths. Check: a visual review in the PR, and lanes continuous across headers at 1100 and 1265px.
+- [x] 2.1 `renderTreePassThrough(row)` in `src/ui/activity-tree.ts` draws straight lane segments for the lanes entering a row from above: `through`, plus `node`, `forkFrom` and `mergeFrom` where `up` is true. Check: a unit test over a built tree where every lane crossing the boundary appears once, in its colour.
+- [x] 2.2 `group()` in `src/ui/feed.ts` inserts an `li.day` before the first row of each local day ("Today", "Yesterday · Fri 27 Nov", "Thu 26 Nov"), with the pass-through cell built from the row below. It is not sticky, the tree row indexes are unchanged, and the Activity and Imported history groups each start their own headers. Check: an e2e test in demo mode counts the day headers and asserts that no lane breaks. The selector `.with-tree svg.tree` in `e2e/activity-feed.test.ts:12` is narrowed to row cells.
+- [x] 2.3 Row times show only the clock. Run times show the clock, plus the date when the run is on another day than its row. The full date stays in the `title`. Check: unit tests for the formatter, with one run on the same day and one across midnight.
+- [x] 2.4 Screenshot comparison against 0.2 at the four widths. Check: a visual review in the PR, and lanes continuous across headers at 1100 and 1265px. Done 2026-11-28: the multi-day fixture at 360, 1100 and 1265px (light and dark) next to the demo baseline; lanes run unbroken across every header in both groups, and the e2e test checks the lane sets at 1100 and 1265px.
 
 ## Phase 3: CI summary keeps every pipeline's current result (S, server)
 

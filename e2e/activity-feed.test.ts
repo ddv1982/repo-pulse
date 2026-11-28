@@ -2,14 +2,14 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { capture } from './fixtures/app.ts';
 import { expect } from '@playwright/test';
-import { setup } from './fixtures/ui-app.ts';
+import { multiDayFixture, setup } from './fixtures/ui-app.ts';
 import type { ActivityEvent } from '../src/activity.ts';
 
 test('the branch tree works with the unread filter and keeps status markers on narrow screens', async t => {
   const { page } = await setup(t);
   const rows = page.locator('.with-tree .row');
   await expect(rows.first()).toBeVisible();
-  await expect(page.locator('.with-tree svg.tree')).toHaveCount(await rows.count());
+  await expect(page.locator('.with-tree li.row > svg.tree')).toHaveCount(await rows.count());
   const hotfix = page.locator('li[data-event-id="demo-branch-1"]');
   // A new branch has nothing else to say first, so where it started is its top line, above who and when.
   await expect(hotfix.locator('.event-main')).toHaveText('Started at 3f9a2c1, the tip of main');
@@ -458,4 +458,85 @@ test('Activity shows only highlights and links a landing and quieter CI to its d
   await expect(page.getByRole('link', { name: /Merge of PR 512 pushed to main/ })).toBeVisible();
   await page.getByRole('link', { name: /Billing CI/ }).click();
   await expect(page.getByRole('heading', { name: 'Billing CI' })).toBeVisible();
+});
+
+test('an idle Activity tab moves its day headers on after midnight', async t => {
+  const { page } = await multiDayFixture(t);
+  const headers = page.locator('details[data-group="activity"] ul.rows li.day');
+  await expect(headers.first()).toHaveText('Today');
+  // The server state stays the same, so only the local day changing can move the labels on at the next poll.
+  await page.clock.setFixedTime(new Date(2026, 10, 29, 0, 5));
+  await expect(headers.first()).toHaveText(/^Yesterday · .*\b28\b/, { timeout: 15000 });
+});
+
+test('Activity starts each local day with a header that the lanes run through and that never counts as a row', async t => {
+  const { page } = await multiDayFixture(t);
+  const activity = page.locator('details[data-group="activity"]');
+  const list = activity.locator('ul.rows.with-tree');
+  const headers = list.locator('li.day');
+  await expect(headers).toHaveCount(3);
+  const labels = await headers.allInnerTexts();
+  assert.equal(labels[0], 'Today');
+  assert.match(labels[1] ?? '', /^Yesterday · .*\b27\b/);
+  assert.match(labels[2] ?? '', /\b26\b/);
+  assert.doesNotMatch(labels[2] ?? '', /Yesterday|Today|2026/);
+  // A header sits before the first row of its day.
+  assert.deepEqual(await headers.evaluateAll(items => items.map(item => item.nextElementSibling?.getAttribute('data-event-id'))), [
+    'today-main',
+    'yesterday-merge',
+    'older-main',
+  ]);
+  // Imported history starts its own headers.
+  await expect(page.locator('details[data-group="imported-history"] ul.rows li.day')).toHaveCount(2);
+  // A header is not a row: rows, row IDs, the group count and Seen toggles leave it out, and it holds nothing to act on.
+  await expect(list.locator('li.row')).toHaveCount(9);
+  await expect(list.locator('li[data-event-id]')).toHaveCount(9);
+  await expect(list.locator('.seen-toggle')).toHaveCount(9);
+  await expect(activity.locator('summary .pill')).toHaveText('9');
+  await expect(list.locator('li.day :is(a, button, input, [tabindex])')).toHaveCount(0);
+  await expect(list.locator('li.row > svg.tree')).toHaveCount(9);
+  // A row shows only its clock under its day header; the full date stays in the title.
+  const time = list.locator('li[data-event-id="yesterday-merge"] .event-meta time');
+  await expect(time).toHaveText(
+    await page.evaluate(() => new Date(2026, 10, 27, 16).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })),
+  );
+  await expect(time).toHaveAttribute('title', /27/);
+
+  for (const width of [1100, 1265]) {
+    await page.setViewportSize({ width, height: 1000 });
+    // Every lane that leaves the row above at its bottom crosses the header and enters the row below at its top.
+    const crossings = await headers.evaluateAll(items =>
+      items.map(header => {
+        const keys = (lines: Iterable<Element>) =>
+          [...lines].map(line => `${line.getAttribute('x1')} ${line.getAttribute('class')}`).sort();
+        const above = header.previousElementSibling?.querySelector(':scope > svg.tree');
+        const below = header.nextElementSibling?.querySelector(':scope > svg.tree');
+        const cell = header.querySelector(':scope > svg.tree-pass');
+        const box = header.getBoundingClientRect();
+        const cellBox = cell?.getBoundingClientRect();
+        return {
+          header: keys(cell?.querySelectorAll('line') ?? []),
+          above: keys(above?.querySelectorAll('line[y2="100%"]') ?? []),
+          below: keys(below?.querySelectorAll('line[y1="-40"]') ?? []),
+          spans: !cellBox || (Math.abs(cellBox.top - (box.top - 1)) <= 1 && Math.abs(cellBox.bottom - box.bottom) <= 1),
+        };
+      }),
+    );
+    assert.deepEqual(crossings[0], { header: [], above: [], below: [], spans: true }, 'nothing crosses the first header');
+    for (const [index, crossing] of crossings.entries()) {
+      assert.deepEqual(crossing.header, crossing.below, `header ${index} at ${width}px: lanes entering the row below`);
+      if (index) assert.deepEqual(crossing.header, crossing.above, `header ${index} at ${width}px: lanes leaving the row above`);
+      assert.ok(crossing.spans, `header ${index} at ${width}px: the lane cell covers the header`);
+    }
+    assert.ok(
+      crossings.every((crossing, index) => !index || crossing.header.length >= 2),
+      'several lanes cross each later header',
+    );
+    await expect(list.locator('li.day svg.tree-pass').first()).toBeVisible();
+  }
+  // Below 640px the tree is gone and the headers stay.
+  await page.setViewportSize({ width: 360, height: 900 });
+  await expect(headers.first()).toBeVisible();
+  await expect(list.locator('li.day svg.tree-pass').first()).toBeHidden();
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
 });

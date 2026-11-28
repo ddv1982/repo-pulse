@@ -1,14 +1,21 @@
 import test from 'node:test';
 import type { TestContext } from 'node:test';
 import assert from 'node:assert/strict';
-import { activityTitle as activityTitleOf, activitySummary as activitySummaryOf, type SafeHtml } from '../../src/ui/format.ts';
+import {
+  activityTitle as activityTitleOf,
+  activitySummary as activitySummaryOf,
+  ciTime,
+  dateTime,
+  type SafeHtml,
+} from '../../src/ui/format.ts';
+import { renderTrail } from '../../src/ui/activity-trail.ts';
 import { renderRepositories as renderRepositoriesHtml } from '../../src/ui/repositories.ts';
 import { renderFeed as renderPagedFeedHtml, renderDetail as renderDetailHtml } from '../../src/ui/feed.ts';
 import { detailView } from '../../src/ui/activity-detail.ts';
-import { forkText, treeLegend } from '../../src/ui/activity-tree.ts';
-import type { TreeFork } from '../../src/activity-tree.ts';
+import { forkText, renderTreePassThrough, treeLegend } from '../../src/ui/activity-tree.ts';
+import { buildActivityTree, type TreeFork, type TreeLine, type TreeRow } from '../../src/activity-tree.ts';
 import { createStore } from '../../server/store.ts';
-import type { ActivityEvent } from '../../src/activity.ts';
+import type { ActivityEvent, ActivityItem } from '../../src/activity.ts';
 import type { GitHistoryActivity, GitHistoryPage, Repository, StreamError, StreamState } from '../../src/contract.ts';
 import type { CheckoutSnapshot } from '../../src/ui/checkout.ts';
 import type { PageState } from '../../src/ui/refresh.ts';
@@ -622,6 +629,96 @@ test('each fork origin has its own row text, and only an unchecked PR target is 
   assert.match(await text(parse(t, treeLegend(new Map()))), /PR target, origin not checked/);
 });
 
+test('a day header draws every lane that crosses into the row below it once, in its colour', async t => {
+  const event = (kind: ActivityEvent['kind'], branch: string, data: ActivityEvent['data'] = {}): ActivityEvent => ({
+    id: `${kind}-${branch}-${Math.random()}`,
+    repoId: 'r',
+    kind,
+    branch,
+    time: '',
+    data,
+  });
+  const push = (branch: string) =>
+    event('push', branch, { refUpdates: [{ name: `refs/heads/${branch}`, oldObjectId: 'a'.repeat(40), newObjectId: 'b'.repeat(40) }] });
+  const pr = (id: number, source: string, status: string) =>
+    event('pr', source, { pullRequestId: id, status, sourceRefName: `refs/heads/${source}`, targetRefName: 'refs/heads/main' });
+  const created = (branch: string) =>
+    event('branch-created', branch, {
+      name: `refs/heads/${branch}`,
+      oldObjectId: '0'.repeat(40),
+      newObjectId: 'c'.repeat(40),
+      evidence: 'push',
+    });
+  const { rows } = buildActivityTree([
+    push('main'),
+    push('feature/a'),
+    // A merge whose source lane runs on above it.
+    pr(7, 'feature/a', 'completed'),
+    pr(8, 'feature/b', 'active'),
+    push('feature/a'),
+    push('main'),
+    // A fork whose parent lane runs on above it.
+    created('feature/b'),
+    push('main'),
+  ]);
+  const lines = (row: TreeRow) => [row.node, row.forkFrom, row.mergeFrom].filter((line): line is TreeLine => Boolean(line));
+  assert.ok(rows.some(row => row.mergeFrom?.up) && rows.some(row => row.forkFrom?.up) && rows.some(row => row.through.length));
+  const key = ({ slot, color, isDefault }: { slot: number; color: number; isDefault?: boolean }) =>
+    `${5 + slot * 10} ${color < 0 ? 'lane-none' : `lane-${color + 1}`}${isDefault ? ' default-lane' : ''}`;
+  for (const [index, row] of rows.entries()) {
+    const entering = [...row.through, ...lines(row).filter(line => line.up)].map(key).sort();
+    const above = rows[index - 1];
+    const leaving = above ? [...above.through, ...lines(above).filter(line => line.down)].map(key).sort() : [];
+    assert.deepEqual(entering, leaving, `row ${index}: what enters from above is what left the row above`);
+    const drawn = await all(parse(t, renderTreePassThrough(row)), 'svg line');
+    const shown = await Promise.all(
+      drawn.map(async line => {
+        assert.equal(await line.getAttribute('x1'), await line.getAttribute('x2'));
+        assert.deepEqual([await line.getAttribute('y1'), await line.getAttribute('y2')], ['0', '100%']);
+        return `${await line.getAttribute('x1')} ${await line.getAttribute('class')}`;
+      }),
+    );
+    assert.deepEqual(shown.sort(), entering, `row ${index}`);
+  }
+  const crossing = present(rows.find(row => row.mergeFrom?.up));
+  const svg = one(parse(t, renderTreePassThrough(crossing)), 'svg');
+  assert.ok(await svg.hasClass('tree-pass'));
+  assert.ok(!(await svg.hasClass('tree')), 'a row cell selector does not count the header');
+  assert.equal(await svg.getAttribute('aria-hidden'), 'true');
+  assert.equal((await all(parse(t, renderTreePassThrough(present(rows[0]))), 'svg')).length, 0, 'nothing enters the first row');
+});
+
+test("a CI run time shows only the clock on its row's day and keeps its date across midnight", async t => {
+  const clock = (date: Date) => new Intl.DateTimeFormat([], { hour: '2-digit', minute: '2-digit' }).format(date);
+  const row = new Date(2026, 10, 27, 23, 50).toISOString();
+  const sameDay = new Date(2026, 10, 27, 16, 44);
+  const nextDay = new Date(2026, 10, 28, 0, 10);
+  const label = async (markup: SafeHtml) => text(parse(t, markup));
+  assert.equal(await label(ciTime(sameDay.toISOString(), true, row)), clock(sameDay));
+  const across = await label(ciTime(nextDay.toISOString(), true, row));
+  assert.notEqual(across, clock(nextDay));
+  assert.equal(across, await label(ciTime(nextDay.toISOString(), true)), 'another day reads as it did');
+  assert.match(across, /\b28\b/);
+  const time = one(parse(t, ciTime(sameDay.toISOString(), true, row)), 'time');
+  assert.match((await time.getAttribute('title')) ?? '', /2026/, 'the full date stays in the title');
+  assert.equal(String(ciTime('not a time', true, row)), '');
+});
+
+test("a row's update trail shows only the clock for updates on the row's day, and the detail keeps full dates", async t => {
+  const clock = (date: Date) => new Intl.DateTimeFormat([], { hour: '2-digit', minute: '2-digit' }).format(date);
+  const latest = new Date(2026, 10, 27, 9, 15).toISOString();
+  const earlier = new Date(2026, 10, 26, 23, 55).toISOString();
+  const update = { repoId: 'r', kind: 'pr', seen: false, imported: false } satisfies Event;
+  const record = stub<ActivityItem>({
+    groupKey: 'pr:7',
+    time: latest,
+    events: [stub<ActivityEvent>({ ...update, id: 'b', time: latest }), stub<ActivityEvent>({ ...update, id: 'a', time: earlier })],
+  });
+  const times = async (markup: SafeHtml) => Promise.all((await all(parse(t, markup), 'time')).map(text));
+  assert.deepEqual(await times(renderTrail(record)), [clock(new Date(latest)), dateTime(earlier)]);
+  assert.deepEqual(await times(renderTrail(record, { expanded: true })), [dateTime(latest), dateTime(earlier)]);
+});
+
 test('Activity distinguishes tag events and tag builds from branch activity', async t => {
   const state = fixture();
   const time = '2026-11-17T10:00:00Z';
@@ -827,4 +924,35 @@ test('Git Graph chips name each status from its ID and take the Activity tone', 
     assert.ok(shown === label || shown.startsWith(`${label} · `), `${id}: ${shown}`);
     assert.deepEqual(await classes(chip(id)), ['chip', 'graph-link', 'status-chip', ...tone].sort(), id);
   }
+});
+
+test('two sections of the same day in a feed out of time order get distinct day header ids', async t => {
+  const { groupActivity } = await import('../../src/activity.ts');
+  const repo = stub<Repository>({ id: 'r1', name: 'orders-api' });
+  const at = (day: number) => new Date(2026, 10, day, 12, 0).toISOString();
+  const push = (id: string, day: number) =>
+    stub<ActivityEvent>({ id, repoId: 'r1', kind: 'push', time: at(day), title: `Pushed ${id}`, branch: `refs/heads/${id}`, data: {} });
+  const byId = new Map(groupActivity([push('a', 27), push('b', 26), push('c', 27)]).map(item => [item.id, item]));
+  // A CI group can sort by a newer time than the one it shows, so a day can start twice in one list.
+  const items = ['a', 'b', 'c'].map(id => present(byId.get(id)));
+  const state = stub<PageState>({
+    enabledRepos: [repo],
+    allRepos: [repo],
+    savedFilters: [],
+    syncStatus: { overall: { state: 'empty' }, repos: {} },
+    activity: { items, total: 3, newItems: 0, newUpdates: 0, nextCursor: null, filterOptions: [] },
+  });
+  const view = stub<import('../../src/ui/feed.ts').FeedView & { savedFilterId: string }>({
+    unseenOnly: false,
+    repoIds: null,
+    search: '',
+    activityFilter: '',
+    filtersOpen: false,
+    groups: new Map(),
+    savedFilterId: '',
+  });
+  const headers = await all(parse(t, renderPagedFeedHtml(state, view)), 'li.day');
+  const ids = await Promise.all(headers.map(header => header.getAttribute('id')));
+  assert.equal(ids.length, 3);
+  assert.equal(new Set(ids).size, 3, `duplicate day header ids: ${ids.join(', ')}`);
 });
