@@ -223,7 +223,7 @@ function linkedEvent(record: ActivityItem, related: ActivityItem, groups: Groups
     : html`<button class="ghost sm" type="button" ${action('detail')} data-event-id="${related.id}">View push to ${activityRef(related).branch}</button>`;
   return {
     token,
-    panel: html`<details class="linked-event" id="${panelId}" ${disclosure(groups, groupId)}><summary hidden></summary>${content}</details>`,
+    panel: html`<details class="linked-event linked-panel" id="${panelId}" ${disclosure(groups, groupId)}><summary hidden></summary>${content}</details>`,
   };
 }
 

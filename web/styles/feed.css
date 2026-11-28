@@ -83,10 +83,10 @@ li.day {
   transition: background-color 0.15s;
 }
 .row.new {
-  --row-tint: color-mix(in oklab, var(--info) 8%, var(--card));
+  --row-tint: var(--row-unread);
 }
 .row.crit {
-  --row-tint: color-mix(in oklab, var(--critical-solid) 8%, var(--card));
+  --row-tint: var(--row-failed);
 }
 .row:hover,
 .row:focus-within {
@@ -148,7 +148,7 @@ button.ci-count:hover {
 }
 /* Light mode carries status as a tinted pill, so the column reads at the strength dark mode gets from saturated text. */
 :root:not(.dark) .feed .kind-label {
-  padding: 0 var(--space-2);
+  padding: 0 var(--space-1-5);
   border-radius: 10px;
   font-weight: 600;
   background: color-mix(in srgb, currentColor 12%, var(--card));
@@ -282,6 +282,7 @@ button.ci-count:hover {
 }
 /* The vote tally opens the named votes under line 2. Approvals stay muted; a vote that asks for changes is coloured. */
 button.vote-tally.sm {
+  display: inline;
   height: auto;
   padding: 0;
   font-size: inherit;
@@ -400,7 +401,9 @@ button.vote-tally.crit {
   line-height: 20px;
   color: var(--muted-foreground);
 }
+/* Inline, not flex, so the spaces between glyph, name and note stay. */
 .ci-trouble button.sm {
+  display: inline;
   height: auto;
   padding: 0;
   font-size: inherit;
@@ -424,9 +427,6 @@ button.vote-tally.crit {
 .ci-trouble .ci-host {
   color: var(--muted-foreground);
   font-weight: 400;
-}
-.ci-trouble .ci-host {
-  margin-inline-start: var(--space-1-5);
 }
 .ci-glyph {
   display: inline-block;
@@ -557,10 +557,15 @@ button.vote-tally.crit {
 .ci-history {
   width: 100%;
 }
-.ci-history > .ci-rollup {
-  margin-inline-start: var(--space-1);
-  padding-inline-start: var(--space-1);
+/* The panels under line 3 share one shape with the vote list: a hairline rule, and their content 10px in. */
+.ci-history > .ci-rollup,
+.linked-panel {
+  padding-inline-start: var(--space-2-5);
   border-inline-start: 1px solid var(--border);
+}
+.ci-history > .ci-rollup > button.sm,
+.linked-panel > button.sm {
+  padding-inline: 0;
 }
 .ci-rollup > [data-related] {
   justify-self: start;
@@ -664,7 +669,7 @@ button.vote-tally.crit {
   list-style: none;
   margin: var(--space-1) 0 0;
   padding: 0 0 0 var(--space-2-5);
-  border-left: 2px solid var(--border);
+  border-left: 1px solid var(--border);
 }
 .trail li {
   display: flex;

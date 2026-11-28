@@ -734,8 +734,8 @@ test('rows use flat tints that the tree cuts out of, and colour only failures, r
       const row = (id: string) => `li[data-event-id="${id}"]`;
       const result = {
         card: token('var(--card)'),
-        unreadTint: token('color-mix(in oklab, var(--info) 8%, var(--card))'),
-        failedTint: token('color-mix(in oklab, var(--critical-solid) 8%, var(--card))'),
+        unreadTint: token('var(--row-unread)'),
+        failedTint: token('var(--row-failed)'),
         critical: token('var(--critical)'),
         warning: token('var(--warning)'),
         muted: token('var(--muted-foreground)'),
