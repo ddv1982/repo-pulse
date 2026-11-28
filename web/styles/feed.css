@@ -147,6 +147,31 @@ li.day {
   min-width: 0;
   overflow-wrap: anywhere;
 }
+/* The status cell: the kind, then the row's CI count. Below 1100px they share a line. */
+.status {
+  grid-column: 1;
+  grid-row: 1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0 var(--space-2-5);
+  min-width: 0;
+}
+.ci-count {
+  font-size: var(--text-xs);
+  line-height: 20px;
+  color: var(--muted-foreground);
+  white-space: nowrap;
+}
+button.ci-count.sm {
+  height: auto;
+  padding: 0;
+  font-weight: 400;
+}
+button.ci-count:hover {
+  background: none;
+  text-decoration: underline;
+}
 /* Light mode carries status as a tinted pill, so the column reads at the strength dark mode gets from saturated text. */
 :root:not(.dark) .feed .kind-label {
   padding: 0 var(--space-2);
@@ -251,11 +276,39 @@ li.day {
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
-  gap: 0 var(--space-2-5);
+  gap: 0 var(--space-1-5);
   margin-top: var(--space-0-5);
   font-size: var(--text-xs);
   line-height: 20px;
   color: var(--muted-foreground);
+}
+/* Line 2's facts read as one sentence: a middot after each token but the last, drawn so that it is not read out. It
+   trails its token, so a wrapped line starts with a fact, not a dot. */
+.feed-title .subref > :not(:last-child)::after {
+  content: '·' / '';
+  margin-inline-start: var(--space-1-5);
+}
+.subref .actor {
+  font-weight: 500;
+  color: var(--foreground-soft);
+}
+.ref-sha {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+.ref-route .ref-sha {
+  margin-inline-start: var(--space-1-5);
+  flex: none;
+}
+.ref-summary {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.ref-summary > :not(.sr) ~ .status-text {
+  margin-inline-start: var(--space-2);
+}
+.subref > .chip {
+  padding-block: 0;
 }
 .ref-repo,
 .ref-branch {
@@ -268,12 +321,15 @@ li.day {
   white-space: nowrap;
   font-weight: 500;
 }
+/* Margins, not gap, space the group, so line 2's separator before it keeps its own spacing. */
 .ref-target {
   display: inline-flex;
   align-items: baseline;
-  gap: var(--space-2-5);
   min-width: 0;
   max-width: 100%;
+}
+.ref-target > * + * {
+  margin-inline-start: var(--space-2-5);
 }
 .ref-branch {
   /* A sans line box holds the monospace name, so the line keeps the 20px height and baseline of the meta line. */
@@ -292,8 +348,8 @@ li.day {
   font-family: var(--font-mono);
   line-height: 1;
 }
-.ref-route {
-  gap: var(--space-1);
+.ref-route > * + * {
+  margin-inline-start: var(--space-1);
 }
 .ref-route .ref-branch {
   flex-shrink: 999;
@@ -313,37 +369,17 @@ li.day {
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
-.event {
-  grid-column: 1 / -1;
-  min-width: 0;
+/* What goes under line 2: CI, origin notes, the update trail, linked rows and commits. */
+.row-extra {
+  margin-top: var(--space-1);
   font-size: var(--text-sm);
   color: var(--foreground);
 }
-.event .mono {
-  font-size: var(--text-xs);
-}
-/* Keep evidence and metadata together when a long title wraps. */
-.event > * + * {
+.row-extra > * + * {
   margin-top: var(--space-0-5);
 }
-.event > .event-meta {
+.event-meta {
   overflow-wrap: anywhere;
-}
-.event-main {
-  color: var(--foreground-soft);
-  overflow-wrap: anywhere;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-1) var(--space-2);
-  line-height: 20px;
-}
-.event-main .chip {
-  padding-block: 0;
-}
-.event > .help:first-child {
-  margin-top: 0;
-  line-height: 20px;
 }
 .event-meta time {
   font-variant-numeric: tabular-nums;
@@ -394,6 +430,7 @@ li.day {
 }
 .ci-rollup {
   display: grid;
+  justify-items: start;
 }
 .ci-history {
   width: 100%;
@@ -411,7 +448,6 @@ li.day {
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: baseline;
   gap: 0.5rem;
-  width: 100%;
 }
 .ci-time {
   color: var(--muted-foreground);
@@ -428,8 +464,12 @@ li.day {
   grid-row: 1;
   justify-self: end;
 }
-.rowact:empty {
-  display: none;
+.row-time {
+  margin-inline-end: var(--space-1);
+  font-size: var(--text-xs);
+  color: var(--muted-foreground);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 .rowact .ghost {
   padding-inline: 5px;
@@ -500,7 +540,7 @@ li.day {
 
 @media (max-width: 639px) {
   /* The phone's row controls are taller than the label, so the label centres on them. */
-  .row > .kind {
+  .row > .status {
     align-self: center;
   }
 }
@@ -510,7 +550,7 @@ li.day {
   }
 }
 @media (max-width: 359px) {
-  .row > .kind,
+  .row > .status,
   .rowact {
     grid-column: 1 / -1;
   }
@@ -519,25 +559,22 @@ li.day {
   }
 }
 @media (min-width: 1100px) {
+  /* Status, then the title with its facts, then time and actions. The status column holds the tree too. */
   .row {
-    grid-template-columns: var(--kind-width, 9.25rem) minmax(0, 2fr) minmax(12rem, 1fr) 8.5rem;
-    padding-block: var(--space-2-5);
+    grid-template-columns: var(--kind-width, 9.25rem) minmax(0, 1fr) auto;
+    padding-block: var(--space-3);
   }
-  .row > .kind {
-    grid-column: 1;
-    grid-row: 1;
+  .row > .status {
+    flex-direction: column;
+    align-items: flex-start;
   }
   .subject {
     grid-column: 2;
     grid-row: 1;
   }
-  .event {
-    grid-column: 3;
-    grid-row: 1;
-  }
   .rowact {
-    grid-column: 4;
-    max-width: 100%;
+    grid-column: 3;
+    flex-wrap: nowrap;
     margin-block: calc((20px - var(--control-height-sm)) / 2);
   }
 }

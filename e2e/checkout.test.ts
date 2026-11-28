@@ -47,7 +47,12 @@ test('a New branch detail reviews a rewritten tracking ref before switching, the
   await page.locator('#activity-filters-toggle').click();
   const search = page.getByRole('searchbox', { name: 'Search activity' });
   await search.fill('checkout-from-activity');
-  await page.getByRole('button', { name: `${branch} · repository ${repo.name}`, exact: true }).click();
+  await page
+    .getByRole('button', {
+      name: `${branch} · repository ${repo.name} · pushed by Test · First seen remotely; creation time not supplied`,
+      exact: true,
+    })
+    .click();
   await page.getByRole('button', { name: `Switch to ${branch}…` }).click();
   const dialog = page.getByRole('dialog');
   await expect(dialog).toContainText(`Switch to ${branch}?`);

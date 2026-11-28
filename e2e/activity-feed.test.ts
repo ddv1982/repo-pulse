@@ -11,8 +11,8 @@ test('the branch tree works with the unread filter and keeps status markers on n
   await expect(rows.first()).toBeVisible();
   await expect(page.locator('.with-tree li.row > svg.tree')).toHaveCount(await rows.count());
   const hotfix = page.locator('li[data-event-id="demo-branch-1"]');
-  // A new branch has nothing else to say first, so where it started is its top line, above who and when.
-  await expect(hotfix.locator('.event-main')).toHaveText('Started at 3f9a2c1, the tip of main');
+  // A new branch has nothing else to say, so where it started is the summary at the end of line 2.
+  await expect(hotfix.locator('.ref-summary')).toHaveText(/ Started at 3f9a2c1, the tip of main$/);
   await expect(hotfix.locator('.event-origin')).toHaveCount(0);
   await expect(hotfix.locator('svg.tree path')).toHaveCount(1);
   await expect(hotfix.locator('svg.tree path.assumed')).toHaveCount(0);
@@ -49,7 +49,7 @@ test('the branch tree works with the unread filter and keeps status markers on n
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.getByRole('button', { name: 'Unread only', exact: true }).click();
   await expect(hotfix.locator('svg.tree')).toBeVisible();
-  await expect(hotfix.locator('.event-main')).toHaveText('Started at 3f9a2c1, the tip of main');
+  await expect(hotfix.locator('.ref-summary')).toHaveText(/ Started at 3f9a2c1, the tip of main$/);
   await page.setViewportSize({ width: 640, height: 900 });
   await expect(hotfix.locator('svg.tree')).toBeVisible();
   await page.setViewportSize({ width: 390, height: 900 });
@@ -57,8 +57,10 @@ test('the branch tree works with the unread filter and keeps status markers on n
   await expect(hotfix.locator('.kind > svg')).toBeVisible();
 });
 
-test('Activity gives wrapped titles room and keeps their event metadata together on desktop', async t => {
+test('Activity gives wrapped titles room and keeps their facts line under them on desktop', async t => {
   const { page, runtime } = await setup(t);
+  const longBranch =
+    'feature/DAT-11441-tag-gap-scope-and-product-and-more-words-that-keep-going-until-the-name-is-wider-than-the-title-column';
   // A pull request title long enough to wrap at 1280px.
   runtime.store.insertEvents([
     {
@@ -92,7 +94,7 @@ test('Activity gives wrapped titles room and keeps their event metadata together
         result: 'succeeded',
         pullRequest: {
           id: 21432,
-          sourceRefName: 'refs/heads/feature/DAT-11441-tag-gap-scope-and-product-and-more-words',
+          sourceRefName: `refs/heads/${longBranch}`,
           targetRefName: 'refs/heads/main',
         },
       },
@@ -104,16 +106,14 @@ test('Activity gives wrapped titles room and keeps their event metadata together
   // The page re-renders as it polls, so box reads retry until a rendered row answers.
   await expect.poll(async () => (await longTitle.boundingBox())?.height ?? 0, { message: 'the long title wraps' }).toBeGreaterThan(30);
   await expect(page.locator('.with-tree .row').first()).toBeVisible();
-  const event = page.locator('li[data-event-id="long-title-pr"] .event');
+  // Line 2 follows the wrapped title directly.
+  const facts = page.locator('li[data-event-id="long-title-pr"] .feed-title .subref');
   await expect
     .poll(() =>
-      event.evaluate(element => {
-        const title = element.closest('.row')?.querySelector('.title');
-        const meta = element.querySelector('.event-meta');
-        if (!title || !meta) return false;
-        const content = title.getBoundingClientRect();
-        const metadata = meta.getBoundingClientRect();
-        return Math.abs(metadata.top - content.top) <= 2 && content.width > element.getBoundingClientRect().width;
+      facts.evaluate(element => {
+        const title = element.closest('.row')?.querySelector('.title')?.getBoundingClientRect();
+        const line = element.getBoundingClientRect();
+        return !!title && line.top >= title.bottom - 1 && line.top - title.bottom <= 4;
       }),
     )
     .toBe(true);
@@ -121,6 +121,9 @@ test('Activity gives wrapped titles room and keeps their event metadata together
   // At the narrowest wide layout, refs and PR chips stay in the title column.
   await page.setViewportSize({ width: 1100, height: 900 });
   const prRow = page.locator('li[data-event-id="long-title-pr"]');
+  // The phase 2 layout's title column was 444px wide here with 4 lanes. Without the event column it is wider.
+  await expect(prRow.locator('xpath=..')).toHaveAttribute('data-tree-lanes', '4');
+  await expect.poll(async () => (await prRow.locator('.subject').boundingBox())?.width ?? 0).toBeGreaterThan(444);
   await expect(prRow.locator('.feed-title')).toHaveAccessibleName(
     /source branch feature\/DAT-9861_animal_seeds_standards targeting branch main/,
   );
@@ -144,6 +147,12 @@ test('Activity gives wrapped titles room and keeps their event metadata together
       { message: 'PR chip right edge past the title column' },
     )
     .toBeLessThanOrEqual(0);
+  // A branch name wider than the column ends in an ellipsis, keeps its full name on hover, and the page does not scroll.
+  const branch = ciRow.locator('.ref-branch');
+  await expect(branch).toHaveAttribute('title', longBranch);
+  await expect.poll(() => branch.evaluate(element => element.scrollWidth > element.clientWidth)).toBe(true);
+  await expect(branch).toHaveCSS('text-overflow', 'ellipsis');
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
   await capture(page, 'open-pr-activity-desktop.png');
   // On a phone the type label shares its line with the taller Seen control, so it centres on it.
   await page.setViewportSize({ width: 390, height: 900 });
@@ -201,7 +210,9 @@ test('Activity keeps the branch tree while exposing merge status, CI and push co
   const merge = page.locator('li[data-event-id="readable-merge"]');
   const failure = page.locator('li[data-event-id="failed-after-merge"]');
   await expect(merge.locator('.kind')).toHaveText('PR merged');
-  await expect(merge.getByText('Merged into main')).toBeVisible();
+  // Line 2 names the target and the merge commit instead of a sentence.
+  await expect(merge.locator('.ref-destination')).toHaveText('main');
+  await expect(merge.locator('.ref-sha')).toHaveText(/ a{9}$/);
   const passing = page.locator('li[data-event-id="seen-passing-run"]');
   const seen = merge.locator('.seen-toggle');
   await expect(passing).toHaveCount(0);
@@ -213,11 +224,16 @@ test('Activity keeps the branch tree while exposing merge status, CI and push co
   await expect(seen).toHaveAttribute('aria-pressed', 'true');
   await expect(passing).toHaveCount(0);
   assert.equal(runtime.store.getEvent('seen-passing-run')?.seen, true);
-  const rollup = merge.getByText('Run history · 1 run', { exact: true });
+  // A failed result stays in view; the CI count in the status cell opens the runs it does not show.
+  const rollup = merge.locator('.status').getByRole('button', { name: 'CI · 2 runs', exact: true });
   await expect(merge.locator('.ci-run.crit')).toContainText('failed');
+  await expect(rollup).toHaveAttribute('aria-expanded', 'false');
+  await expect(merge.locator('.ci-history .ci-run')).toBeHidden();
   await rollup.focus();
   await page.keyboard.press('Enter');
   await expect(rollup).toBeFocused();
+  await expect(rollup).toHaveAttribute('aria-expanded', 'true');
+  await expect(merge.locator('.ci-history .ci-run')).toHaveText(/Post-merge CI passed/);
   await expect
     .poll(() =>
       merge.evaluate(row => {
@@ -348,19 +364,27 @@ test('Activity shows only highlights and links a landing and quieter CI to its d
   await page.reload();
   const merge = page.locator('li[data-event-id="highlight-pr"]');
   await expect(merge.locator('.kind')).toHaveText('PR merged');
-  await expect(merge.getByText('Landed on main', { exact: false })).toBeVisible();
+  // The landing reads as `→ main` and the merge commit on line 2, not as words.
+  await expect(merge.getByText('Landed on', { exact: false })).toHaveCount(0);
+  await expect(merge.locator('.ref-destination')).toHaveText('main');
+  await expect(merge.locator('.ref-sha')).toHaveText(/ c{9}$/);
+  // Passing results fold into the CI count, which counts every run, until the reader opens the run list.
+  const ciCount = merge.locator('.status').getByRole('button', { name: 'CI · 7 runs', exact: true });
   const headline = merge.getByRole('button', { name: 'Post-merge CI passed' });
+  await expect(headline).toBeHidden();
+  await expect(merge.locator('.event-ci .crit')).toHaveCount(0);
+  await expect(merge.getByRole('button', { name: 'PR validation failed' })).toHaveCount(0);
+  await ciCount.click();
+  await expect(ciCount).toHaveAttribute('aria-expanded', 'true');
   await expect(headline).toBeVisible();
+  await expect(merge.locator('.ci-history').getByRole('button', { name: 'PR validation failed' }).first()).toBeVisible();
+  await expect(merge.locator('.ci-run time')).toHaveCount(6);
+  await expect(headline.locator('time')).toHaveAttribute('datetime', base.time);
+  await expect(merge.getByRole('button', { name: 'View all CI runs' })).toBeVisible();
   await headline.click();
   await expect(page).toHaveURL(/#event\/quiet-pass$/);
   await page.getByRole('link', { name: /Back to Activity/ }).click();
-  await expect(merge.locator('.event-ci .crit')).toHaveCount(0);
-  await expect(merge.getByRole('button', { name: 'PR validation failed' })).toHaveCount(0);
-  await merge.getByText('Run history · 6 runs').click();
-  await expect(merge.locator('.ci-history').getByRole('button', { name: 'PR validation failed' }).first()).toBeVisible();
-  await expect(merge.locator('.ci-run time')).toHaveCount(6);
-  await expect(merge.getByRole('button', { name: 'Post-merge CI passed' }).locator('time')).toHaveAttribute('datetime', base.time);
-  await expect(merge.getByRole('button', { name: 'View all CI runs' })).toBeVisible();
+  await expect(ciCount).toHaveAttribute('aria-expanded', 'true');
   await expect(page.locator('li[data-event-id="quiet-landing-push"], li[data-event-id="quiet-pass"]')).toHaveCount(0);
   await expect(merge.locator('svg.tree')).toBeVisible();
   await expect(page.locator('li[data-event-id="later-push-to-same-tip"]')).toContainText('Later default branch push');
@@ -368,7 +392,7 @@ test('Activity shows only highlights and links a landing and quieter CI to its d
   const approvalLabel = approved.locator('.kind');
   const readyLabel = page.locator('li[data-event-id="opened-0"] .kind');
   await expect(approvalLabel).toHaveText('Approvals met');
-  await expect(approved.locator('.event-meta time')).toHaveCSS('white-space', 'nowrap');
+  await expect(approved.locator('.rowact time')).toHaveCSS('white-space', 'nowrap');
   const statusColor = () => approvalLabel.evaluate(element => getComputedStyle(element).color);
   const sharesStatusColor = (label: typeof approvalLabel) =>
     label.evaluate(element => getComputedStyle(element).color).then(color => statusColor().then(approval => approval === color));
@@ -376,7 +400,7 @@ test('Activity shows only highlights and links a landing and quieter CI to its d
   assert.equal(await sharesStatusColor(merge.locator('.kind')), false);
   await expect(approved.locator('.title')).toHaveText(approval.title);
   await expect(approved.locator('.feed-title')).toHaveAccessibleName(/fatty_acids_individual_risks/);
-  await expect(approved.locator('.event-meta')).toContainText('PR author Ines Adriaens - Doekes');
+  await expect(approved.locator('.ref-actor')).toHaveText(/ author Ines Adriaens - Doekes$/);
   await expect(approved.locator('.ref-repo')).toBeVisible();
   await expect(approved.locator('xpath=..')).toHaveAttribute('data-tree-lanes', '5');
   const longCi = approved.getByRole('button', { name: 'PR validation partially succeeded on earlier revision' });
@@ -393,12 +417,11 @@ test('Activity shows only highlights and links a landing and quieter CI to its d
       const overlaps = (a: DOMRect, b: DOMRect) => a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
       const subject = box('.subject');
       const actions = box('.rowact');
-      const event = box('.event');
       const ci = box('.event-ci button');
       return {
-        labelFits: rect.right <= bounds.right + 1 && [subject, actions, event].every(area => !overlaps(rect, area)),
+        labelFits: rect.right <= bounds.right + 1 && [subject, actions].every(area => !overlaps(rect, area)),
         actionsClearTitle: !overlaps(actions, subject),
-        ciFits: ci.right <= event.right + 1,
+        ciFits: ci.right <= subject.right + 1,
         pageFits: document.documentElement.scrollWidth <= innerWidth,
       };
     });
@@ -408,10 +431,10 @@ test('Activity shows only highlights and links a landing and quieter CI to its d
     await expect.poll(rowFits, { message: `The approval row fits at ${width}px` }).toEqual(allFit);
   }
   await page.setViewportSize({ width: 1278, height: 900 });
-  const metadataLeft = (row: typeof approved) => row.locator('.event').evaluate(element => element.getBoundingClientRect().left);
+  const metadataLeft = (row: typeof approved) => row.locator('.subject').evaluate(element => element.getBoundingClientRect().left);
   assert.ok(
     Math.abs((await metadataLeft(approved)) - (await metadataLeft(merge))) <= 1,
-    'metadata keeps its alignment on rows with and without an Azure link',
+    'titles and their facts keep their alignment on rows with and without an Azure link',
   );
   await page.emulateMedia({ colorScheme: 'dark' });
   await expect(page.locator('html')).toHaveClass(/\bdark\b/);
@@ -431,7 +454,7 @@ test('Activity shows only highlights and links a landing and quieter CI to its d
   await expect.poll(rowFits).toEqual(allFit);
   assert.ok(
     Math.abs((await metadataLeft(approved)) - (await metadataLeft(merge))) <= 1,
-    'metadata stays aligned with wider control labels',
+    'titles and their facts stay aligned with wider control labels',
   );
   await page.setViewportSize({ width: 320, height: 900 });
   await expect.poll(rowFits).toEqual(allFit);
@@ -488,6 +511,11 @@ test('Activity starts each local day with a header that the lanes run through an
   ]);
   // Imported history starts its own headers.
   await expect(page.locator('details[data-group="imported-history"] ul.rows li.day')).toHaveCount(2);
+  // An imported row shows its time and Azure link in the right cell, and no Seen toggle.
+  const imported = page.locator('details[data-group="imported-history"] li.row');
+  await expect(imported).toHaveCount(2);
+  await expect(imported.locator('.rowact > time')).toHaveCount(2);
+  await expect(imported.locator('.seen-toggle, [aria-pressed], input[type="checkbox"]')).toHaveCount(0);
   // A header is not a row: rows, row IDs, the group count and Seen toggles leave it out, and it holds nothing to act on.
   await expect(list.locator('li.row')).toHaveCount(9);
   await expect(list.locator('li[data-event-id]')).toHaveCount(9);
@@ -496,7 +524,7 @@ test('Activity starts each local day with a header that the lanes run through an
   await expect(list.locator('li.day :is(a, button, input, [tabindex])')).toHaveCount(0);
   await expect(list.locator('li.row > svg.tree')).toHaveCount(9);
   // A row shows only its clock under its day header; the full date stays in the title.
-  const time = list.locator('li[data-event-id="yesterday-merge"] .event-meta time');
+  const time = list.locator('li[data-event-id="yesterday-merge"] .rowact time');
   await expect(time).toHaveText(
     await page.evaluate(() => new Date(2026, 10, 27, 16).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })),
   );

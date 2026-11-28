@@ -23,6 +23,16 @@ import { renderGitGraph } from '../../src/ui/git-graph.ts';
 import { parse, one, all, row, text, textIncludingHidden, type DomElement, type DomRoot } from '../fixtures/dom.ts';
 import { present, stub } from '../../test/fixtures/typed.ts';
 
+/** Line 2 of a row as `class: text` per token, without screen-reader text, so a test reads its order and wording. */
+const facts = async (doc: DomRoot, id: string) =>
+  (await one(row(doc, id), '.feed-title .subref').handle()).evaluate(line =>
+    [...line.children].map(child => {
+      const copy = child.cloneNode(true);
+      if (copy instanceof Element) for (const hidden of copy.querySelectorAll('.sr')) hidden.remove();
+      return `${child.classList[0]}: ${(copy.textContent ?? '').replace(/\s+/g, ' ').trim()}`;
+    }),
+  );
+
 // The tests give the views and labels only the fields they read: an event of a kind with its data, a page state
 // without the parts a view leaves alone.
 type Event = Partial<ActivityEvent>;
@@ -300,7 +310,7 @@ test('row status washes are independent of unseen flags and failure classificati
   assert.equal((await all(parse(t, renderDetail(present(state.events[0]), state)), '.status-chip.crit')).length, 1);
 });
 
-test('a branch row from a push does not repeat its label in the event column; a listed branch keeps its caveat', async t => {
+test('a branch row from a push does not repeat its label on line 2; a listed branch keeps its caveat', async t => {
   const state = fixture();
   const base = { repoId: 'r', seen: false, imported: false, time: '2026-11-17T10:00:00Z', actor: 'Ana' };
   state.events = [
@@ -309,13 +319,12 @@ test('a branch row from a push does not repeat its label in the event column; a 
     { ...base, id: 'listed', kind: 'branch-created', branch: 'c', title: 'Branch first seen · c', data: { evidence: 'refs' } },
   ];
   const doc = parse(t, renderFeed(state, view));
-  const first = (id: string) => one(row(doc, id), '.event > :first-child');
-  for (const id of ['created', 'deleted']) {
-    assert.ok(await first(id).matches('.help.event-meta'), id);
-    assert.match(await text(first(id)), /^Pushed by Ana · /, id);
-  }
-  assert.ok(await first('listed').hasClass('event-main'));
-  assert.equal(await text(first('listed')), 'First seen remotely; creation time not supplied');
+  for (const id of ['created', 'deleted']) assert.deepEqual(await facts(doc, id), ['ref-actor: pushed by Ana'], id);
+  assert.deepEqual(await facts(doc, 'listed'), [
+    'ref-target: c',
+    'ref-actor: pushed by Ana',
+    'ref-summary: First seen remotely; creation time not supplied',
+  ]);
 });
 
 test('both activity views draw a branch tree with the fork evidence in the row text', async t => {
@@ -492,55 +501,78 @@ test('a push that names several branches keeps its title and shows no single bra
   ];
   const doc = parse(t, renderFeed(state, view));
   assert.equal(await text(one(doc, '.title')), 'Pushed to feature/a, feature/b');
-  assert.equal((await all(doc, '.subref')).length, 0);
-  const meta = one(doc, '.help.event-meta');
-  assert.match(await text(meta), /^Pushed by Ana · /);
-  assert.equal(await text(one(meta, '.actor')), 'Ana');
-  assert.equal((await all(meta, 'time')).length, 1);
+  assert.deepEqual(await facts(doc, 'multi'), ['ref-actor: pushed by Ana']);
+  assert.equal(await text(one(doc, '.ref-actor .actor')), 'Ana');
+  assert.equal((await all(doc, '.row time')).length, 1);
 });
 
-test('the event column puts what happened first, then who and when, each actor with its role', async t => {
+test('line 2 says where, who with their role, then the summary, and the right cell holds the time', async t => {
   const state = fixture();
-  const base = { repoId: 'r', seen: false, imported: false, time: '2026-11-17T10:00:00Z' };
+  const base = { repoId: 'r', seen: false, imported: false, time: '2026-11-17T10:00:00Z', actor: 'Ana' };
+  const pr = { ...base, kind: 'pr', branch: 'feature/a', title: 'PR 3 · Fix' } satisfies Event;
+  const route = { pullRequestId: 3, sourceRefName: 'refs/heads/feature/a', targetRefName: 'refs/heads/main' };
+  const merge = 'f'.repeat(40);
   state.events = [
+    { ...pr, id: 'pr-open', data: { ...route, status: 'active' } },
+    { ...pr, id: 'pr-merged', data: { ...route, status: 'completed', mergeCommit: merge } },
+    { ...pr, id: 'pr-abandoned', data: { ...route, status: 'abandoned' } },
+    { ...base, id: 'push', kind: 'push', branch: 'feature/c', title: 'Ana pushed to feature/c', summary: 'Tidy up', data: {} },
+    { ...base, id: 'linked', kind: 'push', branch: 'main', title: 'Cleanup push', actor: 'Ed', summary: 'Merge', data: {} },
     {
       ...base,
-      id: 'pr',
-      kind: 'pr',
-      branch: 'feature/a',
-      title: 'PR 3 · Fix',
-      actor: 'Ana',
-      data: { id: 3, status: 'active', targetRefName: 'refs/heads/main' },
+      id: 'tag',
+      kind: 'tag',
+      branch: 'v1',
+      title: 'New tag · v1',
+      data: { evidence: 'push', change: 'created', newObjectId: 'a'.repeat(40) },
     },
+    {
+      ...base,
+      id: 'moved',
+      kind: 'tag',
+      branch: 'v2',
+      title: 'Tag moved · v2',
+      actor: 'Unknown',
+      data: { evidence: 'push', change: 'moved', oldObjectId: '3f9a2c1', newObjectId: '8d41e07' },
+    },
+    { ...base, id: 'created', kind: 'branch-created', branch: 'feature/b', title: 'New branch · feature/b', data: { evidence: 'push' } },
+    { ...base, id: 'deleted', kind: 'branch-deleted', branch: 'feature/d', title: 'Branch deleted', data: { evidence: 'push' } },
     { ...base, id: 'build', kind: 'build', branch: 'main', title: 'CI · 1', actor: 'Bo', data: { buildId: 1, reason: 'manual' } },
-    { ...base, id: 'created', kind: 'branch-created', branch: 'feature/b', title: 'feature/b', actor: 'Cy', data: {} },
-    { ...base, id: 'named', kind: 'push', branch: 'feature/c', title: 'Di pushed to feature/c', actor: 'Di', summary: 'Tidy up', data: {} },
-    { ...base, id: 'linked', kind: 'push', branch: 'main', title: 'Cleanup push', actor: 'Ed', summary: 'Merge', data: {} },
-    { ...base, id: 'unknown', kind: 'tag', branch: 'v1', title: 'Tag moved · v1', actor: 'Unknown', data: {} },
   ];
-  const doc = parse(t, renderFeed(state, view));
-  /** The meta line says role, actor and a machine-readable time, in that order. */
-  const meta = async (id: string, role: string, actor: string) => {
-    const line = one(row(doc, id), '.help.event-meta');
-    assert.match(await text(line), new RegExp(`^${role}${actor} · \\S`), id);
-    assert.equal(await text(one(line, '.actor')), actor, id);
-    const time = one(line, 'time');
-    assert.equal(await time.getAttribute('datetime'), '2026-11-17T10:00:00Z', id);
-    assert.match((await time.getAttribute('title')) ?? '', /2026/, id);
-  };
-  const event = one(row(doc, 'pr'), '.event');
-  assert.equal((await all(event, '.event-main')).length, 0);
-  assert.ok(await one(event, ':scope > :first-child').hasClass('event-meta'));
-  assert.match(await textIncludingHidden(one(row(doc, 'pr'), '.subref')), /source branch feature\/a→ targeting branch main$/);
-  assert.equal(await one(row(doc, 'pr'), '.ref-route > [aria-hidden]').getAttribute('aria-hidden'), 'true');
-  await meta('pr', 'Created by ', 'Ana');
-  await meta('build', 'Requested by ', 'Bo');
-  await meta('created', 'Pushed by ', 'Cy');
-  await meta('linked', 'Pushed by ', 'Ed');
-  // The row title drops the pusher's name, so the meta line names them like every other row.
-  await meta('named', 'Pushed by ', 'Di');
-  // An unknown actor has no role to name.
-  await meta('unknown', '', 'Unknown');
+  const doc = parse(t, renderFeed(state, { ...view, unseenOnly: false }));
+  const expected: [string, string[]][] = [
+    ['pr-open', ['ref-target: feature/a→main', 'ref-actor: author Ana']],
+    // A merged PR names its target and merge commit; no sentence says where it landed.
+    ['pr-merged', ['ref-target: feature/a→main fffffffff', 'ref-actor: author Ana']],
+    // Only open and merged PRs carry the target on line 2; an abandoned one keeps it in its summary.
+    ['pr-abandoned', ['ref-target: feature/a', 'ref-actor: author Ana', 'ref-summary: Target: main']],
+    // A push title that names its branch leaves the branch out of line 2.
+    ['push', ['ref-actor: pushed by Ana', 'ref-summary: Tidy up']],
+    ['linked', ['ref-target: main', 'ref-actor: pushed by Ed', 'ref-summary: Merge']],
+    ['tag', ['ref-actor: pushed by Ana', 'ref-summary: Points at aaaaaaa']],
+    // An unknown actor has no role to name, so line 2 leaves the actor out.
+    ['moved', ['ref-summary: 3f9a2c1 → 8d41e07']],
+    ['created', ['ref-actor: pushed by Ana']],
+    ['deleted', ['ref-actor: pushed by Ana']],
+    ['build', ['ref-target: main', 'ref-actor: requested by Bo', 'ref-summary: Triggered manually']],
+  ];
+  for (const [id, line] of expected) assert.deepEqual(await facts(doc, id), line, id);
+  const sha = one(row(doc, 'pr-merged'), '.ref-sha');
+  assert.equal(await sha.getAttribute('title'), merge);
+  assert.doesNotMatch(await text(row(doc, 'pr-merged')), /Merged into|Landed on/);
+  assert.match(
+    await textIncludingHidden(one(row(doc, 'pr-open'), '.subref')),
+    /source branch feature\/a→ targeting branch main · author Ana$/,
+  );
+  assert.equal(await one(row(doc, 'pr-open'), '.ref-route > [aria-hidden]').getAttribute('aria-hidden'), 'true');
+  // Each row has one time, in its right cell, with the full date in its title.
+  for (const [id] of expected) {
+    const times = await all(row(doc, id), 'time');
+    assert.equal(times.length, 1, id);
+    assert.ok(await present(times[0]).matches('.rowact > time'), id);
+    assert.equal(await present(times[0]).getAttribute('datetime'), '2026-11-17T10:00:00Z', id);
+    assert.match((await present(times[0]).getAttribute('title')) ?? '', /2026/, id);
+  }
 });
 
 test('a PR row lists each vote change on its own and names a fork source on the origin line', async t => {
@@ -575,9 +607,7 @@ test('a PR row lists each vote change on its own and names a fork source on the 
     { ...base, id: 'target', data: { id: 4, status: 'active', isDraft: true, targetRefName: 'refs/heads/main', fork } },
   ];
   const doc = parse(t, renderFeed(state, view));
-  const first = (id: string) => one(row(doc, id), '.event > :first-child');
-  assert.ok(await first('votes').hasClass('event-main'));
-  const votes = await all(first('votes'), '.status-text');
+  const votes = await all(one(row(doc, 'votes'), '.feed-title .ref-summary'), '.status-text');
   assert.deepEqual(
     await Promise.all(votes.map(async vote => [(await classes(vote)).filter(name => name !== 'status-text'), await text(vote)])),
     [
@@ -587,9 +617,13 @@ test('a PR row lists each vote change on its own and names a fork source on the 
     ],
   );
   assert.ok((await Promise.all(votes.map(vote => one(vote, '.status-dot').getAttribute('aria-hidden')))).every(value => value === 'true'));
-  assert.equal((await all(row(doc, 'target'), '.event-main')).length, 0);
+  assert.equal((await all(row(doc, 'target'), '.ref-summary')).length, 0);
   for (const id of ['votes', 'target']) {
-    assert.match(await textIncludingHidden(one(row(doc, id), '.subref')), /source branch feature\/a→ targeting branch main$/, id);
+    assert.match(
+      await textIncludingHidden(one(row(doc, id), '.subref')),
+      /source branch feature\/a→ targeting branch main · author Ana/,
+      id,
+    );
     const origin = one(row(doc, id), '.event-origin');
     assert.equal(await text(origin), 'From fork One-fork in Q', id);
     assert.equal((await all(origin, 'svg')).length, 1, id);
@@ -780,11 +814,9 @@ test('a CI row without a known trigger shows no summary line, and the detail pag
   const markup = String(renderFeed(state, view));
   const doc = parse(t, markup);
   assert.doesNotMatch(markup, /Not supplied/);
-  const first = (id: string) => one(row(doc, id), '.event > :first-child');
-  assert.ok(await first('manual').hasClass('event-main'));
-  assert.equal(await text(first('manual')), 'Triggered manually');
-  // With no summary, who and when is the column's first line.
-  for (const id of ['omitted', 'none']) assert.ok(await first(id).matches('.help.event-meta'), id);
+  assert.equal(await text(one(row(doc, 'manual'), '.ref-summary')), 'Triggered manually');
+  // With no summary, line 2 ends with where the run happened.
+  for (const id of ['omitted', 'none']) assert.equal((await all(row(doc, id), '.ref-summary')).length, 0, id);
   const detail = parse(t, renderDetail(present(state.events[1]), state));
   const trigger = await (
     await detail.handle()

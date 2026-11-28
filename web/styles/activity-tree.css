@@ -103,7 +103,7 @@
   .with-tree .row {
     padding-inline-start: var(--space-3);
   }
-  .with-tree .kind {
+  .with-tree .status {
     padding-inline-start: calc(4px + var(--tree-width));
   }
 }

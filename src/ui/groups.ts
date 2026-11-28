@@ -64,10 +64,13 @@ export function createGroupState() {
     actions: {
       'toggle-group': element => {
         // A disclosure opens and closes from its state: the summary records the reader's choice, and the element shows it.
-        const group = element.parentElement;
+        // A control outside the disclosure, such as an Activity row's CI count, names it with aria-controls.
+        const controlled = element.getAttribute('aria-controls');
+        const group = controlled ? document.getElementById(controlled) : element.parentElement;
         if (!(group instanceof HTMLDetailsElement) || group.dataset.group === undefined) return;
         toggle(group.dataset.group, !group.open);
         group.open = !group.open;
+        if (controlled) element.setAttribute('aria-expanded', String(group.open));
       },
     } satisfies Actions<'toggle-group'>,
     /** Puts back a stored snapshot. The reader's session choice for Imported history wins over it. */

@@ -57,7 +57,11 @@ test('completed PRs clearly show a merge into the target and optional source/res
   await page.reload();
   await selectActivityType(page, 'Pull request');
   await expect(page.locator('li.row .kind')).toHaveText('PR merged');
-  await expect(page.locator('li.row')).toContainText('Merged into main');
+  // Line 2 says the merge as `source → target` and the merge commit, with its full sha on hover.
+  await expect(page.locator('li.row .feed-title')).toHaveAccessibleName(
+    'PR 45 · Fix export · source branch feature/export targeting branch main · merge commit bbbbbbbbb · author PR creator',
+  );
+  await expect(page.locator('li.row .ref-sha')).toHaveAttribute('title', 'b'.repeat(40));
   await expect(page.locator('li.row')).toHaveClass(/tone-ok/);
   await page.locator('li.row .feed-title').click();
   await expect(page.locator('#page .status-chip')).toHaveText('Merged');
@@ -172,9 +176,9 @@ test('an open Activity view picks up a seen action in another tab and later merg
   const title = 'Merge of PR 12 pushed to main';
   await expect(row.getByText('Merge of PR 12 pushed', { exact: true })).toBeVisible({ timeout: 8000 });
   await expect(row.getByText('Completed PR linked')).toHaveCount(0);
-  await expect(row.getByText('Pushed by Azure DevOps service')).toBeVisible();
-  // The row title leaves the branch to the ref line; the detail heading keeps the whole title.
-  await row.getByRole('button', { name: /^Merge of PR 12 pushed · .*branch main$/ }).click();
+  await expect(row.locator('.ref-actor')).toHaveText(/ pushed by Azure DevOps service$/);
+  // The row title leaves the branch to line 2; the detail heading keeps the whole title.
+  await row.getByRole('button', { name: /^Merge of PR 12 pushed · .*branch main · pushed by Azure DevOps service$/ }).click();
   await expect(page.getByRole('heading', { name: title, exact: true })).toBeVisible();
   await expect(page.getByText('Pushed by', { exact: true })).toBeVisible();
   await expect(page.getByText(/PR closed by Alice Morgan/)).toBeVisible();
@@ -220,7 +224,7 @@ test('a verified merge push folds in the mixed feed and keeps its own detail, fi
     await page.setViewportSize({ width, height: 900 });
     assert.ok(
       await openPush.evaluate(element => {
-        const column = element.closest('.event')?.getBoundingClientRect();
+        const column = element.closest('.subject')?.getBoundingClientRect();
         const button = element.getBoundingClientRect();
         return (
           column &&
