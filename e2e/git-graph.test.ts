@@ -283,12 +283,9 @@ test('a state answer that disables the shown repository moves the graph to the n
   defer(t, () => store.close());
   store.saveRepo(repoA);
   store.saveRepo(repoB);
-  const app = createApp({
+  const app = testApp({
     store,
     checkoutGit: createCheckoutGit({ matchesRemote: url => url === first.remote || url === second.remote }),
-    provider: stub<AzureProvider>({ checkConnection: async () => stub<ConnectionStatus>({ available: true }) }),
-    sync: stub<AppSync>({ status: () => idleSyncStatus() }),
-    accessKey: TEST_KEY,
   });
   const url = await listen(t, app);
   const page = await openPage(t, { key: TEST_KEY });
@@ -322,12 +319,9 @@ test('a state answer that disables the shown repository moves a focused graph to
   defer(t, () => store.close());
   store.saveRepo(repoA);
   store.saveRepo(repoB);
-  const app = createApp({
+  const app = testApp({
     store,
     checkoutGit: first.checkoutGit,
-    provider: stub<AzureProvider>({ checkConnection: async () => stub<ConnectionStatus>({ available: true }) }),
-    sync: stub<AppSync>({ status: () => idleSyncStatus() }),
-    accessKey: TEST_KEY,
   });
   const url = await listen(t, app);
   const page = await openPage(t, { key: TEST_KEY });
