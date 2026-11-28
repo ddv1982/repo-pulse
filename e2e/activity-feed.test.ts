@@ -662,6 +662,51 @@ test('the vote tally on line 2 opens the named votes under it, and the rest of l
   await expect(page).toHaveURL(/#event\/voted-pr$/);
 });
 
+test('at 360px a long vote tally wraps and the named votes shrink, so both stay inside the row', async t => {
+  const { page, runtime } = await setup(t);
+  const branch = 'refs/heads/feature/many-votes';
+  const votes = [
+    { name: '[Demo]\\Cloudforce Team Data Engineering Platform Reviewers', vote: 10 },
+    { name: 'Bea', vote: 5 },
+    { name: 'Cy', vote: -5 },
+    { name: 'Dee', vote: -10 },
+    { name: 'Ed', vote: 0 },
+  ];
+  runtime.store.insertEvents([
+    {
+      id: 'many-votes',
+      repoId: 'demo-orders',
+      kind: 'pr',
+      title: 'PR 901 · Many votes',
+      branch,
+      actor: 'Ana',
+      time: new Date().toISOString(),
+      data: {
+        pullRequestId: 901,
+        status: 'active',
+        sourceRefName: branch,
+        targetRefName: 'refs/heads/main',
+        reviewers: votes,
+        voteChanges: votes,
+      },
+    },
+  ]);
+  await page.setViewportSize({ width: 360, height: 900 });
+  await page.reload();
+  const pr = page.locator('li[data-event-id="many-votes"]');
+  const tally = pr.locator('.vote-tally');
+  await tally.click();
+  await expect(pr.locator('.vote-list li')).toHaveCount(5);
+  const outside = await pr.evaluate(row => {
+    const bounds = row.getBoundingClientRect();
+    const right = bounds.right - parseFloat(getComputedStyle(row).paddingRight) + 0.5;
+    return [row.querySelector('.vote-tally')!, ...row.querySelectorAll('.vote-list li > *')]
+      .filter(element => element.getBoundingClientRect().right > right || element.scrollWidth > element.clientWidth + 1)
+      .map(element => `${element.className}: ${element.textContent}`);
+  });
+  assert.deepEqual(outside, [], 'controls that reach past the row');
+});
+
 test('line 3 holds tokens of one shape in a fixed order, opens what they open under it, and is left out when empty', async t => {
   const { page } = await awkwardFixture(t);
   const line3 = (id: string) => page.locator(`li[data-event-id="${id}"] .subject > .row-line3`);
