@@ -57,6 +57,29 @@ test('the branch tree works with the unread filter and keeps status markers on n
   await expect(hotfix.locator('.kind > svg')).toBeVisible();
 });
 
+test("each row's tree node sits on the first line of its kind label wherever the tree shows", async t => {
+  const { page } = await setup(t);
+  await expect(page.locator('.with-tree .row').first()).toBeVisible();
+  for (const width of [800, 1100, 1265]) {
+    await page.setViewportSize({ width, height: 900 });
+    const offsets = await page.locator('.with-tree li.row').evaluateAll(rows =>
+      rows.flatMap(row => {
+        const node = row.querySelector(':scope > svg.tree > g > :is(circle, rect, g.tag-mark)');
+        const kind = row.querySelector('.kind');
+        if (!node || !kind) return [];
+        const box = node.getBoundingClientRect();
+        const label = kind.getBoundingClientRect();
+        const firstLine = label.top + parseFloat(getComputedStyle(kind).lineHeight) / 2;
+        return [{ id: row.getAttribute('data-event-id'), off: Math.round((box.top + box.height / 2 - firstLine) * 10) / 10 }];
+      }),
+    );
+    assert.ok(offsets.length >= 5, `${width}px: rows with a node`);
+    // The plan allows 2px; a node one row padding step off is exactly 2px out, so the check holds it to 1px.
+    for (const { id, off } of offsets)
+      assert.ok(Math.abs(off) <= 1, `${width}px: the node of ${id} is ${off}px off the label's first line`);
+  }
+});
+
 test('Activity gives wrapped titles room and keeps their facts line under them on desktop', async t => {
   const { page, runtime } = await setup(t);
   const longBranch =

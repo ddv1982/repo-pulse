@@ -9,6 +9,7 @@
   .rows.with-tree {
     --tree-lanes: 1;
     --tree-width: calc(var(--tree-lanes) * 10px);
+    /* The row's top padding (12px) and half the label's 20px line, plus the 1px the cell starts above the row. */
     --tree-label-y: 23px;
   }
   .rows.with-tree[data-tree-lanes='0'] {
@@ -97,7 +98,6 @@
 }
 @media (min-width: 1100px) {
   .rows.with-tree {
-    --tree-label-y: 21px;
     --kind-width: calc(9.25rem + var(--tree-width));
   }
   .with-tree .row {
