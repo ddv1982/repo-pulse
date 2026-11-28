@@ -168,6 +168,10 @@ button.ci-count.sm {
   padding: 0;
   font-weight: 400;
 }
+/* A button lays its text out as flex items, which drops the space before the chevron. */
+.ci-count > [aria-hidden] {
+  margin-inline-start: 0.3em;
+}
 button.ci-count:hover {
   background: none;
   text-decoration: underline;

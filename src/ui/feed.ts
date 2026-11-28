@@ -136,7 +136,7 @@ function relatedCi(record: ActivityItem, groups: Groups) {
   const label = html`CI · ${total} ${total === 1 ? 'run' : 'runs'}`;
   if (!passing && !historyCount)
     return {
-      count: html`<span class="help ci-count">${label}</span>`,
+      count: html`<span class="ci-count">${label}</span>`,
       runs: html`<div class="event-ci"><div class="ci-rollup">${headline}</div></div>`,
     };
   const id = `ci-${record.groupKey}`;
