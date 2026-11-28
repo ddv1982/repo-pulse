@@ -596,8 +596,12 @@ button.vote-tally.crit {
 .rowact .ghost {
   padding-inline: 5px;
 }
-.seen-toggle {
+.seen-toggle,
+.seen-toggle-slot {
   gap: 5px;
+}
+.rowact .slot {
+  visibility: hidden;
 }
 .seen-box {
   flex: none;
@@ -676,6 +680,18 @@ button.vote-tally.crit {
   /* The phone's row controls are taller than the label, so the label centres on them. */
   .row > .status {
     align-self: center;
+  }
+  /* Without the tree there is no blue lane beside the row, so unread rows add a bar. */
+  .row.new {
+    box-shadow: inset 2px 0 var(--info);
+  }
+  /* The Seen box says it alone; its name stays in the toggle's label. */
+  .rowact .seen-label {
+    display: none;
+  }
+  .rowact .seen-box {
+    width: 16px;
+    height: 16px;
   }
 }
 @media (min-width: 640px) {

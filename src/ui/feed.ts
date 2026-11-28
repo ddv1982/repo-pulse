@@ -508,9 +508,17 @@ function row(
     ${renderRowActions(record, fullTitle, ackIds, Boolean(ackLinkedPush))}</li>`;
 }
 
-/** The right cell: the row's clock time, its Azure link and its Seen toggle. Imported rows have no Seen toggle. */
+/** An invisible copy of a control a row lacks, so that times line up across rows with and without it. */
+const AZURE_SLOT = html`<span class="ghost sm slot" aria-hidden="true">Azure ↗</span>`;
+const SEEN_SLOT = html`<span class="ghost sm seen-toggle-slot slot" aria-hidden="true">${icons.seenBox}<span class="seen-label">Seen</span></span>`;
+
+/**
+ * The right cell: the row's clock time, its Azure link and its Seen toggle. Imported rows have no Seen toggle. A
+ * missing link or toggle leaves its space, so times line up.
+ */
 function renderRowActions(record: ActivityItem, fullTitle: string, ackIds: string, ackLinkedPush: boolean) {
-  return html`<div class="rowact"><time class="row-time" datetime="${record.time}" title="${fullDateTime(record.time)}">${timeInRow(record.time, record.time)}</time>${azureLink(record.url)}${record.imported ? emptyHtml : html`<button class="ghost sm seen-toggle" type="button" id="seen-${record.groupKey}" ${action('ack-item')} data-event-id="${record.id}" data-mark-seen="${record.unseen}" data-event-ids="${ackIds}" aria-pressed="${!record.unseen}" aria-label="Seen: ${fullTitle}${ackLinkedPush ? ' and linked push' : ''}">${icons.seenBox}Seen</button>`}</div>`;
+  const azure = azureLink(record.url);
+  return html`<div class="rowact"><time class="row-time" datetime="${record.time}" title="${fullDateTime(record.time)}">${timeInRow(record.time, record.time)}</time>${azure === emptyHtml ? AZURE_SLOT : azure}${record.imported ? SEEN_SLOT : html`<button class="ghost sm seen-toggle" type="button" id="seen-${record.groupKey}" ${action('ack-item')} data-event-id="${record.id}" data-mark-seen="${record.unseen}" data-event-ids="${ackIds}" aria-pressed="${!record.unseen}" aria-label="Seen: ${fullTitle}${ackLinkedPush ? ' and linked push' : ''}">${icons.seenBox}<span class="seen-label">Seen</span></button>`}</div>`;
 }
 
 /**

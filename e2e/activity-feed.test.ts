@@ -820,3 +820,59 @@ test('Mark all seen, the lane key and Open Git Graph share one top line, and the
   await expect(key).toBeHidden();
   await expect(bulk).toBeVisible();
 });
+
+test('rows keep kind and time on their top line at 800 and 360px, and times line up with or without Azure and Seen', async t => {
+  const { page } = await awkwardFixture(t);
+  await page.locator('details[data-group="imported-history"] > summary').click();
+  const layout = () =>
+    page.locator('li.row').evaluateAll(rows =>
+      rows
+        .filter(row => row.checkVisibility())
+        .map(row => {
+          const box = (selector: string) => row.querySelector(selector)?.getBoundingClientRect();
+          const kind = box('.kind')!;
+          const time = box('.row-time')!;
+          const status = box('.status')!;
+          const subject = box('.subject')!;
+          const count = box('.ci-count');
+          const centre = (rect: DOMRect) => rect.top + rect.height / 2;
+          return {
+            id: row.getAttribute('data-event-id'),
+            sameLine: Math.abs(centre(kind) - centre(time)) <= 4 && time.left > kind.right,
+            countBeside: !count || Math.abs(centre(count) - centre(kind)) <= 2,
+            subjectBelow: subject.top >= status.bottom - 1,
+            timeRight: Math.round(time.right),
+            bar: getComputedStyle(row).boxShadow,
+            unread: row.classList.contains('new'),
+          };
+        }),
+    );
+  const fits = () => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth);
+  for (const width of [800, 360]) {
+    await page.setViewportSize({ width, height: 1200 });
+    await expect.poll(fits, { message: `no horizontal scroll at ${width}px` }).toBe(true);
+    const rows = await layout();
+    assert.ok(rows.length >= 12, `${width}px rows`);
+    for (const row of rows) {
+      assert.ok(row.sameLine, `${width}px: kind and time share the top line of ${row.id}`);
+      assert.ok(row.countBeside, `${width}px: the CI count of ${row.id} sits beside its kind`);
+      assert.ok(row.subjectBelow, `${width}px: the main cell of ${row.id} is below its top line`);
+      // Only the phone layout marks unread with a bar; the tree's blue lane would sit next to it otherwise.
+      if (row.unread && width < 640) assert.match(row.bar, /^\S.* 2px 0px 0px 0px inset$/, `${width}px: ${row.id} bar`);
+      else assert.equal(row.bar, 'none', `${width}px: ${row.id} bar`);
+    }
+    assert.equal(new Set(rows.map(row => row.timeRight)).size, 1, `${width}px: times line up`);
+  }
+  // Phone: no tree, the kind glyph shows, and the Seen box is 16px.
+  await expect(page.locator('li[data-event-id="retry-pr"] svg.tree')).toBeHidden();
+  await expect(page.locator('li[data-event-id="retry-pr"] .kind > .d')).toBeVisible();
+  const seenBox = await page.locator('li[data-event-id="retry-pr"] .seen-box').boundingBox();
+  assert.equal(seenBox?.width, 16);
+  await expect(page.locator('li[data-event-id="retry-pr"] .seen-toggle')).toHaveAccessibleName(/^Seen: /);
+  // Wide: times line up across rows with and without an Azure link or Seen box.
+  for (const width of [1100, 1265]) {
+    await page.setViewportSize({ width, height: 1200 });
+    const rows = await layout();
+    assert.equal(new Set(rows.map(row => row.timeRight)).size, 1, `${width}px: times line up`);
+  }
+});
