@@ -244,3 +244,18 @@ test('activitySearchText indexes named searchable fields and drops raw JSON payl
     assert.ok(pushText.includes(needle), `expected search text to include ${needle}`);
   assert.doesNotMatch(pushText, /"mergeevidence"/);
 });
+
+test('reviewer vote changes drop the Azure group prefix from the name, as the detail page does', async () => {
+  const { prVoteChanges } = await import('../src/activity-text.ts');
+  const data = stub<EventData>({
+    status: 'active',
+    voteChanges: [
+      { name: '[Cloudforce Team Data]\\Cloudforce Team Data Team', vote: 5 },
+      { name: 'Max Coenen', vote: 5 },
+    ],
+  });
+  assert.deepEqual(
+    prVoteChanges(data).map(change => change.text),
+    ['Cloudforce Team Data Team: approved with suggestions', 'Max Coenen: approved with suggestions'],
+  );
+});
