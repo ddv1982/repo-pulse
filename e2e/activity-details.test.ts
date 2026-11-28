@@ -417,11 +417,11 @@ test('a CI row shows a failing pipeline next to a passing one, and a passed retr
   await capture(mixed, 'activity-redesign/phase3/failing-next-to-passing.png');
 
   const retried = page.locator('li[data-event-id="retried-pr"]');
-  const headline = retried.locator('.ci-rollup').first().locator('.ci-run');
-  await expect(headline).toHaveText([/^PR validation passed /]);
+  // A passing row folds its runs into the CI count; the list opens with the current pass first, then the failed attempt.
   await expect(retried).not.toContainText('passing again');
-  await retried.getByText('Run history · 1 run', { exact: true }).click();
-  await expect(retried.locator('.ci-history .ci-run')).toHaveText([/^PR validation failed /]);
+  await retried.getByRole('button', { name: 'CI · 2 runs' }).click();
+  await expect(retried.locator('.ci-history .ci-run')).toHaveText([/^PR validation passed /, /^PR validation failed /]);
+  const headline = retried.locator('.ci-history .ci-run').first();
   await capture(retried, 'activity-redesign/phase3/passed-retry.png');
   await headline.click();
   await expect(page).toHaveURL(/#event\/retry-passed-4$/);

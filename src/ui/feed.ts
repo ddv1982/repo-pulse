@@ -130,7 +130,13 @@ function relatedCi(record: ActivityItem, groups: Groups) {
   const currentIds = new Set(results.map(({ run }) => run.id));
   const history = record.relatedCi?.filter(run => !currentIds.has(run.id)) ?? [];
   const headline = results.map(({ run, tone, note }) =>
-    ciRunButton(run.outcome === 'passing again' ? { ...run, outcome: 'passed' } : run, record.time, tone, results.length > 1 || tone === 'crit' || tone === 'warn', note),
+    ciRunButton(
+      run.outcome === 'passing again' ? { ...run, outcome: 'passed' } : run,
+      record.time,
+      tone,
+      results.length > 1 || tone === 'crit' || tone === 'warn',
+      note,
+    ),
   );
   const total = results.length + historyCount;
   const label = html`CI · ${total} ${total === 1 ? 'run' : 'runs'}`;
