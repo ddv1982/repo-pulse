@@ -797,3 +797,26 @@ test('rows use flat tints that the tree cuts out of, and colour only failures, r
   }));
   assert.equal(hover.hole, hover.background);
 });
+
+test('Mark all seen, the lane key and Open Git Graph share one top line, and the key opens below it', async t => {
+  const { page } = await setup(t);
+  await page.setViewportSize({ width: 1265, height: 900 });
+  const bulk = page.locator('.feed-actions button');
+  const key = page.locator('.activity-graph-guide > details > summary');
+  const graph = page.getByRole('link', { name: 'Open Git Graph', exact: true });
+  await expect(bulk).toHaveText(/^Mark all seen \(\d+\)$/);
+  const centres = async () =>
+    Promise.all([bulk, key, graph].map(async item => item.boundingBox().then(box => (box ? Math.round(box.y + box.height / 2) : NaN))));
+  const [first = NaN, ...rest] = await centres();
+  for (const centre of rest) assert.ok(Math.abs(centre - first) <= 2, `top line centres: ${[first, ...rest].join(', ')}`);
+  await key.click();
+  const legend = page.locator('.tree-legend');
+  await expect(legend).toBeVisible();
+  const [summary, open] = await Promise.all([key.boundingBox(), legend.boundingBox()]);
+  assert.ok(summary && open && open.y >= summary.y + summary.height - 1, 'the key opens below the top line');
+  assert.deepEqual(await centres(), [first, ...rest], 'the top line stays where it was');
+  // Below 640px the key and the tree are gone, and the bulk action keeps its line.
+  await page.setViewportSize({ width: 360, height: 800 });
+  await expect(key).toBeHidden();
+  await expect(bulk).toBeVisible();
+});

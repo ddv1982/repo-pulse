@@ -47,11 +47,18 @@ test('the row Seen toggle keeps keyboard focus and shows state without a status 
   await page.reload();
   const draft = page.locator('li[data-event-id="live-draft"]');
   await expect(draft).toHaveClass(/\btone-neutral\b/);
-  await expect(draft).toHaveCSS('box-shadow', /inset/);
+  // The marker is the flat unread tint; while the tree shows there is no left bar.
+  const tinted = () =>
+    draft.evaluate(row => getComputedStyle(row).backgroundColor !== getComputedStyle(row.closest('.card')!).backgroundColor);
+  await expect.poll(tinted).toBe(true);
+  await expect(draft).toHaveCSS('box-shadow', 'none');
   await expect(draft).toHaveCSS('background-image', 'none');
   await draft.locator('.seen-toggle').click();
   await expect(draft.locator('.seen-toggle')).toHaveAttribute('aria-pressed', 'true');
-  await expect(draft).toHaveCSS('box-shadow', 'none');
+  // Hover and focus darken a row too, so leave it first.
+  await page.mouse.move(0, 0);
+  await draft.locator('.seen-toggle').blur();
+  await expect.poll(tinted).toBe(false);
 });
 
 test('repo subset acknowledgement preserves hidden/incoming events and survives restart', async t => {

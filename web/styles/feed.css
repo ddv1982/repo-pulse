@@ -626,9 +626,25 @@ button.vote-tally.crit {
   gap: var(--space-1-5);
   align-items: center;
 }
-.feed .feed-actions {
-  border-top: 0;
+/* The feed's top line: Mark all seen, then the lane key toggle, then Open Git Graph at the end. The key opens below its
+   toggle and the line stays where it is. */
+.feed-top {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-1) var(--space-3);
+  padding: var(--space-1-5) var(--space-3);
   border-bottom: 1px solid var(--border);
+}
+.feed-actions {
+  flex: none;
+  display: flex;
+  align-items: center;
+}
+@media (max-width: 639px) {
+  /* Without the tree there is no key, so a top line without Mark all seen would be empty. */
+  .feed-top:not(:has(> .feed-actions)) {
+    display: none;
+  }
 }
 .trail {
   margin-top: var(--space-1-5);
