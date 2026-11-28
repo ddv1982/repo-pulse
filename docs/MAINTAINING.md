@@ -65,16 +65,16 @@ An Activity row has three cells from 1100 px; [src/ui/feed.ts](../src/ui/feed.ts
   - **Title.**
   - **Line 2:** quiet facts, each optional, in this order:
     - the repository, only when several are shown;
-    - the route: `branch → target` for open and merged PRs, with the shortened merge commit once landed, or the branch, with its PR chip on CI rows;
+    - the route: `branch → target` for open and merged PRs (or `Target: main` when there is no separate source branch), with the shortened merge commit once landed; otherwise the branch, plus a PR chip on CI rows that belong to a PR;
     - `author X`, `pushed by X` or `requested by X`;
     - the summary or vote tally;
     - merge evidence.
-  - **Trouble line:** appears when any current CI result is failing, queued, running, canceling, partially succeeded, stale or carries a verification note. It then lists every current result, passes included, naming each pipeline when there are several, plus the link to the tested change.
+  - **Trouble line:** appears when any current CI result is failing, queued, running, canceling, partially succeeded, stale or carries a verification note, and then lists every current result, passes included, naming each pipeline when there are several. A CI row without results that points at its PR or tested change shows that link on this line too.
   - **Line 3:** tokens in a fixed order: updates, linked push or tag build, fork or branch-start note, Load commits. It is left out when empty.
 - **Right:** the clock time, Azure and Seen. A row without Azure or Seen keeps an invisible copy, so times line up.
 
 **Colour.**
-- Passing CI and approvals stay muted.
+- Passing run results and approving votes stay muted; kind labels such as `CI succeeded` and `Approvals met` keep their colour.
 - Colour is used for:
   - the kind label;
   - CI trouble;
@@ -89,7 +89,7 @@ An Activity row has three cells from 1100 px; [src/ui/feed.ts](../src/ui/feed.ts
 - An `li.day` header goes wherever the displayed local day changes between rows. A CI group sorted by a newer time than it shows can make a day appear twice.
 - The header draws the lanes entering the row below it (`renderTreePassThrough`), so lanes never break.
 - Headers are not sticky and never count as rows.
-- After midnight, the next refresh relabels them; a hidden tab refreshes when it becomes visible.
+- After midnight, the next full render relabels them. A refresh can defer that render while the reader interacts, and a hidden tab refreshes when it becomes visible.
 
 ## Local Git actions
 

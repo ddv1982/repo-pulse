@@ -99,7 +99,7 @@ Every phase leaves `npm run lint`, `npm run check:types`, `npm test` and `npm ru
 
 ## Phase 5: Verify and close
 
-- [x] 5.1 Screenshots of the new feed in `test-results/activity-redesign/after/`, at the same set as 0.2. Done 2026-11-28: the demo at 360, 640, 1100 and 1265px in both themes, next to `before/`. Like the baseline, they show Imported history closed and no CI history open; those states are covered by the phase 4 screenshots and e2e tests.
+- [x] 5.1 Screenshots of the new feed in `test-results/activity-redesign/after/`, at the widths and themes of 0.2. Done 2026-11-28: the demo at 360, 640, 1100 and 1265px in both themes, next to `before/`. Like the baseline, they show Imported history closed and no CI history open; those states are covered by the phase 4 screenshots and e2e tests.
   - [ ] The owner reviews the before and after comparison. Open: requested in the final report.
 - [x] 5.2 One run on a `VACUUM INTO` copy of the live database in the scratchpad, at 1265px, with the copy deleted afterwards. Check: count timestamps on the first screen against the 13 of the owner's screenshot, and read the rows for clipped or missing pieces. Done 2026-11-28: on a copy of the live database at 1265px, the first screen shows 8 clock-only times under the Today and Yesterday headers, against the 13 dated ones in the owner's screenshot. The page has no horizontal scroll, and PR 21935 reads as D2 describes. The copy was deleted.
 - [x] 5.3 `docs/MAINTAINING.md` describes the row layout and the day headers. `docs/BACKLOG.md` drops this item. This plan moves to `docs/archive/`. Check: the link probe finds 0 broken links. Done 2026-11-28: `docs/MAINTAINING.md` has an Activity rows section, the backlog item is removed, and this plan is archived.
