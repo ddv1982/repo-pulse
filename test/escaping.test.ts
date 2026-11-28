@@ -101,7 +101,7 @@ const events: ActivityEvent[] = [
     data: {
       status: 'completed',
       targetRefName: `refs/heads/${probe('pr.targetRefName')}`,
-      sourceRefName: hidden('pr.sourceRefName'),
+      sourceRefName: probe('pr.sourceRefName'),
       sourceCommit: probe('pr.sourceCommit'),
       mergeCommit: probe('pr.mergeCommit'),
       mergeStrategy: 'squash',
@@ -393,7 +393,8 @@ const views: Record<string, View> = {
       'build.running.branch',
       'build.running.actor',
       'pr.title',
-      'pr.branch',
+      // A merged PR's line 2 names its source branch.
+      'pr.sourceRefName',
       'pr.targetRefName',
       'pr.actor',
       'pr.time',
@@ -412,7 +413,7 @@ const views: Record<string, View> = {
         { field: `row unread ${idsField(item.unseenIds)}`, html: `data-unseen-ids="${html(JSON.stringify(item.unseenIds))}"` },
         { field: `seen button ${idsField(item.eventIds)}`, html: eventIds(item.eventIds, ' aria-pressed=') },
       ]),
-      { field: 'newBranchPush.refUpdates.newObjectId', html: `<div class="event-main"><span>${summary}` },
+      { field: 'newBranchPush.refUpdates.newObjectId', html: `<span class="ref-summary"><span class="sr"> · </span>${summary}</span>` },
     ],
   },
   detail: {

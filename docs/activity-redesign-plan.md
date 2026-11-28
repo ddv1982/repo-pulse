@@ -47,12 +47,14 @@ Every phase leaves `npm run lint`, `npm run check:types`, `npm test` and `npm ru
 
 ### 4a: Structure, facts line and status cell
 
-- [ ] 4a.1 Grid from 1100px: `calc(9.25rem + tree width) minmax(0,1fr) auto`. The event column is removed and its content moves to line 2 and line 3. Check: an e2e test measures that the title column is wider than in the baseline at 1100px with 4 lanes.
-- [ ] 4a.2 Left cell: the kind label (coloured by kind as today), then `CI · N runs ›` in muted text, which opens the run list under line 2. Rows without CI show only the kind. Check: e2e on the demo PR rows.
-- [ ] 4a.3 Line 2 grammar, in this order: repository (only when several repositories are shown), `branch → target`, the merge sha once landed, `author X` / `pushed by X` / `requested by X`, then the row summary or vote tally. Check: unit tests for each kind (PR open, PR merged, push, tag, branch created or deleted, CI row).
-- [ ] 4a.4 Branch names are shortened with an ellipsis, and the full name is in the `title`. Check: an e2e test with a long branch asserts no horizontal overflow at 1100px.
-- [ ] 4a.5 The node sits on the kind label's first line: `--tree-label-y` is set from the new row padding. Check: the cell-span assertion at `e2e/activity-feed.test.ts:30` keeps passing, and a new e2e assertion that the node's centre is within 2px of the kind label's first-line centre fails first, then passes at 1100 and 1265px.
-- [ ] 4a.6 Right cell: the clock time, the Azure link and Seen, top-aligned. Imported rows keep no Seen box. Check: an existing seen e2e test passes, and an imported row asserts that there is no checkbox.
+- [x] 4a.1 Grid from 1100px: `calc(9.25rem + tree width) minmax(0,1fr) auto`. The event column is removed and its content moves to line 2 and line 3. Check: an e2e test measures that the title column is wider than in the baseline at 1100px with 4 lanes.
+- [x] 4a.2 Left cell: the kind label (coloured by kind as today), then `CI · N runs ›` in muted text, which opens the run list under line 2. Rows without CI show only the kind. Check: e2e on the demo PR rows.
+  Done with the CI fixtures in `e2e/activity-feed.test.ts`, since the demo PR rows carry no CI. N counts every run. Passing results fold into the count; a result with a problem stays in view and the count opens the runs not shown. With nothing more to open, the count is plain text.
+- [x] 4a.3 Line 2 grammar, in this order: repository (only when several repositories are shown), `branch → target`, the merge sha once landed, `author X` / `pushed by X` / `requested by X`, then the row summary or vote tally. Check: unit tests for each kind (PR open, PR merged, push, tag, branch created or deleted, CI row).
+- [x] 4a.4 Branch names are shortened with an ellipsis, and the full name is in the `title`. Check: an e2e test with a long branch asserts no horizontal overflow at 1100px.
+- [x] 4a.5 The node sits on the kind label's first line: `--tree-label-y` is set from the new row padding. Check: the cell-span assertion at `e2e/activity-feed.test.ts:30` keeps passing, and a new e2e assertion that the node's centre is within 2px of the kind label's first-line centre fails first, then passes at 1100 and 1265px.
+  The stale offset was exactly 2px out, so a 2px check passed it. The test holds the node to 1px, failed at -2px, and passes at 800, 1100 and 1265px.
+- [x] 4a.6 Right cell: the clock time, the Azure link and Seen, top-aligned. Imported rows keep no Seen box. Check: an existing seen e2e test passes, and an imported row asserts that there is no checkbox.
 
 ### 4b: Trouble, line 3, colour and widths
 

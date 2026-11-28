@@ -15,6 +15,7 @@ import {
   activityTitle,
   activitySummary,
   buildState,
+  type SafeHtml,
 } from './format.ts';
 import { syncRepoName } from './health.ts';
 import { worstStatus } from '../sync-worst.ts';
@@ -75,22 +76,28 @@ function filterControls(ui: FeedView & { savedFilterId: string }, state: PageSta
   </div>`;
 }
 
-/** What the named person did, per kind. A branch or tag event comes from a push. */
+/** What the named person did, per kind, as line 2 says it. A branch or tag event comes from a push. */
 const actorRoles: Record<import('../activity.ts').ActivityKind, string> = {
-  pr: 'Created by',
-  build: 'Requested by',
-  push: 'Pushed by',
-  'branch-created': 'Pushed by',
-  'branch-deleted': 'Pushed by',
-  tag: 'Pushed by',
+  pr: 'author',
+  build: 'requested by',
+  push: 'pushed by',
+  'branch-created': 'pushed by',
+  'branch-deleted': 'pushed by',
+  tag: 'pushed by',
 };
 
-/** Who and when. An unknown actor has no role to name. The day header above the row names the day of `rowTime`. */
-function renderMeta(record: ActivityItem, rowTime: ActivityItem['time'] = record.time) {
+/** Who did it, with their role. Azure's explicit Unknown has no role to name; a missing actor shows nothing. */
+function renderActor(record: ActivityItem) {
   const actor = activityActor(record);
-  const shown = Boolean(actor);
-  const role = actor === 'Unknown' ? '' : record.highlight && record.kind === 'pr' ? 'PR author ' : `${actorRoles[record.kind]} `;
-  return html`<div class="help event-meta">${shown ? html`${role}<span class="actor">${actor}</span> · ` : emptyHtml}<time datetime="${record.time}" title="${fullDateTime(record.time)}">${timeInRow(record.time, rowTime)}</time></div>`;
+  if (!actor) return emptyHtml;
+  return html`<span class="ref-actor"><span class="sr"> · </span>${actor === 'Unknown' ? emptyHtml : html`${actorRoles[record.kind]} `}<span class="actor">${actor}</span></span>`;
+}
+
+/** Who and when, for a run nested in another row. The day header above the row names the day of `rowTime`. */
+function renderMeta(record: ActivityItem, rowTime: ActivityItem['time']) {
+  const actor = activityActor(record);
+  const role = actor && actor !== 'Unknown' ? `${actorRoles[record.kind]} ` : '';
+  return html`<div class="help event-meta">${actor ? html`${role}<span class="actor">${actor}</span> · ` : emptyHtml}<time datetime="${record.time}" title="${fullDateTime(record.time)}">${timeInRow(record.time, rowTime)}</time></div>`;
 }
 
 function inlineCommits(record: ActivityItem, commits: CommitsView | undefined, groups: Groups) {
@@ -106,19 +113,47 @@ function ciRunButton(run: import('../activity.ts').RelatedCi, rowTime: ActivityI
   return html`<button type="button" class="ghost sm ci-run status-text ${tone}" ${action('detail')} data-event-id="${run.id}" title="${run.title} · ${fullDateTime(run.time)}"><span>${phase} ${run.outcome}${run.stale ? ' on earlier revision' : ''}${named && run.title !== 'CI run' ? ` · ${run.title}` : ''}${note ? ` · ${note}` : ''}</span> ${ciTime(run.time, true, rowTime)}</button>`;
 }
 
-function renderRelatedCi(record: ActivityItem, groups: Groups) {
+/**
+ * A row's CI: the count of its runs for the status cell, and what goes under line 2. Results that all pass stay folded
+ * into the count, which opens the run list under line 2. A result with a problem stays in view, and the count opens
+ * the runs not shown already. With nothing more to open, the count is plain text.
+ */
+function relatedCi(record: ActivityItem, groups: Groups) {
   const { results, historyCount } = record.ciSummary ?? { results: [], historyCount: 0 };
+  if (!results.length) {
+    const host = record.ciHost
+      ? html`<div class="event-ci"><button type="button" class="ghost sm" ${action('detail')} data-event-id="${record.ciHost}">${record.highlight ? 'View pull request' : 'View tested change'}</button></div>`
+      : emptyHtml;
+    return { count: emptyHtml, runs: host };
+  }
+  const passing = results.every(({ run, tone, note }) => tone === 'ok' && !note && !run.stale);
   const currentIds = new Set(results.map(({ run }) => run.id));
   const history = record.relatedCi?.filter(run => !currentIds.has(run.id)) ?? [];
-  const content = results.length
-    ? html`<div class="ci-rollup">${results.map(({ run, tone, note }) => ciRunButton(run.outcome === 'passing again' ? { ...run, outcome: 'passed' } : run, record.time, tone, results.length > 1 || tone === 'crit' || tone === 'warn', note))}</div>
-      ${historyCount ? html`<details class="linked-event ci-history" ${disclosure(groups, `ci-${record.groupKey}`)}><summary ${action('toggle-group')}>Run history · ${historyCount} ${historyCount === 1 ? 'run' : 'runs'}</summary><div class="ci-rollup">${history.map(run => ciRunButton(run.outcome === 'passing again' ? { ...run, outcome: 'passed' } : run, record.time, 'neutral'))}${historyCount > history.length ? html`<button type="button" class="ghost sm" ${action('detail')} data-event-id="${record.id}" data-related>View all CI runs</button>` : emptyHtml}</div></details>` : emptyHtml}`
-    : record.ciHost
-      ? html`<button type="button" class="ghost sm" ${action('detail')} data-event-id="${record.ciHost}">${record.highlight ? 'View pull request' : 'View tested change'}</button>`
-      : emptyHtml;
-  return content === emptyHtml ? emptyHtml : html`<div class="event-ci">${content}</div>`;
+  const headline = results.map(({ run, tone, note }) =>
+    ciRunButton(
+      run.outcome === 'passing again' ? { ...run, outcome: 'passed' } : run,
+      record.time,
+      tone,
+      results.length > 1 || tone === 'crit' || tone === 'warn',
+      note,
+    ),
+  );
+  const total = results.length + historyCount;
+  const label = html`CI · ${total} ${total === 1 ? 'run' : 'runs'}`;
+  if (!passing && !historyCount)
+    return {
+      count: html`<span class="ci-count">${label}</span>`,
+      runs: html`<div class="event-ci"><div class="ci-rollup">${headline}</div></div>`,
+    };
+  const id = `ci-${record.groupKey}`;
+  const listId = `ci-runs-${record.groupKey}`;
+  const count = html`<button type="button" class="ghost sm ci-count" id="ci-count-${record.groupKey}" ${action('toggle-group')} aria-controls="${listId}" aria-expanded="${groups.get(id) ?? false}">${label}<span aria-hidden="true"> ›</span></button>`;
+  // The list is a disclosure that the count in the status cell opens; its own summary stays hidden.
+  const list = html`<details class="linked-event ci-history" id="${listId}" ${disclosure(groups, id)}><summary hidden></summary><div class="ci-rollup">${passing ? headline : emptyHtml}${history.map(run => ciRunButton(run.outcome === 'passing again' ? { ...run, outcome: 'passed' } : run, record.time, 'neutral'))}${historyCount > history.length ? html`<button type="button" class="ghost sm" ${action('detail')} data-event-id="${record.id}" data-related>View all CI runs</button>` : emptyHtml}</div></details>`;
+  return { count, runs: html`<div class="event-ci">${passing ? emptyHtml : html`<div class="ci-rollup">${headline}</div>`}${list}</div>` };
 }
 
+/** Line 2's last token: the vote changes, the vote tally of an open PR, or the row's summary. */
 function eventSummary(record: ActivityItem, targetShown: boolean, pr: ActivityItem['data']) {
   const votes = pr ? prVoteChanges(pr) : [];
   const latest = record.latestPrMilestone && pr?.status === 'active' ? pr.reviewers : undefined;
@@ -137,29 +172,12 @@ function eventSummary(record: ActivityItem, targetShown: boolean, pr: ActivityIt
 }
 
 /**
- * The event column in tiers: what happened with its evidence chips, then who and when, then where the branch started.
+ * What goes under line 2, in this order: CI results and runs, the fork origin when line 2 did not take it, the update
+ * trail, a linked push or tag build, and the push's commits.
  */
-function renderEvent(
-  record: ActivityItem,
-  origin: string,
-  targetShown: boolean,
-  groups: Groups,
-  related?: ActivityItem,
-  commits?: CommitsView,
-) {
-  const pr = record.kind === 'pr' ? record.data : undefined;
-  const summary =
-    record.highlight === 'merged' && pr?.targetRefName
-      ? `Landed on ${branchName(pr.targetRefName)}`
-      : eventSummary(record, targetShown, pr);
-  const badge = mergeEvidenceBadge(record);
-  const origins = [pr ? prForkSource(pr.fork) : '', origin].filter(Boolean);
-  // A new branch can lead with its origin. A PR with its target in the subject keeps the origin in its notes.
-  const lead = summary || targetShown || origins.length === 0 ? summary : origins.shift();
+function renderExtra(record: ActivityItem, origins: string[], ci: SafeHtml, groups: Groups, related?: ActivityItem, commits?: CommitsView) {
   const trail = record.unseen ? renderTrail(record, { groups }) : emptyHtml;
   const inline = inlineCommits(record, commits, groups);
-  const ci = renderRelatedCi(record, groups);
-  const mergeSha = record.kind === 'pr' && record.data?.status === 'completed' ? record.data.mergeCommit : undefined;
   const linked = related
     ? html`<details class="linked-event" ${disclosure(groups, `linked-${related.kind}-${record.groupKey}`)}>
         ${
@@ -172,11 +190,11 @@ function renderEvent(
         }
       </details>`
     : emptyHtml;
-  return html`<div class="event">${lead || badge !== emptyHtml || mergeSha ? html`<div class="event-main">${typeof lead === 'string' ? (lead ? html`<span>${lead}</span>` : emptyHtml) : lead}${badge}${mergeSha ? html`<code class="mono" title="${mergeSha}">${mergeSha.slice(0, 9)}</code>` : emptyHtml}</div>` : emptyHtml}${renderMeta(record)}${ci}${
+  const notes =
     origins.length || trail !== emptyHtml || related || inline !== emptyHtml
       ? html`<div class="event-notes">${origins.map(text => html`<div class="help event-origin">${icons.branch}<span>${text}</span></div>`)}${trail}${linked}${inline}</div>`
-      : emptyHtml
-  }</div>`;
+      : emptyHtml;
+  return ci === emptyHtml && notes === emptyHtml ? emptyHtml : html`<div class="row-extra">${ci}${notes}</div>`;
 }
 
 /** A reviewer vote's tone; the words carry the meaning, the color repeats it. */
@@ -261,38 +279,59 @@ function renderTitle(record: ActivityItem, title: string) {
   )}`;
 }
 
+/** A merged PR's merge commit, shortened, with the full ID in its title. */
+function mergeShaToken(pr: ActivityItem['data']) {
+  const sha = pr?.status === 'completed' ? pr.mergeCommit : undefined;
+  return sha ? html`<code class="ref-sha" title="${sha}"><span class="sr"> · merge commit </span>${sha.slice(0, 9)}</code>` : emptyHtml;
+}
+
 /**
- * The line under a row's title says where it happened: repository, branch and pull request as separate tokens.
- * The hidden words keep the button's accessible name readable after its title. A push, branch or tag title already
- * names its ref, so the line leaves it out; a PR or CI title can contain a branch name by accident, so those keep it.
+ * Where line 2 says a row happened: `branch → target` and the merge commit once landed, or the branch and its PR. A
+ * push, branch or tag title already names its ref, so the line leaves it out; a PR or CI title can contain a branch
+ * name by accident, so those keep it.
+ * @param target the branch a PR row goes into, or ''
+ */
+function renderRoute(record: ActivityItem, title: string, target: string) {
+  const pr = record.kind === 'pr' ? record.data : undefined;
+  const ref = target ? { branch: branchName(pr?.sourceRefName || record.branch) } : record.branch ? activityRef(record) : { branch: '' };
+  const named = !['pr', 'build'].includes(record.kind) && Boolean(ref.branch) && namesRef(title, ref.branch);
+  // A branch into the same name says it once, except from a fork, where the two are branches of different repositories.
+  const branch = named || (ref.branch === target && !pr?.fork) ? '' : ref.branch;
+  const { pullRequestId } = ref;
+  const shaToken = mergeShaToken(pr);
+  if (!branch && !pullRequestId && !target) return shaToken;
+  const tag = record.kind === 'build' && (record.data?.sourceBranch ?? branch).startsWith('refs/tags/');
+  // The branch and its PR share a group that never wraps, so a long branch name is cut short before the chip moves.
+  return html`<span class="ref-target${target ? ' ref-route' : ''}">${
+    branch
+      ? html`<span class="ref-branch" title="${branch}">${tag ? icons.tag : icons.branch}<span class="sr"> · ${tag ? 'tag' : target ? 'source branch' : 'branch'} </span><span class="ref-name">${tag ? branch.replace(/^refs\/tags\//, '') : branch}</span></span>`
+      : emptyHtml
+  }${
+    target
+      ? html`${branch ? html`<span aria-hidden="true">→</span><span class="sr"> targeting branch </span>` : html` <span class="sr"> · </span><span>Target:</span> `}<span class="ref-destination" title="${target}"><span class="ref-name">${target}</span></span> ${shaToken}`
+      : html` ${shaToken}`
+  }${pullRequestId ? html`<span class="chip ref-pr"><span class="sr"> · </span>PR ${pullRequestId}</span>` : emptyHtml}</span>`;
+}
+
+/**
+ * Line 2, the facts under a row's title, in this order: repository, where (`renderRoute`), who did it, then the
+ * summary or votes, and the merge evidence. The hidden words keep the button's accessible name readable after its
+ * title.
  * @param title the row's shown title
  * @param repoName empty when the row needs no repository name
  */
-function renderRefLine(record: ActivityItem, title: string, repoName: string, prDestination: string) {
-  const openPr = record.kind === 'pr' && record.data?.status === 'active';
-  const ref = openPr
-    ? { branch: branchName(record.data?.sourceRefName || record.branch) }
-    : record.branch
-      ? activityRef(record)
-      : { branch: '' };
-  const named = !['pr', 'build'].includes(record.kind) && Boolean(ref.branch) && namesRef(title, ref.branch);
-  const { branch, pullRequestId } = named ? { ...ref, branch: '' } : ref;
-  if (!repoName && !branch && !pullRequestId && !prDestination) return emptyHtml;
-  const tag = record.kind === 'build' && (record.data?.sourceBranch ?? branch).startsWith('refs/tags/');
-  // The branch and its PR share a group that never wraps, so a long branch name is cut short before the chip moves.
-  return html`<span class="subref">${repoName ? html`<span class="ref-repo"><span class="sr"> · repository </span>${repoName}</span>` : emptyHtml}${
-    branch || pullRequestId || prDestination
-      ? html`<span class="ref-target${prDestination ? ' ref-route' : ''}">${
-          branch
-            ? html`<span class="ref-branch" title="${branch}">${tag ? icons.tag : icons.branch}<span class="sr"> · ${tag ? 'tag' : openPr ? 'source branch' : 'branch'} </span><span class="ref-name">${tag ? branch.replace(/^refs\/tags\//, '') : branch}</span></span>`
-            : emptyHtml
-        }${
-          prDestination
-            ? html`${branch ? html`<span aria-hidden="true">→</span><span class="sr"> targeting branch </span>` : html` <span class="sr"> · </span><span>Target:</span> `}<span class="ref-destination" title="${prDestination}"><span class="ref-name">${prDestination}</span></span>`
-            : emptyHtml
-        }${pullRequestId ? html`<span class="chip ref-pr"><span class="sr"> · </span>PR ${pullRequestId}</span>` : emptyHtml}</span>`
-      : emptyHtml
-  }</span>`;
+function renderFacts(
+  record: ActivityItem,
+  { title, repoName, target, summary }: { title: string; repoName: string; target: string; summary: string | SafeHtml },
+) {
+  const parts = [
+    repoName ? html`<span class="ref-repo"><span class="sr"> · repository </span>${repoName}</span>` : emptyHtml,
+    renderRoute(record, title, target),
+    renderActor(record),
+    summary ? html`<span class="ref-summary"><span class="sr"> · </span>${summary}</span>` : emptyHtml,
+    mergeEvidenceBadge(record),
+  ].filter(part => part !== emptyHtml);
+  return parts.length ? html`<span class="subref">${parts}</span>` : emptyHtml;
 }
 
 function renderKind(record: ActivityItem, tone: string) {
@@ -337,6 +376,20 @@ function renderKind(record: ActivityItem, tone: string) {
 }
 
 /**
+ * Line 2 of a row, and the origin notes it leaves for under it. Open and merged PRs name their target on line 2.
+ * @param repoName empty when the row needs no repository name
+ */
+function rowFacts(record: ActivityItem, title: string, repoName: string, tree: import('../activity-tree.ts').TreeRow | undefined) {
+  const pr = record.kind === 'pr' ? record.data : undefined;
+  const target = pr && ['active', 'completed'].includes(pr.status ?? '') && pr.targetRefName ? branchName(pr.targetRefName) : '';
+  const summary = eventSummary(record, Boolean(target), pr);
+  const origins = [pr ? prForkSource(pr.fork) : '', forkText(tree?.fork ?? null)].filter(Boolean);
+  // A new branch can lead with its origin. A PR with its target on line 2 keeps the origin under it.
+  const lead = summary || target || origins.length === 0 ? summary : (origins.shift() ?? '');
+  return { facts: renderFacts(record, { title, repoName, target, summary: lead }), origins };
+}
+
+/**
  * @param showRepo whether more than one repository is in view, so the row has to say which one it belongs to
  */
 function row(
@@ -361,13 +414,17 @@ function row(
   const ackLinkedPush = push && (!record.unseen || push.unseen);
   const fullTitle = activityTitle(record);
   const title = rowTitle(record, fullTitle, commits);
-  const origin = forkText(tree?.fork ?? null);
-  const prDestination = record.kind === 'pr' && record.data?.status === 'active' ? branchName(record.data.targetRefName) : '';
+  const { facts, origins } = rowFacts(record, title, showRepo ? repo?.name || 'Unknown repository' : '', tree);
+  const ci = relatedCi(record, groups);
   return html`<li class="${['row', failed ? 'crit' : '', record.unseen ? 'new' : '', `tone-${tone}`].filter(Boolean).join(' ')}" id="row-${record.groupKey}" data-event-id="${record.id}" data-event-ids="${ids}" data-group-key="${record.groupKey}" data-unseen-ids="${unseenIds}">${tree ? renderTreeCell(tree, tone) : emptyHtml}
-    ${renderKind(record, tone)}
-    <div class="subject"><button class="feed-title" type="button" ${action('detail')} data-event-id="${record.id}"><span class="title">${renderTitle(record, title)}${unseen.length > 1 ? html` <span class="pill u new-count">${unseen.length} new</span>` : emptyHtml}</span>${renderRefLine(record, title, showRepo ? repo?.name || 'Unknown repository' : '', prDestination)}</button></div>
-    ${renderEvent(record, origin, Boolean(prDestination), groups, related, commits)}
-    <div class="rowact">${azureLink(record.url)}${record.imported ? emptyHtml : html`<button class="ghost sm seen-toggle" type="button" id="seen-${record.groupKey}" ${action('ack-item')} data-event-id="${record.id}" data-mark-seen="${record.unseen}" data-event-ids="${ackIds}" aria-pressed="${!record.unseen}" aria-label="Seen: ${fullTitle}${ackLinkedPush ? ' and linked push' : ''}">${icons.seenBox}Seen</button>`}</div></li>`;
+    <div class="status">${renderKind(record, tone)}${ci.count}</div>
+    <div class="subject"><button class="feed-title" type="button" ${action('detail')} data-event-id="${record.id}"><span class="title">${renderTitle(record, title)}${unseen.length > 1 ? html` <span class="pill u new-count">${unseen.length} new</span>` : emptyHtml}</span>${facts}</button>${renderExtra(record, origins, ci.runs, groups, related, commits)}</div>
+    ${renderRowActions(record, fullTitle, ackIds, Boolean(ackLinkedPush))}</li>`;
+}
+
+/** The right cell: the row's clock time, its Azure link and its Seen toggle. Imported rows have no Seen toggle. */
+function renderRowActions(record: ActivityItem, fullTitle: string, ackIds: string, ackLinkedPush: boolean) {
+  return html`<div class="rowact"><time class="row-time" datetime="${record.time}" title="${fullDateTime(record.time)}">${timeInRow(record.time, record.time)}</time>${azureLink(record.url)}${record.imported ? emptyHtml : html`<button class="ghost sm seen-toggle" type="button" id="seen-${record.groupKey}" ${action('ack-item')} data-event-id="${record.id}" data-mark-seen="${record.unseen}" data-event-ids="${ackIds}" aria-pressed="${!record.unseen}" aria-label="Seen: ${fullTitle}${ackLinkedPush ? ' and linked push' : ''}">${icons.seenBox}Seen</button>`}</div>`;
 }
 
 /**
