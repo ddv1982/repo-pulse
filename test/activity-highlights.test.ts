@@ -172,6 +172,27 @@ test('a failing pipeline headlines next to the current pass of another pipeline'
   store.close();
 });
 
+test('a pipeline with a problem in one phase does not also headline its pass from another phase', () => {
+  const store = createStore(':memory:', { highlights: true });
+  store.saveRepo(repo);
+  store.insertEvents([
+    pr('ready', 1, { previewCommit: 'preview' }),
+    run('1', 2, 1, 'succeeded', 'preview'),
+    run('2', 3, 2, 'succeeded', 'preview'),
+    pr('merge', 4, { status: 'completed', mergeCommit: 'landed' }),
+    run('3', 5, 1, 'failed', 'landed', { sourceBranch: main, reason: 'manual' }),
+  ]);
+  const merge = store.queryActivity().items.find(item => item.id === 'merge');
+  const headline = merge?.ciSummary?.results.map(result => [result.run.id, result.tone]) ?? [];
+  assert.equal(headline[0]?.join(), '3,crit');
+  assert.ok(!headline.some(([id]) => id === '1'), `pipeline 1 passed validation but failed after landing: ${JSON.stringify(headline)}`);
+  assert.ok(
+    headline.some(([id]) => id === '2'),
+    `another pipeline's pass still headlines: ${JSON.stringify(headline)}`,
+  );
+  store.close();
+});
+
 test('a pipeline that passes a retry of its failed revision keeps the recovered outcome', () => {
   const store = createStore(':memory:', { highlights: true });
   store.saveRepo(repo);

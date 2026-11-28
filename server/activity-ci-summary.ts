@@ -116,15 +116,16 @@ export function applyCiSummary(item: ActivityItem, attempts: CiAttempt[], limit 
   const bySeverity = (a: CiResult, b: CiResult) => severity[b.tone] - severity[a.tone] || newest(a.run, b.run);
   const problem = (result: CiResult) => result.tone === 'crit' || result.tone === 'warn' || activeCi(result.run);
   const tracks = [...byPipeline.values()].map(runs => ({
-    named: runs[0]?.pipeline != null,
+    pipeline: runs[0]?.pipeline,
     results: pipelineResults(runs, verified).filter(result => result.note !== 'trigger unverified' || !(postMerge || hasValidation)),
   }));
   const results = tracks.flatMap(({ results }) => results).sort(bySeverity);
   const problems = results.filter(problem);
-  // Next to a problem, each other named pipeline shows its current pass. Without one, one pass
-  // takes the headline and the others are available with the attempts.
+  // Next to a problem, each other named pipeline shows its current pass. A pipeline with a problem in any phase keeps its
+  // passes with the attempts. Without a problem, one pass takes the headline and the others are available with the attempts.
+  const failing = new Set(tracks.filter(({ results }) => results.some(problem)).map(({ pipeline }) => pipeline));
   const passes = tracks
-    .filter(({ named, results }) => named && !results.some(problem))
+    .filter(({ pipeline }) => pipeline != null && !failing.has(pipeline))
     .flatMap(({ results }) => results)
     .sort(bySeverity);
   const headline = problems.length ? [...problems, ...passes] : results.slice(0, 1);
