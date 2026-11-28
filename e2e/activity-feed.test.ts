@@ -762,7 +762,7 @@ test('rows use flat tints that the tree cuts out of, and colour only failures, r
     await page.emulateMedia({ colorScheme: scheme });
     await expect(page.locator('html')).toHaveClass(scheme === 'dark' ? /\bdark\b/ : /^(?!.*\bdark\b)/);
     await page.mouse.move(0, 0);
-    // Rows fade between backgrounds, so read them once the fade has ended.
+    // Controls fade to the new theme's colours, so read them once that has ended.
     await page.waitForFunction(() => document.getAnimations().length === 0);
     const read = await page.evaluate(() => {
       const probe = document.createElement('span');
@@ -792,6 +792,9 @@ test('rows use flat tints that the tree cuts out of, and colour only failures, r
         seenTitle: css(`${row('mixed-merge')} .title`, 'font-weight'),
         unreadSeenBox: css(`${row('retry-pr')} .seen-box`, 'color'),
         failed: css(row('incremental-ci'), 'background-color'),
+        failedSeen: document.querySelector(row('incremental-ci'))!.classList.contains('new'),
+        unreadFailed: css(row('nightly-completed'), 'background-color'),
+        unreadFailedClasses: document.querySelector(row('nightly-completed'))!.className,
         seen: css(row('mixed-merge'), 'background-color'),
         failure: css(`${row('mixed-merge')} .ci-trouble .ci-run.crit`, 'color'),
         pass: css(`${row('mixed-merge')} .ci-trouble .ci-run.muted`, 'color'),
@@ -819,7 +822,10 @@ test('rows use flat tints that the tree cuts out of, and colour only failures, r
     assert.equal(read.unreadBar, 'none', `${scheme}: no left bar while the tree shows`);
     assert.ok(Number(read.unreadTitle) > Number(read.seenTitle), `${scheme}: the unread title is bolder`);
     assert.equal(read.unreadSeenBox, read.info, `${scheme}: the unread Seen box is blue`);
-    assert.equal(read.failed, read.failedTint, `${scheme}: a failed row has a flat red tint`);
+    assert.equal(read.failedSeen, false, `${scheme}: the failed row is seen`);
+    assert.equal(read.failed, read.failedTint, `${scheme}: a seen failed row has a flat red tint`);
+    for (const name of ['new', 'crit']) assert.match(read.unreadFailedClasses, new RegExp(`\\b${name}\\b`), `${scheme}: unread and failed`);
+    assert.equal(read.unreadFailed, read.unreadTint, `${scheme}: unread outranks failed: ${read.unreadFailedClasses}`);
     assert.equal(read.seen, read.card, `${scheme}: a seen row is the card`);
     assert.equal(read.failure, read.critical, `${scheme}: a failure is red`);
     assert.equal(read.running, read.warning, `${scheme}: a run in progress is amber`);
@@ -835,6 +841,8 @@ test('rows use flat tints that the tree cuts out of, and colour only failures, r
   // Hover keeps the tint flat, and the cutouts follow it.
   const hovered = page.locator('li[data-event-id="fork-merge"]');
   await hovered.hover();
+  // The background changes at once, as the cutouts do: a fade would show them in the new colour on the old background.
+  assert.deepEqual(await hovered.evaluate(row => row.getAnimations().map(animation => String(animation.constructor.name))), []);
   await page.waitForFunction(() => document.getAnimations().length === 0);
   const hover = await hovered.evaluate(row => ({
     background: getComputedStyle(row).backgroundColor,

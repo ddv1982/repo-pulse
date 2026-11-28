@@ -69,7 +69,8 @@ li.day {
   background: var(--table-head);
 }
 /* A row's background is one flat colour in --row-bg, so the tree's ring cutouts and node outlines can take the same
-   colour. Unread rows get a blue tint and failed CI runs a red one; hover darkens whichever tint the row has. */
+   colour. Failed CI runs get a red tint and unread rows a blue one, which wins on an unread failure; hover darkens
+   whichever tint the row has. The background does not fade, since the cutouts could not fade with it. */
 .row {
   --row-tint: var(--card);
   --row-bg: var(--row-tint);
@@ -80,13 +81,12 @@ li.day {
   padding: var(--space-3);
   border-top: 1px solid var(--border);
   background-color: var(--row-bg);
-  transition: background-color 0.15s;
-}
-.row.new {
-  --row-tint: var(--row-unread);
 }
 .row.crit {
   --row-tint: var(--row-failed);
+}
+.row.new {
+  --row-tint: var(--row-unread);
 }
 .row:hover,
 .row:focus-within {
