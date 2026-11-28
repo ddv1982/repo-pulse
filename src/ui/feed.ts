@@ -154,7 +154,7 @@ function relatedCi(record: ActivityItem, groups: Groups) {
   const listId = `ci-runs-${record.groupKey}`;
   const count = html`${again} <button type="button" class="ghost sm ci-count" id="ci-count-${record.groupKey}" ${action('toggle-group')} aria-controls="${listId}" aria-expanded="${groups.get(id) ?? false}">${label}<span aria-hidden="true"> ›</span></button>`;
   // The list is a disclosure that the count in the status cell opens; its own summary stays hidden.
-  const runs = html`<details class="linked-event ci-history" id="${listId}" ${disclosure(groups, id)}><summary hidden></summary><div class="ci-rollup">${passing ? results.map(({ run, tone }) => ciRunButton(run, record.time, tone, results.length > 1)) : emptyHtml}${history.map(run => ciRunButton(run, record.time, 'neutral'))}${historyCount > history.length ? html`<button type="button" class="ghost sm" ${action('detail')} data-event-id="${record.id}" data-related>View all CI runs</button>` : emptyHtml}</div></details>`;
+  const runs = html`<details class="linked-event ci-history" id="${listId}" ${disclosure(groups, id)}><summary hidden></summary><div class="ci-rollup">${passing ? results.map(({ run }) => ciRunButton(run, record.time, 'neutral', results.length > 1)) : emptyHtml}${history.map(run => ciRunButton(run, record.time, 'neutral'))}${historyCount > history.length ? html`<button type="button" class="ghost sm" ${action('detail')} data-event-id="${record.id}" data-related>View all CI runs</button>` : emptyHtml}</div></details>`;
   return { count, trouble, runs };
 }
 

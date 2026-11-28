@@ -124,10 +124,11 @@
 :root:not(.dark) .tree-pass line:not(.default-lane) {
   stroke-width: 2;
 }
+/* Cutouts and outlines take the row's flat background, so a node reads the same on a tinted row. The key has none. */
 .tree .ci-node,
 .tree-key .ci-node {
   fill: currentColor;
-  stroke: var(--card);
+  stroke: var(--row-bg, var(--card));
 }
 .tree .draft-ring,
 .tree-key .draft-ring {
@@ -149,7 +150,7 @@
 }
 .tree .dot,
 .tree-key .dot {
-  stroke: var(--card);
+  stroke: var(--row-bg, var(--card));
   stroke-width: 1.5;
 }
 .tree .tag-mark path {
@@ -159,7 +160,7 @@
 }
 .tree .hole,
 .tree-key .hole {
-  fill: var(--card);
+  fill: var(--row-bg, var(--card));
   stroke: currentColor;
   stroke-width: 1.75;
 }

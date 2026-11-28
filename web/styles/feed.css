@@ -68,62 +68,32 @@ li.day {
 :root:not(.dark) .feed li.day {
   background: var(--table-head);
 }
+/* A row's background is one flat colour in --row-bg, so the tree's ring cutouts and node outlines can take the same
+   colour. Unread rows get a blue tint and failed CI runs a red one; hover darkens whichever tint the row has. */
 .row {
+  --row-tint: var(--card);
+  --row-bg: var(--row-tint);
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   gap: var(--space-1-5) var(--space-3);
   align-items: start;
   padding: var(--space-3);
   border-top: 1px solid var(--border);
+  background-color: var(--row-bg);
   transition: background-color 0.15s;
-  background-repeat: no-repeat;
+}
+.row.new {
+  --row-tint: color-mix(in oklab, var(--info) 8%, var(--card));
+}
+.row.crit {
+  --row-tint: color-mix(in oklab, var(--critical-solid) 8%, var(--card));
 }
 .row:hover,
 .row:focus-within {
-  background-color: var(--accent);
-}
-.row.crit {
-  background-image: linear-gradient(90deg, var(--critical-wash), transparent 36%);
-}
-.row.new {
-  background-image: linear-gradient(90deg, var(--primary-wash), transparent 36%);
-}
-.row.warn {
-  background-image: linear-gradient(90deg, var(--warning-wash), transparent 36%);
-}
-.row.tone-crit {
-  background-image: linear-gradient(90deg, var(--critical-wash), transparent 36%);
-}
-.row.tone-warn {
-  background-image: linear-gradient(90deg, var(--warning-wash), transparent 36%);
-}
-.row.tone-ok {
-  background-image: linear-gradient(90deg, var(--ok-wash), transparent 36%);
-}
-.row.tone-info {
-  background-image: linear-gradient(90deg, var(--primary-wash), transparent 36%);
-}
-.row.tone-neutral {
-  background-image: none;
-}
-/* The wash marks unread rows (tinted by kind) and failed CI runs; seen rows stay plain. */
-.row:not(.new, .crit) {
-  background-image: none;
-}
-.row.new.tone-neutral {
-  background-image: linear-gradient(90deg, var(--primary-wash), transparent 36%);
+  --row-bg: color-mix(in oklab, var(--foreground) 4%, var(--row-tint));
 }
 :root:not(.dark) .feed .ghead {
   background: var(--table-head);
-}
-:root:not(.dark) .feed .row.new {
-  box-shadow: inset 3px 0 var(--primary);
-}
-:root:not(.dark) .feed .row.new:not(.crit) {
-  background-image: none;
-}
-:root:not(.dark) .feed .row.new:not(.crit, :hover, :focus-within) {
-  background-color: color-mix(in srgb, var(--primary) 7%, transparent);
 }
 .row.new .title {
   font-weight: 600;
@@ -182,9 +152,6 @@ button.ci-count:hover {
   border-radius: 10px;
   font-weight: 600;
   background: color-mix(in srgb, currentColor 12%, var(--card));
-}
-:root:not(.dark) .feed .row .title {
-  font-weight: 600;
 }
 .kind > .d,
 .kind > svg {
@@ -352,6 +319,15 @@ button.vote-tally.crit {
 }
 .subref > .chip {
   padding-block: 0;
+}
+/* Merge evidence on line 2 reads as a quiet outlined chip. A completed PR link is muted; a rewrite stays amber. */
+.subref > .status-chip {
+  border-color: color-mix(in oklab, currentColor 40%, transparent);
+  background: none;
+  font-size: var(--text-2xs);
+}
+.subref > .status-chip.ok {
+  color: var(--muted-foreground);
 }
 .ref-repo,
 .ref-branch {

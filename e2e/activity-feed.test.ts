@@ -707,3 +707,93 @@ test('line 3 holds tokens of one shape in a fixed order, opens what they open un
   await expect(push.getByRole('button', { name: 'Reload commits', exact: true })).toBeVisible();
   await expect(push.locator('.row-extra summary')).toHaveText('Push commits');
 });
+
+test('rows use flat tints that the tree cuts out of, and colour only failures, runs in progress and warnings', async t => {
+  const { page } = await awkwardFixture(t);
+  await page.setViewportSize({ width: 1265, height: 1400 });
+  for (const scheme of ['light', 'dark'] as const) {
+    await page.emulateMedia({ colorScheme: scheme });
+    await expect(page.locator('html')).toHaveClass(scheme === 'dark' ? /\bdark\b/ : /^(?!.*\bdark\b)/);
+    await page.mouse.move(0, 0);
+    // Rows fade between backgrounds, so read them once the fade has ended.
+    await page.waitForFunction(() => document.getAnimations().length === 0);
+    const read = await page.evaluate(() => {
+      const probe = document.createElement('span');
+      document.querySelector('.feed')!.append(probe);
+      const token = (value: string) => {
+        probe.style.color = value;
+        return getComputedStyle(probe).color;
+      };
+      const css = (selector: string, property: string) => {
+        const element = document.querySelector(selector);
+        if (!element) throw new Error(`no ${selector}`);
+        return getComputedStyle(element).getPropertyValue(property);
+      };
+      const row = (id: string) => `li[data-event-id="${id}"]`;
+      const result = {
+        card: token('var(--card)'),
+        unreadTint: token('color-mix(in oklab, var(--info) 8%, var(--card))'),
+        failedTint: token('color-mix(in oklab, var(--critical-solid) 8%, var(--card))'),
+        critical: token('var(--critical)'),
+        warning: token('var(--warning)'),
+        muted: token('var(--muted-foreground)'),
+        info: token('var(--info)'),
+        unread: css(row('retry-pr'), 'background-color'),
+        unreadImage: css(row('retry-pr'), 'background-image'),
+        unreadBar: css(row('retry-pr'), 'box-shadow'),
+        unreadTitle: css(`${row('retry-pr')} .title`, 'font-weight'),
+        seenTitle: css(`${row('mixed-merge')} .title`, 'font-weight'),
+        unreadSeenBox: css(`${row('retry-pr')} .seen-box`, 'color'),
+        failed: css(row('incremental-ci'), 'background-color'),
+        seen: css(row('mixed-merge'), 'background-color'),
+        failure: css(`${row('mixed-merge')} .ci-trouble .ci-run.crit`, 'color'),
+        pass: css(`${row('mixed-merge')} .ci-trouble .ci-run.muted`, 'color'),
+        running: css(`${row('retry-pr')} .ci-trouble .ci-run.warn`, 'color'),
+        count: css(`${row('mixed-merge')} .ci-count`, 'color'),
+        rewrite: css(`${row('rewrite-push')} .subref .status-chip.warn`, 'color'),
+        // Every ring cutout and node outline is the colour of the row it sits on.
+        cutouts: [...document.querySelectorAll('li.row')]
+          .filter(element => element.checkVisibility())
+          .flatMap(element => {
+            const background = getComputedStyle(element).backgroundColor;
+            return [...element.querySelectorAll('svg.tree .hole, svg.tree .dot, svg.tree .ci-node')].map(node => ({
+              id: element.getAttribute('data-event-id'),
+              unread: element.classList.contains('new'),
+              background,
+              paint: getComputedStyle(node).getPropertyValue(node.classList.contains('hole') ? 'fill' : 'stroke'),
+            }));
+          }),
+      };
+      probe.remove();
+      return result;
+    });
+    assert.equal(read.unread, read.unreadTint, `${scheme}: an unread row has a flat blue tint`);
+    assert.equal(read.unreadImage, 'none', `${scheme}: no gradient`);
+    assert.equal(read.unreadBar, 'none', `${scheme}: no left bar while the tree shows`);
+    assert.ok(Number(read.unreadTitle) > Number(read.seenTitle), `${scheme}: the unread title is bolder`);
+    assert.equal(read.unreadSeenBox, read.info, `${scheme}: the unread Seen box is blue`);
+    assert.equal(read.failed, read.failedTint, `${scheme}: a failed row has a flat red tint`);
+    assert.equal(read.seen, read.card, `${scheme}: a seen row is the card`);
+    assert.equal(read.failure, read.critical, `${scheme}: a failure is red`);
+    assert.equal(read.running, read.warning, `${scheme}: a run in progress is amber`);
+    assert.equal(read.pass, read.muted, `${scheme}: a pass is muted`);
+    assert.equal(read.count, read.muted, `${scheme}: the CI count is muted`);
+    assert.equal(read.rewrite, read.warning, `${scheme}: the rewrite warning is amber`);
+    assert.ok(
+      read.cutouts.some(cutout => cutout.unread),
+      `${scheme}: an unread row has a node`,
+    );
+    for (const cutout of read.cutouts) assert.equal(cutout.paint, cutout.background, `${scheme}: the node cutout of ${cutout.id}`);
+  }
+  // Hover keeps the tint flat, and the cutouts follow it.
+  const hovered = page.locator('li[data-event-id="fork-merge"]');
+  await hovered.hover();
+  await page.waitForFunction(() => document.getAnimations().length === 0);
+  const hover = await hovered.evaluate(row => ({
+    background: getComputedStyle(row).backgroundColor,
+    hole: getComputedStyle(row.querySelector('svg.tree .hole, svg.tree .dot')!).getPropertyValue(
+      row.querySelector('svg.tree .hole') ? 'fill' : 'stroke',
+    ),
+  }));
+  assert.equal(hover.hole, hover.background);
+});
