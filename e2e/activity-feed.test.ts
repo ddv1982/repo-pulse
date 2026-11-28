@@ -11,9 +11,9 @@ test('the branch tree works with the unread filter and keeps status markers on n
   await expect(rows.first()).toBeVisible();
   await expect(page.locator('.with-tree li.row > svg.tree')).toHaveCount(await rows.count());
   const hotfix = page.locator('li[data-event-id="demo-branch-1"]');
-  // A new branch has nothing else to say, so where it started is the summary at the end of line 2.
-  await expect(hotfix.locator('.ref-summary')).toHaveText('Started at 3f9a2c1, the tip of main');
-  await expect(hotfix.locator('.event-origin')).toHaveCount(0);
+  // Where a branch started is a note on line 3, also when line 2 has no summary.
+  await expect(hotfix.locator('.row-line3 > .event-origin')).toHaveText('Started at 3f9a2c1, the tip of main');
+  await expect(hotfix.locator('.ref-summary')).toHaveCount(0);
   await expect(hotfix.locator('svg.tree path')).toHaveCount(1);
   await expect(hotfix.locator('svg.tree path.assumed')).toHaveCount(0);
   await expect(page.locator('li[data-event-id="demo-branch-3"]')).toContainText('PR 1175 targets main, origin not checked');
@@ -49,7 +49,7 @@ test('the branch tree works with the unread filter and keeps status markers on n
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.getByRole('button', { name: 'Unread only', exact: true }).click();
   await expect(hotfix.locator('svg.tree')).toBeVisible();
-  await expect(hotfix.locator('.ref-summary')).toHaveText('Started at 3f9a2c1, the tip of main');
+  await expect(hotfix.locator('.row-line3 > .event-origin')).toHaveText('Started at 3f9a2c1, the tip of main');
   await page.setViewportSize({ width: 640, height: 900 });
   await expect(hotfix.locator('svg.tree')).toBeVisible();
   await page.setViewportSize({ width: 390, height: 900 });

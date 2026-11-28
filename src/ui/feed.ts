@@ -456,7 +456,7 @@ function renderKind(record: ActivityItem, tone: string) {
 }
 
 /**
- * Line 2 of a row, and the origin notes it leaves for under it. Open and merged PRs name their target on line 2.
+ * Line 2 of a row, and the origin notes for line 3 under it. Open and merged PRs name their target on line 2.
  * @param repoName empty when the row needs no repository name
  */
 function rowFacts(
@@ -470,9 +470,7 @@ function rowFacts(
   const target = pr && ['active', 'completed'].includes(pr.status ?? '') && pr.targetRefName ? branchName(pr.targetRefName) : '';
   const { summary, votes } = eventSummary(record, Boolean(target), pr, groups);
   const origins = [pr ? prForkSource(pr.fork) : '', forkText(tree?.fork ?? null)].filter(Boolean);
-  // A new branch can lead with its origin. A PR with its target on line 2 keeps the origin under it.
-  const lead = summary || target || origins.length === 0 ? summary : (origins.shift() ?? '');
-  return { facts: renderFacts(record, { title, repoName, target, summary: lead }), votes, origins };
+  return { facts: renderFacts(record, { title, repoName, target, summary }), votes, origins };
 }
 
 /**
