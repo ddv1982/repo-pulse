@@ -423,6 +423,8 @@ test('Activity shows only highlights and links a landing and quieter CI to its d
   await expect(merge.locator('.ci-history').getByRole('button', { name: 'PR validation failed' }).first()).toBeVisible();
   await expect(merge.locator('.ci-run time')).toHaveCount(6);
   await expect(headline.locator('time')).toHaveAttribute('datetime', base.time);
+  // View all CI runs ends the run list the count opens.
+  await expect(merge.locator('.row-extra > .ci-history .ci-rollup > :last-child')).toHaveText('View all CI runs');
   await expect(merge.getByRole('button', { name: 'View all CI runs' })).toBeVisible();
   await headline.click();
   await expect(page).toHaveURL(/#event\/quiet-pass$/);
@@ -875,4 +877,31 @@ test('rows keep kind and time on their top line at 800 and 360px, and times line
     const rows = await layout();
     assert.equal(new Set(rows.map(row => row.timeRight)).size, 1, `${width}px: times line up`);
   }
+});
+
+test('each rare piece of a row has its place', async t => {
+  const { page } = await awkwardFixture(t);
+  const row = (id: string) => page.locator(`li[data-event-id="${id}"]`);
+  // Merge evidence sits on line 2; a history rewrite is a warning.
+  const rewrite = row('rewrite-push').locator('.row-head > .subref > .status-chip.warn');
+  await expect(rewrite).toHaveText('History rewritten · 2 commits dropped');
+  // The "N new" pill sits on line 1, in the title.
+  await expect(row('fork-merge').locator('.feed-title .title > .new-count')).toHaveText('2 new');
+  // A CI run on a pull request ref names the PR with a chip on line 2.
+  await expect(row('pr-ref-ci').locator('.row-head > .subref .ref-pr')).toHaveText(' · PR 21950');
+  await expect(row('pr-ref-ci').locator('.row-head > .subref .ref-pr')).toBeVisible();
+  // Where a listed branch started is a plain note on line 3.
+  await expect(row('incremental-branch').locator('.row-line3 > .token.plain.event-origin')).toHaveText(/^Started at /);
+  // A failed run links to the change it tested from its trouble line.
+  const host = row('mixed-dbt').locator('.subject > .ci-trouble > .ci-host');
+  await expect(host).toHaveText('View tested change');
+  await host.click();
+  await expect(page).toHaveURL(/#event\/mixed-merge$/);
+  await page.getByRole('link', { name: /Back to Activity/ }).click();
+  // An imported row has no Seen toggle, only the space one would take.
+  await page.locator('details[data-group="imported-history"] > summary').click();
+  const imported = row('imported-push');
+  await expect(imported).toBeVisible();
+  await expect(imported.locator('.seen-toggle, [aria-pressed], input[type="checkbox"]')).toHaveCount(0);
+  await expect(imported.locator('.rowact > .slot')).toHaveCount(2);
 });
