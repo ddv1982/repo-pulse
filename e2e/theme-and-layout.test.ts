@@ -321,7 +321,11 @@ test('semantic status colors match rows, imported history, details and trails in
       assert.ok(result.ratio >= 4.5, `${theme} ${result.id} contrast ${result.ratio}`);
     }
     const trail = page.locator('li[data-event-id="canceled-transition"] .trail');
-    if (!(await trail.evaluate((element: HTMLDetailsElement) => element.open))) await trail.locator('summary').click();
+    if (!(await trail.evaluate((element: HTMLDetailsElement) => element.open)))
+      await page
+        .locator('li[data-event-id="canceled-transition"] .row-line3')
+        .getByRole('button', { name: /updates$/ })
+        .click();
     await expect(trail.locator('.status-text.warn')).toHaveText('Canceled');
     await expect(trail.locator('.status-text.info')).toHaveCount(2);
     await capture(page, `status-colors-${theme.toLowerCase()}.png`, { fullPage: true });

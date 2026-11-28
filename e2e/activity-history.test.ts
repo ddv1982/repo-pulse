@@ -49,7 +49,7 @@ test('Activity shows history by default and filters to unread without changing s
   await expect(page.locator('li.row')).toHaveCount(3);
   await expect(page.locator('li[data-event-id="seen-push"]')).toBeVisible();
   const importedHistory = page.locator('details[data-group="imported-history"]');
-  if ((await importedHistory.getAttribute('open')) === null) await importedHistory.locator('summary').click();
+  if ((await importedHistory.getAttribute('open')) === null) await importedHistory.locator(':scope > summary').click();
   await expect(page.locator('li[data-event-id="imported-push"]')).toBeVisible();
   await expect(page.getByRole('region', { name: 'Activity summary' })).toContainText('1 new item');
   // Every matching item is loaded, so the summary does not repeat the count.

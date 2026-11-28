@@ -239,3 +239,264 @@ export async function multiDayFixture(t: TestContext, options: { colorScheme?: '
   await expect(app.page.locator('li[data-event-id="older-main-2"]')).toBeVisible();
   return app;
 }
+
+/**
+ * Rows that use the rare pieces of the Activity layout, across two repositories, for layout tests and screenshots: a
+ * merged PR with a failing pipeline next to a passing one, an open PR whose failed validation is being retried, an open
+ * PR with a partially succeeded validation on an older revision and a mixed vote, an unread merged PR from a fork with
+ * its linked push, a push with commits to load and failing branch CI after a listed new branch, a CI run with three
+ * updates, a CI run on a pull request ref, a push that rewrote history, a merged PR with a long branch in the second
+ * repository, and an imported row. The browser clock is fixed at MULTI_DAY_NOW. In highlights mode only the PR
+ * milestones show, and the older validation counts as stale.
+ */
+export async function awkwardFixture(
+  t: TestContext,
+  { colorScheme, highlights = false }: { colorScheme?: 'light' | 'dark'; highlights?: boolean } = {},
+) {
+  const app = await setup(t, true, { highlights });
+  if (colorScheme) await app.page.emulateMedia({ colorScheme });
+  for (const repo of app.runtime.store.listRepos()) app.runtime.store.removeRepo(repo.id);
+  const organization = 'https://dev.azure.com/example';
+  for (const [id, name] of [
+    ['orders', 'orders-dbt'],
+    ['pipelines', 'adf-pipelines'],
+  ] as const)
+    app.runtime.store.saveRepo(
+      stub<Repository>({ id, name, project: 'Demo', organization, azureId: id, defaultBranch: 'refs/heads/main' }),
+    );
+  const at = (hour: number, minute = 0) => new Date(2026, 10, 28, hour, minute).toISOString();
+  const sha = (text: string) => text.repeat(40).slice(0, 40);
+  const url = (path: string) => `${organization}/Demo/_git/orders-dbt/${path}`;
+  const base = { repoId: 'orders', actor: 'A. Author', seen: true, imported: false };
+  const main = 'refs/heads/main';
+  const pr = (
+    id: string,
+    subject: string,
+    number: number,
+    time: string,
+    source: string,
+    data: ActivityEvent['data'],
+    seen = true,
+  ): ActivityEvent => ({
+    ...base,
+    seen,
+    id,
+    kind: 'pr',
+    branch: `refs/heads/${source}`,
+    title: `PR ${number} · ${subject}`,
+    time,
+    url: url(`pullrequest/${number}`),
+    data: { pullRequestId: number, sourceRefName: `refs/heads/${source}`, targetRefName: main, ...data },
+  });
+  const build = (id: string, time: string, title: string, data: ActivityEvent['data'], seen = true): ActivityEvent => ({
+    ...base,
+    seen,
+    id,
+    kind: 'build',
+    title,
+    branch: 'main',
+    time,
+    url: `${organization}/Demo/_build/results?buildId=${id.length}`,
+    data: { status: 'completed', ...data },
+  });
+  const forkMerge = sha('d4');
+  const forkEvidence = { pullRequestId: 21910, targetRefName: main, mergeCommit: forkMerge, relationship: 'result-introduced' };
+  const pushTip = sha('e5');
+  const longBranch = 'feature/DAT-1005-a-very-long-branch-name-that-keeps-going-and-going-past-the-column';
+  const events: ActivityEvent[] = [
+    pr('mixed-merge', 'DAT-1000: split nightly build', 21901, at(14, 40), 'feature/DAT-1000-split-nightly-build', {
+      status: 'completed',
+      mergeCommit: sha('a1'),
+    }),
+    build('mixed-validation', at(14, 20), 'dbt-build', {
+      buildId: 101,
+      result: 'succeeded',
+      sourceBranch: 'refs/pull/21901/merge',
+      sourceVersion: sha('a0'),
+      definition: { id: 71, name: 'dbt-build' },
+    }),
+    build('mixed-dbt', at(14, 45), 'dbt-build', {
+      buildId: 102,
+      result: 'failed',
+      reason: 'individualCI',
+      sourceBranch: main,
+      sourceVersion: sha('a1'),
+      buildStartedAt: at(14, 41),
+      definition: { id: 71, name: 'dbt-build' },
+    }),
+    build('mixed-adf', at(14, 46), 'adf-deploy', {
+      buildId: 103,
+      result: 'succeeded',
+      reason: 'individualCI',
+      sourceBranch: main,
+      sourceVersion: sha('a1'),
+      buildStartedAt: at(14, 41),
+      definition: { id: 72, name: 'adf-deploy' },
+    }),
+    pr(
+      'retry-pr',
+      'DAT-1001: calving interval model',
+      21907,
+      at(13, 50),
+      'feature/DAT-1001-calving-interval',
+      { status: 'active', previewCommit: sha('b2') },
+      false,
+    ),
+    build('retry-failed', at(14, 0), 'billing-validation', {
+      buildId: 201,
+      result: 'failed',
+      reason: 'pullRequest',
+      sourceBranch: 'refs/pull/21907/merge',
+      sourceVersion: sha('b2'),
+      buildStartedAt: at(13, 55),
+      definition: { id: 78, name: 'billing-validation' },
+    }),
+    build('retry-running', at(14, 30), 'billing-validation', {
+      buildId: 202,
+      status: 'inProgress',
+      reason: 'pullRequest',
+      sourceBranch: 'refs/pull/21907/merge',
+      sourceVersion: sha('b2'),
+      buildStartedAt: at(14, 29),
+      definition: { id: 78, name: 'billing-validation' },
+    }),
+    pr('vote-pr', 'DAT-1002: herd snapshot refresh', 21899, at(12, 30), 'feature/DAT-1002-herd-snapshot', {
+      status: 'active',
+      previewCommit: sha('c3'),
+      reviewers: [
+        { name: '[Demo]\\Cloudforce Team Data Team', vote: 10 },
+        { name: 'Max Coenen', vote: -5 },
+      ],
+      voteChanges: [
+        { name: '[Demo]\\Cloudforce Team Data Team', vote: 10 },
+        { name: 'Max Coenen', vote: -5 },
+      ],
+    }),
+    build('stale-validation', at(12, 10), 'billing-validation', {
+      buildId: 301,
+      result: 'partiallySucceeded',
+      reason: 'pullRequest',
+      sourceBranch: 'refs/pull/21899/merge',
+      sourceVersion: sha('c2'),
+      definition: { id: 78, name: 'billing-validation' },
+    }),
+    pr(
+      'fork-merge',
+      'DAT-1003: sandbox export',
+      21910,
+      at(12, 5),
+      'feature/DAT-1003-sandbox-export',
+      { ...forkEvidence, status: 'completed', fork: { repository: 'data-sandbox', project: 'Team Project' } },
+      false,
+    ),
+    {
+      ...base,
+      seen: false,
+      id: 'fork-push',
+      kind: 'push',
+      branch: 'main',
+      time: at(12, 5),
+      data: { pushId: 9100, refUpdates: [{ name: main, oldObjectId: sha('9'), newObjectId: forkMerge }] },
+    },
+    {
+      ...base,
+      id: 'incremental-push',
+      kind: 'push',
+      branch: 'feature/DAT-1004-incremental-key',
+      title: 'A. Author pushed to feature/DAT-1004-incremental-key',
+      time: at(11, 20),
+      url: url('commit/e5'),
+      data: {
+        pushId: 9200,
+        refUpdates: [{ name: 'refs/heads/feature/DAT-1004-incremental-key', oldObjectId: sha('e4'), newObjectId: pushTip }],
+        commits: [{ commitId: pushTip, comment: 'Fix incremental key on fact_milk_yield' }],
+      },
+    },
+    build('incremental-ci', at(11, 30), 'orders-dbt CI', {
+      buildId: 401,
+      result: 'failed',
+      reason: 'individualCI',
+      sourceBranch: 'refs/heads/feature/DAT-1004-incremental-key',
+      sourceVersion: pushTip,
+      definition: { id: 79, name: 'orders-dbt CI' },
+    }),
+    {
+      ...base,
+      id: 'incremental-branch',
+      kind: 'branch-created',
+      branch: 'feature/DAT-1004-incremental-key',
+      title: 'New branch · feature/DAT-1004-incremental-key',
+      time: at(10, 0),
+      data: {
+        name: 'refs/heads/feature/DAT-1004-incremental-key',
+        oldObjectId: sha('0'),
+        newObjectId: sha('e4'),
+        evidence: 'refs',
+        forkOrigin: { status: 'found', base: sha('e4'), on: [main], via: 'tip' },
+      },
+    },
+    ...(['notStarted', 'inProgress', 'completed'] as const).map((status, index) =>
+      build(
+        `nightly-${status}`,
+        at(9, index * 10),
+        'nightly-snapshot',
+        {
+          buildId: 501,
+          status,
+          ...(status === 'completed' ? { result: 'failed' } : {}),
+          reason: 'schedule',
+          sourceBranch: 'refs/heads/release/2026.11',
+          sourceVersion: sha('f6'),
+          definition: { id: 80, name: 'nightly-snapshot' },
+        },
+        false,
+      ),
+    ),
+    build('pr-ref-ci', at(8, 40), 'orders-dbt PR validation', {
+      buildId: 601,
+      result: 'succeeded',
+      reason: 'pullRequest',
+      sourceBranch: 'refs/pull/21950/merge',
+      sourceVersion: sha('a7'),
+      definition: { id: 81, name: 'orders-dbt PR validation' },
+      pullRequest: { id: 21950, sourceRefName: 'refs/heads/feature/DAT-1006-seed-tests', targetRefName: main },
+    }),
+    {
+      ...base,
+      id: 'rewrite-push',
+      kind: 'push',
+      branch: 'release/2026.11',
+      title: 'A. Author pushed to release/2026.11',
+      time: at(8, 15),
+      data: {
+        pushId: 9300,
+        refUpdates: [{ name: 'refs/heads/release/2026.11', oldObjectId: sha('f5'), newObjectId: sha('f6') }],
+        mergeEvidence: { rewrite: [{ ref: 'refs/heads/release/2026.11', status: 'rewrite', dropped: 2 }] },
+      },
+    },
+    {
+      ...pr('long-merge', 'DAT-1005: long branch name with several repositories shown', 21880, at(7, 30), longBranch, {
+        status: 'completed',
+        mergeCommit: sha('a9'),
+      }),
+      repoId: 'pipelines',
+      url: `${organization}/Demo/_git/adf-pipelines/pullrequest/21880`,
+    },
+    {
+      ...base,
+      id: 'imported-push',
+      kind: 'push',
+      imported: true,
+      branch: 'main',
+      title: 'A. Author pushed to main',
+      time: new Date(2026, 10, 26, 16, 0).toISOString(),
+      data: { refUpdates: [{ name: main, oldObjectId: sha('8'), newObjectId: sha('7') }] },
+    },
+  ];
+  app.runtime.store.insertEvents(events);
+  app.runtime.store.enrichEvent('fork-push', { mergeEvidence: { prs: [forkEvidence] } });
+  await app.page.clock.setFixedTime(MULTI_DAY_NOW);
+  await app.page.reload();
+  await expect(app.page.locator('li.row').first()).toBeVisible();
+  return app;
+}

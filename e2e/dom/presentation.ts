@@ -942,6 +942,52 @@ test('a CI result with a problem gets one trouble line under line 2 that names e
   assert.equal(await text(one(row(doc, 'recovered'), '.status .ci-again')), '✓ passed again');
 });
 
+test('line 3 puts the update trail, the linked push and the fork origin in that order, and a row without extras has none', async t => {
+  const state = fixture();
+  const merge = { ...mergedPr('fork', 9), data: { ...mergedPr('fork', 9).data, fork: { repository: 'Up-fork', project: 'Q' } } };
+  const evidence = { pullRequestId: 9, targetRefName: 'refs/heads/main', mergeCommit: present(merge.data?.mergeCommit) };
+  state.events = [
+    merge,
+    {
+      id: 'push',
+      repoId: 'r',
+      kind: 'push',
+      branch: 'main',
+      seen: false,
+      imported: false,
+      time: '2026-11-17T10:00:00Z',
+      observedAt: '2026-11-17T10:00:00Z',
+      data: {
+        refUpdates: [{ name: 'refs/heads/main', oldObjectId: 'b'.repeat(40), newObjectId: evidence.mergeCommit }],
+        mergeEvidence: { prs: [{ ...evidence, relationship: 'result-introduced' }] },
+      },
+    },
+    mergedPr('plain', 10),
+  ];
+  const activity = activityPage(state, { ...view, unseenOnly: false });
+  // No stored PR has a trail today; the row is given three updates so that every token kind it can hold shows at once.
+  const item = present(activity.items.find(candidate => candidate.id === 'fork'));
+  item.events = [item.events[0], item.events[0], item.events[0]].map((event, index) => ({ ...present(event), id: `fork-${index}` }));
+  const doc = parse(t, renderPagedFeed({ ...state, activity }, { ...view, unseenOnly: false }));
+  const tokens = await all(row(doc, 'fork'), '.subject > .row-line3 > .token');
+  assert.deepEqual(await Promise.all(tokens.map(token => text(token))), [
+    '3 updates ›',
+    'Linked push · unread ›',
+    'From fork Up-fork in Q',
+  ]);
+  assert.deepEqual(
+    await Promise.all(tokens.map(async token => (await classes(token)).filter(name => ['unread', 'plain'].includes(name)).join())),
+    ['unread', 'unread', 'plain'],
+  );
+  // Each token that opens something names its panel, which follows line 3.
+  for (const token of tokens.slice(0, 2)) {
+    const panel = one(row(doc, 'fork'), `.row-line3 ~ .row-extra > details[id='${await token.getAttribute('aria-controls')}']`);
+    assert.equal(await panel.hasAttribute('open'), false);
+    assert.equal(await one(panel, ':scope > summary').hasAttribute('hidden'), true);
+  }
+  assert.equal((await all(row(doc, 'plain'), '.row-line3, .row-extra')).length, 0);
+});
+
 test('a CI row without a known trigger shows no summary line, and the detail page still names the gap', async t => {
   const state = fixture();
   const base = { repoId: 'r', kind: 'build', title: 'CI', time: '2026-11-17T10:00:00Z' } satisfies Event;

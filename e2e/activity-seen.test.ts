@@ -108,7 +108,7 @@ test('build transitions group into one item and exact acknowledgement leaves a l
   await expect(page.locator('.cell .val.zero')).toHaveCount(3);
   await expect(page.locator('li.row .kind')).toHaveText('CI running');
   await expect(page.locator('li.row .feed-title .title')).toHaveText('Orders CI 2 new');
-  await page.locator('.trail > summary').click();
+  await page.getByRole('button', { name: '2 updates', exact: true }).click();
   await expect(page.locator('.trail li')).toHaveCount(2);
   await page.route(
     '**/api/ack',

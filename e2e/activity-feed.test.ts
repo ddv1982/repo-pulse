@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { capture } from './fixtures/app.ts';
 import { expect } from '@playwright/test';
-import { multiDayFixture, setup } from './fixtures/ui-app.ts';
+import { awkwardFixture, multiDayFixture, setup } from './fixtures/ui-app.ts';
 import type { ActivityEvent } from '../src/activity.ts';
 
 test('the branch tree works with the unread filter and keeps status markers on narrow screens', async t => {
@@ -658,4 +658,52 @@ test('the vote tally on line 2 opens the named votes under it, and the rest of l
   await expect(pr.locator('.row-head .subref')).not.toContainText('Cy');
   await pr.locator('.row-head .ref-actor').click();
   await expect(page).toHaveURL(/#event\/voted-pr$/);
+});
+
+test('line 3 holds tokens of one shape in a fixed order, opens what they open under it, and is left out when empty', async t => {
+  const { page } = await awkwardFixture(t);
+  const line3 = (id: string) => page.locator(`li[data-event-id="${id}"] .subject > .row-line3`);
+  const tokens = (id: string) => line3(id).locator(':scope > .token');
+  // An unread merged PR from a fork: its linked push in the unread blue, then where it came from, which is plain text.
+  await expect(tokens('fork-merge')).toHaveText(['Linked push · unread ›', 'From fork data-sandbox in Team Project']);
+  await expect(tokens('fork-merge').first()).toHaveClass(/\bunread\b/);
+  await expect(tokens('fork-merge').nth(1)).toHaveClass(/\bplain\b/);
+  await expect(tokens('fork-merge').nth(1).locator('xpath=self::button')).toHaveCount(0);
+  // A CI run with three updates offers them as a token in the unread blue.
+  await expect(tokens('nightly-completed')).toHaveText(['3 updates ›']);
+  await expect(tokens('nightly-completed')).toHaveClass(/\bunread\b/);
+  await expect(tokens('incremental-push')).toHaveText(['Load commits']);
+  // A listed new branch keeps its caveat on line 2, so where it started goes to line 3.
+  await expect(tokens('incremental-branch')).toHaveText([/^Started at /]);
+  await expect(line3('long-merge')).toHaveCount(0);
+  await expect(page.locator('li[data-event-id="long-merge"] .row-extra')).toHaveCount(0);
+  // Every token has the same shape.
+  const shapes = await page.locator('.row-line3 > .token:not(.plain)').evaluateAll(elements =>
+    elements.map(element => {
+      const style = getComputedStyle(element);
+      return [style.borderTopWidth, style.borderRadius, style.fontSize, style.height].join(' ');
+    }),
+  );
+  assert.ok(shapes.length >= 3);
+  assert.equal(new Set(shapes).size, 1, `token shapes: ${shapes.join(', ')}`);
+  // A token opens its panel under line 3 and says so.
+  const linked = page.locator('li[data-event-id="fork-merge"]').getByRole('button', { name: 'Linked push · unread', exact: true });
+  await expect(linked).toHaveAttribute('aria-expanded', 'false');
+  await linked.click();
+  await expect(linked).toHaveAttribute('aria-expanded', 'true');
+  const view = page.locator('li[data-event-id="fork-merge"]').getByRole('button', { name: 'View push to main' });
+  await expect(view).toBeVisible();
+  const below = async (id: string, panel: typeof view) => {
+    const [line, box] = await Promise.all([line3(id).boundingBox(), panel.boundingBox()]);
+    return !!line && !!box && box.y >= line.y + line.height - 1;
+  };
+  assert.ok(await below('fork-merge', view), 'the linked push opens under line 3');
+  const trail = page.locator('li[data-event-id="nightly-completed"]');
+  await trail.getByRole('button', { name: '3 updates', exact: true }).click();
+  await expect(trail.locator('.trail li')).toHaveCount(3);
+  assert.ok(await below('nightly-completed', trail.locator('.trail ol')), 'the trail opens under line 3');
+  const push = page.locator('li[data-event-id="incremental-push"]');
+  await push.getByRole('button', { name: 'Load commits', exact: true }).click();
+  await expect(push.getByRole('button', { name: 'Reload commits', exact: true })).toBeVisible();
+  await expect(push.locator('.row-extra summary')).toHaveText('Push commits');
 });

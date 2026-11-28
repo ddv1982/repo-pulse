@@ -100,14 +100,6 @@ function renderMeta(record: ActivityItem, rowTime: ActivityItem['time']) {
   return html`<div class="help event-meta">${actor ? html`${role}<span class="actor">${actor}</span> · ` : emptyHtml}<time datetime="${record.time}" title="${fullDateTime(record.time)}">${timeInRow(record.time, rowTime)}</time></div>`;
 }
 
-function inlineCommits(record: ActivityItem, commits: CommitsView | undefined, groups: Groups) {
-  const pushId = record.kind === 'push' ? (record.data?.pushId ?? record.data?.push?.pushId) : undefined;
-  return pushId === undefined
-    ? emptyHtml
-    : html`<button class="ghost sm" type="button" id="commits-${record.id}" ${action('load-commits')} data-inline-id="${record.id}" data-repo-id="${record.repoId}" data-push-id="${pushId}">${commits && 'error' in commits ? 'Retry loading commits' : commits ? 'Reload commits' : 'Load commits'}</button>
-    ${commits && 'items' in commits ? html`<details class="linked-event" ${disclosure(groups, `push-commits-${record.groupKey}`, true)}><summary ${action('toggle-group')}>Push commits</summary>${renderCommits(commits)}</details>` : commits ? renderCommits(commits) : emptyHtml}`;
-}
-
 const ciPhase = (run: import('../activity.ts').RelatedCi) =>
   run.validation ? 'PR validation' : run.postMerge ? 'Post-merge CI' : 'Branch CI';
 const activeCi = (run: import('../activity.ts').RelatedCi) => ['queued', 'running', 'canceling'].includes(run.outcome);
@@ -212,30 +204,70 @@ function eventSummary(record: ActivityItem, targetShown: boolean, pr: ActivityIt
   return { summary: rowSummary(record), votes: emptyHtml };
 }
 
+/** A line 3 token that opens a panel under line 3, as the CI count opens the run list. */
+function panelToken(panelId: string, groupId: string, groups: Groups, label: SafeHtml | string, unread = false) {
+  return html`<button type="button" class="ghost sm token${unread ? ' unread' : ''}" id="${panelId}-token" ${action('toggle-group')} aria-controls="${panelId}" aria-expanded="${groups.get(groupId) ?? false}">${label}<span aria-hidden="true"> ›</span></button>`;
+}
+
+/** A linked push or tag build: its line 3 token and the panel the token opens. */
+function linkedEvent(record: ActivityItem, related: ActivityItem, groups: Groups) {
+  const groupId = `linked-${related.kind}-${record.groupKey}`;
+  const panelId = `linked-${record.groupKey}`;
+  const build = related.kind === 'build';
+  const token = build
+    ? panelToken(panelId, groupId, groups, html`CI succeeded ${ciTime(related.time, true, record.time)}`)
+    : panelToken(panelId, groupId, groups, `Linked push${related.unseen ? ' · unread' : ''}`, related.unseen);
+  const content = build
+    ? html`<button class="ghost sm" type="button" ${action('detail')} data-event-id="${related.id}">${activityTitle(related)}</button>
+        ${renderMeta(related, record.time)}${azureLink(related.url, 'Build in Azure ↗')}`
+    : html`<button class="ghost sm" type="button" ${action('detail')} data-event-id="${related.id}">View push to ${activityRef(related).branch}</button>`;
+  return {
+    token,
+    panel: html`<details class="linked-event" id="${panelId}" ${disclosure(groups, groupId)}><summary hidden></summary>${content}</details>`,
+  };
+}
+
 /**
- * What goes under line 2, in this order: CI results and runs, the fork origin when line 2 did not take it, the update
- * trail, a linked push or tag build, and the push's commits.
+ * Line 3 and the panels under it. Line 3 holds tokens of one shape in a fixed order: the update trail, a linked push or
+ * tag build, where the branch or PR started (plain text), and Load commits. It is left out when it has none. The panels
+ * follow in the same order, after the run list the CI count opens.
  */
-function renderExtra(record: ActivityItem, origins: string[], ci: SafeHtml, groups: Groups, related?: ActivityItem, commits?: CommitsView) {
-  const trail = record.unseen ? renderTrail(record, { groups }) : emptyHtml;
-  const inline = inlineCommits(record, commits, groups);
-  const linked = related
-    ? html`<details class="linked-event" ${disclosure(groups, `linked-${related.kind}-${record.groupKey}`)}>
-        ${
-          related.kind === 'build'
-            ? html`<summary ${action('toggle-group')}>CI succeeded ${ciTime(related.time, true, record.time)}</summary>
-              <button class="ghost sm" type="button" ${action('detail')} data-event-id="${related.id}">${activityTitle(related)}</button>
-              ${renderMeta(related, record.time)}${azureLink(related.url, 'Build in Azure ↗')}`
-            : html`<summary ${action('toggle-group')}>Linked push${related.unseen ? ' · unread' : ''}</summary>
-              <button class="ghost sm" type="button" ${action('detail')} data-event-id="${related.id}">View push to ${activityRef(related).branch}</button>`
-        }
-      </details>`
-    : emptyHtml;
-  const notes =
-    origins.length || trail !== emptyHtml || related || inline !== emptyHtml
-      ? html`<div class="event-notes">${origins.map(text => html`<div class="help event-origin">${icons.branch}<span>${text}</span></div>`)}${trail}${linked}${inline}</div>`
-      : emptyHtml;
-  return ci === emptyHtml && notes === emptyHtml ? emptyHtml : html`<div class="row-extra">${ci}${notes}</div>`;
+function renderExtra(
+  record: ActivityItem,
+  origins: string[],
+  ciRuns: SafeHtml,
+  groups: Groups,
+  related?: ActivityItem,
+  commits?: CommitsView,
+) {
+  const tokens: SafeHtml[] = [];
+  const panels: SafeHtml[] = [ciRuns];
+  if (record.unseen && record.events.length > 1) {
+    const panelId = `trail-${record.groupKey}`;
+    tokens.push(panelToken(panelId, `activity-${record.groupKey}`, groups, `${record.events.length} updates`, true));
+    panels.push(renderTrail(record, { groups, id: panelId }));
+  }
+  if (related) {
+    const { token, panel } = linkedEvent(record, related, groups);
+    tokens.push(token);
+    panels.push(panel);
+  }
+  tokens.push(...origins.map(text => html`<span class="token plain event-origin">${icons.branch}<span>${text}</span></span>`));
+  const pushId = record.kind === 'push' ? (record.data?.pushId ?? record.data?.push?.pushId) : undefined;
+  if (pushId !== undefined) {
+    tokens.push(
+      html`<button class="ghost sm token" type="button" id="commits-${record.id}" ${action('load-commits')} data-inline-id="${record.id}" data-repo-id="${record.repoId}" data-push-id="${pushId}">${commits && 'error' in commits ? 'Retry loading commits' : commits ? 'Reload commits' : 'Load commits'}</button>`,
+    );
+    panels.push(
+      commits && 'items' in commits
+        ? html`<details class="linked-event" ${disclosure(groups, `push-commits-${record.groupKey}`, true)}><summary ${action('toggle-group')}>Push commits</summary>${renderCommits(commits)}</details>`
+        : commits
+          ? renderCommits(commits)
+          : emptyHtml,
+    );
+  }
+  const shown = panels.filter(panel => panel !== emptyHtml);
+  return html`${tokens.length ? html`<div class="row-line3">${tokens}</div>` : emptyHtml}${shown.length ? html`<div class="row-extra">${shown}</div>` : emptyHtml}`;
 }
 
 /** A reviewer vote's tone; the words carry the meaning, the color repeats it. */

@@ -471,7 +471,61 @@ button.vote-tally.crit {
   color: var(--muted-foreground);
   white-space: nowrap;
 }
-/* What goes under line 2: CI, origin notes, the update trail, linked rows and commits. */
+/* Line 3: small tokens of one shape, in a fixed order. A token in the unread blue says what is new; a plain one is a
+   note. What a token opens appears under line 3. */
+.row-line3 {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-2);
+  margin-top: var(--space-1-5);
+  font-size: var(--text-2xs);
+  color: var(--muted-foreground);
+}
+.row-line3 > .token {
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  min-height: 0;
+  padding: 0 var(--space-1-5);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: none;
+  color: var(--muted-foreground);
+  font-size: var(--text-2xs);
+  font-weight: 500;
+  line-height: 20px;
+  white-space: nowrap;
+}
+.row-line3 > button.token:hover {
+  background: var(--accent);
+  color: var(--foreground);
+}
+.row-line3 > .token.unread {
+  border-color: color-mix(in oklab, var(--info) 50%, transparent);
+  color: var(--info);
+}
+.row-line3 > .token.unread:hover {
+  color: var(--info);
+}
+.row-line3 > .token > [aria-hidden] {
+  margin-inline-start: 0.3em;
+  opacity: 0.7;
+}
+.row-line3 > .token.plain {
+  gap: var(--space-1);
+  border-color: transparent;
+  padding-inline: 0;
+  font-weight: 400;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.row-line3 > .token.plain svg {
+  flex: none;
+  width: 12px;
+  height: 12px;
+}
+/* What goes under line 3: the run list, the update trail, a linked row and push commits. */
 .row-extra {
   margin-top: var(--space-1);
   font-size: var(--text-sm);
@@ -479,6 +533,13 @@ button.vote-tally.crit {
 }
 .row-extra > * + * {
   margin-top: var(--space-0-5);
+}
+/* A closed panel takes no room, so a row whose panels are all closed ends at its last line. */
+.row-extra > details:not([open]) {
+  margin-top: 0;
+}
+.row-extra:not(:has(> details[open], > :not(details))) {
+  margin-top: 0;
 }
 .event-meta {
   overflow-wrap: anywhere;
@@ -490,19 +551,6 @@ button.vote-tally.crit {
 .event-meta .actor {
   font-weight: 500;
   color: var(--foreground-soft);
-}
-.event-origin {
-  overflow-wrap: anywhere;
-  display: flex;
-  align-items: flex-start;
-  gap: 5px;
-  margin-top: var(--space-0-5);
-}
-.event-origin svg {
-  flex: none;
-  width: 12px;
-  height: 12px;
-  margin-top: var(--space-0-5);
 }
 .linked-event {
   width: fit-content;
@@ -610,10 +658,6 @@ button.vote-tally.crit {
   margin-top: var(--space-1-5);
   font-size: var(--text-xs);
   color: var(--muted-foreground);
-}
-/* In a row the trail follows the meta line by the row's 2px line gap. */
-.event-notes .trail {
-  margin-top: var(--space-0-5);
 }
 .trail summary {
   cursor: pointer;

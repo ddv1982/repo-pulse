@@ -222,7 +222,7 @@ test('a verified merge push folds in the mixed feed and keeps its own detail, fi
   const push = page.locator('li[data-event-id="linked-push"]');
   await expect(push).toHaveCount(0);
   await expect(merge.getByText('2 new')).toBeVisible();
-  await merge.getByText('Linked push · unread', { exact: true }).click();
+  await merge.getByRole('button', { name: 'Linked push · unread', exact: true }).click();
   const openPush = merge.getByRole('button', { name: `View push to ${target}` });
   for (const width of [1280, 390, 1280]) {
     await page.setViewportSize({ width, height: 900 });
@@ -317,9 +317,9 @@ test('a successful tag build folds only for the exact tag revision in the mixed 
 
   cacheTag(tagObject);
   await page.reload();
-  await expect(tag.locator('summary').filter({ hasText: 'CI succeeded' })).toBeVisible();
+  await expect(tag.locator('.row-line3 .token').filter({ hasText: 'CI succeeded' })).toBeVisible();
   await expect(build).toHaveCount(0);
-  await tag.locator('summary').filter({ hasText: 'CI succeeded' }).click();
+  await tag.locator('.row-line3 .token').filter({ hasText: 'CI succeeded' }).click();
   await expect(tag.getByRole('link', { name: 'Build in Azure ↗' })).toHaveAttribute('href', buildUrl);
   const detail = tag.getByRole('button', { name: 'Release test CI' });
   await detail.click();
@@ -343,7 +343,7 @@ test('a successful tag build folds only for the exact tag revision in the mixed 
   runtime.store.acknowledge(['release-build'], false);
   await page.reload();
   await expect(build).toBeVisible();
-  await expect(tag.locator('summary').filter({ hasText: 'CI succeeded' })).toHaveCount(0);
+  await expect(tag.locator('.row-line3 .token').filter({ hasText: 'CI succeeded' })).toHaveCount(0);
 });
 
 test('a pending refresh leaves Activity details available', async t => {
