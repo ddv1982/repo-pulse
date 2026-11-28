@@ -109,7 +109,7 @@ npm test
 npm run test:ui
 ```
 
-While editing, `npm run test:fast` runs the unit suite in a few seconds. It leaves out the real-Git checkout suites (`test/checkout-advice`, `checkout-branches` and `checkout-git`) and the database lock and migration upgrade tests, which take most of the time of `npm test`. Run `npm test` before pushing. A test added to `test/` runs in both unless its file or name is listed in the `test:fast` script.
+While editing, `npm run test:fast` runs the unit suite in a few seconds. It leaves out the slowest tests, which take most of the time of `npm test`: the real-Git checkout suites (`test/checkout-advice`, `checkout-branches` and `checkout-git`) and the multi-second lock race, second-start and upgrade-compaction tests named in the script. Shorter Git, lock and migration tests still run in it. Run `npm test` before pushing. A test added to `test/` runs in both unless its file or name is listed in the `test:fast` script.
 
 CI runs the first three on Linux and Windows. Linux runs the full browser suite, and Windows runs the rendered DOM suite (`npm run test:dom`). Browser tests use Chromium. Run `npx playwright install chromium` if needed, or set `CHROME` to a local executable. Tests use isolated databases and temporary Git repositories. They verify workflows and failure cases without proving live Azure permissions. See [coverage and limits](COVERAGE.md) for the distinction.
 

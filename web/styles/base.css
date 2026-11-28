@@ -220,8 +220,8 @@ p {
     display: flex;
     align-items: center;
     gap: var(--space-2);
-    min-height: 32px;
-    padding: var(--space-1-5) var(--space-2);
+    min-height: var(--option-row-height);
+    padding: var(--option-row-padding);
     border-radius: var(--row-radius);
     font-size: var(--text-base);
     white-space: normal;
