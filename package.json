@@ -16,6 +16,8 @@
     "doctor": "node scripts/doctor.ts",
     "pretest": "npm run build:web",
     "test": "node --test \"test/*.test.ts\"",
+    "pretest:fast": "npm run build:web",
+    "test:fast": "node --test --test-skip-pattern=\"starts racing|same database refuses|lock held by a run|closing releases the lock|v11 database|blocked by an open reader|every older database version\" \"test/!(checkout-advice|checkout-branches|checkout-git).test.ts\"",
     "pretest:dom": "npm run build:web",
     "test:dom": "node --test --test-timeout=60000 e2e/dom.test.ts",
     "pretest:ui": "npm run build:web",
