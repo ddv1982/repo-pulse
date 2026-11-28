@@ -39,9 +39,9 @@ Every phase leaves `npm run lint`, `npm run check:types`, `npm test` and `npm ru
 
 ## Phase 3: CI summary keeps every pipeline's current result (S, server)
 
-- [ ] 3.1 `applyCiSummary` keeps the passing results of other pipelines next to a problem, instead of dropping them (`server/activity-ci-summary.ts:125-126`). The headline order is problems first, then passes. `historyCount` counts only the runs that are not in the headline. Check: a test with dbt-build failed and adf-deploy passed on one merge fails first, then shows both.
-- [ ] 3.2 A recovered pipeline keeps its "passing again" outcome in the summary, instead of being turned into "passed" (`activity-ci-summary.ts:39`), so the row can say "passed on retry". Check: a test with failed, then passed on the same sha, gives one result marked as recovered, with the failure only in the history.
-- [ ] 3.3 Clients that read `ciSummary` still render: the detail page and the CI panel. Check: `npm run test:ui` green, and the detail page of a recovered run in demo shows no regression.
+- [x] 3.1 `applyCiSummary` keeps the passing results of other pipelines next to a problem, instead of dropping them (`server/activity-ci-summary.ts:125-126`). The headline order is problems first, then passes. `historyCount` counts only the runs that are not in the headline. Check: a test with dbt-build failed and adf-deploy passed on one merge fails first, then shows both.
+- [x] 3.2 A recovered pipeline keeps its "passing again" outcome in the summary, instead of being turned into "passed" (`activity-ci-summary.ts:39`), so the row can say "passed on retry". Check: a test with failed, then passed on the same sha, gives one result marked as recovered, with the failure only in the history.
+- [x] 3.3 Clients that read `ciSummary` still render: the detail page and the CI panel. Check: `npm run test:ui` green, and the detail page of a recovered run in demo shows no regression.
 
 ## Phase 4: Row layout B (L, split into PRs 4a and 4b)
 

@@ -135,9 +135,64 @@ test('a verified landing run leads validation history and an off-cap failing pip
     ...Array.from({ length: 7 }, (_, index) => run(String(index + 4), index + 6, 2, 'succeeded', 'landed', landing)),
     run('11', 13, 3, 'succeeded', 'landed', { ...landing, reason: 'schedule' }),
   ]);
-  assert.ok(merge()?.ciSummary?.results.some(result => result.run.id === '3' && result.tone === 'crit'));
+  assert.deepEqual(
+    merge()?.ciSummary?.results.map(result => [result.run.id, result.tone]),
+    [
+      ['3', 'crit'],
+      ['10', 'ok'],
+    ],
+  );
   assert.ok(!merge()?.relatedCi?.some(run => run.id === '11'));
-  assert.equal(merge()?.ciSummary?.historyCount, 9);
+  assert.equal(merge()?.ciSummary?.historyCount, 8);
+  store.close();
+});
+
+test('a failing pipeline headlines next to the current pass of another pipeline', () => {
+  const store = createStore(':memory:', { highlights: true });
+  store.saveRepo(repo);
+  const landing = { sourceBranch: main, reason: 'individualCI' };
+  const dbtBuild = { ...landing, definition: { id: 1, name: 'dbt-build' } };
+  const adfDeploy = { ...landing, definition: { id: 2, name: 'adf-deploy' } };
+  store.insertEvents([
+    pr('ready', 1, { previewCommit: 'preview' }),
+    pr('merge', 2, { status: 'completed', mergeCommit: 'landed' }),
+    run('1', 3, 1, 'failed', 'landed', dbtBuild),
+    run('2', 4, 2, 'succeeded', 'landed', adfDeploy),
+    run('3', 5, 2, 'succeeded', 'landed', adfDeploy),
+  ]);
+  const merge = store.queryActivity().items.find(item => item.id === 'merge');
+  assert.deepEqual(
+    merge?.ciSummary?.results.map(result => [result.run.id, result.run.outcome, result.tone]),
+    [
+      ['1', 'failed', 'crit'],
+      ['3', 'passed', 'ok'],
+    ],
+  );
+  assert.equal(merge?.ciSummary?.historyCount, 1);
+  store.close();
+});
+
+test('a pipeline that passes a retry of its failed revision keeps the recovered outcome', () => {
+  const store = createStore(':memory:', { highlights: true });
+  store.saveRepo(repo);
+  store.insertEvents([
+    pr('ready', 1, { previewCommit: 'preview' }),
+    run('1', 2, 1, 'failed', 'preview'),
+    run('2', 3, 1, 'succeeded', 'preview'),
+  ]);
+  const ready = store.queryActivity().items.find(item => item.id === 'ready');
+  assert.deepEqual(
+    ready?.ciSummary?.results.map(result => [result.run.id, result.run.outcome, result.tone]),
+    [['2', 'passing again', 'ok']],
+  );
+  assert.equal(ready?.ciSummary?.historyCount, 1);
+  assert.deepEqual(
+    ready?.relatedCi?.map(ci => [ci.id, ci.outcome]),
+    [
+      ['2', 'passing again'],
+      ['1', 'failed'],
+    ],
+  );
   store.close();
 });
 
