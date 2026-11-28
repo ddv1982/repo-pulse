@@ -9,8 +9,10 @@ import {
   streamLabel,
   activitySummary as activitySummaryOf,
   labels,
+  dateTime,
   dayLabel,
   localDay,
+  timeInRow,
 } from '../src/ui/format.ts';
 import { renderRepositories as renderRepositoriesHtml } from '../src/ui/repositories.ts';
 import { scopeName } from '../src/ui/repository-scope.ts';
@@ -270,4 +272,18 @@ test('a day header names today, yesterday with its date, and other days by date,
   assert.equal(dayLabel('not a time', now), '');
   assert.equal(localDay(new Date(2026, 0, 5, 23, 59)), '2026-01-05');
   assert.equal(localDay(''), '');
+});
+
+test("a time in a row shows only the clock on the row's own day and the date as well on another day", () => {
+  const clock = (date: Date) => new Intl.DateTimeFormat([], { hour: '2-digit', minute: '2-digit' }).format(date);
+  const row = new Date(2026, 10, 27, 23, 50);
+  const sameDay = new Date(2026, 10, 27, 0, 5);
+  assert.equal(timeInRow(sameDay.toISOString(), row.toISOString()), clock(sameDay));
+  assert.equal(timeInRow(row.valueOf(), row.valueOf()), clock(row));
+  // Ten minutes later is past midnight: the next day keeps its date.
+  const afterMidnight = new Date(2026, 10, 28, 0, 0);
+  assert.equal(timeInRow(afterMidnight.toISOString(), row.toISOString()), dateTime(afterMidnight.toISOString()));
+  assert.notEqual(timeInRow(afterMidnight.toISOString(), row.toISOString()), clock(afterMidnight));
+  assert.equal(timeInRow('not a time', row.toISOString()), 'Not checked yet');
+  assert.equal(timeInRow(sameDay.toISOString(), 'not a time'), dateTime(sameDay.toISOString()));
 });

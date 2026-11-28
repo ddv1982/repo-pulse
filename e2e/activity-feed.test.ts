@@ -486,6 +486,12 @@ test('Activity starts each local day with a header that the lanes run through an
   await expect(activity.locator('summary .pill')).toHaveText('9');
   await expect(list.locator('li.day :is(a, button, input, [tabindex])')).toHaveCount(0);
   await expect(list.locator('li.row > svg.tree')).toHaveCount(9);
+  // A row shows only its clock under its day header; the full date stays in the title.
+  const time = list.locator('li[data-event-id="yesterday-merge"] .event-meta time');
+  await expect(time).toHaveText(
+    await page.evaluate(() => new Date(2026, 10, 27, 16).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })),
+  );
+  await expect(time).toHaveAttribute('title', /27/);
 
   for (const width of [1100, 1265]) {
     await page.setViewportSize({ width, height: 1000 });

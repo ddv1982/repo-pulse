@@ -1,14 +1,21 @@
 import test from 'node:test';
 import type { TestContext } from 'node:test';
 import assert from 'node:assert/strict';
-import { activityTitle as activityTitleOf, activitySummary as activitySummaryOf, type SafeHtml } from '../../src/ui/format.ts';
+import {
+  activityTitle as activityTitleOf,
+  activitySummary as activitySummaryOf,
+  ciTime,
+  dateTime,
+  type SafeHtml,
+} from '../../src/ui/format.ts';
+import { renderTrail } from '../../src/ui/activity-trail.ts';
 import { renderRepositories as renderRepositoriesHtml } from '../../src/ui/repositories.ts';
 import { renderFeed as renderPagedFeedHtml, renderDetail as renderDetailHtml } from '../../src/ui/feed.ts';
 import { detailView } from '../../src/ui/activity-detail.ts';
 import { forkText, renderTreePassThrough, treeLegend } from '../../src/ui/activity-tree.ts';
 import { buildActivityTree, type TreeFork, type TreeLine, type TreeRow } from '../../src/activity-tree.ts';
 import { createStore } from '../../server/store.ts';
-import type { ActivityEvent } from '../../src/activity.ts';
+import type { ActivityEvent, ActivityItem } from '../../src/activity.ts';
 import type { GitHistoryActivity, GitHistoryPage, Repository, StreamError, StreamState } from '../../src/contract.ts';
 import type { CheckoutSnapshot } from '../../src/ui/checkout.ts';
 import type { PageState } from '../../src/ui/refresh.ts';
@@ -679,6 +686,37 @@ test('a day header draws every lane that crosses into the row below it once, in 
   assert.ok(!(await svg.hasClass('tree')), 'a row cell selector does not count the header');
   assert.equal(await svg.getAttribute('aria-hidden'), 'true');
   assert.equal((await all(parse(t, renderTreePassThrough(present(rows[0]))), 'svg')).length, 0, 'nothing enters the first row');
+});
+
+test("a CI run time shows only the clock on its row's day and keeps its date across midnight", async t => {
+  const clock = (date: Date) => new Intl.DateTimeFormat([], { hour: '2-digit', minute: '2-digit' }).format(date);
+  const row = new Date(2026, 10, 27, 23, 50).toISOString();
+  const sameDay = new Date(2026, 10, 27, 16, 44);
+  const nextDay = new Date(2026, 10, 28, 0, 10);
+  const label = async (markup: SafeHtml) => text(parse(t, markup));
+  assert.equal(await label(ciTime(sameDay.toISOString(), true, row)), clock(sameDay));
+  const across = await label(ciTime(nextDay.toISOString(), true, row));
+  assert.notEqual(across, clock(nextDay));
+  assert.equal(across, await label(ciTime(nextDay.toISOString(), true)), 'another day reads as it did');
+  assert.match(across, /\b28\b/);
+  const time = one(parse(t, ciTime(sameDay.toISOString(), true, row)), 'time');
+  assert.match((await time.getAttribute('title')) ?? '', /2026/, 'the full date stays in the title');
+  assert.equal(String(ciTime('not a time', true, row)), '');
+});
+
+test("a row's update trail shows only the clock for updates on the row's day, and the detail keeps full dates", async t => {
+  const clock = (date: Date) => new Intl.DateTimeFormat([], { hour: '2-digit', minute: '2-digit' }).format(date);
+  const latest = new Date(2026, 10, 27, 9, 15).toISOString();
+  const earlier = new Date(2026, 10, 26, 23, 55).toISOString();
+  const update = { repoId: 'r', kind: 'pr', seen: false, imported: false } satisfies Event;
+  const record = stub<ActivityItem>({
+    groupKey: 'pr:7',
+    time: latest,
+    events: [stub<ActivityEvent>({ ...update, id: 'b', time: latest }), stub<ActivityEvent>({ ...update, id: 'a', time: earlier })],
+  });
+  const times = async (markup: SafeHtml) => Promise.all((await all(parse(t, markup), 'time')).map(text));
+  assert.deepEqual(await times(renderTrail(record)), [clock(new Date(latest)), dateTime(earlier)]);
+  assert.deepEqual(await times(renderTrail(record, { expanded: true })), [dateTime(latest), dateTime(earlier)]);
 });
 
 test('Activity distinguishes tag events and tag builds from branch activity', async t => {

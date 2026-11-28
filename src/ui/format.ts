@@ -128,13 +128,24 @@ export function dayLabel(value: string | number, now: number | Date = Date.now()
 const runDay = new Intl.DateTimeFormat([], { day: 'numeric', month: 'short' });
 const runClock = new Intl.DateTimeFormat([], { hour: '2-digit', minute: '2-digit' });
 
-export function ciTime(value: string | number, showClock = false) {
+/**
+ * A time shown inside an Activity row: only the clock when it falls on the row's local day, which its day header
+ * names, otherwise the short date and time.
+ */
+export function timeInRow(value: string | number, rowTime: string | number) {
+  const day = localDay(value);
+  return day && day === localDay(rowTime) ? runClock.format(new Date(value)) : dateTime(value);
+}
+
+/** @param rowTime the time of the Activity row that shows the run: on that row's local day only the clock is shown. */
+export function ciTime(value: string | number, showClock = false, rowTime?: string | number) {
   const date = new Date(value);
   if (Number.isNaN(date.valueOf())) return emptyHtml;
   const parts = runDay.formatToParts(date);
   const day = parts.find(part => part.type === 'day')?.value;
   const month = parts.find(part => part.type === 'month')?.value;
-  const label = `${day} ${month}${showClock ? `, ${runClock.format(date)}` : ''}`;
+  const sameDay = rowTime !== undefined && localDay(date) === localDay(rowTime);
+  const label = sameDay ? runClock.format(date) : `${day} ${month}${showClock ? `, ${runClock.format(date)}` : ''}`;
   return html`<time class="ci-time" datetime="${date.toISOString()}" title="${fullDateTime(value)}">${label}</time>`;
 }
 
