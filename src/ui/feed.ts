@@ -86,11 +86,11 @@ const actorRoles: Record<import('../activity.ts').ActivityKind, string> = {
   tag: 'pushed by',
 };
 
-/** Who did it, with their role. An unknown actor shows nothing. */
+/** Who did it, with their role. Azure's explicit Unknown has no role to name; a missing actor shows nothing. */
 function renderActor(record: ActivityItem) {
   const actor = activityActor(record);
-  if (!actor || actor === 'Unknown') return emptyHtml;
-  return html`<span class="ref-actor"><span class="sr"> · </span>${actorRoles[record.kind]} <span class="actor">${actor}</span></span>`;
+  if (!actor) return emptyHtml;
+  return html`<span class="ref-actor"><span class="sr"> · </span>${actor === 'Unknown' ? emptyHtml : html`${actorRoles[record.kind]} `}<span class="actor">${actor}</span></span>`;
 }
 
 /** Who and when, for a run nested in another row. The day header above the row names the day of `rowTime`. */
@@ -279,6 +279,12 @@ function renderTitle(record: ActivityItem, title: string) {
   )}`;
 }
 
+/** A merged PR's merge commit, shortened, with the full ID in its title. */
+function mergeShaToken(pr: ActivityItem['data']) {
+  const sha = pr?.status === 'completed' ? pr.mergeCommit : undefined;
+  return sha ? html`<code class="ref-sha" title="${sha}"><span class="sr"> · merge commit </span>${sha.slice(0, 9)}</code>` : emptyHtml;
+}
+
 /**
  * Where line 2 says a row happened: `branch → target` and the merge commit once landed, or the branch and its PR. A
  * push, branch or tag title already names its ref, so the line leaves it out; a PR or CI title can contain a branch
@@ -289,12 +295,10 @@ function renderRoute(record: ActivityItem, title: string, target: string) {
   const pr = record.kind === 'pr' ? record.data : undefined;
   const ref = target ? { branch: branchName(pr?.sourceRefName || record.branch) } : record.branch ? activityRef(record) : { branch: '' };
   const named = !['pr', 'build'].includes(record.kind) && Boolean(ref.branch) && namesRef(title, ref.branch);
-  const branch = named || ref.branch === target ? '' : ref.branch;
+  // A branch into the same name says it once, except from a fork, where the two are branches of different repositories.
+  const branch = named || (ref.branch === target && !pr?.fork) ? '' : ref.branch;
   const { pullRequestId } = ref;
-  const sha = pr?.status === 'completed' ? pr.mergeCommit : undefined;
-  const shaToken = sha
-    ? html`<code class="ref-sha" title="${sha}"><span class="sr"> · merge commit </span>${sha.slice(0, 9)}</code>`
-    : emptyHtml;
+  const shaToken = mergeShaToken(pr);
   if (!branch && !pullRequestId && !target) return shaToken;
   const tag = record.kind === 'build' && (record.data?.sourceBranch ?? branch).startsWith('refs/tags/');
   // The branch and its PR share a group that never wraps, so a long branch name is cut short before the chip moves.
@@ -305,7 +309,7 @@ function renderRoute(record: ActivityItem, title: string, target: string) {
   }${
     target
       ? html`${branch ? html`<span aria-hidden="true">→</span><span class="sr"> targeting branch </span>` : html` <span class="sr"> · </span><span>Target:</span> `}<span class="ref-destination" title="${target}"><span class="ref-name">${target}</span></span> ${shaToken}`
-      : emptyHtml
+      : html` ${shaToken}`
   }${pullRequestId ? html`<span class="chip ref-pr"><span class="sr"> · </span>PR ${pullRequestId}</span>` : emptyHtml}</span>`;
 }
 

@@ -292,6 +292,10 @@ button.ci-count:hover {
   content: '·' / '';
   margin-inline-start: var(--space-1-5);
 }
+.ref-actor {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
 .subref .actor {
   font-weight: 500;
   color: var(--foreground-soft);

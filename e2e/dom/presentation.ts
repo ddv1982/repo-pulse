@@ -516,6 +516,25 @@ test('line 2 says where, who with their role, then the summary, and the right ce
     { ...pr, id: 'pr-open', data: { ...route, status: 'active' } },
     { ...pr, id: 'pr-merged', data: { ...route, status: 'completed', mergeCommit: merge } },
     { ...pr, id: 'pr-abandoned', data: { ...route, status: 'abandoned' } },
+    // Azure can leave out the target of a completed PR; the merge commit still shows.
+    {
+      ...pr,
+      id: 'pr-merged-untargeted',
+      data: { pullRequestId: 3, sourceRefName: 'refs/heads/feature/a', status: 'completed', mergeCommit: merge },
+    },
+    // A fork's main into the upstream main names both, because they are branches of different repositories.
+    {
+      ...pr,
+      id: 'pr-fork-main',
+      branch: 'main',
+      data: {
+        pullRequestId: 3,
+        sourceRefName: 'refs/heads/main',
+        targetRefName: 'refs/heads/main',
+        status: 'active',
+        fork: { repository: 'Up-fork' },
+      },
+    },
     { ...base, id: 'push', kind: 'push', branch: 'feature/c', title: 'Ana pushed to feature/c', summary: 'Tidy up', data: {} },
     { ...base, id: 'linked', kind: 'push', branch: 'main', title: 'Cleanup push', actor: 'Ed', summary: 'Merge', data: {} },
     {
@@ -546,12 +565,14 @@ test('line 2 says where, who with their role, then the summary, and the right ce
     ['pr-merged', ['ref-target: feature/a→main fffffffff', 'ref-actor: author Ana']],
     // Only open and merged PRs carry the target on line 2; an abandoned one keeps it in its summary.
     ['pr-abandoned', ['ref-target: feature/a', 'ref-actor: author Ana', 'ref-summary: Target: main']],
+    ['pr-merged-untargeted', ['ref-target: feature/a fffffffff', 'ref-actor: author Ana']],
+    ['pr-fork-main', ['ref-target: main→main', 'ref-actor: author Ana']],
     // A push title that names its branch leaves the branch out of line 2.
     ['push', ['ref-actor: pushed by Ana', 'ref-summary: Tidy up']],
     ['linked', ['ref-target: main', 'ref-actor: pushed by Ed', 'ref-summary: Merge']],
     ['tag', ['ref-actor: pushed by Ana', 'ref-summary: Points at aaaaaaa']],
-    // An unknown actor has no role to name, so line 2 leaves the actor out.
-    ['moved', ['ref-summary: 3f9a2c1 → 8d41e07']],
+    // An unknown actor has no role to name, so line 2 says Unknown without one.
+    ['moved', ['ref-actor: Unknown', 'ref-summary: 3f9a2c1 → 8d41e07']],
     ['created', ['ref-actor: pushed by Ana']],
     ['deleted', ['ref-actor: pushed by Ana']],
     ['build', ['ref-target: main', 'ref-actor: requested by Bo', 'ref-summary: Triggered manually']],

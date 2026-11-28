@@ -93,7 +93,8 @@ test('Activity gives wrapped titles room and keeps their facts line under them o
       title:
         'PR 21431 · DAT-9861: the 12 animal seeds load into seed_standards, bridge views in animal and refined bull, and verify downstream transformations and intermediate reports',
       branch: 'refs/heads/feature/DAT-9861_animal_seeds_standards',
-      actor: 'Ana',
+      // An Azure display name can be one long word; it wraps inside the column instead of running out of it.
+      actor: 'Ana_'.repeat(30),
       time: new Date().toISOString(),
       data: {
         pullRequestId: 21431,
@@ -160,6 +161,12 @@ test('Activity gives wrapped titles room and keeps their facts line under them o
       return !!column && element.getBoundingClientRect().right <= column.right && element.scrollWidth <= element.clientWidth;
     });
   await expect.poll(destinationFits).toBe(true);
+  const actorFits = async () =>
+    prRow.locator('.ref-actor').evaluate(element => {
+      const column = element.closest('.subject')?.getBoundingClientRect();
+      return !!column && element.getBoundingClientRect().right <= column.right + 0.5;
+    });
+  await expect.poll(actorFits).toBe(true);
   const ciRow = page.locator('li[data-event-id="long-branch-ci"]');
   await expect
     .poll(
@@ -180,6 +187,7 @@ test('Activity gives wrapped titles room and keeps their facts line under them o
   // On a phone the type label shares its line with the taller Seen control, so it centres on it.
   await page.setViewportSize({ width: 390, height: 900 });
   await expect(prRow.locator('.kind > .d')).toBeVisible();
+  await expect.poll(actorFits).toBe(true);
   await expect.poll(destinationFits).toBe(true);
   await capture(page, 'open-pr-activity-phone.png');
   const centre = (box: { y: number; height: number }) => box.y + box.height / 2;
@@ -257,6 +265,18 @@ test('Activity keeps the branch tree while exposing merge status, CI and push co
   await expect(rollup).toBeFocused();
   await expect(rollup).toHaveAttribute('aria-expanded', 'true');
   await expect(merge.locator('.ci-history .ci-run')).toHaveText(/Post-merge CI passed/);
+  // The browser can open the list by itself, as find in page does: the count and the stored state follow it.
+  await page.keyboard.press('Enter');
+  await expect(rollup).toHaveAttribute('aria-expanded', 'false');
+  await merge.locator('details.ci-history').evaluate(list => {
+    (list as HTMLDetailsElement).open = true;
+  });
+  await expect(rollup).toHaveAttribute('aria-expanded', 'true');
+  await seen.click();
+  await expect(seen).toHaveAttribute('aria-pressed', 'false');
+  await expect(merge.locator('.ci-history .ci-run')).toBeVisible();
+  await seen.click();
+  await expect(seen).toHaveAttribute('aria-pressed', 'true');
   await expect
     .poll(() =>
       merge.evaluate(row => {

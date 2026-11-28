@@ -73,6 +73,20 @@ export function createGroupState() {
         if (controlled) element.setAttribute('aria-expanded', String(group.open));
       },
     } satisfies Actions<'toggle-group'>,
+    /**
+     * Follows a disclosure the browser opened or closed by itself, as find in page does, so the stored state and a
+     * control that names it with aria-controls agree with what the reader sees. Listen for `toggle` in the capture phase.
+     */
+    follow(event: Event) {
+      const group = event.target;
+      if (!(group instanceof HTMLDetailsElement) || group.dataset.group === undefined) return;
+      // A disclosure a render just put on the page has no stored state yet; settle records it, and a render is no choice.
+      const known = open.get(group.dataset.group);
+      if (known !== undefined && known !== group.open) toggle(group.dataset.group, group.open);
+      if (group.id)
+        for (const control of document.querySelectorAll(`[aria-controls="${CSS.escape(group.id)}"]`))
+          control.setAttribute('aria-expanded', String(group.open));
+    },
     /** Puts back a stored snapshot. The reader's session choice for Imported history wins over it. */
     restore(entries: [string, boolean][]) {
       for (const [stored, value] of entries) {

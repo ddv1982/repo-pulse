@@ -247,6 +247,8 @@ function route() {
 }
 
 window.addEventListener('hashchange', route);
+// `toggle` does not bubble, so the capture phase sees every disclosure.
+document.addEventListener('toggle', event => groups.follow(event), true);
 window.addEventListener('focus', () => {
   void load();
 });
