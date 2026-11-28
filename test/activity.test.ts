@@ -252,10 +252,12 @@ test('reviewer vote changes drop the Azure group prefix from the name, as the de
     voteChanges: [
       { name: '[Cloudforce Team Data]\\Cloudforce Team Data Team', vote: 5 },
       { name: 'Max Coenen', vote: 5 },
+      // Provider data can carry a number where a name belongs; it must not break the row or search indexing.
+      { name: 42 as unknown as string, vote: 10 },
     ],
   });
   assert.deepEqual(
     prVoteChanges(data).map(change => change.text),
-    ['Cloudforce Team Data Team: approved with suggestions', 'Max Coenen: approved with suggestions'],
+    ['Cloudforce Team Data Team: approved with suggestions', 'Max Coenen: approved with suggestions', '42: approved'],
   );
 });

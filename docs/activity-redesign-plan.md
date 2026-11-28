@@ -16,9 +16,9 @@ Every phase leaves `npm run lint`, `npm run check:types`, `npm test` and `npm ru
 - [x] D3 Layout B: the left cell holds the kind label and CI; the main cell holds the title, the facts line and an optional line 3; the right cell holds the time, the Azure link and Seen.
 - [x] D4 The lane tree stays as it is: same lanes, nodes, curves, legend and Open Git Graph link, with no change to `src/activity-tree.ts`. It stays hidden below 640px.
 - [x] D5 CI trouble goes on its own full-width line under line 2 (2B). The left cell stays at two lines.
-- [x] D6 Within a pipeline, the latest attempt decides the result (current behaviour). In a mixed state every line names its pipeline. A failure fixed by a retry shows as a muted "passed on retry".
+- [x] D6 Within a pipeline, the latest completed attempt decides the result (current behaviour), and while a retry is queued or running the last completed failure stays visible next to it (`server/activity-ci-summary.ts:81`), shown as the failure line plus a running line. In a mixed state every line names its pipeline. A failure fixed by a retry shows as a muted "passed on retry".
 - [x] D7 Unread is shown by a blue tint, a bold title, a blue Seen box and the "N new" pill, with no left bar while the tree shows, because lane 1 and `--info` are the same colour in dark. Below 640px a 2px left bar is added.
-- [x] D8 No runtime switch between the old and new layouts: a switch would keep two row renderers alive. Compare by running a phase branch against `main` on the same data directory (read-only use), plus the screenshots of P0.2.
+- [x] D8 No runtime switch between the old and new layouts: a switch would keep two row renderers alive. Compare by running a phase branch and `main` on two separate writable copies of the same database snapshot (the app locks and writes its data directory), plus the screenshots of P0.2.
 
 ## Phase 0: Baseline
 
@@ -51,7 +51,7 @@ Every phase leaves `npm run lint`, `npm run check:types`, `npm test` and `npm ru
 - [ ] 4a.2 Left cell: the kind label (coloured by kind as today), then `CI · N runs ›` in muted text, which opens the run list under line 2. Rows without CI show only the kind. Check: e2e on the demo PR rows.
 - [ ] 4a.3 Line 2 grammar, in this order: repository (only when several repositories are shown), `branch → target`, the merge sha once landed, `author X` / `pushed by X` / `requested by X`, then the row summary or vote tally. Check: unit tests for each kind (PR open, PR merged, push, tag, branch created or deleted, CI row).
 - [ ] 4a.4 Branch names are shortened with an ellipsis, and the full name is in the `title`. Check: an e2e test with a long branch asserts no horizontal overflow at 1100px.
-- [ ] 4a.5 The node sits on the kind label's first line: `--tree-label-y` is set from the new row padding. Check: the e2e test at `e2e/activity-feed.test.ts:30` (node and row boxes) is updated and passes at 1100 and 1265px.
+- [ ] 4a.5 The node sits on the kind label's first line: `--tree-label-y` is set from the new row padding. Check: the cell-span assertion at `e2e/activity-feed.test.ts:30` keeps passing, and a new e2e assertion that the node's centre is within 2px of the kind label's first-line centre fails first, then passes at 1100 and 1265px.
 - [ ] 4a.6 Right cell: the clock time, the Azure link and Seen, top-aligned. Imported rows keep no Seen box. Check: an existing seen e2e test passes, and an imported row asserts that there is no checkbox.
 
 ### 4b: Trouble, line 3, colour and widths

@@ -27,7 +27,7 @@ Approved on 2026-11-27 after a council review at `a0c73ea`. Phases 0 and 1 (user
 
 ## Activity feed redesign
 
-Planned on 2026-11-28 after three council rounds: [activity-redesign-plan.md](activity-redesign-plan.md). Waits on decision D1 (start during or after the usage period).
+Planned on 2026-11-28 after three council rounds: [activity-redesign-plan.md](activity-redesign-plan.md). Started 2026-11-28 as an agreed exception to the usage period's no-polish rule (decision D1).
 
 ## When the code is next touched
 
