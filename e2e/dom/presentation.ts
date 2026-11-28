@@ -877,7 +877,7 @@ const mergedPr = (id: string, number: number): ActivityEvent => ({
 
 test('a CI result with a problem gets one trouble line under line 2 that names every pipeline in a mixed state', async t => {
   const state = fixture();
-  state.events = ['mixed', 'retry', 'noted', 'stale', 'recovered'].map((id, index) => mergedPr(id, index + 1));
+  state.events = ['mixed', 'retry', 'phases', 'noted', 'stale', 'recovered'].map((id, index) => mergedPr(id, index + 1));
   const doc = parse(
     t,
     feedWithCi(state, {
@@ -893,6 +893,14 @@ test('a CI result with a problem gets one trouble line under line 2 that names e
         results: [
           { run: ciRun('c1', 'dbt-build', 'failed'), tone: 'crit' },
           { run: ciRun('c2', 'dbt-build', 'running'), tone: 'neutral' },
+        ],
+      },
+      // One pipeline in two phases: each part names its phase too, so the two failures read apart.
+      phases: {
+        results: [
+          { run: ciRun('g1', 'dbt-build', 'failed', { validation: true, postMerge: false }), tone: 'crit' },
+          { run: ciRun('g2', 'dbt-build', 'failed'), tone: 'crit' },
+          { run: ciRun('g3', 'adf-deploy', 'passed'), tone: 'ok' },
         ],
       },
       noted: { results: [{ run: ciRun('d1', 'Billing CI', 'failed'), tone: 'warn', note: 'retry order unknown' }] },
@@ -929,12 +937,16 @@ test('a CI result with a problem gets one trouble line under line 2 that names e
       ['○ dbt-build running', 'warn'],
     ],
   );
+  assert.deepEqual(
+    (await parts('phases')).map(({ text }) => text),
+    ['✕ dbt-build failed (PR validation)', '✕ dbt-build failed (Post-merge CI)', '✓ adf-deploy passed'],
+  );
   assert.equal(await text(trouble('noted')), '✕ Post-merge CI failed · Billing CI · retry order unknown');
   assert.equal(await text(one(trouble('noted'), '.ci-note')), '· retry order unknown');
   assert.equal(await text(trouble('stale')), '! PR validation partially succeeded on earlier revision · Billing CI');
   assert.equal((await parts('stale'))[0]?.tone, 'warn');
   // The left cell keeps the kind and the count; the trouble stays out of it.
-  for (const id of ['mixed', 'retry', 'noted', 'stale']) assert.equal((await all(row(doc, id), '.status .ci-run')).length, 0, id);
+  for (const id of ['mixed', 'retry', 'phases', 'noted', 'stale']) assert.equal((await all(row(doc, id), '.status .ci-run')).length, 0, id);
   assert.equal(await text(one(row(doc, 'mixed'), '.status')), 'PR merged CI · 3 runs ›');
   // A recovered run has no trouble: the left cell says it passed again, muted.
   assert.equal((await all(row(doc, 'recovered'), '.ci-trouble')).length, 0);

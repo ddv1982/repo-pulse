@@ -112,15 +112,16 @@ function ciRunButton(run: import('../activity.ts').RelatedCi, rowTime: ActivityI
 
 /**
  * One part of the trouble line: a glyph, then the pipeline and its outcome. A result that stands alone names its phase
- * and then its pipeline; in a mixed state each part names its pipeline. Failures are red, runs in progress and other
- * problems amber, and passes muted. A note follows in muted text.
+ * and then its pipeline; in a mixed state each part names its pipeline, and its phase too when the same pipeline ran in
+ * another phase. Failures are red, runs in progress and other problems amber, and passes muted. A note follows in
+ * muted text.
  */
-function troublePart({ run, tone, note }: import('../activity.ts').CiResult, named: boolean) {
+function troublePart({ run, tone, note }: import('../activity.ts').CiResult, named: boolean, phased: boolean) {
   const known = run.title !== 'CI run';
   const outcome = run.outcome === 'passing again' ? 'passed again' : run.outcome;
   const glyph = run.outcome === 'failed' ? '✕' : activeCi(run) ? '○' : run.outcome === 'partially succeeded' ? '!' : '✓';
   const colour = activeCi(run) ? 'warn' : tone === 'crit' || tone === 'warn' ? tone : 'muted';
-  return html`<button type="button" class="ghost sm ci-run ${colour}" ${action('detail')} data-event-id="${run.id}" title="${ciPhase(run)} · ${run.title} · ${fullDateTime(run.time)}"><span class="ci-glyph" aria-hidden="true">${glyph}</span> ${named && known ? run.title : ciPhase(run)} ${outcome}${run.stale ? ' on earlier revision' : ''}${!named && known ? html`<span class="ci-pipeline"> · ${run.title}</span>` : emptyHtml}${note ? html`<span class="ci-note"> · ${note}</span>` : emptyHtml}</button>`;
+  return html`<button type="button" class="ghost sm ci-run ${colour}" ${action('detail')} data-event-id="${run.id}" title="${ciPhase(run)} · ${run.title} · ${fullDateTime(run.time)}"><span class="ci-glyph" aria-hidden="true">${glyph}</span> ${named && known ? run.title : ciPhase(run)} ${outcome}${run.stale ? ' on earlier revision' : ''}${named && known && phased ? ` (${ciPhase(run)})` : ''}${!named && known ? html`<span class="ci-pipeline"> · ${run.title}</span>` : emptyHtml}${note ? html`<span class="ci-note"> · ${note}</span>` : emptyHtml}</button>`;
 }
 
 /**
@@ -135,7 +136,12 @@ function relatedCi(record: ActivityItem, groups: Groups) {
     ? html`<button type="button" class="ghost sm ci-host" ${action('detail')} data-event-id="${record.ciHost}">${record.highlight ? 'View pull request' : 'View tested change'}</button>`
     : emptyHtml;
   const passing = results.every(({ run, tone, note }) => tone === 'ok' && !note && !run.stale);
-  const parts = passing ? [] : results.map(result => troublePart(result, results.length > 1));
+  const phases = Map.groupBy(results, ({ run }) => run.title);
+  const parts = passing
+    ? []
+    : results.map(result =>
+        troublePart(result, results.length > 1, new Set(phases.get(result.run.title)?.map(({ run }) => ciPhase(run))).size > 1),
+      );
   const trouble =
     parts.length || host !== emptyHtml
       ? html`<div class="ci-trouble">${joinHtml(parts, html` <span class="ci-sep" aria-hidden="true">·</span> `)}${host}</div>`
