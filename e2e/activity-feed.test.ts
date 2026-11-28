@@ -707,6 +707,23 @@ test('at 360px a long vote tally wraps and the named votes shrink, so both stay 
       .map(element => `${element.className}: ${element.textContent}`);
   });
   assert.deepEqual(outside, [], 'controls that reach past the row');
+  // A plain note on line 3 that names several branches wraps, and its token grows with it.
+  const note = page.locator('li.row .row-line3 > .token.plain').first();
+  await expect(note).toContainText('Started at');
+  const placement = await note.evaluate(token => {
+    token.lastElementChild!.textContent =
+      'Started at 3f9a2c1, which feature/one-long-branch-name, feature/another-long-branch-name and main all held';
+    const box = token.getBoundingClientRect();
+    const row = token.closest('li.row')!.getBoundingClientRect();
+    const facts = token.closest('.subject')!.querySelector('.subref')!.getBoundingClientRect();
+    return {
+      wraps: box.height > 24,
+      inside: box.bottom <= row.bottom + 0.5,
+      belowFacts: box.top >= facts.bottom - 0.5,
+      fits: token.scrollHeight <= token.clientHeight + 1,
+    };
+  });
+  assert.deepEqual(placement, { wraps: true, inside: true, belowFacts: true, fits: true });
 });
 
 test('line 3 holds tokens of one shape in a fixed order, opens what they open under it, and is left out when empty', async t => {

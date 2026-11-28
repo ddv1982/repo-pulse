@@ -493,6 +493,11 @@ button.vote-tally.crit {
   opacity: 0.7;
 }
 .row-line3 > .token.plain {
+  /* A note wraps, so it grows with its text instead of keeping a token's one-line height. */
+  height: auto;
+  min-height: 22px;
+  align-items: baseline;
+  line-height: 16px;
   gap: var(--space-1);
   border-color: transparent;
   padding-inline: 0;
