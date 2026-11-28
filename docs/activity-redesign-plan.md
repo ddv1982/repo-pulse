@@ -61,7 +61,7 @@ Every phase leaves `npm run lint`, `npm run check:types`, `npm test` and `npm ru
 - [x] 4b.1 Trouble line (D5): a failing, running, partially succeeded or stale result gets one full-width line under line 2. In a mixed state every pipeline is named ("✕ dbt-build failed · ✓ adf-deploy passed"), and CI notes (revision unknown, retry order unknown, trigger unverified) follow in muted text. Check: e2e rows for failed, running, stale, mixed and noted results.
   Done: `.ci-trouble` under line 2 (and under the vote list when open). A lone result reads `✕ Post-merge CI failed · <pipeline>`; in a mixed state each part names its pipeline. Failures red, runs in progress and partial results amber, passes and notes muted. The run's time moved to the part's title. Covered by the DOM test with mixed, retry, noted, stale and recovered results, and the real-data e2e in `activity-details.test.ts`.
 - [x] 4b.2 A recovered run shows "✓ passed again" in the left cell, muted. Phase 3 found that `passing again` is set only for PR validation runs (`server/activity-highlights.ts:277`), also when a pass on a new revision fixes an earlier failure, so the wording is "passed again" rather than "passed on retry". Post-merge retries still show a plain pass. Check: e2e on a demo or fixture row from 3.2.
-  Done: `✓ passed again` sits between the kind and the CI count, muted. In a mixed state the part reads `passed again`; the run list keeps `passed`.
+  Done: the CI count reads `CI · 2 runs · ✓ again ›`, muted, with "passed again" in its title and name, so the left cell keeps two lines (R4). In a mixed state the part reads `passed again`; the run list keeps `passed`.
 - [x] 4b.3 Line 3 holds tokens of one shape in a fixed order: updates trail, linked push or linked tag build, fork origin or branch-start note, Load commits. It appears only when it has content. Check: e2e on a row with three extras at once, and on a row with none (no empty line 3).
   Done: `.row-line3` tokens open panels under line 3 through `aria-controls`, as the CI count does. No stored PR has a trail, so the three-token check is a DOM test that gives a fork PR three updates; the e2e uses the awkward-rows fixture (`e2e/fixtures/ui-app.ts`).
 - [x] 4b.4 Vote lists: the tally on line 2 opens the named votes under line 2. The names are not repeated on line 3. Check: e2e on an active PR with two votes.
@@ -82,6 +82,18 @@ Every phase leaves `npm run lint`, `npm run check:types`, `npm test` and `npm ru
   Done: `.feed-top` holds `.feed-actions` and the guide; `e2e/dom/presentation.ts` and `e2e/git-graph.test.ts` pass unchanged.
 - [x] 4b.8 640 to 1099px: the tree is in the left padding, kind and CI are top left, time and actions top right, with the main cell below. Below 640px: no tree, the kind glyph is shown, kind and time share the top line, Seen is 16px and unread has a 2px bar. Check: e2e at 360 and 800px, with no horizontal overflow.
   Done, plus the 4a gap: a row without an Azure link or Seen toggle keeps an invisible copy of it, so times line up at every width. Below 640px the Seen toggle shows only its 16px box and keeps its full name for screen readers.
+
+### 4b review fixes
+
+- [x] R1 At 360px the vote tally wraps and the vote list shrinks, so neither is clipped by the row. Check: e2e measures both inside the row at 360px, failing first.
+- [x] R2 An unread failed row keeps the unread tint; a seen failed row keeps the red one. Check: e2e computed backgrounds of both, failing first.
+- [x] R3 Origin notes stay on line 3 when the row has no summary. Check: the demo hotfix assertion moves to line 3, failing first.
+- [x] R4 A recovered run keeps the left cell at two lines: the recovery mark joins the CI count. Check: e2e line count of the status cell at 1265px, failing first.
+- [x] R5 A pipeline that appears in two phases on one trouble line names its phase. Check: a DOM test, failing first.
+- [x] R6 Tree cutouts and the row background change colour together on hover. Check: the row has no background transition.
+- [x] R7 The trouble line's title test names the run's exact time.
+- [x] R8 Find why the full e2e run times out in `e2e/checkout.test.ts` on this branch and not on main. Check: timings from full runs on both.
+  Found 2026-11-28: not this branch. Under the same machine load main failed the same test (2 of 3 full runs, plus Git Graph and Repositories once), at the same 5-second steps. Each e2e file alone takes 227 s wall and 121 s user CPU in total on main, 223 s and 113 s on this branch; `checkout.test.ts` alone takes 33.8 s and 34.3 s. With the load average near 4 the branch passed 192 of 192 twice.
 
 ## Phase 5: Verify and close
 
